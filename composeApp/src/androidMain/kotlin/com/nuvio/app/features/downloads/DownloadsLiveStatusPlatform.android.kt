@@ -54,6 +54,7 @@ internal actual object DownloadsLiveStatusPlatform {
                 downloadedBucket = item.downloadedBytes / (512L * 1024L),
                 totalBytes = item.totalBytes,
                 errorMessage = item.errorMessage,
+                sizeApprovalRequired = item.sizeApprovalRequired,
             )
 
             val existingState = lastRenderStateById[item.id]
@@ -118,6 +119,15 @@ internal actual object DownloadsLiveStatusPlatform {
                             downloadId = item.id,
                         ),
                     )
+                    .addAction(
+                        0,
+                        runBlocking { getString(Res.string.action_cancel) },
+                        buildActionPendingIntent(
+                            context = context,
+                            action = DownloadsNotificationActionReceiver.actionCancel,
+                            downloadId = item.id,
+                        ),
+                    )
 
                 val progress = progressPercent(item)
                 if (progress >= 0) {
@@ -144,10 +154,29 @@ internal actual object DownloadsLiveStatusPlatform {
                     .setProgress(0, 0, false)
                     .addAction(
                         0,
-                        runBlocking { getString(Res.string.action_resume) },
+                        runBlocking {
+                            when {
+                                item.sizeApprovalRequired -> getString(Res.string.download_approve_size)
+                                item.status == DownloadStatus.Failed -> getString(Res.string.action_retry)
+                                else -> getString(Res.string.action_resume)
+                            }
+                        },
                         buildActionPendingIntent(
                             context = context,
-                            action = DownloadsNotificationActionReceiver.actionResume,
+                            action = if (item.sizeApprovalRequired) {
+                                DownloadsNotificationActionReceiver.actionApproveSize
+                            } else {
+                                DownloadsNotificationActionReceiver.actionResume
+                            },
+                            downloadId = item.id,
+                        ),
+                    )
+                    .addAction(
+                        0,
+                        runBlocking { getString(Res.string.action_cancel) },
+                        buildActionPendingIntent(
+                            context = context,
+                            action = DownloadsNotificationActionReceiver.actionCancel,
                             downloadId = item.id,
                         ),
                     )
@@ -267,5 +296,6 @@ internal actual object DownloadsLiveStatusPlatform {
         val downloadedBucket: Long,
         val totalBytes: Long?,
         val errorMessage: String?,
+        val sizeApprovalRequired: Boolean,
     )
 }

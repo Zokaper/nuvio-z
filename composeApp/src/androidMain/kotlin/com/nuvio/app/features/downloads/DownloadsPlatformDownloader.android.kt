@@ -45,6 +45,12 @@ internal actual object DownloadsPlatformDownloader {
         val job = SupervisorJob()
         val scope = CoroutineScope(job + Dispatchers.IO)
         var call: Call? = null
+        appContext?.let { context ->
+            DownloadsBackgroundScheduler.schedule(
+                context = context,
+                allowMeteredNetwork = request.allowMeteredNetwork,
+            )
+        }
 
         scope.launch {
             val context = appContext
@@ -156,6 +162,9 @@ internal actual object DownloadsPlatformDownloader {
 
         return AndroidDownloadsTaskHandle(job)
     }
+
+    actual fun freeStorageBytes(): Long =
+        appContext?.filesDir?.usableSpace?.takeIf { it > 0L } ?: -1L
 
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false

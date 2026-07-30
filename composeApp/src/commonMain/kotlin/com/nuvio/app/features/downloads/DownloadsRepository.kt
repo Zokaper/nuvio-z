@@ -1,6 +1,8 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamBehaviorHints
+import com.nuvio.app.features.streams.StreamProxyHeaders
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,8 +16,15 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
 object DownloadsRepository {
+    const val MAX_CONCURRENT_TRANSFERS = 2
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
+    private val _sourcePolicy = MutableStateFlow(DownloadSourcePolicy())
+    val sourcePolicy: StateFlow<DownloadSourcePolicy> = _sourcePolicy.asStateFlow()
+    private val _batches = MutableStateFlow<List<DownloadBatch>>(emptyList())
+    val batches: StateFlow<List<DownloadBatch>> = _batches.asStateFlow()
+    private val _presets = MutableStateFlow(DownloadPreset.BuiltIns)
+    val presets: StateFlow<List<DownloadPreset>> = _presets.asStateFlow()
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private var hasLoaded = false
@@ -35,6 +44,9 @@ object DownloadsRepository {
         activeHandles.clear()
         hasLoaded = false
         _uiState.value = DownloadsUiState()
+        _sourcePolicy.value = DownloadSourcePolicy()
+        _batches.value = emptyList()
+        _presets.value = DownloadPreset.BuiltIns
         notifyLiveStatusPlatform()
     }
 
@@ -114,6 +126,9 @@ object DownloadsRepository {
         episodeTitle: String?,
         episodeThumbnail: String?,
         stream: StreamItem,
+        calculatedCapBytes: Long? = null,
+        allowMeteredNetwork: Boolean = false,
+        expectedSizeBytes: Long? = stream.behaviorHints.videoSize,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -124,6 +139,14 @@ object DownloadsRepository {
 
         if (!sourceUrl.isSupportedDownloadUrl()) {
             return DownloadEnqueueResult.UnsupportedFormat
+        }
+        val freeStorageBytes = DownloadsPlatformDownloader.freeStorageBytes()
+        if (
+            freeStorageBytes > 0L &&
+            expectedSizeBytes != null &&
+            expectedSizeBytes > freeStorageBytes
+        ) {
+            return DownloadEnqueueResult.InsufficientStorage
         }
 
         val now = DownloadsClock.nowEpochMs()
@@ -181,6 +204,8 @@ object DownloadsRepository {
             status = DownloadStatus.Downloading,
             downloadedBytes = 0L,
             totalBytes = null,
+            calculatedCapBytes = calculatedCapBytes?.takeIf { it > 0L },
+            allowMeteredNetwork = allowMeteredNetwork,
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
@@ -189,7 +214,7 @@ object DownloadsRepository {
         currentItems.add(0, item)
         publish(currentItems)
         persist()
-        startDownload(item)
+        startPendingTransfers()
 
         return if (replacedExisting) {
             DownloadEnqueueResult.Replaced
@@ -211,6 +236,7 @@ object DownloadsRepository {
                 errorMessage = null,
             )
         }
+        startPendingTransfers()
     }
 
     fun pauseActiveDownloads() {
@@ -225,6 +251,7 @@ object DownloadsRepository {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
+        if (item.sizeApprovalRequired && !item.sizeCapOverrideApproved) return
 
         val reset = item.copy(
             status = DownloadStatus.Downloading,
@@ -235,7 +262,7 @@ object DownloadsRepository {
 
         replaceItem(reset)
         persist()
-        startDownload(reset)
+        startPendingTransfers()
     }
 
     fun retryDownload(downloadId: String) {
@@ -252,6 +279,191 @@ object DownloadsRepository {
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persist()
+        startPendingTransfers()
+    }
+
+    fun setAddonAllowed(key: AddonSourceKey, allowed: Boolean, enabledKeys: Set<AddonSourceKey>) {
+        ensureLoaded()
+        val current = _sourcePolicy.value
+        val explicit = (current.allowedAddons ?: enabledKeys).toMutableSet()
+        if (allowed) explicit += key else explicit -= key
+        _sourcePolicy.value = current.copy(allowedAddons = explicit)
+        persist()
+    }
+
+    fun setAioProviderAllowed(key: AddonSourceKey, provider: String, allowed: Boolean) {
+        ensureLoaded()
+        val normalized = provider.trim().takeIf { it.isNotEmpty() } ?: return
+        val current = _sourcePolicy.value
+        val providers = (
+            current.allowedAioProviders[key]
+                ?: current.discoveredAioProviders[key].orEmpty()
+            ).toMutableSet()
+        if (allowed) providers += normalized else providers -= normalized
+        _sourcePolicy.value = current.copy(
+            allowedAioProviders = current.allowedAioProviders + (key to providers),
+        )
+        persist()
+    }
+
+    fun recordDiscoveredAioProvider(key: AddonSourceKey, facts: SourceFacts) {
+        val provider = (facts.providerName ?: facts.providerId)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return
+        ensureLoaded()
+        val current = _sourcePolicy.value
+        val discovered = current.discoveredAioProviders[key].orEmpty()
+        if (provider in discovered) return
+        _sourcePolicy.value = current.copy(
+            discoveredAioProviders = current.discoveredAioProviders +
+                (key to (discovered + provider)),
+        )
+        persist()
+    }
+
+    fun setAioOverride(key: AddonSourceKey, enabled: Boolean) {
+        ensureLoaded()
+        val overrides = _sourcePolicy.value.aioOverrides.toMutableSet()
+        if (enabled) overrides += key else overrides -= key
+        _sourcePolicy.value = _sourcePolicy.value.copy(aioOverrides = overrides)
+        persist()
+    }
+
+    fun approveUnexpectedSize(downloadId: String) {
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (!item.sizeApprovalRequired) return
+        replaceItem(
+            item.copy(
+                status = DownloadStatus.Downloading,
+                sizeApprovalRequired = false,
+                sizeCapOverrideApproved = true,
+                errorMessage = null,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            ),
+        )
+        persist()
+        startPendingTransfers()
+    }
+
+    fun saveBatch(batch: DownloadBatch) {
+        ensureLoaded()
+        _batches.value = listOf(batch) + _batches.value.filterNot { it.id == batch.id }
+        persist()
+    }
+
+    fun updateBatchEntry(batchId: String, entry: DownloadBatchEntry) {
+        ensureLoaded()
+        _batches.update { batches ->
+            batches.map { batch ->
+                if (batch.id != batchId) {
+                    batch
+                } else {
+                    batch.copy(
+                        entries = batch.entries.map {
+                            if (it.id == entry.id) entry else it
+                        },
+                    )
+                }
+            }
+        }
+        persist()
+    }
+
+    fun removeBatch(batchId: String) {
+        ensureLoaded()
+        _batches.value = _batches.value.filterNot { it.id == batchId }
+        persist()
+    }
+
+    fun updatePreset(preset: DownloadPreset) {
+        ensureLoaded()
+        _presets.value = _presets.value.map { if (it.id == preset.id) preset else it }
+        persist()
+    }
+
+    fun resetPresets() {
+        ensureLoaded()
+        _presets.value = DownloadPreset.BuiltIns
+        persist()
+    }
+
+    fun queueBatch(batchId: String, approveUnknownSizes: Boolean): Int {
+        ensureLoaded()
+        val batch = _batches.value.firstOrNull { it.id == batchId } ?: return 0
+        var queued = 0
+        val updatedEntries = batch.entries.map { entry ->
+            val selection = entry.selection
+            val canQueue =
+                (entry.state == DownloadBatchEntryState.READY && selection is SourceSelectionResult.Selected) ||
+                    (
+                        entry.state == DownloadBatchEntryState.APPROVAL_NEEDED &&
+                            approveUnknownSizes &&
+                            selection is SourceSelectionResult.ApprovalNeeded
+                        )
+            if (!canQueue) return@map entry
+
+            val streamUrl: String
+            val addonKey: AddonSourceKey
+            val calculatedCapBytes: Long
+            val expectedSizeBytes: Long?
+            when (selection) {
+                is SourceSelectionResult.Selected -> {
+                    streamUrl = selection.streamUrl
+                    addonKey = selection.addonKey
+                    calculatedCapBytes = selection.calculatedCapBytes
+                    expectedSizeBytes = selection.facts.sizeBytes
+                }
+                is SourceSelectionResult.ApprovalNeeded -> {
+                    streamUrl = selection.streamUrl
+                    addonKey = selection.addonKey
+                    calculatedCapBytes = selection.calculatedCapBytes
+                    expectedSizeBytes = selection.facts.sizeBytes
+                }
+                else -> return@map entry
+            }
+            val stream = StreamItem(
+                name = entry.streamTitle,
+                description = entry.streamSubtitle,
+                url = streamUrl,
+                addonName = entry.providerName ?: addonKey.manifestId,
+                addonId = entry.providerAddonId ?: addonKey.manifestId,
+                addonManifestUrl = addonKey.manifestUrl,
+                behaviorHints = StreamBehaviorHints(
+                    proxyHeaders = StreamProxyHeaders(request = entry.sourceHeaders),
+                ),
+            )
+            val result = enqueueFromStream(
+                contentType = batch.contentType,
+                videoId = entry.videoId,
+                parentMetaId = batch.parentMetaId,
+                parentMetaType = batch.parentMetaType,
+                title = batch.title,
+                logo = batch.logo,
+                poster = batch.poster,
+                background = batch.background,
+                seasonNumber = entry.season,
+                episodeNumber = entry.episode,
+                episodeTitle = entry.title.takeIf { entry.season != null },
+                episodeThumbnail = null,
+                stream = stream,
+                calculatedCapBytes = calculatedCapBytes,
+                allowMeteredNetwork = batch.allowMeteredNetwork,
+                expectedSizeBytes = expectedSizeBytes,
+            )
+            if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) {
+                queued += 1
+                entry.copy(state = DownloadBatchEntryState.QUEUED, failureMessage = null)
+            } else {
+                entry.copy(state = DownloadBatchEntryState.FAILED, failureMessage = result.name)
+            }
+        }
+        _batches.value = _batches.value.map {
+            if (it.id == batchId) it.copy(entries = updatedEntries) else it
+        }
+        persist()
+        return queued
     }
 
     private fun loadFromDisk() {
@@ -259,23 +471,37 @@ object DownloadsRepository {
         val payload = DownloadsStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) {
             _uiState.value = DownloadsUiState()
+            _sourcePolicy.value = DownloadSourcePolicy()
+            _batches.value = emptyList()
+            _presets.value = DownloadPreset.BuiltIns
             notifyLiveStatusPlatform()
             return
         }
 
         var shouldPersistNormalized = false
-        val normalized = DownloadsCodec.decodeItems(payload)
+        val stored = DownloadsCodec.decode(payload)
+        _sourcePolicy.value = stored.sourcePolicy
+        _batches.value = stored.batches.map { batch ->
+            batch.copy(
+                entries = batch.entries.map { entry ->
+                    if (
+                        entry.state == DownloadBatchEntryState.DISCOVERING ||
+                        entry.state == DownloadBatchEntryState.RESOLVING
+                    ) {
+                        entry.copy(
+                            state = DownloadBatchEntryState.FAILED,
+                            failureMessage = "Preparation was interrupted; choose a source manually or start the batch again",
+                        )
+                    } else {
+                        entry
+                    }
+                },
+            )
+        }
+        _presets.value = stored.presets
+        val normalized = stored.items
             .map { item ->
-                val statusNormalized = if (item.status == DownloadStatus.Downloading) {
-                    item.copy(
-                        status = DownloadStatus.Paused,
-                        errorMessage = null,
-                    )
-                } else {
-                    item
-                }
-
-                val localUriNormalized = normalizeCompletedLocalFileUri(statusNormalized)
+                val localUriNormalized = normalizeCompletedLocalFileUri(item)
                 if (localUriNormalized != item) {
                     shouldPersistNormalized = true
                 }
@@ -287,6 +513,18 @@ object DownloadsRepository {
         if (shouldPersistNormalized) {
             persist()
         }
+        startPendingTransfers()
+    }
+
+    private fun startPendingTransfers() {
+        if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) return
+        _uiState.value.items
+            .asSequence()
+            .filter { it.status == DownloadStatus.Downloading }
+            .filterNot { activeHandles.containsKey(it.id) }
+            .take(MAX_CONCURRENT_TRANSFERS - activeHandles.size)
+            .toList()
+            .forEach(::startDownload)
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -294,11 +532,39 @@ object DownloadsRepository {
             sourceUrl = item.sourceUrl,
             sourceHeaders = item.sourceHeaders,
             destinationFileName = item.fileName,
+            allowMeteredNetwork = item.allowMeteredNetwork,
         )
 
         val handle = DownloadsPlatformDownloader.start(
             request = request,
             onProgress = { downloadedBytes, totalBytes ->
+                val actualOrReported = listOfNotNull(
+                    downloadedBytes.takeIf { it > 0L },
+                    totalBytes?.takeIf { it > 0L },
+                ).maxOrNull()
+                val current = _uiState.value.items.firstOrNull { it.id == item.id }
+                val cap = current?.calculatedCapBytes
+                if (
+                    current != null &&
+                    cap != null &&
+                    !current.sizeCapOverrideApproved &&
+                    actualOrReported != null &&
+                    actualOrReported > cap
+                ) {
+                    activeHandles.remove(item.id)?.cancel()
+                    mutateItem(item.id) {
+                        it.copy(
+                            status = DownloadStatus.Paused,
+                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                            totalBytes = totalBytes?.takeIf { value -> value > 0L },
+                            sizeApprovalRequired = true,
+                            errorMessage = "Actual source size exceeds this preset's cap",
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        )
+                    }
+                    startPendingTransfers()
+                    return@start
+                }
                 mutateItem(item.id) { current ->
                     if (current.status != DownloadStatus.Downloading) {
                         current
@@ -328,6 +594,7 @@ object DownloadsRepository {
                         updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                     )
                 }
+                startPendingTransfers()
             },
             onFailure = { message ->
                 activeHandles.remove(item.id)
@@ -342,6 +609,7 @@ object DownloadsRepository {
                         )
                     }
                 }
+                startPendingTransfers()
             },
         )
 
@@ -376,6 +644,27 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(
             items = items,
         )
+        _batches.value = _batches.value.map { batch ->
+            batch.copy(
+                entries = batch.entries.map { entry ->
+                    val item = items.firstOrNull {
+                        it.parentMetaId == batch.parentMetaId &&
+                            it.videoId == entry.videoId &&
+                            it.seasonNumber == entry.season &&
+                            it.episodeNumber == entry.episode
+                    } ?: return@map entry
+                    entry.copy(
+                        state = when (item.status) {
+                            DownloadStatus.Downloading -> DownloadBatchEntryState.DOWNLOADING
+                            DownloadStatus.Paused -> DownloadBatchEntryState.PAUSED
+                            DownloadStatus.Completed -> DownloadBatchEntryState.COMPLETED
+                            DownloadStatus.Failed -> DownloadBatchEntryState.FAILED
+                        },
+                        failureMessage = item.errorMessage,
+                    )
+                },
+            )
+        }
         notifyLiveStatusPlatform()
     }
 
@@ -387,7 +676,12 @@ object DownloadsRepository {
 
     private fun persist() {
         DownloadsStorage.savePayload(
-            DownloadsCodec.encodeItems(_uiState.value.items),
+            DownloadsCodec.encode(
+                items = _uiState.value.items,
+                sourcePolicy = _sourcePolicy.value,
+                batches = _batches.value,
+                presets = _presets.value,
+            ),
         )
     }
 
@@ -422,25 +716,37 @@ object DownloadsRepository {
 }
 
 @Serializable
-private data class StoredDownloadsPayload(
+internal data class StoredDownloadsPayload(
     val items: List<DownloadItem> = emptyList(),
+    val sourcePolicy: DownloadSourcePolicy = DownloadSourcePolicy(),
+    val batches: List<DownloadBatch> = emptyList(),
+    val presets: List<DownloadPreset> = DownloadPreset.BuiltIns,
 )
 
-private object DownloadsCodec {
+internal object DownloadsCodec {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        allowStructuredMapKeys = true
     }
 
-    fun decodeItems(payload: String): List<DownloadItem> =
+    fun decode(payload: String): StoredDownloadsPayload =
         runCatching {
-            json.decodeFromString<StoredDownloadsPayload>(payload).items
-        }.getOrDefault(emptyList())
+            json.decodeFromString<StoredDownloadsPayload>(payload)
+        }.getOrDefault(StoredDownloadsPayload())
 
-    fun encodeItems(items: Collection<DownloadItem>): String =
+    fun encode(
+        items: Collection<DownloadItem>,
+        sourcePolicy: DownloadSourcePolicy,
+        batches: Collection<DownloadBatch>,
+        presets: Collection<DownloadPreset>,
+    ): String =
         json.encodeToString(
             StoredDownloadsPayload(
                 items = items.toList(),
+                sourcePolicy = sourcePolicy,
+                batches = batches.toList(),
+                presets = presets.toList(),
             ),
         )
 }

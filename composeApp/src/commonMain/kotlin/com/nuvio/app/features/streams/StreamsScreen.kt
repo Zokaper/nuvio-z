@@ -79,6 +79,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadPreset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -145,11 +146,13 @@ fun StreamsScreen(
     remember {
         DownloadsRepository.ensureLoaded()
     }
+    val downloadPresets by DownloadsRepository.presets.collectAsStateWithLifecycle()
     val isEpisode = seasonNumber != null && episodeNumber != null
     val clipboardManager = LocalClipboardManager.current
     val streamLinkCopiedText = stringResource(Res.string.streams_link_copied)
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
+    var downloadPresetTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     val downloadScope = rememberCoroutineScope()
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     var autoPlayOverlayLogoLoadError by remember(logo) { mutableStateOf(false) }
@@ -221,6 +224,44 @@ fun StreamsScreen(
             episode = episodeNumber,
             manualSelection = manualSelection,
         )
+    }
+    val enqueueWithPreset: (StreamItem, DownloadPreset) -> Unit = { stream, preset ->
+        val enqueueResolved: (StreamItem) -> Unit = { downloadable ->
+            val result = DownloadsRepository.enqueueFromStream(
+                contentType = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+                stream = downloadable,
+                calculatedCapBytes = preset.sizeCapBytes(
+                    runtimeMinutes = null,
+                    isEpisode = isEpisode,
+                ),
+            )
+            NuvioToastController.show(result.toastMessage())
+        }
+        if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
+            downloadScope.launch {
+                when (val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                    stream = stream,
+                    season = seasonNumber,
+                    episode = episodeNumber,
+                )) {
+                    is DirectDebridPlayableResult.Success -> enqueueResolved(resolved.stream)
+                    else -> resolved.toastMessage()?.let(NuvioToastController::show)
+                }
+            }
+        } else {
+            enqueueResolved(stream)
+        }
     }
 
     BoxWithConstraints(
@@ -379,58 +420,7 @@ fun StreamsScreen(
                 }
             },
             onDownload = { stream ->
-                if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
-                    downloadScope.launch {
-                        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                            stream = stream,
-                            season = seasonNumber,
-                            episode = episodeNumber,
-                        )
-                        when (resolved) {
-                            is DirectDebridPlayableResult.Success -> {
-                                val result = DownloadsRepository.enqueueFromStream(
-                                    contentType = type,
-                                    videoId = videoId,
-                                    parentMetaId = parentMetaId,
-                                    parentMetaType = parentMetaType,
-                                    title = title,
-                                    logo = logo,
-                                    poster = poster,
-                                    background = background,
-                                    seasonNumber = seasonNumber,
-                                    episodeNumber = episodeNumber,
-                                    episodeTitle = episodeTitle,
-                                    episodeThumbnail = episodeThumbnail,
-                                    stream = resolved.stream,
-                                )
-                                NuvioToastController.show(result.toastMessage())
-                            }
-                            else -> {
-                                val message = resolved.toastMessage()
-                                if (message != null) {
-                                    NuvioToastController.show(message)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val result = DownloadsRepository.enqueueFromStream(
-                        contentType = type,
-                        videoId = videoId,
-                        parentMetaId = parentMetaId,
-                        parentMetaType = parentMetaType,
-                        title = title,
-                        logo = logo,
-                        poster = poster,
-                        background = background,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        episodeTitle = episodeTitle,
-                        episodeThumbnail = episodeThumbnail,
-                        stream = stream,
-                    )
-                    NuvioToastController.show(result.toastMessage())
-                }
+                downloadPresetTarget = stream
             },
             onOpen = { stream, openExternally ->
                 onStreamActionOpen(
@@ -439,6 +429,15 @@ fun StreamsScreen(
                     effectiveResumePositionMs,
                     effectiveResumeProgressFraction,
                 )
+            },
+        )
+        DownloadPresetSheet(
+            stream = downloadPresetTarget,
+            presets = downloadPresets,
+            onDismiss = { downloadPresetTarget = null },
+            onPresetSelected = { stream, preset ->
+                downloadPresetTarget = null
+                enqueueWithPreset(stream, preset)
             },
         )
     }
@@ -1190,6 +1189,50 @@ private fun StreamActionsSheet(
                     }
                 },
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DownloadPresetSheet(
+    stream: StreamItem?,
+    presets: List<DownloadPreset>,
+    onDismiss: () -> Unit,
+    onPresetSelected: (StreamItem, DownloadPreset) -> Unit,
+) {
+    if (stream == null) return
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+    NuvioModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+        ) {
+            Text(
+                text = "Download preset",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+            presets.forEach { preset ->
+                NuvioBottomSheetDivider()
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.Download,
+                    title = "${preset.name} · ${preset.targetResolution.height}p · ${preset.gigabytesPerHourLimit} GB/hour",
+                    onClick = {
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState) {
+                                onPresetSelected(stream, preset)
+                            }
+                        }
+                    },
+                )
+            }
         }
     }
 }

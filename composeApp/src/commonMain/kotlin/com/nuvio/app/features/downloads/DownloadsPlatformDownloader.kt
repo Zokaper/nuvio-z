@@ -4,6 +4,7 @@ internal data class DownloadPlatformRequest(
     val sourceUrl: String,
     val sourceHeaders: Map<String, String>,
     val destinationFileName: String,
+    val allowMeteredNetwork: Boolean = false,
 )
 
 internal interface DownloadsTaskHandle {
@@ -25,4 +26,6 @@ internal expect object DownloadsPlatformDownloader {
     fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String?
 
     fun openDownloadsDirectory(): Boolean
+
+    fun freeStorageBytes(): Long
 }

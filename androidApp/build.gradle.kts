@@ -64,7 +64,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nuvio.app"
+        applicationId = "com.nuvio.app.z"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = releaseAppVersionCode
@@ -135,7 +135,7 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        variant.applicationId.set("com.nuviodebug.com")
+        variant.applicationId.set("com.nuvio.app.z.debug")
     }
 }
 
@@ -161,8 +161,16 @@ sentry {
     }
 }
 
+// The Sentry plugin still wires an upload task when auto-upload is disabled.
+// Avoid invoking sentry-cli (which also mishandles Windows paths with spaces)
+// unless a complete upload configuration is actually present.
+tasks.matching { it.name.startsWith("uploadSentry", ignoreCase = true) }.configureEach {
+    enabled = sentryMappingUploadEnabled
+}
+
 dependencies {
     implementation(project(":composeApp"))
+    implementation(libs.androidx.core.ktx)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     debugImplementation(libs.compose.uiTooling)
 }

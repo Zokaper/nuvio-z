@@ -37,7 +37,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -106,7 +110,10 @@ fun DetailSeriesContent(
     blurUnwatchedEpisodes: Boolean = false,
     onEpisodeClick: ((MetaVideo) -> Unit)? = null,
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
+    onEpisodeDownload: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
+    onSeasonDownload: ((Int) -> Unit)? = null,
+    onCurrentSeasonChanged: ((Int) -> Unit)? = null,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
@@ -175,6 +182,9 @@ fun DetailSeriesContent(
     val currentSeason = selectedSeasonOverride
         ?.takeIf { it in groupedEpisodes }
         ?: defaultSeason
+    LaunchedEffect(currentSeason) {
+        onCurrentSeasonChanged?.invoke(currentSeason)
+    }
 
     var seasonViewMode by remember {
         mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
@@ -284,9 +294,23 @@ fun DetailSeriesContent(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    DetailSectionTitle(
-                        title = sectionTitle,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DetailSectionTitle(
+                            title = sectionTitle,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (onSeasonDownload != null) {
+                            IconButton(onClick = { onSeasonDownload(currentSeason) }) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                )
+                            }
+                        }
+                    }
                     val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
                     if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal) {
                         EpisodeHorizontalRow(
@@ -303,6 +327,7 @@ fun DetailSeriesContent(
                             preferredEpisodeNumber = preferredEpisodeNumber,
                             onEpisodeClick = onEpisodeClick,
                             onEpisodeLongPress = onEpisodeLongPress,
+                            onEpisodeDownload = onEpisodeDownload,
                         )
                     } else {
                         Column(
@@ -331,6 +356,7 @@ fun DetailSeriesContent(
                                     sizing = sizing,
                                     onClick = { onEpisodeClick?.invoke(episode) },
                                     onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                                    onDownload = onEpisodeDownload?.let { action -> { action(episode) } },
                                 )
                             }
                         }
@@ -605,6 +631,7 @@ private fun EpisodeHorizontalRow(
     preferredEpisodeNumber: Int? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+    onEpisodeDownload: ((MetaVideo) -> Unit)?,
 ) {
     val rowMetrics = rememberEpisodeHorizontalCardMetrics(maxWidthDp)
     val listState = rememberLazyListState()
@@ -663,6 +690,7 @@ private fun EpisodeHorizontalRow(
                 metrics = rowMetrics,
                 onClick = { onEpisodeClick?.invoke(episode) },
                 onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                onDownload = onEpisodeDownload?.let { action -> { action(episode) } },
             )
         }
     }
@@ -680,6 +708,7 @@ private fun EpisodeHorizontalCard(
     metrics: EpisodeHorizontalCardMetrics,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
 ) {
     val cardShape = RoundedCornerShape(metrics.cornerRadius)
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
@@ -737,6 +766,20 @@ private fun EpisodeHorizontalCard(
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
         )
+        if (onDownload != null) {
+            IconButton(
+                onClick = onDownload,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(metrics.contentPadding),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = null,
+                    tint = Color.White,
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -1050,6 +1093,7 @@ private fun EpisodeListCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
 ) {
     val cardShape = RoundedCornerShape(sizing.cardRadius)
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
@@ -1202,6 +1246,19 @@ private fun EpisodeListCard(
                     fillColor = MaterialTheme.colorScheme.primary,
                 )
             }
+        if (onDownload != null) {
+            IconButton(
+                onClick = onDownload,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = null,
+                )
+            }
+        }
     }
 }
 

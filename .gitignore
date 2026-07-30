@@ -7,6 +7,13 @@
 xcuserdata
 !src/**/build/
 local.properties
+.signing/
+*.jks
+*.keystore
+*.apk
+*.aab
+.android-sdk/
+.tmp-gh/
 .idea
 .DS_Store
 captures
@@ -27,7 +34,6 @@ scripts/build-distribution.sh
 asset
 scripts/scrape_android_compose_animation_docs.py
 tools
-AGENTS.md
 PERFORMANCE_FINDINGS.md
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)

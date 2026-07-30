@@ -1,0 +1,267 @@
+package com.nuvio.app.features.downloads
+
+import com.nuvio.app.features.streams.StreamItem
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlin.math.roundToLong
+
+@Serializable
+enum class CodecPreference { ANY, HEVC, AV1, AVC }
+
+@Serializable
+enum class DynamicRangePolicy { ANY, AVOID_HDR, PREFER_HDR, REQUIRE_HDR, REQUIRE_DOLBY_VISION }
+
+@Serializable
+data class DownloadPreset(
+    val id: String,
+    val name: String,
+    val targetResolution: VideoResolution,
+    val gigabytesPerHourLimit: Double,
+    val codecPreference: CodecPreference = CodecPreference.HEVC,
+    val requirePreferredCodec: Boolean = false,
+    val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
+    val preferredAudioLanguage: String? = null,
+    val requirePreferredAudioLanguage: Boolean = false,
+) {
+    init {
+        require(id.isNotBlank())
+        require(gigabytesPerHourLimit > 0.0)
+    }
+
+    fun sizeCapBytes(runtimeMinutes: Int?, isEpisode: Boolean): Long {
+        val minutes = runtimeMinutes?.takeIf { it > 0 } ?: if (isEpisode) 45 else 120
+        return (gigabytesPerHourLimit * 1_000_000_000.0 * minutes / 60.0).roundToLong()
+    }
+
+    companion object {
+        val Saver = DownloadPreset(
+            id = "saver",
+            name = "Saver",
+            targetResolution = VideoResolution.HD_720,
+            gigabytesPerHourLimit = 0.75,
+            codecPreference = CodecPreference.HEVC,
+            dynamicRangePolicy = DynamicRangePolicy.AVOID_HDR,
+        )
+        val Balanced = DownloadPreset(
+            id = "balanced",
+            name = "Balanced",
+            targetResolution = VideoResolution.FULL_HD_1080,
+            gigabytesPerHourLimit = 1.5,
+            codecPreference = CodecPreference.HEVC,
+        )
+        val Quality = DownloadPreset(
+            id = "quality",
+            name = "Quality",
+            targetResolution = VideoResolution.UHD_2160,
+            gigabytesPerHourLimit = 4.0,
+            codecPreference = CodecPreference.HEVC,
+            dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
+        )
+        val BuiltIns = listOf(Saver, Balanced, Quality)
+    }
+}
+
+@Serializable
+data class AddonSourceKey(
+    val manifestId: String,
+    val manifestUrl: String,
+) {
+    val stableValue: String
+        get() = "$manifestId|$manifestUrl"
+}
+
+@Serializable
+data class DownloadSourcePolicy(
+    /**
+     * Null means all enabled addons. A non-null set is an explicit allowlist,
+     * including an empty set.
+     */
+    val allowedAddons: Set<AddonSourceKey>? = null,
+    /**
+     * Presence of an AIO key means nested providers are restricted. Unknown
+     * providers cannot pass a restricted AIO instance.
+     */
+    val allowedAioProviders: Map<AddonSourceKey, Set<String>> = emptyMap(),
+    val aioOverrides: Set<AddonSourceKey> = emptySet(),
+    val discoveredAioProviders: Map<AddonSourceKey, Set<String>> = emptyMap(),
+) {
+    fun allowsAddon(key: AddonSourceKey): Boolean = allowedAddons?.contains(key) != false
+
+    fun allowsResult(key: AddonSourceKey, facts: SourceFacts): Boolean {
+        if (!allowsAddon(key)) return false
+        val restriction = allowedAioProviders[key] ?: return true
+        val identities = listOfNotNull(facts.providerId, facts.providerName)
+            .map { it.trim().lowercase() }
+            .filter(String::isNotEmpty)
+        return identities.any(restriction.map { it.trim().lowercase() }.toSet()::contains)
+    }
+
+    fun snapshot(): DownloadSourcePolicy = copy(
+        allowedAddons = allowedAddons?.toSet(),
+        allowedAioProviders = allowedAioProviders.mapValues { it.value.toSet() }.toMap(),
+        aioOverrides = aioOverrides.toSet(),
+        discoveredAioProviders = discoveredAioProviders.mapValues { it.value.toSet() }.toMap(),
+    )
+}
+
+data class DownloadSourceCandidate(
+    val stream: StreamItem,
+    val addonKey: AddonSourceKey,
+    val facts: SourceFacts,
+    /** URL after any direct-debrid resolution. */
+    val resolvedUrl: String? = stream.playableDirectUrl,
+    val addonOrder: Int = 0,
+)
+
+@Serializable
+sealed class SourceSelectionResult {
+    @Serializable
+    @SerialName("selected")
+    data class Selected(
+        val streamUrl: String,
+        val facts: SourceFacts,
+        val addonKey: AddonSourceKey,
+        val calculatedCapBytes: Long,
+    ) : SourceSelectionResult()
+
+    @Serializable
+    @SerialName("approval_needed")
+    data class ApprovalNeeded(
+        val streamUrl: String,
+        val facts: SourceFacts,
+        val addonKey: AddonSourceKey,
+        val calculatedCapBytes: Long,
+        val reason: String,
+    ) : SourceSelectionResult()
+
+    @Serializable
+    @SerialName("no_match")
+    data class NoMatch(val reason: String) : SourceSelectionResult()
+}
+
+object PresetSourceSelector {
+    fun select(
+        candidates: List<DownloadSourceCandidate>,
+        preset: DownloadPreset,
+        policy: DownloadSourcePolicy,
+        runtimeMinutes: Int?,
+        isEpisode: Boolean,
+    ): SourceSelectionResult {
+        val cap = preset.sizeCapBytes(runtimeMinutes, isEpisode)
+        val eligible = candidates
+            .asSequence()
+            .filter { policy.allowsResult(it.addonKey, it.facts) }
+            .filter { isAutomaticProtocol(it.resolvedUrl) }
+            .filter { candidate ->
+                candidate.facts.resolution?.height?.let { it <= preset.targetResolution.height } ?: true
+            }
+            .filter { matchesRequirements(it.facts, preset) }
+            .sortedWith(candidateComparator(preset))
+            .toList()
+
+        eligible.firstOrNull { candidate ->
+            val size = candidate.facts.sizeBytes
+            size != null && size <= cap && !candidate.facts.hasConflictingHardMetadata &&
+                candidate.facts.resolution != null
+        }?.let { return it.selected(cap) }
+
+        eligible.firstOrNull { candidate ->
+            val size = candidate.facts.sizeBytes
+            size == null || candidate.facts.hasConflictingHardMetadata ||
+                candidate.facts.resolution == null
+        }?.let { candidate ->
+            val reason = when {
+                candidate.facts.hasConflictingHardMetadata -> "Conflicting source metadata"
+                candidate.facts.sizeBytes == null -> "Source size is unknown"
+                else -> "Source resolution is unknown"
+            }
+            return candidate.approval(cap, reason)
+        }
+
+        return SourceSelectionResult.NoMatch(
+            if (eligible.isEmpty()) "No automatic-download source matched the preset and source policy"
+            else "All matching sources exceed the calculated size cap",
+        )
+    }
+
+    private fun matchesRequirements(facts: SourceFacts, preset: DownloadPreset): Boolean {
+        val preferredLanguage = preset.preferredAudioLanguage?.trim()?.uppercase()
+        if (preset.requirePreferredAudioLanguage &&
+            (preferredLanguage == null || preferredLanguage !in facts.languages)
+        ) return false
+
+        if (preset.requirePreferredCodec && preset.codecPreference != CodecPreference.ANY &&
+            facts.codec != preset.codecPreference.name
+        ) return false
+
+        val hasHdr = facts.dynamicRange.isNotEmpty()
+        return when (preset.dynamicRangePolicy) {
+            DynamicRangePolicy.REQUIRE_HDR -> hasHdr
+            DynamicRangePolicy.REQUIRE_DOLBY_VISION -> "DOLBY_VISION" in facts.dynamicRange
+            else -> true
+        }
+    }
+
+    private fun candidateComparator(preset: DownloadPreset): Comparator<DownloadSourceCandidate> =
+        compareByDescending<DownloadSourceCandidate> {
+            it.facts.resolution?.height ?: Int.MIN_VALUE
+        }.thenByDescending {
+            val preferred = preset.preferredAudioLanguage?.trim()?.uppercase()
+            preferred != null && preferred in it.facts.languages
+        }.thenByDescending {
+            when (preset.dynamicRangePolicy) {
+                DynamicRangePolicy.AVOID_HDR -> it.facts.dynamicRange.isEmpty()
+                DynamicRangePolicy.PREFER_HDR -> it.facts.dynamicRange.isNotEmpty()
+                else -> true
+            }
+        }.thenByDescending {
+            preset.codecPreference == CodecPreference.ANY ||
+                it.facts.codec == preset.codecPreference.name
+        }.thenByDescending {
+            releaseQualityScore(it.facts.releaseQuality)
+        }.thenByDescending {
+            it.facts.isDebridReady == true || it.stream.playableDirectUrl != null
+        }.thenBy {
+            it.facts.sizeBytes ?: Long.MAX_VALUE
+        }.thenBy {
+            it.addonOrder
+        }.thenBy {
+            it.resolvedUrl.orEmpty()
+        }
+
+    private fun DownloadSourceCandidate.selected(cap: Long) =
+        SourceSelectionResult.Selected(
+            streamUrl = requireNotNull(resolvedUrl),
+            facts = facts,
+            addonKey = addonKey,
+            calculatedCapBytes = cap,
+        )
+
+    private fun DownloadSourceCandidate.approval(cap: Long, reason: String) =
+        SourceSelectionResult.ApprovalNeeded(
+            streamUrl = requireNotNull(resolvedUrl),
+            facts = facts,
+            addonKey = addonKey,
+            calculatedCapBytes = cap,
+            reason = reason,
+        )
+
+    private fun isAutomaticProtocol(url: String?): Boolean {
+        val normalized = url?.trim()?.lowercase() ?: return false
+        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) return false
+        return ".m3u8" !in normalized && ".mpd" !in normalized && ".torrent" !in normalized
+    }
+
+    private fun releaseQualityScore(value: String?): Int {
+        val normalized = value?.uppercase().orEmpty()
+        return when {
+            "REMUX" in normalized -> 6
+            "BLURAY" in normalized || "BLU-RAY" in normalized -> 5
+            "WEB-DL" in normalized -> 4
+            "WEBRIP" in normalized -> 3
+            "HDTV" in normalized -> 2
+            "CAM" in normalized -> 0
+            else -> 1
+        }
+    }
+}

@@ -3118,6 +3118,24 @@ private fun MainAppContent(
                     DownloadsScreen(
                         onBack = onBack,
                         onOpenDownload = ::openDownloadedItem,
+                        onChooseBatchEntryManually = { batch, entry ->
+                            onPlayManually(
+                                batch.parentMetaType,
+                                entry.videoId,
+                                batch.parentMetaId,
+                                batch.parentMetaType,
+                                batch.title,
+                                batch.logo,
+                                batch.poster,
+                                batch.background,
+                                entry.season,
+                                entry.episode,
+                                entry.title.takeIf { entry.season != null },
+                                null,
+                                null,
+                                null,
+                            )
+                        },
                         onNavigateToShow = if (useNativeNavigation) {
                             { showId, title ->
                                 navController.navigate(DownloadShowRoute(showId, title))

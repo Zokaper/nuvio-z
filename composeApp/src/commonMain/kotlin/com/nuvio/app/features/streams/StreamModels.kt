@@ -26,10 +26,12 @@ data class StreamItem(
     val sourceName: String? = null,
     val addonName: String,
     val addonId: String,
+    val addonManifestUrl: String? = null,
     val addonLogo: String? = null,
     val streamType: String? = null,
     val behaviorHints: StreamBehaviorHints = StreamBehaviorHints(),
     val clientResolve: StreamClientResolve? = null,
+    val streamData: AioStreamData? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
@@ -123,6 +125,39 @@ data class StreamBadge(
     val tagStyle: String = "",
     val textColor: String = "",
     val borderColor: String = "",
+)
+
+/**
+ * Bounded view of AIOStreams' optional enhanced payload. Unknown JSON fields are
+ * intentionally ignored by [StreamParser] so self-hosted/newer instances remain
+ * forward compatible.
+ */
+@Serializable
+data class AioStreamData(
+    val addon: AioAddonIdentity? = null,
+    val parsedFile: AioParsedFile? = null,
+    val size: Long? = null,
+    val filename: String? = null,
+    val debridService: String? = null,
+    val debridCached: Boolean? = null,
+)
+
+@Serializable
+data class AioAddonIdentity(
+    val id: String? = null,
+    val name: String? = null,
+)
+
+@Serializable
+data class AioParsedFile(
+    val resolution: String? = null,
+    val quality: String? = null,
+    val codec: String? = null,
+    val hdr: List<String> = emptyList(),
+    val languages: List<String> = emptyList(),
+    val audio: List<String> = emptyList(),
+    val title: String? = null,
+    val size: Long? = null,
 )
 
 fun normalizeStreamType(raw: String?): String? =

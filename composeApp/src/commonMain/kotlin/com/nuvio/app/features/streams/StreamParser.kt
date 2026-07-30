@@ -19,6 +19,7 @@ object StreamParser {
         addonName: String,
         addonId: String,
         addonLogo: String? = null,
+        addonManifestUrl: String? = null,
     ): List<StreamItem> {
         val root = json.parseToJsonElement(payload).jsonObject
         val streamsArray = root["streams"] as? JsonArray ?: return emptyList()
@@ -47,9 +48,11 @@ object StreamParser {
                 sources = obj.stringList("sources"),
                 addonName = addonName,
                 addonId = addonId,
+                addonManifestUrl = addonManifestUrl,
                 addonLogo = addonLogo,
                 streamType = normalizeStreamType(obj.string("type")),
                 clientResolve = clientResolve,
+                streamData = obj.objectValue("streamData")?.toAioStreamData(),
                 behaviorHints = StreamBehaviorHints(
                     bingeGroup = hintsObj?.string("bingeGroup"),
                     notWebReady = (hintsObj?.boolean("notWebReady") ?: false) || proxyHeaders != null,
@@ -172,5 +175,44 @@ object StreamParser {
             theatrical = boolean("theatrical"),
             remastered = boolean("remastered"),
             unrated = boolean("unrated"),
+        )
+
+    private fun JsonObject.toAioStreamData(): AioStreamData {
+        val addonValue = this["addon"]
+        val addonIdentity = when (addonValue) {
+            is JsonObject -> AioAddonIdentity(
+                id = addonValue.string("id"),
+                name = addonValue.string("name") ?: addonValue.string("title"),
+            )
+            is JsonPrimitive -> addonValue.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?.let { AioAddonIdentity(name = it) }
+            else -> null
+        }
+        val debrid = objectValue("debrid")
+        return AioStreamData(
+            addon = addonIdentity,
+            parsedFile = objectValue("parsedFile")?.toAioParsedFile(),
+            size = long("size"),
+            filename = string("filename"),
+            debridService = string("debridService")
+                ?: debrid?.string("service")
+                ?: debrid?.string("name"),
+            debridCached = boolean("debridCached")
+                ?: debrid?.boolean("cached")
+                ?: debrid?.boolean("isCached"),
+        )
+    }
+
+    private fun JsonObject.toAioParsedFile(): AioParsedFile =
+        AioParsedFile(
+            resolution = string("resolution"),
+            quality = string("quality"),
+            codec = string("codec"),
+            hdr = stringList("hdr").ifEmpty { stringList("dynamicRange") },
+            languages = stringList("languages").ifEmpty { stringList("language") },
+            audio = stringList("audio"),
+            title = string("title") ?: string("filename"),
+            size = long("size"),
         )
 }

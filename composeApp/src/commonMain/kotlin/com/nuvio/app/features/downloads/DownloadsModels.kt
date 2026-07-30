@@ -7,6 +7,7 @@ import nuvio.composeapp.generated.resources.downloads_enqueue_missing_url
 import nuvio.composeapp.generated.resources.downloads_enqueue_replaced
 import nuvio.composeapp.generated.resources.downloads_enqueue_started
 import nuvio.composeapp.generated.resources.downloads_enqueue_unsupported_format
+import nuvio.composeapp.generated.resources.downloads_enqueue_insufficient_storage
 import org.jetbrains.compose.resources.getString
 
 @Serializable
@@ -44,6 +45,10 @@ data class DownloadItem(
     val status: DownloadStatus,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long? = null,
+    val calculatedCapBytes: Long? = null,
+    val allowMeteredNetwork: Boolean = false,
+    val sizeApprovalRequired: Boolean = false,
+    val sizeCapOverrideApproved: Boolean = false,
     val errorMessage: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
@@ -87,7 +92,8 @@ enum class DownloadEnqueueResult {
     Started,
     Replaced,
     MissingUrl,
-    UnsupportedFormat;
+    UnsupportedFormat,
+    InsufficientStorage;
 
     fun toastMessage(): String = runBlocking {
         when (this@DownloadEnqueueResult) {
@@ -95,6 +101,7 @@ enum class DownloadEnqueueResult {
             Replaced -> getString(Res.string.downloads_enqueue_replaced)
             MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
             UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
+            InsufficientStorage -> getString(Res.string.downloads_enqueue_insufficient_storage)
         }
     }
 }

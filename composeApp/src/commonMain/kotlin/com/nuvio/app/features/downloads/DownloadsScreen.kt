@@ -18,12 +18,16 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +44,7 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.addons.AddonRepository
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -50,13 +55,19 @@ fun DownloadsScreen(
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
+    onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)? = null,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
+    val sourcePolicy by DownloadsRepository.sourcePolicy.collectAsStateWithLifecycle()
+    val batches by DownloadsRepository.batches.collectAsStateWithLifecycle()
+    val presets by DownloadsRepository.presets.collectAsStateWithLifecycle()
+    val addonsState by AddonRepository.uiState.collectAsStateWithLifecycle()
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
+    var showAllowedSources by rememberSaveable { mutableStateOf(false) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
 
     val completedEpisodes = remember(uiState.items) {
@@ -75,18 +86,32 @@ fun DownloadsScreen(
         stickyHeader {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
+                    if (showAllowedSources) {
+                        stringResource(Res.string.downloads_allowed_sources)
+                    } else {
+                        stringResource(Res.string.compose_settings_root_downloads_title)
+                    }
                 } else {
                     selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
                 },
                 onBack = {
                     if (selectedShowId != null) {
                         onBackFromShow?.invoke() ?: run { selectedShowId = null }
+                    } else if (showAllowedSources) {
+                        showAllowedSources = false
                     } else {
                         onBack()
                     }
                 },
                 actions = {
+                    if (selectedShowId == null && !showAllowedSources) {
+                        IconButton(onClick = { showAllowedSources = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Settings,
+                                contentDescription = stringResource(Res.string.downloads_allowed_sources),
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = {
                             if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
@@ -103,13 +128,21 @@ fun DownloadsScreen(
             )
         }
 
-        if (selectedShowId == null) {
+        if (showAllowedSources) {
+            allowedSourcesContent(
+                addons = addonsState.addons.filter { it.enabled && it.manifest != null },
+                policy = sourcePolicy,
+                presets = presets,
+            )
+        } else if (selectedShowId == null) {
             downloadsRootContent(
                 uiState = uiState,
+                batches = batches,
                 onOpenDownload = onOpenDownload,
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
+                onChooseBatchEntryManually = onChooseBatchEntryManually,
             )
         } else {
             downloadsShowContent(
@@ -121,11 +154,249 @@ fun DownloadsScreen(
     }
 }
 
+private fun LazyListScope.allowedSourcesContent(
+    addons: List<com.nuvio.app.features.addons.ManagedAddon>,
+    policy: DownloadSourcePolicy,
+    presets: List<DownloadPreset>,
+) {
+    item {
+        SectionTitle(stringResource(Res.string.download_presets_settings))
+    }
+    items(presets, key = { "preset-${it.id}" }) { preset ->
+        PresetSettingsCard(preset)
+    }
+    item {
+        SectionTitle(stringResource(Res.string.downloads_allowed_sources))
+    }
+    item {
+        Text(
+            text = stringResource(Res.string.downloads_allowed_sources_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+    }
+    if (addons.isEmpty()) {
+        item {
+            Text(
+                text = stringResource(Res.string.downloads_no_enabled_sources),
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+        return
+    }
+    items(addons, key = { it.manifestUrl }) { addon ->
+        val manifest = requireNotNull(addon.manifest)
+        val key = AddonSourceKey(manifest.id, addon.manifestUrl)
+        val enabledKeys = addons.mapNotNull { candidate ->
+            candidate.manifest?.let { AddonSourceKey(it.id, candidate.manifestUrl) }
+        }.toSet()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    DownloadsRepository.setAddonAllowed(
+                        key = key,
+                        allowed = !policy.allowsAddon(key),
+                        enabledKeys = enabledKeys,
+                    )
+                }
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(manifest.id, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        addon.manifestUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Switch(
+                    checked = policy.allowsAddon(key),
+                    onCheckedChange = {
+                        DownloadsRepository.setAddonAllowed(key, it, enabledKeys)
+                    },
+                )
+            }
+            val automaticallyDetectedAio = AioStreamsSupport.isAioStreams(
+                AioDetectionContext(manifest.id, manifest.name, addon.manifestUrl),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = stringResource(Res.string.downloads_treat_as_aio),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = automaticallyDetectedAio || key in policy.aioOverrides,
+                    enabled = !automaticallyDetectedAio,
+                    onCheckedChange = { DownloadsRepository.setAioOverride(key, it) },
+                )
+            }
+            policy.discoveredAioProviders[key]
+                .orEmpty()
+                .sorted()
+                .forEach { provider ->
+                    val restriction = policy.allowedAioProviders[key]
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp),
+                    ) {
+                        Text(
+                            text = "${manifest.name} › $provider",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = restriction?.contains(provider) != false,
+                            onCheckedChange = {
+                                DownloadsRepository.setAioProviderAllowed(key, provider, it)
+                            },
+                        )
+                    }
+                }
+        }
+    }
+}
+
+@Composable
+private fun PresetSettingsCard(preset: DownloadPreset) {
+    val resolutions = VideoResolution.entries
+    val codecs = CodecPreference.entries
+    val ranges = DynamicRangePolicy.entries
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(preset.name, style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.download_preset_resolution), Modifier.weight(1f))
+                TextButton(
+                    onClick = {
+                        val index = resolutions.indexOf(preset.targetResolution)
+                        DownloadsRepository.updatePreset(
+                            preset.copy(targetResolution = resolutions[(index - 1).coerceAtLeast(0)]),
+                        )
+                    },
+                ) { Text("−") }
+                Text("${preset.targetResolution.height}p")
+                TextButton(
+                    onClick = {
+                        val index = resolutions.indexOf(preset.targetResolution)
+                        DownloadsRepository.updatePreset(
+                            preset.copy(targetResolution = resolutions[(index + 1).coerceAtMost(resolutions.lastIndex)]),
+                        )
+                    },
+                ) { Text("+") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.download_preset_size_limit), Modifier.weight(1f))
+                TextButton(
+                    onClick = {
+                        DownloadsRepository.updatePreset(
+                            preset.copy(gigabytesPerHourLimit = (preset.gigabytesPerHourLimit - 0.25).coerceAtLeast(0.25)),
+                        )
+                    },
+                ) { Text("−") }
+                Text("${preset.gigabytesPerHourLimit} GB/h")
+                TextButton(
+                    onClick = {
+                        DownloadsRepository.updatePreset(
+                            preset.copy(gigabytesPerHourLimit = preset.gigabytesPerHourLimit + 0.25),
+                        )
+                    },
+                ) { Text("+") }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val index = codecs.indexOf(preset.codecPreference)
+                        DownloadsRepository.updatePreset(
+                            preset.copy(codecPreference = codecs[(index + 1) % codecs.size]),
+                        )
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(Res.string.download_preset_codec), Modifier.weight(1f))
+                Text(preset.codecPreference.name)
+                Switch(
+                    checked = preset.requirePreferredCodec,
+                    onCheckedChange = {
+                        DownloadsRepository.updatePreset(preset.copy(requirePreferredCodec = it))
+                    },
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val index = ranges.indexOf(preset.dynamicRangePolicy)
+                        DownloadsRepository.updatePreset(
+                            preset.copy(dynamicRangePolicy = ranges[(index + 1) % ranges.size]),
+                        )
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(Res.string.download_preset_hdr), Modifier.weight(1f))
+                Text(preset.dynamicRangePolicy.name.replace('_', ' '))
+            }
+            OutlinedTextField(
+                value = preset.preferredAudioLanguage.orEmpty(),
+                onValueChange = {
+                    DownloadsRepository.updatePreset(
+                        preset.copy(preferredAudioLanguage = it.trim().takeIf(String::isNotEmpty)),
+                    )
+                },
+                label = { Text(stringResource(Res.string.download_preset_language)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.download_preset_require_language), Modifier.weight(1f))
+                Switch(
+                    checked = preset.requirePreferredAudioLanguage,
+                    onCheckedChange = {
+                        DownloadsRepository.updatePreset(preset.copy(requirePreferredAudioLanguage = it))
+                    },
+                )
+            }
+        }
+    }
+}
+
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
+    batches: List<DownloadBatch>,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
+    onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)?,
 ) {
+    val reviewBatches = batches.filter { batch ->
+        batch.entries.any {
+            it.state == DownloadBatchEntryState.APPROVAL_NEEDED ||
+                it.state == DownloadBatchEntryState.SKIPPED ||
+                it.state == DownloadBatchEntryState.FAILED
+        }
+    }
     val activeItems = uiState.activeItems
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
     val completedShows = uiState.completedItems
@@ -137,6 +408,62 @@ private fun LazyListScope.downloadsRootContent(
             }
         }
         .sortedBy { (item, _) -> item.title.lowercase() }
+
+    if (reviewBatches.isNotEmpty()) {
+        item {
+            SectionTitle(stringResource(Res.string.download_batch_review))
+        }
+        items(reviewBatches, key = { it.id }) { batch ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(batch.title, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "${batch.presetSnapshot.name} • ${batch.entries.count { it.state == DownloadBatchEntryState.APPROVAL_NEEDED }} approval needed",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (batch.entries.any { it.state == DownloadBatchEntryState.APPROVAL_NEEDED }) {
+                            IconButton(onClick = { DownloadsRepository.queueBatch(batch.id, approveUnknownSizes = true) }) {
+                                Icon(
+                                    Icons.Rounded.PlayArrow,
+                                    contentDescription = stringResource(Res.string.download_batch_approve_unknown),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { DownloadsRepository.removeBatch(batch.id) }) {
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = stringResource(Res.string.action_delete),
+                            )
+                        }
+                    }
+                    if (onChooseBatchEntryManually != null) {
+                        batch.entries
+                            .filter {
+                                it.state == DownloadBatchEntryState.SKIPPED ||
+                                    it.state == DownloadBatchEntryState.FAILED
+                            }
+                            .forEach { entry ->
+                                TextButton(
+                                    onClick = { onChooseBatchEntryManually(batch, entry) },
+                                ) {
+                                    Text("${entry.title}: ${stringResource(Res.string.download_choose_manual)}")
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
 
     if (activeItems.isNotEmpty()) {
         item {
@@ -150,7 +477,13 @@ private fun LazyListScope.downloadsRootContent(
                 item = item,
                 onOpen = { onOpenDownload(item) },
                 onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = { DownloadsRepository.resumeDownload(item.id) },
+                onResume = {
+                    if (item.sizeApprovalRequired) {
+                        DownloadsRepository.approveUnexpectedSize(item.id)
+                    } else {
+                        DownloadsRepository.resumeDownload(item.id)
+                    }
+                },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { DownloadsRepository.cancelDownload(item.id) },
             )
@@ -480,7 +813,11 @@ private fun statusText(item: DownloadItem): String {
 
     return when (item.status) {
         DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
-        DownloadStatus.Paused -> stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Paused -> if (item.sizeApprovalRequired) {
+            item.errorMessage ?: stringResource(Res.string.downloads_status_paused, size)
+        } else {
+            stringResource(Res.string.downloads_status_paused, size)
+        }
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
             formatBytes(item.totalBytes ?: item.downloadedBytes),

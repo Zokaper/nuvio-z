@@ -6,6 +6,11 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.httpGetText
+import com.nuvio.app.features.addons.httpGetTextWithHeaders
+import com.nuvio.app.features.downloads.AddonSourceKey
+import com.nuvio.app.features.downloads.AioDetectionContext
+import com.nuvio.app.features.downloads.AioStreamsSupport
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
@@ -440,12 +445,26 @@ object StreamsRepository {
 
                     val displayName = addon.addonName
                     val group = runCatchingUnlessCancelled {
-                        val payload = httpGetText(url)
+                        DownloadsRepository.ensureLoaded()
+                        val addonKey = AddonSourceKey(addon.manifest.id, addon.manifest.transportUrl)
+                        val aioContext = AioDetectionContext(
+                            manifestId = addon.manifest.id,
+                            manifestName = addon.manifest.name,
+                            manifestUrl = addon.manifest.transportUrl,
+                            treatAsAioStreams = addonKey in DownloadsRepository.sourcePolicy.value.aioOverrides,
+                        )
+                        val enhancedHeaders = AioStreamsSupport.requestHeaders(aioContext)
+                        val payload = if (enhancedHeaders.isEmpty()) {
+                            httpGetText(url)
+                        } else {
+                            httpGetTextWithHeaders(url, enhancedHeaders)
+                        }
                         StreamParser.parse(
                             payload = payload,
                             addonName = displayName,
                             addonId = addon.addonId,
                             addonLogo = addon.manifest.logoUrl,
+                            addonManifestUrl = addon.manifest.transportUrl,
                         )
                     }.fold(
                         onSuccess = { streams ->
