@@ -82,4 +82,4 @@ Last updated: 2026-07-30
   Daredevil Season 3 selections on-device.
 - Added shared `AGENTS.md`, Claude handoff instructions, and this status log.
 - Created the private `Zokaper/nuvio-z` repository, preserved official Nuvio as
-  `upstream`, configured the private fork as `origin`, and prepared `main`.
+  `upstream`, configured the private fork as `origin`, and pushed `main`.
