@@ -56,11 +56,25 @@ jobs:
           printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
 
+      # --stacktrace is deliberately omitted: on a Kotlin compilation failure it
+      # emits ~150 lines of Gradle internals that bury the actual 'e:' errors.
       - name: Run Android host tests
-        run: ./gradlew :composeApp:testAndroidHostTest --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:testAndroidHostTest --console=plain 2>&1 | tee build.log || {
+            echo "::error::Android host tests failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
 
       - name: Build debug APK
-        run: ./gradlew :androidApp:assembleFullDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :androidApp:assembleFullDebug --console=plain 2>&1 | tee build.log || {
+            echo "::error::Debug APK build failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
