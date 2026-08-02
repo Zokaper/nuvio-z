@@ -145,13 +145,23 @@ jobs:
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
               echo "Missing required property: ${property_name}" >&2
               exit 1
+            fi
+          done
+
+          # Trakt is optional for this fork: the build substitutes empty
+          # credentials and only Trakt sign-in is unavailable.
+          optional_properties=(
+            TRAKT_CLIENT_ID
+            TRAKT_CLIENT_SECRET
+          )
+          for property_name in "${optional_properties[@]}"; do
+            if ! grep -Eq "^${property_name}=.+" local.properties; then
+              echo "::warning::${property_name} is not set; Trakt will be unavailable in this build."
             fi
           done
 
