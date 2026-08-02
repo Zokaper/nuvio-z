@@ -14,6 +14,8 @@ jobs:
   verify:
     name: Test and build debug APK
     runs-on: ubuntu-latest
+    env:
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
 
     steps:
       - name: Check out source
@@ -38,6 +40,21 @@ jobs:
             echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
             echo 'kotlin.daemon.jvmargs=-Xmx3g'
           } >> "${HOME}/.gradle/gradle.properties"
+
+      - name: Configure runtime properties
+        run: |
+          # generateRuntimeConfigs declares local.properties as an input file
+          # and fails validation when it is absent, so the file must exist even
+          # when empty. Without the secret the build still succeeds, but ships
+          # without backend configuration, so sign-in and Trakt will not work.
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set; building without backend configuration."
+            : > local.properties
+            exit 0
+          fi
+
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
 
       - name: Run Android host tests
         run: ./gradlew :composeApp:testAndroidHostTest --stacktrace
