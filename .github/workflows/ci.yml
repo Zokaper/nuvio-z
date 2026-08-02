@@ -53,7 +53,7 @@ jobs:
             exit 0
           fi
 
-          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | tr -d '\000\r\n \t' | base64 --decode > local.properties
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
 
       # --stacktrace is deliberately omitted: on a Kotlin compilation failure it
