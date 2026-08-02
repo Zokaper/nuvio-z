@@ -134,8 +134,8 @@ jobs:
         if: inputs.mode != 'dry-run'
         run: |
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
-          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
-          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | tr -d '\000\r\n \t' | base64 --decode > "${keystore_path}"
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr -d '\000\r\n \t' | base64 --decode > local.properties
 
           # These paths only apply to the machine where local.properties was encoded.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
