@@ -17,6 +17,11 @@ sealed class DownloadScope {
     @SerialName("season")
     data class Season(val season: Int) : DownloadScope()
 
+    /** Every episode of [season] that is not watched yet, so an in-progress season resumes from where it stopped. */
+    @Serializable
+    @SerialName("season_unwatched")
+    data class SeasonUnwatched(val season: Int) : DownloadScope()
+
     @Serializable
     @SerialName("selected_seasons")
     data class SelectedSeasons(val seasons: Set<Int>) : DownloadScope()
@@ -101,6 +106,7 @@ data class BatchEpisode(
     val runtimeMinutes: Int? = null,
     val released: Boolean = true,
     val available: Boolean = true,
+    val watched: Boolean = false,
 )
 
 object DownloadBatchPlanner {
@@ -113,6 +119,7 @@ object DownloadBatchPlanner {
         val selectedSeasons = when (scope) {
             is DownloadScope.Episode -> setOf(scope.season)
             is DownloadScope.Season -> setOf(scope.season)
+            is DownloadScope.SeasonUnwatched -> setOf(scope.season)
             is DownloadScope.SelectedSeasons -> scope.seasons
             DownloadScope.Movie -> emptySet()
         }
@@ -127,6 +134,7 @@ object DownloadBatchPlanner {
                     else -> episode.season in selectedSeasons
                 }
             }
+            .filter { scope !is DownloadScope.SeasonUnwatched || !it.watched }
             .filter { it.season != 0 || 0 in selectedSeasons }
             .filter {
                 "$parentMetaId|${it.season}|${it.episode}" !in existingLogicalKeys

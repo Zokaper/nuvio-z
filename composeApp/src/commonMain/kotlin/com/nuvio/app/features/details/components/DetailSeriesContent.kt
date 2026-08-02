@@ -36,12 +36,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -113,6 +116,7 @@ fun DetailSeriesContent(
     onEpisodeDownload: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
     onSeasonDownload: ((Int) -> Unit)? = null,
+    onSeasonDownloadUnwatched: ((Int) -> Unit)? = null,
     onCurrentSeasonChanged: ((Int) -> Unit)? = null,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
@@ -294,6 +298,17 @@ fun DetailSeriesContent(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
+                    val hasUnwatchedEpisodes = onSeasonDownloadUnwatched != null &&
+                        seasonEpisodes.any { episode ->
+                            !WatchingState.isEpisodeSeen(
+                                watchedKeys = watchedKeys,
+                                progressByVideoId = progressByVideoId,
+                                metaType = meta.type,
+                                metaId = meta.id,
+                                episode = episode,
+                            )
+                        }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -303,15 +318,58 @@ fun DetailSeriesContent(
                             modifier = Modifier.weight(1f),
                         )
                         if (onSeasonDownload != null) {
-                            IconButton(onClick = { onSeasonDownload(currentSeason) }) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = null,
-                                )
+                            var showDownloadMenu by remember(seasonForContent) { mutableStateOf(false) }
+                            Box {
+                                IconButton(
+                                    onClick = {
+                                        if (hasUnwatchedEpisodes) {
+                                            showDownloadMenu = true
+                                        } else {
+                                            onSeasonDownload(currentSeason)
+                                        }
+                                    },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = null,
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showDownloadMenu,
+                                    onDismissRequest = { showDownloadMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(Res.string.download_preset_season)) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        onClick = {
+                                            showDownloadMenu = false
+                                            onSeasonDownload(currentSeason)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(stringResource(Res.string.download_preset_season_unwatched))
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.DownloadForOffline,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        onClick = {
+                                            showDownloadMenu = false
+                                            onSeasonDownloadUnwatched?.invoke(currentSeason)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
-                    val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
                     if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal) {
                         EpisodeHorizontalRow(
                             episodes = seasonEpisodes,

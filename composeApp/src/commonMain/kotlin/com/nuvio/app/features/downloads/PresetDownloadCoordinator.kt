@@ -6,7 +6,10 @@ import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CoroutineScope
@@ -80,6 +83,12 @@ object PresetDownloadCoordinator {
             allowMeteredNetwork = allowMeteredNetwork,
             createdAtEpochMs = createdAt,
         )
+        if (batchTargets.isEmpty()) {
+            // Nothing left to fetch for this scope. Returning before the batch is
+            // persisted keeps an empty record out of the queue; the caller reports
+            // the empty result to the user.
+            return@coroutineScope initialBatch
+        }
         DownloadsRepository.saveBatch(initialBatch)
         val semaphore = Semaphore(AutomaticDownloadDiscovery.MAX_CONCURRENT_EPISODE_DISCOVERIES)
         val entries = batchTargets.map { target ->
@@ -232,6 +241,7 @@ object PresetDownloadCoordinator {
             .map(DownloadItem::logicalContentKey)
             .toSet()
         val today = CurrentDateProvider.todayIsoDate()
+        val seenEpisodes = seenVideoIdsFor(meta, scope)
         val episodes = meta.videos.mapNotNull { it.toBatchEpisode() }
             .map { episode ->
                 episode.copy(
@@ -240,6 +250,7 @@ object PresetDownloadCoordinator {
                         ?.take(10)
                         ?.let { it <= today }
                         ?: true,
+                    watched = episode.videoId in seenEpisodes,
                 )
             }
         return DownloadBatchPlanner.episodesForScope(
@@ -257,6 +268,30 @@ object PresetDownloadCoordinator {
                 runtimeMinutes = it.runtimeMinutes,
             )
         }
+    }
+
+    /**
+     * Ids of the episodes the user has already seen. Only resolved for scopes that
+     * filter on it, so the ordinary season and episode batches keep their behaviour
+     * and do not depend on watch state being loaded.
+     */
+    private fun seenVideoIdsFor(meta: MetaDetails, scope: DownloadScope): Set<String> {
+        if (scope !is DownloadScope.SeasonUnwatched) return emptySet()
+        WatchedRepository.ensureLoaded()
+        WatchProgressRepository.ensureLoaded()
+        val watchedKeys = WatchedRepository.uiState.value.watchedKeys
+        val progressByVideoId = WatchProgressRepository.uiState.value.byVideoIdForContent(meta.id)
+        return meta.videos
+            .filter { video ->
+                WatchingState.isEpisodeSeen(
+                    watchedKeys = watchedKeys,
+                    progressByVideoId = progressByVideoId,
+                    metaType = meta.type,
+                    metaId = meta.id,
+                    episode = video,
+                )
+            }
+            .mapTo(mutableSetOf()) { it.id }
     }
 
     private fun MetaVideo.toBatchEpisode(): BatchEpisode? {

@@ -35,6 +35,7 @@ import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.download_batch_approve_unknown
 import nuvio.composeapp.generated.resources.download_batch_mobile_data
 import nuvio.composeapp.generated.resources.download_batch_no_match
+import nuvio.composeapp.generated.resources.download_batch_nothing_to_download
 import nuvio.composeapp.generated.resources.download_batch_preparing
 import nuvio.composeapp.generated.resources.download_batch_queue_ready
 import nuvio.composeapp.generated.resources.download_batch_review
@@ -69,6 +70,7 @@ fun PresetDownloadDialog(
     var batch by remember(meta.id, initialScope) { mutableStateOf<DownloadBatch?>(null) }
     var error by remember(meta.id, initialScope) { mutableStateOf<String?>(null) }
     var approveUnknown by remember(meta.id, initialScope) { mutableStateOf(false) }
+    val nothingToDownloadMessage = stringResource(Res.string.download_batch_nothing_to_download)
     val coroutineScope = rememberCoroutineScope()
     val presets by DownloadsRepository.presets.collectAsStateWithLifecycle()
 
@@ -89,7 +91,9 @@ fun PresetDownloadDialog(
                 ).await()
             }.onSuccess { prepared ->
                 preparing = false
-                if (!prepared.requiresReview(DownloadsPlatformDownloader.freeStorageBytes())) {
+                if (prepared.entries.isEmpty()) {
+                    error = nothingToDownloadMessage
+                } else if (!prepared.requiresReview(DownloadsPlatformDownloader.freeStorageBytes())) {
                     onQueued(
                         prepared.entries.count {
                             it.selection is SourceSelectionResult.Selected

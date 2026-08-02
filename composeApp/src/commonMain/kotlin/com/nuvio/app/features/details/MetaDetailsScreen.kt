@@ -1023,6 +1023,9 @@ fun MetaDetailsScreen(
                                 onSeasonDownload = { season ->
                                     presetDownloadScope = DownloadScope.Season(season)
                                 },
+                                onSeasonDownloadUnwatched = { season ->
+                                    presetDownloadScope = DownloadScope.SeasonUnwatched(season)
+                                },
                                 onCurrentSeasonChanged = { currentViewedSeason = it },
                                 onOpenMeta = onOpenMeta,
                                 onCastClick = onCastClick,
@@ -1185,6 +1188,16 @@ fun MetaDetailsScreen(
                                     )
                                 }
                             }
+                            val hasUnwatchedSeasonEpisodes = remember(seasonEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                seasonEpisodes.any { episode ->
+                                    !isEpisodeWatchedForActions(
+                                        meta = meta,
+                                        episode = episode,
+                                        watchedKeys = watchedUiState.watchedKeys,
+                                        progressByVideoId = progressByVideoId,
+                                    )
+                                }
+                            }
                             SeasonWatchedActionSheet(
                                 seasonLabel = seasonLabel,
                                 isSeasonWatched = isSeasonWatched,
@@ -1206,6 +1219,11 @@ fun MetaDetailsScreen(
                                 },
                                 onDownloadSeason = {
                                     presetDownloadScope = DownloadScope.Season(selectedSeason)
+                                },
+                                onDownloadUnwatchedEpisodes = if (hasUnwatchedSeasonEpisodes) {
+                                    { presetDownloadScope = DownloadScope.SeasonUnwatched(selectedSeason) }
+                                } else {
+                                    null
                                 },
                             )
                         }
@@ -1565,21 +1583,13 @@ private fun isEpisodeWatchedForActions(
     episode: MetaVideo,
     watchedKeys: Set<String>,
     progressByVideoId: Map<String, WatchProgressEntry>,
-): Boolean {
-    val episodeVideoId = buildPlaybackVideoId(
-        parentMetaId = meta.id,
-        seasonNumber = episode.season,
-        episodeNumber = episode.episode,
-        fallbackVideoId = episode.id,
-    )
-    return progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
-        WatchingState.isEpisodeWatched(
-            watchedKeys = watchedKeys,
-            metaType = meta.type,
-            metaId = meta.id,
-            episode = episode,
-        )
-}
+): Boolean = WatchingState.isEpisodeSeen(
+    watchedKeys = watchedKeys,
+    progressByVideoId = progressByVideoId,
+    metaType = meta.type,
+    metaId = meta.id,
+    episode = episode,
+)
 
 private fun areEpisodesWatchedForActions(
     meta: MetaDetails,
@@ -1671,6 +1681,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     onEpisodeDownload: (MetaVideo) -> Unit,
     onSeasonLongPress: (Int) -> Unit,
     onSeasonDownload: (Int) -> Unit,
+    onSeasonDownloadUnwatched: (Int) -> Unit,
     onCurrentSeasonChanged: (Int) -> Unit,
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
@@ -1751,6 +1762,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     onEpisodeDownload = onEpisodeDownload,
                     onSeasonLongPress = onSeasonLongPress,
                     onSeasonDownload = onSeasonDownload,
+                    onSeasonDownloadUnwatched = onSeasonDownloadUnwatched,
                     onCurrentSeasonChanged = onCurrentSeasonChanged,
                     onOpenMeta = onOpenMeta,
                     onCastClick = onCastClick,
@@ -1904,6 +1916,7 @@ private fun ConfiguredMetaSections(
     onEpisodeDownload: (MetaVideo) -> Unit,
     onSeasonLongPress: (Int) -> Unit,
     onSeasonDownload: (Int) -> Unit,
+    onSeasonDownloadUnwatched: (Int) -> Unit,
     onCurrentSeasonChanged: (Int) -> Unit,
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
@@ -2045,6 +2058,7 @@ private fun ConfiguredMetaSections(
                         onEpisodeDownload = onEpisodeDownload,
                         onSeasonLongPress = onSeasonLongPress,
                         onSeasonDownload = onSeasonDownload,
+                        onSeasonDownloadUnwatched = onSeasonDownloadUnwatched,
                         onCurrentSeasonChanged = onCurrentSeasonChanged,
                     )
                 }

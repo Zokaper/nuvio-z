@@ -1,11 +1,11 @@
 # Nuvio Z Status
 
-Last updated: 2026-07-30
+Last updated: 2026-08-02
 
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `main`.
+- Working branch: `claude/download-unwatched-episodes-3ql94w`.
 - Official repository is configured as `upstream`.
 - Private `origin` repository: `https://github.com/Zokaper/nuvio-z`.
 - Android identity: Nuvio Z, `com.nuvio.app.z`
@@ -19,6 +19,8 @@ Last updated: 2026-07-30
 - Added Saver, Balanced, and Quality download presets with editable resolution,
   GB/hour cap, codec, HDR/Dolby Vision, and audio-language preferences.
 - Added movie, episode, season, and selected-season batch planning.
+- Added an unwatched-only season scope so a season in progress downloads from the
+  current episode onwards instead of the whole season.
 - Added generic Stremio source normalization and bounded AIOStreams structured
   metadata support.
 - Added global addon allowlisting and nested AIO provider restrictions.
@@ -41,7 +43,8 @@ Last updated: 2026-07-30
 - Earlier comprehensive Android host suite: 477 tests passed.
 - Latest focused source/preset suite:
   - `SourceFactsExtractorTest`: 8 passed.
-  - `PresetDownloadsTest`: 10 passed.
+  - `PresetDownloadsTest`: 10 passed (12 after the unwatched-scope tests were
+    added; not yet executed, see below).
 - Signed `assembleFullRelease` completed successfully after the latest metadata
   fix.
 - On-device preset smoke test:
@@ -56,6 +59,14 @@ Last updated: 2026-07-30
 
 ## Pending / Follow-up
 
+- The unwatched-season download work has **not** been compiled or tested in this
+  environment: the sandbox blocks `dl.google.com`, so the Android Gradle Plugin
+  cannot be resolved and no Gradle task can configure. Run
+  `.\gradlew.bat :composeApp:testAndroidHostTest` and an `assembleFullDebug`
+  locally before trusting it.
+- Smoke-test the unwatched season download on-device: open a partly watched
+  season, use the season download menu, and confirm only the current episode
+  onwards is queued.
 - The local workspace directory is still named `stremio-z`; renaming it is
   deferred.
 - Run the full host suite again after the next substantial code change.
@@ -69,6 +80,23 @@ Last updated: 2026-07-30
   reconfigured for this personal build.
 
 ## Work Log
+
+### 2026-08-02
+
+- Added `DownloadScope.SeasonUnwatched`, an unwatched filter in
+  `DownloadBatchPlanner`, and watch-state resolution in
+  `PresetDownloadCoordinator`, so a season batch can skip everything already
+  watched while keeping the episode currently in progress.
+- Added `WatchingState.isEpisodeSeen` as the single watched-or-completed rule and
+  pointed the details screen helper at it.
+- Added the season download menu (whole season vs unwatched episodes) to the
+  season header and a matching row in the season action sheet; both hide the
+  unwatched option when a season has nothing left to watch.
+- Stopped persisting a batch when a scope resolves to no episodes and reported
+  the empty result in the preset dialog instead of queuing zero downloads.
+- Added `PresetDownloadsTest` coverage for the unwatched scope, including the
+  already-downloaded exclusion.
+- Mirrored the same change into `Zokaper/NuvioZDesktop`.
 
 ### 2026-07-30
 

@@ -6,6 +6,7 @@
     <string name="download_preset_title">Download with preset</string>
     <string name="download_preset_episode">Download episode</string>
     <string name="download_preset_season">Download season</string>
+    <string name="download_preset_season_unwatched">Download unwatched episodes</string>
     <string name="download_preset_seasons">Download seasons</string>
     <string name="download_batch_select_seasons">Select seasons</string>
     <string name="download_batch_mobile_data">Allow mobile data for this batch</string>
@@ -14,6 +15,7 @@
     <string name="download_batch_approve_unknown">Approve all sources with unknown or conflicting size</string>
     <string name="download_batch_queue_ready">Queue ready downloads</string>
     <string name="download_batch_no_match">No automatic source matched</string>
+    <string name="download_batch_nothing_to_download">Nothing to download. Every episode here is watched or already downloaded.</string>
     <string name="download_choose_manual">Choose source manually</string>
     <string name="download_batch_queued_count">%1$d downloads queued</string>
     <string name="download_presets_settings">Download presets</string>

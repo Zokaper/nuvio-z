@@ -12,6 +12,7 @@ import com.nuvio.app.features.watching.domain.WatchingCompletedEpisode
 import com.nuvio.app.features.watching.domain.WatchingContentRef
 import com.nuvio.app.features.watching.domain.WatchingProgressRecord
 import com.nuvio.app.features.watching.domain.WatchingWatchedRecord
+import com.nuvio.app.features.watching.domain.buildPlaybackVideoId
 import com.nuvio.app.features.watching.domain.latestCompletedSeriesEpisode
 
 object WatchingState {
@@ -38,6 +39,33 @@ object WatchingState {
             episode = episode.episode,
         ),
     )
+
+    /**
+     * An episode counts as seen when it is explicitly marked watched or when playback
+     * reached the completion threshold. A partially watched episode stays unseen so
+     * resuming a season still includes the episode currently in progress.
+     */
+    fun isEpisodeSeen(
+        watchedKeys: Set<String>,
+        progressByVideoId: Map<String, WatchProgressEntry>,
+        metaType: String,
+        metaId: String,
+        episode: MetaVideo,
+    ): Boolean {
+        val playbackVideoId = buildPlaybackVideoId(
+            content = WatchingContentRef(type = metaType, id = metaId),
+            seasonNumber = episode.season,
+            episodeNumber = episode.episode,
+            fallbackVideoId = episode.id,
+        )
+        return progressByVideoId[playbackVideoId]?.isEffectivelyCompleted == true ||
+            isEpisodeWatched(
+                watchedKeys = watchedKeys,
+                metaType = metaType,
+                metaId = metaId,
+                episode = episode,
+            )
+    }
 
     fun areEpisodesWatched(
         watchedKeys: Set<String>,

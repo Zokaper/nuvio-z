@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -155,6 +156,7 @@ fun SeasonWatchedActionSheet(
     onToggleSeasonWatched: () -> Unit,
     onMarkPreviousSeasonsWatched: () -> Unit,
     onDownloadSeason: (() -> Unit)? = null,
+    onDownloadUnwatchedEpisodes: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -203,6 +205,19 @@ fun SeasonWatchedActionSheet(
                     title = stringResource(Res.string.download_preset_season),
                     onClick = {
                         onDownloadSeason()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onDownloadUnwatchedEpisodes != null) {
+                NuvioBottomSheetDivider()
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.DownloadForOffline,
+                    title = stringResource(Res.string.download_preset_season_unwatched),
+                    onClick = {
+                        onDownloadUnwatchedEpisodes()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }

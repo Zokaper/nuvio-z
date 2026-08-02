@@ -149,6 +149,53 @@ class PresetDownloadsTest {
     }
 
     @Test
+    fun unwatchedSeasonScopeKeepsTheEpisodeInProgressAndEverythingAfterIt() {
+        val episodes = listOf(
+            BatchEpisode("s1e1", "One", 1, 1, watched = true),
+            BatchEpisode("s1e2", "Two", 1, 2, watched = true),
+            BatchEpisode("s1e3", "Three", 1, 3, watched = true),
+            BatchEpisode("s1e4", "Four", 1, 4),
+            BatchEpisode("s1e5", "Five", 1, 5),
+            BatchEpisode("s1e6", "Unreleased", 1, 6, released = false),
+            BatchEpisode("s2e1", "Other season", 2, 1),
+        )
+
+        val unwatched = DownloadBatchPlanner.episodesForScope(
+            episodes,
+            DownloadScope.SeasonUnwatched(1),
+            existingLogicalKeys = emptySet(),
+            parentMetaId = "show",
+        )
+        assertEquals(listOf("s1e4", "s1e5"), unwatched.map { it.videoId })
+
+        val wholeSeason = DownloadBatchPlanner.episodesForScope(
+            episodes,
+            DownloadScope.Season(1),
+            existingLogicalKeys = emptySet(),
+            parentMetaId = "show",
+        )
+        assertEquals(listOf("s1e1", "s1e2", "s1e3", "s1e4", "s1e5"), wholeSeason.map { it.videoId })
+    }
+
+    @Test
+    fun unwatchedSeasonScopeStillSkipsAlreadyDownloadedEpisodes() {
+        val episodes = listOf(
+            BatchEpisode("s1e1", "One", 1, 1, watched = true),
+            BatchEpisode("s1e2", "Two", 1, 2),
+            BatchEpisode("s1e3", "Three", 1, 3),
+        )
+
+        val result = DownloadBatchPlanner.episodesForScope(
+            episodes,
+            DownloadScope.SeasonUnwatched(1),
+            existingLogicalKeys = setOf("show|1|2"),
+            parentMetaId = "show",
+        )
+
+        assertEquals(listOf("s1e3"), result.map { it.videoId })
+    }
+
+    @Test
     fun reviewThresholdsCoverCountUnknownAndStorage() {
         val selected = SourceSelectionResult.Selected(
             "https://a/file",
