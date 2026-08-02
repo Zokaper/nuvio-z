@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test and build debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cap Gradle memory for hosted runners
+        run: |
+          # gradle.properties asks for 12G heap, which is more than a standard
+          # hosted runner has. Values in GRADLE_USER_HOME take precedence over
+          # the project file, so override without touching the repository.
+          mkdir -p "${HOME}/.gradle"
+          {
+            echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+            echo 'kotlin.daemon.jvmargs=-Xmx3g'
+          } >> "${HOME}/.gradle/gradle.properties"
+
+      - name: Run Android host tests
+        run: ./gradlew :composeApp:testAndroidHostTest --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :androidApp:assembleFullDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-z-debug-apk-${{ github.sha }}
+          path: androidApp/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ github.sha }}
+          path: composeApp/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7

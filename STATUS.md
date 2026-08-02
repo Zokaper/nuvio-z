@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-07-30
+Last updated: 2026-08-02
 
 ## Current Snapshot
 
@@ -67,8 +67,36 @@ Last updated: 2026-07-30
   records.
 - Trakt functionality requires local client credentials and has not been
   reconfigured for this personal build.
+- iOS parity gaps in the preset download feature, all in platform seams:
+  `freeStorageBytes()` returns `-1` so low-space warnings and
+  storage-triggered review never fire; `allowMeteredNetwork` is ignored
+  because the iOS session hardcodes cellular access; downloads pause on
+  app background because iOS uses a foreground `NSURLSession`.
+- `DownloadsStorage.ios.kt` no longer profile-scopes its payload key,
+  unlike every other iOS storage and unlike the desktop fork. Decide
+  whether that de-scoping was intended.
+- Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
+  the Android Gradle Plugin will not resolve there.
 
 ## Work Log
+
+### 2026-08-02
+
+- Reviewed iOS viability and distribution options for sharing personal
+  builds; recorded the platform gaps above.
+- Ported the preset and bulk download feature to the desktop fork
+  (`Zokaper/NuvioZDesktop`, branch `claude/preset-bulk-downloads`) as a
+  cherry-pick, since that repository shares history with this one.
+  Resolved four conflicts, threaded the download callbacks through the
+  desktop fork's two details layouts, and implemented `freeStorageBytes()`
+  for desktop from the downloads directory's usable space.
+- Excluded the Nuvio Z Android branding, the repository handoff documents,
+  and the iOS profile-scoping change from that port.
+- Added a `CI` workflow to both repositories: Android host tests and an
+  unsigned debug APK artifact on every push, plus desktop compilation and
+  tests in the desktop fork. Neither requires signing secrets.
+- Not verified by a compiler in this environment; CI is the first real
+  build of the ported feature.
 
 ### 2026-07-30
 
