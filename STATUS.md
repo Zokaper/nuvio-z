@@ -77,6 +77,13 @@ Last updated: 2026-08-02
   whether that de-scoping was intended.
 - Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
   the Android Gradle Plugin will not resolve there.
+- In-app updates need this repository to be public. The updater calls the
+  GitHub releases API unauthenticated, so a private repository returns 404
+  and no update is ever found. A history scan found no committed
+  `local.properties`, keystore, or secret-shaped values, so the change is
+  safe to make; flipping the visibility is a manual step.
+- No release has been published yet, so the updater has nothing to find
+  until `android-release.yml` runs.
 
 ## Work Log
 
@@ -97,6 +104,13 @@ Last updated: 2026-08-02
   tests in the desktop fork. Neither requires signing secrets.
 - Not verified by a compiler in this environment; CI is the first real
   build of the ported feature.
+- Repointed the in-app updater from `NuvioMedia/NuvioMobile` to
+  `Zokaper/nuvio-z`, and the desktop fork's updater to
+  `Zokaper/NuvioZDesktop`. Cleared the release channel filter, which
+  matched a branch name against a release `targetCommitish` that is
+  actually a commit SHA and so rejected every release.
+- Scanned the full history of both repositories for committed secrets
+  before recommending public visibility; none were found.
 
 ### 2026-07-30
 
