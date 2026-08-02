@@ -133,41 +133,42 @@ jobs:
       - name: Configure release properties
         if: inputs.mode != 'dry-run'
         run: |
-          # Secrets have arrived wrapped, CRLF-terminated, URL-safe encoded, or
-          # not encoded at all. Normalise all of those rather than failing with
-          # base64's opaque "invalid input".
+          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
+          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
+          # character the base64 alphabet does not contain rather than failing.
           normalise_b64() {
-            printf '%s' "$1" | tr -d '\000\r\n \t' | tr '_-' '/+'
+            printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
           }
-          is_b64() {
-            [ -n "$1" ] && ! printf '%s' "$1" | LC_ALL=C grep -q '[^A-Za-z0-9+/=]'
+          # A properties file stored without any encoding: it has KEY= lines and
+          # contains characters base64 never does.
+          looks_like_properties() {
+            printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
+              && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
           }
           decode_text_secret() {
             local name="$1" raw="$2" out="$3" cleaned
-            cleaned="$(normalise_b64 "${raw}")"
-            echo "${name}: ${#raw} chars raw, ${#cleaned} after normalising"
-            if is_b64 "${cleaned}"; then
-              printf '%s' "${cleaned}" | base64 --decode > "${out}"
-            elif printf '%s' "${raw}" | grep -Eq '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*='; then
+            if looks_like_properties "${raw}"; then
               echo "::warning::${name} is not base64; storing it as literal file content."
               printf '%s\n' "${raw}" > "${out}"
             else
-              echo "${name} is neither base64 nor a properties file." >&2
-              printf '%s' "${cleaned}" | LC_ALL=C tr -d 'A-Za-z0-9+/=' | fold -w1 | sort -u | tr -d '\n' \
-                | sed 's/^/offending characters: /' >&2
-              echo >&2
+              cleaned="$(normalise_b64 "${raw}")"
+              echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+              printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            fi
+            if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' "${out}"; then
+              echo "${name} did not yield a properties file." >&2
               exit 1
             fi
           }
           decode_binary_secret() {
             local name="$1" raw="$2" out="$3" cleaned
             cleaned="$(normalise_b64 "${raw}")"
-            echo "${name}: ${#raw} chars raw, ${#cleaned} after normalising"
-            if ! is_b64 "${cleaned}"; then
-              echo "${name} is not valid base64; a binary secret cannot be stored unencoded." >&2
+            echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+            printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            if [ ! -s "${out}" ] || [ "$(wc -c < "${out}")" -lt 256 ]; then
+              echo "${name} did not yield a plausible keystore." >&2
               exit 1
             fi
-            printf '%s' "${cleaned}" | base64 --decode > "${out}"
           }
 
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
