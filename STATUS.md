@@ -112,8 +112,21 @@ Last updated: 2026-08-03
 - Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
   the Android Gradle Plugin will not resolve there.
 - `Zokaper/nuvio-z` is public, which the unauthenticated updater requires.
-  `0.3.4` (versionCode 103) was published from `android-release.yml` on
-  2026-08-03 with signed APKs for all four ABIs.
+  `0.3.5` (versionCode 104) is the current release; `0.3.4` and `0.3.3`
+  precede it. All carry signed APKs for all four ABIs.
+- CI release signing is stable: `0.3.3`, `0.3.4` and `0.3.5` all carry signer
+  certificate SHA-256
+  `2325A3399F9BBF5ECE1391EBE6B5A0E0F016058520FB1597B1CF30CF6184787C`.
+  A locally built APK signed with a different keystore cannot be updated over
+  by these releases, and Android reports only "App not installed". The installed
+  build's version identifies which key it carries, because `0.3.3` and later
+  exist only as CI output.
+- An in-app update reported "App not installed" against an already-installed
+  Nuvio Z. Package (`com.nuvio.app.z`), label (`Nuvio Z`), versionCode ordering
+  and the updater's ABI asset selection were all verified correct against the
+  published APK, so the cause is device-side: either a signing-key mismatch with
+  a locally built install, or a Samsung Auto Blocker / unknown-sources
+  restriction. Unresolved pending a device check.
 - `NuvioZDesktop` carries the mirrored redesign but has **not** been built or
   released; only the Android fork has been through a compiler.
 
