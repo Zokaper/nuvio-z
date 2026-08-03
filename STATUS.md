@@ -146,6 +146,13 @@ Last updated: 2026-08-03
   whether that de-scoping was intended.
 - Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
   the Android Gradle Plugin will not resolve there.
+- `0.3.6` (versionCode 105) is released from `main` and is the first build to
+  carry the download transfer/queue rework. `assembleFullRelease` succeeded, so
+  the merged redesign and rework compile together; nothing in the rework has
+  been exercised on a device yet.
+- Queue reordering has a known rough edge: the needs-attention section is
+  filtered out of the queue list, so a Move up/down that would swap with an
+  attention item looks like it did nothing. "Download next" is unaffected.
 - `Zokaper/nuvio-z` is public, which the unauthenticated updater requires.
   `0.3.5` (versionCode 104) is the current release; `0.3.4` and `0.3.3`
   precede it. All carry signed APKs for all four ABIs.
@@ -162,10 +169,51 @@ Last updated: 2026-08-03
   published APK, so the cause is device-side: either a signing-key mismatch with
   a locally built install, or a Samsung Auto Blocker / unknown-sources
   restriction. Unresolved pending a device check.
-- `NuvioZDesktop` carries the mirrored redesign but has **not** been built or
-  released; only the Android fork has been through a compiler.
+- `NuvioZDesktop` desktop releases are now Windows-only. Every macOS job failed
+  at "Configure desktop runtime" because the repository holds none of the Apple
+  signing and notarisation secrets it requires, so the target choice was
+  narrowed to `windows`; the macOS job is still in the workflow behind a guard
+  that can no longer match. Restoring macOS means adding the secrets and
+  putting the options back.
+- Compiling the desktop mirror for the first time found that the redesign added
+  a `downloads` parameter to the `publishNativeTabTitles` expect and updated the
+  Android and iOS actuals but not the desktop one. Fixed in `NuvioZDesktop`.
+  A Windows build of the pre-redesign commit compiles, which is what identified
+  the redesign mirror rather than the transfer rework as the source.
+- The desktop Windows job now runs `compileKotlinDesktop` as its own step
+  without `--stacktrace`, because packaging with it buried the compiler's `e:`
+  lines under roughly 250 lines of Gradle internals.
+- `NuvioZDesktop` has now been through a compiler for the first time, but has
+  still **not** been released; no desktop artifact has been produced or run.
 
 ## Work Log
+
+### 2026-08-03 (later: transfer/queue rework and the 0.3.6 release)
+
+- Reworked download transfers so a finished byte loop only counts as a completed
+  download when the bytes on disk match the authoritative total. The read loop
+  had treated any end of stream as success and then adopted the truncated file's
+  own length as the total, so a cut-short transfer rendered as finished at
+  whatever byte count it had reached.
+- Added `If-Range` on resume, correct 416 handling that finalizes an already
+  complete `.part` instead of refetching, cooperative pause reporting, retry
+  with backoff, an explicit `Queued` state with persisted ranks, menu-based
+  reordering with preemption, and coalesced progress persistence.
+- Reconciled this work with the downloads redesign. The two were siblings off
+  the same base rather than one built on the other, so both had rewritten
+  `DownloadsRepository`, `DownloadsModels` and `DownloadsScreen`. The redesign's
+  `deleteDownloadsForTitle`/`ForSeason` auto-merged but still called the
+  `publish`/`persist` helpers the rework had replaced, and touched
+  `activeHandles` unsynchronised; both were rewritten onto the locked path.
+- Released `0.3.6` from `main`. `assembleFullRelease` succeeded on the first
+  attempt.
+- Narrowed `NuvioZDesktop` desktop releases to Windows after every macOS job
+  failed on missing Apple credentials, and fixed the desktop
+  `publishNativeTabTitles` actual the redesign had left behind.
+- Verified the two new pure-logic files by compiling them standalone against
+  Kotlin 2.3.0 with their tests: 27 tests, 71 assertions, all passing. Gradle
+  still cannot configure in the sandbox, so everything else was checked only by
+  a parser pass locally and then by CI.
 
 ### 2026-08-03
 
