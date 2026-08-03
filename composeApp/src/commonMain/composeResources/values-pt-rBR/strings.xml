@@ -1179,7 +1179,7 @@
     <string name="updates_downloading_progress">Baixando %1$d%</string>
     <string name="updates_install_failed">Não foi possível iniciar a instalação</string>
     <string name="updates_latest_version">Você está usando a versão mais recente.</string>
-    <string name="updates_message_allow_installs">Ative instalações de apps para o Nuvio, então volte e continue.</string>
+    <string name="updates_message_allow_installs">Ative instalações de apps para o Nuvio Z, então volte e continue.</string>
     <string name="updates_message_downloading">Baixando atualização...</string>
     <string name="updates_message_no_updates">Nenhuma atualização encontrada.</string>
     <string name="updates_message_ready">Uma nova versão está pronta para instalar.</string>

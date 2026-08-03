@@ -1045,7 +1045,7 @@
     <string name="updates_downloading_progress">Wird heruntergeladen %1$d%</string>
     <string name="updates_install_failed">Installation kann nicht gestartet werden</string>
     <string name="updates_latest_version">Du verwendest die neueste Version.</string>
-    <string name="updates_message_allow_installs">Aktiviere App-Installationen für Nuvio und komm dann zurück, um fortzufahren.</string>
+    <string name="updates_message_allow_installs">Aktiviere App-Installationen für Nuvio Z und komm dann zurück, um fortzufahren.</string>
     <string name="updates_message_downloading">Update wird heruntergeladen...</string>
     <string name="updates_message_no_updates">Keine Updates gefunden.</string>
     <string name="updates_message_ready">Eine neue Version ist bereit zur Installation.</string>

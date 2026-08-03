@@ -1349,7 +1349,7 @@
     <string name="updates_downloading_progress">Stahování %1$d%%</string>
     <string name="updates_install_failed">Nelze spustit instalaci</string>
     <string name="updates_latest_version">Používáte nejnovější verzi.</string>
-    <string name="updates_message_allow_installs">Povolte instalace aplikací pro Nuvio, pak se vraťte a pokračujte.</string>
+    <string name="updates_message_allow_installs">Povolte instalace aplikací pro Nuvio Z, pak se vraťte a pokračujte.</string>
     <string name="updates_message_downloading">Stahování aktualizace...</string>
     <string name="updates_message_no_updates">Nebyly nalezeny žádné aktualizace.</string>
     <string name="updates_message_ready">Nová verze je připravena k instalaci.</string>

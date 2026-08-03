@@ -946,7 +946,7 @@
   <string name="updates_downloading_progress">Download in corso: %1$d%</string>
   <string name="updates_install_failed">Impossibile avviare l'installazione</string>
   <string name="updates_latest_version">Stai utilizzando l'ultima versione.</string>
-  <string name="updates_message_allow_installs">Abilita l'installazione di app per Nuvio, quindi torna qui e continua.</string>
+  <string name="updates_message_allow_installs">Abilita l'installazione di app per Nuvio Z, quindi torna qui e continua.</string>
   <string name="updates_message_downloading">Download aggiornamento in corso...</string>
   <string name="updates_message_no_updates">Nessun aggiornamento trovato.</string>
   <string name="updates_message_ready">Una nuova versione è pronta per l'installazione.</string>

@@ -1190,7 +1190,7 @@
     <string name="updates_downloading_progress">Laster ned %1$d%</string>
     <string name="updates_install_failed">Kunne ikke starte installasjon</string>
     <string name="updates_latest_version">Du bruker nyeste versjon.</string>
-    <string name="updates_message_allow_installs">Skru på app-installasjoner for Nuvio, og kom tilbake.</string>
+    <string name="updates_message_allow_installs">Skru på app-installasjoner for Nuvio Z, og kom tilbake.</string>
     <string name="updates_message_downloading">Laster ned oppdatering…</string>
     <string name="updates_message_no_updates">Ingen oppdateringer funnet.</string>
     <string name="updates_message_ready">En ny versjon er klar til installasjon.</string>

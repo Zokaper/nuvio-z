@@ -1322,7 +1322,7 @@
     <string name="updates_downloading_progress">Sťahovanie %1$d%%</string>
     <string name="updates_install_failed">Nepodarilo sa spustiť inštaláciu</string>
     <string name="updates_latest_version">Používate najnovšiu verziu.</string>
-    <string name="updates_message_allow_installs">Povoľte inštalácie aplikácií pre Nuvio a potom sa vráťte a pokračujte.</string>
+    <string name="updates_message_allow_installs">Povoľte inštalácie aplikácií pre Nuvio Z a potom sa vráťte a pokračujte.</string>
     <string name="updates_message_downloading">Sťahovanie aktualizácie...</string>
     <string name="updates_message_no_updates">Nenašli sa žiadne aktualizácie.</string>
     <string name="updates_message_ready">Nová verzia je pripravená na inštaláciu.</string>

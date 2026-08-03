@@ -1235,7 +1235,7 @@
     <string name="updates_downloading_progress">Mengunduh %1$d%</string>
     <string name="updates_install_failed">Tidak dapat memulai instalasi</string>
     <string name="updates_latest_version">Anda menggunakan versi terbaru.</string>
-    <string name="updates_message_allow_installs">Aktifkan instalasi aplikasi untuk Nuvio, lalu kembali dan lanjutkan.</string>
+    <string name="updates_message_allow_installs">Aktifkan instalasi aplikasi untuk Nuvio Z, lalu kembali dan lanjutkan.</string>
     <string name="updates_message_downloading">Mengunduh pembaruan...</string>
     <string name="updates_message_no_updates">Tidak ada pembaruan ditemukan.</string>
     <string name="updates_message_ready">Versi baru siap untuk dipasang.</string>

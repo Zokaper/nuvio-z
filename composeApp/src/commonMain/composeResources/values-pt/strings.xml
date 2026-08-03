@@ -1319,7 +1319,7 @@
     <string name="updates_downloading_progress">A transferir %1$d%%</string>
     <string name="updates_install_failed">Não foi possível iniciar a instalação</string>
     <string name="updates_latest_version">Estás a utilizar a versão mais recente.</string>
-    <string name="updates_message_allow_installs">Ativa a instalação de apps para o Nuvio e depois volta para continuar.</string>
+    <string name="updates_message_allow_installs">Ativa a instalação de apps para o Nuvio Z e depois volta para continuar.</string>
     <string name="updates_message_downloading">A transferir atualização...</string>
     <string name="updates_message_no_updates">Nenhuma atualização encontrada.</string>
     <string name="updates_message_ready">Uma nova versão está pronta para ser instalada.</string>

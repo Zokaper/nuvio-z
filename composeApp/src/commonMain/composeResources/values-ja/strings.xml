@@ -1346,7 +1346,7 @@
     <string name="updates_downloading_progress">ダウンロード中 %1$d%</string>
     <string name="updates_install_failed">インストールを開始できません</string>
     <string name="updates_latest_version">最新バージョンを使用しています。</string>
-    <string name="updates_message_allow_installs">Nuvioのアプリインストールを有効にして、戻って続けてください。</string>
+    <string name="updates_message_allow_installs">Nuvio Zのアプリインストールを有効にして、戻って続けてください。</string>
     <string name="updates_message_downloading">アップデートをダウンロード中...</string>
     <string name="updates_message_no_updates">アップデートが見つかりません。</string>
     <string name="updates_message_ready">新しいバージョンをインストールする準備ができました。</string>

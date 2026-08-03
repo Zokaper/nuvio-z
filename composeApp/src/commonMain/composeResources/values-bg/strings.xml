@@ -1310,7 +1310,7 @@
     <string name="updates_downloading_progress">Изтегляне %1$d%</string>
     <string name="updates_install_failed">Инсталацията не можа да стартира</string>
     <string name="updates_latest_version">Използвате последната версия.</string>
-    <string name="updates_message_allow_installs">Активирайте инсталации на приложения за Nuvio, след това се върнете и продължете.</string>
+    <string name="updates_message_allow_installs">Активирайте инсталации на приложения за Nuvio Z, след това се върнете и продължете.</string>
     <string name="updates_message_downloading">Изтегляне на актуализацията...</string>
     <string name="updates_message_no_updates">Не са намерени актуализации.</string>
     <string name="updates_message_ready">Нова версия е готова за инсталиране.</string>

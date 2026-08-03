@@ -1365,7 +1365,7 @@
     <string name="updates_downloading_progress">Téléchargement %1$d %</string>
     <string name="updates_install_failed">Impossible de démarrer l’installation</string>
     <string name="updates_latest_version">Vous utilisez la version la plus récente.</string>
-    <string name="updates_message_allow_installs">Activez l’installation d’applications pour Nuvio puis revenez pour continuer.</string>
+    <string name="updates_message_allow_installs">Activez l’installation d’applications pour Nuvio Z puis revenez pour continuer.</string>
     <string name="updates_message_downloading">Téléchargement de la mise à jour…</string>
     <string name="updates_message_no_updates">Aucune mise à jour trouvée.</string>
     <string name="updates_message_ready">Une nouvelle version est prête à être installée.</string>

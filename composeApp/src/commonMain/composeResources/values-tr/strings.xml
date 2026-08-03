@@ -1204,7 +1204,7 @@
     <string name="updates_downloading_progress">İndiriliyor %1$d%</string>
     <string name="updates_install_failed">Kurulum başlatılamadı</string>
     <string name="updates_latest_version">En güncel sürümü kullanıyorsun.</string>
-    <string name="updates_message_allow_installs">Nuvio için uygulama kurulumlarına izin ver, sonra geri gelip devam et.</string>
+    <string name="updates_message_allow_installs">Nuvio Z için uygulama kurulumlarına izin ver, sonra geri gelip devam et.</string>
     <string name="updates_message_downloading">Güncelleme indiriliyor...</string>
     <string name="updates_message_no_updates">Güncelleme bulunamadı.</string>
     <string name="updates_message_ready">Yeni sürüm kurulmaya hazır.</string>

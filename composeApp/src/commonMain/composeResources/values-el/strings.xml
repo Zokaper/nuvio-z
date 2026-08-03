@@ -932,7 +932,7 @@
     <string name="updates_downloading_progress">Λήψη %1$d%</string>
     <string name="updates_install_failed">Αδυναμία εκκίνησης εγκατάστασης</string>
     <string name="updates_latest_version">Χρησιμοποιείτε την τελευταία έκδοση.</string>
-    <string name="updates_message_allow_installs">Ενεργοποιήστε τις εγκαταστάσεις εφαρμογών για το Nuvio και επιστρέψτε για να συνεχίσετε.</string>
+    <string name="updates_message_allow_installs">Ενεργοποιήστε τις εγκαταστάσεις εφαρμογών για το Nuvio Z και επιστρέψτε για να συνεχίσετε.</string>
     <string name="updates_message_downloading">Εγκατάσταση ενημέρωσης...</string>
     <string name="updates_message_no_updates">Δεν βρέθηκαν ενημερώσεις.</string>
     <string name="updates_message_ready">Μια νέα έκδοση είναι έτοιμη για εγκατάσταση.</string>

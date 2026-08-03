@@ -1246,7 +1246,7 @@
     <string name="updates_downloading_progress">Pobieranie %1$d%</string>
     <string name="updates_install_failed">Nie można rozpocząć instalacji</string>
     <string name="updates_latest_version">Używasz najnowszej wersji.</string>
-    <string name="updates_message_allow_installs">Zezwól na instalację aplikacji dla Nuvio, a następnie wróć i kontynuuj.</string>
+    <string name="updates_message_allow_installs">Zezwól na instalację aplikacji dla Nuvio Z, a następnie wróć i kontynuuj.</string>
     <string name="updates_message_downloading">Pobieranie aktualizacji...</string>
     <string name="updates_message_no_updates">Nie znaleziono aktualizacji.</string>
     <string name="updates_message_ready">Nowa wersja jest gotowa do instalacji.</string>

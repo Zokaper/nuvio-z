@@ -1356,7 +1356,7 @@
     <string name="updates_downloading_progress">Đang tải %1$d%</string>
     <string name="updates_install_failed">Không thể bắt đầu cài đặt</string>
     <string name="updates_latest_version">Bạn đang dùng phiên bản mới nhất</string>
-    <string name="updates_message_allow_installs">Hãy cấp quyền cài đặt ứng dụng cho Nuvio rồi quay lại để tiếp tục</string>
+    <string name="updates_message_allow_installs">Hãy cấp quyền cài đặt ứng dụng cho Nuvio Z rồi quay lại để tiếp tục</string>
     <string name="updates_message_downloading">Đang tải bản cập nhật…</string>
     <string name="updates_message_no_updates">Không có bản cập nhật mới</string>
     <string name="updates_message_ready">Sẵn sàng cài đặt phiên bản mới</string>

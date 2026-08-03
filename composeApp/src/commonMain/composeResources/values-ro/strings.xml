@@ -1375,7 +1375,7 @@
     <string name="updates_downloading_progress">Se descarcă %1$d%%</string>
     <string name="updates_install_failed">Nu s-a putut porni instalarea</string>
     <string name="updates_latest_version">Utilizezi cea mai recentă versiune.</string>
-    <string name="updates_message_allow_installs">Activează instalarea aplicațiilor pentru Nuvio, apoi revino și continuă.</string>
+    <string name="updates_message_allow_installs">Activează instalarea aplicațiilor pentru Nuvio Z, apoi revino și continuă.</string>
     <string name="updates_message_downloading">Se descarcă actualizarea...</string>
     <string name="updates_message_no_updates">Nu s-au găsit actualizări.</string>
     <string name="updates_message_ready">O nouă versiune este gata de instalare.</string>

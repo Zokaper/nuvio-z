@@ -1167,7 +1167,7 @@
     <string name="updates_downloading_progress">Letöltés: %1$d%</string>
     <string name="updates_install_failed">Nem sikerült elindítani a telepítést</string>
     <string name="updates_latest_version">A legfrissebb verziót használod.</string>
-    <string name="updates_message_allow_installs">Engedélyezd az alkalmazások telepítését a Nuvio számára, majd térj vissza és folytasd.</string>
+    <string name="updates_message_allow_installs">Engedélyezd az alkalmazások telepítését a Nuvio Z számára, majd térj vissza és folytasd.</string>
     <string name="updates_message_downloading">Frissítés letöltése...</string>
     <string name="updates_message_no_updates">Nem találhatók frissítések.</string>
     <string name="updates_message_ready">Az új verzió készen áll a telepítésre.</string>
