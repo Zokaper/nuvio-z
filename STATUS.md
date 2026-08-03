@@ -95,13 +95,12 @@ Last updated: 2026-08-03
   compiler available here, which makes each fix a full release-run round trip.
   Run `.\gradlew.bat :composeApp:testAndroidHostTest` locally to get the host
   suite, including the new `DownloadPresenceTest`, actually executed.
-- The download transfer/queue rework has **not** been compiled in this
-  environment, and no Gradle task has run against it. Only the two new pure-logic
-  files were verified, by compiling them standalone (see Verification). Everything
-  else — the repository, the three platform downloaders, the screen — is
-  unverified beyond a parse check. Run
-  `.\gradlew.bat :composeApp:testAndroidHostTest` and an `assembleFullDebug`
-  locally before trusting it.
+- The download transfer/queue rework **compiles** - CI built and published
+  `0.3.6` from it - but its behaviour is still unverified. Only the two new
+  pure-logic files have executing tests (see Verification); the repository, the
+  three platform downloaders and the screen have never been run. Run
+  `.\gradlew.bat :composeApp:testAndroidHostTest` locally to execute the host
+  suite, which CI's assemble-only release job never runs.
 - Smoke-test the reworked transfers on-device with a deliberately small file:
   pause/resume mid-transfer, resume after the source URL has expired (must not
   report a completed download at the partial size), process death mid-transfer,
