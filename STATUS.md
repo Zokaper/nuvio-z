@@ -163,12 +163,12 @@ Last updated: 2026-08-03
   by these releases, and Android reports only "App not installed". The installed
   build's version identifies which key it carries, because `0.3.3` and later
   exist only as CI output.
-- An in-app update reported "App not installed" against an already-installed
-  Nuvio Z. Package (`com.nuvio.app.z`), label (`Nuvio Z`), versionCode ordering
-  and the updater's ABI asset selection were all verified correct against the
-  published APK, so the cause is device-side: either a signing-key mismatch with
-  a locally built install, or a Samsung Auto Blocker / unknown-sources
-  restriction. Unresolved pending a device check.
+- The earlier "App not installed" in-app update failure is **resolved**: the
+  in-app update from `0.3.5` to `0.3.6` succeeded on the Samsung device. It was
+  the signing-key mismatch rather than Auto Blocker - once the installed build
+  came from CI, later CI-signed releases update over it cleanly. A locally built
+  APK still cannot be updated over by a CI release, so a local build has to be
+  uninstalled first.
 - `NuvioZDesktop` desktop releases are now Windows-only. Every macOS job failed
   at "Configure desktop runtime" because the repository holds none of the Apple
   signing and notarisation secrets it requires, so the target choice was
