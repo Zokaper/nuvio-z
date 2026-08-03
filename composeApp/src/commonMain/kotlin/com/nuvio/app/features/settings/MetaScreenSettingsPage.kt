@@ -59,6 +59,8 @@ import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_reorder
 import nuvio.composeapp.generated.resources.action_reset
+import nuvio.composeapp.generated.resources.meta_section_downloads_description
+import nuvio.composeapp.generated.resources.meta_section_downloads_title
 import nuvio.composeapp.generated.resources.settings_homescreen_hidden
 import nuvio.composeapp.generated.resources.settings_homescreen_visible
 import nuvio.composeapp.generated.resources.settings_meta_actions
@@ -591,6 +593,7 @@ private val MetaScreenSectionKey.titleRes: StringResource
     get() = when (this) {
         MetaScreenSectionKey.ACTIONS -> Res.string.settings_meta_actions
         MetaScreenSectionKey.OVERVIEW -> Res.string.settings_meta_overview
+        MetaScreenSectionKey.DOWNLOADS -> Res.string.meta_section_downloads_title
         MetaScreenSectionKey.PRODUCTION -> Res.string.settings_meta_production
         MetaScreenSectionKey.CAST -> Res.string.settings_meta_cast
         MetaScreenSectionKey.COMMENTS -> Res.string.settings_meta_comments
@@ -605,6 +608,7 @@ private val MetaScreenSectionKey.descriptionRes: StringResource
     get() = when (this) {
         MetaScreenSectionKey.ACTIONS -> Res.string.settings_meta_actions_description
         MetaScreenSectionKey.OVERVIEW -> Res.string.settings_meta_overview_description
+        MetaScreenSectionKey.DOWNLOADS -> Res.string.meta_section_downloads_description
         MetaScreenSectionKey.PRODUCTION -> Res.string.settings_meta_production_description
         MetaScreenSectionKey.CAST -> Res.string.settings_meta_cast_description
         MetaScreenSectionKey.COMMENTS -> Res.string.settings_meta_comments_description
