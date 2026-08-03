@@ -23,6 +23,7 @@ class DownloadPresenceTest {
 
     @Test
     fun everyDownloadStatusMapsToAPresence() {
+        assertEquals(DownloadPresence.Queued, DownloadStatus.Queued.toPresence(false))
         assertEquals(DownloadPresence.Downloading, DownloadStatus.Downloading.toPresence(false))
         assertEquals(DownloadPresence.Paused, DownloadStatus.Paused.toPresence(false))
         assertEquals(DownloadPresence.NeedsApproval, DownloadStatus.Paused.toPresence(true))

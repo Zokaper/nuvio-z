@@ -80,7 +80,11 @@ internal fun initializeDownloadsForBackground(context: Context) {
 
 internal suspend fun awaitDownloadQueueIdle() {
     DownloadsRepository.uiState.first { state ->
-        state.items.none { it.status == DownloadStatus.Downloading }
+        // Queued items are still work in hand: finishing the job while any remain would
+        // tear down the foreground host with downloads left waiting for a slot.
+        state.items.none {
+            it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
+        }
     }
 }
 

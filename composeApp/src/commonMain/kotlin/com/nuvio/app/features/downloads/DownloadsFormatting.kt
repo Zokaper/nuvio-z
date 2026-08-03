@@ -4,10 +4,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.i18n.localizedByteUnit
+import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -55,7 +61,25 @@ internal fun downloadStatusText(item: DownloadItem): String {
     }
 
     return when (item.status) {
-        DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
+        DownloadStatus.Queued -> {
+            val retryAtEpochMs = item.nextRetryAtEpochMs
+            val nowEpochMs = tickingNowEpochMs(
+                active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),
+            )
+            if (retryAtEpochMs != null && retryAtEpochMs > nowEpochMs) {
+                stringResource(
+                    Res.string.downloads_status_retry_countdown,
+                    ((retryAtEpochMs - nowEpochMs + 999L) / 1000L).toInt(),
+                )
+            } else {
+                stringResource(Res.string.downloads_status_queued_position, item.queuePosition + 1L)
+            }
+        }
+        DownloadStatus.Downloading -> if (item.downloadedBytes <= 0L && item.totalBytes == null) {
+            stringResource(Res.string.downloads_status_waiting_to_start)
+        } else {
+            stringResource(Res.string.downloads_status_downloading, size)
+        }
         DownloadStatus.Paused -> if (item.sizeApprovalRequired) {
             item.errorMessage ?: stringResource(Res.string.downloads_status_paused, size)
         } else {
@@ -67,6 +91,24 @@ internal fun downloadStatusText(item: DownloadItem): String {
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
     }
+}
+
+/**
+ * A clock that only ticks while something is counting down.
+ *
+ * Retry backoffs are the one place a row has to re-render with no state change behind
+ * it; a static "retrying in 15s" that never moves reads as a stuck download.
+ */
+@Composable
+private fun tickingNowEpochMs(active: Boolean): Long {
+    var nowEpochMs by remember { mutableStateOf(DownloadsClock.nowEpochMs()) }
+    LaunchedEffect(active) {
+        while (active) {
+            nowEpochMs = DownloadsClock.nowEpochMs()
+            delay(500L)
+        }
+    }
+    return nowEpochMs
 }
 
 internal fun formatDownloadBytes(bytes: Long): String {

@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 internal actual object DownloadsStorage {
     private const val preferencesName = "nuvio_downloads"
     private const val payloadKey = "downloads_payload"
+    private const val corruptPayloadKey = "downloads_payload_corrupt"
 
     private var preferences: SharedPreferences? = null
 
@@ -20,6 +21,13 @@ internal actual object DownloadsStorage {
         preferences
             ?.edit()
             ?.putString(payloadKey, payload)
+            ?.apply()
+    }
+
+    actual fun saveCorruptPayload(payload: String) {
+        preferences
+            ?.edit()
+            ?.putString(corruptPayloadKey, payload)
             ?.apply()
     }
 }

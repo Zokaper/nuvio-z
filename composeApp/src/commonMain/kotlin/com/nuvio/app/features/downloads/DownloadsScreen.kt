@@ -13,17 +13,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -244,14 +252,28 @@ private fun LazyListScope.downloadsRootContent(
         item(key = "downloads-active-title") {
             DownloadSectionTitle(stringResource(Res.string.downloads_section_downloading))
         }
-        items(activeItems, key = { "active-${it.id}" }) { item ->
+        itemsIndexed(activeItems, key = { _, item -> "active-${item.id}" }) { index, item ->
             DownloadRow(
                 item = item,
                 onOpen = { onOpenDownload(item) },
                 onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = { DownloadsRepository.resumeDownload(item.id) },
+                onResume = {
+                    if (item.sizeApprovalRequired) {
+                        DownloadsRepository.approveUnexpectedSize(item.id)
+                    } else {
+                        DownloadsRepository.resumeDownload(item.id)
+                    }
+                },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                queueControls = QueueControls(
+                    canMoveUp = index > 0,
+                    canMoveDown = index < activeItems.lastIndex,
+                    onMoveToTop = { DownloadsRepository.moveDownloadToTop(item.id) },
+                    onMoveUp = { DownloadsRepository.moveDownloadUp(item.id) },
+                    onMoveDown = { DownloadsRepository.moveDownloadDown(item.id) },
+                    onMoveToBottom = { DownloadsRepository.moveDownloadToBottom(item.id) },
+                ),
             )
         }
     }
@@ -580,6 +602,8 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    /** Null in the completed sections, where there is no queue position to change. */
+    queueControls: QueueControls? = null,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -638,8 +662,13 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (queueControls != null) {
+                        QueueMenu(controls = queueControls)
+                    }
                     when (item.status) {
-                        DownloadStatus.Downloading -> {
+                        DownloadStatus.Queued,
+                        DownloadStatus.Downloading,
+                        -> {
                             IconButton(onClick = onPause) {
                                 Icon(
                                     imageVector = Icons.Rounded.Pause,
@@ -685,6 +714,9 @@ private fun DownloadRow(
                 }
             }
 
+            // Only a transfer that is actually running gets a bar. A queued item used to
+            // spin an indeterminate one, which was indistinguishable from a live
+            // download and made a waiting queue look like a stuck one.
             if (item.status == DownloadStatus.Downloading) {
                 if (item.totalBytes != null && item.totalBytes > 0L) {
                     LinearProgressIndicator(
@@ -697,6 +729,90 @@ private fun DownloadRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * What a row may do to its place in the queue.
+ *
+ * Boundary moves are disabled rather than hidden so the menu keeps a stable shape as
+ * a row travels up and down the list.
+ */
+private data class QueueControls(
+    val canMoveUp: Boolean,
+    val canMoveDown: Boolean,
+    val onMoveToTop: () -> Unit,
+    val onMoveUp: () -> Unit,
+    val onMoveDown: () -> Unit,
+    val onMoveToBottom: () -> Unit,
+)
+
+/**
+ * Reordering as a menu rather than drag handles.
+ *
+ * The downloads list is also driven with a TV remote, where dragging is not an
+ * option, so every move is a discrete, focusable item.
+ */
+@Composable
+private fun QueueMenu(controls: QueueControls) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = stringResource(Res.string.downloads_queue_actions),
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_to_top)) },
+                enabled = controls.canMoveUp,
+                leadingIcon = {
+                    Icon(Icons.Rounded.VerticalAlignTop, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveToTop()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_up)) },
+                enabled = controls.canMoveUp,
+                leadingIcon = {
+                    Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveUp()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_down)) },
+                enabled = controls.canMoveDown,
+                leadingIcon = {
+                    Icon(Icons.Rounded.ArrowDownward, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveDown()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_to_bottom)) },
+                enabled = controls.canMoveDown,
+                leadingIcon = {
+                    Icon(Icons.Rounded.VerticalAlignBottom, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveToBottom()
+                },
+            )
         }
     }
 }

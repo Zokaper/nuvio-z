@@ -12,10 +12,27 @@ import org.jetbrains.compose.resources.getString
 
 @Serializable
 enum class DownloadStatus {
+    /** Waiting for a transfer slot. Ordered by [DownloadItem.queuePosition]. */
+    Queued,
     Downloading,
     Paused,
     Completed,
     Failed,
+}
+
+/**
+ * Why a download is paused, which decides whether it may resume on its own.
+ *
+ * Only [User] pauses are sticky. The system pauses transfers for reasons the user
+ * never asked for - the app went to the background, the scheduler reclaimed the
+ * job, a higher priority download preempted this one - and those must come back by
+ * themselves, or the queue silently dies and stays dead.
+ */
+@Serializable
+enum class DownloadPauseReason {
+    User,
+    System,
+    SizeApproval,
 }
 
 @Serializable
@@ -50,6 +67,16 @@ data class DownloadItem(
     val sizeApprovalRequired: Boolean = false,
     val sizeCapOverrideApproved: Boolean = false,
     val errorMessage: String? = null,
+    /** Queue rank; lower runs sooner. Assigned on enqueue, rewritten by reordering. */
+    val queuePosition: Long = 0L,
+    val pauseReason: DownloadPauseReason? = null,
+    /** `ETag` from the first response, sent back as `If-Range` when resuming. */
+    val resumeEtag: String? = null,
+    /** `Last-Modified` fallback validator for sources that send no `ETag`. */
+    val resumeLastModified: String? = null,
+    val attemptCount: Int = 0,
+    /** When set, the item stays queued until this time to back off after a failure. */
+    val nextRetryAtEpochMs: Long? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
 ) {
@@ -76,13 +103,30 @@ data class DownloadItem(
         } else {
             "${parentMetaId.trim()}|movie"
         }
+
+    /** True while a failed attempt is waiting out its backoff before being retried. */
+    fun isWaitingForRetry(nowEpochMs: Long): Boolean {
+        val retryAt = nextRetryAtEpochMs ?: return false
+        return retryAt > nowEpochMs
+    }
+
+    /** True when the queue may pick this item up right now. */
+    fun isStartable(nowEpochMs: Long): Boolean =
+        status == DownloadStatus.Queued && !isWaitingForRetry(nowEpochMs)
+
+    /** True when the system stopped this item and is expected to restart it itself. */
+    val isSystemPaused: Boolean
+        get() = status == DownloadStatus.Paused && pauseReason == DownloadPauseReason.System
 }
 
 data class DownloadsUiState(
     val items: List<DownloadItem> = emptyList(),
 ) {
+    /** Everything not yet finished, in the order the queue will actually run it. */
     val activeItems: List<DownloadItem>
-        get() = items.filter { it.status != DownloadStatus.Completed }
+        get() = items
+            .filter { it.status != DownloadStatus.Completed }
+            .sortedWith(downloadQueueComparator)
 
     val completedItems: List<DownloadItem>
         get() = items.filter { it.status == DownloadStatus.Completed }
@@ -91,6 +135,21 @@ data class DownloadsUiState(
     val bytesOnDisk: Long
         get() = items.sumOf { it.downloadedBytes }
 }
+
+/**
+ * Sorts the active list into run order.
+ *
+ * Rank alone decides the order - deliberately not the status. If transfers in
+ * flight were bucketed to the top, "move up" would move a row that then snapped
+ * back below them, and reordering would be unusable. Sorting purely by rank keeps
+ * the list the user sees and the order the queue runs identical, so moving a row
+ * up means it downloads sooner. A paused item holds its place in line rather than
+ * being exiled to the bottom, which is also how it behaves.
+ */
+internal val downloadQueueComparator: Comparator<DownloadItem> =
+    compareBy<DownloadItem> { it.queuePosition }
+        .thenBy { it.createdAtEpochMs }
+        .thenBy { it.id }
 
 enum class DownloadEnqueueResult {
     Started,

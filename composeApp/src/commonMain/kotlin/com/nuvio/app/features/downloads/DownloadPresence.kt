@@ -101,6 +101,7 @@ data class TitleDownloadState(
 }
 
 internal fun DownloadStatus.toPresence(sizeApprovalRequired: Boolean): DownloadPresence = when (this) {
+    DownloadStatus.Queued -> DownloadPresence.Queued
     DownloadStatus.Downloading -> DownloadPresence.Downloading
     DownloadStatus.Paused -> if (sizeApprovalRequired) DownloadPresence.NeedsApproval else DownloadPresence.Paused
     DownloadStatus.Completed -> DownloadPresence.Completed
