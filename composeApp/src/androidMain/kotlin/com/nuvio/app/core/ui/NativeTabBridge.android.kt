@@ -14,6 +14,7 @@ internal actual fun publishNativeTabTitles(
     home: String,
     search: String,
     library: String,
+    downloads: String,
     profile: String,
 ) = Unit
 

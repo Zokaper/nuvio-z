@@ -137,7 +137,7 @@ object DownloadBatchPlanner {
             .filter { scope !is DownloadScope.SeasonUnwatched || !it.watched }
             .filter { it.season != 0 || 0 in selectedSeasons }
             .filter {
-                "$parentMetaId|${it.season}|${it.episode}" !in existingLogicalKeys
+                downloadLogicalKey(parentMetaId, it.season, it.episode) !in existingLogicalKeys
             }
             .distinctBy { Triple(it.videoId, it.season, it.episode) }
             .sortedWith(compareBy<BatchEpisode> { it.season }.thenBy { it.episode }.thenBy { it.videoId })

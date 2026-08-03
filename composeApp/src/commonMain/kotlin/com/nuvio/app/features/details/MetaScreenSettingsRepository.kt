@@ -16,6 +16,7 @@ import org.jetbrains.compose.resources.getString
 enum class MetaScreenSectionKey {
     ACTIONS,
     OVERVIEW,
+    DOWNLOADS,
     PRODUCTION,
     CAST,
     COMMENTS,
@@ -142,6 +143,11 @@ object MetaScreenSettingsRepository {
             key = MetaScreenSectionKey.OVERVIEW,
             titleRes = Res.string.meta_section_overview_title,
             descriptionRes = Res.string.meta_section_overview_description,
+        ),
+        MetaScreenSectionDefinition(
+            key = MetaScreenSectionKey.DOWNLOADS,
+            titleRes = Res.string.meta_section_downloads_title,
+            descriptionRes = Res.string.meta_section_downloads_description,
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.PRODUCTION,

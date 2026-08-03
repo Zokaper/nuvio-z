@@ -150,7 +150,7 @@ object DownloadsRepository {
         }
 
         val now = DownloadsClock.nowEpochMs()
-        val logicalKey = buildLogicalKey(
+        val logicalKey = downloadLogicalKey(
             parentMetaId = parentMetaId,
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
@@ -278,6 +278,41 @@ object DownloadsRepository {
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
+        persist()
+        startPendingTransfers()
+    }
+
+    /** Removes every download belonging to one movie or series, files included. */
+    fun deleteDownloadsForTitle(parentMetaId: String) {
+        deleteDownloadsMatching(parentMetaId) { true }
+    }
+
+    /** Removes every downloaded episode of one season, files included. */
+    fun deleteDownloadsForSeason(parentMetaId: String, season: Int) {
+        deleteDownloadsMatching(parentMetaId) { it.seasonNumber == season }
+    }
+
+    private fun deleteDownloadsMatching(
+        parentMetaId: String,
+        predicate: (DownloadItem) -> Boolean,
+    ) {
+        ensureLoaded()
+        val normalizedParentMetaId = parentMetaId.trim()
+        if (normalizedParentMetaId.isEmpty()) return
+
+        val doomed = _uiState.value.items.filter {
+            it.parentMetaId.trim() == normalizedParentMetaId && predicate(it)
+        }
+        if (doomed.isEmpty()) return
+
+        doomed.forEach { item ->
+            activeHandles.remove(item.id)?.cancel()
+            DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
+            DownloadsPlatformDownloader.removePartialFile(item.fileName)
+        }
+
+        val doomedIds = doomed.map { it.id }.toSet()
+        publish(_uiState.value.items.filterNot { it.id in doomedIds })
         persist()
         startPendingTransfers()
     }
@@ -783,16 +818,6 @@ private fun sanitizeResponseHeaders(headers: Map<String, String>?): Map<String, 
             }
         }
         .toMap()
-
-private fun buildLogicalKey(
-    parentMetaId: String,
-    seasonNumber: Int?,
-    episodeNumber: Int?,
-): String = if (seasonNumber != null && episodeNumber != null) {
-    "${parentMetaId.trim()}|$seasonNumber|$episodeNumber"
-} else {
-    "${parentMetaId.trim()}|movie"
-}
 
 private fun buildFileName(
     title: String,

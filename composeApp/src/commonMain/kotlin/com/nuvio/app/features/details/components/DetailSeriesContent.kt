@@ -44,7 +44,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DownloadForOffline
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,6 +87,9 @@ import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.metaVideoSeasonEpisodeComparator
 import com.nuvio.app.features.details.normalizeSeasonNumber
 import com.nuvio.app.features.details.seasonSortKey
+import com.nuvio.app.features.downloads.ContentDownloadState
+import com.nuvio.app.features.downloads.DownloadPresence
+import com.nuvio.app.features.downloads.TitleDownloadState
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
@@ -111,12 +116,15 @@ fun DetailSeriesContent(
     watchedKeys: Set<String> = emptySet(),
     episodeRatings: Map<Pair<Int, Int>, Double> = emptyMap(),
     blurUnwatchedEpisodes: Boolean = false,
+    downloadState: TitleDownloadState = TitleDownloadState(),
     onEpisodeClick: ((MetaVideo) -> Unit)? = null,
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
     onEpisodeDownload: ((MetaVideo) -> Unit)? = null,
+    onEpisodeManageDownload: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
     onSeasonDownload: ((Int) -> Unit)? = null,
     onSeasonDownloadUnwatched: ((Int) -> Unit)? = null,
+    onSeasonDeleteDownloads: ((Int) -> Unit)? = null,
     onCurrentSeasonChanged: ((Int) -> Unit)? = null,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
@@ -319,10 +327,24 @@ fun DetailSeriesContent(
                         )
                         if (onSeasonDownload != null) {
                             var showDownloadMenu by remember(seasonForContent) { mutableStateOf(false) }
+                            val seasonDownloads = downloadState.forSeason(seasonForContent)
+                            val downloadedSeasonCount = seasonDownloads.count {
+                                it.presence == DownloadPresence.Completed
+                            }
+                            val canDeleteSeasonDownloads = onSeasonDeleteDownloads != null &&
+                                downloadedSeasonCount > 0
                             Box {
+                                if (downloadedSeasonCount > 0) {
+                                    Text(
+                                        text = downloadedSeasonCount.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.align(Alignment.TopEnd),
+                                    )
+                                }
                                 IconButton(
                                     onClick = {
-                                        if (hasUnwatchedEpisodes) {
+                                        if (hasUnwatchedEpisodes || canDeleteSeasonDownloads) {
                                             showDownloadMenu = true
                                         } else {
                                             onSeasonDownload(currentSeason)
@@ -330,7 +352,11 @@ fun DetailSeriesContent(
                                     },
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Download,
+                                        imageVector = if (downloadedSeasonCount > 0) {
+                                            Icons.Default.DownloadDone
+                                        } else {
+                                            Icons.Default.Download
+                                        },
                                         contentDescription = null,
                                     )
                                 }
@@ -351,21 +377,40 @@ fun DetailSeriesContent(
                                             onSeasonDownload(currentSeason)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(stringResource(Res.string.download_preset_season_unwatched))
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.DownloadForOffline,
-                                                contentDescription = null,
-                                            )
-                                        },
-                                        onClick = {
-                                            showDownloadMenu = false
-                                            onSeasonDownloadUnwatched?.invoke(currentSeason)
-                                        },
-                                    )
+                                    if (hasUnwatchedEpisodes) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(Res.string.download_preset_season_unwatched))
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.DownloadForOffline,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                showDownloadMenu = false
+                                                onSeasonDownloadUnwatched?.invoke(currentSeason)
+                                            },
+                                        )
+                                    }
+                                    if (canDeleteSeasonDownloads) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(Res.string.downloads_delete_season))
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Delete,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                showDownloadMenu = false
+                                                onSeasonDeleteDownloads?.invoke(currentSeason)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -386,6 +431,8 @@ fun DetailSeriesContent(
                             onEpisodeClick = onEpisodeClick,
                             onEpisodeLongPress = onEpisodeLongPress,
                             onEpisodeDownload = onEpisodeDownload,
+                            onEpisodeManageDownload = onEpisodeManageDownload,
+                            downloadState = downloadState,
                         )
                     } else {
                         Column(
@@ -415,6 +462,8 @@ fun DetailSeriesContent(
                                     onClick = { onEpisodeClick?.invoke(episode) },
                                     onLongPress = { onEpisodeLongPress?.invoke(episode) },
                                     onDownload = onEpisodeDownload?.let { action -> { action(episode) } },
+                                    onManageDownload = onEpisodeManageDownload?.let { action -> { action(episode) } },
+                                    downloadState = downloadState.forEpisode(episode.season, episode.episode),
                                 )
                             }
                         }
@@ -690,6 +739,8 @@ private fun EpisodeHorizontalRow(
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
     onEpisodeDownload: ((MetaVideo) -> Unit)?,
+    onEpisodeManageDownload: ((MetaVideo) -> Unit)?,
+    downloadState: TitleDownloadState,
 ) {
     val rowMetrics = rememberEpisodeHorizontalCardMetrics(maxWidthDp)
     val listState = rememberLazyListState()
@@ -749,6 +800,8 @@ private fun EpisodeHorizontalRow(
                 onClick = { onEpisodeClick?.invoke(episode) },
                 onLongPress = { onEpisodeLongPress?.invoke(episode) },
                 onDownload = onEpisodeDownload?.let { action -> { action(episode) } },
+                onManageDownload = onEpisodeManageDownload?.let { action -> { action(episode) } },
+                downloadState = downloadState.forEpisode(episode.season, episode.episode),
             )
         }
     }
@@ -764,6 +817,8 @@ private fun EpisodeHorizontalCard(
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
     metrics: EpisodeHorizontalCardMetrics,
+    downloadState: ContentDownloadState = ContentDownloadState.None,
+    onManageDownload: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onDownload: (() -> Unit)? = null,
@@ -825,18 +880,15 @@ private fun EpisodeHorizontalCard(
                 .padding(metrics.contentPadding),
         )
         if (onDownload != null) {
-            IconButton(
-                onClick = onDownload,
+            DownloadStateButton(
+                state = downloadState,
+                onDownload = onDownload,
+                onManage = onManageDownload ?: onDownload,
+                tint = Color.White,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(metrics.contentPadding),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = null,
-                    tint = Color.White,
-                )
-            }
+            )
         }
 
         Column(
@@ -1149,9 +1201,11 @@ private fun EpisodeListCard(
     blurUnwatchedEpisodes: Boolean,
     sizing: SeriesContentSizing,
     modifier: Modifier = Modifier,
+    downloadState: ContentDownloadState = ContentDownloadState.None,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onDownload: (() -> Unit)? = null,
+    onManageDownload: (() -> Unit)? = null,
 ) {
     val cardShape = RoundedCornerShape(sizing.cardRadius)
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
@@ -1305,17 +1359,14 @@ private fun EpisodeListCard(
                 )
             }
         if (onDownload != null) {
-            IconButton(
-                onClick = onDownload,
+            DownloadStateButton(
+                state = downloadState,
+                onDownload = onDownload,
+                onManage = onManageDownload ?: onDownload,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = null,
-                )
-            }
+            )
         }
     }
 }

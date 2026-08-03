@@ -31,6 +31,12 @@ sealed interface SettingsDestinationRoute : AppRoute {
 }
 
 @Serializable
+sealed interface DownloadsDestinationRoute : AppRoute {
+    override val preferredTabName: String
+        get() = "Downloads"
+}
+
+@Serializable
 data object TabsRoute : AppRoute
 
 @Serializable
@@ -86,7 +92,7 @@ data class DownloadsSettingsRoute(override val title: String = "") : SettingsDes
 data class DownloadShowRoute(
     val showId: String,
     override val title: String,
-) : AppRoute
+) : DownloadsDestinationRoute
 
 @Serializable
 data class AddonsSettingsRoute(override val title: String = "") : SettingsDestinationRoute

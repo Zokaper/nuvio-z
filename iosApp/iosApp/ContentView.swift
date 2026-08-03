@@ -234,6 +234,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
     case home = "Home"
     case search = "Search"
     case library = "Library"
+    case downloads = "Downloads"
     case settings = "Settings"
 
     var fallbackTitle: String {
@@ -245,6 +246,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case "home": return .home
         case "search": return .search
         case "library": return .library
+        case "downloads": return .downloads
         case "settings", "profile": return .settings
         default: return nil
         }
@@ -255,6 +257,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case .home: return "NuvioTabHome"
         case .search: return "NuvioTabSearch"
         case .library: return "NuvioTabLibrary"
+        case .downloads: return "NuvioTabDownloads"
         case .settings: return "NuvioTabProfile"
         }
     }
@@ -264,6 +267,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case .home: return "house.fill"
         case .search: return "magnifyingglass"
         case .library: return "rectangle.stack.fill"
+        case .downloads: return "arrow.down.circle.fill"
         case .settings: return "person.crop.circle.fill"
         }
     }
@@ -549,6 +553,7 @@ final class AppNavigationCoordinator: ObservableObject {
     let homeCoordinator = TabNavigationCoordinator()
     let searchCoordinator = TabNavigationCoordinator()
     let libraryCoordinator = TabNavigationCoordinator()
+    let downloadsCoordinator = TabNavigationCoordinator()
     let settingsCoordinator = TabNavigationCoordinator()
     let profileSwitcherController = NativeProfileSwitcherController()
     let profileTabInteraction = NativeProfileTabInteractionCoordinator()
@@ -561,7 +566,7 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     private var allCoordinators: [TabNavigationCoordinator] {
-        [homeCoordinator, searchCoordinator, libraryCoordinator, settingsCoordinator]
+        [homeCoordinator, searchCoordinator, libraryCoordinator, downloadsCoordinator, settingsCoordinator]
     }
 
     func coordinator(for tab: NuvioAppTab) -> TabNavigationCoordinator {
@@ -569,6 +574,7 @@ final class AppNavigationCoordinator: ObservableObject {
         case .home: return homeCoordinator
         case .search: return searchCoordinator
         case .library: return libraryCoordinator
+        case .downloads: return downloadsCoordinator
         case .settings: return settingsCoordinator
         }
     }
@@ -588,6 +594,7 @@ final class AppNavigationCoordinator: ObservableObject {
         home: String,
         search: String,
         library: String,
+        downloads: String,
         profile: String,
         switchProfile: String,
         addProfile: String
@@ -596,6 +603,7 @@ final class AppNavigationCoordinator: ObservableObject {
             .home: home,
             .search: search,
             .library: library,
+            .downloads: downloads,
             .settings: profile,
         ]
         localizedSwitchProfileTitle = switchProfile
@@ -682,11 +690,12 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
             onAppReady: { ready in
                 appCoordinator.updateAppReady(ready.boolValue)
             },
-            onTabTitles: { home, search, library, profile, switchProfile, addProfile in
+            onTabTitles: { home, search, library, downloads, profile, switchProfile, addProfile in
                 appCoordinator.updateTabTitles(
                     home: home,
                     search: search,
                     library: library,
+                    downloads: downloads,
                     profile: profile,
                     switchProfile: switchProfile,
                     addProfile: addProfile

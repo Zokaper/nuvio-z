@@ -96,7 +96,7 @@ internal fun settingsSearchEntries(
     val layoutPage = stringResource(Res.string.compose_settings_page_appearance)
     val advancedPage = stringResource(Res.string.compose_settings_page_advanced)
     val contentDiscoveryPage = stringResource(Res.string.compose_settings_page_content_discovery)
-    val downloadsPage = stringResource(Res.string.compose_settings_root_downloads_title)
+    val downloadsPage = stringResource(Res.string.downloads_settings_title)
     val playbackPage = stringResource(Res.string.compose_settings_page_playback)
     val streamsPage = stringResource(Res.string.compose_settings_page_streams)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)

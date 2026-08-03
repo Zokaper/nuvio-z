@@ -86,6 +86,10 @@ data class DownloadsUiState(
 
     val completedItems: List<DownloadItem>
         get() = items.filter { it.status == DownloadStatus.Completed }
+
+    /** Bytes actually written to this device, including partially transferred files. */
+    val bytesOnDisk: Long
+        get() = items.sumOf { it.downloadedBytes }
 }
 
 enum class DownloadEnqueueResult {

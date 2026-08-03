@@ -42,7 +42,7 @@ import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_
 import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_title
 import nuvio.composeapp.generated.resources.compose_settings_root_content_discovery_description
 import nuvio.composeapp.generated.resources.compose_settings_root_downloads_description
-import nuvio.composeapp.generated.resources.compose_settings_root_downloads_title
+import nuvio.composeapp.generated.resources.downloads_settings_title
 import nuvio.composeapp.generated.resources.compose_settings_root_general_section
 import nuvio.composeapp.generated.resources.compose_settings_root_integrations_description
 import nuvio.composeapp.generated.resources.compose_settings_root_notifications_description
@@ -147,7 +147,7 @@ internal fun LazyListScope.settingsRootContent(
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.compose_settings_root_downloads_title),
+                        title = stringResource(Res.string.downloads_settings_title),
                         description = stringResource(Res.string.compose_settings_root_downloads_description),
                         icon = Icons.Rounded.CloudDownload,
                         isTablet = isTablet,

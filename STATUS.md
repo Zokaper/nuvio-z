@@ -1,11 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `main` (the unwatched-download work was merged into it).
+- Working branch: `claude/downloads-integration-redesign-dfm9j6`
+  (branched from `main`, which already carries the unwatched-download work).
 - Official repository is configured as `upstream`.
 - Private `origin` repository: `https://github.com/Zokaper/nuvio-z`.
 - Android identity: Nuvio Z, `com.nuvio.app.z`
@@ -37,6 +38,9 @@ Last updated: 2026-08-02
 - Fixed false “Conflicting source metadata” results by separating authoritative
   byte reports from rounded filename/display estimates and tolerating equivalent
   hard reports while retaining the largest cap-enforcement size.
+- Promoted downloads from a settings page to a first-class part of the app:
+  a dedicated Downloads tab, artwork-driven queue and on-device lists, and live
+  download state on movie and series entries.
 
 ## Verification
 
@@ -45,6 +49,8 @@ Last updated: 2026-08-02
   - `SourceFactsExtractorTest`: 8 passed.
   - `PresetDownloadsTest`: 10 passed (12 after the unwatched-scope tests were
     added; not yet executed, see below).
+- `DownloadPresenceTest` (11 tests) was added for the downloads integration
+  redesign and has **not been executed** — no Gradle task can configure here.
 - Signed `assembleFullRelease` completed successfully after the latest metadata
   fix.
 - On-device preset smoke test:
@@ -59,14 +65,24 @@ Last updated: 2026-08-02
 
 ## Pending / Follow-up
 
-- The unwatched-season download work has **not** been compiled or tested in this
-  environment: the sandbox blocks `dl.google.com`, so the Android Gradle Plugin
-  cannot be resolved and no Gradle task can configure. Run
-  `.\gradlew.bat :composeApp:testAndroidHostTest` and an `assembleFullDebug`
-  locally before trusting it.
+- Neither the unwatched-season work nor the downloads integration redesign has
+  been **compiled or tested** in this environment: the sandbox blocks
+  `dl.google.com`, so the Android Gradle Plugin cannot be resolved and no Gradle
+  task can configure. Run `.\gradlew.bat :composeApp:testAndroidHostTest` and an
+  `assembleFullDebug` locally before trusting either.
 - Smoke-test the unwatched season download on-device: open a partly watched
   season, use the season download menu, and confirm only the current episode
   onwards is queued.
+- Smoke-test the downloads redesign on-device: confirm the Downloads tab appears
+  in the classic, adaptive and tablet nav bars; queue one small episode and check
+  that the episode card ring, the tab's “Downloading now” row, and pause/resume
+  stay in sync; confirm the “Downloaded” section appears on the entry once the
+  transfer completes and disappears after deleting.
+- The iOS Downloads tab currently falls back to the `arrow.down.circle.fill` SF
+  Symbol. Add a `NuvioTabDownloads` xcasset to match the other tab icons.
+- Existing profiles get the new meta-screen “Downloaded” section appended last in
+  their saved section order, because `normalizePreferences` sorts unknown keys to
+  the end. New profiles get it right after Actions.
 - The local workspace directory is still named `stremio-z`; renaming it is
   deferred.
 - Run the full host suite again after the next substantial code change.
@@ -80,6 +96,36 @@ Last updated: 2026-08-02
   reconfigured for this personal build.
 
 ## Work Log
+
+### 2026-08-03
+
+- Added `DownloadPresence.kt`: a shared, Compose-free download-state layer
+  (`DownloadPresence`, `ContentDownloadState`, `TitleDownloadState`,
+  `buildTitleDownloadState`) that merges persisted downloads with in-flight batch
+  entries so a title reads as “preparing” the moment a batch is created.
+- Promoted the private `buildLogicalKey` to a shared `downloadLogicalKey` and
+  pointed `DownloadsRepository` and `DownloadBatchPlanner` at it, so batch
+  planning and download storage can no longer drift apart.
+- Added `DownloadsRepository.deleteDownloadsForTitle` / `deleteDownloadsForSeason`
+  and `DownloadsUiState.bytesOnDisk`.
+- Made Downloads a top-level tab (`AppScreenTab.Downloads`,
+  `NativeNavigationTab.Downloads`) across the classic, adaptive and tablet nav
+  bars, the desktop sidebar, and the iOS native tab bar; widened the tab-title
+  bridge with a `downloads` slot through to `ContentView.swift`.
+- Split the old settings-only downloads page in two: `DownloadsSettingsScreen`
+  keeps presets and allowed sources under Settings, while `DownloadsScreen`
+  became the tab root with artwork, a needs-attention section, live transfers,
+  and an on-device list grouped per title with per-title and per-season deletes.
+- Added `DownloadStateButton` and `DownloadManageSheet`, and wired them into both
+  episode card styles so a card shows idle / preparing / progress / paused /
+  failed / downloaded and manages the download in place.
+- Added a configurable `MetaScreenSectionKey.DOWNLOADS` section listing what is
+  on the device for a title, and made the hero download action reflect a movie's
+  own download state.
+- Added `DownloadPresenceTest` covering key derivation, both presence mappings,
+  item-over-batch precedence, season roll-ups, and prefix collisions.
+- Mirrored the whole change into `Zokaper/NuvioZDesktop`, where the Downloads tab
+  and sidebar entry are gated behind `AppFeaturePolicy.downloadsEnabled`.
 
 ### 2026-08-02
 
