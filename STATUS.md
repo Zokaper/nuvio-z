@@ -5,7 +5,7 @@ Last updated: 2026-08-02
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `claude/download-unwatched-episodes-3ql94w`.
+- Working branch: `main` (the unwatched-download work was merged into it).
 - Official repository is configured as `upstream`.
 - Private `origin` repository: `https://github.com/Zokaper/nuvio-z`.
 - Android identity: Nuvio Z, `com.nuvio.app.z`
