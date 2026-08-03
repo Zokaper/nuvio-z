@@ -1,8 +1,17 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamProxyHeaders
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +26,13 @@ import org.jetbrains.compose.resources.getString
 
 object DownloadsRepository {
     const val MAX_CONCURRENT_TRANSFERS = 2
+
+    /**
+     * Progress used to rewrite the whole payload on every chunk. Disk writes are now
+     * coalesced to this interval; state transitions still persist immediately.
+     */
+    private const val PERSIST_MIN_INTERVAL_MS = 1_000L
+
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
     private val _sourcePolicy = MutableStateFlow(DownloadSourcePolicy())
@@ -26,28 +42,75 @@ object DownloadsRepository {
     private val _presets = MutableStateFlow(DownloadPreset.BuiltIns)
     val presets: StateFlow<List<DownloadPreset>> = _presets.asStateFlow()
 
+    /**
+     * Guards every mutation below.
+     *
+     * Transfer callbacks arrive on network IO threads while the UI and the
+     * notification receiver mutate from their own, so the read-modify-write cycles
+     * here need serialising. Held only for state changes - never while suspending,
+     * and never re-entered, since this lock is not reentrant on native targets.
+     */
+    private val stateLock = SynchronizedObject()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private var hasLoaded = false
+    private var networkObserverStarted = false
     private var nextDownloadOrdinal = 0L
+    private var lastPersistAtEpochMs = 0L
+    private var hasPendingPersist = false
+    private var retryWakeJob: Job? = null
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        synchronized(stateLock) {
+            if (hasLoaded) return
+            loadFromDiskLocked()
+            startNetworkObserverLocked()
+        }
+        startPendingTransfers()
+    }
+
+    /**
+     * Brings the queue back when connectivity returns.
+     *
+     * Losing the network is the most common reason a transfer stops, and waiting for
+     * the user to notice and tap resume on each item is not a recovery story.
+     */
+    private fun startNetworkObserverLocked() {
+        if (networkObserverStarted) return
+        networkObserverStarted = true
+        scope.launch {
+            var wasOnline = NetworkStatusRepository.uiState.value.isOnline
+            NetworkStatusRepository.uiState.collect { state ->
+                val isOnline = state.isOnline
+                if (isOnline && !wasOnline) {
+                    resumeSystemPausedDownloads()
+                    startPendingTransfers()
+                }
+                wasOnline = isOnline
+            }
+        }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(stateLock) { loadFromDiskLocked() }
+        startPendingTransfers()
     }
 
     fun clearLocalState() {
-        activeHandles.values.forEach(DownloadsTaskHandle::cancel)
-        activeHandles.clear()
-        hasLoaded = false
-        _uiState.value = DownloadsUiState()
-        _sourcePolicy.value = DownloadSourcePolicy()
-        _batches.value = emptyList()
-        _presets.value = DownloadPreset.BuiltIns
-        notifyLiveStatusPlatform()
+        synchronized(stateLock) {
+            activeHandles.values.forEach(DownloadsTaskHandle::cancel)
+            activeHandles.clear()
+            retryWakeJob?.cancel()
+            retryWakeJob = null
+            hasLoaded = false
+            hasPendingPersist = false
+            _uiState.value = DownloadsUiState()
+            _sourcePolicy.value = DownloadSourcePolicy()
+            _batches.value = emptyList()
+            _presets.value = DownloadPreset.BuiltIns
+            notifyLiveStatusPlatform()
+        }
     }
 
     fun findPlayableDownloadByVideoId(videoId: String?): DownloadItem? {
@@ -97,14 +160,16 @@ object DownloadsRepository {
         ) ?: return null
 
         if (resolvedUri != item.localFileUri) {
-            mutateItem(item.id) { current ->
-                if (current.fileName == item.fileName) {
-                    current.copy(
-                        localFileUri = resolvedUri,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                } else {
-                    current
+            synchronized(stateLock) {
+                mutateLocked(item.id, immediate = true) { current ->
+                    if (current.fileName == item.fileName) {
+                        current.copy(
+                            localFileUri = resolvedUri,
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        )
+                    } else {
+                        current
+                    }
                 }
             }
         }
@@ -156,64 +221,73 @@ object DownloadsRepository {
             episodeNumber = episodeNumber,
         )
 
-        var replacedExisting = false
-        val currentItems = _uiState.value.items.toMutableList()
-        val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
-        if (existing != null) {
-            replacedExisting = true
-            activeHandles.remove(existing.id)?.cancel()
-            DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
-            DownloadsPlatformDownloader.removePartialFile(existing.fileName)
-            currentItems.removeAll { it.id == existing.id }
+        val replacedExisting = synchronized(stateLock) {
+            val currentItems = _uiState.value.items.toMutableList()
+            val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
+            if (existing != null) {
+                activeHandles.remove(existing.id)?.cancel()
+                DownloadsPlatformDownloader.removeFile(
+                    DownloadsPlatformDownloader.resolveLocalFileUri(
+                        localFileUri = existing.localFileUri,
+                        destinationFileName = existing.fileName,
+                    ) ?: existing.localFileUri,
+                )
+                DownloadsPlatformDownloader.removePartialFile(existing.fileName)
+                currentItems.removeAll { it.id == existing.id }
+            }
+
+            val downloadId = nextDownloadId(now)
+            val fileName = buildFileName(
+                title = title,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                fallbackTitle = stream.streamLabel,
+                sourceUrl = sourceUrl,
+                nowEpochMs = now,
+            )
+
+            val item = DownloadItem(
+                id = downloadId,
+                contentType = contentType,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                videoId = videoId,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+                streamTitle = stream.streamLabel,
+                streamSubtitle = stream.streamSubtitle,
+                providerName = stream.addonName,
+                providerAddonId = stream.addonId,
+                sourceUrl = sourceUrl,
+                sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
+                sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+                localFileUri = null,
+                fileName = fileName,
+                status = DownloadStatus.Queued,
+                downloadedBytes = 0L,
+                totalBytes = null,
+                calculatedCapBytes = calculatedCapBytes?.takeIf { it > 0L },
+                allowMeteredNetwork = allowMeteredNetwork,
+                // Appended, not prepended: a season batch is enqueued in episode order
+                // and prepending made it download backwards, E10 before E01.
+                queuePosition = DownloadQueuePlanner.nextQueuePosition(currentItems),
+                errorMessage = null,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            )
+
+            currentItems.add(item)
+            publishLocked(currentItems, immediate = true)
+            existing != null
         }
 
-        val downloadId = nextDownloadId(now)
-        val fileName = buildFileName(
-            title = title,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            fallbackTitle = stream.streamLabel,
-            sourceUrl = sourceUrl,
-            nowEpochMs = now,
-        )
-
-        val item = DownloadItem(
-            id = downloadId,
-            contentType = contentType,
-            parentMetaId = parentMetaId,
-            parentMetaType = parentMetaType,
-            videoId = videoId,
-            title = title,
-            logo = logo,
-            poster = poster,
-            background = background,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            episodeThumbnail = episodeThumbnail,
-            streamTitle = stream.streamLabel,
-            streamSubtitle = stream.streamSubtitle,
-            providerName = stream.addonName,
-            providerAddonId = stream.addonId,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
-            sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-            localFileUri = null,
-            fileName = fileName,
-            status = DownloadStatus.Downloading,
-            downloadedBytes = 0L,
-            totalBytes = null,
-            calculatedCapBytes = calculatedCapBytes?.takeIf { it > 0L },
-            allowMeteredNetwork = allowMeteredNetwork,
-            errorMessage = null,
-            createdAtEpochMs = now,
-            updatedAtEpochMs = now,
-        )
-
-        currentItems.add(0, item)
-        publish(currentItems)
-        persist()
         startPendingTransfers()
 
         return if (replacedExisting) {
@@ -223,45 +297,118 @@ object DownloadsRepository {
         }
     }
 
+    /** Pauses on the user's behalf, which means it stays paused until they say otherwise. */
     fun pauseDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (item.status != DownloadStatus.Downloading) return
+        synchronized(stateLock) {
+            val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+            if (item.status != DownloadStatus.Downloading && item.status != DownloadStatus.Queued) return
 
-        activeHandles.remove(downloadId)?.cancel()
-        mutateItem(downloadId) { current ->
-            current.copy(
-                status = DownloadStatus.Paused,
-                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                errorMessage = null,
+            activeHandles.remove(downloadId)?.cancel()
+            mutateLocked(downloadId, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Paused,
+                    pauseReason = DownloadPauseReason.User,
+                    nextRetryAtEpochMs = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    errorMessage = null,
+                )
+            }
+        }
+        startPendingTransfers()
+    }
+
+    /**
+     * Stops everything because the platform asked us to, not because the user did.
+     *
+     * These come back on their own via [resumeSystemPausedDownloads]; anything the
+     * user paused by hand is left alone.
+     */
+    fun pauseActiveDownloads() {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val now = DownloadsClock.nowEpochMs()
+            val affected = _uiState.value.items.filter {
+                it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
+            }
+            if (affected.isEmpty()) return
+            affected.forEach { activeHandles.remove(it.id)?.cancel() }
+            val affectedIds = affected.map { it.id }.toSet()
+            publishLocked(
+                _uiState.value.items.map { item ->
+                    if (item.id !in affectedIds) {
+                        item
+                    } else {
+                        item.copy(
+                            status = DownloadStatus.Paused,
+                            pauseReason = DownloadPauseReason.System,
+                            updatedAtEpochMs = now,
+                        )
+                    }
+                },
+                immediate = true,
+            )
+        }
+    }
+
+    /**
+     * Puts system-paused transfers back in the queue.
+     *
+     * Called when the app returns to the foreground, when downloads are reloaded, and
+     * whenever the queue is nudged. Without it a backgrounded app or a reclaimed
+     * background job left the whole queue paused with nothing to ever restart it.
+     */
+    fun resumeSystemPausedDownloads() {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val now = DownloadsClock.nowEpochMs()
+            val resumable = _uiState.value.items.filter { it.isSystemPaused }
+            if (resumable.isEmpty()) return
+            val resumableIds = resumable.map { it.id }.toSet()
+            publishLocked(
+                _uiState.value.items.map { item ->
+                    if (item.id !in resumableIds) {
+                        item
+                    } else {
+                        item.copy(
+                            status = DownloadStatus.Queued,
+                            pauseReason = null,
+                            errorMessage = null,
+                            updatedAtEpochMs = now,
+                        )
+                    }
+                },
+                immediate = true,
             )
         }
         startPendingTransfers()
     }
 
-    fun pauseActiveDownloads() {
-        ensureLoaded()
-        _uiState.value.items
-            .filter { it.status == DownloadStatus.Downloading }
-            .map { it.id }
-            .forEach(::pauseDownload)
-    }
-
     fun resumeDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
-        if (item.sizeApprovalRequired && !item.sizeCapOverrideApproved) return
+        synchronized(stateLock) {
+            val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+            if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
+            if (item.sizeApprovalRequired && !item.sizeCapOverrideApproved) return
 
-        val reset = item.copy(
-            status = DownloadStatus.Downloading,
-            errorMessage = null,
-            localFileUri = null,
-            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-        )
+            // Trust the bytes on disk over the last figure we recorded: a process death
+            // mid-transfer can leave the two disagreeing, and the partial file is what a
+            // resume actually continues from.
+            val partialBytes = DownloadsPlatformDownloader.partialFileBytes(item.fileName)
 
-        replaceItem(reset)
-        persist()
+            mutateLocked(downloadId, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Queued,
+                    pauseReason = null,
+                    errorMessage = null,
+                    localFileUri = null,
+                    downloadedBytes = partialBytes,
+                    attemptCount = 0,
+                    nextRetryAtEpochMs = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
         startPendingTransfers()
     }
 
@@ -271,39 +418,110 @@ object DownloadsRepository {
 
     fun cancelDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        synchronized(stateLock) {
+            val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
-        activeHandles.remove(downloadId)?.cancel()
-        DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
-        DownloadsPlatformDownloader.removePartialFile(item.fileName)
+            activeHandles.remove(downloadId)?.cancel()
+            DownloadsPlatformDownloader.removeFile(
+                DownloadsPlatformDownloader.resolveLocalFileUri(
+                    localFileUri = item.localFileUri,
+                    destinationFileName = item.fileName,
+                ) ?: item.localFileUri,
+            )
+            DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
-        publish(_uiState.value.items.filterNot { it.id == downloadId })
-        persist()
+            publishLocked(
+                DownloadQueuePlanner.normalized(
+                    _uiState.value.items.filterNot { it.id == downloadId },
+                ),
+                immediate = true,
+            )
+        }
+        startPendingTransfers()
+    }
+
+    /**
+     * Promotes an item to the front of the queue and starts it now.
+     *
+     * If every slot is busy the lowest priority transfer is put back in the queue to
+     * make room. Its partial file is kept, so it carries on from where it stopped
+     * once a slot frees up rather than starting over.
+     */
+    fun moveDownloadToTop(downloadId: String) = moveDownload(downloadId, QueueMove.ToTop)
+
+    fun moveDownloadUp(downloadId: String) = moveDownload(downloadId, QueueMove.Up)
+
+    fun moveDownloadDown(downloadId: String) = moveDownload(downloadId, QueueMove.Down)
+
+    fun moveDownloadToBottom(downloadId: String) = moveDownload(downloadId, QueueMove.ToBottom)
+
+    private fun moveDownload(downloadId: String, move: QueueMove) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val reordered = DownloadQueuePlanner.reordered(_uiState.value.items, downloadId, move)
+            if (reordered === _uiState.value.items) return
+
+            val preempted = if (move == QueueMove.ToTop) {
+                DownloadQueuePlanner.preemptionCandidate(
+                    items = reordered,
+                    promotedId = downloadId,
+                    activeIds = activeHandles.keys.toSet(),
+                    maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+                )
+            } else {
+                null
+            }
+
+            if (preempted == null) {
+                publishLocked(reordered, immediate = true)
+            } else {
+                activeHandles.remove(preempted.id)?.cancel()
+                val now = DownloadsClock.nowEpochMs()
+                publishLocked(
+                    reordered.map { item ->
+                        if (item.id != preempted.id) {
+                            item
+                        } else {
+                            item.copy(
+                                status = DownloadStatus.Queued,
+                                pauseReason = null,
+                                updatedAtEpochMs = now,
+                            )
+                        }
+                    },
+                    immediate = true,
+                )
+            }
+        }
         startPendingTransfers()
     }
 
     fun setAddonAllowed(key: AddonSourceKey, allowed: Boolean, enabledKeys: Set<AddonSourceKey>) {
         ensureLoaded()
-        val current = _sourcePolicy.value
-        val explicit = (current.allowedAddons ?: enabledKeys).toMutableSet()
-        if (allowed) explicit += key else explicit -= key
-        _sourcePolicy.value = current.copy(allowedAddons = explicit)
-        persist()
+        synchronized(stateLock) {
+            val current = _sourcePolicy.value
+            val explicit = (current.allowedAddons ?: enabledKeys).toMutableSet()
+            if (allowed) explicit += key else explicit -= key
+            _sourcePolicy.value = current.copy(allowedAddons = explicit)
+            persistLocked()
+        }
     }
 
     fun setAioProviderAllowed(key: AddonSourceKey, provider: String, allowed: Boolean) {
         ensureLoaded()
         val normalized = provider.trim().takeIf { it.isNotEmpty() } ?: return
-        val current = _sourcePolicy.value
-        val providers = (
-            current.allowedAioProviders[key]
-                ?: current.discoveredAioProviders[key].orEmpty()
-            ).toMutableSet()
-        if (allowed) providers += normalized else providers -= normalized
-        _sourcePolicy.value = current.copy(
-            allowedAioProviders = current.allowedAioProviders + (key to providers),
-        )
-        persist()
+        synchronized(stateLock) {
+            val current = _sourcePolicy.value
+            val providers = (
+                current.allowedAioProviders[key]
+                    ?: current.discoveredAioProviders[key].orEmpty()
+                ).toMutableSet()
+            if (allowed) providers += normalized else providers -= normalized
+            _sourcePolicy.value = current.copy(
+                allowedAioProviders = current.allowedAioProviders + (key to providers),
+            )
+            persistLocked()
+        }
     }
 
     fun recordDiscoveredAioProvider(key: AddonSourceKey, facts: SourceFacts) {
@@ -312,81 +530,99 @@ object DownloadsRepository {
             ?.takeIf { it.isNotEmpty() }
             ?: return
         ensureLoaded()
-        val current = _sourcePolicy.value
-        val discovered = current.discoveredAioProviders[key].orEmpty()
-        if (provider in discovered) return
-        _sourcePolicy.value = current.copy(
-            discoveredAioProviders = current.discoveredAioProviders +
-                (key to (discovered + provider)),
-        )
-        persist()
+        synchronized(stateLock) {
+            val current = _sourcePolicy.value
+            val discovered = current.discoveredAioProviders[key].orEmpty()
+            if (provider in discovered) return
+            _sourcePolicy.value = current.copy(
+                discoveredAioProviders = current.discoveredAioProviders +
+                    (key to (discovered + provider)),
+            )
+            persistLocked()
+        }
     }
 
     fun setAioOverride(key: AddonSourceKey, enabled: Boolean) {
         ensureLoaded()
-        val overrides = _sourcePolicy.value.aioOverrides.toMutableSet()
-        if (enabled) overrides += key else overrides -= key
-        _sourcePolicy.value = _sourcePolicy.value.copy(aioOverrides = overrides)
-        persist()
+        synchronized(stateLock) {
+            val overrides = _sourcePolicy.value.aioOverrides.toMutableSet()
+            if (enabled) overrides += key else overrides -= key
+            _sourcePolicy.value = _sourcePolicy.value.copy(aioOverrides = overrides)
+            persistLocked()
+        }
     }
 
     fun approveUnexpectedSize(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (!item.sizeApprovalRequired) return
-        replaceItem(
-            item.copy(
-                status = DownloadStatus.Downloading,
-                sizeApprovalRequired = false,
-                sizeCapOverrideApproved = true,
-                errorMessage = null,
-                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-            ),
-        )
-        persist()
+        synchronized(stateLock) {
+            val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+            if (!item.sizeApprovalRequired) return
+            mutateLocked(downloadId, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Queued,
+                    pauseReason = null,
+                    sizeApprovalRequired = false,
+                    sizeCapOverrideApproved = true,
+                    errorMessage = null,
+                    attemptCount = 0,
+                    nextRetryAtEpochMs = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
         startPendingTransfers()
     }
 
     fun saveBatch(batch: DownloadBatch) {
         ensureLoaded()
-        _batches.value = listOf(batch) + _batches.value.filterNot { it.id == batch.id }
-        persist()
+        synchronized(stateLock) {
+            _batches.value = listOf(batch) + _batches.value.filterNot { it.id == batch.id }
+            persistLocked()
+        }
     }
 
     fun updateBatchEntry(batchId: String, entry: DownloadBatchEntry) {
         ensureLoaded()
-        _batches.update { batches ->
-            batches.map { batch ->
-                if (batch.id != batchId) {
-                    batch
-                } else {
-                    batch.copy(
-                        entries = batch.entries.map {
-                            if (it.id == entry.id) entry else it
-                        },
-                    )
+        synchronized(stateLock) {
+            _batches.update { batches ->
+                batches.map { batch ->
+                    if (batch.id != batchId) {
+                        batch
+                    } else {
+                        batch.copy(
+                            entries = batch.entries.map {
+                                if (it.id == entry.id) entry else it
+                            },
+                        )
+                    }
                 }
             }
+            persistLocked()
         }
-        persist()
     }
 
     fun removeBatch(batchId: String) {
         ensureLoaded()
-        _batches.value = _batches.value.filterNot { it.id == batchId }
-        persist()
+        synchronized(stateLock) {
+            _batches.value = _batches.value.filterNot { it.id == batchId }
+            persistLocked()
+        }
     }
 
     fun updatePreset(preset: DownloadPreset) {
         ensureLoaded()
-        _presets.value = _presets.value.map { if (it.id == preset.id) preset else it }
-        persist()
+        synchronized(stateLock) {
+            _presets.value = _presets.value.map { if (it.id == preset.id) preset else it }
+            persistLocked()
+        }
     }
 
     fun resetPresets() {
         ensureLoaded()
-        _presets.value = DownloadPreset.BuiltIns
-        persist()
+        synchronized(stateLock) {
+            _presets.value = DownloadPreset.BuiltIns
+            persistLocked()
+        }
     }
 
     fun queueBatch(batchId: String, approveUnknownSizes: Boolean): Int {
@@ -459,14 +695,305 @@ object DownloadsRepository {
                 entry.copy(state = DownloadBatchEntryState.FAILED, failureMessage = result.name)
             }
         }
-        _batches.value = _batches.value.map {
-            if (it.id == batchId) it.copy(entries = updatedEntries) else it
+        synchronized(stateLock) {
+            _batches.value = _batches.value.map {
+                if (it.id == batchId) it.copy(entries = updatedEntries) else it
+            }
+            persistLocked()
         }
-        persist()
         return queued
     }
 
-    private fun loadFromDisk() {
+    // --- Transfer callbacks -------------------------------------------------------
+
+    private fun onTransferOpened(
+        downloadId: String,
+        resumedFromBytes: Long,
+        totalBytes: Long?,
+        etag: String?,
+        lastModified: String?,
+    ) {
+        synchronized(stateLock) {
+            mutateLocked(downloadId, immediate = true) { current ->
+                if (current.status != DownloadStatus.Downloading) {
+                    current
+                } else {
+                    current.copy(
+                        downloadedBytes = resumedFromBytes.coerceAtLeast(0L),
+                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                        // Kept so the next resume can prove, via If-Range, that the bytes
+                        // on disk still belong to the file the server is serving.
+                        resumeEtag = etag?.trim()?.takeIf { it.isNotBlank() } ?: current.resumeEtag,
+                        resumeLastModified = lastModified?.trim()?.takeIf { it.isNotBlank() }
+                            ?: current.resumeLastModified,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onTransferProgress(downloadId: String, downloadedBytes: Long, totalBytes: Long?) {
+        val exceededCap = synchronized(stateLock) {
+            val current = _uiState.value.items.firstOrNull { it.id == downloadId }
+                ?: return@synchronized false
+            val cap = current.calculatedCapBytes
+            val actualOrReported = listOfNotNull(
+                downloadedBytes.takeIf { it > 0L },
+                totalBytes?.takeIf { it > 0L },
+            ).maxOrNull()
+
+            if (
+                cap != null &&
+                !current.sizeCapOverrideApproved &&
+                actualOrReported != null &&
+                actualOrReported > cap
+            ) {
+                activeHandles.remove(downloadId)?.cancel()
+                mutateLocked(downloadId, immediate = true) {
+                    it.copy(
+                        status = DownloadStatus.Paused,
+                        pauseReason = DownloadPauseReason.SizeApproval,
+                        downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                        totalBytes = totalBytes?.takeIf { value -> value > 0L } ?: it.totalBytes,
+                        sizeApprovalRequired = true,
+                        errorMessage = "Actual source size exceeds this preset's cap",
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+                return@synchronized true
+            }
+
+            mutateLocked(downloadId, immediate = false) { item ->
+                if (item.status != DownloadStatus.Downloading) {
+                    item
+                } else {
+                    item.copy(
+                        downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                        totalBytes = totalBytes?.takeIf { it > 0L } ?: item.totalBytes,
+                        // Bytes arriving means the source works, so a previous run of bad
+                        // luck should not count against this attempt's retry budget.
+                        attemptCount = if (downloadedBytes > item.downloadedBytes) 0 else item.attemptCount,
+                        nextRetryAtEpochMs = null,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        errorMessage = null,
+                    )
+                }
+            }
+            false
+        }
+
+        if (exceededCap) startPendingTransfers()
+    }
+
+    private fun onTransferCompleted(downloadId: String, localFileUri: String, totalBytes: Long) {
+        synchronized(stateLock) {
+            activeHandles.remove(downloadId)
+            mutateLocked(downloadId, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Completed,
+                    pauseReason = null,
+                    localFileUri = localFileUri,
+                    // The verified size of the file on disk, never a total inferred from a
+                    // transfer that stopped early.
+                    downloadedBytes = totalBytes,
+                    totalBytes = totalBytes,
+                    errorMessage = null,
+                    attemptCount = 0,
+                    nextRetryAtEpochMs = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
+        startPendingTransfers()
+    }
+
+    private fun onTransferPaused(downloadId: String, downloadedBytes: Long) {
+        synchronized(stateLock) {
+            activeHandles.remove(downloadId)
+            mutateLocked(downloadId, immediate = true) { current ->
+                val recordedBytes = downloadedBytes.coerceAtLeast(0L)
+                // Whoever asked for the stop has usually already recorded why. Only an
+                // unattributed stop needs a status of its own, and it is never a failure.
+                if (current.status != DownloadStatus.Downloading) {
+                    current.copy(
+                        downloadedBytes = recordedBytes,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                } else {
+                    current.copy(
+                        status = DownloadStatus.Paused,
+                        pauseReason = DownloadPauseReason.System,
+                        downloadedBytes = recordedBytes,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+            }
+        }
+        startPendingTransfers()
+    }
+
+    private fun onTransferFailed(
+        downloadId: String,
+        reason: DownloadFailureReason,
+        message: String,
+        downloadedBytes: Long,
+    ) {
+        val fallbackMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } }
+        synchronized(stateLock) {
+            activeHandles.remove(downloadId)
+            mutateLocked(downloadId, immediate = true) { current ->
+                if (current.status != DownloadStatus.Downloading) {
+                    current.copy(downloadedBytes = downloadedBytes.coerceAtLeast(0L))
+                } else {
+                    val attempt = current.attemptCount + 1
+                    val now = DownloadsClock.nowEpochMs()
+                    if (shouldRetry(reason, attempt)) {
+                        // Backed off rather than retried on the spot: a dead network used
+                        // to burn every attempt within milliseconds of the first failure.
+                        current.copy(
+                            status = DownloadStatus.Queued,
+                            pauseReason = null,
+                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                            attemptCount = attempt,
+                            nextRetryAtEpochMs = now + retryBackoffMs(attempt),
+                            errorMessage = fallbackMessage,
+                            updatedAtEpochMs = now,
+                        )
+                    } else {
+                        current.copy(
+                            status = DownloadStatus.Failed,
+                            pauseReason = null,
+                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                            attemptCount = attempt,
+                            nextRetryAtEpochMs = null,
+                            errorMessage = fallbackMessage,
+                            updatedAtEpochMs = now,
+                        )
+                    }
+                }
+            }
+        }
+        startPendingTransfers()
+    }
+
+    // --- Queue scheduling ---------------------------------------------------------
+
+    private fun startPendingTransfers() {
+        synchronized(stateLock) {
+            val now = DownloadsClock.nowEpochMs()
+            val startable = DownloadQueuePlanner.startable(
+                items = _uiState.value.items,
+                activeIds = activeHandles.keys.toSet(),
+                maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+                nowEpochMs = now,
+            )
+
+            if (startable.isNotEmpty()) {
+                val startingIds = startable.map { it.id }.toSet()
+                publishLocked(
+                    _uiState.value.items.map { item ->
+                        if (item.id !in startingIds) {
+                            item
+                        } else {
+                            item.copy(
+                                status = DownloadStatus.Downloading,
+                                pauseReason = null,
+                                nextRetryAtEpochMs = null,
+                                updatedAtEpochMs = now,
+                            )
+                        }
+                    },
+                    immediate = true,
+                )
+
+                startable.forEach { queuedItem ->
+                    val current = _uiState.value.items.firstOrNull { it.id == queuedItem.id }
+                        ?: queuedItem
+                    startDownloadLocked(current)
+                }
+            }
+
+            scheduleRetryWakeLocked()
+        }
+    }
+
+    private fun startDownloadLocked(item: DownloadItem) {
+        val request = DownloadPlatformRequest(
+            sourceUrl = item.sourceUrl,
+            sourceHeaders = item.sourceHeaders,
+            destinationFileName = item.fileName,
+            allowMeteredNetwork = item.allowMeteredNetwork,
+            knownTotalBytes = item.totalBytes,
+            resumeEtag = item.resumeEtag,
+            resumeLastModified = item.resumeLastModified,
+        )
+        activeHandles[item.id] = DownloadsPlatformDownloader.start(
+            request = request,
+            listener = RepositoryTransferListener(item.id),
+        )
+    }
+
+    /**
+     * Wakes the queue when the earliest backoff expires.
+     *
+     * Items waiting out a retry are skipped by the planner, so without a timer they
+     * would sit queued until some unrelated event nudged the queue.
+     */
+    private fun scheduleRetryWakeLocked() {
+        retryWakeJob?.cancel()
+        retryWakeJob = null
+        if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) return
+
+        val now = DownloadsClock.nowEpochMs()
+        val earliest = _uiState.value.items
+            .filter { it.status == DownloadStatus.Queued }
+            .mapNotNull { it.nextRetryAtEpochMs }
+            .filter { it > now }
+            .minOrNull()
+            ?: return
+
+        retryWakeJob = scope.launch {
+            delay((earliest - now).coerceAtLeast(0L))
+            startPendingTransfers()
+        }
+    }
+
+    private class RepositoryTransferListener(
+        private val downloadId: String,
+    ) : DownloadTransferListener {
+        override fun onOpened(
+            resumedFromBytes: Long,
+            totalBytes: Long?,
+            etag: String?,
+            lastModified: String?,
+        ) = DownloadsRepository.onTransferOpened(
+            downloadId,
+            resumedFromBytes,
+            totalBytes,
+            etag,
+            lastModified,
+        )
+
+        override fun onProgress(downloadedBytes: Long, totalBytes: Long?) =
+            DownloadsRepository.onTransferProgress(downloadId, downloadedBytes, totalBytes)
+
+        override fun onCompleted(localFileUri: String, totalBytes: Long) =
+            DownloadsRepository.onTransferCompleted(downloadId, localFileUri, totalBytes)
+
+        override fun onPaused(downloadedBytes: Long) =
+            DownloadsRepository.onTransferPaused(downloadId, downloadedBytes)
+
+        override fun onFailed(
+            reason: DownloadFailureReason,
+            message: String,
+            downloadedBytes: Long,
+        ) = DownloadsRepository.onTransferFailed(downloadId, reason, message, downloadedBytes)
+    }
+
+    // --- State plumbing -----------------------------------------------------------
+
+    private fun loadFromDiskLocked() {
         hasLoaded = true
         val payload = DownloadsStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) {
@@ -478,7 +1005,6 @@ object DownloadsRepository {
             return
         }
 
-        var shouldPersistNormalized = false
         val stored = DownloadsCodec.decode(payload)
         _sourcePolicy.value = stored.sourcePolicy
         _batches.value = stored.batches.map { batch ->
@@ -499,151 +1025,60 @@ object DownloadsRepository {
             )
         }
         _presets.value = stored.presets
-        val normalized = stored.items
-            .map { item ->
-                val localUriNormalized = normalizeCompletedLocalFileUri(item)
-                if (localUriNormalized != item) {
-                    shouldPersistNormalized = true
-                }
-                localUriNormalized
-            }
 
+        val now = DownloadsClock.nowEpochMs()
+        val restored = stored.items.map { item ->
+            val withLocalUri = normalizeCompletedLocalFileUri(item)
+            when {
+                // Nothing is transferring yet after a cold start, so anything recorded as
+                // in flight goes back in the queue to be picked up in rank order.
+                withLocalUri.status == DownloadStatus.Downloading -> withLocalUri.copy(
+                    status = DownloadStatus.Queued,
+                    nextRetryAtEpochMs = null,
+                    updatedAtEpochMs = now,
+                )
+                withLocalUri.isSystemPaused -> withLocalUri.copy(
+                    status = DownloadStatus.Queued,
+                    pauseReason = null,
+                    updatedAtEpochMs = now,
+                )
+                else -> withLocalUri
+            }
+        }
+
+        // Payloads written before ranks existed carry the default position for every
+        // item, so they are renumbered from their stored order on first load.
+        val normalized = DownloadQueuePlanner.normalized(restored)
         _uiState.value = DownloadsUiState(normalized)
         notifyLiveStatusPlatform()
-        if (shouldPersistNormalized) {
-            persist()
+        if (normalized != stored.items) {
+            persistLocked(immediate = true)
         }
-        startPendingTransfers()
     }
 
-    private fun startPendingTransfers() {
-        if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) return
-        _uiState.value.items
-            .asSequence()
-            .filter { it.status == DownloadStatus.Downloading }
-            .filterNot { activeHandles.containsKey(it.id) }
-            .take(MAX_CONCURRENT_TRANSFERS - activeHandles.size)
-            .toList()
-            .forEach(::startDownload)
-    }
-
-    private fun startDownload(item: DownloadItem) {
-        val request = DownloadPlatformRequest(
-            sourceUrl = item.sourceUrl,
-            sourceHeaders = item.sourceHeaders,
-            destinationFileName = item.fileName,
-            allowMeteredNetwork = item.allowMeteredNetwork,
-        )
-
-        val handle = DownloadsPlatformDownloader.start(
-            request = request,
-            onProgress = { downloadedBytes, totalBytes ->
-                val actualOrReported = listOfNotNull(
-                    downloadedBytes.takeIf { it > 0L },
-                    totalBytes?.takeIf { it > 0L },
-                ).maxOrNull()
-                val current = _uiState.value.items.firstOrNull { it.id == item.id }
-                val cap = current?.calculatedCapBytes
-                if (
-                    current != null &&
-                    cap != null &&
-                    !current.sizeCapOverrideApproved &&
-                    actualOrReported != null &&
-                    actualOrReported > cap
-                ) {
-                    activeHandles.remove(item.id)?.cancel()
-                    mutateItem(item.id) {
-                        it.copy(
-                            status = DownloadStatus.Paused,
-                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                            totalBytes = totalBytes?.takeIf { value -> value > 0L },
-                            sizeApprovalRequired = true,
-                            errorMessage = "Actual source size exceeds this preset's cap",
-                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                        )
-                    }
-                    startPendingTransfers()
-                    return@start
-                }
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) {
-                        current
-                    } else {
-                        current.copy(
-                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                            totalBytes = totalBytes?.takeIf { it > 0L },
-                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                            errorMessage = null,
-                        )
-                    }
-                }
-            },
-            onSuccess = { localFileUri, totalBytes ->
-                activeHandles.remove(item.id)
-                mutateItem(item.id) { current ->
-                    current.copy(
-                        status = DownloadStatus.Completed,
-                        localFileUri = localFileUri,
-                        downloadedBytes = if (totalBytes != null && totalBytes > 0L) {
-                            totalBytes
-                        } else {
-                            current.downloadedBytes
-                        },
-                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                        errorMessage = null,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                }
-                startPendingTransfers()
-            },
-            onFailure = { message ->
-                activeHandles.remove(item.id)
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) {
-                        current
-                    } else {
-                        current.copy(
-                            status = DownloadStatus.Failed,
-                            errorMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } },
-                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                        )
-                    }
-                }
-                startPendingTransfers()
-            },
-        )
-
-        activeHandles[item.id] = handle
-    }
-
-    private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
+    private fun mutateLocked(
+        downloadId: String,
+        immediate: Boolean,
+        transform: (DownloadItem) -> DownloadItem,
+    ) {
         var changed = false
         val updated = _uiState.value.items.map { item ->
-            if (item.id == downloadId) {
-                changed = true
-                transform(item)
-            } else {
+            if (item.id != downloadId) {
                 item
+            } else {
+                val next = transform(item)
+                if (next != item) changed = true
+                next
             }
         }
 
         if (changed) {
-            publish(updated)
-            persist()
+            publishLocked(updated, immediate = immediate)
         }
     }
 
-    private fun replaceItem(item: DownloadItem) {
-        val updated = _uiState.value.items.map { existing ->
-            if (existing.id == item.id) item else existing
-        }
-        publish(updated)
-    }
-
-    private fun publish(items: List<DownloadItem>) {
-        _uiState.value = DownloadsUiState(
-            items = items,
-        )
+    private fun publishLocked(items: List<DownloadItem>, immediate: Boolean) {
+        _uiState.value = DownloadsUiState(items = items)
         _batches.value = _batches.value.map { batch ->
             batch.copy(
                 entries = batch.entries.map { entry ->
@@ -655,6 +1090,7 @@ object DownloadsRepository {
                     } ?: return@map entry
                     entry.copy(
                         state = when (item.status) {
+                            DownloadStatus.Queued -> DownloadBatchEntryState.QUEUED
                             DownloadStatus.Downloading -> DownloadBatchEntryState.DOWNLOADING
                             DownloadStatus.Paused -> DownloadBatchEntryState.PAUSED
                             DownloadStatus.Completed -> DownloadBatchEntryState.COMPLETED
@@ -666,6 +1102,7 @@ object DownloadsRepository {
             )
         }
         notifyLiveStatusPlatform()
+        persistLocked(immediate = immediate)
     }
 
     private fun notifyLiveStatusPlatform() {
@@ -674,7 +1111,35 @@ object DownloadsRepository {
         }
     }
 
-    private fun persist() {
+    /**
+     * Writes the payload, coalescing the writes that progress produces.
+     *
+     * Every state transition passes `immediate`, so nothing that matters waits on a
+     * timer; only the byte counters in between are allowed to lag.
+     */
+    private fun persistLocked(immediate: Boolean = true) {
+        val now = DownloadsClock.nowEpochMs()
+        if (immediate || now - lastPersistAtEpochMs >= PERSIST_MIN_INTERVAL_MS) {
+            lastPersistAtEpochMs = now
+            hasPendingPersist = false
+            writePayloadLocked()
+            return
+        }
+
+        if (hasPendingPersist) return
+        hasPendingPersist = true
+        scope.launch {
+            delay(PERSIST_MIN_INTERVAL_MS)
+            synchronized(stateLock) {
+                if (!hasPendingPersist) return@synchronized
+                hasPendingPersist = false
+                lastPersistAtEpochMs = DownloadsClock.nowEpochMs()
+                writePayloadLocked()
+            }
+        }
+    }
+
+    private fun writePayloadLocked() {
         DownloadsStorage.savePayload(
             DownloadsCodec.encode(
                 items = _uiState.value.items,
@@ -730,10 +1195,18 @@ internal object DownloadsCodec {
         allowStructuredMapKeys = true
     }
 
+    /**
+     * Falling back to an empty payload discards every download, batch and preset, so
+     * the unreadable text is set aside first rather than being overwritten by the
+     * next save.
+     */
     fun decode(payload: String): StoredDownloadsPayload =
         runCatching {
             json.decodeFromString<StoredDownloadsPayload>(payload)
-        }.getOrDefault(StoredDownloadsPayload())
+        }.getOrElse {
+            runCatching { DownloadsStorage.saveCorruptPayload(payload) }
+            StoredDownloadsPayload()
+        }
 
     fun encode(
         items: Collection<DownloadItem>,
@@ -761,7 +1234,8 @@ private fun sanitizeRequestHeaders(headers: Map<String, String>?): Map<String, S
                 normalizedKey.isBlank() ||
                 normalizedValue.isBlank() ||
                 normalizedKey.equals("Accept-Encoding", ignoreCase = true) ||
-                normalizedKey.equals("Range", ignoreCase = true)
+                normalizedKey.equals("Range", ignoreCase = true) ||
+                normalizedKey.equals("If-Range", ignoreCase = true)
             ) {
                 null
             } else {

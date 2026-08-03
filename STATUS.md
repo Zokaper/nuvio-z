@@ -1,11 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `main` (the unwatched-download work was merged into it).
+- Working branch: `claude/download-pause-resume-priority-zb1nye` (download transfer
+  and queue rework; the earlier unwatched-download work is already in `main`).
 - Official repository is configured as `upstream`.
 - Private `origin` repository: `https://github.com/Zokaper/nuvio-z`.
 - Android identity: Nuvio Z, `com.nuvio.app.z`
@@ -37,6 +38,18 @@ Last updated: 2026-08-02
 - Fixed false “Conflicting source metadata” results by separating authoritative
   byte reports from rounded filename/display estimates and tolerating equivalent
   hard reports while retaining the largest cap-enforcement size.
+- Reworked download transfers so a finished byte loop is only treated as a
+  completed download when the bytes on disk match the authoritative total, and a
+  total is never inferred from a transfer that stopped early.
+- Added `If-Range` validators, correct 416 handling, and honest short/overrun
+  outcomes to the Android, desktop, and iOS downloaders.
+- Made pause a first-class outcome rather than a swallowed cancellation, split
+  user pauses from system pauses, and added automatic resume on app foreground,
+  reload, and connectivity recovery (including the missing iOS foreground hook).
+- Added an explicit `Queued` state with persisted queue ranks, append-on-enqueue
+  ordering, menu-based reordering with preemption, and retry with backoff.
+- Coalesced progress persistence and notification updates instead of rewriting the
+  whole payload on every chunk, and serialised repository mutations behind a lock.
 
 ## Verification
 
@@ -45,6 +58,12 @@ Last updated: 2026-08-02
   - `SourceFactsExtractorTest`: 8 passed.
   - `PresetDownloadsTest`: 10 passed (12 after the unwatched-scope tests were
     added; not yet executed, see below).
+- Download transfer/queue rework (2026-08-03): Gradle still cannot configure here,
+  so `DownloadTransfer.kt` and `DownloadQueuePlanner.kt` were compiled standalone
+  against Kotlin 2.3.0 together with the two new test files, and all 27 tests
+  (71 assertions) passed. This exercised the shipped sources, not copies, but it
+  covers only those two files; no Android/iOS/desktop code was compiled. Every
+  changed Kotlin file additionally passed a parser-only check.
 - Signed `assembleFullRelease` completed successfully after the latest metadata
   fix.
 - On-device preset smoke test:
@@ -59,9 +78,21 @@ Last updated: 2026-08-02
 
 ## Pending / Follow-up
 
+- The download transfer/queue rework has **not** been compiled in this
+  environment, and no Gradle task has run against it. Only the two new pure-logic
+  files were verified, by compiling them standalone (see Verification). Everything
+  else — the repository, the three platform downloaders, the screen — is
+  unverified beyond a parse check. Run
+  `.\gradlew.bat :composeApp:testAndroidHostTest` and an `assembleFullDebug`
+  locally before trusting it.
+- Smoke-test the reworked transfers on-device with a deliberately small file:
+  pause/resume mid-transfer, resume after the source URL has expired (must not
+  report a completed download at the partial size), process death mid-transfer,
+  background/foreground on iOS, and a season batch to confirm E01 starts first and
+  that "Download next" preempts.
 - The unwatched-season download work has **not** been compiled or tested in this
-  environment: the sandbox blocks `dl.google.com`, so the Android Gradle Plugin
-  cannot be resolved and no Gradle task can configure. Run
+  environment either: the sandbox blocks `dl.google.com`, so the Android Gradle
+  Plugin cannot be resolved and no Gradle task can configure. Run
   `.\gradlew.bat :composeApp:testAndroidHostTest` and an `assembleFullDebug`
   locally before trusting it.
 - Smoke-test the unwatched season download on-device: open a partly watched
@@ -80,6 +111,39 @@ Last updated: 2026-08-02
   reconfigured for this personal build.
 
 ## Work Log
+
+### 2026-08-03
+
+- Root-caused the "resume says it completed" report: the read loop treated any end
+  of stream as success, and `onSuccess(uri, totalBytes ?: finalSize)` adopted the
+  truncated file's own length as the total, so a cut-short transfer rendered as a
+  finished download at whatever byte count it had reached.
+- Added `DownloadTransfer.kt` with the completion rule, retry policy, HTTP failure
+  classification, progress-throttle thresholds, and the `resolveTotalBytes` /
+  `parseContentRangeTotal` helpers that had been duplicated verbatim in all three
+  platform downloaders.
+- Replaced the platform downloader's loose callbacks with `DownloadTransferListener`
+  so a pause can be reported as a pause; Android previously caught
+  `CancellationException` in a generic `catch (Throwable)` and reported it as a
+  failure, which only avoided showing up as a failed download because of a status
+  check that lost the race.
+- Fixed the 416 branch: an already complete `.part` is now finalized instead of
+  being deleted and downloaded again from zero.
+- Added `DownloadStatus.Queued`, persisted queue ranks, and `DownloadQueuePlanner`.
+  Enqueue appends rather than prepends, so a season batch no longer downloads in
+  reverse episode order.
+- Added queue reordering (`Download next` / up / down / bottom) as a menu so it
+  works with a TV remote, with preemption of the lowest priority running transfer.
+- Split `DownloadPauseReason.User` from `System` and added
+  `resumeSystemPausedDownloads`, wired to reload, connectivity recovery, and a new
+  `applicationWillEnterForeground` hook on iOS — backgrounding the app used to
+  pause every download permanently.
+- Serialised repository mutations behind an atomicfu lock and coalesced persistence,
+  replacing a full JSON payload rewrite on every 16 KiB chunk.
+- Set aside an unparseable payload under a separate key instead of silently
+  discarding every download, batch, and preset.
+- Mirrored the same change into `Zokaper/NuvioZDesktop`, including the desktop
+  downloader.
 
 ### 2026-08-02
 

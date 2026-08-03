@@ -12,13 +12,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.VerticalAlignTop
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,6 +37,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +54,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.AddonRepository
+import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -469,10 +479,10 @@ private fun LazyListScope.downloadsRootContent(
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
         }
-        items(
+        itemsIndexed(
             items = activeItems,
-            key = { it.id },
-        ) { item ->
+            key = { _, item -> item.id },
+        ) { index, item ->
             DownloadRow(
                 item = item,
                 onOpen = { onOpenDownload(item) },
@@ -486,6 +496,14 @@ private fun LazyListScope.downloadsRootContent(
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                queueControls = QueueControls(
+                    canMoveUp = index > 0,
+                    canMoveDown = index < activeItems.lastIndex,
+                    onMoveToTop = { DownloadsRepository.moveDownloadToTop(item.id) },
+                    onMoveUp = { DownloadsRepository.moveDownloadUp(item.id) },
+                    onMoveDown = { DownloadsRepository.moveDownloadDown(item.id) },
+                    onMoveToBottom = { DownloadsRepository.moveDownloadToBottom(item.id) },
+                ),
             )
         }
     }
@@ -650,6 +668,8 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    /** Null in the completed sections, where there is no queue position to change. */
+    queueControls: QueueControls? = null,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -703,8 +723,13 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (queueControls != null) {
+                        QueueMenu(controls = queueControls)
+                    }
                     when (item.status) {
-                        DownloadStatus.Downloading -> {
+                        DownloadStatus.Queued,
+                        DownloadStatus.Downloading,
+                        -> {
                             IconButton(onClick = onPause) {
                                 Icon(
                                     imageVector = Icons.Rounded.Pause,
@@ -746,6 +771,9 @@ private fun DownloadRow(
                 }
             }
 
+            // Only a transfer that is actually running gets a bar. A queued item used to
+            // spin an indeterminate one, which was indistinguishable from a live
+            // download and made a waiting queue look like a stuck one.
             if (item.status == DownloadStatus.Downloading) {
                 if (item.totalBytes != null && item.totalBytes > 0L) {
                     LinearProgressIndicator(
@@ -758,6 +786,90 @@ private fun DownloadRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * What a row may do to its place in the queue.
+ *
+ * Boundary moves are disabled rather than hidden so the menu keeps a stable shape as
+ * a row travels up and down the list.
+ */
+private data class QueueControls(
+    val canMoveUp: Boolean,
+    val canMoveDown: Boolean,
+    val onMoveToTop: () -> Unit,
+    val onMoveUp: () -> Unit,
+    val onMoveDown: () -> Unit,
+    val onMoveToBottom: () -> Unit,
+)
+
+/**
+ * Reordering as a menu rather than drag handles.
+ *
+ * The downloads list is also driven with a TV remote, where dragging is not an
+ * option, so every move is a discrete, focusable item.
+ */
+@Composable
+private fun QueueMenu(controls: QueueControls) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = stringResource(Res.string.downloads_queue_actions),
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_to_top)) },
+                enabled = controls.canMoveUp,
+                leadingIcon = {
+                    Icon(Icons.Rounded.VerticalAlignTop, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveToTop()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_up)) },
+                enabled = controls.canMoveUp,
+                leadingIcon = {
+                    Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveUp()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_down)) },
+                enabled = controls.canMoveDown,
+                leadingIcon = {
+                    Icon(Icons.Rounded.ArrowDownward, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveDown()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.downloads_queue_move_to_bottom)) },
+                enabled = controls.canMoveDown,
+                leadingIcon = {
+                    Icon(Icons.Rounded.VerticalAlignBottom, contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    controls.onMoveToBottom()
+                },
+            )
         }
     }
 }
@@ -812,7 +924,25 @@ private fun statusText(item: DownloadItem): String {
     }
 
     return when (item.status) {
-        DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
+        DownloadStatus.Queued -> {
+            val retryAtEpochMs = item.nextRetryAtEpochMs
+            val nowEpochMs = tickingNowEpochMs(
+                active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),
+            )
+            if (retryAtEpochMs != null && retryAtEpochMs > nowEpochMs) {
+                stringResource(
+                    Res.string.downloads_status_retry_countdown,
+                    ((retryAtEpochMs - nowEpochMs + 999L) / 1000L).toInt(),
+                )
+            } else {
+                stringResource(Res.string.downloads_status_queued_position, item.queuePosition + 1L)
+            }
+        }
+        DownloadStatus.Downloading -> if (item.downloadedBytes <= 0L && item.totalBytes == null) {
+            stringResource(Res.string.downloads_status_waiting_to_start)
+        } else {
+            stringResource(Res.string.downloads_status_downloading, size)
+        }
         DownloadStatus.Paused -> if (item.sizeApprovalRequired) {
             item.errorMessage ?: stringResource(Res.string.downloads_status_paused, size)
         } else {
@@ -824,6 +954,24 @@ private fun statusText(item: DownloadItem): String {
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
     }
+}
+
+/**
+ * A clock that only ticks while something is counting down.
+ *
+ * Retry backoffs are the one place the row has to re-render without any state change
+ * behind it; a static "retrying in 15s" that never moves reads as a stuck download.
+ */
+@Composable
+private fun tickingNowEpochMs(active: Boolean): Long {
+    var nowEpochMs by remember { mutableStateOf(DownloadsClock.nowEpochMs()) }
+    LaunchedEffect(active) {
+        while (active) {
+            nowEpochMs = DownloadsClock.nowEpochMs()
+            delay(500L)
+        }
+    }
+    return nowEpochMs
 }
 
 private fun formatBytes(bytes: Long): String {

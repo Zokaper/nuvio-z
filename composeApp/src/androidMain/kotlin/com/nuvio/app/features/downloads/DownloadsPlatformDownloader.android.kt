@@ -21,6 +21,8 @@ import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
+private const val TRANSFER_BUFFER_BYTES = 64 * 1024
+
 private val downloadHttpClient = OkHttpClient.Builder()
     .connectTimeout(60, TimeUnit.SECONDS)
     .readTimeout(60, TimeUnit.SECONDS)
@@ -38,9 +40,7 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun start(
         request: DownloadPlatformRequest,
-        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
-        onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
-        onFailure: (message: String) -> Unit,
+        listener: DownloadTransferListener,
     ): DownloadsTaskHandle {
         val job = SupervisorJob()
         val scope = CoroutineScope(job + Dispatchers.IO)
@@ -55,16 +55,22 @@ internal actual object DownloadsPlatformDownloader {
         scope.launch {
             val context = appContext
             if (context == null) {
-                onFailure(runBlocking { getString(Res.string.downloads_error_not_initialized) })
+                listener.onFailed(
+                    DownloadFailureReason.Fatal,
+                    runBlocking { getString(Res.string.downloads_error_not_initialized) },
+                    0L,
+                )
                 return@launch
             }
 
             val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
             val destination = File(downloadsDir, request.destinationFileName)
             val tempFile = File(downloadsDir, "${request.destinationFileName}.part")
+            var downloadedBytes = 0L
 
             try {
                 var resumeFromBytes = tempFile.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+                downloadedBytes = resumeFromBytes
 
                 fun buildRequest(rangeStart: Long?): Request {
                     val requestBuilder = Request.Builder().url(request.sourceUrl)
@@ -73,86 +79,185 @@ internal actual object DownloadsPlatformDownloader {
                     }
                     if (rangeStart != null && rangeStart > 0L) {
                         requestBuilder.header("Range", "bytes=$rangeStart-")
+                        // Without a validator the server cannot tell us the bytes it is
+                        // about to send belong to a different file than the partial one
+                        // on disk, and we would append them blindly.
+                        resumeValidator(request.resumeEtag, request.resumeLastModified)?.let {
+                            requestBuilder.header("If-Range", it)
+                        }
                     }
                     return requestBuilder.get().build()
                 }
 
                 var attemptedRangeRequest = resumeFromBytes > 0L
-                var httpRequest = buildRequest(if (attemptedRangeRequest) resumeFromBytes else null)
-                call = downloadHttpClient.newCall(httpRequest)
+                call = downloadHttpClient.newCall(buildRequest(if (attemptedRangeRequest) resumeFromBytes else null))
                 var response = call?.execute() ?: error(
                     runBlocking { getString(Res.string.downloads_error_request_failed) },
                 )
 
                 if (attemptedRangeRequest && response.code == 416) {
+                    // The requested range starts past the end of the object. If that is
+                    // because the partial file already holds every byte, the download is
+                    // finished and re-fetching it from zero would be pure waste.
+                    val reportedTotal = parseContentRangeTotal(response.header("Content-Range"))
+                        ?: request.knownTotalBytes
                     response.close()
+
+                    if (reportedTotal != null && tempFile.length() == reportedTotal) {
+                        val finalized = finalizePartialFile(tempFile, destination)
+                        if (finalized == null) {
+                            listener.onFailed(
+                                DownloadFailureReason.Transient,
+                                runBlocking { getString(Res.string.downloads_error_finalize_file_failed) },
+                                downloadedBytes,
+                            )
+                        } else {
+                            listener.onCompleted(finalized.first, finalized.second)
+                        }
+                        return@launch
+                    }
+
                     tempFile.delete()
                     resumeFromBytes = 0L
+                    downloadedBytes = 0L
                     attemptedRangeRequest = false
-                    httpRequest = buildRequest(null)
-                    call = downloadHttpClient.newCall(httpRequest)
+                    call = downloadHttpClient.newCall(buildRequest(null))
                     response = call?.execute() ?: error(
                         runBlocking { getString(Res.string.downloads_error_request_failed) },
                     )
                 }
 
-                response.use { response ->
-                    if (!response.isSuccessful) {
-                        error(
-                            runBlocking {
-                                getString(Res.string.downloads_error_http_failed, response.code)
-                            },
-                        )
-                    }
+                if (!response.isSuccessful) {
+                    val statusCode = response.code
+                    response.close()
+                    listener.onFailed(
+                        failureReasonForHttpStatus(statusCode),
+                        runBlocking { getString(Res.string.downloads_error_http_failed, statusCode) },
+                        downloadedBytes,
+                    )
+                    return@launch
+                }
 
-                    val isPartialResume = attemptedRangeRequest && response.code == 206 && resumeFromBytes > 0L
+                response.use { openResponse ->
+                    val isPartialResume =
+                        attemptedRangeRequest && openResponse.code == 206 && resumeFromBytes > 0L
                     val appendToTemp = isPartialResume
                     val startingBytes = if (appendToTemp) resumeFromBytes else 0L
 
+                    // A 200 answer to a range request means the server either ignores
+                    // ranges or has told us, via If-Range, that the object changed. Either
+                    // way the bytes on disk no longer belong to this response.
                     if (!appendToTemp && tempFile.exists()) {
                         tempFile.delete()
                     }
+                    downloadedBytes = startingBytes
 
-                    val body = response.body ?: error(
+                    val body = openResponse.body ?: error(
                         runBlocking { getString(Res.string.downloads_error_empty_body) },
                     )
                     val totalBytes = resolveTotalBytes(
                         startingBytes = startingBytes,
                         isPartialResume = isPartialResume,
-                        contentRangeHeader = response.header("Content-Range"),
+                        contentRangeHeader = openResponse.header("Content-Range"),
                         contentLength = body.contentLength().takeIf { it > 0L },
                     )
-                    var downloadedBytes = startingBytes
-                    onProgress(downloadedBytes, totalBytes)
+                    listener.onOpened(
+                        resumedFromBytes = startingBytes,
+                        totalBytes = totalBytes,
+                        etag = openResponse.header("ETag"),
+                        lastModified = openResponse.header("Last-Modified"),
+                    )
+                    listener.onProgress(downloadedBytes, totalBytes)
+
+                    var lastReportedBytes = downloadedBytes
+                    var lastReportedAtEpochMs = DownloadsClock.nowEpochMs()
 
                     body.byteStream().use { input ->
                         FileOutputStream(tempFile, appendToTemp).use { output ->
-                            val buffer = ByteArray(16 * 1024)
+                            val buffer = ByteArray(TRANSFER_BUFFER_BYTES)
                             while (true) {
                                 ensureActive()
                                 val read = input.read(buffer)
                                 if (read <= 0) break
                                 output.write(buffer, 0, read)
                                 downloadedBytes += read.toLong()
-                                onProgress(downloadedBytes, totalBytes)
+
+                                // Reporting every chunk used to re-serialise and rewrite the
+                                // whole downloads payload thousands of times per file.
+                                val nowEpochMs = DownloadsClock.nowEpochMs()
+                                if (
+                                    shouldReportProgress(
+                                        downloadedBytes = downloadedBytes,
+                                        lastReportedBytes = lastReportedBytes,
+                                        nowEpochMs = nowEpochMs,
+                                        lastReportedAtEpochMs = lastReportedAtEpochMs,
+                                    )
+                                ) {
+                                    lastReportedBytes = downloadedBytes
+                                    lastReportedAtEpochMs = nowEpochMs
+                                    listener.onProgress(downloadedBytes, totalBytes)
+                                }
                             }
                             output.flush()
                         }
                     }
+                    listener.onProgress(downloadedBytes, totalBytes)
 
-                    if (destination.exists()) {
-                        destination.delete()
-                    }
-                    if (!tempFile.renameTo(destination)) {
-                        tempFile.copyTo(destination, overwrite = true)
-                        tempFile.delete()
+                    // Reaching the end of the body is not the same as having the whole
+                    // file. A dropped connection or a short error body ends the stream
+                    // just as cleanly as a finished download does.
+                    when (val completion = evaluateCompletion(downloadedBytes, totalBytes)) {
+                        is DownloadCompletion.Short -> {
+                            listener.onFailed(
+                                DownloadFailureReason.Incomplete,
+                                runBlocking { getString(Res.string.downloads_error_incomplete_transfer) },
+                                completion.downloadedBytes,
+                            )
+                            return@launch
+                        }
+
+                        is DownloadCompletion.Overrun -> {
+                            // More bytes than the file can hold means the partial file is
+                            // not what we thought it was; it cannot be resumed from.
+                            tempFile.delete()
+                            downloadedBytes = 0L
+                            listener.onFailed(
+                                DownloadFailureReason.SourceChanged,
+                                runBlocking { getString(Res.string.downloads_error_source_changed) },
+                                0L,
+                            )
+                            return@launch
+                        }
+
+                        DownloadCompletion.Complete -> Unit
                     }
 
-                    val finalSize = destination.length()
-                    onSuccess(destination.toURI().toString(), totalBytes ?: finalSize)
+                    val finalized = finalizePartialFile(tempFile, destination)
+                    if (finalized == null) {
+                        listener.onFailed(
+                            DownloadFailureReason.Transient,
+                            runBlocking { getString(Res.string.downloads_error_finalize_file_failed) },
+                            downloadedBytes,
+                        )
+                        return@launch
+                    }
+                    listener.onCompleted(finalized.first, finalized.second)
                 }
+            } catch (cancellation: CancellationException) {
+                // A pause is a deliberate stop, not a failure. Reporting it as one is
+                // what used to leave paused downloads sitting in a failed state.
+                listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
+                throw cancellation
             } catch (error: Throwable) {
-                onFailure(error.message ?: runBlocking { getString(Res.string.download_failed) })
+                if (call?.isCanceled() == true) {
+                    listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
+                } else {
+                    listener.onFailed(
+                        DownloadFailureReason.Transient,
+                        error.message ?: runBlocking { getString(Res.string.download_failed) },
+                        currentPartialBytes(tempFile, downloadedBytes),
+                    )
+                }
             }
         }
 
@@ -173,11 +278,14 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
-        val context = appContext ?: return false
-        val downloadsDir = File(context.filesDir, "downloads")
-        val tempFile = File(downloadsDir, "$destinationFileName.part")
+        val tempFile = partialFile(destinationFileName) ?: return false
         if (!tempFile.exists()) return true
         return runCatching { tempFile.delete() }.getOrDefault(false)
+    }
+
+    actual fun partialFileBytes(destinationFileName: String): Long {
+        val tempFile = partialFile(destinationFileName) ?: return 0L
+        return runCatching { tempFile.takeIf { it.exists() }?.length() ?: 0L }.getOrDefault(0L)
     }
 
     actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? {
@@ -233,7 +341,33 @@ internal actual object DownloadsPlatformDownloader {
             }.getOrDefault(false)
         }
     }
+
+    private fun partialFile(destinationFileName: String): File? {
+        val context = appContext ?: return null
+        val downloadsDir = File(context.filesDir, "downloads")
+        return File(downloadsDir, "$destinationFileName.part")
+    }
 }
+
+/** Moves a verified partial file into place, returning its URI and confirmed size. */
+private fun finalizePartialFile(tempFile: File, destination: File): Pair<String, Long>? {
+    return runCatching {
+        if (destination.exists()) {
+            destination.delete()
+        }
+        if (!tempFile.renameTo(destination)) {
+            tempFile.copyTo(destination, overwrite = true)
+            tempFile.delete()
+        }
+        val finalSize = destination.length()
+        if (!destination.exists() || finalSize <= 0L) return null
+        destination.toURI().toString() to finalSize
+    }.getOrNull()
+}
+
+/** The byte count actually on disk, which is what a resume will continue from. */
+private fun currentPartialBytes(tempFile: File, fallback: Long): Long =
+    runCatching { tempFile.takeIf { it.exists() }?.length() }.getOrNull() ?: fallback
 
 private class AndroidDownloadsTaskHandle(
     private val job: Job,
@@ -251,29 +385,4 @@ private fun String.toLocalFileOrNull(): File? {
             File(this)
         }
     }.getOrNull()
-}
-
-private fun resolveTotalBytes(
-    startingBytes: Long,
-    isPartialResume: Boolean,
-    contentRangeHeader: String?,
-    contentLength: Long?,
-): Long? {
-    parseContentRangeTotal(contentRangeHeader)?.let { return it }
-    val normalizedLength = contentLength?.takeIf { it > 0L } ?: return null
-    return if (isPartialResume && startingBytes > 0L) {
-        startingBytes + normalizedLength
-    } else {
-        normalizedLength
-    }
-}
-
-private fun parseContentRangeTotal(headerValue: String?): Long? {
-    val value = headerValue?.trim().orEmpty()
-    if (value.isBlank()) return null
-    val slashIndex = value.lastIndexOf('/')
-    if (slashIndex == -1 || slashIndex == value.lastIndex) return null
-    val totalPart = value.substring(slashIndex + 1).trim()
-    if (totalPart == "*") return null
-    return totalPart.toLongOrNull()?.takeIf { it > 0L }
 }
