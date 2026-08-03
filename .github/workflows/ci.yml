@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test and build debug APK
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cap Gradle memory for hosted runners
+        run: |
+          # gradle.properties asks for 12G heap, which is more than a standard
+          # hosted runner has. Values in GRADLE_USER_HOME take precedence over
+          # the project file, so override without touching the repository.
+          mkdir -p "${HOME}/.gradle"
+          {
+            echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+            echo 'kotlin.daemon.jvmargs=-Xmx3g'
+          } >> "${HOME}/.gradle/gradle.properties"
+
+      - name: Configure runtime properties
+        run: |
+          # generateRuntimeConfigs declares local.properties as an input file
+          # and fails validation when it is absent, so the file must exist even
+          # when empty. Without the secret the build still succeeds, but ships
+          # without backend configuration, so sign-in and Trakt will not work.
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set; building without backend configuration."
+            : > local.properties
+            exit 0
+          fi
+
+          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
+          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
+          # character the base64 alphabet does not contain rather than failing.
+          normalise_b64() {
+            printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
+          }
+          # A properties file stored without any encoding: it has KEY= lines and
+          # contains characters base64 never does.
+          looks_like_properties() {
+            printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
+              && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
+          }
+          decode_text_secret() {
+            local name="$1" raw="$2" out="$3" cleaned
+            if looks_like_properties "${raw}"; then
+              echo "::warning::${name} is not base64; storing it as literal file content."
+              printf '%s\n' "${raw}" > "${out}"
+            else
+              cleaned="$(normalise_b64 "${raw}")"
+              echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+              printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            fi
+            if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' "${out}"; then
+              echo "${name} did not yield a properties file." >&2
+              exit 1
+            fi
+          }
+          decode_binary_secret() {
+            local name="$1" raw="$2" out="$3" cleaned
+            cleaned="$(normalise_b64 "${raw}")"
+            echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+            printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            if [ ! -s "${out}" ] || [ "$(wc -c < "${out}")" -lt 256 ]; then
+              echo "${name} did not yield a plausible keystore." >&2
+              exit 1
+            fi
+          }
+
+          decode_text_secret LOCAL_PROPERTIES_BASE64 "${LOCAL_PROPERTIES_BASE64}" local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
+
+      # --stacktrace is deliberately omitted: on a Kotlin compilation failure it
+      # emits ~150 lines of Gradle internals that bury the actual 'e:' errors.
+      - name: Run Android host tests
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:testAndroidHostTest --console=plain 2>&1 | tee build.log || {
+            echo "::error::Android host tests failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          ./gradlew :androidApp:assembleFullDebug --console=plain 2>&1 | tee build.log || {
+            echo "::error::Debug APK build failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-z-debug-apk-${{ github.sha }}
+          path: androidApp/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ github.sha }}
+          path: composeApp/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7

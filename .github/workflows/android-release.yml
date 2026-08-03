@@ -68,7 +68,7 @@ jobs:
 
           unexpected_changes="$(
             git diff --name-only "${CURRENT_BUMP}..${RELEASE_COMMIT}" \
-              | grep -Ev '^(\.github/workflows/android-release\.yml|scripts/(generate-release-notes|release-metadata)\.sh)$' \
+              | grep -Ev '^(\.github/workflows/(android-release|ci)\.yml|scripts/(generate-release-notes|release-metadata)\.sh)$' \
               || true
           )"
           if [[ -n "${unexpected_changes}" ]]; then
@@ -133,9 +133,47 @@ jobs:
       - name: Configure release properties
         if: inputs.mode != 'dry-run'
         run: |
+          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
+          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
+          # character the base64 alphabet does not contain rather than failing.
+          normalise_b64() {
+            printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
+          }
+          # A properties file stored without any encoding: it has KEY= lines and
+          # contains characters base64 never does.
+          looks_like_properties() {
+            printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
+              && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
+          }
+          decode_text_secret() {
+            local name="$1" raw="$2" out="$3" cleaned
+            if looks_like_properties "${raw}"; then
+              echo "::warning::${name} is not base64; storing it as literal file content."
+              printf '%s\n' "${raw}" > "${out}"
+            else
+              cleaned="$(normalise_b64 "${raw}")"
+              echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+              printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            fi
+            if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' "${out}"; then
+              echo "${name} did not yield a properties file." >&2
+              exit 1
+            fi
+          }
+          decode_binary_secret() {
+            local name="$1" raw="$2" out="$3" cleaned
+            cleaned="$(normalise_b64 "${raw}")"
+            echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+            printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            if [ ! -s "${out}" ] || [ "$(wc -c < "${out}")" -lt 256 ]; then
+              echo "${name} did not yield a plausible keystore." >&2
+              exit 1
+            fi
+          }
+
           keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
-          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
-          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          decode_binary_secret NUVIO_RELEASE_KEYSTORE_BASE64 "${RELEASE_KEYSTORE_BASE64}" "${keystore_path}"
+          decode_text_secret NUVIO_LOCAL_PROPERTIES_BASE64 "${RELEASE_PROPERTIES_BASE64}" local.properties
 
           # These paths only apply to the machine where local.properties was encoded.
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
@@ -145,13 +183,23 @@ jobs:
             NUVIO_RELEASE_STORE_PASSWORD
             NUVIO_RELEASE_KEY_ALIAS
             NUVIO_RELEASE_KEY_PASSWORD
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
           )
           for property_name in "${required_properties[@]}"; do
             if ! grep -Eq "^${property_name}=.+" local.properties; then
               echo "Missing required property: ${property_name}" >&2
               exit 1
+            fi
+          done
+
+          # Trakt is optional for this fork: the build substitutes empty
+          # credentials and only Trakt sign-in is unavailable.
+          optional_properties=(
+            TRAKT_CLIENT_ID
+            TRAKT_CLIENT_SECRET
+          )
+          for property_name in "${optional_properties[@]}"; do
+            if ! grep -Eq "^${property_name}=.+" local.properties; then
+              echo "::warning::${property_name} is not set; Trakt will be unavailable in this build."
             fi
           done
 

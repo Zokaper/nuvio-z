@@ -23,10 +23,15 @@ import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
-private const val gitHubOwner = "NuvioMedia"
-private const val gitHubRepo = "NuvioMobile"
+private const val gitHubOwner = "Zokaper"
+private const val gitHubRepo = "nuvio-z"
 private const val gitHubApiBase = "https://api.github.com"
-private const val releaseChannelBranch = "cmp-rewrite"
+private const val gitHubUserAgent = "NuvioZ"
+
+// Releases are created with an explicit commit as the target, so a release's
+// targetCommitish is a SHA rather than a branch name. Filtering by branch would
+// therefore reject every release; leave the channel unset to accept them all.
+private val releaseChannelBranch: String? = null
 
 data class AppUpdate(
     val tag: String,
@@ -124,7 +129,7 @@ private object AppUpdaterRepository {
             url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
             headers = mapOf(
                 "Accept" to "application/vnd.github+json",
-                "User-Agent" to "NuvioMobile",
+                "User-Agent" to gitHubUserAgent,
             ),
             body = "",
         )
@@ -155,7 +160,7 @@ private object AppUpdaterRepository {
     }
 
     private fun GitHubReleaseDto.matchesRequestedChannel(): Boolean {
-        val channel = releaseChannelBranch
+        val channel = releaseChannelBranch?.takeIf { it.isNotBlank() } ?: return true
         if (targetCommitish?.trim()?.equals(channel, ignoreCase = true) == true) {
             return true
         }

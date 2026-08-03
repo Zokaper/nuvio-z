@@ -8,7 +8,8 @@ Last updated: 2026-08-03
 - Working branch: `claude/downloads-integration-redesign-dfm9j6`
   (branched from `main`, which already carries the unwatched-download work).
 - Official repository is configured as `upstream`.
-- Private `origin` repository: `https://github.com/Zokaper/nuvio-z`.
+- Public `origin` repository: `https://github.com/Zokaper/nuvio-z`
+  (public so the unauthenticated in-app updater can read its releases).
 - Android identity: Nuvio Z, `com.nuvio.app.z`
   (`com.nuvio.app.z.debug` for debug).
 - Signed personal release builds use an ignored local keystore.
@@ -94,6 +95,18 @@ Last updated: 2026-08-03
   records.
 - Trakt functionality requires local client credentials and has not been
   reconfigured for this personal build.
+- iOS parity gaps in the preset download feature, all in platform seams:
+  `freeStorageBytes()` returns `-1` so low-space warnings and
+  storage-triggered review never fire; `allowMeteredNetwork` is ignored
+  because the iOS session hardcodes cellular access; downloads pause on
+  app background because iOS uses a foreground `NSURLSession`.
+- `DownloadsStorage.ios.kt` no longer profile-scopes its payload key,
+  unlike every other iOS storage and unlike the desktop fork. Decide
+  whether that de-scoping was intended.
+- Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
+  the Android Gradle Plugin will not resolve there.
+- `Zokaper/nuvio-z` is public, which the unauthenticated updater requires,
+  and `0.3.3` was published from `android-release.yml` on 2026-08-02.
 
 ## Work Log
 
@@ -143,6 +156,28 @@ Last updated: 2026-08-03
 - Added `PresetDownloadsTest` coverage for the unwatched scope, including the
   already-downloaded exclusion.
 - Mirrored the same change into `Zokaper/NuvioZDesktop`.
+- Reviewed iOS viability and distribution options for sharing personal
+  builds; recorded the platform gaps above.
+- Ported the preset and bulk download feature to the desktop fork
+  (`Zokaper/NuvioZDesktop`, branch `claude/preset-bulk-downloads`) as a
+  cherry-pick, since that repository shares history with this one.
+  Resolved four conflicts, threaded the download callbacks through the
+  desktop fork's two details layouts, and implemented `freeStorageBytes()`
+  for desktop from the downloads directory's usable space.
+- Excluded the Nuvio Z Android branding, the repository handoff documents,
+  and the iOS profile-scoping change from that port.
+- Added a `CI` workflow to both repositories: Android host tests and an
+  unsigned debug APK artifact on every push, plus desktop compilation and
+  tests in the desktop fork. Neither requires signing secrets.
+- Not verified by a compiler in this environment; CI is the first real
+  build of the ported feature.
+- Repointed the in-app updater from `NuvioMedia/NuvioMobile` to
+  `Zokaper/nuvio-z`, and the desktop fork's updater to
+  `Zokaper/NuvioZDesktop`. Cleared the release channel filter, which
+  matched a branch name against a release `targetCommitish` that is
+  actually a commit SHA and so rejected every release.
+- Scanned the full history of both repositories for committed secrets
+  before recommending public visibility; none were found.
 
 ### 2026-07-30
 
