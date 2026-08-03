@@ -50,8 +50,14 @@ Last updated: 2026-08-03
   - `SourceFactsExtractorTest`: 8 passed.
   - `PresetDownloadsTest`: 10 passed (12 after the unwatched-scope tests were
     added; not yet executed, see below).
-- `DownloadPresenceTest` (11 tests) was added for the downloads integration
-  redesign and has **not been executed** — no Gradle task can configure here.
+- The downloads integration redesign **compiles**: `assembleFullRelease`
+  succeeded in CI on the third attempt and published `0.3.4`. The first two
+  attempts failed on `MetaScreenSectionKey.DOWNLOADS`, first a non-exhaustive
+  `when` in `MetaScreenSettingsPage.kt`, then the two Compose resource
+  accessors that file needs as explicit imports.
+- `DownloadPresenceTest` (11 tests) has **not been executed**: the release
+  workflow only assembles, and no Gradle task can configure in the sandbox.
+  Nothing in the redesign has been exercised on a device yet.
 - Signed `assembleFullRelease` completed successfully after the latest metadata
   fix.
 - On-device preset smoke test:
@@ -66,11 +72,11 @@ Last updated: 2026-08-03
 
 ## Pending / Follow-up
 
-- Neither the unwatched-season work nor the downloads integration redesign has
-  been **compiled or tested** in this environment: the sandbox blocks
-  `dl.google.com`, so the Android Gradle Plugin cannot be resolved and no Gradle
-  task can configure. Run `.\gradlew.bat :composeApp:testAndroidHostTest` and an
-  `assembleFullDebug` locally before trusting either.
+- No Gradle task can configure in this sandbox: `dl.google.com` is denied by
+  the egress policy, so the Android Gradle Plugin never resolves. CI is the only
+  compiler available here, which makes each fix a full release-run round trip.
+  Run `.\gradlew.bat :composeApp:testAndroidHostTest` locally to get the host
+  suite, including the new `DownloadPresenceTest`, actually executed.
 - Smoke-test the unwatched season download on-device: open a partly watched
   season, use the season download menu, and confirm only the current episode
   onwards is queued.
@@ -105,8 +111,11 @@ Last updated: 2026-08-03
   whether that de-scoping was intended.
 - Desktop CI cannot be verified from a sandbox that blocks `dl.google.com`;
   the Android Gradle Plugin will not resolve there.
-- `Zokaper/nuvio-z` is public, which the unauthenticated updater requires,
-  and `0.3.3` was published from `android-release.yml` on 2026-08-02.
+- `Zokaper/nuvio-z` is public, which the unauthenticated updater requires.
+  `0.3.4` (versionCode 103) was published from `android-release.yml` on
+  2026-08-03 with signed APKs for all four ABIs.
+- `NuvioZDesktop` carries the mirrored redesign but has **not** been built or
+  released; only the Android fork has been through a compiler.
 
 ## Work Log
 
