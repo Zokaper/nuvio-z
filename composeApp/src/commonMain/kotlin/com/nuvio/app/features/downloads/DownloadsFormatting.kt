@@ -96,6 +96,37 @@ internal fun downloadStatusText(item: DownloadItem): String {
     }
 }
 
+/** "S3E4 • Blindsided" for an episode entry, the plain title for a movie. */
+@Composable
+internal fun downloadBatchEntryLabel(entry: DownloadBatchEntry): String {
+    val seasonNumber = entry.season
+    val episodeNumber = entry.episode
+    val title = entry.title.trim()
+    if (seasonNumber == null || episodeNumber == null) return title
+
+    val episodeCode = stringResource(
+        Res.string.compose_player_episode_code_full,
+        seasonNumber,
+        episodeNumber,
+    )
+    return if (title.isBlank()) episodeCode else "$episodeCode • $title"
+}
+
+@Composable
+internal fun downloadBatchEntryStateText(state: DownloadBatchEntryState): String = when (state) {
+    DownloadBatchEntryState.DISCOVERING -> stringResource(Res.string.downloads_batch_state_discovering)
+    DownloadBatchEntryState.RESOLVING -> stringResource(Res.string.downloads_batch_state_resolving)
+    DownloadBatchEntryState.READY -> stringResource(Res.string.downloads_batch_state_ready)
+    DownloadBatchEntryState.APPROVAL_NEEDED -> stringResource(Res.string.downloads_batch_state_approval_needed)
+    DownloadBatchEntryState.QUEUED -> stringResource(Res.string.downloads_batch_state_queued)
+    DownloadBatchEntryState.DOWNLOADING -> stringResource(Res.string.downloads_batch_state_downloading)
+    DownloadBatchEntryState.PAUSED -> stringResource(Res.string.downloads_batch_state_paused)
+    DownloadBatchEntryState.FAILED -> stringResource(Res.string.downloads_batch_state_failed)
+    DownloadBatchEntryState.COMPLETED -> stringResource(Res.string.downloads_batch_state_completed)
+    DownloadBatchEntryState.SKIPPED -> stringResource(Res.string.downloads_batch_state_skipped)
+    DownloadBatchEntryState.CANCELLED -> stringResource(Res.string.downloads_batch_state_cancelled)
+}
+
 /**
  * A clock that only ticks while something is counting down.
  *

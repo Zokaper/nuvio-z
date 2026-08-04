@@ -626,6 +626,7 @@ object DownloadsRepository {
         ensureLoaded()
         synchronized(stateLock) {
             _batches.value = listOf(batch) + _batches.value.filterNot { it.id == batch.id }
+            notifyBatchLiveStatusPlatform()
             persistLocked()
         }
     }
@@ -646,6 +647,7 @@ object DownloadsRepository {
                     }
                 }
             }
+            notifyBatchLiveStatusPlatform()
             persistLocked()
         }
     }
@@ -654,6 +656,7 @@ object DownloadsRepository {
         ensureLoaded()
         synchronized(stateLock) {
             _batches.value = _batches.value.filterNot { it.id == batchId }
+            notifyBatchLiveStatusPlatform()
             persistLocked()
         }
     }
@@ -748,6 +751,7 @@ object DownloadsRepository {
             _batches.value = _batches.value.map {
                 if (it.id == batchId) it.copy(entries = updatedEntries) else it
             }
+            notifyBatchLiveStatusPlatform()
             persistLocked()
         }
         return queued
@@ -1217,6 +1221,20 @@ object DownloadsRepository {
     private fun notifyLiveStatusPlatform() {
         runCatching {
             DownloadsLiveStatusPlatform.onItemsChanged(_uiState.value.items)
+        }
+        notifyBatchLiveStatusPlatform()
+    }
+
+    /**
+     * Called from every batch mutation as well as from [publishLocked].
+     *
+     * Preparation moves through [updateBatchEntry] and [saveBatch], which never touch
+     * the item list, so hanging this off item changes alone would leave the platform
+     * showing nothing for the whole discovery pass.
+     */
+    private fun notifyBatchLiveStatusPlatform() {
+        runCatching {
+            DownloadsLiveStatusPlatform.onBatchesChanged(_batches.value)
         }
     }
 

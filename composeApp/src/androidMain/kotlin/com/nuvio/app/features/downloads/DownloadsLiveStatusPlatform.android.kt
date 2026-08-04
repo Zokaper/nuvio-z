@@ -22,8 +22,15 @@ internal actual object DownloadsLiveStatusPlatform {
     private const val notificationsPrefName = "nuvio_download_live_notifications"
     private const val trackedDownloadIdsKey = "tracked_download_ids"
 
+    /**
+     * Negative so it can never collide with a download's own id, which is
+     * [notificationId]'s absolute value and so never negative.
+     */
+    private const val preparingNotificationId = -1_000_001
+
     private var appContext: Context? = null
     private val lastRenderStateById = mutableMapOf<String, RenderState>()
+    private var lastPreparingState: PreparingRenderState? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -81,21 +88,57 @@ internal actual object DownloadsLiveStatusPlatform {
             .apply()
     }
 
+    /**
+     * Keeps one ongoing notification alive while any batch is still finding sources.
+     *
+     * Discovery runs in the background with nothing queued yet, so without this the app
+     * looks idle for as long as a season takes to resolve.
+     */
+    actual fun onBatchesChanged(batches: List<DownloadBatch>) {
+        val context = appContext ?: return
+        if (!canPostNotifications(context)) return
+
+        val manager = NotificationManagerCompat.from(context)
+        val preparingBatches = batches.filter { it.isPreparing }
+        if (preparingBatches.isEmpty()) {
+            if (lastPreparingState != null) {
+                lastPreparingState = null
+                manager.cancel(preparingNotificationId)
+            }
+            return
+        }
+
+        val single = preparingBatches.singleOrNull()
+        val title = single?.title?.trim()?.takeIf { it.isNotBlank() }
+            ?: runBlocking { getString(Res.string.downloads_preparing_notification_title) }
+        val prepared = preparingBatches.sumOf { it.preparedEntryCount }
+        val total = preparingBatches.sumOf { it.entries.size }
+        val renderState = PreparingRenderState(title = title, prepared = prepared, total = total)
+        if (renderState == lastPreparingState) return
+        lastPreparingState = renderState
+
+        val subtitle = runBlocking {
+            getString(Res.string.downloads_preparing_progress, prepared, total)
+        }
+        manager.notify(
+            preparingNotificationId,
+            NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+                .setContentTitle(title)
+                .setContentText(subtitle)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setProgress(total, prepared, total <= 0)
+                .setContentIntent(buildLaunchPendingIntent(context, preparingNotificationId))
+                .build(),
+        )
+    }
+
     private fun buildNotification(context: Context, item: DownloadItem): android.app.Notification {
         val subtitle = buildSubtitle(item)
-        val launchIntent = Intent(context, com.nuvio.app.MainActivity::class.java).apply {
-            action = Intent.ACTION_VIEW
-            data = android.net.Uri.parse(buildDownloadsDeepLinkUrl())
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val launchPendingIntent = PendingIntent.getActivity(
-            context,
-            notificationId(item.id),
-            launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val launchPendingIntent = buildLaunchPendingIntent(context, notificationId(item.id))
 
         val notificationBuilder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
@@ -265,6 +308,22 @@ internal actual object DownloadsLiveStatusPlatform {
             .coerceIn(0, 100)
     }
 
+    private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
+        val launchIntent = Intent(context, com.nuvio.app.MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = android.net.Uri.parse(buildDownloadsDeepLinkUrl())
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     private fun buildActionPendingIntent(
         context: Context,
         action: String,
@@ -318,6 +377,12 @@ internal actual object DownloadsLiveStatusPlatform {
         context.getSharedPreferences(notificationsPrefName, Context.MODE_PRIVATE)
 
     private fun notificationId(downloadId: String): Int = abs(downloadId.hashCode())
+
+    private data class PreparingRenderState(
+        val title: String,
+        val prepared: Int,
+        val total: Int,
+    )
 
     private data class RenderState(
         val status: DownloadStatus,

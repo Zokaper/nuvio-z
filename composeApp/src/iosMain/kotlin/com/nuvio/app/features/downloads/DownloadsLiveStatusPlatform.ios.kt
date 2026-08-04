@@ -63,6 +63,13 @@ internal actual object DownloadsLiveStatusPlatform {
         NSNotificationCenter.defaultCenter.postNotificationName(notificationName, null)
     }
 
+    /**
+     * No iOS surface shows preparation yet. The payload above drives a single live
+     * item, and a second one would need matching Swift work; the Downloads tab shows
+     * the same state in-app on every platform.
+     */
+    actual fun onBatchesChanged(batches: List<DownloadBatch>) = Unit
+
     private fun statusPriority(status: DownloadStatus): Int = when (status) {
         DownloadStatus.Downloading -> 0
         DownloadStatus.Queued -> 1

@@ -207,18 +207,32 @@ private fun LazyListScope.downloadsRootContent(
     onRequestTitleDeletion: (DownloadTitleGroup) -> Unit,
     onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)?,
 ) {
+    val preparingBatches = batches.filter { it.isPreparing }
+    // A batch that has already failed an episode but is still working through the rest
+    // belongs in Preparing, not in review: asking for a decision on a list that is
+    // still growing produces a review the user has to redo when discovery finishes.
     val reviewBatches = batches.filter { batch ->
-        batch.entries.any {
-            it.state == DownloadBatchEntryState.APPROVAL_NEEDED ||
-                it.state == DownloadBatchEntryState.SKIPPED ||
-                it.state == DownloadBatchEntryState.FAILED
-        }
+        !batch.isPreparing &&
+            batch.entries.any {
+                it.state == DownloadBatchEntryState.APPROVAL_NEEDED ||
+                    it.state == DownloadBatchEntryState.SKIPPED ||
+                    it.state == DownloadBatchEntryState.FAILED
+            }
     }
     val attentionItems = uiState.items.filter {
         it.sizeApprovalRequired || it.status == DownloadStatus.Failed
     }
     val activeItems = uiState.activeItems.filterNot { it in attentionItems }
     val completedGroups = uiState.completedItems.groupedByTitle()
+
+    if (preparingBatches.isNotEmpty()) {
+        item(key = "downloads-preparing-title") {
+            DownloadSectionTitle(stringResource(Res.string.downloads_section_preparing))
+        }
+        items(preparingBatches, key = { "preparing-${it.id}" }) { batch ->
+            PreparingBatchCard(batch = batch)
+        }
+    }
 
     if (reviewBatches.isNotEmpty() || attentionItems.isNotEmpty()) {
         item(key = "downloads-attention-title") {
@@ -315,7 +329,7 @@ private fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (uiState.items.isEmpty() && reviewBatches.isEmpty()) {
+    if (uiState.items.isEmpty() && reviewBatches.isEmpty() && preparingBatches.isEmpty()) {
         item(key = "downloads-empty") {
             Column(
                 modifier = Modifier
@@ -418,6 +432,98 @@ private fun LazyListScope.downloadsShowContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { DownloadsRepository.cancelDownload(item.id) },
             )
+        }
+    }
+}
+
+/**
+ * A batch that is still finding sources.
+ *
+ * Discovery runs in the background and can take minutes for a season, so without this
+ * the tab shows nothing at all between the toast and the first queued episode. It is a
+ * read-only view: the batch is persisted before discovery starts and each entry is
+ * already updated as it resolves. Deliberately no cancel - the coordinator saves the
+ * batch again when discovery finishes, so a removal here would silently come back.
+ */
+@Composable
+private fun PreparingBatchCard(batch: DownloadBatch) {
+    val total = batch.entries.size
+    val prepared = batch.preparedEntryCount
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DownloadArtwork(
+                    imageUrl = batch.poster ?: batch.background,
+                    contentDescription = batch.title,
+                    modifier = Modifier.width(44.dp),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = batch.title.trim().takeIf { it.isNotBlank() }
+                            ?: stringResource(Res.string.downloads_section_preparing),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = stringResource(
+                            Res.string.downloads_preparing_progress,
+                            prepared,
+                            total,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (total > 0) {
+                LinearProgressIndicator(
+                    progress = prepared.toFloat() / total.toFloat(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            batch.entries.forEach { entry ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = downloadBatchEntryLabel(entry),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = downloadBatchEntryStateText(entry.state),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

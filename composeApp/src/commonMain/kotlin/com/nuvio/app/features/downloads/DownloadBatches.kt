@@ -98,6 +98,18 @@ data class DownloadBatch(
     }
 }
 
+/** True while at least one entry is still looking for, or resolving, a source. */
+val DownloadBatch.isPreparing: Boolean
+    get() = entries.any { it.state.isPreparing }
+
+/** Entries that have finished preparation, whatever the outcome was. */
+val DownloadBatch.preparedEntryCount: Int
+    get() = entries.count { !it.state.isPreparing }
+
+val DownloadBatchEntryState.isPreparing: Boolean
+    get() = this == DownloadBatchEntryState.DISCOVERING ||
+        this == DownloadBatchEntryState.RESOLVING
+
 data class BatchEpisode(
     val videoId: String,
     val title: String,

@@ -108,7 +108,6 @@ import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.downloads.ContentDownloadState
-import com.nuvio.app.features.downloads.DownloadBatchEntry
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadPresence
 import com.nuvio.app.features.downloads.DownloadScope
@@ -1302,25 +1301,6 @@ fun MetaDetailsScreen(
                                 initialScope = requestedScope,
                                 currentSeason = currentViewedSeason ?: seriesAction?.seasonNumber,
                                 onDismiss = { presetDownloadScope = null },
-                                onQueued = { count ->
-                                    detailsScope.launch {
-                                        NuvioToastController.show(
-                                            getString(Res.string.download_batch_queued_count, count),
-                                        )
-                                    }
-                                },
-                                onChooseManually = { entry: DownloadBatchEntry ->
-                                    presetDownloadScope = null
-                                    val episode = meta.videos.firstOrNull { video ->
-                                        video.id == entry.videoId ||
-                                            (video.season == entry.season && video.episode == entry.episode)
-                                    }
-                                    if (episode != null) {
-                                        onEpisodeManualPlayClick(episode)
-                                    } else {
-                                        onPrimaryPlayLongClick?.invoke()
-                                    }
-                                },
                             )
                         }
 
