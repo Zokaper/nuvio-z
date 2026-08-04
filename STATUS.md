@@ -4,9 +4,9 @@ Last updated: 2026-08-04
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `codex/desktop-startup-performance` (`NuvioZDesktop`) |
+| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
 | **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Desktop startup fix on `codex/desktop-startup-performance`: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
+| **Unreleased work** | Desktop startup fix merged into `Dev` for the next release: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -365,6 +365,8 @@ CI suites above.
   development/backward-compatible fallbacks.
 - Updated the desktop release workflow to reject native executables left in the
   app JAR and require each one under the packaged `app/resources` directory.
+- Fast-forwarded the verified fix into desktop `Dev` at `4a4f4b88`, so the next
+  desktop release will include it.
 - Verification: both changed Kotlin files passed the standalone parser check.
   GitHub CI run `30948292711` on desktop commit `4a4f4b88` passed the desktop
   tests and built/uploaded the Windows MSI. Local Gradle verification was
