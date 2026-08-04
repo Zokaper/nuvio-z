@@ -6,7 +6,7 @@ Last updated: 2026-08-04
 | --- | --- |
 | **Active branch** | `claude/status-md-continuation-tkc41p` (both repositories) |
 | **Released** | `nuvio-z` `0.3.7` from `main` · `NuvioZDesktop` `0.1.20-alpha` from `Dev` |
-| **Unreleased work** | On the active branch, **never compiled**. See "UNFINISHED AND UNVERIFIED". |
+| **Unreleased work** | CI verified on both feature commits: Android host tests/debug APK and desktop tests/Windows MSI passed. Runtime smoke testing is still pending. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -19,8 +19,8 @@ sandbox where Gradle cannot configure.
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `main` (the downloads redesign and the download
-  transfer/queue rework are both merged into it).
+- Working branch: `claude/status-md-continuation-tkc41p` in both repositories,
+  based on released `main` / `Dev`.
 - Official repository is configured as `upstream`.
 - Public `origin` repository: `https://github.com/Zokaper/nuvio-z`
   (public so the unauthenticated in-app updater can read its releases).
@@ -161,15 +161,18 @@ Remaining:
    Preparing section fills in episode by episode, that the ongoing notification
    appears and clears, and that the batch moves to review or straight to the
    queue when discovery finishes.
-2. **Check the desktop in-app update path.** `0.1.20-alpha` is only the second
-   desktop release, and no desktop build has been installed or run yet, so the
-   updater there has been repointed but never exercised.
+2. **Check the desktop in-app update path.** `0.1.20-alpha` is installed on a
+   Windows machine and launches with a responsive main window and no matching
+   Application event-log crash. The actual `0.1.19-alpha` to `0.1.20-alpha`
+   in-app update path has not been exercised.
 
-### UNFINISHED AND UNVERIFIED: pick this up first
+### UNRELEASED: CI verified, runtime testing pending
 
-Two changes are **committed to the working branch but never compiled by
-anything** - not Gradle, not CI, not even the parser check. The session that
-wrote them stopped before verifying. Treat every line as unproven.
+Two changes are committed to the working branch. CI subsequently verified both
+repository copies: `nuvio-z` run `30941634058` passed Android host tests and
+built the debug APK at `2beb0992`; `NuvioZDesktop` run `30941650312` passed the
+desktop test suite and built the Windows MSI at `f20d2069`. They have not been
+runtime-smoke-tested.
 
 Branch in both repositories: `claude/status-md-continuation-tkc41p`, based on the
 released `main`/`Dev`. `main` (0.3.7) and `Dev` (0.1.20-alpha) are clean and
@@ -225,33 +228,21 @@ rather than waiting for the next queue change. That path also had to widen its
 persist condition to `normalized != stored.items || reconciledBatches !=
 stored.batches`.
 
-`DownloadBatchReconcileTest` (8 tests) was written for this and covers the delete
-cases, the `FAILED` carve-out, idempotence, and the empty-batch case. **It has
-never been run.**
+`DownloadBatchReconcileTest` (8 tests) covers the delete cases, the `FAILED`
+carve-out, idempotence, and the empty-batch case. It ran successfully in both
+CI suites above.
 
 #### Next steps, in order
 
-1. **Compile and run the tests.** The standalone harness in `AGENTS.md`
-   ("Verifying without Gradle") was mid-setup when the session stopped:
-   `DownloadBatches.kt`, `DownloadPresence.kt` and `DownloadsModels.kt` plus
-   `DownloadBatchPreparationTest`, `DownloadBatchReconcileTest` and
-   `DownloadPresenceTest` should compile together against stubs for the generated
-   `Res`/`getString` and the coroutines jar. Locally, prefer
-   `.\gradlew.bat :composeApp:testAndroidHostTest`, which runs all of them for
-   real.
-2. **Push the branch** and let `ci.yml` build both repositories. The desktop
-   mirror is already in place: `DownloadBatches.kt`, `DownloadsRepository.kt`,
-   `DownloadsSettingsScreen.kt` and the new test were copied across verbatim, and
-   the four strings were added to the desktop `strings.xml` separately.
-3. **Run `desktop-release.yml` `build-only`/`windows`** - no `expect`/`actual`
-   changed here, but it is the only `desktopMain` compile.
-4. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
-   Next versions would be `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
-5. **Smoke-test the bug fix on-device**, because this is a persistence fix and no
+1. **Smoke-test the bug fix on-device**, because this is a persistence fix and no
    test touches real storage: queue a season, let some episodes finish, delete
    everything from the Downloads tab, reopen the series page and confirm every
    episode reads as not downloaded; then force-stop, relaunch, and confirm it
-   still does.
+   still does. No Android device was connected when this handoff was refreshed.
+2. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
+   Next versions would be `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
+3. **Exercise the desktop updater** from `0.1.19-alpha` to the next release; merely
+   launching the already-installed `0.1.20-alpha` does not verify replacement.
 
 
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
@@ -353,8 +344,8 @@ never been run.**
   lines under roughly 250 lines of Gradle internals.
 - `NuvioZDesktop` compiles and produces a verified MSI in CI. `0.1.20-alpha` is
   the current release and `0.1.19-alpha` (2026-08-03) precedes it, each carrying
-  one Windows x64 MSI and a `SHA256SUMS.txt`. No desktop artifact has been
-  installed or *run* yet.
+  one Windows x64 MSI and a `SHA256SUMS.txt`. `0.1.20-alpha` is installed and
+  launches on Windows; the in-app replacement flow is still untested.
 
 ## Work Log
 
