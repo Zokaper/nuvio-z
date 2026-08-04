@@ -4,9 +4,9 @@ Last updated: 2026-08-04
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
+| **Active branch** | `main` (`nuvio-z`) · `codex/desktop-startup-performance` (`NuvioZDesktop`) |
 | **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | None. Runtime smoke testing remains pending because no Android device was available. |
+| **Unreleased work** | Desktop startup latency investigation in progress; cause and verification pending. Runtime smoke testing of the latest releases also remains pending. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
