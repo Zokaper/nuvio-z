@@ -127,13 +127,61 @@ class DownloadTransferTest {
     }
 
     @Test
+    fun aSourceStillPreparingTheFileGetsALongerBudget() {
+        // A debrid queue outlasts the network-blip budget many times over.
+        assertTrue(
+            shouldRetry(DownloadFailureReason.SourceNotReady, attempt = MAX_DOWNLOAD_ATTEMPTS),
+        )
+        assertFalse(
+            shouldRetry(DownloadFailureReason.SourceNotReady, attempt = MAX_SOURCE_NOT_READY_ATTEMPTS),
+        )
+        assertTrue(
+            retryBackoffMs(1, DownloadFailureReason.SourceNotReady) >=
+                retryBackoffMs(4, DownloadFailureReason.Transient),
+            "waiting on someone else's queue should back off further than a network blip",
+        )
+    }
+
+    @Test
     fun backoffGrowsAndThenLevelsOff() {
-        val delays = (1..6).map(::retryBackoffMs)
-        delays.zipWithNext { earlier, later ->
-            assertTrue(later >= earlier, "backoff must not shrink: $delays")
+        for (reason in listOf(DownloadFailureReason.Transient, DownloadFailureReason.SourceNotReady)) {
+            val delays = (1..6).map { retryBackoffMs(it, reason) }
+            delays.zipWithNext { earlier, later ->
+                assertTrue(later >= earlier, "backoff must not shrink for $reason: $delays")
+            }
+            assertTrue(delays.first() >= 1_000L)
+            assertEquals(delays.last(), retryBackoffMs(99, reason))
         }
-        assertTrue(delays.first() >= 1_000L)
-        assertEquals(delays.last(), retryBackoffMs(99))
+    }
+
+    @Test
+    fun aDebridPlaceholderIsNotAcceptedAsTheDownload() {
+        // The reported case: a 23.4 KB "your download is queued" video standing in
+        // for a 5.2 GB episode. It is a complete, valid, playable MP4, so only its
+        // size against what the source advertised gives it away.
+        assertTrue(isImplausiblySmallForMedia(finalBytes = 23_965L, expectedBytes = 5_200_000_000L))
+        // Same placeholder, but nothing was advertised: the floor still catches it.
+        assertTrue(isImplausiblySmallForMedia(finalBytes = 23_965L, expectedBytes = null))
+        assertTrue(isImplausiblySmallForMedia(finalBytes = 23_965L, expectedBytes = 0L))
+    }
+
+    @Test
+    fun realDownloadsAreNotMistakenForPlaceholders() {
+        assertFalse(
+            isImplausiblySmallForMedia(finalBytes = 5_200_000_000L, expectedBytes = 5_200_000_000L),
+        )
+        // Sources routinely advertise a size a little off from what they serve.
+        assertFalse(
+            isImplausiblySmallForMedia(finalBytes = 4_800_000_000L, expectedBytes = 5_200_000_000L),
+        )
+        assertFalse(isImplausiblySmallForMedia(finalBytes = 700_000_000L, expectedBytes = null))
+        // Right at the floor with nothing advertised is accepted, not rejected.
+        assertFalse(
+            isImplausiblySmallForMedia(
+                finalBytes = MIN_PLAUSIBLE_MEDIA_BYTES,
+                expectedBytes = null,
+            ),
+        )
     }
 
     @Test

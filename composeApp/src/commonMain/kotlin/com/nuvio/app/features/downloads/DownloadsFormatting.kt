@@ -67,10 +67,13 @@ internal fun downloadStatusText(item: DownloadItem): String {
                 active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),
             )
             if (retryAtEpochMs != null && retryAtEpochMs > nowEpochMs) {
-                stringResource(
+                val countdown = stringResource(
                     Res.string.downloads_status_retry_countdown,
                     ((retryAtEpochMs - nowEpochMs + 999L) / 1000L).toInt(),
                 )
+                // A bare countdown does not say why. When something explained the wait -
+                // a source still preparing the file, most often - lead with that.
+                item.errorMessage?.takeIf { it.isNotBlank() }?.let { "$it $countdown" } ?: countdown
             } else {
                 stringResource(Res.string.downloads_status_queued_position, item.queuePosition + 1L)
             }

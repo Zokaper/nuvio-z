@@ -274,6 +274,7 @@ object DownloadsRepository {
                 downloadedBytes = 0L,
                 totalBytes = null,
                 calculatedCapBytes = calculatedCapBytes?.takeIf { it > 0L },
+                expectedSizeBytes = expectedSizeBytes?.takeIf { it > 0L },
                 allowMeteredNetwork = allowMeteredNetwork,
                 // Appended, not prepended: a season batch is enqueued in episode order
                 // and prepending made it download backwards, E10 before E01.
@@ -835,6 +836,24 @@ object DownloadsRepository {
     }
 
     private fun onTransferCompleted(downloadId: String, localFileUri: String, totalBytes: Long) {
+        // A whole, valid, playable file is not proof the download worked. Debrid
+        // providers answer with a small placeholder video while they queue the real
+        // one, and it passes every check the transfer itself can make.
+        val placeholder = synchronized(stateLock) {
+            val current = _uiState.value.items.firstOrNull { it.id == downloadId }
+            current != null && isImplausiblySmallForMedia(totalBytes, current.expectedSizeBytes)
+        }
+        if (placeholder) {
+            onTransferFailed(
+                downloadId = downloadId,
+                reason = DownloadFailureReason.SourceNotReady,
+                message = runBlocking { getString(Res.string.downloads_error_source_not_ready) },
+                downloadedBytes = 0L,
+                discardFiles = true,
+            )
+            return
+        }
+
         synchronized(stateLock) {
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
@@ -886,10 +905,23 @@ object DownloadsRepository {
         reason: DownloadFailureReason,
         message: String,
         downloadedBytes: Long,
+        /** Throw away what arrived, for bytes that are not part of the real file. */
+        discardFiles: Boolean = false,
     ) {
         val fallbackMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } }
         synchronized(stateLock) {
             activeHandles.remove(downloadId)
+            if (discardFiles) {
+                _uiState.value.items.firstOrNull { it.id == downloadId }?.let { item ->
+                    DownloadsPlatformDownloader.removeFile(
+                        DownloadsPlatformDownloader.resolveLocalFileUri(
+                            localFileUri = item.localFileUri,
+                            destinationFileName = item.fileName,
+                        ) ?: item.localFileUri,
+                    )
+                    DownloadsPlatformDownloader.removePartialFile(item.fileName)
+                }
+            }
             mutateLocked(downloadId, immediate = true) { current ->
                 if (current.status != DownloadStatus.Downloading) {
                     current.copy(downloadedBytes = downloadedBytes.coerceAtLeast(0L))
@@ -903,8 +935,9 @@ object DownloadsRepository {
                             status = DownloadStatus.Queued,
                             pauseReason = null,
                             downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                            localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
-                            nextRetryAtEpochMs = now + retryBackoffMs(attempt),
+                            nextRetryAtEpochMs = now + retryBackoffMs(attempt, reason),
                             errorMessage = fallbackMessage,
                             updatedAtEpochMs = now,
                         )
@@ -913,6 +946,7 @@ object DownloadsRepository {
                             status = DownloadStatus.Failed,
                             pauseReason = null,
                             downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                            localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
                             nextRetryAtEpochMs = null,
                             errorMessage = fallbackMessage,
@@ -1090,6 +1124,33 @@ object DownloadsRepository {
                     pauseReason = null,
                     updatedAtEpochMs = now,
                 )
+                // Downloads that finished before placeholders were detected are still
+                // recorded as complete, and look playable until the debrid provider's
+                // "queued, waiting for a slot" video plays instead of the episode.
+                // Re-queueing them heals a library that already has some.
+                withLocalUri.status == DownloadStatus.Completed &&
+                    isImplausiblySmallForMedia(
+                        finalBytes = withLocalUri.totalBytes ?: withLocalUri.downloadedBytes,
+                        expectedBytes = withLocalUri.expectedSizeBytes,
+                    ) -> {
+                    DownloadsPlatformDownloader.removeFile(
+                        DownloadsPlatformDownloader.resolveLocalFileUri(
+                            localFileUri = withLocalUri.localFileUri,
+                            destinationFileName = withLocalUri.fileName,
+                        ) ?: withLocalUri.localFileUri,
+                    )
+                    DownloadsPlatformDownloader.removePartialFile(withLocalUri.fileName)
+                    withLocalUri.copy(
+                        status = DownloadStatus.Queued,
+                        pauseReason = null,
+                        localFileUri = null,
+                        downloadedBytes = 0L,
+                        totalBytes = null,
+                        attemptCount = 0,
+                        nextRetryAtEpochMs = null,
+                        updatedAtEpochMs = now,
+                    )
+                }
                 else -> withLocalUri
             }
         }

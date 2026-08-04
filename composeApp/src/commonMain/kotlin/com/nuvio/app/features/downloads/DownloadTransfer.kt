@@ -32,6 +32,17 @@ internal enum class DownloadFailureReason {
     /** The stream ended before the expected total. The partial file is kept. */
     Incomplete,
 
+    /**
+     * The transfer completed, but what arrived is not the file.
+     *
+     * Debrid providers answer with a small placeholder video - "your download is
+     * queued and waiting for a slot" - while they fetch the real thing. It is a
+     * valid, complete, playable MP4, so nothing about the transfer looks wrong;
+     * only its size gives it away. Worth retrying, but on a much longer schedule
+     * than a network blip, because the wait is someone else's queue.
+     */
+    SourceNotReady,
+
     /** The source is gone or refuses us. Retrying cannot help. */
     Fatal,
 }
@@ -72,16 +83,64 @@ internal fun evaluateCompletion(
     }
 }
 
-/** Whether another attempt is worth making after [reason] on attempt number [attempt]. */
-internal fun shouldRetry(reason: DownloadFailureReason, attempt: Int): Boolean =
-    reason != DownloadFailureReason.Fatal && attempt < MAX_DOWNLOAD_ATTEMPTS
+/** Attempts allowed while a debrid provider works through its own queue. */
+internal const val MAX_SOURCE_NOT_READY_ATTEMPTS = 8
 
-/** Backoff before attempt number [attempt] (1-based), capped so the queue keeps moving. */
-internal fun retryBackoffMs(attempt: Int): Long = when {
-    attempt <= 1 -> 2_000L
-    attempt == 2 -> 5_000L
-    attempt == 3 -> 15_000L
-    else -> 30_000L
+/**
+ * No real episode or film is this small.
+ *
+ * The floor only has to be above placeholder videos and error bodies, and far
+ * below any genuine download, so it does not need to be clever.
+ */
+internal const val MIN_PLAUSIBLE_MEDIA_BYTES = 1L * 1024L * 1024L
+
+/** How far under the advertised size a finished file may land before it is suspect. */
+internal const val MIN_EXPECTED_SIZE_RATIO = 0.25
+
+/** Whether another attempt is worth making after [reason] on attempt number [attempt]. */
+internal fun shouldRetry(reason: DownloadFailureReason, attempt: Int): Boolean = when (reason) {
+    DownloadFailureReason.Fatal -> false
+    DownloadFailureReason.SourceNotReady -> attempt < MAX_SOURCE_NOT_READY_ATTEMPTS
+    else -> attempt < MAX_DOWNLOAD_ATTEMPTS
+}
+
+/**
+ * Backoff before attempt number [attempt] (1-based), capped so the queue keeps moving.
+ *
+ * A source that is still preparing the file waits far longer than a network blip:
+ * retrying a debrid queue every few seconds neither helps nor is polite, and the
+ * whole budget would be gone inside a minute.
+ */
+internal fun retryBackoffMs(attempt: Int, reason: DownloadFailureReason): Long =
+    if (reason == DownloadFailureReason.SourceNotReady) {
+        when {
+            attempt <= 1 -> 60_000L
+            attempt == 2 -> 180_000L
+            attempt == 3 -> 300_000L
+            else -> 600_000L
+        }
+    } else {
+        when {
+            attempt <= 1 -> 2_000L
+            attempt == 2 -> 5_000L
+            attempt == 3 -> 15_000L
+            else -> 30_000L
+        }
+    }
+
+/**
+ * Whether a finished transfer is too small to be the media it claims to be.
+ *
+ * A debrid placeholder is a complete, valid, playable file, so byte counting and
+ * content types both pass it. Size against what the source advertised is the only
+ * thing that catches it. When nothing was advertised, the absolute floor still
+ * rules out placeholders and error bodies.
+ */
+internal fun isImplausiblySmallForMedia(finalBytes: Long, expectedBytes: Long?): Boolean {
+    val expected = expectedBytes?.takeIf { it > 0L }
+        ?: return finalBytes < MIN_PLAUSIBLE_MEDIA_BYTES
+    if (finalBytes < MIN_PLAUSIBLE_MEDIA_BYTES) return true
+    return finalBytes < (expected * MIN_EXPECTED_SIZE_RATIO)
 }
 
 /**

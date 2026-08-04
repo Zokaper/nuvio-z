@@ -63,6 +63,14 @@ data class DownloadItem(
     val downloadedBytes: Long = 0L,
     val totalBytes: Long? = null,
     val calculatedCapBytes: Long? = null,
+    /**
+     * Size the source advertised when this was queued.
+     *
+     * Kept so a finished transfer can be checked against what was promised. Debrid
+     * providers serve a small placeholder video while they queue the real file, and
+     * that placeholder is a complete, valid download in every other respect.
+     */
+    val expectedSizeBytes: Long? = null,
     val allowMeteredNetwork: Boolean = false,
     val sizeApprovalRequired: Boolean = false,
     val sizeCapOverrideApproved: Boolean = false,
