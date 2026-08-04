@@ -110,6 +110,69 @@ val DownloadBatchEntryState.isPreparing: Boolean
     get() = this == DownloadBatchEntryState.DISCOVERING ||
         this == DownloadBatchEntryState.RESOLVING
 
+/**
+ * States an entry only reaches once a real download exists for it.
+ *
+ * Used to spot an entry whose download has been deleted. [DownloadBatchEntryState.FAILED]
+ * is deliberately excluded: discovery failures and queueing failures both land there
+ * without a download ever existing, and those entries have to stay in review so the
+ * user can still pick a source by hand.
+ */
+val DownloadBatchEntryState.isItemBacked: Boolean
+    get() = this == DownloadBatchEntryState.QUEUED ||
+        this == DownloadBatchEntryState.DOWNLOADING ||
+        this == DownloadBatchEntryState.PAUSED ||
+        this == DownloadBatchEntryState.COMPLETED
+
+/**
+ * Points every batch entry back at the download that backs it.
+ *
+ * An entry whose download has been deleted is marked cancelled rather than left at its
+ * last state. The detail screens fall back to batch entries wherever no item exists, so
+ * a frozen `DOWNLOADING` or `COMPLETED` entry made a deleted episode still read as
+ * downloading or downloaded on the series page long after the file and the queue row
+ * were gone. A batch left with nothing but cancelled entries is dropped, because there
+ * is nothing left in it to show or act on.
+ */
+internal fun reconcileBatches(
+    batches: List<DownloadBatch>,
+    items: List<DownloadItem>,
+): List<DownloadBatch> = batches.mapNotNull { batch ->
+    val entries = batch.entries.map { entry ->
+        val item = items.firstOrNull {
+            it.parentMetaId == batch.parentMetaId &&
+                it.videoId == entry.videoId &&
+                it.seasonNumber == entry.season &&
+                it.episodeNumber == entry.episode
+        }
+        when {
+            item != null -> entry.copy(
+                state = when (item.status) {
+                    DownloadStatus.Queued -> DownloadBatchEntryState.QUEUED
+                    DownloadStatus.Downloading -> DownloadBatchEntryState.DOWNLOADING
+                    DownloadStatus.Paused -> DownloadBatchEntryState.PAUSED
+                    DownloadStatus.Completed -> DownloadBatchEntryState.COMPLETED
+                    DownloadStatus.Failed -> DownloadBatchEntryState.FAILED
+                },
+                failureMessage = item.errorMessage,
+            )
+            // Entries still being planned, or waiting on the user, never had a download
+            // of their own and keep the state they have.
+            !entry.state.isItemBacked -> entry
+            else -> entry.copy(
+                state = DownloadBatchEntryState.CANCELLED,
+                failureMessage = null,
+            )
+        }
+    }
+
+    if (entries.isNotEmpty() && entries.all { it.state == DownloadBatchEntryState.CANCELLED }) {
+        null
+    } else {
+        batch.copy(entries = entries)
+    }
+}
+
 data class BatchEpisode(
     val videoId: String,
     val title: String,

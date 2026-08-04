@@ -285,6 +285,43 @@ private fun PresetSettingsCard(preset: DownloadPreset) {
                 Text(stringResource(Res.string.download_preset_hdr), Modifier.weight(1f))
                 Text(preset.dynamicRangePolicy.name.replace('_', ' '))
             }
+            // Which end of the size range to take among candidates that already pass
+            // every other rule. It only ever picks within the cap, so this is "best
+            // picture that fits" against "smallest that will do".
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        DownloadsRepository.updatePreset(
+                            preset.copy(
+                                sizePreference = when (preset.sizePreference) {
+                                    SizePreference.LARGEST_UNDER_CAP -> SizePreference.SMALLEST
+                                    SizePreference.SMALLEST -> SizePreference.LARGEST_UNDER_CAP
+                                },
+                            ),
+                        )
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(Res.string.download_preset_size_preference), Modifier.weight(1f))
+                Text(
+                    when (preset.sizePreference) {
+                        SizePreference.LARGEST_UNDER_CAP ->
+                            stringResource(Res.string.download_preset_size_largest)
+                        SizePreference.SMALLEST ->
+                            stringResource(Res.string.download_preset_size_smallest)
+                    },
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(Res.string.download_preset_prefer_cached), Modifier.weight(1f))
+                Switch(
+                    checked = preset.preferCachedSources,
+                    onCheckedChange = {
+                        DownloadsRepository.updatePreset(preset.copy(preferCachedSources = it))
+                    },
+                )
+            }
             OutlinedTextField(
                 value = preset.preferredAudioLanguage.orEmpty(),
                 onValueChange = {
