@@ -1163,8 +1163,14 @@ object DownloadsRepository {
         // item, so they are renumbered from their stored order on first load.
         val normalized = DownloadQueuePlanner.normalized(restored)
         _uiState.value = DownloadsUiState(normalized)
+        // Payloads written before entries were reconciled can hold batches whose
+        // downloads were deleted, which is what made deleted episodes keep showing a
+        // download state on the series page. Healing here means an existing install
+        // recovers on the next launch rather than on the next queue change.
+        val reconciledBatches = reconcileBatches(_batches.value, normalized)
+        _batches.value = reconciledBatches
         notifyLiveStatusPlatform()
-        if (normalized != stored.items) {
+        if (normalized != stored.items || reconciledBatches != stored.batches) {
             persistLocked(immediate = true)
         }
     }
@@ -1192,28 +1198,7 @@ object DownloadsRepository {
 
     private fun publishLocked(items: List<DownloadItem>, immediate: Boolean) {
         _uiState.value = DownloadsUiState(items = items)
-        _batches.value = _batches.value.map { batch ->
-            batch.copy(
-                entries = batch.entries.map { entry ->
-                    val item = items.firstOrNull {
-                        it.parentMetaId == batch.parentMetaId &&
-                            it.videoId == entry.videoId &&
-                            it.seasonNumber == entry.season &&
-                            it.episodeNumber == entry.episode
-                    } ?: return@map entry
-                    entry.copy(
-                        state = when (item.status) {
-                            DownloadStatus.Queued -> DownloadBatchEntryState.QUEUED
-                            DownloadStatus.Downloading -> DownloadBatchEntryState.DOWNLOADING
-                            DownloadStatus.Paused -> DownloadBatchEntryState.PAUSED
-                            DownloadStatus.Completed -> DownloadBatchEntryState.COMPLETED
-                            DownloadStatus.Failed -> DownloadBatchEntryState.FAILED
-                        },
-                        failureMessage = item.errorMessage,
-                    )
-                },
-            )
-        }
+        _batches.value = reconcileBatches(_batches.value, items)
         notifyLiveStatusPlatform()
         persistLocked(immediate = immediate)
     }

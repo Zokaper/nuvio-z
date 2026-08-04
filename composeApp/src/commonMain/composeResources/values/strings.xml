@@ -23,6 +23,10 @@
     <string name="download_preset_size_limit">Size limit</string>
     <string name="download_preset_codec">Codec (switch = require)</string>
     <string name="download_preset_hdr">HDR / Dolby Vision policy</string>
+    <string name="download_preset_size_preference">File size</string>
+    <string name="download_preset_size_largest">Largest under cap</string>
+    <string name="download_preset_size_smallest">Smallest</string>
+    <string name="download_preset_prefer_cached">Prefer cached sources</string>
     <string name="download_preset_language">Preferred audio language</string>
     <string name="download_preset_require_language">Require preferred language</string>
     <string name="download_approve_size">Approve size</string>
