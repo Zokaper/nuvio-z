@@ -6,7 +6,7 @@ Last updated: 2026-08-04
 | --- | --- |
 | **Active branch** | `main` (`nuvio-z`) · `codex/desktop-startup-performance` (`NuvioZDesktop`) |
 | **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Desktop startup latency investigation in progress; cause and verification pending. Runtime smoke testing of the latest releases also remains pending. |
+| **Unreleased work** | Desktop startup fix on `codex/desktop-startup-performance`: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -346,6 +346,34 @@ CI suites above.
   launches on Windows; the in-app replacement flow is still untested.
 
 ## Work Log
+
+### 2026-08-04 (desktop startup latency)
+
+- Root-caused the roughly 20-second cold desktop launch. `Main` called the
+  misleadingly named `preloadNativePlayerBridgeAsync` before creating the
+  Compose window, but referencing `NativePlayerBridge` synchronously loaded its
+  native runtime first. The Windows package also left
+  `compose.application.resources.dir` empty and embedded the runtime in the app
+  JAR, so each launch extracted the bundled player bridge, the approximately
+  110 MB `libmpv-2.dll`, and its runtime DLLs before the first window. The same
+  JAR also embedded the approximately 55 MB TorrServer executable.
+- Made the complete native-player bootstrap genuinely asynchronous, including
+  Kotlin object initialization and DLL loading.
+- Moved the Windows player runtime and TorrServer into Compose native
+  distribution app resources. Packaged playback now loads the DLLs directly and
+  P2P resolves TorrServer directly; the JAR extraction paths remain only as
+  development/backward-compatible fallbacks.
+- Updated the desktop release workflow to reject native executables left in the
+  app JAR and require each one under the packaged `app/resources` directory.
+- Verification: both changed Kotlin files passed the standalone parser check.
+  GitHub CI run `30948292711` on desktop commit `4a4f4b88` passed the desktop
+  tests and built/uploaded the Windows MSI. Local Gradle verification was
+  abandoned after its dependency resolver stalled in an HTTPS download; this
+  local-machine failure was not attributed to the cloud-sandbox restriction.
+- Remaining: run a timed cold and warm launch from the optimized MSI. The
+  current installed `0.1.21-alpha` reached a first window in approximately 5.1
+  seconds on a warm launch, and its temp extraction timestamps confirmed the old
+  per-launch native-runtime path.
 
 ### 2026-08-04 (preset controls, batch reconciliation, and releases)
 
