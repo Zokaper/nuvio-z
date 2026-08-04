@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Current Snapshot
 
@@ -54,6 +54,9 @@ Last updated: 2026-08-03
   ordering, menu-based reordering with preemption, and retry with backoff.
 - Coalesced progress persistence and notification updates instead of rewriting the
   whole payload on every chunk, and serialised repository mutations behind a lock.
+- Made background source discovery visible: a Preparing section in the Downloads
+  tab with per-episode state, and an ongoing Android notification while any batch
+  is preparing.
 
 ## Verification
 
@@ -76,6 +79,23 @@ Last updated: 2026-08-03
   (71 assertions) passed. This exercised the shipped sources, not copies, but it
   covers only those two files; no Android/iOS/desktop code was compiled. Every
   changed Kotlin file additionally passed a parser-only check.
+- Preparation visibility work (2026-08-04): Gradle still cannot configure here,
+  so `DownloadBatches.kt` was compiled standalone against Kotlin 2.3.0 together
+  with the new `DownloadBatchPreparationTest`, and all 4 tests passed. That
+  exercised the shipped source, but the neighbouring types it needs
+  (`DownloadPreset`, `DownloadSourcePolicy`, `SourceSelectionResult`) were local
+  stubs, because the real ones reach into the Compose resource and stream stacks.
+  Every changed Kotlin file additionally passed a parser-only check. CI was the
+  first real compiler, and it was green on the first attempt in both
+  repositories:
+  - nuvio-z `CI` on `55e8ccb`: Android host tests **passed** and
+    `assembleFullDebug` succeeded. This is the first time the host suite has
+    actually executed on the redesign and the transfer/queue rework, so
+    `DownloadPresenceTest`, `DownloadQueueTest` and `DownloadTransferTest` have
+    now all run for real, not just the two files compiled by hand.
+  - NuvioZDesktop `desktop-release.yml` `build-only`/`windows` on `d74779f2`:
+    `compileKotlinDesktop` succeeded and the MSI built and verified, so the
+    desktop actual is in place and `desktopMain` compiles.
 - Signed `assembleFullRelease` completed successfully after the latest metadata
   fix.
 - On-device preset smoke test:
@@ -90,11 +110,11 @@ Last updated: 2026-08-03
 
 ## Pending / Follow-up
 
-### Unfinished: preset/discovery work (pick this up first)
+### Preset/discovery work: code complete, release not cut
 
-`4ba89f7` (nuvio-z `main`) and `59fa2ecb` (NuvioZDesktop `Dev`) landed three of
-five planned pieces. Both trees compile-parse clean and the selector tests pass,
-but **no CI build has run on them yet**. What is done:
+All five planned pieces have landed. `4ba89f7`/`59fa2ecb` carried the first
+three; `55e8ccb` (nuvio-z) and `d74779f2` (NuvioZDesktop), both on
+`claude/status-md-continuation-tkc41p`, carry the last two. What is done:
 
 - Per-preset `sizePreference`: `Balanced`/`Quality` take the largest source that
   still fits the cap, `Saver` keeps taking the smallest. This reversed the old
@@ -105,31 +125,31 @@ but **no CI build has run on them yet**. What is done:
   resolution tier, and an uncached debrid winner is sent to review instead of
   started.
 - `PresetDownloadDialog` no longer awaits preparation or blocks dismissal.
+- A Preparing section in `DownloadsScreen.kt`, above review, driven by batches
+  with any entry still `DISCOVERING`/`RESOLVING`: artwork, title, a
+  "Finding sources · 4 of 13" count, a progress bar and per-episode state. A
+  batch is held *out* of the review section while it is still preparing, so the
+  user is not asked to review a list that is still growing.
+- `DownloadsLiveStatusPlatform.onBatchesChanged(batches)` with all four actuals
+  (android and ios in both repositories, desktop in `NuvioZDesktop`), and an
+  ongoing low-priority Android notification while any batch is preparing. It is
+  called from every batch mutation as well as from `publishLocked`: preparation
+  moves through `saveBatch`/`updateBatchEntry`, which never touch the item list,
+  so hanging it off item changes alone would show nothing for the whole
+  discovery pass.
+- The unreachable in-dialog review branch is gone from `PresetDownloadDialog`,
+  along with the `batch`/`error`/`approveUnknown` state and the `onQueued` and
+  `onChooseManually` parameters behind it.
 
-Remaining, in priority order:
+Remaining:
 
-1. **Preparing section in `DownloadsScreen.kt`.** Discovery is backgrounded but
-   invisible: the user gets a toast and then nothing until the batch is queued or
-   needs review. Add a section above the review section driven by batches with any
-   entry still `DISCOVERING`/`RESOLVING`, showing title, a count
-   ("Finding sources - 4 of 13") and per-episode state. Reuse
-   `DownloadSectionTitle` from `DownloadsFormatting.kt`. The batch is already
-   persisted before discovery starts and entries are already updated as they
-   resolve, so this is a read-only view over existing state.
-2. **`DownloadsLiveStatusPlatform.onBatchesChanged(batches)`.** Android shows an
-   ongoing low-priority notification while any batch is preparing. **The expect
-   object has four actuals** - android, ios, and desktop (desktop only exists in
-   `NuvioZDesktop`). Update every one in the same change: a missed desktop actual
-   is exactly how `publishNativeTabTitles` broke the desktop build, and Android
-   and iOS compile fine without it. Call it from `publishLocked` next to
-   `notifyLiveStatusPlatform()`, under the same throttle.
-3. **Dead code in `PresetDownloadDialog.kt`.** The in-dialog review branch
-   (`batch != null`, and the `batch`/`error`/`approveUnknown` state and `onQueued`
-   parameter behind it) is now unreachable, because review happens in the
-   Downloads tab. It compiles, but it should go.
-4. **Verify before releasing.** Run a `desktop-release.yml` `build-only` /
-   `windows` job - it is the only thing that compiles `desktopMain` - and an
-   `assembleFullDebug`. Then bump as the **final** commit and release.
+1. **Smoke-test preparation on-device.** Start a season batch and confirm the
+   Preparing section fills in episode by episode, that the ongoing notification
+   appears and clears, and that the batch moves to review or straight to the
+   queue when discovery finishes.
+2. **Check the desktop in-app update path.** `0.1.20-alpha` is the desktop
+   fork's first release, so nothing has ever updated over anything there; the
+   updater has only been repointed, never exercised.
 
 
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
@@ -161,6 +181,11 @@ Remaining, in priority order:
   that the episode card ring, the tab's “Downloading now” row, and pause/resume
   stay in sync; confirm the “Downloaded” section appears on the entry once the
   transfer completes and disappears after deleting.
+- `onBatchesChanged` is a no-op on iOS and desktop. The iOS bridge publishes one
+  live item to Swift and a second payload needs matching Swift work; desktop has
+  no notification surface at all. Both show preparation in the Downloads tab.
+- A batch cannot be cancelled while it is preparing, on any platform. See the
+  Work Log entry for why the obvious button would lie.
 - The iOS Downloads tab currently falls back to the `arrow.down.circle.fill` SF
   Symbol. Add a `NuvioTabDownloads` xcasset to match the other tab icons.
 - Existing profiles get the new meta-screen “Downloaded” section appended last in
@@ -195,8 +220,8 @@ Remaining, in priority order:
   filtered out of the queue list, so a Move up/down that would swap with an
   attention item looks like it did nothing. "Download next" is unaffected.
 - `Zokaper/nuvio-z` is public, which the unauthenticated updater requires.
-  `0.3.5` (versionCode 104) is the current release; `0.3.4` and `0.3.3`
-  precede it. All carry signed APKs for all four ABIs.
+  `0.3.7` (versionCode 106) is the current release; `0.3.6`, `0.3.5`, `0.3.4`
+  and `0.3.3` precede it. All carry signed APKs for all four ABIs.
 - CI release signing is stable: `0.3.3`, `0.3.4` and `0.3.5` all carry signer
   certificate SHA-256
   `2325A3399F9BBF5ECE1391EBE6B5A0E0F016058520FB1597B1CF30CF6184787C`.
@@ -224,10 +249,36 @@ Remaining, in priority order:
 - The desktop Windows job now runs `compileKotlinDesktop` as its own step
   without `--stacktrace`, because packaging with it buried the compiler's `e:`
   lines under roughly 250 lines of Gradle internals.
-- `NuvioZDesktop` has now been through a compiler for the first time, but has
-  still **not** been released; no desktop artifact has been produced or run.
+- `NuvioZDesktop` compiles and now produces a verified MSI in CI. `0.1.20-alpha`
+  is its first release; no desktop artifact has been *run* yet.
 
 ## Work Log
+
+### 2026-08-04 (preparation visibility and dialog cleanup)
+
+- Added the Preparing section to the Downloads tab. Discovery had been moved to
+  the background but nothing rendered it, so between the toast and the first
+  queued episode the app looked idle for as long as a season took to resolve.
+- Deliberately gave the preparing card no cancel: `PresetDownloadCoordinator`
+  calls `saveBatch` again when discovery finishes, so a removal during
+  preparation would silently come back. Cancelling a batch mid-discovery needs
+  the coordinator to be interruptible first.
+- Held preparing batches out of the review section, so review is only offered on
+  a finished list.
+- Added `DownloadsLiveStatusPlatform.onBatchesChanged` and updated all four
+  actuals in the same change, including the desktop one - the mistake that broke
+  the desktop build with `publishNativeTabTitles` was updating only Android and
+  iOS, which compile fine without it.
+- Wired the new hook into every batch mutation, not just `publishLocked`.
+  Preparation only ever moves through `saveBatch`/`updateBatchEntry`, which never
+  touch the item list, so the `publishLocked` call site alone would never have
+  fired while a batch was preparing.
+- Removed the unreachable in-dialog review branch from `PresetDownloadDialog`
+  and the `onQueued`/`onChooseManually` plumbing behind it in both details
+  screens.
+- Released `0.3.7` (versionCode 106) from `main` and `0.1.20-alpha` from the
+  desktop fork's `Dev`, both for the in-app updaters. The desktop one is that
+  repository's first release of any kind.
 
 ### 2026-08-03 (later: transfer/queue rework and the 0.3.6 release)
 
