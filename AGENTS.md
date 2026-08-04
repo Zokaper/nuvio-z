@@ -105,8 +105,9 @@ This work spans two repositories that share history and must be kept in step:
 
 - `Zokaper/nuvio-z` - Android/iOS. Default branch `main`. Has `AGENTS.md` and
   `STATUS.md`; **`STATUS.md` here is the handoff for both repositories.**
-- `Zokaper/NuvioZDesktop` - the desktop fork. Default branch `Dev`. Has no
-  `AGENTS.md` or `STATUS.md` of its own.
+- `Zokaper/NuvioZDesktop` - the desktop fork. Default branch `Dev`. Its small
+  `AGENTS.md` points back to these canonical files; it has no separate
+  `STATUS.md`.
 
 Almost every file under `composeApp/src/commonMain`, `androidMain` and `iosMain`
 is **byte-identical** between the two. Before editing one, check:
@@ -291,8 +292,9 @@ Rules:
   requires its own version bump commit *after* it (see "Release procedure").
 - Do this **before ending a session**, not only when work is finished. A branch
   that `main` does not mention is a branch the next agent will not find.
-- `NuvioZDesktop` carries a pointer `AGENTS.md` on `Dev` for the same reason.
-  Update it when the active branch changes.
+- `NuvioZDesktop` carries a stable pointer `AGENTS.md` on `Dev` for the same
+  reason. It points to `nuvio-z/main`, whose status table names the active
+  branches, so do not duplicate a branch name in the desktop pointer.
 
 ### Writing `STATUS.md`
 
