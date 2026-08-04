@@ -172,7 +172,8 @@ Two changes are committed to the working branch. CI subsequently verified both
 repository copies: `nuvio-z` run `30941634058` passed Android host tests and
 built the debug APK at `2beb0992`; `NuvioZDesktop` run `30941650312` passed the
 desktop test suite and built the Windows MSI at `f20d2069`. They have not been
-runtime-smoke-tested.
+runtime-smoke-tested. On 2026-08-04 the release was explicitly approved without
+an Android device; device verification remains a post-release follow-up.
 
 Branch in both repositories: `claude/status-md-continuation-tkc41p`, based on the
 released `main`/`Dev`. `main` (0.3.7) and `Dev` (0.1.20-alpha) are clean and
@@ -234,13 +235,13 @@ CI suites above.
 
 #### Next steps, in order
 
-1. **Smoke-test the bug fix on-device**, because this is a persistence fix and no
+1. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
+   Approved targets are `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
+2. **Smoke-test the bug fix when a device is available**, because this is a persistence fix and no
    test touches real storage: queue a season, let some episodes finish, delete
    everything from the Downloads tab, reopen the series page and confirm every
    episode reads as not downloaded; then force-stop, relaunch, and confirm it
-   still does. No Android device was connected when this handoff was refreshed.
-2. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
-   Next versions would be `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
+   still does.
 3. **Exercise the desktop updater** from `0.1.19-alpha` to the next release; merely
    launching the already-installed `0.1.20-alpha` does not verify replacement.
 
