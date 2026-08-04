@@ -236,6 +236,133 @@ class PresetDownloadsTest {
         assertTrue(batch.requiresReview)
     }
 
+    @Test
+    fun qualityTakesTheLargestSourceThatStillFitsTheCap() {
+        // The reported expectation: between a 5 GB and a 6 GB HDR 4K, both inside
+        // the cap and equal on every other key, take the 6 GB. Ordering used to be
+        // ascending, so the 5 GB won.
+        val preset = DownloadPreset.Quality
+        val cap = preset.sizeCapBytes(runtimeMinutes = 120, isEpisode = false)
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/5gb", VideoResolution.UHD_2160, 5_000_000_000L),
+                candidate(addonA, "https://a/6gb", VideoResolution.UHD_2160, 6_000_000_000L),
+            ),
+            preset = preset,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 120,
+            isEpisode = false,
+        )
+
+        val selected = assertIs<SourceSelectionResult.Selected>(result)
+        assertEquals("https://a/6gb", selected.streamUrl)
+        assertTrue(6_000_000_000L <= cap, "the 6 GB candidate must be inside the cap for this test")
+    }
+
+    @Test
+    fun anythingOverTheCapIsStillRefusedWhenTakingTheLargest() {
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/huge", VideoResolution.UHD_2160, 400_000_000_000L),
+            ),
+            preset = DownloadPreset.Quality,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 60,
+            isEpisode = false,
+        )
+
+        assertIs<SourceSelectionResult.NoMatch>(result)
+    }
+
+    @Test
+    fun saverStillTakesTheSmallest() {
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/big", VideoResolution.HD_720, 700_000_000L),
+                candidate(addonA, "https://a/small", VideoResolution.HD_720, 400_000_000L),
+            ),
+            preset = DownloadPreset.Saver,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 60,
+            isEpisode = false,
+        )
+
+        val selected = assertIs<SourceSelectionResult.Selected>(result)
+        assertEquals("https://a/small", selected.streamUrl)
+    }
+
+    @Test
+    fun aCachedSourceBreaksATieBetweenEqualCandidates() {
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/cold", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = false),
+                candidate(addonA, "https://a/warm", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = true),
+            ),
+            preset = DownloadPreset.Quality,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 120,
+            isEpisode = false,
+        )
+
+        val selected = assertIs<SourceSelectionResult.Selected>(result)
+        assertEquals("https://a/warm", selected.streamUrl)
+    }
+
+    @Test
+    fun beingCachedNeverCostsAResolutionTier() {
+        // A cached 1080p must not beat an uncached 4K. The 4K wins, and because it
+        // is not cached it goes to review rather than starting on its own.
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/1080-warm", VideoResolution.FULL_HD_1080, 3_000_000_000L, isDebridReady = true),
+                candidate(addonA, "https://a/2160-cold", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = false),
+            ),
+            preset = DownloadPreset.Quality,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 120,
+            isEpisode = false,
+        )
+
+        val approval = assertIs<SourceSelectionResult.ApprovalNeeded>(result)
+        assertEquals("https://a/2160-cold", approval.streamUrl)
+    }
+
+    @Test
+    fun sourcesThatDoNotReportCachingAreUnaffected() {
+        // Direct HTTP and addons that say nothing about caching must still be
+        // selected automatically rather than pushed into review.
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                candidate(addonA, "https://a/direct", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = null),
+            ),
+            preset = DownloadPreset.Quality,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 120,
+            isEpisode = false,
+        )
+
+        assertIs<SourceSelectionResult.Selected>(result)
+    }
+
+    @Test
+    fun unknownSizesStillSortLastUnderBothSizePreferences() {
+        for (preset in listOf(DownloadPreset.Quality, DownloadPreset.Saver)) {
+            val result = PresetSourceSelector.select(
+                candidates = listOf(
+                    candidate(addonA, "https://a/unknown", preset.targetResolution, null),
+                    candidate(addonA, "https://a/known", preset.targetResolution, 400_000_000L),
+                ),
+                preset = preset,
+                policy = DownloadSourcePolicy(),
+                runtimeMinutes = 60,
+                isEpisode = false,
+            )
+
+            val selected = assertIs<SourceSelectionResult.Selected>(result)
+            assertEquals("https://a/known", selected.streamUrl, "unknown size should not win for ${preset.id}")
+        }
+    }
+
     private fun candidate(
         key: AddonSourceKey,
         url: String,
@@ -243,6 +370,7 @@ class PresetDownloadsTest {
         size: Long?,
         addonOrder: Int = 0,
         provider: String? = null,
+        isDebridReady: Boolean? = null,
     ): DownloadSourceCandidate {
         val stream = StreamItem(
             url = url,
@@ -258,6 +386,7 @@ class PresetDownloadsTest {
                 reportedSizes = listOfNotNull(size),
                 providerName = provider,
                 codec = "HEVC",
+                isDebridReady = isDebridReady,
             ),
             resolvedUrl = url,
             addonOrder = addonOrder,

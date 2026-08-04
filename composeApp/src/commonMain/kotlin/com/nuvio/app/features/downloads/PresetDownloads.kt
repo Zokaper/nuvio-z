@@ -11,6 +11,16 @@ enum class CodecPreference { ANY, HEVC, AV1, AVC }
 @Serializable
 enum class DynamicRangePolicy { ANY, AVOID_HDR, PREFER_HDR, REQUIRE_HDR, REQUIRE_DOLBY_VISION }
 
+/**
+ * Which end of the size range to take among candidates that are otherwise equal.
+ *
+ * At a given resolution more bytes generally means a higher bitrate, so the
+ * largest file still inside the cap is usually the best picture. Frugal presets
+ * want the opposite.
+ */
+@Serializable
+enum class SizePreference { LARGEST_UNDER_CAP, SMALLEST }
+
 @Serializable
 data class DownloadPreset(
     val id: String,
@@ -22,6 +32,15 @@ data class DownloadPreset(
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
     val preferredAudioLanguage: String? = null,
     val requirePreferredAudioLanguage: Boolean = false,
+    /**
+     * Prefer sources the debrid provider already holds.
+     *
+     * An uncached source is not refused outright - it is sent to review instead of
+     * being started automatically, because the provider answers an uncached
+     * request with a placeholder video while it queues the real file.
+     */
+    val preferCachedSources: Boolean = true,
+    val sizePreference: SizePreference = SizePreference.LARGEST_UNDER_CAP,
 ) {
     init {
         require(id.isNotBlank())
@@ -41,6 +60,8 @@ data class DownloadPreset(
             gigabytesPerHourLimit = 0.75,
             codecPreference = CodecPreference.HEVC,
             dynamicRangePolicy = DynamicRangePolicy.AVOID_HDR,
+            // Saving space is the whole point of this preset.
+            sizePreference = SizePreference.SMALLEST,
         )
         val Balanced = DownloadPreset(
             id = "balanced",
@@ -163,7 +184,18 @@ object PresetSourceSelector {
             val size = candidate.facts.sizeBytes
             size != null && size <= cap && !candidate.facts.hasConflictingHardMetadata &&
                 candidate.facts.resolution != null
-        }?.let { return it.selected(cap) }
+        }?.let { candidate ->
+            // An uncached debrid source is not started automatically: the provider
+            // answers with a "download queued" placeholder while it fetches the real
+            // file, so this goes to review rather than silently waiting. A null
+            // readiness means direct HTTP or an addon that does not say, which is
+            // left alone.
+            return if (preset.preferCachedSources && candidate.facts.isDebridReady == false) {
+                candidate.approval(cap, "Source is not cached yet")
+            } else {
+                candidate.selected(cap)
+            }
+        }
 
         eligible.firstOrNull { candidate ->
             val size = candidate.facts.sizeBytes
@@ -220,9 +252,22 @@ object PresetSourceSelector {
         }.thenByDescending {
             releaseQualityScore(it.facts.releaseQuality)
         }.thenByDescending {
-            it.facts.isDebridReady == true || it.stream.playableDirectUrl != null
-        }.thenBy {
-            it.facts.sizeBytes ?: Long.MAX_VALUE
+            // Below every quality key on purpose: a cached source should decide
+            // between otherwise equal candidates, never cost a resolution tier.
+            it.facts.isDebridReady == true
+        }.thenByDescending {
+            it.stream.playableDirectUrl != null
+        }.let { comparator ->
+            when (preset.sizePreference) {
+                // select() takes the first candidate that fits the cap, so ordering
+                // largest-first makes that the largest one under the cap.
+                SizePreference.LARGEST_UNDER_CAP -> comparator.thenByDescending {
+                    it.facts.sizeBytes ?: Long.MIN_VALUE
+                }
+                SizePreference.SMALLEST -> comparator.thenBy {
+                    it.facts.sizeBytes ?: Long.MAX_VALUE
+                }
+            }
         }.thenBy {
             it.addonOrder
         }.thenBy {

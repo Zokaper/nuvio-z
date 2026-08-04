@@ -12,7 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -22,21 +21,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.details.MetaDetails
-import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.download_batch_approve_unknown
 import nuvio.composeapp.generated.resources.download_batch_mobile_data
 import nuvio.composeapp.generated.resources.download_batch_no_match
-import nuvio.composeapp.generated.resources.download_batch_nothing_to_download
-import nuvio.composeapp.generated.resources.download_batch_preparing
+import nuvio.composeapp.generated.resources.download_batch_finding_sources_started
 import nuvio.composeapp.generated.resources.download_batch_queue_ready
 import nuvio.composeapp.generated.resources.download_batch_review
 import nuvio.composeapp.generated.resources.download_batch_select_seasons
@@ -66,12 +63,10 @@ fun PresetDownloadDialog(
         )
     }
     var allowMetered by remember(meta.id, initialScope) { mutableStateOf(false) }
-    var preparing by remember(meta.id, initialScope) { mutableStateOf(false) }
     var batch by remember(meta.id, initialScope) { mutableStateOf<DownloadBatch?>(null) }
     var error by remember(meta.id, initialScope) { mutableStateOf<String?>(null) }
     var approveUnknown by remember(meta.id, initialScope) { mutableStateOf(false) }
-    val nothingToDownloadMessage = stringResource(Res.string.download_batch_nothing_to_download)
-    val coroutineScope = rememberCoroutineScope()
+    val findingSourcesMessage = stringResource(Res.string.download_batch_finding_sources_started)
     val presets by DownloadsRepository.presets.collectAsStateWithLifecycle()
 
     fun prepare(preset: DownloadPreset) {
@@ -79,39 +74,23 @@ fun PresetDownloadDialog(
             is DownloadScope.SelectedSeasons -> DownloadScope.SelectedSeasons(selectedSeasons)
             else -> initialScope
         }
-        preparing = true
+        // Discovery already runs on the coordinator's own scope, persists the batch
+        // before it starts, and auto-queues itself when nothing needs review. There
+        // is nothing to wait here for, and waiting is what used to trap the user on
+        // a spinner and cancel the work if they navigated away.
         error = null
-        coroutineScope.launch {
-            runCatching {
-                PresetDownloadCoordinator.start(
-                    meta = meta,
-                    scope = scope,
-                    preset = preset,
-                    allowMeteredNetwork = allowMetered,
-                ).await()
-            }.onSuccess { prepared ->
-                preparing = false
-                if (prepared.entries.isEmpty()) {
-                    error = nothingToDownloadMessage
-                } else if (!prepared.requiresReview(DownloadsPlatformDownloader.freeStorageBytes())) {
-                    onQueued(
-                        prepared.entries.count {
-                            it.selection is SourceSelectionResult.Selected
-                        },
-                    )
-                    onDismiss()
-                } else {
-                    batch = prepared
-                }
-            }.onFailure {
-                preparing = false
-                error = it.message ?: "Download preparation failed"
-            }
-        }
+        PresetDownloadCoordinator.start(
+            meta = meta,
+            scope = scope,
+            preset = preset,
+            allowMeteredNetwork = allowMetered,
+        )
+        NuvioToastController.show(findingSourcesMessage)
+        onDismiss()
     }
 
     AlertDialog(
-        onDismissRequest = { if (!preparing) onDismiss() },
+        onDismissRequest = onDismiss,
         title = {
             Text(
                 if (batch == null) {
@@ -130,15 +109,6 @@ fun PresetDownloadDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    preparing -> {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CircularProgressIndicator()
-                            Text(stringResource(Res.string.download_batch_preparing))
-                        }
-                    }
                     batch != null -> {
                         val prepared = requireNotNull(batch)
                         prepared.entries.forEach { entry ->
@@ -262,10 +232,8 @@ fun PresetDownloadDialog(
             }
         },
         dismissButton = {
-            if (!preparing) {
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(Res.string.action_cancel))
-                }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(Res.string.action_cancel))
             }
         },
     )
