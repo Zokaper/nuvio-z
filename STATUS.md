@@ -147,9 +147,9 @@ Remaining:
    Preparing section fills in episode by episode, that the ongoing notification
    appears and clears, and that the batch moves to review or straight to the
    queue when discovery finishes.
-2. **Check the desktop in-app update path.** `0.1.20-alpha` is the desktop
-   fork's first release, so nothing has ever updated over anything there; the
-   updater has only been repointed, never exercised.
+2. **Check the desktop in-app update path.** `0.1.20-alpha` is only the second
+   desktop release, and no desktop build has been installed or run yet, so the
+   updater there has been repointed but never exercised.
 
 
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
@@ -249,8 +249,10 @@ Remaining:
 - The desktop Windows job now runs `compileKotlinDesktop` as its own step
   without `--stacktrace`, because packaging with it buried the compiler's `e:`
   lines under roughly 250 lines of Gradle internals.
-- `NuvioZDesktop` compiles and now produces a verified MSI in CI. `0.1.20-alpha`
-  is its first release; no desktop artifact has been *run* yet.
+- `NuvioZDesktop` compiles and produces a verified MSI in CI. `0.1.20-alpha` is
+  the current release and `0.1.19-alpha` (2026-08-03) precedes it, each carrying
+  one Windows x64 MSI and a `SHA256SUMS.txt`. No desktop artifact has been
+  installed or *run* yet.
 
 ## Work Log
 
@@ -277,8 +279,9 @@ Remaining:
   and the `onQueued`/`onChooseManually` plumbing behind it in both details
   screens.
 - Released `0.3.7` (versionCode 106) from `main` and `0.1.20-alpha` from the
-  desktop fork's `Dev`, both for the in-app updaters. The desktop one is that
-  repository's first release of any kind.
+  desktop fork's `Dev`, both published for the in-app updaters. Android carries
+  signed APKs for all four ABIs; desktop carries the Windows x64 MSI. Both
+  release runs were green on the first attempt.
 
 ### 2026-08-03 (later: transfer/queue rework and the 0.3.6 release)
 
