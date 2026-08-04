@@ -2,6 +2,20 @@
 
 Last updated: 2026-08-04
 
+| | |
+| --- | --- |
+| **Active branch** | `claude/status-md-continuation-tkc41p` (both repositories) |
+| **Released** | `nuvio-z` `0.3.7` from `main` · `NuvioZDesktop` `0.1.20-alpha` from `Dev` |
+| **Unreleased work** | On the active branch, **never compiled**. See "UNFINISHED AND UNVERIFIED". |
+
+This table is the first thing to update in any session, and it is kept current on
+`main` as well as on the working branch - see "Keeping `main` current" in
+`AGENTS.md`. If it names a branch, the newest work is on that branch, not here.
+
+**Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
+full release procedure, which secrets exist and where, and how to verify code in a
+sandbox where Gradle cannot configure.
+
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
@@ -150,6 +164,94 @@ Remaining:
 2. **Check the desktop in-app update path.** `0.1.20-alpha` is only the second
    desktop release, and no desktop build has been installed or run yet, so the
    updater there has been repointed but never exercised.
+
+### UNFINISHED AND UNVERIFIED: pick this up first
+
+Two changes are **committed to the working branch but never compiled by
+anything** - not Gradle, not CI, not even the parser check. The session that
+wrote them stopped before verifying. Treat every line as unproven.
+
+Branch in both repositories: `claude/status-md-continuation-tkc41p`, based on the
+released `main`/`Dev`. `main` (0.3.7) and `Dev` (0.1.20-alpha) are clean and
+released; nothing below is in a release yet.
+
+#### (a) The two missing preset controls
+
+`4ba89f7`/`59fa2ecb` added `preferCachedSources` and `sizePreference` to
+`DownloadPreset` and wired them into `PresetSourceSelector`, but **never added
+editor UI**, so they were stuck at their built-in defaults and the user could not
+reach them. Added to `PresetSettingsCard` in `DownloadsSettingsScreen.kt`:
+
+- a row that toggles `sizePreference` between `LARGEST_UNDER_CAP` and `SMALLEST`;
+- a `Prefer cached sources` switch for `preferCachedSources`.
+
+Four new strings in both `strings.xml` files:
+`download_preset_size_preference`, `download_preset_size_largest`,
+`download_preset_size_smallest`, `download_preset_prefer_cached`.
+
+Both fields are already `@Serializable` on `DownloadPreset` and go through
+`DownloadsRepository.updatePreset`, so persistence needed no change.
+
+#### (b) Series page and Downloads page disagreeing (reported bug)
+
+**Symptom.** Delete everything from the Downloads tab, then open the series page:
+episodes still show download states - some "downloading", some "downloaded".
+
+**Cause.** `buildTitleDownloadState` (`DownloadPresence.kt`) layers batch entries
+underneath persisted items, items winning. The old `publishLocked` only synced an
+entry when a matching item still existed (`?: return@map entry`), so deleting a
+download left its batch entry frozen at `DOWNLOADING`/`COMPLETED`/`QUEUED`
+forever. With the item gone the detail screen fell through to that stale entry.
+The Downloads tab looked correct because it renders items, not entries.
+
+**Fix as written.** A new pure `reconcileBatches(batches, items)` in
+`DownloadBatches.kt`, called from both `publishLocked` and `loadFromDiskLocked`:
+
+- an entry with a matching item follows that item's status, as before;
+- an entry in an *item-backed* state whose item is gone becomes `CANCELLED`,
+  which `toPresence()` already maps to `DownloadPresence.None`;
+- a batch whose entries are now all `CANCELLED` is dropped entirely;
+- `isItemBacked` covers `QUEUED`, `DOWNLOADING`, `PAUSED`, `COMPLETED` and
+  **deliberately excludes `FAILED`**, because discovery failures and queueing
+  failures land there with no item ever created, and those entries must stay in
+  review so the user can still pick a source by hand. The trade-off: deleting a
+  *failed* download leaves the episode reading as failed until the batch is
+  dismissed. Left as-is on purpose; revisit only with a way to tell the two
+  failures apart.
+
+Calling it from `loadFromDiskLocked` is what heals **installs that are already
+broken**, including the reporter's device - it reconciles on the next launch
+rather than waiting for the next queue change. That path also had to widen its
+persist condition to `normalized != stored.items || reconciledBatches !=
+stored.batches`.
+
+`DownloadBatchReconcileTest` (8 tests) was written for this and covers the delete
+cases, the `FAILED` carve-out, idempotence, and the empty-batch case. **It has
+never been run.**
+
+#### Next steps, in order
+
+1. **Compile and run the tests.** The standalone harness in `AGENTS.md`
+   ("Verifying without Gradle") was mid-setup when the session stopped:
+   `DownloadBatches.kt`, `DownloadPresence.kt` and `DownloadsModels.kt` plus
+   `DownloadBatchPreparationTest`, `DownloadBatchReconcileTest` and
+   `DownloadPresenceTest` should compile together against stubs for the generated
+   `Res`/`getString` and the coroutines jar. Locally, prefer
+   `.\gradlew.bat :composeApp:testAndroidHostTest`, which runs all of them for
+   real.
+2. **Push the branch** and let `ci.yml` build both repositories. The desktop
+   mirror is already in place: `DownloadBatches.kt`, `DownloadsRepository.kt`,
+   `DownloadsSettingsScreen.kt` and the new test were copied across verbatim, and
+   the four strings were added to the desktop `strings.xml` separately.
+3. **Run `desktop-release.yml` `build-only`/`windows`** - no `expect`/`actual`
+   changed here, but it is the only `desktopMain` compile.
+4. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
+   Next versions would be `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
+5. **Smoke-test the bug fix on-device**, because this is a persistence fix and no
+   test touches real storage: queue a season, let some episodes finish, delete
+   everything from the Downloads tab, reopen the series page and confirm every
+   episode reads as not downloaded; then force-stop, relaunch, and confirm it
+   still does.
 
 
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
