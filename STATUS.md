@@ -90,6 +90,48 @@ Last updated: 2026-08-03
 
 ## Pending / Follow-up
 
+### Unfinished: preset/discovery work (pick this up first)
+
+`4ba89f7` (nuvio-z `main`) and `59fa2ecb` (NuvioZDesktop `Dev`) landed three of
+five planned pieces. Both trees compile-parse clean and the selector tests pass,
+but **no CI build has run on them yet**. What is done:
+
+- Per-preset `sizePreference`: `Balanced`/`Quality` take the largest source that
+  still fits the cap, `Saver` keeps taking the smallest. This reversed the old
+  behaviour, which sorted size ascending and so picked the *smallest* under the
+  cap.
+- Per-preset `preferCachedSources` (default on). `SourceFacts.isDebridReady` is
+  now its own tie-break below every quality key, so cached never costs a
+  resolution tier, and an uncached debrid winner is sent to review instead of
+  started.
+- `PresetDownloadDialog` no longer awaits preparation or blocks dismissal.
+
+Remaining, in priority order:
+
+1. **Preparing section in `DownloadsScreen.kt`.** Discovery is backgrounded but
+   invisible: the user gets a toast and then nothing until the batch is queued or
+   needs review. Add a section above the review section driven by batches with any
+   entry still `DISCOVERING`/`RESOLVING`, showing title, a count
+   ("Finding sources - 4 of 13") and per-episode state. Reuse
+   `DownloadSectionTitle` from `DownloadsFormatting.kt`. The batch is already
+   persisted before discovery starts and entries are already updated as they
+   resolve, so this is a read-only view over existing state.
+2. **`DownloadsLiveStatusPlatform.onBatchesChanged(batches)`.** Android shows an
+   ongoing low-priority notification while any batch is preparing. **The expect
+   object has four actuals** - android, ios, and desktop (desktop only exists in
+   `NuvioZDesktop`). Update every one in the same change: a missed desktop actual
+   is exactly how `publishNativeTabTitles` broke the desktop build, and Android
+   and iOS compile fine without it. Call it from `publishLocked` next to
+   `notifyLiveStatusPlatform()`, under the same throttle.
+3. **Dead code in `PresetDownloadDialog.kt`.** The in-dialog review branch
+   (`batch != null`, and the `batch`/`error`/`approveUnknown` state and `onQueued`
+   parameter behind it) is now unreachable, because review happens in the
+   Downloads tab. It compiles, but it should go.
+4. **Verify before releasing.** Run a `desktop-release.yml` `build-only` /
+   `windows` job - it is the only thing that compiles `desktopMain` - and an
+   `assembleFullDebug`. Then bump as the **final** commit and release.
+
+
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
   the egress policy, so the Android Gradle Plugin never resolves. CI is the only
   compiler available here, which makes each fix a full release-run round trip.
