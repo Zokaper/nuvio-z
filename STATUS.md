@@ -4,9 +4,9 @@ Last updated: 2026-08-04
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/status-md-continuation-tkc41p` (both repositories) |
-| **Released** | `nuvio-z` `0.3.7` from `main` · `NuvioZDesktop` `0.1.20-alpha` from `Dev` |
-| **Unreleased work** | CI verified on both feature commits: Android host tests/debug APK and desktop tests/Windows MSI passed. Runtime smoke testing is still pending. |
+| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
+| **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
+| **Unreleased work** | None. Runtime smoke testing remains pending because no Android device was available. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -19,8 +19,7 @@ sandbox where Gradle cannot configure.
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
-- Working branch: `claude/status-md-continuation-tkc41p` in both repositories,
-  based on released `main` / `Dev`.
+- Working branches: released `main` (`nuvio-z`) and `Dev` (`NuvioZDesktop`).
 - Official repository is configured as `upstream`.
 - Public `origin` repository: `https://github.com/Zokaper/nuvio-z`
   (public so the unauthenticated in-app updater can read its releases).
@@ -166,18 +165,18 @@ Remaining:
    Application event-log crash. The actual `0.1.19-alpha` to `0.1.20-alpha`
    in-app update path has not been exercised.
 
-### UNRELEASED: CI verified, runtime testing pending
+### Latest release: CI verified, runtime testing pending
 
-Two changes are committed to the working branch. CI subsequently verified both
-repository copies: `nuvio-z` run `30941634058` passed Android host tests and
-built the debug APK at `2beb0992`; `NuvioZDesktop` run `30941650312` passed the
-desktop test suite and built the Windows MSI at `f20d2069`. They have not been
-runtime-smoke-tested. On 2026-08-04 the release was explicitly approved without
-an Android device; device verification remains a post-release follow-up.
+Two changes shipped in `0.3.8` / `0.1.21-alpha`. The merged release branches
+passed Android host tests/debug assembly in run `30944119268` and desktop tests/
+Windows MSI assembly in run `30944124462`. Publish runs `30944744977` and
+`30944920882` then built and published the signed APKs and verified MSI. They
+have not been runtime-smoke-tested. On 2026-08-04 the release was explicitly
+approved without an Android device; device verification remains a post-release
+follow-up.
 
-Branch in both repositories: `claude/status-md-continuation-tkc41p`, based on the
-released `main`/`Dev`. `main` (0.3.7) and `Dev` (0.1.20-alpha) are clean and
-released; nothing below is in a release yet.
+The former `claude/status-md-continuation-tkc41p` branches are merged. The code
+below is released from `main` / `Dev`.
 
 #### (a) The two missing preset controls
 
@@ -235,15 +234,13 @@ CI suites above.
 
 #### Next steps, in order
 
-1. **Release** per `AGENTS.md`: docs first, bump last, dispatch from `main`/`Dev`.
-   Approved targets are `0.3.8` / versionCode `107` and `0.1.21-alpha` / `21`.
-2. **Smoke-test the bug fix when a device is available**, because this is a
+1. **Smoke-test the bug fix when a device is available**, because this is a
    persistence fix and no test touches real storage: queue a season, let some
    episodes finish, delete everything from the Downloads tab, reopen the series
    page and confirm every episode reads as not downloaded; then force-stop,
    relaunch, and confirm it still does.
-3. **Exercise the desktop updater** from `0.1.19-alpha` to the next release; merely
-   launching the already-installed `0.1.20-alpha` does not verify replacement.
+2. **Exercise the desktop updater** from the installed `0.1.20-alpha` to
+   `0.1.21-alpha`; merely launching `0.1.20-alpha` did not verify replacement.
 
 
 - No Gradle task can configure in this sandbox: `dl.google.com` is denied by
@@ -349,6 +346,22 @@ CI suites above.
   launches on Windows; the in-app replacement flow is still untested.
 
 ## Work Log
+
+### 2026-08-04 (preset controls, batch reconciliation, and releases)
+
+- Exposed the cached-source and file-size preferences in the preset editor.
+- Reconciled persisted batch entries against download items on mutation and
+  startup, fixing deleted episodes that still appeared downloaded or active on
+  series pages; added eight regression tests.
+- Merged and verified both repositories: Android host tests/debug APK and desktop
+  tests/Windows MSI all passed on the release branches.
+- Published `0.3.8` (versionCode 107) with four signed Android APKs and
+  `0.1.21-alpha` (versionCode 21) with a verified Windows x64 MSI and checksum.
+- Fixed desktop release-note generation so direct merge commits remain visible
+  in first-parent repository history. The first desktop publish attempt stopped
+  before building because its notes were empty; the corrected retry succeeded.
+- Released without Android device smoke testing at the user's explicit direction;
+  runtime verification remains pending.
 
 ### 2026-08-04 (preparation visibility and dialog cleanup)
 
