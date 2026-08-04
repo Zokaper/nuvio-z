@@ -266,6 +266,36 @@ and anything touching resources are only checked by a real build.
 
 ## Status Handoff
 
+### Keeping `main` current
+
+**`main` must never be stale.** An agent that reads only the default branch has to
+be able to find the newest work from there. Feature work lives on a branch, so the
+default branch has to point at it.
+
+Rules:
+
+- The table at the top of `STATUS.md` names the **active branch**, what is
+  released, and whether the unreleased work has been verified. Update it first,
+  in every session, before touching code.
+- Whenever that table changes, **also put the updated `STATUS.md` and `AGENTS.md`
+  on `main`**, even when the code stays on the branch:
+
+  ```bash
+  git checkout main
+  git checkout <working-branch> -- STATUS.md AGENTS.md
+  git commit -m "docs: point main at <working-branch>"
+  git push -u origin main
+  ```
+
+  This is docs-only and safe. It does not disturb a release, because a release
+  requires its own version bump commit *after* it (see "Release procedure").
+- Do this **before ending a session**, not only when work is finished. A branch
+  that `main` does not mention is a branch the next agent will not find.
+- `NuvioZDesktop` carries a pointer `AGENTS.md` on `Dev` for the same reason.
+  Update it when the active branch changes.
+
+### Writing `STATUS.md`
+
 Keep `STATUS.md` concise and factual:
 
 - record completed work and exact verification;

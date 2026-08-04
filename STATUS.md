@@ -2,13 +2,19 @@
 
 Last updated: 2026-08-04
 
-**Read `AGENTS.md` first.** It now carries the two-repository mirroring rules, the
+| | |
+| --- | --- |
+| **Active branch** | `claude/status-md-continuation-tkc41p` (both repositories) |
+| **Released** | `nuvio-z` `0.3.7` from `main` · `NuvioZDesktop` `0.1.20-alpha` from `Dev` |
+| **Unreleased work** | On the active branch, **never compiled**. See "UNFINISHED AND UNVERIFIED". |
+
+This table is the first thing to update in any session, and it is kept current on
+`main` as well as on the working branch - see "Keeping `main` current" in
+`AGENTS.md`. If it names a branch, the newest work is on that branch, not here.
+
+**Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
-
-**Start here:** "UNFINISHED AND UNVERIFIED" under Pending / Follow-up. Two changes
-are committed on `claude/status-md-continuation-tkc41p` in both repositories and
-have never been through a compiler.
 
 ## Current Snapshot
 
