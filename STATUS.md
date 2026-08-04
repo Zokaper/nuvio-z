@@ -4,9 +4,9 @@ Last updated: 2026-08-04
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
+| **Active branch** | `codex/whats-new` in both `nuvio-z` and `NuvioZDesktop` |
 | **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Desktop startup fix merged into `Dev` for the next release: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
+| **Unreleased work** | What's New screen implemented on `codex/whats-new` for Android, iOS, and desktop; compilation and runtime verification are deferred. Desktop startup fix is merged into `Dev` for the next release: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -346,6 +346,21 @@ CI suites above.
   launches on Windows; the in-app replacement flow is still untested.
 
 ## Work Log
+
+### 2026-08-04 (What's New screen)
+
+- Added a shared, categorized What's New screen that appears after the app gate
+  on the first launch of each installed version and cannot be accidentally
+  dismissed with back or an outside click.
+- Persisted the last acknowledged version globally per installation using
+  Android preferences, iOS user defaults, and the desktop storage abstraction.
+- Added mobile and desktop release-note variants. Both announce the new screen;
+  desktop also describes the unreleased native-runtime startup improvement.
+- Added pure decision tests for first launch, upgrade, repeat launch, and empty
+  release-note cases.
+- Verification was deferred at the user's direction. Earlier local Gradle
+  attempts stopped before Kotlin compilation because the Android API 37 target
+  was not recognized locally and desktop dependency resolution stalled.
 
 ### 2026-08-04 (desktop startup latency)
 
