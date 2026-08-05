@@ -102,24 +102,26 @@ private fun LazyListScope.downloadsSettingsContent(
 ) {
     item {
         var confirmingReset by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DownloadSectionTitle(stringResource(Res.string.download_presets_settings))
-            NuvioActionLabel(
-                text = stringResource(Res.string.download_presets_reset),
-                modifier = Modifier.padding(horizontal = 14.dp),
-                onClick = { confirmingReset = true },
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DownloadSectionTitle(stringResource(Res.string.download_presets_settings))
+                NuvioActionLabel(
+                    text = stringResource(Res.string.download_presets_reset),
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                    onClick = { confirmingReset = true },
+                )
+            }
+            Text(
+                text = stringResource(Res.string.download_presets_settings_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
         }
-        Text(
-            text = stringResource(Res.string.download_presets_settings_description),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
         NuvioStatusModal(
             title = stringResource(Res.string.download_presets_reset),
             message = stringResource(Res.string.download_presets_reset_confirm),

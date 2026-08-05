@@ -46,7 +46,7 @@
     <string name="download_preset_hdr_require">Require HDR</string>
     <string name="download_preset_hdr_require_dolby_vision">Require Dolby Vision</string>
     <string name="download_preset_resolution_label">%1$dp</string>
-    <string name="download_preset_size_limit_value">%1$s GB per hour</string>
+    <string name="download_preset_size_limit_value">%1$s GB/h</string>
     <string name="download_preset_size_limit_helper">About %1$s for a 45-minute episode and %2$s for a 2-hour film</string>
     <string name="download_preset_language_placeholder">Any language</string>
     <string name="download_preset_require_language_description">Skip a source without this audio track instead of downloading it anyway</string>
