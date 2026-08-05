@@ -9,12 +9,14 @@ import com.nuvio.app.features.streams.StreamProxyHeaders
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +27,19 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+
+internal sealed interface DownloadSourceResolution {
+    data class Ready(val stream: StreamItem) : DownloadSourceResolution
+    data class NotReady(val message: String) : DownloadSourceResolution
+    data class RetryableFailure(val message: String) : DownloadSourceResolution
+    data class FatalFailure(val message: String) : DownloadSourceResolution
+    data class SourceChanged(val message: String) : DownloadSourceResolution
+}
+
+private sealed interface RefreshedDownloadSource {
+    data class Ready(val item: DownloadItem) : RefreshedDownloadSource
+    data class Failed(val resolution: DownloadSourceResolution) : RefreshedDownloadSource
+}
 
 object DownloadsRepository {
     const val MAX_CONCURRENT_TRANSFERS = 2
@@ -1104,14 +1119,13 @@ object DownloadsRepository {
         val transfer = ActiveTransfer(++nextTransferGeneration)
         activeHandles[item.id] = transfer
 
-        if (!item.isSourceUrlStale(DownloadsClock.nowEpochMs())) {
+        if (item.sourceOrigin == null) {
             startResolvedDownloadLocked(item, transfer)
             return
         }
 
         scope.launch {
             val refreshed = refreshSourceUrl(item)
-            val expiredMessage = getString(Res.string.downloads_error_source_link_expired)
             synchronized(stateLock) {
                 // Cancelled, paused or reordered while the provider was answering. The
                 // generation is what says so: this download may well have been started
@@ -1122,25 +1136,56 @@ object DownloadsRepository {
                     activeHandles.remove(item.id)
                     return@synchronized
                 }
-                if (refreshed == null) {
+                if (refreshed is RefreshedDownloadSource.Failed) {
+                    val resolution = refreshed.resolution
                     activeHandles.remove(item.id)
-                    // The provider could not mint a link now. Nothing has been
-                    // transferred, so this is an ordinary backed-off retry.
                     val now = DownloadsClock.nowEpochMs()
                     val attempt = current.attemptCount + 1
-                    mutateLocked(item.id, immediate = true) {
-                        it.copy(
-                            status = DownloadStatus.Queued,
-                            pauseReason = null,
-                            attemptCount = attempt,
-                            nextRetryAtEpochMs = now +
-                                retryBackoffMs(attempt, DownloadFailureReason.SourceExpired),
-                            errorMessage = expiredMessage,
-                            updatedAtEpochMs = now,
-                        )
+                    val reason = when (resolution) {
+                        is DownloadSourceResolution.NotReady -> DownloadFailureReason.SourceNotReady
+                        is DownloadSourceResolution.SourceChanged -> DownloadFailureReason.SourceChanged
+                        else -> DownloadFailureReason.SourceExpired
                     }
-                } else {
-                    startResolvedDownloadLocked(refreshed, transfer)
+                    val message = when (resolution) {
+                        is DownloadSourceResolution.NotReady -> resolution.message
+                        is DownloadSourceResolution.RetryableFailure -> resolution.message
+                        is DownloadSourceResolution.FatalFailure -> resolution.message
+                        is DownloadSourceResolution.SourceChanged -> resolution.message
+                        is DownloadSourceResolution.Ready -> error("ready source cannot fail refresh")
+                    }
+                    val retryable = resolution !is DownloadSourceResolution.FatalFailure &&
+                        resolution !is DownloadSourceResolution.SourceChanged &&
+                        shouldRetry(reason, attempt, current.canReresolveSource)
+                    val sourceChanged = resolution is DownloadSourceResolution.SourceChanged
+                    if (sourceChanged) DownloadsPlatformDownloader.removePartialFile(current.fileName)
+                    mutateLocked(item.id, immediate = true) { latest ->
+                        if (retryable) {
+                            latest.copy(
+                                status = DownloadStatus.Queued,
+                                pauseReason = null,
+                                attemptCount = attempt,
+                                nextRetryAtEpochMs = now +
+                                    retryBackoffMs(attempt, reason),
+                                errorMessage = message,
+                                updatedAtEpochMs = now,
+                            )
+                        } else {
+                            latest.copy(
+                                status = DownloadStatus.Failed,
+                                pauseReason = null,
+                                downloadedBytes = if (sourceChanged) 0L else latest.downloadedBytes,
+                                totalBytes = if (sourceChanged) null else latest.totalBytes,
+                                resumeEtag = if (sourceChanged) null else latest.resumeEtag,
+                                resumeLastModified = if (sourceChanged) null else latest.resumeLastModified,
+                                attemptCount = attempt,
+                                nextRetryAtEpochMs = null,
+                                errorMessage = message,
+                                updatedAtEpochMs = now,
+                            )
+                        }
+                    }
+                } else if (refreshed is RefreshedDownloadSource.Ready) {
+                    startResolvedDownloadLocked(refreshed.item, transfer)
                 }
             }
             scheduleQueueWake()
@@ -1155,10 +1200,30 @@ object DownloadsRepository {
      * only reachable with a real debrid account and a link left to expire in a real
      * queue, which is why it shipped with no runtime coverage at all.
      */
-    internal var resolvePlayableStream: suspend (StreamItem, Int?, Int?) -> StreamItem? =
+    internal var resolvePlayableStream: suspend (StreamItem, Int?, Int?) -> DownloadSourceResolution =
         { stream, season, episode ->
-            val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(stream, season, episode)
-            (resolved as? DirectDebridPlayableResult.Success)?.stream
+            when (
+                val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                    stream,
+                    season,
+                    episode,
+                    forceRefresh = true,
+                )
+            ) {
+                is DirectDebridPlayableResult.Success -> DownloadSourceResolution.Ready(resolved.stream)
+                DirectDebridPlayableResult.NotCached -> DownloadSourceResolution.NotReady(
+                    getString(Res.string.debrid_not_cached),
+                )
+                DirectDebridPlayableResult.MissingApiKey -> DownloadSourceResolution.FatalFailure(
+                    getString(Res.string.debrid_missing_api_key),
+                )
+                DirectDebridPlayableResult.Stale -> DownloadSourceResolution.RetryableFailure(
+                    getString(Res.string.debrid_stream_stale),
+                )
+                DirectDebridPlayableResult.Error -> DownloadSourceResolution.RetryableFailure(
+                    getString(Res.string.debrid_resolve_failed),
+                )
+            }
         }
 
     /**
@@ -1167,12 +1232,42 @@ object DownloadsRepository {
      * Runs outside [stateLock] because it suspends. The write back is the only part
      * that touches state.
      */
-    private suspend fun refreshSourceUrl(item: DownloadItem): DownloadItem? {
-        val origin = item.sourceOrigin ?: return item
-        val stream = runCatching {
-            resolvePlayableStream(origin.stream, origin.season, origin.episode)
-        }.getOrNull() ?: return null
-        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    private suspend fun refreshSourceUrl(item: DownloadItem): RefreshedDownloadSource {
+        val fallbackMessage = getString(Res.string.debrid_resolve_failed)
+        val origin = item.sourceOrigin
+            ?: return RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.RetryableFailure(fallbackMessage),
+            )
+        val resolution = try {
+            withTimeoutOrNull(DownloadsTiming.sourceResolveTimeoutMs) {
+                resolvePlayableStream(origin.stream, origin.season, origin.episode)
+            } ?: DownloadSourceResolution.RetryableFailure(fallbackMessage)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            DownloadSourceResolution.RetryableFailure(fallbackMessage)
+        }
+        if (resolution !is DownloadSourceResolution.Ready) {
+            return RefreshedDownloadSource.Failed(resolution)
+        }
+        val stream = resolution.stream
+        val refreshedSize = stream.behaviorHints.videoSize?.takeIf { it > 0L }
+        val expectedSize = item.expectedSizeBytes?.takeIf { it > 0L }
+        if (
+            expectedSize != null &&
+            refreshedSize != null &&
+            sizesMateriallyConflict(listOf(expectedSize, refreshedSize))
+        ) {
+            return RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.SourceChanged(
+                    getString(Res.string.debrid_stream_stale),
+                ),
+            )
+        }
+        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: return RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.RetryableFailure(fallbackMessage),
+            )
 
         val now = DownloadsClock.nowEpochMs()
         var updated: DownloadItem? = null
@@ -1184,17 +1279,19 @@ object DownloadsRepository {
                         stream.behaviorHints.proxyHeaders?.request,
                     ).ifEmpty { current.sourceHeaders },
                     sourceUrlResolvedAtEpochMs = now,
-                    // A re-minted link is a different signed URL for the same bytes, but
-                    // the validators belong to the response that produced them; keeping
-                    // them would send an If-Range the new host never issued.
-                    resumeEtag = null,
-                    resumeLastModified = null,
+                    // Keep the validator from the bytes already on disk. If the fresh
+                    // URL now points at a different object, If-Range makes a compliant
+                    // host answer with 200 and the platform replaces the partial file.
                     updatedAtEpochMs = now,
                 )
             }
             updated = _uiState.value.items.firstOrNull { it.id == item.id }
         }
         return updated
+            ?.let { RefreshedDownloadSource.Ready(it) }
+            ?: RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.RetryableFailure(fallbackMessage),
+            )
     }
 
     /** Wakes the queue from outside the lock, once a resolution has settled. */

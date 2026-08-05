@@ -6,8 +6,8 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | The stranded-download fix and the desktop download harness, on the branch above. The harness **reproduces the reported fault and proves the fix**, which is the first time a download queue change has had runtime evidence behind it. CI is green on both repositories. Still pending from the last release: the preset picker, the preset editor controls and the toast link have only ever been compiled and unit-tested. |
-| **Next** | **Make a download behave like a Netflix download** - see "NEXT" under Pending / Follow-up. Extend the harness over the queue controls (reorder, pause, resume, cancel) under load, every way a debrid provider can fail, and a real cached-on-the-provider check before a transfer starts; then fix what it exposes. |
+| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. Shared files are byte-identical and local Android/desktop verification is green. |
+| **Next** | Run the opt-in queue against a real TorBox account and a season-long provider-backed source set, then cover a real `NetworkStatusRepository` offline/online transition. `NUVIO_DOWNLOAD_TEST_URLS` is not configured here, and raw resolved URLs alone cannot exercise re-minting because they do not retain the original provider/hash metadata. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -255,6 +255,35 @@ locales fall back to English until translated.
 
 ## Verification
 
+- Download reliability pass (2026-08-05):
+  - Extended the desktop E2E harness from 8 local fault/queue cases to 30. New
+    coverage exercises every reorder direction under load, ranged preemption,
+    user pause/resume during transfer and retry backoff, cancel and bulk delete,
+    active queue reload with preserved rank/partial files, controls during a
+    suspended re-mint, expiry after 20% and 90%, one-time and permanent re-mint
+    failures, provider hangs, 429/503, dead accounts, changed/truncated identity,
+    and the cached/not-cached/evicted/unknown/placeholder readiness outcomes.
+  - The harness reproduced four production faults before their fixes: permanent
+    re-mint failure retried forever; a hung provider call held a transfer slot
+    forever; and a re-minted same-sized different file was appended to the old
+    `.part` and marked complete; and a materially truncated replacement was
+    accepted at its shorter HTTP total. It also proved that a fresh resolved URL
+    skipped the provider cache check and downloaded even after the source was evicted.
+  - Fixed those paths by applying the finite re-resolution budget before transfer,
+    bounding provider calls at 60 seconds, retaining validators across re-mint so
+    `If-Range` resets changed objects, bypassing the resolver's 15-minute success
+    cache for download readiness, rejecting materially contradictory refreshed
+    provider sizes, and distinguishing not-ready, retryable, changed, and fatal
+    provider outcomes. Direct HTTP downloads remain direct.
+  - `NuvioZDesktop :composeApp:desktopTest` passed in full: **759 tests**, zero
+    failures/errors/skips, including all **30** desktop download harness cases.
+  - `nuvio-z :composeApp:testAndroidHostTest`: **554 passed**, zero failures,
+    errors, or skips. `:androidApp:assembleFullDebug` also completed successfully.
+    The four changed common files are byte-identical between repositories.
+  - Real TorBox coverage remains unrun: `NUVIO_DOWNLOAD_TEST_URLS` is unset. The
+    current raw-URL mode can prove transfer/concurrency behavior but cannot prove
+    re-minting past fifteen minutes without provider/hash origin metadata; extend
+    that opt-in input before claiming the season-window test.
 - Stranded downloads and the harness (2026-08-05). The first download work here with
   runtime evidence rather than an argument. Gradle still cannot configure in the
   sandbox, so Kotlin 2.3.0 was driven directly, describing the source set to the
@@ -409,15 +438,15 @@ needs the user to know what a debrid link is.
 
 The harness in `NuvioZDesktop`
 (`composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` and
-`FaultyMediaServer.kt`) is where that gets proven. It currently covers a clean
-queue, a dropped connection, a source going quiet, an expired link being
-re-minted, a placeholder file, the concurrency limit, and the stranding
-regression. **Everything below is uncovered.** Extend the harness, then fix what
-it exposes - in that order, because the last four faults in this file were all
-found by a user rather than by a test.
+`FaultyMediaServer.kt`) is where that gets proven. It now covers the local,
+deterministic parts of items 1-3 below: queue controls under load and across a
+repository reload, provider failures and controls during them, byte identity
+across re-mint, and provider readiness immediately before transfer. The harness
+was extended first and reproduced every production fault fixed in this pass.
+The real-account and real connectivity-transition work in item 4 remains.
 
-**1. The queue controls, under load.** Every one of these cancels a running
-transfer, and cancelling is what the stranding bug came out of. None is tested.
+**1. The queue controls, under load - covered locally.** Every one of these
+cancels a running transfer, and cancelling is what the stranding bug came out of.
 
 - Reorder while transferring: move to top, up, down, to bottom; the promoted item
   starts at once and the preempted one keeps its `.part` file and resumes from
@@ -435,9 +464,8 @@ transfer, and cancelling is what the stranding bug came out of. None is tested.
   from the same bytes, with user pauses still paused. `loadFromDiskLocked` has
   never been exercised against a queue in a real intermediate state.
 
-**2. The provider failing in every way it can.** `FaultyMediaServer` should grow
-these, and the re-mint stand-in
-(`DownloadsRepository.resolvePlayableStream`) should be able to fail on demand:
+**2. Provider failures - covered locally except a real connectivity observer
+transition.** `FaultyMediaServer` and the re-mint stand-in now fail on demand:
 
 - a link that expires *mid-transfer* rather than before it starts, at 20% and
   again at 90%;
@@ -453,8 +481,9 @@ these, and the re-mint stand-in
 - the network dropping entirely and coming back, which on desktop only
   `NetworkStatusRepository` reports.
 
-**3. Cached-on-the-debrid, checked for real.** The weakest link, and the one
-behind "download queued" placeholders reaching the disk.
+**3. Cached-on-the-debrid, checked immediately before transfer - implemented and
+covered through the provider seam.** This was the weakest link behind "download
+queued" placeholders reaching the disk.
 
 Today readiness is whatever the *addon* claimed at selection time
 (`SourceFacts.isDebridReady` from `aio.debridCached` / `clientResolve.isCached`),
@@ -464,13 +493,14 @@ planning a season and reaching episode 9 an hour later. The placeholder check
 (`isImplausiblySmallForMedia`) is the only real defence and it is *post-hoc* - it
 downloads the wrong file first, then retries on a 1-to-10-minute backoff.
 
-What it should do: ask the provider whether the hash is actually in the cache
-**before the transfer starts**, treat an uncached source as a thing to wait for
-or to swap out rather than a thing to download, and re-check when a link is
-re-minted. Then cover it: cached, not cached, cached-then-evicted between
-planning and transfer, provider unsure, and a placeholder that arrives anyway.
+The queue now bypasses the resolver's fifteen-minute success cache and asks the
+provider again **before every debrid transfer starts**. Not-cached sources wait
+without touching the media URL, provider uncertainty retries with a visible
+reason, dead accounts fail plainly, and a placeholder that arrives after a
+successful check is still rejected. Cached, not cached, cached-then-evicted,
+provider unsure, and post-check placeholder outcomes all have harness cases.
 
-**4. Prove it against a real account.** The local server cannot imitate provider
+**4. Prove it against a real account - still pending.** The local server cannot imitate provider
 quirks, which is where every fault so far has come from. Run the same queue
 against TorBox with `NUVIO_DOWNLOAD_TEST_URLS`, and run a real season batch left
 going long enough to cross the fifteen-minute link window - that is the only

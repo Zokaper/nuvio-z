@@ -310,7 +310,7 @@ object SourceFactsExtractor {
  * Structured byte counts can differ slightly when one producer rounds or uses
  * container/file accounting. Only a material difference needs user approval.
  */
-private fun sizesMateriallyConflict(sizes: List<Long>): Boolean {
+internal fun sizesMateriallyConflict(sizes: List<Long>): Boolean {
     if (sizes.size < 2) return false
     val smallest = sizes.minOrNull() ?: return false
     val largest = sizes.maxOrNull() ?: return false

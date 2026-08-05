@@ -29,7 +29,12 @@ object DirectDebridPlaybackResolver {
     private val resolvedCache = mutableMapOf<String, CachedDirectDebridResolve>()
     private val inFlightResolves = mutableMapOf<String, Deferred<DirectDebridResolveResult>>()
 
-    suspend fun resolve(stream: StreamItem, season: Int?, episode: Int?): DirectDebridResolveResult {
+    suspend fun resolve(
+        stream: StreamItem,
+        season: Int?,
+        episode: Int?,
+        forceRefresh: Boolean = false,
+    ): DirectDebridResolveResult {
         if (!shouldResolveToPlayableStream(stream)) {
             return DirectDebridResolveResult.Stale
         }
@@ -37,8 +42,10 @@ object DirectDebridPlaybackResolver {
         if (cacheKey == null) {
             return resolveUncached(stream, season, episode)
         }
-        getCachedResult(cacheKey)?.let {
-            return it
+        if (!forceRefresh) {
+            getCachedResult(cacheKey)?.let {
+                return it
+            }
         }
 
         var ownsResolve = false
@@ -46,8 +53,10 @@ object DirectDebridPlaybackResolver {
             resolveUncached(stream, season, episode)
         }
         val activeResolve = mutex.withLock {
-            getCachedResultLocked(cacheKey)?.let { cached ->
-                return@withLock null to cached
+            if (!forceRefresh) {
+                getCachedResultLocked(cacheKey)?.let { cached ->
+                    return@withLock null to cached
+                }
             }
             val existing = inFlightResolves[cacheKey]
             if (existing != null) {
@@ -77,6 +86,9 @@ object DirectDebridPlaybackResolver {
                 }
             }
             result
+        } catch (error: CancellationException) {
+            if (ownsResolve) deferred.cancel()
+            throw error
         } finally {
             if (ownsResolve) {
                 mutex.withLock {
@@ -147,11 +159,12 @@ object DirectDebridPlaybackResolver {
         stream: StreamItem,
         season: Int?,
         episode: Int?,
+        forceRefresh: Boolean = false,
     ): DirectDebridPlayableResult {
         if (!shouldResolveToPlayableStream(stream)) {
             return DirectDebridPlayableResult.Success(stream)
         }
-        return when (val result = resolve(stream, season, episode)) {
+        return when (val result = resolve(stream, season, episode, forceRefresh)) {
             is DirectDebridResolveResult.Success -> DirectDebridPlayableResult.Success(stream.withResolvedDebridUrl(result))
             DirectDebridResolveResult.MissingApiKey -> DirectDebridPlayableResult.MissingApiKey
             DirectDebridResolveResult.NotCached -> DirectDebridPlayableResult.NotCached

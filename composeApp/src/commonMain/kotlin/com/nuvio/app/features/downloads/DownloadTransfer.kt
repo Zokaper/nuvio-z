@@ -39,6 +39,9 @@ internal const val TRANSFER_STALL_TIMEOUT_MS = 60_000L
  */
 internal const val TRANSFER_WATCHDOG_TIMEOUT_MS = 5L * TRANSFER_STALL_TIMEOUT_MS
 
+/** A provider API call must not reserve a transfer slot forever. */
+internal const val SOURCE_RESOLVE_TIMEOUT_MS = 60_000L
+
 /**
  * The two deadlines above, as the running app reads them.
  *
@@ -52,10 +55,12 @@ internal const val TRANSFER_WATCHDOG_TIMEOUT_MS = 5L * TRANSFER_STALL_TIMEOUT_MS
 internal object DownloadsTiming {
     var stallTimeoutMs: Long = TRANSFER_STALL_TIMEOUT_MS
     var queueWatchdogTimeoutMs: Long = TRANSFER_WATCHDOG_TIMEOUT_MS
+    var sourceResolveTimeoutMs: Long = SOURCE_RESOLVE_TIMEOUT_MS
 
     fun reset() {
         stallTimeoutMs = TRANSFER_STALL_TIMEOUT_MS
         queueWatchdogTimeoutMs = TRANSFER_WATCHDOG_TIMEOUT_MS
+        sourceResolveTimeoutMs = SOURCE_RESOLVE_TIMEOUT_MS
     }
 }
 
