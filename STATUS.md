@@ -4,9 +4,9 @@ Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/preset-page-download-toast-k63ufs` in **both** repositories - preset UI rework, a tappable Downloads link on the start-download toast, and a third size preference |
-| **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
-| **Unreleased work** | The preset work on `claude/preset-page-download-toast-k63ufs` (see "Preset UI and the mid-range size preference"). CI is **green on both repositories**, including the Windows MSI job that compiles `desktopMain`; **no device or desktop runtime testing yet**. `0.3.9` / `0.1.22-alpha` remain the published releases, carrying the download freezing fixes and the 4K preset split; their runtime testing on a device and a real desktop install is still pending, and the debrid re-resolution path has no runtime coverage at all. |
+| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the preset UI work is merged and released |
+| **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
+| **Unreleased work** | None outstanding. `0.3.10` / `0.1.23-alpha` are **published** and carry the preset UI rework, the tappable Downloads link on the start-download toast, and the mid-range size preference. **Runtime testing is still pending for all of it** - the new picker, the preset editor controls and the toast link have only ever been compiled and unit-tested, and the debrid re-resolution path from the previous release still has no runtime coverage. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -139,7 +139,7 @@ decision the user made and survives. Anything added to `BuiltIns` in future need
 nothing further, but anything *removed* needs an entry in `RetiredBuiltIns` or it
 will linger on existing installs forever.
 
-## Preset UI and the mid-range size preference (2026-08-05, unreleased)
+## Preset UI and the mid-range size preference (2026-08-05, released in 0.3.10 / 0.1.23-alpha)
 
 Both preset surfaces were plain Material defaults that ignored the app's own
 components, and the toast raised when a batch starts pointed nowhere.
@@ -199,8 +199,16 @@ locales fall back to English until translated.
     runs the class in full.
   - Both `values/strings.xml` files parse as XML and every string key the new code
     references resolves in both repositories.
+  - Released as `0.3.10` (versionCode 109) and `0.1.23-alpha` (code 23) from the
+    bump commits `b03d6ba` / `16c28910`. `android-release.yml mode=publish` on
+    `main` attached the four ABI APKs; `desktop-release.yml mode=publish
+    target=windows` on `Dev` attached the MSI and `SHA256SUMS.txt`. The separate
+    `desktop-release.yml mode=build-only` pre-check was **skipped**: `ci.yml` now
+    carries a Windows MSI job which compiled the exact release commit and passed,
+    so AGENTS' claim that the release workflow is the only `desktopMain` compile is
+    out of date.
   - **Still to do:** a device/desktop smoke test of the new picker, the editor
-    controls, and the toast link.
+    controls, and the toast link. This shipped without any runtime testing.
 - Download freezing work (2026-08-05). Gradle still cannot configure here, so
   Kotlin 2.3.0 was fetched and used directly:
   - `DownloadTransferTest` and `DownloadQueueTest` compiled against the **shipped**
