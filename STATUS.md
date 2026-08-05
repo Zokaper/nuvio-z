@@ -4,9 +4,9 @@ Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the download freezing work is merged and being released |
+| **Active branch** | `claude/preset-page-download-toast-k63ufs` in **both** repositories - preset UI rework, a tappable Downloads link on the start-download toast, and a third size preference |
 | **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
-| **Unreleased work** | None outstanding. `0.3.9` / `0.1.22-alpha` are **published** and carry the download freezing fixes, the 4K preset split, and the desktop startup fix that had been waiting on `Dev`. **Runtime testing on a device and a real desktop install is still pending**, and the debrid re-resolution path has no runtime coverage at all. |
+| **Unreleased work** | The preset work on `claude/preset-page-download-toast-k63ufs` (see "Preset UI and the mid-range size preference"). **Not verified by a real build yet** - Gradle cannot configure here, so only parser checks and a standalone run of the selector tests have been done; CI on push is the first compile. `0.3.9` / `0.1.22-alpha` remain the published releases, carrying the download freezing fixes and the 4K preset split; their runtime testing on a device and a real desktop install is still pending, and the debrid re-resolution path has no runtime coverage at all. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -139,8 +139,64 @@ decision the user made and survives. Anything added to `BuiltIns` in future need
 nothing further, but anything *removed* needs an entry in `RetiredBuiltIns` or it
 will linger on existing installs forever.
 
+## Preset UI and the mid-range size preference (2026-08-05, unreleased)
+
+Both preset surfaces were plain Material defaults that ignored the app's own
+components, and the toast raised when a batch starts pointed nowhere.
+
+- **A third `SizePreference`, `MID_RANGE`.** The choice used to be only
+  `LARGEST_UNDER_CAP` or `SMALLEST`. `MID_RANGE` targets the **median size of the
+  candidates that actually fit the cap** - a real candidate size rather than a share
+  of the cap, so it stays meaningful when every source for a title sits far below
+  the limit, and sizes above the cap are excluded so an unusable 20 GB remux cannot
+  drag the target upwards. The upper middle of an even-sized list keeps it
+  deterministic; an unknown size is treated as `Long.MAX_VALUE` away and still sorts
+  last; with nothing to aim at, ordering falls back to largest-under-cap. The target
+  is computed once over every matching candidate while the comparator still only
+  decides *within* a tie group, so resolution, language, dynamic range, codec and
+  release quality continue to outrank size. Built-in presets keep their existing
+  preference: `mergeStoredPresets` never rewrites a stored preset, so changing one
+  would split behaviour between existing and fresh installs.
+- **The preset picker** (`PresetDownloadDialog.kt`) is rebuilt on `BasicAlertDialog`
+  and the Nuvio tokens: a subtitle naming what will be downloaded, season chips with
+  All/None instead of a checkbox list (and localised season names - it used to
+  hardcode English), and one selectable card per preset carrying a plain-language
+  summary. A preset is now **selected and then started** by a button; tapping one
+  used to queue a whole season on the spot. The default selection is the preset of
+  the newest batch.
+- **The preset editor** (`DownloadsSettingsScreen.kt`) drops the `−`/`+` steppers and
+  the rows that silently cycled an enum on tap. Resolution, codec, HDR policy and
+  file size are `NuvioDropdownChip` pickers, the cap is a slider showing what it
+  works out to for an episode and a film, and the switches carry descriptions. Raw
+  enum names (`AVOID_HDR`) are gone: `PresetLabels.kt` holds one set of labels used
+  by both surfaces. `DownloadsRepository.resetPresets()`, which had no UI at all, is
+  wired to a confirmed "Reset presets" action.
+- **The toast can be tapped through to the Downloads tab.** `NuvioToastMessage`
+  carries an optional label and a typed `NuvioToastAction`; `App.kt` resolves
+  `OpenDownloads` by selecting the tab and, under Compose navigation, unwinding the
+  stack back to `TabsRoute` so the tab is actually visible from the details screen a
+  download is started from. A typed action rather than a lambda keeps navigation out
+  of `core/ui`, which is what let the dialog raise it at all. The download toast now
+  lasts 5s rather than 2.5s so the link can be read and reached.
+
+New string keys live in `values/strings.xml` in both repositories; the other 24
+locales fall back to English until translated.
+
 ## Verification
 
+- Preset UI and mid-range size preference (2026-08-05). **Nothing has been compiled
+  by Gradle and nothing has run on a device.** What was done:
+  - Every changed Kotlin file in both repositories passed the parser-only check.
+  - `PresetDownloadsTest.kt` was run against the **shipped** `PresetDownloads.kt` and
+    `SourceFacts.kt`: **18 of its 25 cases passed**, including the three new
+    size-preference cases. The seven excluded ones reach `DownloadsRepository`'s
+    codec, the HTTP discovery path, or the batch models, none of which compile
+    outside Gradle; only `StreamItem` and its nested stream models were stubbed. CI
+    runs the class in full.
+  - Both `values/strings.xml` files parse as XML and every string key the new code
+    references resolves in both repositories.
+  - **Still to do:** CI on both branches, and a device/desktop smoke test of the new
+    picker, the editor controls, and the toast link.
 - Download freezing work (2026-08-05). Gradle still cannot configure here, so
   Kotlin 2.3.0 was fetched and used directly:
   - `DownloadTransferTest` and `DownloadQueueTest` compiled against the **shipped**
