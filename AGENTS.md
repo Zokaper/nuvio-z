@@ -34,6 +34,31 @@ The public Supabase client configuration used for personal builds is kept in
 the ignored `local.properties`; do not move it into tracked source. Before a
 commit or push, inspect staged files and run a targeted secret scan.
 
+## What a Download Has To Be
+
+**The standard is a Netflix download.** Start it, reorder it, pause it, resume
+it, close the app, lose the network, come back tomorrow: it finishes, or it says
+plainly why it cannot. Hold every change to the download stack against that.
+
+Concretely, and each of these has been violated at least once:
+
+- **No row that stops moving.** A download is either progressing, waiting for a
+  named reason the user can see, or finished. "Stuck at 43%" is a bug even when
+  something behind it is still running.
+- **No state only a restart can leave.** Every stopped download needs something
+  that will start it again - a retry timer, a platform that resumes it, or the
+  queue itself. If nothing owns that, the state must not exist.
+- **The user never has to know what a debrid link is.** Expiry, re-minting,
+  cache misses and provider outages are the app's problem. What reaches the user
+  is progress, or a message they can act on.
+- **A finished download is the whole file.** Byte counts that match an
+  authoritative total, `.part` files that survive, and no placeholder video
+  accepted as an episode.
+
+New download work is not done when it compiles and the unit tests pass. It is
+done when the desktop harness covers the fault it claims to fix - see item 3 of
+"Verifying without Gradle".
+
 ## Working Rules
 
 - Preserve unrelated user changes in the working tree.
@@ -290,9 +315,16 @@ every one of them has caught a real fault:
    ```
 
    `DownloadsTiming` turns the minute-long stall and watchdog deadlines down to
-   seconds; leave the shipped defaults alone outside a harness. Set
+   seconds; leave the shipped defaults alone outside a harness.
+   `DownloadsRepository.resolvePlayableStream` stands in for the debrid provider so
+   the re-minting path is reachable without an account. Set
    `NUVIO_DOWNLOAD_TEST_URLS` to real media URLs to run the same queue against a real
    host at the real deadlines.
+
+   **Extend it rather than reasoning about the queue.** What it covers today is
+   listed in `STATUS.md`; the queue controls under load, the ways a provider fails,
+   and a real cached-on-the-provider check are the named next steps there. A fault
+   reproduced here is worth more than a fix argued for in a commit message.
 
 None of them substitutes for CI. Compose, multiplatform `expect`/`actual` matching,
 and anything touching resources are only checked by a real build.
