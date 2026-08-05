@@ -6,7 +6,8 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | The stranded-download fix and the desktop download harness, on the branch above. The harness **reproduces the reported fault and proves the fix**, which is the first time a download queue change has had runtime evidence behind it. Still pending from the last release: the preset picker, the preset editor controls and the toast link have only ever been compiled and unit-tested. |
+| **Unreleased work** | The stranded-download fix and the desktop download harness, on the branch above. The harness **reproduces the reported fault and proves the fix**, which is the first time a download queue change has had runtime evidence behind it. CI is green on both repositories. Still pending from the last release: the preset picker, the preset editor controls and the toast link have only ever been compiled and unit-tested. |
+| **Next** | **Make a download behave like a Netflix download** - see "NEXT" under Pending / Follow-up. Extend the harness over the queue controls (reorder, pause, resume, cancel) under load, every way a debrid provider can fail, and a real cached-on-the-provider check before a transfer starts; then fix what it exposes. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -274,15 +275,20 @@ locales fall back to English until translated.
     which is how the fence is known to be the load-bearing half.
   - `DownloadQueueTest` (2 new cases) and `DownloadTransferTest` were re-run against
     the shipped sources alongside it: **44 tests pass** in total.
-  - The changed Android and iOS actuals passed the parser-only check. Neither is
-    compiled by anything in the sandbox: `recoversSystemPauses` is a new `expect`, and
-    a missing actual is the failure mode AGENTS warns about, so **CI on both
-    repositories is the check that matters here.**
-  - **Not yet run through Gradle, and not yet run against a real debrid link.**
-    `:composeApp:desktopTest` and the Windows MSI job have not been exercised on this
-    branch; the `NUVIO_DOWNLOAD_TEST_URLS` mode has never been run at all, because the
-    sandbox has no route to a media host (and the desktop downloader's `HttpClient`
-    does not read the system proxy).
+  - The changed Android and iOS actuals passed the parser-only check but are not
+    compiled by anything in the sandbox, so CI was the check that mattered for the
+    new `recoversSystemPauses` `expect`. **Both repositories are green** at
+    `1aa45d2` / `d2ab738`: nuvio-z ran the Android host suite and built the debug
+    APK, and the desktop run passed both "Desktop tests" - which is where the
+    harness itself now runs, on every push - and the Windows MSI job, the only
+    thing that compiles `desktopMain`.
+  - The first desktop run failed at configuration: `java.time.Duration` does not
+    resolve in the Kotlin DSL, where `java` is Gradle's Java extension. Fixed with
+    an import in `d2ab738`.
+  - **Not run against a real debrid link.** The `NUVIO_DOWNLOAD_TEST_URLS` mode has
+    never been exercised, because the sandbox has no route to a media host - the
+    desktop downloader's `HttpClient` does not read the system proxy either. That
+    run is part of the next step below.
 - Preset UI and mid-range size preference (2026-08-05). **Nothing has run on a
   device or a real desktop install.** What was done:
   - `ci.yml` is green on both repositories at `ea6d95a` / `461d56d4`: nuvio-z ran
@@ -391,6 +397,89 @@ locales fall back to English until translated.
   - review was dismissed without queuing downloads.
 
 ## Pending / Follow-up
+
+### NEXT: make a download behave like a Netflix download
+
+**This is the current priority, and it is the standard to hold the work to.** A
+download in this app should be as boring and as certain as one in Netflix: you
+start it, you can reorder it, pause it, resume it, close the app, lose the
+network, come back tomorrow - and it either finishes or tells you plainly why it
+cannot. No row that stops moving. No state only a restart can leave. Nothing that
+needs the user to know what a debrid link is.
+
+The harness in `NuvioZDesktop`
+(`composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` and
+`FaultyMediaServer.kt`) is where that gets proven. It currently covers a clean
+queue, a dropped connection, a source going quiet, an expired link being
+re-minted, a placeholder file, the concurrency limit, and the stranding
+regression. **Everything below is uncovered.** Extend the harness, then fix what
+it exposes - in that order, because the last four faults in this file were all
+found by a user rather than by a test.
+
+**1. The queue controls, under load.** Every one of these cancels a running
+transfer, and cancelling is what the stranding bug came out of. None is tested.
+
+- Reorder while transferring: move to top, up, down, to bottom; the promoted item
+  starts at once and the preempted one keeps its `.part` file and resumes from
+  where it stopped rather than restarting.
+- Pause and resume, by hand, mid-transfer and mid-retry-backoff. A user pause is
+  sticky - it must survive a queue nudge, a reclaim sweep and an app restart, and
+  must never be undone by the recovery paths.
+- Cancel and delete mid-transfer, including the last item and the only running
+  one; files and `.part` files actually go.
+- Reorder, pause and resume *while a fault is in flight* - during the re-mint
+  round trip, during a backoff, in the window where a cancelled transfer is
+  reporting its last word. That window is exactly where the fixed bug lived, and
+  the other three controls reach it the same way the reclaim sweep did.
+- Close and reopen: a queue that was mid-transfer comes back in the same order,
+  from the same bytes, with user pauses still paused. `loadFromDiskLocked` has
+  never been exercised against a queue in a real intermediate state.
+
+**2. The provider failing in every way it can.** `FaultyMediaServer` should grow
+these, and the re-mint stand-in
+(`DownloadsRepository.resolvePlayableStream`) should be able to fail on demand:
+
+- a link that expires *mid-transfer* rather than before it starts, at 20% and
+  again at 90%;
+- re-minting that fails once, then succeeds; that fails every time (the download
+  must end `Failed` with a message a human can act on, not retry forever);
+- a re-minted link that points at a *different or truncated* file - `If-Range`
+  and the overrun/short checks should catch it rather than silently corrupting
+  the `.part` file;
+- the provider timing out or hanging rather than answering - re-mint runs off the
+  lock while holding a slot, and nothing bounds it today;
+- 429 and 5xx from the provider, and the whole account failing (every call 401)
+  while a season batch is in flight;
+- the network dropping entirely and coming back, which on desktop only
+  `NetworkStatusRepository` reports.
+
+**3. Cached-on-the-debrid, checked for real.** The weakest link, and the one
+behind "download queued" placeholders reaching the disk.
+
+Today readiness is whatever the *addon* claimed at selection time
+(`SourceFacts.isDebridReady` from `aio.debridCached` / `clientResolve.isCached`),
+consulted once in `PresetSourceSelector` and only when `preferCachedSources` is
+on. Nothing ever asks the provider directly, and nothing re-checks between
+planning a season and reaching episode 9 an hour later. The placeholder check
+(`isImplausiblySmallForMedia`) is the only real defence and it is *post-hoc* - it
+downloads the wrong file first, then retries on a 1-to-10-minute backoff.
+
+What it should do: ask the provider whether the hash is actually in the cache
+**before the transfer starts**, treat an uncached source as a thing to wait for
+or to swap out rather than a thing to download, and re-check when a link is
+re-minted. Then cover it: cached, not cached, cached-then-evicted between
+planning and transfer, provider unsure, and a placeholder that arrives anyway.
+
+**4. Prove it against a real account.** The local server cannot imitate provider
+quirks, which is where every fault so far has come from. Run the same queue
+against TorBox with `NUVIO_DOWNLOAD_TEST_URLS`, and run a real season batch left
+going long enough to cross the fifteen-minute link window - that is the only
+thing that exercises re-minting for real, and it has still never been done.
+
+Whatever this turns up: fix it in `nuvio-z` and mirror to `NuvioZDesktop`, keep
+the harness green in CI on both, and record here what was covered and what was
+found. A fault reproduced in the harness is worth more than a fix argued for in a
+commit message.
 
 ### Preset/discovery work: code complete, release not cut
 
