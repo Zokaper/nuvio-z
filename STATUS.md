@@ -6,8 +6,8 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. Shared files are byte-identical and local Android/desktop verification is green. |
-| **Next** | Run the opt-in queue against a real TorBox account and a season-long provider-backed source set, then cover a real `NetworkStatusRepository` offline/online transition. `NUVIO_DOWNLOAD_TEST_URLS` is not configured here, and raw resolved URLs alone cannot exercise re-minting because they do not retain the original provider/hash metadata. |
+| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The desktop harness now also has a credential-safe, provider-backed TorBox season mode that retains original hash/file metadata and can deliberately age prepared links past fifteen minutes. Shared files are byte-identical and local Android/desktop verification is green. |
+| **Next** | Supply the local TorBox fixture and masked API-key prompt to run the new provider-backed season case, then cover a real `NetworkStatusRepository` offline/online transition. No real TorBox credential or source fixture is configured in this environment yet; the new harness compiles and its opt-in skip path passes, but the account run is not claimed. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -205,10 +205,20 @@ so a test run cannot touch a developer's own Nuvio Z install, and the test asser
 landed somewhere disposable before writing anything.
 
 **Against real sources:** set `NUVIO_DOWNLOAD_TEST_URLS` to a comma-separated list of
-direct media URLs (a real debrid link is the point) and `real sources download end to
-end` runs the same queue against them at the shipped deadlines; it skips when the
-variable is unset. Two links exercise the concurrency limit; a season's worth left
-running past the fifteen-minute window is what exercises re-minting for real.
+direct media URLs and `real sources download end to end` runs the same queue against
+them at the shipped deadlines; it skips when the variable is unset. That proves real
+transfer and concurrency behavior only: raw signed links have no provider/hash origin
+and cannot be re-minted.
+
+The provider-backed TorBox case uses `NUVIO_TORBOX_TEST_SOURCES` to name a local JSON
+fixture containing the original info hashes/file selectors and reads the API key from
+`NUVIO_TORBOX_API_KEY`. It pre-resolves the entire season as production preparation
+does, can wait more than fifteen minutes, then enqueues every resolved link with its
+durable origin. Every transfer must perform a fresh real provider check and the final
+files must match the queue's exact totals. `scripts/run-torbox-download-e2e.ps1`
+prompts for the key without putting it in shell history, uses a single-use Gradle
+daemon, and clears the environment afterward. The fixture and key are not logged or
+committed.
 
 ## Preset UI and the mid-range size preference (2026-08-05, released in 0.3.10 / 0.1.23-alpha)
 
@@ -256,6 +266,11 @@ locales fall back to English until translated.
 ## Verification
 
 - Download reliability pass (2026-08-05):
+  - Added the opt-in full-provider TorBox season case described above, its local
+    fixture example, and a masked secure runner. The desktop suite now passes **760
+    tests**, zero failures/errors. The live case remains unrun because neither local
+    input is configured; this count verifies compilation and the safe skip path, not
+    a TorBox account.
   - Extended the desktop E2E harness from 8 local fault/queue cases to 30. New
     coverage exercises every reorder direction under load, ranged preemption,
     user pause/resume during transfer and retry backoff, cancel and bulk delete,
