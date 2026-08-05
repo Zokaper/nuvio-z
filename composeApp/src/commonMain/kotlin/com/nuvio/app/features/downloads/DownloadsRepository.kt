@@ -1301,7 +1301,9 @@ object DownloadsRepository {
                 },
             )
         }
-        _presets.value = stored.presets
+        // Presets are persisted, so a build that adds one reaches only fresh
+        // installs unless the stored list is reconciled with what ships now.
+        _presets.value = mergeStoredPresets(stored.presets)
 
         val now = DownloadsClock.nowEpochMs()
         val restored = stored.items.map { item ->
@@ -1376,7 +1378,11 @@ object DownloadsRepository {
         val reconciledBatches = reconcileBatches(_batches.value, normalized)
         _batches.value = reconciledBatches
         notifyLiveStatusPlatform()
-        if (normalized != stored.items || reconciledBatches != stored.batches) {
+        if (
+            normalized != stored.items ||
+            reconciledBatches != stored.batches ||
+            _presets.value != stored.presets
+        ) {
             persistLocked(immediate = true)
         }
     }
