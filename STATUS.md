@@ -6,7 +6,7 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `claude/preset-page-download-toast-k63ufs` in **both** repositories - preset UI rework, a tappable Downloads link on the start-download toast, and a third size preference |
 | **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
-| **Unreleased work** | The preset work on `claude/preset-page-download-toast-k63ufs` (see "Preset UI and the mid-range size preference"). **Not verified by a real build yet** - Gradle cannot configure here, so only parser checks and a standalone run of the selector tests have been done; CI on push is the first compile. `0.3.9` / `0.1.22-alpha` remain the published releases, carrying the download freezing fixes and the 4K preset split; their runtime testing on a device and a real desktop install is still pending, and the debrid re-resolution path has no runtime coverage at all. |
+| **Unreleased work** | The preset work on `claude/preset-page-download-toast-k63ufs` (see "Preset UI and the mid-range size preference"). CI is **green on both repositories**, including the Windows MSI job that compiles `desktopMain`; **no device or desktop runtime testing yet**. `0.3.9` / `0.1.22-alpha` remain the published releases, carrying the download freezing fixes and the 4K preset split; their runtime testing on a device and a real desktop install is still pending, and the debrid re-resolution path has no runtime coverage at all. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -184,8 +184,12 @@ locales fall back to English until translated.
 
 ## Verification
 
-- Preset UI and mid-range size preference (2026-08-05). **Nothing has been compiled
-  by Gradle and nothing has run on a device.** What was done:
+- Preset UI and mid-range size preference (2026-08-05). **Nothing has run on a
+  device or a real desktop install.** What was done:
+  - `ci.yml` is green on both repositories at `ea6d95a` / `461d56d4`: nuvio-z ran
+    the Android host suite and built the debug APK, and the desktop run passed both
+    "Desktop tests" and the Windows MSI job - the only thing that compiles
+    `desktopMain`.
   - Every changed Kotlin file in both repositories passed the parser-only check.
   - `PresetDownloadsTest.kt` was run against the **shipped** `PresetDownloads.kt` and
     `SourceFacts.kt`: **18 of its 25 cases passed**, including the three new
@@ -195,8 +199,8 @@ locales fall back to English until translated.
     runs the class in full.
   - Both `values/strings.xml` files parse as XML and every string key the new code
     references resolves in both repositories.
-  - **Still to do:** CI on both branches, and a device/desktop smoke test of the new
-    picker, the editor controls, and the toast link.
+  - **Still to do:** a device/desktop smoke test of the new picker, the editor
+    controls, and the toast link.
 - Download freezing work (2026-08-05). Gradle still cannot configure here, so
   Kotlin 2.3.0 was fetched and used directly:
   - `DownloadTransferTest` and `DownloadQueueTest` compiled against the **shipped**
