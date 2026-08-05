@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.streams.StreamItem
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
@@ -35,6 +36,26 @@ enum class DownloadPauseReason {
     SizeApproval,
 }
 
+/**
+ * What a download needs in order to ask for its source URL again.
+ *
+ * Debrid links are signed, address-scoped and short-lived - the resolver treats a
+ * cached one as good for fifteen minutes - while a queue that runs two transfers
+ * at a time reaches for them hours after they were minted. Keeping the stream as
+ * the addon originally served it, before any resolution, means an expired link is
+ * a thing to re-mint rather than a dead download.
+ *
+ * Null for sources that were never resolved through a debrid provider: a plain
+ * HTTP file from an addon has nothing to ask again.
+ */
+@Serializable
+data class DownloadSourceOrigin(
+    /** The stream as the addon served it, before debrid resolution. */
+    val stream: StreamItem,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
+
 @Serializable
 data class DownloadItem(
     val id: String,
@@ -57,6 +78,10 @@ data class DownloadItem(
     val sourceUrl: String,
     val sourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
+    /** Everything needed to mint [sourceUrl] again once it expires. */
+    val sourceOrigin: DownloadSourceOrigin? = null,
+    /** When [sourceUrl] was minted, which is what decides whether it is still good. */
+    val sourceUrlResolvedAtEpochMs: Long? = null,
     val localFileUri: String? = null,
     val fileName: String,
     val status: DownloadStatus,
@@ -74,6 +99,15 @@ data class DownloadItem(
     val allowMeteredNetwork: Boolean = false,
     val sizeApprovalRequired: Boolean = false,
     val sizeCapOverrideApproved: Boolean = false,
+    /**
+     * The file turned out larger than the preset's cap.
+     *
+     * Recorded, not acted on. The cap's job is choosing a source; once bytes are on
+     * disk, stopping the transfer over it throws away everything already fetched and
+     * leaves a download that looks frozen partway through. This just lets the row
+     * say so.
+     */
+    val exceedsSizeCap: Boolean = false,
     val errorMessage: String? = null,
     /** Queue rank; lower runs sooner. Assigned on enqueue, rewritten by reordering. */
     val queuePosition: Long = 0L,
@@ -111,6 +145,22 @@ data class DownloadItem(
         } else {
             "${parentMetaId.trim()}|movie"
         }
+
+    /** True when a fresh source URL can be minted for this download. */
+    val canReresolveSource: Boolean
+        get() = sourceOrigin != null
+
+    /**
+     * True when [sourceUrl] is old enough that it should be re-minted before use.
+     *
+     * A download with no origin is never stale: there is nothing to ask again, so
+     * the URL it has is the only one it will ever have.
+     */
+    fun isSourceUrlStale(nowEpochMs: Long): Boolean {
+        if (sourceOrigin == null) return false
+        val resolvedAt = sourceUrlResolvedAtEpochMs ?: return true
+        return nowEpochMs - resolvedAt !in 0..SOURCE_URL_FRESHNESS_MS
+    }
 
     /** True while a failed attempt is waiting out its backoff before being retried. */
     fun isWaitingForRetry(nowEpochMs: Long): Boolean {

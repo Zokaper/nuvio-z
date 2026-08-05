@@ -110,9 +110,14 @@ class DownloadTransferTest {
 
     @Test
     fun deadSourcesAreNotRetriedAndTransientOnesAre() {
-        assertEquals(DownloadFailureReason.Fatal, failureReasonForHttpStatus(404))
-        assertEquals(DownloadFailureReason.Fatal, failureReasonForHttpStatus(403))
-        assertEquals(DownloadFailureReason.Fatal, failureReasonForHttpStatus(410))
+        // A signed link that has expired, moved address or had its token rotated
+        // answers with these, and the file behind it is still obtainable.
+        assertEquals(DownloadFailureReason.SourceExpired, failureReasonForHttpStatus(401))
+        assertEquals(DownloadFailureReason.SourceExpired, failureReasonForHttpStatus(403))
+        assertEquals(DownloadFailureReason.SourceExpired, failureReasonForHttpStatus(404))
+        assertEquals(DownloadFailureReason.SourceExpired, failureReasonForHttpStatus(410))
+        assertEquals(DownloadFailureReason.Fatal, failureReasonForHttpStatus(400))
+        assertEquals(DownloadFailureReason.Fatal, failureReasonForHttpStatus(451))
         assertEquals(DownloadFailureReason.Transient, failureReasonForHttpStatus(429))
         assertEquals(DownloadFailureReason.Transient, failureReasonForHttpStatus(500))
         assertEquals(DownloadFailureReason.Transient, failureReasonForHttpStatus(503))
@@ -124,6 +129,33 @@ class DownloadTransferTest {
         assertTrue(shouldRetry(DownloadFailureReason.Incomplete, attempt = MAX_DOWNLOAD_ATTEMPTS - 1))
         assertFalse(shouldRetry(DownloadFailureReason.Transient, attempt = MAX_DOWNLOAD_ATTEMPTS))
         assertFalse(shouldRetry(DownloadFailureReason.Fatal, attempt = 1))
+    }
+
+    @Test
+    fun anExpiredLinkIsOnlyWorthRetryingWhenItCanBeMintedAgain() {
+        // Without an origin every retry would replay the same dead URL, which is what
+        // left debrid downloads failed with a retry button that could never work.
+        assertFalse(
+            shouldRetry(DownloadFailureReason.SourceExpired, attempt = 1, canReresolveSource = false),
+        )
+        assertTrue(
+            shouldRetry(DownloadFailureReason.SourceExpired, attempt = 1, canReresolveSource = true),
+        )
+        assertTrue(
+            shouldRetry(
+                DownloadFailureReason.SourceExpired,
+                attempt = MAX_SOURCE_RERESOLVE_ATTEMPTS,
+                canReresolveSource = true,
+            ),
+        )
+        // A link that cannot be re-minted this many times is a file that is gone.
+        assertFalse(
+            shouldRetry(
+                DownloadFailureReason.SourceExpired,
+                attempt = MAX_SOURCE_RERESOLVE_ATTEMPTS + 1,
+                canReresolveSource = true,
+            ),
+        )
     }
 
     @Test
@@ -144,7 +176,12 @@ class DownloadTransferTest {
 
     @Test
     fun backoffGrowsAndThenLevelsOff() {
-        for (reason in listOf(DownloadFailureReason.Transient, DownloadFailureReason.SourceNotReady)) {
+        val reasons = listOf(
+            DownloadFailureReason.Transient,
+            DownloadFailureReason.SourceNotReady,
+            DownloadFailureReason.SourceExpired,
+        )
+        for (reason in reasons) {
             val delays = (1..6).map { retryBackoffMs(it, reason) }
             delays.zipWithNext { earlier, later ->
                 assertTrue(later >= earlier, "backoff must not shrink for $reason: $delays")

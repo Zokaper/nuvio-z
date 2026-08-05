@@ -1660,7 +1660,9 @@
     <string name="downloads_error_partial_not_open">Partial download file is not open</string>
     <string name="downloads_error_request_failed">Download request failed</string>
     <string name="downloads_error_source_changed">The source changed, so the download restarted</string>
+    <string name="downloads_error_source_link_expired">The source link expired and could not be renewed. Trying again shortly.</string>
     <string name="downloads_error_source_not_ready">Source is still preparing this file. Waiting, then trying again.</string>
+    <string name="downloads_over_size_cap">Larger than this preset's size limit</string>
     <string name="download_batch_finding_sources_started">Finding sources in the background</string>
     <string name="downloads_error_write_partial_failed">Failed to write partial download file</string>
     <string name="downloads_queue_actions">Queue actions</string>

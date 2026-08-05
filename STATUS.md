@@ -1,12 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
-| **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Desktop startup fix merged into `Dev` for the next release: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
+| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the download freezing work is merged and being released |
+| **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
+| **Unreleased work** | None outstanding. `0.3.9` / `0.1.22-alpha` carry the download freezing fixes, the 4K preset split, and the desktop startup fix that had been waiting on `Dev`. CI is green on both and the Windows `build-only` job compiled `desktopMain`; **runtime testing on a device and a real desktop install is still pending**, and the debrid re-resolution path has no runtime coverage at all. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -71,8 +71,110 @@ sandbox where Gradle cannot configure.
   tab with per-episode state, and an ongoing Android notification while any batch
   is preparing.
 
+## Download freezing (2026-08-05, unreleased)
+
+Four separate faults, found while chasing downloads that stopped around 80% and
+one that refused a source for exceeding the preset cap after it had already been
+approved. Reported on the Windows desktop build through TorBox.
+
+- **Desktop transfers could block forever.** `HttpRequest.timeout` bounds the
+  arrival of the *response*, and with `BodyHandlers.ofInputStream` the response
+  arrives with the headers - every byte after that was read from a stream with no
+  deadline. A connection that went quiet without closing parked the read
+  permanently, `job.cancel()` could not interrupt it, so pause and cancel did
+  nothing and the item held one of the two transfer slots for good. Two of them
+  stopped the queue outright. Added a stall watchdog that closes the stream, and
+  a handle that closes it on cancel.
+- **Nothing recovered a transfer the queue lost.** An item recorded as
+  `Downloading` with no handle behind it was invisible to the planner (which
+  starts queued items) and to the system-pause recovery (which looks at paused
+  ones). `DownloadQueuePlanner.lostTransfers` now names that state and
+  `startPendingTransfers` takes those items back, together with any transfer that
+  has gone silent for far longer than the platform watchdog allows. A platform
+  that refuses to start no longer strands the item either - Android's
+  `JobScheduler` declines a user-initiated job outright when the app may not
+  start one, and that used to throw straight out of `start()`.
+- **The size cap stopped transfers it should not have.** It fired mid-transfer on
+  the larger of the bytes received and the size reported, cancelled the handle and
+  paused for approval - including for sources the user had already approved in the
+  batch review dialog, because `queueBatch` never carried that decision onto the
+  download. On resume it fired again at the resumed offset, so an item could wedge
+  at the same percentage repeatedly, and `resumeDownload` refused those items so
+  the resume button did nothing. The cap now decides which source to pick and
+  nothing more; an oversize file is noted on the row and finishes. Items already
+  stuck this way are healed on load.
+- **Debrid links were minted once and never refreshed.** Preparation resolved
+  every episode of a batch up front while only two transfer at a time, so links
+  were routinely first used hours after they were minted - against a resolver that
+  already treats a cached link as good for fifteen minutes. An expired TorBox
+  `requestdl` URL answers 401/403/404/410, which classified as `Fatal`, so the
+  download failed with a retry button that replayed the same dead URL forever.
+  Those statuses are now `SourceExpired`, downloads carry a `DownloadSourceOrigin`
+  (the stream before resolution), and a stale or rejected link is re-minted before
+  the transfer starts and on retry.
+
+Also: `StreamItem` and its nested models are now `@Serializable` so the origin can
+be persisted faithfully, and an episode with no runtime of its own falls back to
+the series runtime before the 45-minute default that was under-capping hour-long
+episodes.
+
+### The 4K preset split (same release)
+
+The `Quality` preset asked for 2160p while capping at **4 GB/hour** - a 4 GB
+ceiling for an hour-long episode, under every real 4K source. `PresetSourceSelector`
+rejected all of them and reported that they exceeded the cap, which is the same
+complaint the freezing work started from arriving by a different route. One cap
+cannot serve both a 2160p web encode and a remux, so it is now two tiers:
+
+| id | name | cap | ~54-minute episode |
+| --- | --- | --- | --- |
+| `quality_4k_low` | 4K Low | 8 GB/h | ~7.2 GB |
+| `quality_4k_high` | 4K High | 15 GB/h | ~13.5 GB |
+
+Presets are **persisted**, so a new built-in would have reached only fresh
+installs - an existing device would have updated and seen no 4K tiers at all.
+`mergeStoredPresets` appends built-ins the stored list has never seen and drops a
+retired one that still matches its old default exactly; an edited copy is a
+decision the user made and survives. Anything added to `BuiltIns` in future needs
+nothing further, but anything *removed* needs an entry in `RetiredBuiltIns` or it
+will linger on existing installs forever.
+
 ## Verification
 
+- Download freezing work (2026-08-05). Gradle still cannot configure here, so
+  Kotlin 2.3.0 was fetched and used directly:
+  - `DownloadTransferTest` and `DownloadQueueTest` compiled against the **shipped**
+    `DownloadTransfer.kt`, `DownloadQueuePlanner.kt` and `DownloadsModels.kt` and
+    executed: **34 tests passed**, including the three new lost-transfer cases and
+    the expired-link retry budget.
+  - The whole downloads package - `DownloadsRepository.kt`, `DownloadsModels.kt`,
+    `DownloadBatches.kt`, `DownloadQueuePlanner.kt`, `DownloadTransfer.kt`,
+    `PresetDownloads.kt`, `SourceFacts.kt`, `DownloadPresence.kt` - plus the real
+    `StreamModels.kt` **type-checks clean** with the serialization plugin, against
+    stubs only for the platform singletons, the debrid resolver and atomicfu.
+  - `DownloadsPlatformDownloader.desktop.kt` type-checks standalone, which is
+    worth noting because `desktop-release.yml` is otherwise the only thing that
+    compiles `desktopMain`.
+  - The desktop freeze was **reproduced and confirmed fixed** against a local
+    server that sends headers and part of a body then goes silent without
+    closing: the transfer now ends after ~75s with
+    `Transient: The source stopped sending data. Retrying.` instead of hanging
+    forever, and cancelling a stalled transfer takes **2ms** instead of never
+    returning.
+  - Every changed Kotlin file in both repositories additionally passed a
+    parser-only check.
+  - After the preset split the three download suites were re-run the same way:
+    **56 tests passed**. One pre-existing case,
+    `disallowedAddonsAreRemovedBeforeDiscoveryRequests`, is excluded from the
+    local harness because it reaches into the addon/network stack there is no
+    stand-in for; CI runs it.
+  - `ci.yml` passed on both repositories, and `desktop-release.yml`
+    `mode=build-only`, `target=windows` compiled `desktopMain` - the only job
+    that does, and where the stall watchdog lives.
+  - **Not yet exercised on a device or a real desktop install.** The debrid
+    re-resolution path in particular has no runtime coverage at all: it needs a
+    real TorBox account and a batch left running past the fifteen-minute link
+    window, which a 4K season batch will produce naturally.
 - Earlier comprehensive Android host suite: 477 tests passed.
 - Latest focused source/preset suite:
   - `SourceFactsExtractorTest`: 8 passed.

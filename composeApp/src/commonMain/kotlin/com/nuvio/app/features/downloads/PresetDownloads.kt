@@ -70,16 +70,70 @@ data class DownloadPreset(
             gigabytesPerHourLimit = 1.5,
             codecPreference = CodecPreference.HEVC,
         )
-        val Quality = DownloadPreset(
-            id = "quality",
-            name = "Quality",
+        /**
+         * 4K at a bitrate that keeps a season to a sane size.
+         *
+         * Around 7 GB for an hour-long episode: comfortably above a 2160p web
+         * encode, comfortably below a remux.
+         */
+        val UltraHdLow = DownloadPreset(
+            id = "quality_4k_low",
+            name = "4K Low",
             targetResolution = VideoResolution.UHD_2160,
-            gigabytesPerHourLimit = 4.0,
+            gigabytesPerHourLimit = 8.0,
             codecPreference = CodecPreference.HEVC,
             dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
         )
-        val BuiltIns = listOf(Saver, Balanced, Quality)
+
+        /** 4K with room for remux-grade sources - around 13 GB for an hour. */
+        val UltraHdHigh = DownloadPreset(
+            id = "quality_4k_high",
+            name = "4K High",
+            targetResolution = VideoResolution.UHD_2160,
+            gigabytesPerHourLimit = 15.0,
+            codecPreference = CodecPreference.HEVC,
+            dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
+        )
+
+        val BuiltIns = listOf(Saver, Balanced, UltraHdLow, UltraHdHigh)
+
+        /**
+         * Built-ins that no longer ship, kept only to be recognised on load.
+         *
+         * The old `Quality` preset asked for 2160p while capping at 4 GB/hour, a
+         * combination no real 4K file meets - so it rejected every candidate it
+         * was pointed at and reported that they all exceeded the cap. It is
+         * replaced by the two tiers above rather than retuned, because the single
+         * cap was the problem.
+         */
+        internal val RetiredBuiltIns = listOf(
+            DownloadPreset(
+                id = "quality",
+                name = "Quality",
+                targetResolution = VideoResolution.UHD_2160,
+                gigabytesPerHourLimit = 4.0,
+                codecPreference = CodecPreference.HEVC,
+                dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
+            ),
+        )
     }
+}
+
+/**
+ * Reconciles a stored preset list with the built-ins this build ships.
+ *
+ * Presets are persisted, so an install that already exists keeps whatever it
+ * saved and would never see a newly added built-in. Merging on load is what makes
+ * a new tier reach anyone but a fresh install.
+ *
+ * A retired built-in is dropped only when it still matches its old default
+ * exactly. Untouched, it was never a choice anyone made and keeping it would
+ * leave the broken preset in the list; edited, it reflects a decision and stays.
+ */
+internal fun mergeStoredPresets(stored: List<DownloadPreset>): List<DownloadPreset> {
+    val retained = stored.filterNot { preset -> preset in DownloadPreset.RetiredBuiltIns }
+    val knownIds = retained.mapTo(mutableSetOf()) { it.id }
+    return retained + DownloadPreset.BuiltIns.filterNot { it.id in knownIds }
 }
 
 @Serializable

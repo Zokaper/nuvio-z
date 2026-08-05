@@ -15,7 +15,7 @@ class PresetDownloadsTest {
         assertEquals(VideoResolution.HD_720, DownloadPreset.Saver.targetResolution)
         assertEquals(562_500_000, DownloadPreset.Saver.sizeCapBytes(null, isEpisode = true))
         assertEquals(3_000_000_000, DownloadPreset.Balanced.sizeCapBytes(null, isEpisode = false))
-        assertEquals(VideoResolution.UHD_2160, DownloadPreset.Quality.targetResolution)
+        assertEquals(VideoResolution.UHD_2160, DownloadPreset.UltraHdHigh.targetResolution)
     }
 
     @Test
@@ -241,7 +241,7 @@ class PresetDownloadsTest {
         // The reported expectation: between a 5 GB and a 6 GB HDR 4K, both inside
         // the cap and equal on every other key, take the 6 GB. Ordering used to be
         // ascending, so the 5 GB won.
-        val preset = DownloadPreset.Quality
+        val preset = DownloadPreset.UltraHdHigh
         val cap = preset.sizeCapBytes(runtimeMinutes = 120, isEpisode = false)
         val result = PresetSourceSelector.select(
             candidates = listOf(
@@ -265,7 +265,7 @@ class PresetDownloadsTest {
             candidates = listOf(
                 candidate(addonA, "https://a/huge", VideoResolution.UHD_2160, 400_000_000_000L),
             ),
-            preset = DownloadPreset.Quality,
+            preset = DownloadPreset.UltraHdHigh,
             policy = DownloadSourcePolicy(),
             runtimeMinutes = 60,
             isEpisode = false,
@@ -298,7 +298,7 @@ class PresetDownloadsTest {
                 candidate(addonA, "https://a/cold", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = false),
                 candidate(addonA, "https://a/warm", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = true),
             ),
-            preset = DownloadPreset.Quality,
+            preset = DownloadPreset.UltraHdHigh,
             policy = DownloadSourcePolicy(),
             runtimeMinutes = 120,
             isEpisode = false,
@@ -317,7 +317,7 @@ class PresetDownloadsTest {
                 candidate(addonA, "https://a/1080-warm", VideoResolution.FULL_HD_1080, 3_000_000_000L, isDebridReady = true),
                 candidate(addonA, "https://a/2160-cold", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = false),
             ),
-            preset = DownloadPreset.Quality,
+            preset = DownloadPreset.UltraHdHigh,
             policy = DownloadSourcePolicy(),
             runtimeMinutes = 120,
             isEpisode = false,
@@ -335,7 +335,7 @@ class PresetDownloadsTest {
             candidates = listOf(
                 candidate(addonA, "https://a/direct", VideoResolution.UHD_2160, 5_000_000_000L, isDebridReady = null),
             ),
-            preset = DownloadPreset.Quality,
+            preset = DownloadPreset.UltraHdHigh,
             policy = DownloadSourcePolicy(),
             runtimeMinutes = 120,
             isEpisode = false,
@@ -346,7 +346,7 @@ class PresetDownloadsTest {
 
     @Test
     fun unknownSizesStillSortLastUnderBothSizePreferences() {
-        for (preset in listOf(DownloadPreset.Quality, DownloadPreset.Saver)) {
+        for (preset in listOf(DownloadPreset.UltraHdHigh, DownloadPreset.Saver)) {
             val result = PresetSourceSelector.select(
                 candidates = listOf(
                     candidate(addonA, "https://a/unknown", preset.targetResolution, null),
@@ -361,6 +361,77 @@ class PresetDownloadsTest {
             val selected = assertIs<SourceSelectionResult.Selected>(result)
             assertEquals("https://a/known", selected.streamUrl, "unknown size should not win for ${preset.id}")
         }
+    }
+
+    @Test
+    fun theTwoUltraHdTiersCapWhereRealFourKFilesActuallyLand() {
+        // The retired single 4K preset capped at 4 GB/h, which for an hour-long
+        // episode is 4 GB - under every real 2160p source, so it rejected them all
+        // and reported that they exceeded the cap.
+        assertEquals(8_000_000_000, DownloadPreset.UltraHdLow.sizeCapBytes(60, isEpisode = true))
+        assertEquals(15_000_000_000, DownloadPreset.UltraHdHigh.sizeCapBytes(60, isEpisode = true))
+
+        val remux = candidate(addonA, "https://a/remux.mkv", VideoResolution.UHD_2160, 12_000_000_000L)
+        assertIs<SourceSelectionResult.Selected>(
+            PresetSourceSelector.select(
+                candidates = listOf(remux),
+                preset = DownloadPreset.UltraHdHigh,
+                policy = DownloadSourcePolicy(),
+                runtimeMinutes = 54,
+                isEpisode = true,
+            ),
+        )
+        // ...and the low tier is the one that still says no to it.
+        assertIs<SourceSelectionResult.NoMatch>(
+            PresetSourceSelector.select(
+                candidates = listOf(remux),
+                preset = DownloadPreset.UltraHdLow,
+                policy = DownloadSourcePolicy(),
+                runtimeMinutes = 54,
+                isEpisode = true,
+            ),
+        )
+    }
+
+    @Test
+    fun storedPresetsGainNewBuiltInsAndShedTheRetiredOne() {
+        val storedBeforeTheSplit = listOf(
+            DownloadPreset.Saver,
+            DownloadPreset.Balanced,
+            DownloadPreset.RetiredBuiltIns.single(),
+        )
+
+        val merged = mergeStoredPresets(storedBeforeTheSplit)
+
+        // Without this an existing install keeps its three stored presets and never
+        // sees a new built-in at all.
+        assertEquals(
+            listOf("saver", "balanced", "quality_4k_low", "quality_4k_high"),
+            merged.map { it.id },
+        )
+    }
+
+    @Test
+    fun anEditedRetiredPresetIsKeptBecauseSomeoneChoseIt() {
+        val edited = DownloadPreset.RetiredBuiltIns.single().copy(gigabytesPerHourLimit = 12.0)
+
+        val merged = mergeStoredPresets(listOf(DownloadPreset.Saver, edited))
+
+        assertTrue(edited in merged, "an edited preset is a decision, not a stale default")
+        assertEquals(
+            listOf("saver", "quality", "balanced", "quality_4k_low", "quality_4k_high"),
+            merged.map { it.id },
+        )
+    }
+
+    @Test
+    fun mergingIsIdempotentAndNeverDuplicatesAPreset() {
+        val once = mergeStoredPresets(DownloadPreset.BuiltIns)
+        val twice = mergeStoredPresets(once)
+
+        assertEquals(DownloadPreset.BuiltIns, once)
+        assertEquals(once, twice)
+        assertEquals(once.map { it.id }.distinct(), once.map { it.id })
     }
 
     private fun candidate(

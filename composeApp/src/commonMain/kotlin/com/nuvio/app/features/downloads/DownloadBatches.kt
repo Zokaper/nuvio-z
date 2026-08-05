@@ -57,6 +57,13 @@ data class DownloadBatchEntry(
     val providerName: String? = null,
     val providerAddonId: String? = null,
     val sourceHeaders: Map<String, String> = emptyMap(),
+    /**
+     * The selected source before debrid resolution, so the queue can mint a fresh
+     * link when it finally reaches this entry. Preparation resolves every episode of
+     * a batch up front but only two transfer at a time, so the gap between the two
+     * is routinely longer than a debrid link lives.
+     */
+    val sourceOrigin: DownloadSourceOrigin? = null,
     val failureMessage: String? = null,
 )
 
