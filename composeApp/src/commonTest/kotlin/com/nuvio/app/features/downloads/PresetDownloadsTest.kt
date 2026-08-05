@@ -345,8 +345,10 @@ class PresetDownloadsTest {
     }
 
     @Test
-    fun unknownSizesStillSortLastUnderBothSizePreferences() {
-        for (preset in listOf(DownloadPreset.UltraHdHigh, DownloadPreset.Saver)) {
+    fun unknownSizesStillSortLastUnderEverySizePreference() {
+        val base = DownloadPreset.UltraHdHigh
+        val presets = SizePreference.entries.map { base.copy(sizePreference = it) }
+        for (preset in presets) {
             val result = PresetSourceSelector.select(
                 candidates = listOf(
                     candidate(addonA, "https://a/unknown", preset.targetResolution, null),
@@ -359,8 +361,67 @@ class PresetDownloadsTest {
             )
 
             val selected = assertIs<SourceSelectionResult.Selected>(result)
-            assertEquals("https://a/known", selected.streamUrl, "unknown size should not win for ${preset.id}")
+            assertEquals(
+                "https://a/known",
+                selected.streamUrl,
+                "unknown size should not win for ${preset.sizePreference}",
+            )
         }
+    }
+
+    @Test
+    fun eachSizePreferenceTakesItsEndOfTheRange() {
+        val candidates = listOf(
+            candidate(addonA, "https://a/small.mkv", VideoResolution.FULL_HD_1080, 1_000_000_000L),
+            candidate(addonA, "https://a/middle.mkv", VideoResolution.FULL_HD_1080, 3_000_000_000L),
+            candidate(addonA, "https://a/large.mkv", VideoResolution.FULL_HD_1080, 9_000_000_000L),
+        )
+        // 10 GB/hour over two hours leaves every candidate inside the cap.
+        val preset = DownloadPreset.Balanced.copy(gigabytesPerHourLimit = 10.0)
+        val expectedByPreference = mapOf(
+            SizePreference.SMALLEST to "https://a/small.mkv",
+            SizePreference.MID_RANGE to "https://a/middle.mkv",
+            SizePreference.LARGEST_UNDER_CAP to "https://a/large.mkv",
+        )
+
+        for ((preference, expectedUrl) in expectedByPreference) {
+            val result = PresetSourceSelector.select(
+                candidates = candidates,
+                preset = preset.copy(sizePreference = preference),
+                policy = DownloadSourcePolicy(),
+                runtimeMinutes = 120,
+                isEpisode = false,
+            )
+
+            val selected = assertIs<SourceSelectionResult.Selected>(result)
+            assertEquals(expectedUrl, selected.streamUrl, "wrong pick for $preference")
+        }
+    }
+
+    @Test
+    fun midRangeIgnoresOversizedCandidatesWhenItPicksTheMiddle() {
+        // The 20 GB source can never be started, so it must not drag the target up and
+        // make the 3 GB file - the largest one that actually fits - look mid-range.
+        val candidates = listOf(
+            candidate(addonA, "https://a/small.mkv", VideoResolution.FULL_HD_1080, 1_000_000_000L),
+            candidate(addonA, "https://a/middle.mkv", VideoResolution.FULL_HD_1080, 3_000_000_000L),
+            candidate(addonA, "https://a/oversized.mkv", VideoResolution.FULL_HD_1080, 20_000_000_000L),
+        )
+
+        val result = PresetSourceSelector.select(
+            candidates = candidates,
+            // 4 GB/hour over an hour: only the 1 GB and 3 GB files fit.
+            preset = DownloadPreset.Balanced.copy(
+                gigabytesPerHourLimit = 4.0,
+                sizePreference = SizePreference.MID_RANGE,
+            ),
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 60,
+            isEpisode = false,
+        )
+
+        val selected = assertIs<SourceSelectionResult.Selected>(result)
+        assertEquals("https://a/middle.mkv", selected.streamUrl)
     }
 
     @Test

@@ -495,9 +495,19 @@ fun NuvioStatusModal(
     }
 }
 
+/**
+ * Somewhere a toast can send the user, resolved by whoever hosts the toast.
+ *
+ * A typed action rather than a lambda on the message: toasts are raised from deep
+ * inside feature screens that hold no navigator, and this keeps navigation out of
+ * the component layer entirely.
+ */
+enum class NuvioToastAction { OpenDownloads }
+
 @Composable
 fun NuvioToastHost(
     modifier: Modifier = Modifier,
+    onAction: (NuvioToastAction) -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val toast by NuvioToastController.currentToast.collectAsState()
@@ -547,12 +557,29 @@ fun NuvioToastHost(
                 tonalElevation = tokens.elevation.raised,
                 shadowElevation = tokens.elevation.overlay,
             ) {
-                Text(
-                    text = currentToast.message,
+                Row(
                     modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.colors.textPrimary,
-                )
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = currentToast.message,
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textPrimary,
+                    )
+                    val action = currentToast.action
+                    val actionLabel = currentToast.actionLabel
+                    if (action != null && !actionLabel.isNullOrBlank()) {
+                        NuvioActionLabel(
+                            text = actionLabel,
+                            onClick = {
+                                NuvioToastController.dismiss(currentToast.id)
+                                onAction(action)
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -562,6 +589,8 @@ data class NuvioToastMessage(
     val id: Long,
     val message: String,
     val durationMillis: Long,
+    val actionLabel: String? = null,
+    val action: NuvioToastAction? = null,
 )
 
 object NuvioToastController {
@@ -572,12 +601,16 @@ object NuvioToastController {
     fun show(
         message: String,
         durationMillis: Long = 2500L,
+        actionLabel: String? = null,
+        action: NuvioToastAction? = null,
     ) {
         nextToastId += 1L
         _currentToast.value = NuvioToastMessage(
             id = nextToastId,
             message = message,
             durationMillis = durationMillis,
+            actionLabel = actionLabel,
+            action = action,
         )
     }
 
