@@ -6,7 +6,7 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the download freezing work is merged and being released |
 | **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
-| **Unreleased work** | None outstanding. `0.3.9` / `0.1.22-alpha` carry the download freezing fixes, the 4K preset split, and the desktop startup fix that had been waiting on `Dev`. CI is green on both and the Windows `build-only` job compiled `desktopMain`; **runtime testing on a device and a real desktop install is still pending**, and the debrid re-resolution path has no runtime coverage at all. |
+| **Unreleased work** | None outstanding. `0.3.9` / `0.1.22-alpha` are **published** and carry the download freezing fixes, the 4K preset split, and the desktop startup fix that had been waiting on `Dev`. **Runtime testing on a device and a real desktop install is still pending**, and the debrid re-resolution path has no runtime coverage at all. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -448,6 +448,29 @@ CI suites above.
   launches on Windows; the in-app replacement flow is still untested.
 
 ## Work Log
+
+### 2026-08-05 (download freezing, the 4K preset split, and the releases)
+
+- Traced downloads that stopped around 80% on the Windows build through TorBox to
+  four separate faults, detailed above: a desktop body read with no deadline, a
+  queue that could not see a transfer it had lost, a size cap enforced
+  mid-transfer over sources already approved, and debrid links minted once and
+  never refreshed.
+- Split the 4K preset into 4K Low (8 GB/h) and 4K High (15 GB/h) after finding
+  that the old `Quality` preset - 2160p capped at 4 GB/hour - rejected every real
+  4K source with the same "exceeds the calculated size cap" message the freezing
+  report started from.
+- Fetched Kotlin 2.3.0 directly and ran the download suites against the shipped
+  sources (56 passing), type-checked the whole downloads package with the
+  serialization plugin, and reproduced the desktop freeze against a stalling
+  server to confirm the watchdog ends it.
+- Released `0.3.9` (versionCode 108) and `0.1.22-alpha` (code 22), both
+  published: four APKs and one Windows x64 MSI with `SHA256SUMS.txt`. The Windows
+  `build-only` job was run before the version bumps, since `desktopMain` compiles
+  nowhere else and a failed publish would have burnt the version number.
+- Note for the next release: the local `main` in a fresh checkout can lag
+  `origin/main`, which produces a merge whose first parent is a stale commit.
+  Reset to `origin/main` before merging.
 
 ### 2026-08-04 (desktop startup latency)
 
