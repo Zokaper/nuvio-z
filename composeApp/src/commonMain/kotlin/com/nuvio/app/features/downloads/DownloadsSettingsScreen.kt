@@ -13,24 +13,39 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.NuvioActionLabel
+import com.nuvio.app.core.ui.NuvioDropdownChip
+import com.nuvio.app.core.ui.NuvioDropdownOption
+import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioSurfaceCard
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.settings.calculateSteps
+import com.nuvio.app.features.settings.snapToStep
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -86,7 +101,37 @@ private fun LazyListScope.downloadsSettingsContent(
     presets: List<DownloadPreset>,
 ) {
     item {
-        DownloadSectionTitle(stringResource(Res.string.download_presets_settings))
+        var confirmingReset by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DownloadSectionTitle(stringResource(Res.string.download_presets_settings))
+            NuvioActionLabel(
+                text = stringResource(Res.string.download_presets_reset),
+                modifier = Modifier.padding(horizontal = 14.dp),
+                onClick = { confirmingReset = true },
+            )
+        }
+        Text(
+            text = stringResource(Res.string.download_presets_settings_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+        )
+        NuvioStatusModal(
+            title = stringResource(Res.string.download_presets_reset),
+            message = stringResource(Res.string.download_presets_reset_confirm),
+            isVisible = confirmingReset,
+            confirmText = stringResource(Res.string.action_reset),
+            dismissText = stringResource(Res.string.action_cancel),
+            onConfirm = {
+                DownloadsRepository.resetPresets()
+                confirmingReset = false
+            },
+            onDismiss = { confirmingReset = false },
+        )
     }
     items(presets, key = { "preset-${it.id}" }) { preset ->
         PresetSettingsCard(preset)
@@ -196,152 +241,296 @@ private fun LazyListScope.downloadsSettingsContent(
     }
 }
 
+/**
+ * One preset, edited in place.
+ *
+ * Every choice is a labelled control that says what it currently is: the page used to
+ * be `−`/`+` steppers and rows that silently cycled an enum when tapped, printing raw
+ * names like `AVOID_HDR` at the end of them.
+ */
 @Composable
 private fun PresetSettingsCard(preset: DownloadPreset) {
-    val resolutions = VideoResolution.entries
-    val codecs = CodecPreference.entries
-    val ranges = DynamicRangePolicy.entries
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    val tokens = MaterialTheme.nuvio
+    NuvioSurfaceCard(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(preset.name, style = MaterialTheme.typography.titleMedium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.download_preset_resolution), Modifier.weight(1f))
-                TextButton(
-                    onClick = {
-                        val index = resolutions.indexOf(preset.targetResolution)
-                        DownloadsRepository.updatePreset(
-                            preset.copy(targetResolution = resolutions[(index - 1).coerceAtLeast(0)]),
-                        )
-                    },
-                ) { Text("−") }
-                Text("${preset.targetResolution.height}p")
-                TextButton(
-                    onClick = {
-                        val index = resolutions.indexOf(preset.targetResolution)
-                        DownloadsRepository.updatePreset(
-                            preset.copy(targetResolution = resolutions[(index + 1).coerceAtMost(resolutions.lastIndex)]),
-                        )
-                    },
-                ) { Text("+") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.download_preset_size_limit), Modifier.weight(1f))
-                TextButton(
-                    onClick = {
-                        DownloadsRepository.updatePreset(
-                            preset.copy(gigabytesPerHourLimit = (preset.gigabytesPerHourLimit - 0.25).coerceAtLeast(0.25)),
-                        )
-                    },
-                ) { Text("−") }
-                Text("${preset.gigabytesPerHourLimit} GB/h")
-                TextButton(
-                    onClick = {
-                        DownloadsRepository.updatePreset(
-                            preset.copy(gigabytesPerHourLimit = preset.gigabytesPerHourLimit + 0.25),
-                        )
-                    },
-                ) { Text("+") }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val index = codecs.indexOf(preset.codecPreference)
-                        DownloadsRepository.updatePreset(
-                            preset.copy(codecPreference = codecs[(index + 1) % codecs.size]),
-                        )
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(stringResource(Res.string.download_preset_codec), Modifier.weight(1f))
-                Text(preset.codecPreference.name)
-                Switch(
-                    checked = preset.requirePreferredCodec,
-                    onCheckedChange = {
-                        DownloadsRepository.updatePreset(preset.copy(requirePreferredCodec = it))
-                    },
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val index = ranges.indexOf(preset.dynamicRangePolicy)
-                        DownloadsRepository.updatePreset(
-                            preset.copy(dynamicRangePolicy = ranges[(index + 1) % ranges.size]),
-                        )
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(stringResource(Res.string.download_preset_hdr), Modifier.weight(1f))
-                Text(preset.dynamicRangePolicy.name.replace('_', ' '))
-            }
-            // Which end of the size range to take among candidates that already pass
-            // every other rule. It only ever picks within the cap, so this is "best
-            // picture that fits" against "smallest that will do".
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        DownloadsRepository.updatePreset(
-                            preset.copy(
-                                sizePreference = when (preset.sizePreference) {
-                                    SizePreference.LARGEST_UNDER_CAP -> SizePreference.SMALLEST
-                                    SizePreference.SMALLEST -> SizePreference.LARGEST_UNDER_CAP
-                                },
-                            ),
-                        )
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(stringResource(Res.string.download_preset_size_preference), Modifier.weight(1f))
+        Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12)) {
+            Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
                 Text(
-                    when (preset.sizePreference) {
-                        SizePreference.LARGEST_UNDER_CAP ->
-                            stringResource(Res.string.download_preset_size_largest)
-                        SizePreference.SMALLEST ->
-                            stringResource(Res.string.download_preset_size_smallest)
-                    },
+                    text = preset.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = preset.summaryLine(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.download_preset_prefer_cached), Modifier.weight(1f))
-                Switch(
-                    checked = preset.preferCachedSources,
-                    onCheckedChange = {
-                        DownloadsRepository.updatePreset(preset.copy(preferCachedSources = it))
-                    },
-                )
-            }
-            OutlinedTextField(
-                value = preset.preferredAudioLanguage.orEmpty(),
-                onValueChange = {
+
+            PresetPickerRow(
+                title = stringResource(Res.string.download_preset_resolution),
+                selectedKey = preset.targetResolution.name,
+                label = preset.targetResolution.presetLabel(),
+                options = VideoResolution.entries.map { resolution ->
+                    NuvioDropdownOption(resolution.name, resolution.presetLabel())
+                },
+                onSelected = { key ->
                     DownloadsRepository.updatePreset(
-                        preset.copy(preferredAudioLanguage = it.trim().takeIf(String::isNotEmpty)),
+                        preset.copy(targetResolution = VideoResolution.valueOf(key)),
                     )
                 },
-                label = { Text(stringResource(Res.string.download_preset_language)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.download_preset_require_language), Modifier.weight(1f))
-                Switch(
-                    checked = preset.requirePreferredAudioLanguage,
-                    onCheckedChange = {
-                        DownloadsRepository.updatePreset(preset.copy(requirePreferredAudioLanguage = it))
+
+            PresetSizeLimitControl(preset)
+
+            PresetPickerRow(
+                title = stringResource(Res.string.download_preset_codec_label),
+                selectedKey = preset.codecPreference.name,
+                label = preset.codecPreference.presetLabel(),
+                options = CodecPreference.entries.map { codec ->
+                    NuvioDropdownOption(codec.name, codec.presetLabel())
+                },
+                onSelected = { key ->
+                    DownloadsRepository.updatePreset(
+                        preset.copy(codecPreference = CodecPreference.valueOf(key)),
+                    )
+                },
+            )
+            PresetSwitchRow(
+                title = stringResource(Res.string.download_preset_codec_require),
+                description = stringResource(Res.string.download_preset_codec_require_description),
+                checked = preset.requirePreferredCodec,
+                enabled = preset.codecPreference != CodecPreference.ANY,
+                onCheckedChange = {
+                    DownloadsRepository.updatePreset(preset.copy(requirePreferredCodec = it))
+                },
+            )
+
+            PresetPickerRow(
+                title = stringResource(Res.string.download_preset_hdr),
+                selectedKey = preset.dynamicRangePolicy.name,
+                label = preset.dynamicRangePolicy.presetLabel(),
+                options = DynamicRangePolicy.entries.map { policy ->
+                    NuvioDropdownOption(policy.name, policy.presetLabel())
+                },
+                onSelected = { key ->
+                    DownloadsRepository.updatePreset(
+                        preset.copy(dynamicRangePolicy = DynamicRangePolicy.valueOf(key)),
+                    )
+                },
+            )
+
+            // Which end of the size range to take among candidates that already pass
+            // every other rule. It only ever picks within the cap, so this runs from
+            // "best picture that fits" through the middle to "smallest that will do".
+            PresetPickerRow(
+                title = stringResource(Res.string.download_preset_size_preference),
+                description = preset.sizePreference.presetDescription(),
+                selectedKey = preset.sizePreference.name,
+                label = preset.sizePreference.presetLabel(),
+                options = SizePreference.entries.map { preference ->
+                    NuvioDropdownOption(preference.name, preference.presetLabel())
+                },
+                onSelected = { key ->
+                    DownloadsRepository.updatePreset(
+                        preset.copy(sizePreference = SizePreference.valueOf(key)),
+                    )
+                },
+            )
+
+            PresetSwitchRow(
+                title = stringResource(Res.string.download_preset_prefer_cached),
+                description = stringResource(Res.string.download_preset_prefer_cached_description),
+                checked = preset.preferCachedSources,
+                onCheckedChange = {
+                    DownloadsRepository.updatePreset(preset.copy(preferCachedSources = it))
+                },
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                Text(
+                    text = stringResource(Res.string.download_preset_language),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+                NuvioInputField(
+                    value = preset.preferredAudioLanguage.orEmpty(),
+                    onValueChange = {
+                        DownloadsRepository.updatePreset(
+                            preset.copy(preferredAudioLanguage = it.trim().takeIf(String::isNotEmpty)),
+                        )
                     },
+                    placeholder = stringResource(Res.string.download_preset_language_placeholder),
+                )
+            }
+            PresetSwitchRow(
+                title = stringResource(Res.string.download_preset_require_language),
+                description = stringResource(Res.string.download_preset_require_language_description),
+                checked = preset.requirePreferredAudioLanguage,
+                enabled = !preset.preferredAudioLanguage.isNullOrBlank(),
+                onCheckedChange = {
+                    DownloadsRepository.updatePreset(preset.copy(requirePreferredAudioLanguage = it))
+                },
+            )
+        }
+    }
+}
+
+/** The GB/hour cap, with what it works out to for a typical episode and film. */
+@Composable
+private fun PresetSizeLimitControl(preset: DownloadPreset) {
+    val tokens = MaterialTheme.nuvio
+    var sliderValue by remember(preset.id, preset.gigabytesPerHourLimit) {
+        mutableFloatStateOf(preset.gigabytesPerHourLimit.toFloat())
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.download_preset_size_limit),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = stringResource(
+                    Res.string.download_preset_size_limit_value,
+                    formatGigabytes(sliderValue.toDouble()),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.accent,
+            )
+        }
+        Slider(
+            value = sliderValue.coerceIn(SIZE_LIMIT_MIN, SIZE_LIMIT_MAX),
+            onValueChange = { sliderValue = snapToStep(it, SIZE_LIMIT_STEP) },
+            onValueChangeFinished = {
+                DownloadsRepository.updatePreset(
+                    preset.copy(
+                        gigabytesPerHourLimit = sliderValue
+                            .coerceIn(SIZE_LIMIT_MIN, SIZE_LIMIT_MAX)
+                            .toDouble(),
+                    ),
+                )
+            },
+            valueRange = SIZE_LIMIT_MIN..SIZE_LIMIT_MAX,
+            steps = calculateSteps(SIZE_LIMIT_MIN, SIZE_LIMIT_MAX, SIZE_LIMIT_STEP),
+            colors = SliderDefaults.colors(
+                thumbColor = tokens.colors.accent,
+                activeTrackColor = tokens.colors.accent,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val previewPreset = preset.copy(gigabytesPerHourLimit = sliderValue.toDouble())
+        Text(
+            text = stringResource(
+                Res.string.download_preset_size_limit_helper,
+                formatDownloadBytes(previewPreset.sizeCapBytes(45, isEpisode = true)),
+                formatDownloadBytes(previewPreset.sizeCapBytes(120, isEpisode = false)),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textMuted,
+        )
+    }
+}
+
+private const val SIZE_LIMIT_MIN = 0.25f
+private const val SIZE_LIMIT_MAX = 20f
+private const val SIZE_LIMIT_STEP = 0.25f
+
+@Composable
+private fun PresetPickerRow(
+    title: String,
+    selectedKey: String,
+    label: String,
+    options: List<NuvioDropdownOption>,
+    onSelected: (String) -> Unit,
+    description: String? = null,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            if (!description.isNullOrBlank()) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
                 )
             }
         }
+        NuvioDropdownChip(
+            title = title,
+            label = label,
+            selectedKey = selectedKey,
+            options = options,
+            onSelected = { onSelected(it.key) },
+        )
+    }
+}
+
+@Composable
+private fun PresetSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .alpha(if (enabled) NuvioTokens.Opacity.visible else tokens.opacity.medium),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = tokens.colors.onAccent,
+                checkedTrackColor = tokens.colors.accent,
+                uncheckedThumbColor = tokens.colors.textMuted,
+                uncheckedTrackColor = tokens.colors.borderDefault,
+            ),
+        )
     }
 }

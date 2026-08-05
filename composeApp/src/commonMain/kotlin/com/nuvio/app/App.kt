@@ -115,6 +115,7 @@ import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.platformExitApp
 import com.nuvio.app.core.ui.configurePlatformImageLoader
+import com.nuvio.app.core.ui.NuvioToastAction
 import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
@@ -914,6 +915,24 @@ private fun MainAppContent(
             onActivate(tab)
         } else {
             selectedTab = tab
+        }
+    }
+
+    /**
+     * Brings the Downloads tab to the front, from wherever the user currently is.
+     *
+     * Selecting the tab is not enough on its own while a pushed route - the details
+     * screen a download is normally started from - is covering the tabs, so the
+     * Compose stack is unwound back to [TabsRoute] first. Native navigation owns its
+     * own stacks and switches to the Downloads one by itself.
+     */
+    fun openDownloadsTab() {
+        activateTab(AppScreenTab.Downloads)
+        if (!useNativeNavigation && navController.currentRoute !is TabsRoute) {
+            navController.navigate(TabsRoute) {
+                popUpTo<TabsRoute>()
+                launchSingleTop = true
+            }
         }
     }
 
@@ -3633,6 +3652,11 @@ private fun MainAppContent(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .zIndex(20f),
+                onAction = { action ->
+                    when (action) {
+                        NuvioToastAction.OpenDownloads -> openDownloadsTab()
+                    }
+                },
             )
 
             }

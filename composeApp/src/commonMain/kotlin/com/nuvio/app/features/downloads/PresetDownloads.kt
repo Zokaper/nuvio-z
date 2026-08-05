@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.roundToLong
 
 @Serializable
@@ -17,9 +18,13 @@ enum class DynamicRangePolicy { ANY, AVOID_HDR, PREFER_HDR, REQUIRE_HDR, REQUIRE
  * At a given resolution more bytes generally means a higher bitrate, so the
  * largest file still inside the cap is usually the best picture. Frugal presets
  * want the opposite.
+ *
+ * [MID_RANGE] sits between the two: it aims at the middle of what is actually on
+ * offer for this title rather than at a fixed share of the cap, so it neither
+ * takes the bloated top end nor settles for the worst encode that qualifies.
  */
 @Serializable
-enum class SizePreference { LARGEST_UNDER_CAP, SMALLEST }
+enum class SizePreference { LARGEST_UNDER_CAP, MID_RANGE, SMALLEST }
 
 @Serializable
 data class DownloadPreset(
@@ -223,16 +228,14 @@ object PresetSourceSelector {
         isEpisode: Boolean,
     ): SourceSelectionResult {
         val cap = preset.sizeCapBytes(runtimeMinutes, isEpisode)
-        val eligible = candidates
-            .asSequence()
+        val matching = candidates
             .filter { policy.allowsResult(it.addonKey, it.facts) }
             .filter { isAutomaticProtocol(it.resolvedUrl) }
             .filter { candidate ->
                 candidate.facts.resolution?.height?.let { it <= preset.targetResolution.height } ?: true
             }
             .filter { matchesRequirements(it.facts, preset) }
-            .sortedWith(candidateComparator(preset))
-            .toList()
+        val eligible = matching.sortedWith(candidateComparator(preset, midRangeTarget(matching, cap)))
 
         eligible.firstOrNull { candidate ->
             val size = candidate.facts.sizeBytes
@@ -288,7 +291,34 @@ object PresetSourceSelector {
         }
     }
 
-    private fun candidateComparator(preset: DownloadPreset): Comparator<DownloadSourceCandidate> =
+    /**
+     * The size [SizePreference.MID_RANGE] aims at: the median of the candidates that
+     * would actually be startable.
+     *
+     * Taking a real candidate size rather than a share of the cap keeps the target
+     * meaningful when every source for a title clusters far below the cap, and the
+     * upper middle of an even-sized list keeps it deterministic. Sizes above the cap
+     * are excluded because [select] would never take them anyway - letting them pull
+     * the median up would just push the pick towards the cap.
+     *
+     * Null when nothing with a known size fits, in which case ordering falls back to
+     * largest-under-cap.
+     */
+    private fun midRangeTarget(candidates: List<DownloadSourceCandidate>, cap: Long): Long? {
+        val fittingSizes = candidates
+            .mapNotNull { it.facts.sizeBytes }
+            .filter { it <= cap }
+            .sorted()
+        return fittingSizes.getOrNull(fittingSizes.size / 2)
+    }
+
+    // The mid-range target is computed once over every matching candidate, while the
+    // comparator only ever decides between candidates that already tie on resolution,
+    // language, dynamic range, codec and release quality - those still outrank size.
+    private fun candidateComparator(
+        preset: DownloadPreset,
+        midRangeTarget: Long?,
+    ): Comparator<DownloadSourceCandidate> =
         compareByDescending<DownloadSourceCandidate> {
             it.facts.resolution?.height ?: Int.MIN_VALUE
         }.thenByDescending {
@@ -312,11 +342,26 @@ object PresetSourceSelector {
         }.thenByDescending {
             it.stream.playableDirectUrl != null
         }.let { comparator ->
+            val largestFirst: Comparator<DownloadSourceCandidate> = comparator.thenByDescending {
+                it.facts.sizeBytes ?: Long.MIN_VALUE
+            }
             when (preset.sizePreference) {
                 // select() takes the first candidate that fits the cap, so ordering
                 // largest-first makes that the largest one under the cap.
-                SizePreference.LARGEST_UNDER_CAP -> comparator.thenByDescending {
-                    it.facts.sizeBytes ?: Long.MIN_VALUE
+                SizePreference.LARGEST_UNDER_CAP -> largestFirst
+                SizePreference.MID_RANGE -> if (midRangeTarget == null) {
+                    largestFirst
+                } else {
+                    // An unknown size is Long.MAX_VALUE away from the target, which
+                    // keeps it behind every candidate that reports one, and an exact
+                    // tie between two equidistant sizes goes to the larger file.
+                    comparator.thenBy { candidate ->
+                        candidate.facts.sizeBytes
+                            ?.let { abs(it - midRangeTarget) }
+                            ?: Long.MAX_VALUE
+                    }.thenByDescending {
+                        it.facts.sizeBytes ?: Long.MIN_VALUE
+                    }
                 }
                 SizePreference.SMALLEST -> comparator.thenBy {
                     it.facts.sizeBytes ?: Long.MAX_VALUE
