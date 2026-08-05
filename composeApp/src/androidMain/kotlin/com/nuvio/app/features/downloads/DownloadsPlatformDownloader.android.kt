@@ -20,6 +20,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 private const val TRANSFER_BUFFER_BYTES = 64 * 1024
 
@@ -44,13 +46,7 @@ internal actual object DownloadsPlatformDownloader {
     ): DownloadsTaskHandle {
         val job = SupervisorJob()
         val scope = CoroutineScope(job + Dispatchers.IO)
-        var call: Call? = null
-        appContext?.let { context ->
-            DownloadsBackgroundScheduler.schedule(
-                context = context,
-                allowMeteredNetwork = request.allowMeteredNetwork,
-            )
-        }
+        val handle = AndroidDownloadsTaskHandle(job)
 
         scope.launch {
             val context = appContext
@@ -61,6 +57,18 @@ internal actual object DownloadsPlatformDownloader {
                     0L,
                 )
                 return@launch
+            }
+
+            // Scheduling is best-effort and must not be able to take the transfer with
+            // it. JobScheduler refuses a user-initiated job outright when the app is
+            // not in a state allowed to start one, and that used to throw straight out
+            // of start(), leaving the queue with an item marked as downloading that
+            // nothing was ever going to download.
+            runCatching {
+                DownloadsBackgroundScheduler.schedule(
+                    context = context,
+                    allowMeteredNetwork = request.allowMeteredNetwork,
+                )
             }
 
             val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
@@ -90,10 +98,13 @@ internal actual object DownloadsPlatformDownloader {
                 }
 
                 var attemptedRangeRequest = resumeFromBytes > 0L
-                call = downloadHttpClient.newCall(buildRequest(if (attemptedRangeRequest) resumeFromBytes else null))
-                var response = call?.execute() ?: error(
-                    runBlocking { getString(Res.string.downloads_error_request_failed) },
-                )
+                var response = handle
+                    .attachCall(
+                        downloadHttpClient.newCall(
+                            buildRequest(if (attemptedRangeRequest) resumeFromBytes else null),
+                        ),
+                    )
+                    .execute()
 
                 if (attemptedRangeRequest && response.code == 416) {
                     // The requested range starts past the end of the object. If that is
@@ -121,10 +132,9 @@ internal actual object DownloadsPlatformDownloader {
                     resumeFromBytes = 0L
                     downloadedBytes = 0L
                     attemptedRangeRequest = false
-                    call = downloadHttpClient.newCall(buildRequest(null))
-                    response = call?.execute() ?: error(
-                        runBlocking { getString(Res.string.downloads_error_request_failed) },
-                    )
+                    response = handle
+                        .attachCall(downloadHttpClient.newCall(buildRequest(null)))
+                        .execute()
                 }
 
                 if (!response.isSuccessful) {
@@ -249,7 +259,7 @@ internal actual object DownloadsPlatformDownloader {
                 listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
                 throw cancellation
             } catch (error: Throwable) {
-                if (call?.isCanceled() == true) {
+                if (handle.isCancelled) {
                     listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
                 } else {
                     listener.onFailed(
@@ -261,11 +271,7 @@ internal actual object DownloadsPlatformDownloader {
             }
         }
 
-        job.invokeOnCompletion {
-            call?.cancel()
-        }
-
-        return AndroidDownloadsTaskHandle(job)
+        return handle
     }
 
     actual fun freeStorageBytes(): Long =
@@ -369,10 +375,37 @@ private fun finalizePartialFile(tempFile: File, destination: File): Pair<String,
 private fun currentPartialBytes(tempFile: File, fallback: Long): Long =
     runCatching { tempFile.takeIf { it.exists() }?.length() }.getOrNull() ?: fallback
 
+/**
+ * Handle over a transfer whose read loop is blocking, not suspending.
+ *
+ * Cancelling the job alone does not stop a thread parked in a socket read; it only
+ * takes effect at the next `ensureActive`, which can be a whole read timeout away.
+ * Cancelling the call ends the read now. This used to hang off
+ * `job.invokeOnCompletion`, which fires once the job's children have finished -
+ * that is, after the very read it was meant to interrupt.
+ */
 private class AndroidDownloadsTaskHandle(
     private val job: Job,
 ) : DownloadsTaskHandle {
+    private val activeCall = AtomicReference<Call?>(null)
+    private val cancelled = AtomicBoolean(false)
+
+    /** True once [cancel] has been called, so a resulting IO error reads as a pause. */
+    val isCancelled: Boolean
+        get() = cancelled.get()
+
+    /** Registers [call] as the one to interrupt, and hands it straight back. */
+    fun attachCall(call: Call): Call {
+        activeCall.set(call)
+        // Cancelled while the request was being built; honour it rather than issuing
+        // a call nothing will ever stop.
+        if (cancelled.get()) call.cancel()
+        return call
+    }
+
     override fun cancel() {
+        cancelled.set(true)
+        activeCall.get()?.let { runCatching { it.cancel() } }
         job.cancel()
     }
 }

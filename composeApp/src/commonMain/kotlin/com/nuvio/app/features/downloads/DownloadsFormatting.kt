@@ -60,6 +60,14 @@ internal fun downloadStatusText(item: DownloadItem): String {
         formatDownloadBytes(item.downloadedBytes)
     }
 
+    // A file over the preset's cap is worth saying, but it is a note on a download
+    // that is running, not a reason to stop one.
+    val overCapNote = if (item.exceedsSizeCap) {
+        " • ${stringResource(Res.string.downloads_over_size_cap)}"
+    } else {
+        ""
+    }
+
     return when (item.status) {
         DownloadStatus.Queued -> {
             val retryAtEpochMs = item.nextRetryAtEpochMs
@@ -81,17 +89,17 @@ internal fun downloadStatusText(item: DownloadItem): String {
         DownloadStatus.Downloading -> if (item.downloadedBytes <= 0L && item.totalBytes == null) {
             stringResource(Res.string.downloads_status_waiting_to_start)
         } else {
-            stringResource(Res.string.downloads_status_downloading, size)
+            stringResource(Res.string.downloads_status_downloading, size) + overCapNote
         }
         DownloadStatus.Paused -> if (item.sizeApprovalRequired) {
             item.errorMessage ?: stringResource(Res.string.downloads_status_paused, size)
         } else {
-            stringResource(Res.string.downloads_status_paused, size)
+            stringResource(Res.string.downloads_status_paused, size) + overCapNote
         }
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
             formatDownloadBytes(item.totalBytes ?: item.downloadedBytes),
-        )
+        ) + overCapNote
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
     }
 }

@@ -78,8 +78,10 @@ import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
+import com.nuvio.app.features.downloads.DownloadsClock
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadPreset
+import com.nuvio.app.features.downloads.DownloadSourceOrigin
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -226,7 +228,7 @@ fun StreamsScreen(
         )
     }
     val enqueueWithPreset: (StreamItem, DownloadPreset) -> Unit = { stream, preset ->
-        val enqueueResolved: (StreamItem) -> Unit = { downloadable ->
+        val enqueueResolved: (StreamItem, DownloadSourceOrigin?) -> Unit = { downloadable, origin ->
             val result = DownloadsRepository.enqueueFromStream(
                 contentType = type,
                 videoId = videoId,
@@ -245,6 +247,8 @@ fun StreamsScreen(
                     runtimeMinutes = null,
                     isEpisode = isEpisode,
                 ),
+                sourceOrigin = origin,
+                sourceUrlResolvedAtEpochMs = origin?.let { DownloadsClock.nowEpochMs() },
             )
             NuvioToastController.show(result.toastMessage())
         }
@@ -255,12 +259,21 @@ fun StreamsScreen(
                     season = seasonNumber,
                     episode = episodeNumber,
                 )) {
-                    is DirectDebridPlayableResult.Success -> enqueueResolved(resolved.stream)
+                    // The unresolved stream travels with the download so its link can be
+                    // minted again; the one being enqueued expires within the hour.
+                    is DirectDebridPlayableResult.Success -> enqueueResolved(
+                        resolved.stream,
+                        DownloadSourceOrigin(
+                            stream = stream,
+                            season = seasonNumber,
+                            episode = episodeNumber,
+                        ),
+                    )
                     else -> resolved.toastMessage()?.let(NuvioToastController::show)
                 }
             }
         } else {
-            enqueueResolved(stream)
+            enqueueResolved(stream, null)
         }
     }
 

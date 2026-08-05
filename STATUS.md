@@ -1,12 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); no unreleased feature branch |
+| **Active branch** | `claude/download-freezing-bug-f7feen` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Desktop startup fix merged into `Dev` for the next release: CI tests and Windows MSI assembly pass; timing the optimized package on a real install remains pending. Runtime smoke testing of the latest releases also remains pending. |
+| **Unreleased work** | Download freezing fixes on `claude/download-freezing-bug-f7feen` (both repos): desktop stall watchdog, queue reclaim for lost transfers, debrid link re-resolution, and the size cap no longer stopping a running transfer. Verified standalone against Kotlin 2.3.0; **not yet run through CI, and not yet exercised on a device or a real desktop install.** The earlier desktop startup fix is still on `Dev` awaiting a release. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -71,8 +71,81 @@ sandbox where Gradle cannot configure.
   tab with per-episode state, and an ongoing Android notification while any batch
   is preparing.
 
+## Download freezing (2026-08-05, unreleased)
+
+Four separate faults, found while chasing downloads that stopped around 80% and
+one that refused a source for exceeding the preset cap after it had already been
+approved. Reported on the Windows desktop build through TorBox.
+
+- **Desktop transfers could block forever.** `HttpRequest.timeout` bounds the
+  arrival of the *response*, and with `BodyHandlers.ofInputStream` the response
+  arrives with the headers - every byte after that was read from a stream with no
+  deadline. A connection that went quiet without closing parked the read
+  permanently, `job.cancel()` could not interrupt it, so pause and cancel did
+  nothing and the item held one of the two transfer slots for good. Two of them
+  stopped the queue outright. Added a stall watchdog that closes the stream, and
+  a handle that closes it on cancel.
+- **Nothing recovered a transfer the queue lost.** An item recorded as
+  `Downloading` with no handle behind it was invisible to the planner (which
+  starts queued items) and to the system-pause recovery (which looks at paused
+  ones). `DownloadQueuePlanner.lostTransfers` now names that state and
+  `startPendingTransfers` takes those items back, together with any transfer that
+  has gone silent for far longer than the platform watchdog allows. A platform
+  that refuses to start no longer strands the item either - Android's
+  `JobScheduler` declines a user-initiated job outright when the app may not
+  start one, and that used to throw straight out of `start()`.
+- **The size cap stopped transfers it should not have.** It fired mid-transfer on
+  the larger of the bytes received and the size reported, cancelled the handle and
+  paused for approval - including for sources the user had already approved in the
+  batch review dialog, because `queueBatch` never carried that decision onto the
+  download. On resume it fired again at the resumed offset, so an item could wedge
+  at the same percentage repeatedly, and `resumeDownload` refused those items so
+  the resume button did nothing. The cap now decides which source to pick and
+  nothing more; an oversize file is noted on the row and finishes. Items already
+  stuck this way are healed on load.
+- **Debrid links were minted once and never refreshed.** Preparation resolved
+  every episode of a batch up front while only two transfer at a time, so links
+  were routinely first used hours after they were minted - against a resolver that
+  already treats a cached link as good for fifteen minutes. An expired TorBox
+  `requestdl` URL answers 401/403/404/410, which classified as `Fatal`, so the
+  download failed with a retry button that replayed the same dead URL forever.
+  Those statuses are now `SourceExpired`, downloads carry a `DownloadSourceOrigin`
+  (the stream before resolution), and a stale or rejected link is re-minted before
+  the transfer starts and on retry.
+
+Also: `StreamItem` and its nested models are now `@Serializable` so the origin can
+be persisted faithfully, and an episode with no runtime of its own falls back to
+the series runtime before the 45-minute default that was under-capping hour-long
+episodes.
+
 ## Verification
 
+- Download freezing work (2026-08-05). Gradle still cannot configure here, so
+  Kotlin 2.3.0 was fetched and used directly:
+  - `DownloadTransferTest` and `DownloadQueueTest` compiled against the **shipped**
+    `DownloadTransfer.kt`, `DownloadQueuePlanner.kt` and `DownloadsModels.kt` and
+    executed: **34 tests passed**, including the three new lost-transfer cases and
+    the expired-link retry budget.
+  - The whole downloads package - `DownloadsRepository.kt`, `DownloadsModels.kt`,
+    `DownloadBatches.kt`, `DownloadQueuePlanner.kt`, `DownloadTransfer.kt`,
+    `PresetDownloads.kt`, `SourceFacts.kt`, `DownloadPresence.kt` - plus the real
+    `StreamModels.kt` **type-checks clean** with the serialization plugin, against
+    stubs only for the platform singletons, the debrid resolver and atomicfu.
+  - `DownloadsPlatformDownloader.desktop.kt` type-checks standalone, which is
+    worth noting because `desktop-release.yml` is otherwise the only thing that
+    compiles `desktopMain`.
+  - The desktop freeze was **reproduced and confirmed fixed** against a local
+    server that sends headers and part of a body then goes silent without
+    closing: the transfer now ends after ~75s with
+    `Transient: The source stopped sending data. Retrying.` instead of hanging
+    forever, and cancelling a stalled transfer takes **2ms** instead of never
+    returning.
+  - Every changed Kotlin file in both repositories additionally passed a
+    parser-only check.
+  - **Not yet run through CI, and not yet exercised on a device or a real desktop
+    install.** The debrid re-resolution path in particular has no coverage beyond
+    the type checker: it needs a real TorBox account and a batch left running past
+    the fifteen-minute link window.
 - Earlier comprehensive Android host suite: 477 tests passed.
 - Latest focused source/preset suite:
   - `SourceFactsExtractorTest`: 8 passed.

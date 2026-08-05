@@ -14,6 +14,7 @@ data class StreamSubtitle(
     val headers: Map<String, String>? = null
 )
 
+@Serializable
 data class StreamItem(
     val name: String? = null,
     val title: String? = null,
@@ -118,6 +119,7 @@ data class StreamItem(
         get() = url != null || infoHash != null || externalUrl != null || clientResolve != null
 }
 
+@Serializable
 data class StreamBadge(
     val name: String,
     val imageURL: String = "",
@@ -215,6 +217,7 @@ fun StreamItem.isSelectableForPlayback(debridEnabled: Boolean): Boolean =
         (AppFeaturePolicy.p2pEnabled && needsLocalDebridResolve && p2pInfoHash != null) ||
         (debridEnabled && isAddonDebridCandidate)
 
+@Serializable
 data class StreamBehaviorHints(
     val bingeGroup: String? = null,
     val notWebReady: Boolean = false,
@@ -224,11 +227,13 @@ data class StreamBehaviorHints(
     val proxyHeaders: StreamProxyHeaders? = null,
 )
 
+@Serializable
 data class StreamProxyHeaders(
     val request: Map<String, String>? = null,
     val response: Map<String, String>? = null,
 )
 
+@Serializable
 enum class StreamDebridCacheState {
     CHECKING,
     CACHED,
@@ -236,6 +241,7 @@ enum class StreamDebridCacheState {
     UNKNOWN,
 }
 
+@Serializable
 data class StreamDebridCacheStatus(
     val providerId: String,
     val providerName: String,
@@ -244,6 +250,7 @@ data class StreamDebridCacheStatus(
     val cachedSize: Long? = null,
 )
 
+@Serializable
 data class StreamClientResolve(
     val type: String? = null,
     val infoHash: String? = null,
@@ -270,10 +277,12 @@ data class StreamClientResolve(
             isCached == true
 }
 
+@Serializable
 data class StreamClientResolveStream(
     val raw: StreamClientResolveRaw? = null,
 )
 
+@Serializable
 data class StreamClientResolveRaw(
     val torrentName: String? = null,
     val filename: String? = null,
@@ -285,6 +294,7 @@ data class StreamClientResolveRaw(
     val parsed: StreamClientResolveParsed? = null,
 )
 
+@Serializable
 data class StreamClientResolveParsed(
     val rawTitle: String? = null,
     val parsedTitle: String? = null,

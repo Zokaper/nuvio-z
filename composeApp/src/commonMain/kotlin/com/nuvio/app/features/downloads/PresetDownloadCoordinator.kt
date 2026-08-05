@@ -124,6 +124,9 @@ object PresetDownloadCoordinator {
                 addons = addons,
                 policySnapshot = policy,
             )
+            // Keyed by the URL the selector will hand back, so the entry can carry the
+            // pre-resolution stream that minted it.
+            val originsByResolvedUrl = mutableMapOf<String, DownloadSourceOrigin>()
             val resolved = discovered.mapNotNull { candidate ->
                 if (!DirectDebridPlaybackResolver.shouldResolveToPlayableStream(candidate.stream)) {
                     candidate
@@ -142,6 +145,13 @@ object PresetDownloadCoordinator {
                                 manifestUrl = candidate.addonKey.manifestUrl,
                                 treatAsAioStreams = candidate.addonKey in policy.aioOverrides,
                             )
+                            result.stream.playableDirectUrl?.let { resolvedUrl ->
+                                originsByResolvedUrl[resolvedUrl] = DownloadSourceOrigin(
+                                    stream = candidate.stream,
+                                    season = target.season,
+                                    episode = target.episode,
+                                )
+                            }
                             candidate.copy(
                                 stream = result.stream,
                                 resolvedUrl = result.stream.playableDirectUrl,
@@ -210,6 +220,7 @@ object PresetDownloadCoordinator {
                 providerName = selectedCandidate?.stream?.addonName,
                 providerAddonId = selectedCandidate?.stream?.addonId,
                 sourceHeaders = selectedCandidate?.stream?.behaviorHints?.proxyHeaders?.request.orEmpty(),
+                sourceOrigin = selectedCandidate?.resolvedUrl?.let(originsByResolvedUrl::get),
                 failureMessage = (selection as? SourceSelectionResult.NoMatch)?.reason,
             )
         }.getOrElse { error ->
@@ -237,6 +248,7 @@ object PresetDownloadCoordinator {
                 ),
             )
         }
+        val seriesRuntimeMinutes = meta.runtime.runtimeMinutesOrNull()
         val existing = DownloadsRepository.uiState.value.items
             .map(DownloadItem::logicalContentKey)
             .toSet()
@@ -265,7 +277,10 @@ object PresetDownloadCoordinator {
                 contentType = meta.type,
                 season = it.season,
                 episode = it.episode,
-                runtimeMinutes = it.runtimeMinutes,
+                // The series' own runtime before the 45-minute default: plenty of metas
+                // carry it only at the show level, and guessing 45 for an hour-long
+                // episode sets a cap a quarter under what the preset actually allows.
+                runtimeMinutes = it.runtimeMinutes ?: seriesRuntimeMinutes,
             )
         }
     }

@@ -1,6 +1,8 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.debrid.DirectDebridPlayableResult
+import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamProxyHeaders
@@ -194,6 +196,10 @@ object DownloadsRepository {
         calculatedCapBytes: Long? = null,
         allowMeteredNetwork: Boolean = false,
         expectedSizeBytes: Long? = stream.behaviorHints.videoSize,
+        sourceOrigin: DownloadSourceOrigin? = null,
+        sourceUrlResolvedAtEpochMs: Long? = null,
+        /** The user already accepted this source's size, so nothing may re-ask. */
+        sizeCapOverrideApproved: Boolean = false,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -273,9 +279,12 @@ object DownloadsRepository {
                 status = DownloadStatus.Queued,
                 downloadedBytes = 0L,
                 totalBytes = null,
+                sourceOrigin = sourceOrigin,
+                sourceUrlResolvedAtEpochMs = sourceUrlResolvedAtEpochMs,
                 calculatedCapBytes = calculatedCapBytes?.takeIf { it > 0L },
                 expectedSizeBytes = expectedSizeBytes?.takeIf { it > 0L },
                 allowMeteredNetwork = allowMeteredNetwork,
+                sizeCapOverrideApproved = sizeCapOverrideApproved,
                 // Appended, not prepended: a season batch is enqueued in episode order
                 // and prepending made it download backwards, E10 before E01.
                 queuePosition = DownloadQueuePlanner.nextQueuePosition(currentItems),
@@ -390,7 +399,6 @@ object DownloadsRepository {
         synchronized(stateLock) {
             val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
             if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
-            if (item.sizeApprovalRequired && !item.sizeCapOverrideApproved) return
 
             // Trust the bytes on disk over the last figure we recorded: a process death
             // mid-transfer can leave the two disagreeing, and the partial file is what a
@@ -404,7 +412,10 @@ object DownloadsRepository {
                     errorMessage = null,
                     localFileUri = null,
                     downloadedBytes = partialBytes,
+                    // Whatever stopped this is not held against the fresh attempt, and a
+                    // stale link is re-minted on the way back in rather than replayed.
                     attemptCount = 0,
+                    sourceUrlResolvedAtEpochMs = null,
                     nextRetryAtEpochMs = null,
                     updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                 )
@@ -696,6 +707,11 @@ object DownloadsRepository {
             val addonKey: AddonSourceKey
             val calculatedCapBytes: Long
             val expectedSizeBytes: Long?
+            // An entry only reaches here on approval when the user asked for it, and
+            // that decision has to travel with the download. Without it the transfer
+            // met the cap check again mid-flight and stopped a source that had already
+            // been accepted in the review dialog.
+            var sizeApproved = false
             when (selection) {
                 is SourceSelectionResult.Selected -> {
                     streamUrl = selection.streamUrl
@@ -708,6 +724,7 @@ object DownloadsRepository {
                     addonKey = selection.addonKey
                     calculatedCapBytes = selection.calculatedCapBytes
                     expectedSizeBytes = selection.facts.sizeBytes
+                    sizeApproved = true
                 }
                 else -> return@map entry
             }
@@ -739,6 +756,10 @@ object DownloadsRepository {
                 calculatedCapBytes = calculatedCapBytes,
                 allowMeteredNetwork = batch.allowMeteredNetwork,
                 expectedSizeBytes = expectedSizeBytes,
+                sourceOrigin = entry.sourceOrigin,
+                // Preparation minted this link; the queue may not reach it for hours.
+                sourceUrlResolvedAtEpochMs = batch.createdAtEpochMs,
+                sizeCapOverrideApproved = sizeApproved,
             )
             if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) {
                 queued += 1
@@ -787,43 +808,27 @@ object DownloadsRepository {
     }
 
     private fun onTransferProgress(downloadId: String, downloadedBytes: Long, totalBytes: Long?) {
-        val exceededCap = synchronized(stateLock) {
-            val current = _uiState.value.items.firstOrNull { it.id == downloadId }
-                ?: return@synchronized false
-            val cap = current.calculatedCapBytes
-            val actualOrReported = listOfNotNull(
-                downloadedBytes.takeIf { it > 0L },
-                totalBytes?.takeIf { it > 0L },
-            ).maxOrNull()
-
-            if (
-                cap != null &&
-                !current.sizeCapOverrideApproved &&
-                actualOrReported != null &&
-                actualOrReported > cap
-            ) {
-                activeHandles.remove(downloadId)?.cancel()
-                mutateLocked(downloadId, immediate = true) {
-                    it.copy(
-                        status = DownloadStatus.Paused,
-                        pauseReason = DownloadPauseReason.SizeApproval,
-                        downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                        totalBytes = totalBytes?.takeIf { value -> value > 0L } ?: it.totalBytes,
-                        sizeApprovalRequired = true,
-                        errorMessage = "Actual source size exceeds this preset's cap",
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                }
-                return@synchronized true
-            }
-
+        synchronized(stateLock) {
             mutateLocked(downloadId, immediate = false) { item ->
                 if (item.status != DownloadStatus.Downloading) {
                     item
                 } else {
+                    val cap = item.calculatedCapBytes
+                    val largestKnownSize = listOfNotNull(
+                        downloadedBytes.takeIf { it > 0L },
+                        totalBytes?.takeIf { it > 0L },
+                    ).maxOrNull()
+
                     item.copy(
                         downloadedBytes = downloadedBytes.coerceAtLeast(0L),
                         totalBytes = totalBytes?.takeIf { it > 0L } ?: item.totalBytes,
+                        // Noted, not enforced. The cap decides which source to pick; a
+                        // transfer that has already fetched most of a file is past the
+                        // point where refusing it saves anything, and stopping it there
+                        // was what left downloads sitting partway through with a size
+                        // complaint about a source that had already been approved.
+                        exceedsSizeCap = item.exceedsSizeCap ||
+                            (cap != null && largestKnownSize != null && largestKnownSize > cap),
                         // Bytes arriving means the source works, so a previous run of bad
                         // luck should not count against this attempt's retry budget.
                         attemptCount = if (downloadedBytes > item.downloadedBytes) 0 else item.attemptCount,
@@ -833,10 +838,7 @@ object DownloadsRepository {
                     )
                 }
             }
-            false
         }
-
-        if (exceededCap) startPendingTransfers()
     }
 
     private fun onTransferCompleted(downloadId: String, localFileUri: String, totalBytes: Long) {
@@ -932,7 +934,7 @@ object DownloadsRepository {
                 } else {
                     val attempt = current.attemptCount + 1
                     val now = DownloadsClock.nowEpochMs()
-                    if (shouldRetry(reason, attempt)) {
+                    if (shouldRetry(reason, attempt, current.canReresolveSource)) {
                         // Backed off rather than retried on the spot: a dead network used
                         // to burn every attempt within milliseconds of the first failure.
                         current.copy(
@@ -941,6 +943,14 @@ object DownloadsRepository {
                             downloadedBytes = downloadedBytes.coerceAtLeast(0L),
                             localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
+                            // A dead link is not worth replaying; clearing the stamp is
+                            // what makes the next start mint a new one.
+                            sourceUrlResolvedAtEpochMs =
+                                if (reason == DownloadFailureReason.SourceExpired) {
+                                    null
+                                } else {
+                                    current.sourceUrlResolvedAtEpochMs
+                                },
                             nextRetryAtEpochMs = now + retryBackoffMs(attempt, reason),
                             errorMessage = fallbackMessage,
                             updatedAtEpochMs = now,
@@ -967,6 +977,7 @@ object DownloadsRepository {
 
     private fun startPendingTransfers() {
         synchronized(stateLock) {
+            reclaimLostTransfersLocked()
             val now = DownloadsClock.nowEpochMs()
             val startable = DownloadQueuePlanner.startable(
                 items = _uiState.value.items,
@@ -1004,7 +1015,146 @@ object DownloadsRepository {
         }
     }
 
+    /**
+     * Puts transfers the queue has lost track of back in the queue.
+     *
+     * An item recorded as downloading with no handle behind it is invisible to
+     * everything else here: the planner only ever starts queued items, and the
+     * system-pause recovery only looks at paused ones. Nothing would ever touch it
+     * again, so it sat at whatever percentage it had reached, holding one of the two
+     * transfer slots for good - and two of them stopped the queue outright. Rather
+     * than enumerate the ways a handle can go missing, notice that it has.
+     *
+     * A transfer that is still held but has not reported a byte in far longer than
+     * the platform watchdog allows is treated the same way, since a watchdog that
+     * never fired is exactly the case nothing else covers.
+     */
+    private fun reclaimLostTransfersLocked() {
+        val now = DownloadsClock.nowEpochMs()
+        val lost = DownloadQueuePlanner.lostTransfers(
+            items = _uiState.value.items,
+            activeIds = activeHandles.keys.toSet(),
+            nowEpochMs = now,
+        )
+        if (lost.isEmpty()) return
+
+        val lostIds = lost.map { it.id }.toSet()
+        lostIds.forEach { activeHandles.remove(it)?.cancel() }
+        publishLocked(
+            _uiState.value.items.map { item ->
+                if (item.id !in lostIds) {
+                    item
+                } else {
+                    item.copy(
+                        status = DownloadStatus.Queued,
+                        pauseReason = null,
+                        nextRetryAtEpochMs = null,
+                        updatedAtEpochMs = now,
+                    )
+                }
+            },
+            immediate = true,
+        )
+    }
+
+    /**
+     * Starts [item], minting a fresh source URL first when the one it holds is stale.
+     *
+     * Resolution is a network round trip, so it cannot happen under the lock. The
+     * item is left marked as downloading and its slot is reserved by a placeholder
+     * handle while that happens, which keeps the queue from starting a third
+     * transfer into the same slot and keeps the reclaim sweep from deciding this
+     * item has been lost.
+     */
     private fun startDownloadLocked(item: DownloadItem) {
+        if (!item.isSourceUrlStale(DownloadsClock.nowEpochMs())) {
+            startResolvedDownloadLocked(item)
+            return
+        }
+
+        activeHandles[item.id] = PendingResolveTaskHandle
+        scope.launch {
+            val refreshed = refreshSourceUrl(item)
+            val expiredMessage = getString(Res.string.downloads_error_source_link_expired)
+            synchronized(stateLock) {
+                // Cancelled, paused or reordered while the provider was answering.
+                if (activeHandles[item.id] !== PendingResolveTaskHandle) return@synchronized
+                activeHandles.remove(item.id)
+                val current = _uiState.value.items.firstOrNull { it.id == item.id }
+                if (current == null || current.status != DownloadStatus.Downloading) {
+                    return@synchronized
+                }
+                if (refreshed == null) {
+                    // The provider could not mint a link now. Nothing has been
+                    // transferred, so this is an ordinary backed-off retry.
+                    val now = DownloadsClock.nowEpochMs()
+                    val attempt = current.attemptCount + 1
+                    mutateLocked(item.id, immediate = true) {
+                        it.copy(
+                            status = DownloadStatus.Queued,
+                            pauseReason = null,
+                            attemptCount = attempt,
+                            nextRetryAtEpochMs = now +
+                                retryBackoffMs(attempt, DownloadFailureReason.SourceExpired),
+                            errorMessage = expiredMessage,
+                            updatedAtEpochMs = now,
+                        )
+                    }
+                } else {
+                    startResolvedDownloadLocked(refreshed)
+                }
+            }
+            scheduleQueueWake()
+        }
+    }
+
+    /**
+     * Asks the source for a new URL, returning the updated item or null if it could not.
+     *
+     * Runs outside [stateLock] because it suspends. The write back is the only part
+     * that touches state.
+     */
+    private suspend fun refreshSourceUrl(item: DownloadItem): DownloadItem? {
+        val origin = item.sourceOrigin ?: return item
+        val resolved = runCatching {
+            DirectDebridPlaybackResolver.resolveToPlayableStream(
+                origin.stream,
+                origin.season,
+                origin.episode,
+            )
+        }.getOrNull()
+        val stream = (resolved as? DirectDebridPlayableResult.Success)?.stream ?: return null
+        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
+
+        val now = DownloadsClock.nowEpochMs()
+        var updated: DownloadItem? = null
+        synchronized(stateLock) {
+            mutateLocked(item.id, immediate = true) { current ->
+                current.copy(
+                    sourceUrl = sourceUrl,
+                    sourceHeaders = sanitizeRequestHeaders(
+                        stream.behaviorHints.proxyHeaders?.request,
+                    ).ifEmpty { current.sourceHeaders },
+                    sourceUrlResolvedAtEpochMs = now,
+                    // A re-minted link is a different signed URL for the same bytes, but
+                    // the validators belong to the response that produced them; keeping
+                    // them would send an If-Range the new host never issued.
+                    resumeEtag = null,
+                    resumeLastModified = null,
+                    updatedAtEpochMs = now,
+                )
+            }
+            updated = _uiState.value.items.firstOrNull { it.id == item.id }
+        }
+        return updated
+    }
+
+    /** Wakes the queue from outside the lock, once a resolution has settled. */
+    private fun scheduleQueueWake() {
+        synchronized(stateLock) { scheduleRetryWakeLocked() }
+    }
+
+    private fun startResolvedDownloadLocked(item: DownloadItem) {
         val request = DownloadPlatformRequest(
             sourceUrl = item.sourceUrl,
             sourceHeaders = item.sourceHeaders,
@@ -1014,35 +1164,76 @@ object DownloadsRepository {
             resumeEtag = item.resumeEtag,
             resumeLastModified = item.resumeLastModified,
         )
-        activeHandles[item.id] = DownloadsPlatformDownloader.start(
-            request = request,
-            listener = RepositoryTransferListener(item.id),
-        )
+        // The item is already published as downloading by the time this runs, so a
+        // platform that refuses to start would strand it there with no handle. Android
+        // does exactly that when the system declines to schedule the background job.
+        val handle = runCatching {
+            DownloadsPlatformDownloader.start(
+                request = request,
+                listener = RepositoryTransferListener(item.id),
+            )
+        }.getOrNull()
+
+        if (handle == null) {
+            val now = DownloadsClock.nowEpochMs()
+            val attempt = item.attemptCount + 1
+            mutateLocked(item.id, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Queued,
+                    pauseReason = null,
+                    attemptCount = attempt,
+                    nextRetryAtEpochMs = now +
+                        retryBackoffMs(attempt, DownloadFailureReason.Transient),
+                    updatedAtEpochMs = now,
+                )
+            }
+            return
+        }
+        activeHandles[item.id] = handle
     }
 
     /**
-     * Wakes the queue when the earliest backoff expires.
+     * Wakes the queue when the earliest backoff expires, or to check on a transfer.
      *
      * Items waiting out a retry are skipped by the planner, so without a timer they
-     * would sit queued until some unrelated event nudged the queue.
+     * would sit queued until some unrelated event nudged the queue. Transfers in
+     * flight need the same timer for the opposite reason: a stalled one reports
+     * nothing, so the only way to notice is to look.
      */
     private fun scheduleRetryWakeLocked() {
         retryWakeJob?.cancel()
         retryWakeJob = null
-        if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) return
 
         val now = DownloadsClock.nowEpochMs()
-        val earliest = _uiState.value.items
-            .filter { it.status == DownloadStatus.Queued }
-            .mapNotNull { it.nextRetryAtEpochMs }
-            .filter { it > now }
-            .minOrNull()
-            ?: return
+        val earliestRetry = if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) {
+            null
+        } else {
+            _uiState.value.items
+                .filter { it.status == DownloadStatus.Queued }
+                .mapNotNull { it.nextRetryAtEpochMs }
+                .filter { it > now }
+                .minOrNull()
+        }
+        val earliestStallCheck = _uiState.value.items
+            .filter { it.status == DownloadStatus.Downloading }
+            .minOfOrNull { it.updatedAtEpochMs + TRANSFER_WATCHDOG_TIMEOUT_MS }
+        val earliest = listOfNotNull(earliestRetry, earliestStallCheck).minOrNull() ?: return
 
         retryWakeJob = scope.launch {
             delay((earliest - now).coerceAtLeast(0L))
             startPendingTransfers()
         }
+    }
+
+    /**
+     * Holds a transfer slot while a source URL is being re-minted.
+     *
+     * Resolution has to happen outside the lock, and without something standing in
+     * the slot the queue would start another transfer in its place and the reclaim
+     * sweep would decide this download had been lost. There is nothing to cancel.
+     */
+    private object PendingResolveTaskHandle : DownloadsTaskHandle {
+        override fun cancel() = Unit
     }
 
     private class RepositoryTransferListener(
@@ -1126,6 +1317,21 @@ object DownloadsRepository {
                 withLocalUri.isSystemPaused -> withLocalUri.copy(
                     status = DownloadStatus.Queued,
                     pauseReason = null,
+                    updatedAtEpochMs = now,
+                )
+                // Downloads the old mid-transfer cap check stopped are sitting paused
+                // partway through with a size complaint, and nothing in the app would
+                // ever start them again. The cap no longer stops a running transfer, so
+                // they go back in the queue and carry on from their partial file.
+                withLocalUri.pauseReason == DownloadPauseReason.SizeApproval -> withLocalUri.copy(
+                    status = DownloadStatus.Queued,
+                    pauseReason = null,
+                    sizeApprovalRequired = false,
+                    sizeCapOverrideApproved = true,
+                    exceedsSizeCap = true,
+                    errorMessage = null,
+                    attemptCount = 0,
+                    nextRetryAtEpochMs = null,
                     updatedAtEpochMs = now,
                 )
                 // Downloads that finished before placeholders were detected are still

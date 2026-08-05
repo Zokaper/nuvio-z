@@ -258,6 +258,72 @@ class DownloadQueueTest {
     private fun rankedItems(vararg ids: String): List<DownloadItem> =
         ids.mapIndexed { index, id -> item(id = id, queuePosition = index.toLong()) }
 
+    @Test
+    fun aTransferWithNoHandleBehindItIsTakenBack() {
+        // The freeze this exists for: an item recorded as downloading that nothing is
+        // downloading. The planner only ever starts queued items, so without noticing
+        // this the item sat at its last percentage and its slot never came back.
+        val items = listOf(
+            item(id = "a", queuePosition = 0L, status = DownloadStatus.Downloading),
+            item(id = "b", queuePosition = 1L, status = DownloadStatus.Downloading),
+            item(id = "c", queuePosition = 2L),
+        )
+
+        assertEquals(
+            listOf("b"),
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = setOf("a"),
+                nowEpochMs = NOW,
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun aHeldTransferThatHasGoneSilentForTooLongIsTakenBack() {
+        val items = listOf(
+            item(
+                id = "alive",
+                queuePosition = 0L,
+                status = DownloadStatus.Downloading,
+                updatedAtEpochMs = NOW - TRANSFER_WATCHDOG_TIMEOUT_MS + 1L,
+            ),
+            item(
+                id = "silent",
+                queuePosition = 1L,
+                status = DownloadStatus.Downloading,
+                updatedAtEpochMs = NOW - TRANSFER_WATCHDOG_TIMEOUT_MS,
+            ),
+        )
+
+        assertEquals(
+            listOf("silent"),
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = setOf("alive", "silent"),
+                nowEpochMs = NOW,
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun finishedAndWaitingItemsAreNeverMistakenForLostTransfers() {
+        val items = listOf(
+            item(id = "done", status = DownloadStatus.Completed, updatedAtEpochMs = 0L),
+            item(id = "paused", status = DownloadStatus.Paused, updatedAtEpochMs = 0L),
+            item(id = "queued", status = DownloadStatus.Queued, updatedAtEpochMs = 0L),
+            item(id = "failed", status = DownloadStatus.Failed, updatedAtEpochMs = 0L),
+        )
+
+        assertTrue(
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = emptySet(),
+                nowEpochMs = NOW,
+            ).isEmpty(),
+        )
+    }
+
     private fun item(
         id: String,
         episode: Int? = null,
@@ -265,6 +331,7 @@ class DownloadQueueTest {
         status: DownloadStatus = DownloadStatus.Queued,
         nextRetryAtEpochMs: Long? = null,
         createdAtEpochMs: Long = NOW,
+        updatedAtEpochMs: Long = createdAtEpochMs,
     ): DownloadItem = DownloadItem(
         id = id,
         contentType = "series",
@@ -282,7 +349,7 @@ class DownloadQueueTest {
         queuePosition = queuePosition,
         nextRetryAtEpochMs = nextRetryAtEpochMs,
         createdAtEpochMs = createdAtEpochMs,
-        updatedAtEpochMs = createdAtEpochMs,
+        updatedAtEpochMs = updatedAtEpochMs,
     )
 
     private companion object {
