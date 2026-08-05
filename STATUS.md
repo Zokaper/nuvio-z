@@ -6,8 +6,8 @@ Last updated: 2026-08-05
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The desktop harness now also has a credential-safe, provider-backed TorBox season mode that retains original hash/file metadata and can deliberately age prepared links past fifteen minutes. Shared files are byte-identical and local Android/desktop verification is green. |
-| **Next** | Supply the local TorBox fixture and masked API-key prompt to run the new provider-backed season case, then cover a real `NetworkStatusRepository` offline/online transition. No real TorBox credential or source fixture is configured in this environment yet; the new harness compiles and its opt-in skip path passes, but the account run is not claimed. |
+| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has now passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. |
+| **Next** | Cover a real `NetworkStatusRepository` offline/online transition, then extend live-provider coverage only when a newly observed TorBox behavior warrants it. The real account season-window case is complete. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -267,10 +267,20 @@ locales fall back to English until translated.
 
 - Download reliability pass (2026-08-05):
   - Added the opt-in full-provider TorBox season case described above, its local
-    fixture example, and a masked secure runner. The desktop suite now passes **760
-    tests**, zero failures/errors. The live case remains unrun because neither local
-    input is configured; this count verifies compilation and the safe skip path, not
-    a TorBox account.
+    fixture example, and a masked secure runner. The desktop suite passes **760
+    tests**, zero failures/errors.
+  - Ran that case against a real TorBox account with three cached episode files
+    totalling about 228 MB. It prepared the three provider links up front, held them
+    for **960 seconds**, then forced a fresh provider readiness check/re-mint for each
+    queue transfer. The case completed in **1,004.398 seconds**, with zero failures or
+    errors; all three files completed at the exact provider/HTTP totals and the queue
+    stranded nothing. The report contained no skip marker.
+  - The first live invocation exposed a harness-runner fault rather than a download
+    fault: Gradle could reuse the earlier credential-free skip as an up-to-date test
+    result. The secure runner now passes `--rerun-tasks` and disables configuration
+    caching, matching the successful live run. A targeted post-run scan found zero copies
+    of the credential in the temp log, fixture, disposable test profile, XML, or HTML
+    reports; the temporary fixture/log were removed and the isolated runtime reset.
   - Extended the desktop E2E harness from 8 local fault/queue cases to 30. New
     coverage exercises every reorder direction under load, ranged preemption,
     user pause/resume during transfer and retry backoff, cancel and bulk delete,
@@ -290,18 +300,18 @@ locales fall back to English until translated.
     cache for download readiness, rejecting materially contradictory refreshed
     provider sizes, and distinguishing not-ready, retryable, changed, and fatal
     provider outcomes. Direct HTTP downloads remain direct.
-  - `NuvioZDesktop :composeApp:desktopTest` passed in full: **759 tests**, zero
-    failures/errors/skips, including all **30** desktop download harness cases.
+  - `NuvioZDesktop :composeApp:desktopTest` passed in full: **760 tests**, zero
+    failures/errors/skips, including all **30** local desktop download harness cases
+    plus the opt-in real-provider case's safe no-credential path.
   - `nuvio-z :composeApp:testAndroidHostTest`: **554 passed**, zero failures,
     errors, or skips. `:androidApp:assembleFullDebug` also completed successfully.
     The four changed common files are byte-identical between repositories.
   - CI is green on both code commits: `nuvio-z` `a6170825` passed Android host
     tests and the debug APK build in run `31043186788`; `NuvioZDesktop`
     `223a396e` passed desktop tests and the Windows MSI build in run `31043196526`.
-  - Real TorBox coverage remains unrun: `NUVIO_DOWNLOAD_TEST_URLS` is unset. The
-    current raw-URL mode can prove transfer/concurrency behavior but cannot prove
-    re-minting past fifteen minutes without provider/hash origin metadata; extend
-    that opt-in input before claiming the season-window test.
+  - Real TorBox provider/hash coverage is complete as described above. The older
+    `NUVIO_DOWNLOAD_TEST_URLS` raw-URL mode remains useful only for direct transfer
+    and concurrency checks; it is not used as evidence for provider re-minting.
 - Stranded downloads and the harness (2026-08-05). The first download work here with
   runtime evidence rather than an argument. Gradle still cannot configure in the
   sandbox, so Kotlin 2.3.0 was driven directly, describing the source set to the
