@@ -91,6 +91,14 @@ For focused download tests:
   --console=plain --max-workers=4
 ```
 
+In `NuvioZDesktop`, the desktop suite includes the download harness, which drives
+the real queue and the real downloader against a deliberately faulty local media
+host (see "Verifying without Gradle" below):
+
+```powershell
+.\gradlew.bat :composeApp:desktopTest --console=plain
+```
+
 Release builds run R8 and can use substantial CPU. Use a bounded worker count
 unless the user explicitly prefers maximum throughput.
 
@@ -226,8 +234,8 @@ run a targeted secret scan before every commit.
 
 ## Verifying without Gradle
 
-Gradle cannot configure in the sandbox, but two things still can be done, and
-both have caught real errors:
+Gradle cannot configure in the sandbox, but three things still can be done, and
+every one of them has caught a real fault:
 
 1. **Parser check.** Run the Kotlin compiler over each changed file on its own
    and ignore everything caused by the missing classpath. Only
@@ -262,7 +270,31 @@ both have caught real errors:
    neighbours, never the file under test**, and say in `STATUS.md` which were
    stubbed - a test against a copy of the code proves nothing.
 
-Neither substitutes for CI. Compose, multiplatform `expect`/`actual` matching,
+3. **The desktop download harness.** `NuvioZDesktop`'s
+   `composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` runs the real
+   download queue and the real desktop downloader against a local server that
+   misbehaves the way debrid hosts do - drops the body, goes quiet without closing,
+   expires a link, serves a placeholder. **Use it before arguing about a download
+   fault.** `./gradlew :composeApp:desktopTest` runs it, and CI runs it on every push.
+
+   It also runs outside Gradle, which is how it was written here. Describe the source
+   set to the compiler as fragments so the `expect`/`actual` pairs resolve:
+
+   ```bash
+   kotlinc -Xmulti-platform -Xexpect-actual-classes \
+     -Xfragments=common -Xfragments=desktop -Xfragment-refines=desktop:common \
+     -Xfragment-sources=common:<file> ... -Xfragment-sources=desktop:<file> ... \
+     -Xplugin=kotlinc/lib/kotlinx-serialization-compiler-plugin.jar -cp "<jars>" -d out <sources>
+   java -cp "out:<jars>" org.junit.runner.JUnitCore \
+     com.nuvio.app.features.downloads.DesktopDownloadQueueE2ETest
+   ```
+
+   `DownloadsTiming` turns the minute-long stall and watchdog deadlines down to
+   seconds; leave the shipped defaults alone outside a harness. Set
+   `NUVIO_DOWNLOAD_TEST_URLS` to real media URLs to run the same queue against a real
+   host at the real deadlines.
+
+None of them substitutes for CI. Compose, multiplatform `expect`/`actual` matching,
 and anything touching resources are only checked by a real build.
 
 ## Status Handoff
