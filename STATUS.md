@@ -4,9 +4,9 @@ Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/download-freezing-bug-f7feen` in **both** repositories |
-| **Released** | `nuvio-z` `0.3.8` · `NuvioZDesktop` `0.1.21-alpha` |
-| **Unreleased work** | Download freezing fixes on `claude/download-freezing-bug-f7feen` (both repos): desktop stall watchdog, queue reclaim for lost transfers, debrid link re-resolution, and the size cap no longer stopping a running transfer. Verified standalone against Kotlin 2.3.0; **not yet run through CI, and not yet exercised on a device or a real desktop install.** The earlier desktop startup fix is still on `Dev` awaiting a release. |
+| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the download freezing work is merged and being released |
+| **Released** | `nuvio-z` `0.3.9` · `NuvioZDesktop` `0.1.22-alpha` |
+| **Unreleased work** | None outstanding. `0.3.9` / `0.1.22-alpha` carry the download freezing fixes, the 4K preset split, and the desktop startup fix that had been waiting on `Dev`. CI is green on both and the Windows `build-only` job compiled `desktopMain`; **runtime testing on a device and a real desktop install is still pending**, and the debrid re-resolution path has no runtime coverage at all. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -118,6 +118,27 @@ be persisted faithfully, and an episode with no runtime of its own falls back to
 the series runtime before the 45-minute default that was under-capping hour-long
 episodes.
 
+### The 4K preset split (same release)
+
+The `Quality` preset asked for 2160p while capping at **4 GB/hour** - a 4 GB
+ceiling for an hour-long episode, under every real 4K source. `PresetSourceSelector`
+rejected all of them and reported that they exceeded the cap, which is the same
+complaint the freezing work started from arriving by a different route. One cap
+cannot serve both a 2160p web encode and a remux, so it is now two tiers:
+
+| id | name | cap | ~54-minute episode |
+| --- | --- | --- | --- |
+| `quality_4k_low` | 4K Low | 8 GB/h | ~7.2 GB |
+| `quality_4k_high` | 4K High | 15 GB/h | ~13.5 GB |
+
+Presets are **persisted**, so a new built-in would have reached only fresh
+installs - an existing device would have updated and seen no 4K tiers at all.
+`mergeStoredPresets` appends built-ins the stored list has never seen and drops a
+retired one that still matches its old default exactly; an edited copy is a
+decision the user made and survives. Anything added to `BuiltIns` in future needs
+nothing further, but anything *removed* needs an entry in `RetiredBuiltIns` or it
+will linger on existing installs forever.
+
 ## Verification
 
 - Download freezing work (2026-08-05). Gradle still cannot configure here, so
@@ -142,10 +163,18 @@ episodes.
     returning.
   - Every changed Kotlin file in both repositories additionally passed a
     parser-only check.
-  - **Not yet run through CI, and not yet exercised on a device or a real desktop
-    install.** The debrid re-resolution path in particular has no coverage beyond
-    the type checker: it needs a real TorBox account and a batch left running past
-    the fifteen-minute link window.
+  - After the preset split the three download suites were re-run the same way:
+    **56 tests passed**. One pre-existing case,
+    `disallowedAddonsAreRemovedBeforeDiscoveryRequests`, is excluded from the
+    local harness because it reaches into the addon/network stack there is no
+    stand-in for; CI runs it.
+  - `ci.yml` passed on both repositories, and `desktop-release.yml`
+    `mode=build-only`, `target=windows` compiled `desktopMain` - the only job
+    that does, and where the stall watchdog lives.
+  - **Not yet exercised on a device or a real desktop install.** The debrid
+    re-resolution path in particular has no runtime coverage at all: it needs a
+    real TorBox account and a batch left running past the fifteen-minute link
+    window, which a 4K season batch will produce naturally.
 - Earlier comprehensive Android host suite: 477 tests passed.
 - Latest focused source/preset suite:
   - `SourceFactsExtractorTest`: 8 passed.
