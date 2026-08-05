@@ -324,11 +324,59 @@ class DownloadQueueTest {
         )
     }
 
+    @Test
+    fun aSystemPauseIsTakenBackOnlyWhereNothingElseWillResumeIt() {
+        // A system pause promises that the platform which stopped the transfer will
+        // start it again. Android and iOS keep that promise; desktop has neither half
+        // of it, so an item that lands there waits forever unless the queue takes it.
+        val items = listOf(
+            item(id = "system", status = DownloadStatus.Paused, pauseReason = DownloadPauseReason.System),
+            item(id = "user", status = DownloadStatus.Paused, pauseReason = DownloadPauseReason.User),
+        )
+
+        assertTrue(
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = emptySet(),
+                nowEpochMs = NOW,
+                recoverSystemPauses = false,
+            ).isEmpty(),
+        )
+        assertEquals(
+            listOf("system"),
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = emptySet(),
+                nowEpochMs = NOW,
+                recoverSystemPauses = true,
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun aSystemPauseWithATransferBehindItIsLeftAlone() {
+        // Mid-cancel: the transfer is still winding down and still holds its slot, so
+        // taking the item back now would start a second one against the same file.
+        val items = listOf(
+            item(id = "system", status = DownloadStatus.Paused, pauseReason = DownloadPauseReason.System),
+        )
+
+        assertTrue(
+            DownloadQueuePlanner.lostTransfers(
+                items = items,
+                activeIds = setOf("system"),
+                nowEpochMs = NOW,
+                recoverSystemPauses = true,
+            ).isEmpty(),
+        )
+    }
+
     private fun item(
         id: String,
         episode: Int? = null,
         queuePosition: Long = 0L,
         status: DownloadStatus = DownloadStatus.Queued,
+        pauseReason: DownloadPauseReason? = null,
         nextRetryAtEpochMs: Long? = null,
         createdAtEpochMs: Long = NOW,
         updatedAtEpochMs: Long = createdAtEpochMs,
@@ -346,6 +394,7 @@ class DownloadQueueTest {
         sourceUrl = "https://example.test/$id.mp4",
         fileName = "$id.mp4",
         status = status,
+        pauseReason = pauseReason,
         queuePosition = queuePosition,
         nextRetryAtEpochMs = nextRetryAtEpochMs,
         createdAtEpochMs = createdAtEpochMs,

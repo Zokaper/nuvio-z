@@ -55,13 +55,14 @@ object DownloadsRepository {
     private val stateLock = SynchronizedObject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
+    private val activeHandles = mutableMapOf<String, ActiveTransfer>()
     private var hasLoaded = false
     private var networkObserverStarted = false
     private var nextDownloadOrdinal = 0L
     private var lastPersistAtEpochMs = 0L
     private var hasPendingPersist = false
     private var retryWakeJob: Job? = null
+    private var nextTransferGeneration = 0L
 
     fun ensureLoaded() {
         synchronized(stateLock) {
@@ -101,7 +102,7 @@ object DownloadsRepository {
 
     fun clearLocalState() {
         synchronized(stateLock) {
-            activeHandles.values.forEach(DownloadsTaskHandle::cancel)
+            activeHandles.values.forEach(ActiveTransfer::cancel)
             activeHandles.clear()
             retryWakeJob?.cancel()
             retryWakeJob = null
@@ -779,15 +780,22 @@ object DownloadsRepository {
     }
 
     // --- Transfer callbacks -------------------------------------------------------
+    //
+    // Every one of these is fenced on the transfer generation. A transfer that has
+    // been cancelled still reports what happened to it, from its own thread and after
+    // the fact, and by then the download it belongs to may already be running a newer
+    // attempt. Only the attempt that currently holds the slot may speak for it.
 
     private fun onTransferOpened(
         downloadId: String,
+        generation: Long,
         resumedFromBytes: Long,
         totalBytes: Long?,
         etag: String?,
         lastModified: String?,
     ) {
         synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             mutateLocked(downloadId, immediate = true) { current ->
                 if (current.status != DownloadStatus.Downloading) {
                     current
@@ -807,8 +815,14 @@ object DownloadsRepository {
         }
     }
 
-    private fun onTransferProgress(downloadId: String, downloadedBytes: Long, totalBytes: Long?) {
+    private fun onTransferProgress(
+        downloadId: String,
+        generation: Long,
+        downloadedBytes: Long,
+        totalBytes: Long?,
+    ) {
         synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             mutateLocked(downloadId, immediate = false) { item ->
                 if (item.status != DownloadStatus.Downloading) {
                     item
@@ -841,17 +855,24 @@ object DownloadsRepository {
         }
     }
 
-    private fun onTransferCompleted(downloadId: String, localFileUri: String, totalBytes: Long) {
+    private fun onTransferCompleted(
+        downloadId: String,
+        generation: Long,
+        localFileUri: String,
+        totalBytes: Long,
+    ) {
         // A whole, valid, playable file is not proof the download worked. Debrid
         // providers answer with a small placeholder video while they queue the real
         // one, and it passes every check the transfer itself can make.
         val placeholder = synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             val current = _uiState.value.items.firstOrNull { it.id == downloadId }
             current != null && isImplausiblySmallForMedia(totalBytes, current.expectedSizeBytes)
         }
         if (placeholder) {
             onTransferFailed(
                 downloadId = downloadId,
+                generation = generation,
                 reason = DownloadFailureReason.SourceNotReady,
                 message = runBlocking { getString(Res.string.downloads_error_source_not_ready) },
                 downloadedBytes = 0L,
@@ -861,6 +882,7 @@ object DownloadsRepository {
         }
 
         synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
                 current.copy(
@@ -881,8 +903,9 @@ object DownloadsRepository {
         startPendingTransfers()
     }
 
-    private fun onTransferPaused(downloadId: String, downloadedBytes: Long) {
+    private fun onTransferPaused(downloadId: String, generation: Long, downloadedBytes: Long) {
         synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
                 val recordedBytes = downloadedBytes.coerceAtLeast(0L)
@@ -908,6 +931,7 @@ object DownloadsRepository {
 
     private fun onTransferFailed(
         downloadId: String,
+        generation: Long,
         reason: DownloadFailureReason,
         message: String,
         downloadedBytes: Long,
@@ -916,6 +940,7 @@ object DownloadsRepository {
     ) {
         val fallbackMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } }
         synchronized(stateLock) {
+            if (!isCurrentTransferLocked(downloadId, generation)) return
             activeHandles.remove(downloadId)
             if (discardFiles) {
                 _uiState.value.items.firstOrNull { it.id == downloadId }?.let { item ->
@@ -1028,6 +1053,9 @@ object DownloadsRepository {
      * A transfer that is still held but has not reported a byte in far longer than
      * the platform watchdog allows is treated the same way, since a watchdog that
      * never fired is exactly the case nothing else covers.
+     *
+     * On a platform with no system-pause recovery of its own, a system-paused item
+     * with no transfer behind it is in the same position and comes back the same way.
      */
     private fun reclaimLostTransfersLocked() {
         val now = DownloadsClock.nowEpochMs()
@@ -1035,6 +1063,7 @@ object DownloadsRepository {
             items = _uiState.value.items,
             activeIds = activeHandles.keys.toSet(),
             nowEpochMs = now,
+            recoverSystemPauses = !DownloadsPlatformDownloader.recoversSystemPauses,
         )
         if (lost.isEmpty()) return
 
@@ -1061,30 +1090,40 @@ object DownloadsRepository {
      * Starts [item], minting a fresh source URL first when the one it holds is stale.
      *
      * Resolution is a network round trip, so it cannot happen under the lock. The
-     * item is left marked as downloading and its slot is reserved by a placeholder
-     * handle while that happens, which keeps the queue from starting a third
+     * item is left marked as downloading and its slot is reserved by the [ActiveTransfer]
+     * created here while that happens, which keeps the queue from starting a third
      * transfer into the same slot and keeps the reclaim sweep from deciding this
      * item has been lost.
+     *
+     * Every attempt gets its own [ActiveTransfer], and everything that happens after
+     * this point - the resolver answering, the transfer's own callbacks - is fenced
+     * against it. An attempt that has been replaced can no longer speak for the
+     * download.
      */
     private fun startDownloadLocked(item: DownloadItem) {
+        val transfer = ActiveTransfer(++nextTransferGeneration)
+        activeHandles[item.id] = transfer
+
         if (!item.isSourceUrlStale(DownloadsClock.nowEpochMs())) {
-            startResolvedDownloadLocked(item)
+            startResolvedDownloadLocked(item, transfer)
             return
         }
 
-        activeHandles[item.id] = PendingResolveTaskHandle
         scope.launch {
             val refreshed = refreshSourceUrl(item)
             val expiredMessage = getString(Res.string.downloads_error_source_link_expired)
             synchronized(stateLock) {
-                // Cancelled, paused or reordered while the provider was answering.
-                if (activeHandles[item.id] !== PendingResolveTaskHandle) return@synchronized
-                activeHandles.remove(item.id)
+                // Cancelled, paused or reordered while the provider was answering. The
+                // generation is what says so: this download may well have been started
+                // again in the meantime, and that newer attempt owns the slot now.
+                if (activeHandles[item.id] !== transfer) return@synchronized
                 val current = _uiState.value.items.firstOrNull { it.id == item.id }
                 if (current == null || current.status != DownloadStatus.Downloading) {
+                    activeHandles.remove(item.id)
                     return@synchronized
                 }
                 if (refreshed == null) {
+                    activeHandles.remove(item.id)
                     // The provider could not mint a link now. Nothing has been
                     // transferred, so this is an ordinary backed-off retry.
                     val now = DownloadsClock.nowEpochMs()
@@ -1101,12 +1140,26 @@ object DownloadsRepository {
                         )
                     }
                 } else {
-                    startResolvedDownloadLocked(refreshed)
+                    startResolvedDownloadLocked(refreshed, transfer)
                 }
             }
             scheduleQueueWake()
         }
     }
+
+    /**
+     * How a download asks its source for a fresh URL.
+     *
+     * The app always goes to [DirectDebridPlaybackResolver]. It is a variable so the
+     * desktop download harness can stand in for the provider: re-minting is otherwise
+     * only reachable with a real debrid account and a link left to expire in a real
+     * queue, which is why it shipped with no runtime coverage at all.
+     */
+    internal var resolvePlayableStream: suspend (StreamItem, Int?, Int?) -> StreamItem? =
+        { stream, season, episode ->
+            val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(stream, season, episode)
+            (resolved as? DirectDebridPlayableResult.Success)?.stream
+        }
 
     /**
      * Asks the source for a new URL, returning the updated item or null if it could not.
@@ -1116,14 +1169,9 @@ object DownloadsRepository {
      */
     private suspend fun refreshSourceUrl(item: DownloadItem): DownloadItem? {
         val origin = item.sourceOrigin ?: return item
-        val resolved = runCatching {
-            DirectDebridPlaybackResolver.resolveToPlayableStream(
-                origin.stream,
-                origin.season,
-                origin.episode,
-            )
-        }.getOrNull()
-        val stream = (resolved as? DirectDebridPlayableResult.Success)?.stream ?: return null
+        val stream = runCatching {
+            resolvePlayableStream(origin.stream, origin.season, origin.episode)
+        }.getOrNull() ?: return null
         val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
 
         val now = DownloadsClock.nowEpochMs()
@@ -1154,7 +1202,7 @@ object DownloadsRepository {
         synchronized(stateLock) { scheduleRetryWakeLocked() }
     }
 
-    private fun startResolvedDownloadLocked(item: DownloadItem) {
+    private fun startResolvedDownloadLocked(item: DownloadItem, transfer: ActiveTransfer) {
         val request = DownloadPlatformRequest(
             sourceUrl = item.sourceUrl,
             sourceHeaders = item.sourceHeaders,
@@ -1170,11 +1218,14 @@ object DownloadsRepository {
         val handle = runCatching {
             DownloadsPlatformDownloader.start(
                 request = request,
-                listener = RepositoryTransferListener(item.id),
+                listener = RepositoryTransferListener(item.id, transfer.generation),
             )
         }.getOrNull()
 
         if (handle == null) {
+            if (activeHandles[item.id] === transfer) {
+                activeHandles.remove(item.id)
+            }
             val now = DownloadsClock.nowEpochMs()
             val attempt = item.attemptCount + 1
             mutateLocked(item.id, immediate = true) { current ->
@@ -1189,7 +1240,7 @@ object DownloadsRepository {
             }
             return
         }
-        activeHandles[item.id] = handle
+        transfer.attach(handle)
     }
 
     /**
@@ -1216,7 +1267,7 @@ object DownloadsRepository {
         }
         val earliestStallCheck = _uiState.value.items
             .filter { it.status == DownloadStatus.Downloading }
-            .minOfOrNull { it.updatedAtEpochMs + TRANSFER_WATCHDOG_TIMEOUT_MS }
+            .minOfOrNull { it.updatedAtEpochMs + DownloadsTiming.queueWatchdogTimeoutMs }
         val earliest = listOfNotNull(earliestRetry, earliestStallCheck).minOrNull() ?: return
 
         retryWakeJob = scope.launch {
@@ -1226,18 +1277,61 @@ object DownloadsRepository {
     }
 
     /**
-     * Holds a transfer slot while a source URL is being re-minted.
+     * One attempt at transferring one download, and the slot it occupies.
      *
-     * Resolution has to happen outside the lock, and without something standing in
-     * the slot the queue would start another transfer in its place and the reclaim
-     * sweep would decide this download had been lost. There is nothing to cancel.
+     * A download can be stopped and started again in the same breath - the reclaim
+     * sweep and the preemption path both re-queue an item and then start it before
+     * releasing the lock - and stopping a transfer does not stop it instantly. The
+     * cancelled attempt gets its last word in afterwards, from its own thread.
+     *
+     * Callbacks used to be keyed by download id alone, so that last word landed on
+     * whichever attempt was running by then: it took the live handle out of
+     * [activeHandles], leaving a transfer nothing could pause or cancel and a slot
+     * the queue believed was free, and stamped the item paused at the byte count the
+     * *previous* attempt had reached. On desktop nothing ever resumes a system pause,
+     * so that download sat there unfinished while the queue moved on to the next one.
+     *
+     * [generation] is what tells two attempts apart. Everything a transfer reports is
+     * checked against it, and an attempt that has been replaced is ignored.
+     *
+     * The handle arrives after the fact, because the slot has to be held while the
+     * source URL is re-minted (a network round trip that cannot happen under the
+     * lock) and while the platform is starting the transfer. Cancelling before it
+     * arrives is remembered, so a transfer that starts into a slot already given up
+     * is stopped rather than left running.
      */
-    private object PendingResolveTaskHandle : DownloadsTaskHandle {
-        override fun cancel() = Unit
+    private class ActiveTransfer(val generation: Long) : DownloadsTaskHandle {
+        private var handle: DownloadsTaskHandle? = null
+        private var cancelled = false
+
+        fun attach(started: DownloadsTaskHandle) {
+            if (cancelled) {
+                started.cancel()
+            } else {
+                handle = started
+            }
+        }
+
+        override fun cancel() {
+            cancelled = true
+            handle?.cancel()
+            handle = null
+        }
     }
+
+    /**
+     * True when [generation] is still the attempt this download is running.
+     *
+     * Anything a transfer reports after it has been replaced describes a download
+     * that no longer exists, and acting on it is how a live transfer used to lose its
+     * handle to a cancelled one.
+     */
+    private fun isCurrentTransferLocked(downloadId: String, generation: Long): Boolean =
+        activeHandles[downloadId]?.generation == generation
 
     private class RepositoryTransferListener(
         private val downloadId: String,
+        private val generation: Long,
     ) : DownloadTransferListener {
         override fun onOpened(
             resumedFromBytes: Long,
@@ -1246,6 +1340,7 @@ object DownloadsRepository {
             lastModified: String?,
         ) = DownloadsRepository.onTransferOpened(
             downloadId,
+            generation,
             resumedFromBytes,
             totalBytes,
             etag,
@@ -1253,19 +1348,25 @@ object DownloadsRepository {
         )
 
         override fun onProgress(downloadedBytes: Long, totalBytes: Long?) =
-            DownloadsRepository.onTransferProgress(downloadId, downloadedBytes, totalBytes)
+            DownloadsRepository.onTransferProgress(downloadId, generation, downloadedBytes, totalBytes)
 
         override fun onCompleted(localFileUri: String, totalBytes: Long) =
-            DownloadsRepository.onTransferCompleted(downloadId, localFileUri, totalBytes)
+            DownloadsRepository.onTransferCompleted(downloadId, generation, localFileUri, totalBytes)
 
         override fun onPaused(downloadedBytes: Long) =
-            DownloadsRepository.onTransferPaused(downloadId, downloadedBytes)
+            DownloadsRepository.onTransferPaused(downloadId, generation, downloadedBytes)
 
         override fun onFailed(
             reason: DownloadFailureReason,
             message: String,
             downloadedBytes: Long,
-        ) = DownloadsRepository.onTransferFailed(downloadId, reason, message, downloadedBytes)
+        ) = DownloadsRepository.onTransferFailed(
+            downloadId,
+            generation,
+            reason,
+            message,
+            downloadedBytes,
+        )
     }
 
     // --- State plumbing -----------------------------------------------------------

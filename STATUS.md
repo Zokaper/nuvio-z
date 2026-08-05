@@ -4,9 +4,9 @@ Last updated: 2026-08-05
 
 | | |
 | --- | --- |
-| **Active branch** | `main` (`nuvio-z`) · `Dev` (`NuvioZDesktop`); the preset UI work is merged and released |
+| **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | None outstanding. `0.3.10` / `0.1.23-alpha` are **published** and carry the preset UI rework, the tappable Downloads link on the start-download toast, and the mid-range size preference. **Runtime testing is still pending for all of it** - the new picker, the preset editor controls and the toast link have only ever been compiled and unit-tested, and the debrid re-resolution path from the previous release still has no runtime coverage. |
+| **Unreleased work** | The stranded-download fix and the desktop download harness, on the branch above. The harness **reproduces the reported fault and proves the fix**, which is the first time a download queue change has had runtime evidence behind it. Still pending from the last release: the preset picker, the preset editor controls and the toast link have only ever been compiled and unit-tested. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -139,6 +139,76 @@ decision the user made and survives. Anything added to `BuiltIns` in future need
 nothing further, but anything *removed* needs an entry in `RetiredBuiltIns` or it
 will linger on existing installs forever.
 
+## Downloads that stopped moving, and a harness that finds them (2026-08-05, unreleased)
+
+Reported as: a download reports a bare "closed", recovers on its own, but by the time
+it does, the next item in the queue has started and *that* one sits unfinished.
+
+**One fault, and it is a race, not a recovery gap.** A transfer does not stop when it
+is cancelled; the read it is parked in has to end first, and the last thing it reports
+arrives afterwards, from its own thread. Callbacks were keyed by download id alone, so
+that last word was applied to whichever attempt was running by then - and the queue
+routinely cancels and restarts an item in the *same locked section*, which is exactly
+the window it lands in (`reclaimLostTransfersLocked`, and the preemption path behind
+"move to top"). The stale report:
+
+- took the live transfer's handle out of `activeHandles`, leaving a transfer nothing
+  could pause or cancel and a slot the queue believed was free, and
+- stamped the item `Paused/System` at the byte count the *previous* attempt reached.
+
+From the outside that is a row frozen partway through while the queue moves on. The
+download is not dead at that instant - its transfer is still running, invisibly, and
+`onTransferProgress` drops every update because the item no longer reads as
+downloading - so it becomes permanent only when that transfer also stops: a failure
+reported against an item not marked downloading is recorded and never retried.
+Nothing on desktop resumes a system pause either, so it stayed there until a restart.
+
+Fixed by giving every attempt an `ActiveTransfer` carrying a **generation**. The
+listener holds it and each of the five callbacks checks it, so a replaced attempt can
+no longer speak for its download. The same object holds the slot while a source URL is
+re-minted, which retires `PendingResolveTaskHandle` - a shared singleton that could
+not tell two concurrent resolutions apart either.
+
+Belt and braces, since a state nothing can leave is worth closing off for good:
+`DownloadsPlatformDownloader.recoversSystemPauses` says whether the platform that
+system-pauses transfers also brings them back. Android's background job and iOS's
+foreground hook do; desktop has neither half, so there `lostTransfers` now takes a
+system-paused item with no transfer behind it back into the queue. **The generation
+fence alone fixes the reported fault** - verified by running the harness with only
+that half in place - so this is a safety net, not the fix.
+
+### The harness
+
+`composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt`, with
+`FaultyMediaServer.kt` beside it. It drives the real `DownloadsRepository` through the
+real desktop downloader onto real disk; only the media host stands in, because the
+faults that matter are things a *server* does. On a raw socket rather than
+`com.sun.net.httpserver`, since a well-behaved HTTP server will not produce them:
+
+| Fault | What it reproduces |
+| --- | --- |
+| `DropConnection` | the bare "closed" - a body that simply stops |
+| `GoSilent` | headers, some bytes, then an open connection with nothing on it |
+| `Reject(403)` | a signed link that expired before its turn came |
+| `Placeholder` | the "your file is being prepared" video, complete and valid |
+
+`DownloadsTiming` exists so the harness can turn the 60s stall deadline and the 5min
+queue watchdog down to seconds; the shipped defaults are never changed outside one.
+`DownloadsRepository.resolvePlayableStream` is a variable for the same reason - it is
+the only way to reach re-minting without a real debrid account and a link left to
+expire.
+
+Run it with `./gradlew :composeApp:desktopTest`; CI already does, on every push. The
+Gradle task points `user.home`, `APPDATA` and `XDG_CONFIG_HOME` at the build directory
+so a test run cannot touch a developer's own Nuvio Z install, and the test asserts it
+landed somewhere disposable before writing anything.
+
+**Against real sources:** set `NUVIO_DOWNLOAD_TEST_URLS` to a comma-separated list of
+direct media URLs (a real debrid link is the point) and `real sources download end to
+end` runs the same queue against them at the shipped deadlines; it skips when the
+variable is unset. Two links exercise the concurrency limit; a season's worth left
+running past the fifteen-minute window is what exercises re-minting for real.
+
 ## Preset UI and the mid-range size preference (2026-08-05, released in 0.3.10 / 0.1.23-alpha)
 
 Both preset surfaces were plain Material defaults that ignored the app's own
@@ -184,6 +254,35 @@ locales fall back to English until translated.
 
 ## Verification
 
+- Stranded downloads and the harness (2026-08-05). The first download work here with
+  runtime evidence rather than an argument. Gradle still cannot configure in the
+  sandbox, so Kotlin 2.3.0 was driven directly, describing the source set to the
+  compiler as two fragments (`-Xfragments=common,desktop -Xfragment-refines`) so the
+  real `expect`/`actual` pairs compile as they do in the build:
+  - The harness ran against the **shipped** `DownloadsRepository`,
+    `DownloadQueuePlanner`, `DownloadTransfer` and the **shipped**
+    `DownloadsPlatformDownloader.desktop.kt`, over a real socket, writing real files.
+    Stand-ins only for what is outside the download stack: compose-resources,
+    `NetworkStatusRepository`, the debrid resolver, `ProfileRepository`,
+    `AppFeaturePolicy`.
+  - **The fault was reproduced.** With callback fencing disabled the regression case
+    fails every time: episode 1 ends `Paused/System` at 1,687,355 of 6,291,456 bytes
+    and never moves again, while episode 2 - the next in line - completes. That is the
+    report, exactly.
+  - **With the fix, 8/8 pass in ~18s, four runs in a row, no flakes.** Re-run with
+    only the generation fence and not the desktop system-pause recovery: still green,
+    which is how the fence is known to be the load-bearing half.
+  - `DownloadQueueTest` (2 new cases) and `DownloadTransferTest` were re-run against
+    the shipped sources alongside it: **44 tests pass** in total.
+  - The changed Android and iOS actuals passed the parser-only check. Neither is
+    compiled by anything in the sandbox: `recoversSystemPauses` is a new `expect`, and
+    a missing actual is the failure mode AGENTS warns about, so **CI on both
+    repositories is the check that matters here.**
+  - **Not yet run through Gradle, and not yet run against a real debrid link.**
+    `:composeApp:desktopTest` and the Windows MSI job have not been exercised on this
+    branch; the `NUVIO_DOWNLOAD_TEST_URLS` mode has never been run at all, because the
+    sandbox has no route to a media host (and the desktop downloader's `HttpClient`
+    does not read the system proxy).
 - Preset UI and mid-range size preference (2026-08-05). **Nothing has run on a
   device or a real desktop install.** What was done:
   - `ci.yml` is green on both repositories at `ea6d95a` / `461d56d4`: nuvio-z ran

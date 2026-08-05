@@ -39,6 +39,26 @@ internal const val TRANSFER_STALL_TIMEOUT_MS = 60_000L
  */
 internal const val TRANSFER_WATCHDOG_TIMEOUT_MS = 5L * TRANSFER_STALL_TIMEOUT_MS
 
+/**
+ * The two deadlines above, as the running app reads them.
+ *
+ * They exist as variables only so an integration test can shorten them. Everything
+ * they guard - a connection that goes quiet, a transfer the queue lost, the recovery
+ * that follows - takes minutes to reach at the shipped values, which is the reason
+ * those paths were only ever exercised by hand against a real download. A harness
+ * that can drive them in seconds is what makes them testable at all; the shipped
+ * defaults are never changed outside of one.
+ */
+internal object DownloadsTiming {
+    var stallTimeoutMs: Long = TRANSFER_STALL_TIMEOUT_MS
+    var queueWatchdogTimeoutMs: Long = TRANSFER_WATCHDOG_TIMEOUT_MS
+
+    fun reset() {
+        stallTimeoutMs = TRANSFER_STALL_TIMEOUT_MS
+        queueWatchdogTimeoutMs = TRANSFER_WATCHDOG_TIMEOUT_MS
+    }
+}
+
 internal const val MAX_DOWNLOAD_ATTEMPTS = 5
 
 /** Why a transfer stopped, which decides whether resuming it is worth attempting. */

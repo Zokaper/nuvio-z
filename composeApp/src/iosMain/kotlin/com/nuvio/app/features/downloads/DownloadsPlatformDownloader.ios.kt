@@ -75,6 +75,10 @@ fun resumeDownloadsForAppForeground() {
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual object DownloadsPlatformDownloader {
+    // Going to the background pauses the queue and returning to the foreground
+    // resumes it - see pauseDownloadsForAppBackground above and its counterpart.
+    actual val recoversSystemPauses: Boolean = true
+
     actual fun freeStorageBytes(): Long = -1L
 
     actual fun start(
