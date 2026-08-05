@@ -280,6 +280,9 @@ locales fall back to English until translated.
   - `nuvio-z :composeApp:testAndroidHostTest`: **554 passed**, zero failures,
     errors, or skips. `:androidApp:assembleFullDebug` also completed successfully.
     The four changed common files are byte-identical between repositories.
+  - CI is green on both code commits: `nuvio-z` `a6170825` passed Android host
+    tests and the debug APK build in run `31043186788`; `NuvioZDesktop`
+    `223a396e` passed desktop tests and the Windows MSI build in run `31043196526`.
   - Real TorBox coverage remains unrun: `NUVIO_DOWNLOAD_TEST_URLS` is unset. The
     current raw-URL mode can prove transfer/concurrency behavior but cannot prove
     re-minting past fifteen minutes without provider/hash origin metadata; extend
