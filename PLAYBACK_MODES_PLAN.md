@@ -9,6 +9,59 @@ repositories. Everything below assumes the two-repository mirroring rule: edit i
 
 ---
 
+## START HERE (handoff, 2026-08-06)
+
+**State: Phase 1 complete and committed in both repositories. Working trees clean. Nothing
+half-finished — you are starting Phase 2 from a green baseline, not rescuing a broken one.**
+
+| | |
+| --- | --- |
+| Branch | `claude/desktop-download-queue-bug-vowjy8` in **both** repos |
+| Last commit | `nuvio-z` `312d1855` · `NuvioZDesktop` `26b927a2` |
+| Baseline | Android host **576** tests · desktop **782** tests · both zero failures |
+| Not pushed | Commits are local only. `main`/`Dev` do not yet have this work. |
+| Not device-tested | No Android device was attached at any point. |
+
+**Build and test — Gradle works on this machine.** `AGENTS.md`'s "Gradle cannot configure"
+note applies to the agent sandbox, not here. Both variables are required:
+
+```bash
+# nuvio-z — Android host suite (~2 min)
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\Rayoa\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:testAndroidHostTest --console=plain --max-workers=4
+
+# NuvioZDesktop — desktop suite, and the only local thing that compiles desktopMain (~4 min)
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\Rayoa\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:desktopTest --console=plain --max-workers=4
+```
+
+Do **not** write `sdk.dir` into `local.properties` — it is gitignored and holds the Supabase
+configuration. Without `ANDROID_HOME` the build fails at *"SDK location not found"*, which
+looks like a configuration error and is not one.
+
+**Do this first in Phase 2:** wire `entry<StreamRoute>` to `PlaybackModeRouter.decide`. It was
+deferred from Phase 1 on purpose (see below) — it is not an oversight and not a bug.
+
+**Three traps this session actually hit** — all cost a failed build or a caught near-miss:
+
+1. **`App.kt`, `MetaDetailsScreen.kt`, `PlaybackSettingsPage.kt`, `SettingsSearch.kt` and the
+   player/settings files genuinely differ between the two repos. Hand-port them; never `cp`.**
+   A straight copy silently reverts the desktop's `AppFeaturePolicy` gating and its
+   Tracking-page rename. Files under `features/playback/`, `features/downloads/`,
+   `features/debrid/` and `commonTest/` *are* identical and safe to copy.
+2. **Desktop builds its settings-search rows with `buildList`/`add(...)` (one argument), not
+   `listOfNotNull(...)`.** Porting a row across without adapting produced `add(a, b)` and would
+   have broken the desktop build.
+3. **The Nuvio theme extension is `com.nuvio.app.core.ui.nuvio`**, not `core.ui.theme.nuvio`.
+
+**Two mistakes worth not repeating:** every new `expect` needs a `desktopMain` actual (run
+`desktopTest` — it catches this locally, before CI), and new `strings.xml` keys go in **both**
+repos or the other build fails on an unresolved `Res.string`.
+
+---
+
 ## Execution ledger — update this as work lands
 
 Keep this table current in the same commit as the code. It is how a cold agent (or a different
