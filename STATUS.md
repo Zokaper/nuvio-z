@@ -82,10 +82,37 @@ Tracking, and builds the search rows with `buildList`/`add` rather than `listOfN
 these were hand-ported, not copied — a straight `cp` would have broken the desktop build, and
 the first attempt did pass two arguments to a single-argument `add(...)`.
 
+**Phase 1 is complete.** Also landed: `PlaybackModeSelectorScreen`, shown on first launch to
+everyone (existing installs included) and pre-selected to Classic, so dismissing it changes
+nothing. It is gated by **wrapping the `AppGateScreen.Main` branch in `App.kt` rather than
+adding a gate value** — five separate transitions set the gate to `Main`, and wrapping covers
+every one of them with a single decision instead of five edits that could drift.
+
+Two findings from building the UI:
+
+- **The manual-selection escape hatch already existed.** `MetaDetailsScreen` has always had a
+  "Play manually" action in the episode long-press overlay, using the `onPlayManually` callback
+  `App.kt` already threads through — it was just gated on
+  `StreamAutoPlayPolicy.isEffectivelyEnabled(...)`. Showing it when the mode is not `CLASSIC`
+  was a one-condition change, not new plumbing, and since `onPlayManually` sets
+  `manualSelection = true` it already satisfies precedence rule 1.
+- **`entry<StreamRoute>` wiring is deliberately deferred to Phase 2**, and is its first step.
+  In Phase 1 every mode resolves to the source list, so calling `PlaybackModeRouter.decide`
+  there would refactor the riskiest block in the app — ~550 lines carrying reuse-last-link,
+  auto-play evaluation, debrid resolution and P2P consent — for zero behaviour change. The
+  router and its tests are in place and unchanged, waiting for it.
+
+Both suites green after the UI landed: Android **576**, desktop **782**, zero failures, errors
+or skips. `App.kt` and `MetaDetailsScreen.kt` were hand-ported, not copied — both already
+differ between the repositories.
+
 **Still not smoke-tested on a device or a real desktop install.** No Android device was
-attached (`adb devices` empty), so the persistence path — change the mode, force-stop, relaunch,
-confirm it held, and confirm it survives a profile switch and sync — has not been exercised
-against real storage. That is the first thing to do when a device is available.
+attached (`adb devices` empty), so nothing has run against real storage. When one is available:
+launch and confirm the selector appears once and only once; pick Classic and confirm nothing
+about playback changes; change the mode in Settings, force-stop, relaunch, confirm it held;
+switch profiles and confirm the mode is per-profile. The selector shows for existing installs
+too, so **that first-launch behaviour is the thing most worth watching** on a device that
+already has data.
 
 Findings from the exploration that shaped it, worth recording independently of the plan:
 

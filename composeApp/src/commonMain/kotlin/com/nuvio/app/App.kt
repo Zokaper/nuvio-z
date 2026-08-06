@@ -225,6 +225,7 @@ import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
+import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktListTab
@@ -522,6 +523,14 @@ fun App(
             )
         }
 
+        // Gates the first-launch playback-mode selector. Read here rather than as a new
+        // AppGateScreen value because five separate transitions set the gate to Main;
+        // wrapping the Main branch covers every one of them with a single decision.
+        val gatePlayerSettings by remember {
+            PlayerSettingsRepository.ensureLoaded()
+            PlayerSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+
         var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
         var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
         var isNewProfile by remember { mutableStateOf(false) }
@@ -727,7 +736,18 @@ fun App(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                AppGateScreen.Main.name -> {
+                AppGateScreen.Main.name -> if (!gatePlayerSettings.playbackModeSelectorSeen) {
+                    PlaybackModeSelectorScreen(
+                        initialMode = gatePlayerSettings.playbackMode,
+                        onConfirm = { mode ->
+                            // Both, always: choosing Classic is a no-op for the mode, so
+                            // the seen flag is the only thing that dismisses the selector.
+                            PlayerSettingsRepository.setPlaybackMode(mode)
+                            PlayerSettingsRepository.markPlaybackModeSelectorSeen()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
                     MainAppContent(
                         initialTab = initialTab,
                         initialRoute = initialRoute,

@@ -16,14 +16,14 @@ model) picks the work up mid-flight without re-deriving anything.
 
 | Phase | State | Notes |
 | --- | --- | --- |
-| 1 — foundations + Classic parity | **in progress** | Started 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Logic + persistence done and verified: Android host suite 576 tests and desktop suite 782 tests, both zero failures, and `desktopMain` compiles. UI layer not started. Behaviour is unchanged — the mode is stored, defaults to `CLASSIC`, and nothing reads it yet. |
-| 2 — picker + Streamlined | not started | |
+| 1 — foundations + Classic parity | **complete** | Landed 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Verified: Android host suite 576 tests, desktop suite 782 tests, both zero failures, and `desktopMain` compiles. Playback behaviour is still unchanged by design — the mode is stored and selectable, but `entry<StreamRoute>` does not read it yet. Not smoke-tested on a device. |
+| 2 — picker + Streamlined | **next** | First step is wiring `entry<StreamRoute>` to `PlaybackModeRouter.decide` - deferred from Phase 1 on purpose, see below. |
 | 3 — Instant + network quality | not started | |
 | 4 — auto source-swap | not started | opt-in, default off |
 
-**Per-file progress (Phase 1).** The logic and persistence layer is complete and verified; the
-UI layer is not started. Nothing user-visible has changed yet — the mode is persisted and
-defaults to `CLASSIC`, and nothing reads it.
+**Per-file progress (Phase 1) — all complete.** The mode is persisted, selectable on first
+launch and in Settings, and defaults to `CLASSIC`. Playback routing does not consult it yet;
+that is Phase 2's first step.
 
 | File | State |
 | --- | --- |
@@ -38,9 +38,10 @@ defaults to `CLASSIC`, and nothing reads it.
 | `features/settings/PlaybackSettingsPage.kt` (row + `PlaybackModeDialog`) | **done, both repos** |
 | `features/settings/SettingsSearch.kt` | **done, both repos** |
 | `values/strings.xml` (9 keys, both repos) | **done** |
-| `features/playback/PlaybackModeSelectorScreen.kt` | todo |
-| `App.kt` gate + `entry<StreamRoute>` wiring | todo |
-| `features/details/MetaDetailsScreen.kt` long-press / right-click | todo (hand-port, files differ) |
+| `features/playback/PlaybackModeSelectorScreen.kt` | **done, mirrored** |
+| `App.kt` first-launch gate | **done, both repos** (hand-ported) |
+| `features/details/MetaDetailsScreen.kt` manual-play override | **done, both repos** (hand-ported) |
+| `entry<StreamRoute>` router wiring | **deferred to Phase 2 — see below** |
 
 The mode is now **reachable and changeable** in Settings → Playback → Player → Playback mode,
 and persists. Streamlined and Instant are selectable but carry a
@@ -49,25 +50,36 @@ selecting a mode that silently behaves like Classic would read as a bug. **Remov
 in the phase that implements each mode** — `PlaybackMode.isImplemented()` in
 `PlaybackSettingsPage.kt` is the single place to update.
 
-### Next actions, in order
+### Two things discovered while building this — read before Phase 2
 
-1. **`PlaybackModeSelectorScreen.kt`** — three cards, pre-selected to Classic, using the
-   recommendation copy in the Context section verbatim. Reuse `PlaybackModeDialog` in
-   `PlaybackSettingsPage.kt` as the card pattern — it already renders all three modes with
-   titles, descriptions and the not-ready caption. On confirm call
-   `PlayerSettingsRepository.setPlaybackMode(mode)` **and** `markPlaybackModeSelectorSeen()` —
-   both, because choosing Classic is a no-op for the mode and must still dismiss the selector.
-2. **`App.kt` `AppGateScreen`** — new gate value shown when
-   `playerSettingsUiState.playbackModeSelectorSeen == false`, after profile selection. Copy the
-   `ProfileSelection` gate as the pattern.
-3. **`MetaDetailsScreen.kt`** — long-press (mobile) / right-click (desktop) on an episode row
-   and the Play button routes with `manualSelection = true`. ⚠ hand-port, the two copies differ.
-4. **`entry<StreamRoute>`** — call `PlaybackModeRouter.decide` and honour `ShowSourceList` /
-   `PlayLocalDownload` / `ReuseLastLink`. `ShowQualitySheet` and `AutoPick` fall through to
-   `ShowSourceList` until Phase 2 lands, so Phase 1 stays behaviour-neutral.
-5. **Grey out the Stream auto play section** in `StreamsSettingsPage.kt` with a caption when
-   the mode is not `CLASSIC` — do this only once step 4 makes the mode actually change routing,
-   or the caption will lie.
+**The manual-selection escape hatch already existed.** `MetaDetailsScreen` has had a
+"Play manually" action in the episode long-press overlay all along
+(`PosterZoomOverlayAction`, using the existing `onPlayManually` callback that `App.kt` already
+threads through). It was only gated on `StreamAutoPlayPolicy.isEffectivelyEnabled(...)`. So the
+escape hatch was a one-condition change — also show it when the mode is not `CLASSIC` — rather
+than new long-press plumbing. `onPlayManually` sets `manualSelection = true`, which is
+precedence rule 1, so this is already correct for Streamlined and Instant.
+
+**`entry<StreamRoute>` wiring is deliberately deferred to Phase 2.** In Phase 1 every mode
+resolves to the source list, so calling `PlaybackModeRouter.decide` there would be a pure
+refactor of the single riskiest block in the app (~550 lines carrying reuse-last-link, auto-play
+evaluation, debrid resolution and P2P consent) in exchange for zero behaviour. Do it as the
+*first* step of Phase 2, when `ShowQualitySheet` has something to show — the router and its
+tests are already in place and unchanged.
+
+### Next actions, in order (Phase 2)
+
+1. **Wire `entry<StreamRoute>` to `PlaybackModeRouter.decide`**, honouring every decision. This
+   is the step that makes the mode mean something.
+2. **`StreamFetchSupport.kt:85`** — stop discarding plugin metadata (see the Context section).
+   Highest-value change in the whole plan for auto-pick quality.
+3. `releaseGroup` + `seeders` on `SourceFacts`, then `SourceRanking` extraction with
+   `PresetDownloadsTest` green, then `PlaybackSourceSelector`, the quality sheet, sticky pins.
+4. **Drop the "not ready" caption per mode as each lands** —
+   `PlaybackMode.isImplemented()` in `PlaybackSettingsPage.kt`, and the
+   `mode != PlaybackMode.CLASSIC` check in `PlaybackModeSelectorScreen.kt`. Two places.
+5. **Grey out the Stream auto play section** in `StreamsSettingsPage.kt` when the mode is not
+   `CLASSIC` — only after step 1, or the caption will lie.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every
