@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.streams.StreamItem
@@ -41,6 +42,8 @@ private sealed interface RefreshedDownloadSource {
     data class Failed(val resolution: DownloadSourceResolution) : RefreshedDownloadSource
 }
 
+private data class TransferSample(val bytes: Long, val atEpochMs: Long)
+
 object DownloadsRepository {
     const val MAX_CONCURRENT_TRANSFERS = 2
 
@@ -71,6 +74,7 @@ object DownloadsRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val activeHandles = mutableMapOf<String, ActiveTransfer>()
+    private val transferSamples = mutableMapOf<String, TransferSample>()
     private var hasLoaded = false
     private var networkObserverStarted = false
     private var nextDownloadOrdinal = 0L
@@ -811,6 +815,10 @@ object DownloadsRepository {
     ) {
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            transferSamples[downloadId] = TransferSample(
+                bytes = resumedFromBytes.coerceAtLeast(0L),
+                atEpochMs = DownloadsClock.nowEpochMs(),
+            )
             mutateLocked(downloadId, immediate = true) { current ->
                 if (current.status != DownloadStatus.Downloading) {
                     current
@@ -838,6 +846,22 @@ object DownloadsRepository {
     ) {
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            val now = DownloadsClock.nowEpochMs()
+            val previous = transferSamples[downloadId]
+            val currentItem = _uiState.value.items.firstOrNull { it.id == downloadId }
+            if (previous != null && downloadedBytes > previous.bytes) {
+                NetworkQualityRepository.recordTransfer(
+                    bytes = downloadedBytes - previous.bytes,
+                    elapsedMs = now - previous.atEpochMs,
+                    providerId = currentItem?.sourceOrigin?.stream?.clientResolve?.service
+                        ?: currentItem?.providerName,
+                )
+                if (now - previous.atEpochMs >= 750L) {
+                    transferSamples[downloadId] = TransferSample(downloadedBytes, now)
+                }
+            } else if (previous == null) {
+                transferSamples[downloadId] = TransferSample(downloadedBytes, now)
+            }
             mutateLocked(downloadId, immediate = false) { item ->
                 if (item.status != DownloadStatus.Downloading) {
                     item
@@ -898,6 +922,7 @@ object DownloadsRepository {
 
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            transferSamples.remove(downloadId)
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
                 current.copy(
@@ -921,6 +946,7 @@ object DownloadsRepository {
     private fun onTransferPaused(downloadId: String, generation: Long, downloadedBytes: Long) {
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            transferSamples.remove(downloadId)
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
                 val recordedBytes = downloadedBytes.coerceAtLeast(0L)
@@ -956,6 +982,7 @@ object DownloadsRepository {
         val fallbackMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } }
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            transferSamples.remove(downloadId)
             activeHandles.remove(downloadId)
             if (discardFiles) {
                 _uiState.value.items.firstOrNull { it.id == downloadId }?.let { item ->

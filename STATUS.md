@@ -6,8 +6,8 @@ Last updated: 2026-08-06
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phases 1–2 complete and locally verified; Streamlined is implemented. See `PLAYBACK_MODES_PLAN.md`.** |
-| **Next** | Playback modes Phase 3: `NetworkQualityPlatform` with all three actuals, the passive/cached estimator, metered confirmation, then the Instant failure chain. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
+| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phases 1–3 complete and locally verified; Instant now uses network quality, metered consent, and bounded source failover. See `PLAYBACK_MODES_PLAN.md`.** |
+| **Next** | Playback modes Phase 4 auto source-swap: verify libmpv buffer reporting before adding the opt-in trigger. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -140,6 +140,27 @@ already has data.
 - **Not verified:** no Android device was attached and no installed Windows build was launched,
   so the quality sheet, manual sticky prompt, persistence across app restart/profile switching,
   plugin-heavy/debrid pick quality, and HLS/DASH playback remain runtime smoke-test work.
+
+### Phase 3 implementation complete — Instant and network quality (2026-08-06)
+
+- Added `NetworkQualityPlatform` using Android `ConnectivityManager`/`NetworkCapabilities`, iOS
+  `NWPathMonitor`, and an unmetered Ethernet desktop actual. The per-network estimator caches
+  passive throughput separately for each debrid/provider and resolves configured quality tiers.
+- Real download progress now feeds bounded throughput samples into the estimator. Unknown
+  networks remain conservative at 720p until a real measurement is available.
+- `PlaybackRouteDecision.AutoPick` selects the estimated tier, re-checks provider-specific
+  throughput, and seeds the existing `StreamsRepository` auto-play candidates in ranked order.
+- Instant retries at most three sources. A player error or failure to start within eight seconds
+  advances the existing chain; exhaustion returns to the Classic source list with a reason.
+- Metered connections ask once per network per app session. The capped choice uses the
+  profile-scoped, synced `playback_metered_cap_height` (720p default); full quality applies only
+  to that session. Instant's not-ready caption has been removed.
+- Added five common estimator tests. Desktop main and test source sets compile successfully.
+- Verification: Android host **590 tests across 86 classes** and desktop **796 tests across 116
+  classes**, both zero failures, errors, or skips. Desktop main compiled.
+- **Not verified:** iOS cannot compile on this Windows host, and no device or installed Windows
+  smoke test has been performed. Metered-session behavior and eight-second runtime failover
+  therefore still need real-device/installed-app coverage.
 
 Findings from the exploration that shaped it, worth recording independently of the plan:
 

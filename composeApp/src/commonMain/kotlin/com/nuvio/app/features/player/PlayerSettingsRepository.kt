@@ -64,6 +64,7 @@ data class PlayerSettingsUiState(
     val playbackMode: PlaybackMode = PlaybackMode.Default,
     val playbackAllowTorrentAutopick: Boolean = false,
     val playbackQualityTiers: List<PlaybackQualityTier> = PlaybackQualityTier.BuiltIns,
+    val playbackMeteredCapHeight: Int = 720,
     /** False until the first-launch mode selector has been answered or dismissed. */
     val playbackModeSelectorSeen: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
@@ -136,6 +137,7 @@ object PlayerSettingsRepository {
     private var playbackMode = PlaybackMode.Default
     private var playbackAllowTorrentAutopick = false
     private var playbackQualityTiers = PlaybackQualityTier.BuiltIns
+    private var playbackMeteredCapHeight = 720
     private var playbackModeSelectorSeen = false
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
@@ -211,6 +213,7 @@ object PlayerSettingsRepository {
         playbackMode = PlaybackMode.Default
         playbackAllowTorrentAutopick = false
         playbackQualityTiers = PlaybackQualityTier.BuiltIns
+        playbackMeteredCapHeight = 720
         playbackModeSelectorSeen = false
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
@@ -320,6 +323,8 @@ object PlayerSettingsRepository {
             }.getOrNull()
         }.orEmpty()
         playbackQualityTiers = PlaybackQualityTier.mergeStoredTiers(storedPlaybackQualityTiers)
+        playbackMeteredCapHeight = PlayerSettingsStorage.loadPlaybackMeteredCapHeight()
+            ?.takeIf { it in 360..2160 } ?: 720
         if (playbackQualityTiers != storedPlaybackQualityTiers) {
             PlayerSettingsStorage.savePlaybackQualityTiers(
                 json.encodeToString(ListSerializer(PlaybackQualityTier.serializer()), playbackQualityTiers),
@@ -647,6 +652,15 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.savePlaybackQualityTiers(
             json.encodeToString(ListSerializer(PlaybackQualityTier.serializer()), normalized),
         )
+    }
+
+    fun setPlaybackMeteredCapHeight(height: Int) {
+        ensureLoaded()
+        val normalized = height.coerceIn(360, 2160)
+        if (playbackMeteredCapHeight == normalized) return
+        playbackMeteredCapHeight = normalized
+        publish()
+        PlayerSettingsStorage.savePlaybackMeteredCapHeight(normalized)
     }
 
     /**
@@ -1013,6 +1027,7 @@ object PlayerSettingsRepository {
             playbackMode = playbackMode,
             playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
             playbackQualityTiers = playbackQualityTiers,
+            playbackMeteredCapHeight = playbackMeteredCapHeight,
             playbackModeSelectorSeen = playbackModeSelectorSeen,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,

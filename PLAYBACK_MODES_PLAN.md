@@ -11,13 +11,12 @@ repositories. Everything below assumes the two-repository mirroring rule: edit i
 
 ## START HERE (handoff, 2026-08-06)
 
-**State: Phase 2 complete and verified in both repositories. The implementation is the current
-local work on the active branch; Phase 3 is next.**
+**State: Phase 3 complete and verified in both repositories. Phase 4 is next.**
 
 | | |
 | --- | --- |
 | Branch | `claude/desktop-download-queue-bug-vowjy8` in **both** repos |
-| Current verification | Android host **585** tests · desktop **791** tests · both zero failures |
+| Current verification | Android host **590** tests · desktop **796** tests · both zero failures |
 | Not pushed | Commits are local only. `main`/`Dev` do not yet have this work. |
 | Not device-tested | No Android device was attached at any point. |
 
@@ -40,8 +39,8 @@ Do **not** write `sdk.dir` into `local.properties` — it is gitignored and hold
 configuration. Without `ANDROID_HOME` the build fails at *"SDK location not found"*, which
 looks like a configuration error and is not one.
 
-**Do this first in Phase 3:** add `NetworkQualityPlatform` and all three actuals, then build the
-network estimator before routing `AutoPick`. Instant remains labelled not ready until that lands.
+Phase 3 now includes `NetworkQualityPlatform` on all three targets, provider-aware passive
+estimates, metered consent, and Instant's bounded failure chain.
 
 **Three traps this session actually hit** — all cost a failed build or a caught near-miss:
 
@@ -70,8 +69,8 @@ model) picks the work up mid-flight without re-deriving anything.
 | --- | --- | --- |
 | 1 — foundations + Classic parity | **complete** | Landed 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Verified: Android host suite 576 tests, desktop suite 782 tests, both zero failures, and `desktopMain` compiles. Playback behaviour is still unchanged by design — the mode is stored and selectable, but `entry<StreamRoute>` does not read it yet. Not smoke-tested on a device. |
 | 2 — picker + Streamlined | **complete** | Router wired; plugin metadata preserved; `releaseGroup`/`seeders` extracted; shared `SourceRanking`; playback selector, quality sheet, sticky pins, persisted tiers and torrent gate landed. Android 585 and desktop 791 tests pass. Not smoke-tested. |
-| 3 — Instant + network quality | **next** | Start with `NetworkQualityPlatform` plus Android/iOS/desktop actuals and the estimator. |
-| 4 — auto source-swap | not started | opt-in, default off |
+| 3 — Instant + network quality | **complete** | All platform actuals, estimator/cache, metered consent, tier routing, and three-attempt failure chain landed. Android 590 and desktop 796 tests pass. Not smoke-tested. |
+| 4 — auto source-swap | **next** | opt-in, default off; verify libmpv buffered-position semantics first |
 
 **Per-file progress (Phase 1) — all complete.** The mode is persisted, selectable on first
 launch and in Settings, and defaults to `CLASSIC`. Playback routing does not consult it yet;
@@ -110,6 +109,19 @@ that is Phase 2's first step.
 | settings implementation captions/search/Classic-only auto-play state | **done, both repos** (hand-ported) |
 | Phase 2 common tests | **done — 9 new tests; both full suites pass** |
 
+**Per-file progress (Phase 3) — implementation complete.**
+
+| File | State |
+| --- | --- |
+| `core/network/NetworkQualityPlatform.kt` + Android/iOS/desktop actuals | **done** |
+| `core/network/NetworkQualityRepository.kt` | **done, mirrored** |
+| passive download-throughput samples and per-provider cache | **done, mirrored** |
+| `App.kt` Instant tier selection + metered consent | **done, both repos** (hand-ported) |
+| `StreamsRepository` ranked three-source failure chain | **done, both repos** (hand-ported) |
+| player startup/error retry callbacks (8-second budget) | **done, both repos** (hand-ported) |
+| profile-scoped `playback_metered_cap_height` + sync | **done, all three actuals** |
+| `NetworkQualityRepositoryTest` | **done — 5 cases; both full suites pass** |
+
 The mode is now **reachable and changeable** in Settings → Playback → Player → Playback mode,
 and persists. Streamlined and Instant are selectable but carry a
 `playback_mode_not_ready` caption ("Not ready yet - plays like Classic for now"), because
@@ -134,13 +146,16 @@ evaluation, debrid resolution and P2P consent) in exchange for zero behaviour. D
 *first* step of Phase 2, when `ShowQualitySheet` has something to show — the router and its
 tests are already in place and unchanged.
 
-### Next actions, in order (Phase 3)
+### Next actions, in order (Phase 4)
 
-1. Add `NetworkQualityPlatform` with Android, iOS, and desktop actuals.
-2. Implement the passive/cached network estimator and per-network/per-provider cache.
-3. Wire `PlaybackRouteDecision.AutoPick` to the estimated tier and ordered failure chain.
-4. Add the metered confirmation sheet and session-scoped answer.
-5. Drop Instant's "not ready" caption only after all four steps work, then run both full suites.
+1. Verify `bufferedPositionMs` is meaningful and monotonic on libmpv for iOS, Windows, and the
+   Android fallback engine; use loading-transition counts instead where it is not.
+2. Add the opt-in, default-off Instant auto source-swap setting and all storage actuals/sync.
+3. Implement the sustained-starvation detector: under ~4 seconds for at least three snapshots,
+   tolerant of desktop's 500 ms polling, one downshift maximum per session.
+4. Restrict swaps to non-manifest sources in the same release group, never swap up, and reuse the
+   existing position-preserving `switchToSource` path.
+5. Run both full suites and document device/installed-app gaps explicitly.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every
@@ -559,6 +574,11 @@ Phase 2 was verified on the maintainer's Windows machine with forced task reruns
 **585 tests across 85 classes**, and desktop **791 tests across 115 classes**, both with zero
 failures, errors, or skips. The desktop run compiled `desktopMain` and ran the complete download
 harness. No Android device or installed desktop app was available for runtime smoke testing.
+
+Phase 3 was verified with the prescribed full commands: Android host **590 tests across 86
+classes**, and desktop **796 tests across 116 classes**, both with zero failures, errors, or
+skips. Desktop main compiled. iOS cannot compile on this Windows host; no Android device or
+installed Windows app was available for runtime smoke testing.
 
 - **Unit tests, `commonTest`** (these run in CI and are the main safety net, since all the new
   decision logic is deliberately pure):

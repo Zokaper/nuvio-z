@@ -204,6 +204,14 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError) {
+        val onFatalPlaybackError = args.onFatalPlaybackError ?: return@LaunchedEffect
+        delay(8_000L)
+        if (!playbackSnapshot.isPlaying && playbackSnapshot.positionMs <= 0L) {
+            onFatalPlaybackError()
+        }
+    }
+
     LaunchedEffect(
         playerController,
         playbackSnapshot.isLoading,

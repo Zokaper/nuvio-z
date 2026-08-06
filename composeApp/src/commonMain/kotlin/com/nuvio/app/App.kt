@@ -239,6 +239,8 @@ import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.StickySourcePin
+import com.nuvio.app.core.network.MeteredPlaybackChoice
+import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktListTab
@@ -2393,6 +2395,10 @@ private fun MainAppContent(
                     var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var meteredChoice by remember(route.launchId) {
+                        mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
+                    }
                     val shouldResolveEpisodeVideoId =
                         launch.parentMetaId != null &&
                             launch.seasonNumber != null &&
@@ -2767,10 +2773,13 @@ private fun MainAppContent(
                     ) {
                         if (!reuseHandled) return@LaunchedEffect
                         if (launch.manualSelection) return@LaunchedEffect
-                        if (playerSettings.playbackMode != PlaybackMode.CLASSIC) return@LaunchedEffect
-                        if (playbackRouteDecision !is PlaybackRouteDecision.ShowSourceList) return@LaunchedEffect
+                        val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
+                            playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
+                        val isInstantAutoPlay = playerSettings.playbackMode == PlaybackMode.INSTANT &&
+                            playbackRouteDecision is PlaybackRouteDecision.AutoPick
+                        if (!isClassicAutoPlay && !isInstantAutoPlay) return@LaunchedEffect
                         if (reuseNavigated) return@LaunchedEffect
-                        if (autoPlayHandled) return@LaunchedEffect
+                        if (autoPlayHandled && !isInstantAutoPlay) return@LaunchedEffect
                         if (streamsUiState.requestToken != expectedStreamsRequestToken) return@LaunchedEffect
                         val selectedStream = streamsUiState.autoPlayStream ?: return@LaunchedEffect
                         val stream = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
@@ -2871,18 +2880,19 @@ private fun MainAppContent(
                             parentMetaType = launch.parentMetaType ?: launch.type,
                             initialPositionMs = launch.resumePositionMs ?: 0L,
                             initialProgressFraction = launch.resumeProgressFraction,
+                            instantAutoPick = isInstantAutoPlay,
                         )
                         if (playerSettings.externalPlayerEnabled) {
                             openExternalPlayback(playerLaunch)
-                            StreamsRepository.consumeAutoPlay()
+                            if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                             StreamsRepository.cancelLoading()
                             return@LaunchedEffect
                         }
-                        StreamsRepository.consumeAutoPlay()
+                        if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-                            popUpTo<StreamRoute> { inclusive = true }
+                            if (!isInstantAutoPlay) popUpTo<StreamRoute> { inclusive = true }
                         }
                     }
 
@@ -3095,6 +3105,68 @@ private fun MainAppContent(
                         }
                     }
 
+                    LaunchedEffect(
+                        playbackRouteDecision,
+                        playbackCandidates,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                        meteredChoice,
+                        instantSelectionHandled,
+                    ) {
+                        if (playbackRouteDecision !is PlaybackRouteDecision.AutoPick) return@LaunchedEffect
+                        if (instantSelectionHandled || reuseNavigated) return@LaunchedEffect
+                        if (streamsUiState.requestToken != expectedStreamsRequestToken || streamsUiState.isAnyLoading) {
+                            return@LaunchedEffect
+                        }
+                        val network = NetworkQualityRepository.current()
+                        if (network.isMetered && meteredChoice == null) return@LaunchedEffect
+
+                        val estimatedTier = NetworkQualityRepository.resolveTier(playerSettings.playbackQualityTiers)
+                        val tier = if (network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED) {
+                            playerSettings.playbackQualityTiers
+                                .filter { it.targetResolution.height <= playerSettings.playbackMeteredCapHeight }
+                                .maxByOrNull { it.megabitsPerSecond }
+                                ?: playerSettings.playbackQualityTiers.minByOrNull { it.megabitsPerSecond }
+                                ?: estimatedTier
+                        } else {
+                            estimatedTier
+                        }
+                        fun selectFor(resolvedTier: com.nuvio.app.features.playback.PlaybackQualityTier) =
+                            PlaybackSourceSelector.select(
+                                candidates = playbackCandidates,
+                                tier = resolvedTier,
+                                context = PlaybackSelectionContext(
+                                    isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
+                                    allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
+                                ),
+                            )
+
+                        val first = selectFor(tier)
+                        val selection = if (first is PlaybackSelectionResult.Play && !network.isMetered) {
+                            val provider = SourceFactsExtractor.extract(first.stream).debridService
+                                ?: SourceFactsExtractor.extract(first.stream).providerId
+                            val providerTier = NetworkQualityRepository.resolveTier(
+                                playerSettings.playbackQualityTiers,
+                                provider,
+                            )
+                            if (providerTier != tier) selectFor(providerTier) else first
+                        } else {
+                            first
+                        }
+                        instantSelectionHandled = true
+                        when (selection) {
+                            is PlaybackSelectionResult.Play -> StreamsRepository.seedAutoPlayCandidates(
+                                listOf(selection.stream) + selection.fallbacks,
+                            )
+                            is PlaybackSelectionResult.AskUncached,
+                            is PlaybackSelectionResult.NeedsManual,
+                            -> {
+                                manualSourceListRequested = true
+                                NuvioToastController.show(noAutomaticSourceMessage)
+                            }
+                        }
+                    }
+
                     // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
                     LaunchedEffect(reuseNavigated) {
                         if (reuseNavigated) {
@@ -3186,6 +3258,32 @@ private fun MainAppContent(
                                             manualSourceListRequested = true
                                         },
                                     ) { Text(stringResource(Res.string.playback_quality_manual)) }
+                                },
+                            )
+                        }
+                        if (
+                            playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+                            NetworkQualityRepository.current().isMetered &&
+                            meteredChoice == null
+                        ) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
+                                    meteredChoice = MeteredPlaybackChoice.CAPPED
+                                },
+                                title = { Text(stringResource(Res.string.playback_metered_title)) },
+                                text = { Text(stringResource(Res.string.playback_metered_description)) },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
+                                        meteredChoice = MeteredPlaybackChoice.CAPPED
+                                    }) { Text(stringResource(Res.string.playback_metered_capped)) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = {
+                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.FULL_QUALITY)
+                                        meteredChoice = MeteredPlaybackChoice.FULL_QUALITY
+                                    }) { Text(stringResource(Res.string.playback_metered_full)) }
                                 },
                             )
                         }
@@ -3311,6 +3409,8 @@ private fun MainAppContent(
                         Box(modifier = Modifier.fillMaxSize())
                         return@entry
                     }
+                    val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
+                    var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     LaunchedEffect(launch.videoId) {
                         launch.videoId?.let { ResumePromptRepository.markPlayerEntered(it) }
                     }
@@ -3396,6 +3496,23 @@ private fun MainAppContent(
                         onOpenExternalUrl = { url ->
                             openExternalStreamUrl(url)
                         },
+                        onFatalPlaybackError = if (launch.instantAutoPick) {
+                            {
+                                if (!instantFailureHandled) {
+                                    instantFailureHandled = true
+                                    val failed = StreamsRepository.uiState.value.autoPlayStream
+                                    val hasNext = failed != null && StreamsRepository.skipAutoPlayStream(failed)
+                                    if (!hasNext) {
+                                        StreamsRepository.consumeAutoPlay()
+                                        NuvioToastController.show(noAutomaticSourceText)
+                                    }
+                                    onBack()
+                                }
+                            }
+                        } else null,
+                        onPlaybackStarted = if (launch.instantAutoPick) {
+                            { StreamsRepository.consumeAutoPlay() }
+                        } else null,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

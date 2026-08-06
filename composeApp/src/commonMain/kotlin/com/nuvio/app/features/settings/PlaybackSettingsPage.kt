@@ -1742,7 +1742,7 @@ private fun playbackModeDescription(mode: PlaybackMode): String = when (mode) {
  * and its persistence can be exercised, but the row says so plainly - silently
  * behaving like Classic would read as a bug.
  */
-private fun PlaybackMode.isImplemented(): Boolean = this != PlaybackMode.INSTANT
+private fun PlaybackMode.isImplemented(): Boolean = true
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

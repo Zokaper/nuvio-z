@@ -1110,6 +1110,10 @@
     <string name="playback_sticky_description">Nuvio will prefer this release for the remaining episodes when it is available.</string>
     <string name="playback_sticky_use">Use for season</string>
     <string name="playback_sticky_once">Just this episode</string>
+    <string name="playback_metered_title">You’re on mobile data</string>
+    <string name="playback_metered_description">Play in HD using the data-saving cap, or use full quality for this network session.</string>
+    <string name="playback_metered_capped">Play in HD</string>
+    <string name="playback_metered_full">Play in full quality</string>
     <string name="settings_playback_auto_play_classic_only">Classic controls this section. Streamlined uses the quality picker, and Instant chooses automatically.</string>
     <string name="settings_playback_allow_torrent_autopick">Allow torrent sources in auto-pick</string>
     <string name="settings_playback_allow_torrent_autopick_description">Uses P2P only when a healthy seeder count is known. Off by default.</string>

@@ -764,6 +764,19 @@ object StreamsRepository {
         }
     }
 
+    /** Seeds Instant's ranked failure chain into the existing auto-play mechanism. */
+    fun seedAutoPlayCandidates(candidates: List<StreamItem>) {
+        val limited = candidates.distinct().take(3)
+        _uiState.update { current ->
+            current.copy(
+                autoPlayStream = limited.firstOrNull(),
+                autoPlayCandidates = limited,
+                isDirectAutoPlayFlow = limited.isNotEmpty(),
+                showDirectAutoPlayOverlay = limited.isNotEmpty(),
+            )
+        }
+    }
+
     fun skipAutoPlayStream(stream: StreamItem): Boolean {
         var hasNext = false
         _uiState.update { current ->
