@@ -77,6 +77,15 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - Persist every download state transition and preserve resumable `.part` files.
 - Resolve at most three episodes concurrently and transfer at most two files
   concurrently.
+- The download picker and the playback picker share one ranking comparator
+  (`features/downloads/SourceRanking.kt`) but **keep separate protocol gates**.
+  HLS, DASH, magnets and torrent files stay manual for downloads; playback may
+  auto-pick HLS/DASH, and torrent sources only behind the user's
+  `playback_allow_torrent_autopick` toggle.
+- Source selection inside `entry<StreamRoute>` follows one precedence order:
+  `manualSelection` > completed local download > sticky pin > reuse-last-link >
+  playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
+  scoring the same candidates must never both run.
 
 ## Important Areas
 
@@ -96,6 +105,10 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/details/MetaDetailsScreen.kt`
 - Stream/AIO models:
   `features/streams/StreamModels.kt`, `StreamParser.kt`
+- Playback modes (Classic/Streamlined/Instant) - see `PLAYBACK_MODES_PLAN.md`:
+  `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
+  `PlaybackModeRepository.kt`, `PlaybackSourceSelector.kt`,
+  `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`
 
 ## Build and Verification
 

@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-05
+Last updated: 2026-08-06
 
 | | |
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | The stranded-download fix plus an expanded desktop harness and four provider-safety fixes are on the branch above. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has now passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. |
-| **Next** | Cover a real `NetworkStatusRepository` offline/online transition, then extend live-provider coverage only when a newly observed TorBox behavior warrants it. The real account season-window case is complete. |
+| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phase 1 in progress, see `PLAYBACK_MODES_PLAN.md`.** |
+| **Next** | Finish playback-modes Phase 1 (mode enum, storage + all three actuals, first-launch selector, per-play manual override). The ledger at the top of `PLAYBACK_MODES_PLAN.md` tracks per-file state and is the resume point. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -16,6 +16,55 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Playback modes: Classic / Streamlined / Instant (2026-08-06, in progress)
+
+**The plan is `PLAYBACK_MODES_PLAN.md` in this repository, and it is self-contained** — a cold
+agent can execute it without this conversation. It covers both repositories. Its execution
+ledger is the resume point; keep it current in the same commit as the code.
+
+Three global playback modes, chosen once on a new first-launch selector, with a per-play escape
+hatch (long-press on mobile, right-click on desktop) that always reaches the Classic source list:
+
+- **Classic** — today's flow, unchanged, and the fallback when auto-pick misjudges a user's
+  plugins or debrid.
+- **Streamlined** — pick a quality tier, the app picks the source. Optional sticky pin
+  (release group → bingeGroup → addon/provider/resolution) makes the rest of a season one tap.
+- **Instant** — quality and source chosen from the network connection; metered connections ask
+  before playing.
+
+Findings from the exploration that shaped it, worth recording independently of the plan:
+
+- **Plugin sources are structurally invisible to the auto picker.**
+  `AutomaticDownloadDiscovery` builds `DownloadSourceCandidate` from installed addons only, so
+  nothing a JS scraper returns is ever a candidate.
+- **Plugin metadata is destroyed on ingest.** `PluginRuntimeResult` carries `quality`, `size`,
+  `seeders`, `peers`, `provider`, `language`; `StreamFetchSupport.kt:85`
+  `PluginRuntimeResult.toStreamItem()` joins some into a `" • "` display string and **drops
+  `seeders` and `peers` entirely**. `SourceFactsExtractor` then regexes that prose back apart.
+  For a plugin-heavy profile the picker is guessing.
+- **No seeder signal exists anywhere** in `StreamItem` or `SourceFacts` — the strongest
+  predictor of whether a torrent source will actually start playing.
+- **Two selection mechanisms already run inside `entry<StreamRoute>`.** Verified ordering:
+  `manualSelection` gates the local-download check (`App.kt:1584`); the reuse-last-link effect
+  (`App.kt:2525`) is gated on `!launch.manualSelection` and fires **before** auto-play
+  evaluation. A third picker added without a precedence rule would break Streamlined outright
+  (reuse-last-link would pre-empt the quality sheet). The plan's precedence table is normative
+  and `streamAutoPlayMode` becomes Classic-only.
+- **Reuse, do not rebuild:** `StreamsRepository.skipAutoPlayStream` (`StreamsRepository.kt:767`)
+  is already the "candidate failed, advance to the next" mechanism the Instant failure chain
+  needs; `BingeGroupCacheRepository` is already per-content release memory and should be widened
+  to carry a `StickySourcePin` rather than gaining a parallel store.
+- **Mid-playback source switching already exists and preserves position.**
+  `PlayerScreenRuntimeSourceActions.kt:229` `switchToSource` captures `playbackSnapshot.positionMs`
+  and restores it via `activeInitialPositionMs`. Automatic downshift (Phase 4) is a trigger on
+  top of shipped, hand-testable plumbing — not adaptive bitrate, and not phase 1.
+- **Nothing detects network type, metered status, or throughput.** `NetworkStatusRepository` is
+  a reachability prober only. Instant needs a new `expect`/`actual` across Android, iOS and
+  desktop.
+- **There is no onboarding anywhere in the app**, so the mode selector is new construction on
+  the `AppGateScreen` state machine. It needs `playback_mode_selector_seen` persisted separately
+  from `playback_mode`, or "chose Classic" is indistinguishable from "never chose".
 
 ## Current Snapshot
 
