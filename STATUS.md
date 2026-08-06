@@ -68,8 +68,24 @@ rather than assumed**, and the download harness stayed green. Since `desktopTest
 `desktopMain` on the real machine, `desktop-release.yml mode=build-only` is now only *CI's*
 way of catching a missing actual, not the only way.
 
-**Still not run on a device or a real desktop install.** There is no UI yet, so there is
-nothing to smoke-test; that arrives with the selector screen.
+**The mode is now reachable in the UI.** Settings → Playback → Player → **Playback mode** opens
+a `PlaybackModeDialog` listing all three modes with descriptions, and the row is in the settings
+search index. Streamlined and Instant are selectable but carry a "Not ready yet - plays like
+Classic for now" caption, since nothing consumes them until Phases 2 and 3; `isImplemented()`
+in `PlaybackSettingsPage.kt` is the one place to update as each lands. Nine new string keys in
+both `values/strings.xml`; the other 24 locales fall back to English as usual.
+
+Both suites re-run green after the UI landed: Android **576** and desktop **782**, zero
+failures, errors or skips. Note the settings files genuinely differ between the repositories
+(desktop gates the external player behind `AppFeaturePolicy`, renamed the Trakt page to
+Tracking, and builds the search rows with `buildList`/`add` rather than `listOfNotNull`), so
+these were hand-ported, not copied — a straight `cp` would have broken the desktop build, and
+the first attempt did pass two arguments to a single-argument `add(...)`.
+
+**Still not smoke-tested on a device or a real desktop install.** No Android device was
+attached (`adb devices` empty), so the persistence path — change the mode, force-stop, relaunch,
+confirm it held, and confirm it survives a profile switch and sync — has not been exercised
+against real storage. That is the first thing to do when a device is available.
 
 Findings from the exploration that shaped it, worth recording independently of the plan:
 

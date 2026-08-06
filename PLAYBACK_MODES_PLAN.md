@@ -35,30 +35,39 @@ defaults to `CLASSIC`, and nothing reads it.
 | `features/player/PlayerSettingsRepository.kt` | **done, both repos** |
 | `commonTest/.../PlaybackModeRouterTest.kt` | **done — 11 tests pass** |
 | `commonTest/.../PlaybackQualityTierTest.kt` | **done — 11 tests pass** |
+| `features/settings/PlaybackSettingsPage.kt` (row + `PlaybackModeDialog`) | **done, both repos** |
+| `features/settings/SettingsSearch.kt` | **done, both repos** |
+| `values/strings.xml` (9 keys, both repos) | **done** |
 | `features/playback/PlaybackModeSelectorScreen.kt` | todo |
-| `features/settings/PlaybackSettingsPage.kt` + `SettingsSearch.kt` | todo |
 | `App.kt` gate + `entry<StreamRoute>` wiring | todo |
 | `features/details/MetaDetailsScreen.kt` long-press / right-click | todo (hand-port, files differ) |
-| `values/strings.xml` (both repos) | todo |
+
+The mode is now **reachable and changeable** in Settings → Playback → Player → Playback mode,
+and persists. Streamlined and Instant are selectable but carry a
+`playback_mode_not_ready` caption ("Not ready yet - plays like Classic for now"), because
+selecting a mode that silently behaves like Classic would read as a bug. **Remove that caption
+in the phase that implements each mode** — `PlaybackMode.isImplemented()` in
+`PlaybackSettingsPage.kt` is the single place to update.
 
 ### Next actions, in order
 
 1. **`PlaybackModeSelectorScreen.kt`** — three cards, pre-selected to Classic, using the
-   recommendation copy in the Context section verbatim. On confirm call
-   `PlayerSettingsRepository.setPlaybackMode(mode)` **and**
-   `markPlaybackModeSelectorSeen()` — both, because choosing Classic is a no-op for the mode
-   and must still dismiss the selector.
+   recommendation copy in the Context section verbatim. Reuse `PlaybackModeDialog` in
+   `PlaybackSettingsPage.kt` as the card pattern — it already renders all three modes with
+   titles, descriptions and the not-ready caption. On confirm call
+   `PlayerSettingsRepository.setPlaybackMode(mode)` **and** `markPlaybackModeSelectorSeen()` —
+   both, because choosing Classic is a no-op for the mode and must still dismiss the selector.
 2. **`App.kt` `AppGateScreen`** — new gate value shown when
    `playerSettingsUiState.playbackModeSelectorSeen == false`, after profile selection. Copy the
    `ProfileSelection` gate as the pattern.
-3. **`PlaybackSettingsPage.kt`** — a "Playback mode" row in the Player section using
-   `NuvioDropdownChip`; register it in `SettingsSearch.kt`. Grey out the Stream auto play
-   section with a caption when the mode is not `CLASSIC` (per the precedence rule).
-4. **`MetaDetailsScreen.kt`** — long-press (mobile) / right-click (desktop) on an episode row
+3. **`MetaDetailsScreen.kt`** — long-press (mobile) / right-click (desktop) on an episode row
    and the Play button routes with `manualSelection = true`. ⚠ hand-port, the two copies differ.
-5. **`entry<StreamRoute>`** — call `PlaybackModeRouter.decide` and honour `ShowSourceList` /
-   `PlayLocalDownload` / `ReuseLastLink`. `ShowQualitySheet` and `AutoPick` can fall through to
+4. **`entry<StreamRoute>`** — call `PlaybackModeRouter.decide` and honour `ShowSourceList` /
+   `PlayLocalDownload` / `ReuseLastLink`. `ShowQualitySheet` and `AutoPick` fall through to
    `ShowSourceList` until Phase 2 lands, so Phase 1 stays behaviour-neutral.
+5. **Grey out the Stream auto play section** in `StreamsSettingsPage.kt` with a caption when
+   the mode is not `CLASSIC` — do this only once step 4 makes the mode actually change routing,
+   or the caption will lie.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every

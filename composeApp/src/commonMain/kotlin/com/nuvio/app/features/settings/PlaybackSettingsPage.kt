@@ -66,6 +66,7 @@ import com.nuvio.app.features.player.IosHardwareDecoderMode
 import com.nuvio.app.features.player.localizedLabel
 import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
+import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
@@ -310,6 +311,7 @@ private fun PlaybackSettingsSection(
     var showSubtitleTextColorDialog by remember { mutableStateOf(false) }
     var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
     var showSubtitleOutlineColorDialog by remember { mutableStateOf(false) }
+    var showPlaybackModeDialog by remember { mutableStateOf(false) }
     var showExternalPlayerDialog by remember { mutableStateOf(false) }
     var showExternalPlayerAppDialog by remember { mutableStateOf(false) }
     var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
@@ -363,6 +365,13 @@ private fun PlaybackSettingsSection(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_mode),
+                    description = playbackModeTitle(autoPlayPlayerSettings.playbackMode),
+                    isTablet = isTablet,
+                    onClick = { showPlaybackModeDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_show_loading_overlay),
                     description = stringResource(Res.string.settings_playback_show_loading_overlay_description),
@@ -1425,6 +1434,18 @@ private fun PlaybackSettingsSection(
         )
     }
 
+    if (showPlaybackModeDialog) {
+        PlaybackModeDialog(
+            selected = autoPlayPlayerSettings.playbackMode,
+            onModeSelected = { mode ->
+                PlayerSettingsRepository.setPlaybackMode(mode)
+                PlayerSettingsRepository.markPlaybackModeSelectorSeen()
+                showPlaybackModeDialog = false
+            },
+            onDismiss = { showPlaybackModeDialog = false },
+        )
+    }
+
     if (showExternalPlayerDialog) {
         PlayerPreferenceDialog(
             isExternal = autoPlayPlayerSettings.externalPlayerEnabled,
@@ -1674,7 +1695,109 @@ private data class LanguageSelectionOption(
 )
 
 @Composable
+private fun playbackModeTitle(mode: PlaybackMode): String = when (mode) {
+    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic)
+    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined)
+    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant)
+}
+
+@Composable
+private fun playbackModeDescription(mode: PlaybackMode): String = when (mode) {
+    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_description)
+    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_description)
+    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_description)
+}
+
+/**
+ * Whether this mode actually changes anything yet.
+ *
+ * Streamlined lands in Phase 2 and Instant in Phase 3; until then both fall through
+ * to the Classic source list. They are selectable rather than hidden so the setting
+ * and its persistence can be exercised, but the row says so plainly - silently
+ * behaving like Classic would read as a bug.
+ */
+private fun PlaybackMode.isImplemented(): Boolean = this == PlaybackMode.CLASSIC
+
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaybackModeDialog(
+    selected: PlaybackMode,
+    onModeSelected: (PlaybackMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.settings_playback_mode),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(Res.string.settings_playback_mode_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PlaybackMode.entries.forEach { mode ->
+                        val isSelected = mode == selected
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onModeSelected(mode) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            },
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = playbackModeTitle(mode),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                                Text(
+                                    text = playbackModeDescription(mode),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (!mode.isImplemented()) {
+                                    Text(
+                                        text = stringResource(Res.string.playback_mode_not_ready),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun PlayerPreferenceDialog(
     isExternal: Boolean,
     onPreferenceSelected: (Boolean) -> Unit,

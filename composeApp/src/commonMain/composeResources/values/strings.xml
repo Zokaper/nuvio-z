@@ -1083,6 +1083,15 @@
     <string name="settings_playback_libmpv_yuv420p">libmpv YUV420P Compatibility</string>
     <string name="settings_playback_libmpv_yuv420p_description">Force YUV420P output for devices with renderer or color issues.</string>
     <string name="settings_playback_section_next_episode">NEXT EPISODE</string>
+    <string name="settings_playback_mode">Playback mode</string>
+    <string name="settings_playback_mode_description">How much of the source choice Nuvio makes for you.</string>
+    <string name="playback_mode_classic">Classic</string>
+    <string name="playback_mode_classic_description">You pick the source from the full list. Best if the automatic chooser does not do well with your plugins or debrid.</string>
+    <string name="playback_mode_streamlined">Streamlined</string>
+    <string name="playback_mode_streamlined_description">You pick the quality, Nuvio picks the source.</string>
+    <string name="playback_mode_instant">Instant</string>
+    <string name="playback_mode_instant_description">Nuvio picks the quality and the source from your connection.</string>
+    <string name="playback_mode_not_ready">Not ready yet - plays like Classic for now.</string>
     <string name="settings_playback_section_player">PLAYER</string>
     <string name="settings_playback_section_skip_segments">SKIP SEGMENTS</string>
     <string name="settings_playback_section_stream_auto_play">STREAM AUTO-PLAY</string>
