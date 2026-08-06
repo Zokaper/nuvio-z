@@ -96,6 +96,10 @@ internal expect object PlayerSettingsStorage {
     fun saveIntroSubmitEnabled(enabled: Boolean)
     fun loadPlaybackMode(): String?
     fun savePlaybackMode(mode: String)
+    fun loadPlaybackAllowTorrentAutopick(): Boolean?
+    fun savePlaybackAllowTorrentAutopick(enabled: Boolean)
+    fun loadPlaybackQualityTiers(): String?
+    fun savePlaybackQualityTiers(payload: String)
 
     /**
      * Whether the mode selector has been shown, tracked separately from the mode itself.

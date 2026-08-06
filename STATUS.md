@@ -6,8 +6,8 @@ Last updated: 2026-08-06
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phase 1 in progress, see `PLAYBACK_MODES_PLAN.md`.** |
-| **Next** | Finish playback-modes Phase 1 (mode enum, storage + all three actuals, first-launch selector, per-play manual override). The ledger at the top of `PLAYBACK_MODES_PLAN.md` tracks per-file state and is the resume point. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
+| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phases 1–2 complete and locally verified; Streamlined is implemented. See `PLAYBACK_MODES_PLAN.md`.** |
+| **Next** | Playback modes Phase 3: `NetworkQualityPlatform` with all three actuals, the passive/cached estimator, metered confirmation, then the Instant failure chain. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -113,6 +113,33 @@ about playback changes; change the mode in Settings, force-stop, relaunch, confi
 switch profiles and confirm the mode is per-profile. The selector shows for existing installs
 too, so **that first-launch behaviour is the thing most worth watching** on a device that
 already has data.
+
+### Phase 2 complete — picker and Streamlined (2026-08-06)
+
+- `entry<StreamRoute>` now delegates precedence to `PlaybackModeRouter`: explicit manual play,
+  completed local download (consumed before the route), matching season pin, valid cached link,
+  then playback mode. Non-Classic modes cannot run the legacy `streamAutoPlayMode` picker.
+- Plugin scraper metadata now survives ingestion as `PluginStreamMeta`; quality, byte size,
+  seeders/peers, provider, and language no longer depend on parsing the display subtitle.
+  `SourceFacts` adds plugin-structured provenance, seeders, and release-group extraction.
+- Download and playback selection share `SourceRanking` while retaining separate protocol gates.
+  Streamlined allows HTTP(S), HLS/DASH, safe debrid candidates, and opt-in torrents only with a
+  known healthy seeder count; download protocol policy is unchanged.
+- Streamlined shows configured quality tiers plus Best available, handles uncached debrid as an
+  explicit choice, and can pin a manually chosen release for the rest of a season through the
+  widened `BingeGroupCacheRepository`. The pin outranks cached-link reuse and falls through when
+  no candidate matches.
+- Quality tiers and the torrent auto-pick toggle are profile-scoped and included in settings sync;
+  Android, iOS, and desktop actuals are present. The old Stream auto-play section is disabled with
+  an explanation outside Classic, and only Instant retains the not-ready caption.
+- Verification: forced full Android host run **585 tests across 85 classes**, and forced full
+  desktop run **791 tests across 115 classes**; both had zero failures, errors, or skips. The
+  desktop run compiled `desktopMain` and ran the complete download harness. Nine new cases cover
+  plugin metadata, release groups, shared ranking, selector gates/caps/fallbacks, and sticky
+  release-group precedence. Focused suites also passed on both targets before the full runs.
+- **Not verified:** no Android device was attached and no installed Windows build was launched,
+  so the quality sheet, manual sticky prompt, persistence across app restart/profile switching,
+  plugin-heavy/debrid pick quality, and HLS/DASH playback remain runtime smoke-test work.
 
 Findings from the exploration that shaped it, worth recording independently of the plan:
 

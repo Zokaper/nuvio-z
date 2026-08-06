@@ -181,6 +181,32 @@ class SourceFactsExtractorTest {
         assertEquals(AioStreamsSupport.ENHANCED_METADATA_USER_AGENT, AioStreamsSupport.requestHeaders(override)["User-Agent"])
     }
 
+    @Test
+    fun releaseGroupPrefersStructuredValueThenUsesHyphenatedFilenameSuffix() {
+        val structured = SourceFactsExtractor.extract(
+            stream(
+                behaviorHints = StreamBehaviorHints(filename = "Show.S01E01.1080p-WRONG.mkv"),
+                clientResolve = StreamClientResolve(
+                    stream = StreamClientResolveStream(
+                        raw = StreamClientResolveRaw(
+                            parsed = StreamClientResolveParsed(group = "RIGHT"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val filename = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "Show.S01E02.1080p-GROUP.mkv")),
+        )
+        val titleWords = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "THE LAST OF US S01E03.mkv")),
+        )
+
+        assertEquals("RIGHT", structured.releaseGroup)
+        assertEquals("GROUP", filename.releaseGroup)
+        assertNull(titleWords.releaseGroup)
+    }
+
     private fun stream(
         name: String? = null,
         description: String? = null,

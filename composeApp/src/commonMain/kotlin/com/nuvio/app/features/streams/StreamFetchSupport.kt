@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.streams_plugin_repository_fallback
 import org.jetbrains.compose.resources.getString
+import kotlin.math.roundToLong
 
 internal data class InstalledStreamAddonTarget(
     val addonName: String,
@@ -116,6 +117,17 @@ internal fun PluginRuntimeResult.toStreamItem(
         addonName = addonName,
         addonId = addonId,
         streamType = normalizeStreamType(type),
+        pluginMeta = PluginStreamMeta(
+            quality = quality.normalizedPluginValue(),
+            sizeBytes = parsePluginSizeBytes(size),
+            seeders = seeders?.takeIf { it >= 0 },
+            peers = peers?.takeIf { it >= 0 },
+            provider = provider.normalizedPluginValue(),
+            language = language.normalizedPluginValue(),
+        ).takeIf { meta ->
+            meta.quality != null || meta.sizeBytes != null || meta.seeders != null ||
+                meta.peers != null || meta.provider != null || meta.language != null
+        },
         behaviorHints = if (requestHeaders.isEmpty()) {
             StreamBehaviorHints()
         } else {
@@ -133,6 +145,27 @@ internal fun PluginRuntimeResult.toStreamItem(
             )
         } ?: emptyList()
     )
+}
+
+private fun String?.normalizedPluginValue(): String? =
+    this?.trim()?.takeIf(String::isNotEmpty)
+
+private fun parsePluginSizeBytes(value: String?): Long? {
+    val match = Regex("""(\d+(?:\.\d+)?)\s*(tb|tib|gb|gib|mb|mib|kb|kib|bytes?|b)\b""", RegexOption.IGNORE_CASE)
+        .find(value.orEmpty()) ?: return null
+    val amount = match.groupValues[1].toDoubleOrNull() ?: return null
+    val multiplier = when (match.groupValues[2].lowercase()) {
+        "tb" -> 1_000_000_000_000.0
+        "tib" -> 1_099_511_627_776.0
+        "gb" -> 1_000_000_000.0
+        "gib" -> 1_073_741_824.0
+        "mb" -> 1_000_000.0
+        "mib" -> 1_048_576.0
+        "kb" -> 1_000.0
+        "kib" -> 1_024.0
+        else -> 1.0
+    }
+    return (amount * multiplier).roundToLong().takeIf { it > 0L }
 }
 
 internal fun List<StreamItem>.sortedForGroupedDisplay(): List<StreamItem> =

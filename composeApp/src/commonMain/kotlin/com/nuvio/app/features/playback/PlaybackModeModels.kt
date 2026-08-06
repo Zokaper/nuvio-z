@@ -199,21 +199,27 @@ data class StickySourcePin(
         if (!releaseGroup.isNullOrBlank()) {
             if (!releaseGroup.equals(candidateReleaseGroup?.trim(), ignoreCase = true)) return null
             score += 8
-        }
-        if (!bingeGroup.isNullOrBlank()) {
+        } else if (!bingeGroup.isNullOrBlank()) {
             if (!bingeGroup.equals(candidateBingeGroup?.trim(), ignoreCase = true)) return null
             score += 4
         }
-        if (!addonId.isNullOrBlank() && addonId.equals(candidateAddonId?.trim(), ignoreCase = true)) {
-            score += 2
+        if (!addonId.isNullOrBlank()) {
+            if (releaseGroup.isNullOrBlank() && bingeGroup.isNullOrBlank() &&
+                !addonId.equals(candidateAddonId?.trim(), ignoreCase = true)
+            ) return null
+            if (addonId.equals(candidateAddonId?.trim(), ignoreCase = true)) score += 2
         }
-        if (!providerId.isNullOrBlank() &&
-            providerId.equals(candidateProviderId?.trim(), ignoreCase = true)
-        ) {
-            score += 2
+        if (!providerId.isNullOrBlank()) {
+            if (releaseGroup.isNullOrBlank() && bingeGroup.isNullOrBlank() &&
+                !providerId.equals(candidateProviderId?.trim(), ignoreCase = true)
+            ) return null
+            if (providerId.equals(candidateProviderId?.trim(), ignoreCase = true)) score += 2
         }
-        if (resolutionHeight != null && resolutionHeight == candidateResolutionHeight) {
-            score += 1
+        if (resolutionHeight != null) {
+            if (releaseGroup.isNullOrBlank() && bingeGroup.isNullOrBlank() &&
+                resolutionHeight != candidateResolutionHeight
+            ) return null
+            if (resolutionHeight == candidateResolutionHeight) score += 1
         }
         return score.takeIf { it > 0 }
     }

@@ -13,6 +13,7 @@ enum class SourceConfidence { HIGH, MEDIUM, LOW }
 enum class SourceFactProvenance {
     NUVIO_STRUCTURED,
     AIO_STRUCTURED,
+    PLUGIN_STRUCTURED,
     STREMIO_BEHAVIOR_HINT,
     FILENAME,
     DISPLAY_FALLBACK,
@@ -41,6 +42,8 @@ data class SourceFacts(
     val dynamicRange: Set<String> = emptySet(),
     val languages: Set<String> = emptySet(),
     val releaseQuality: String? = null,
+    val releaseGroup: String? = null,
+    val seeders: Int? = null,
     val providerId: String? = null,
     val providerName: String? = null,
     val filename: String? = null,
@@ -101,6 +104,7 @@ object SourceFactsExtractor {
         val nuvio = stream.clientResolve?.stream?.raw
         val nuvioParsed = nuvio?.parsed
         val aio = stream.streamData
+        val plugin = stream.pluginMeta
         val aioDetected = aioContext?.let(AioStreamsSupport::isAioStreams) == true || aio != null
         val filenames = listOfNotNull(
             nuvio?.filename,
@@ -111,12 +115,16 @@ object SourceFactsExtractor {
         ).map(String::trim).filter(String::isNotEmpty)
 
         val filenameFacts = filenames.firstOrNull()?.let(::parseTextFacts)
+        val pluginFacts = parseTextFacts(
+            listOfNotNull(plugin?.quality, plugin?.language).joinToString(" "),
+        ) ?: TextFacts()
         val fallbackFacts = parseTextFacts(
             listOfNotNull(stream.name, stream.description).joinToString(" "),
         ) ?: TextFacts()
         val structuredResolutions = listOfNotNull(
             parseResolution(nuvioParsed?.resolution),
             parseResolution(aio?.parsedFile?.resolution),
+            pluginFacts.resolution,
         )
         val resolution = structuredResolutions.firstOrNull()
             ?: filenameFacts?.resolution
@@ -126,6 +134,7 @@ object SourceFactsExtractor {
             nuvio?.size?.positive(),
             aio?.size?.positive(),
             aio?.parsedFile?.size?.positive(),
+            plugin?.sizeBytes?.positive(),
             stream.behaviorHints.videoSize?.positive(),
             verifiedSizeBytes?.positive(),
         ).distinct().sorted()
@@ -140,6 +149,7 @@ object SourceFactsExtractor {
         val provenance = buildSet {
             if (nuvioParsed != null || nuvio?.size != null) add(SourceFactProvenance.NUVIO_STRUCTURED)
             if (aio?.parsedFile != null || aio?.size != null || aio?.addon != null) add(SourceFactProvenance.AIO_STRUCTURED)
+            if (plugin != null) add(SourceFactProvenance.PLUGIN_STRUCTURED)
             if (stream.behaviorHints.videoSize != null || stream.behaviorHints.filename != null) {
                 add(SourceFactProvenance.STREMIO_BEHAVIOR_HINT)
             }
@@ -155,25 +165,33 @@ object SourceFactsExtractor {
             hardReportedSizes = hardReportedSizes,
             codec = normalizeCodec(nuvioParsed?.codec)
                 ?: normalizeCodec(aio?.parsedFile?.codec)
+                ?: pluginFacts.codec
                 ?: filenameFacts?.codec
                 ?: fallbackFacts.codec,
             dynamicRange = normalizeDynamicRange(nuvioParsed?.hdr.orEmpty())
                 .ifEmpty { normalizeDynamicRange(aio?.parsedFile?.hdr.orEmpty()) }
+                .ifEmpty { pluginFacts.dynamicRange }
                 .ifEmpty { filenameFacts?.dynamicRange.orEmpty() }
                 .ifEmpty { fallbackFacts.dynamicRange },
             languages = normalizeLanguages(nuvioParsed)
                 .ifEmpty { normalizeLanguages(aio?.parsedFile) }
+                .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
                 .ifEmpty { filenameFacts?.languages.orEmpty() }
                 .ifEmpty { fallbackFacts.languages },
             releaseQuality = nuvioParsed?.quality?.normalized()
                 ?: aio?.parsedFile?.quality?.normalized()
+                ?: pluginFacts.releaseQuality
                 ?: filenameFacts?.releaseQuality
                 ?: fallbackFacts.releaseQuality,
-            providerId = aio?.addon?.id?.normalized(),
-            providerName = aio?.addon?.name?.normalized(),
+            releaseGroup = nuvioParsed?.group?.normalized()
+                ?: filenames.firstNotNullOfOrNull(::parseFilenameReleaseGroup),
+            seeders = plugin?.seeders?.takeIf { it >= 0 },
+            providerId = aio?.addon?.id?.normalized() ?: plugin?.provider?.normalized(),
+            providerName = aio?.addon?.name?.normalized() ?: plugin?.provider?.normalized(),
             filename = filenames.firstOrNull(),
             confidence = when {
-                verifiedSizeBytes?.positive() != null || nuvioParsed != null || aio?.parsedFile != null ->
+                verifiedSizeBytes?.positive() != null || nuvioParsed != null ||
+                    aio?.parsedFile != null || plugin != null ->
                     SourceConfidence.HIGH
                 stream.behaviorHints.filename != null || stream.behaviorHints.videoSize != null ->
                     SourceConfidence.MEDIUM
@@ -259,6 +277,23 @@ object SourceFactsExtractor {
         }
     }
 
+    /** Release groups use a hyphen-delimited filename suffix; plain all-caps title words do not. */
+    private fun parseFilenameReleaseGroup(filename: String): String? {
+        val stem = filename.substringBeforeLast('.', filename).trim()
+        val candidate = Regex("""-([A-Za-z0-9][A-Za-z0-9._]{1,31})$""")
+            .find(stem)
+            ?.groupValues
+            ?.get(1)
+            ?.trim('.', '_')
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+        val normalized = candidate.uppercase()
+        return candidate.takeUnless {
+            normalized in RELEASE_GROUP_FALSE_POSITIVES || parseResolution(candidate) != null ||
+                normalizeCodec(candidate) != null
+        }
+    }
+
     private fun normalizeCodec(value: String?): String? {
         val lower = value?.lowercase() ?: return null
         return when {
@@ -294,6 +329,9 @@ object SourceFactsExtractor {
 
     private val QUALITY_TOKENS = listOf(
         "remux", "bluray", "blu-ray", "web-dl", "webrip", "hdtv", "dvdrip", "cam",
+    )
+    private val RELEASE_GROUP_FALSE_POSITIVES = setOf(
+        "WEB", "WEB-DL", "WEBRIP", "BLURAY", "HDTV", "REMUX", "PROPER", "REPACK",
     )
     private val LANGUAGE_TOKENS = mapOf(
         "en" to "EN", "eng" to "EN", "english" to "EN",

@@ -71,6 +71,12 @@ class PlaybackQualityTierTest {
     }
 
     @Test
+    fun releaseGroupRemainsTheIdentityWhenBingeMetadataChanges() {
+        val pin = StickySourcePin(releaseGroup = "NTb", bingeGroup = "episode-1")
+        assertNotNull(pin.matchStrength("NTb", "episode-2", "addon", "provider", 1080))
+    }
+
+    @Test
     fun bingeGroupCarriesThePinWhenNoReleaseGroupWasParsed() {
         val pin = StickySourcePin(bingeGroup = "torrentio|1080p|hevc")
         assertNotNull(pin.matchStrength(null, "torrentio|1080p|hevc", null, null, null))

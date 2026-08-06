@@ -546,6 +546,11 @@ internal fun settingsSearchEntries(
                 stringResource(Res.string.settings_playback_mode_description),
             ),
             PlaybackSearchRow(
+                "playback-torrent-autopick",
+                stringResource(Res.string.settings_playback_allow_torrent_autopick),
+                stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+            ),
+            PlaybackSearchRow(
                 "loading-overlay",
                 stringResource(Res.string.settings_playback_show_loading_overlay),
                 stringResource(Res.string.settings_playback_show_loading_overlay_description),

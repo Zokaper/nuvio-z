@@ -138,7 +138,7 @@ private fun PlaybackModeCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (mode != PlaybackMode.CLASSIC) {
+            if (mode == PlaybackMode.INSTANT) {
                 Text(
                     text = stringResource(Res.string.playback_mode_not_ready),
                     style = MaterialTheme.typography.bodySmall,

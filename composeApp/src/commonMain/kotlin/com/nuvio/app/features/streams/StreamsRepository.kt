@@ -119,7 +119,7 @@ object StreamsRepository {
             playerSettings.streamAutoPlayPreferBingeGroup &&
             playerSettings.streamAutoPlayReuseBingeGroup
         ) {
-            parentMetaId?.let { BingeGroupCacheRepository.get(it) }
+            parentMetaId?.let { BingeGroupCacheRepository.get(it)?.bingeGroup }
         } else null
 
         // Enable direct auto-play flow if normal auto-play is enabled,

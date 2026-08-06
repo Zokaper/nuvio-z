@@ -11,14 +11,13 @@ repositories. Everything below assumes the two-repository mirroring rule: edit i
 
 ## START HERE (handoff, 2026-08-06)
 
-**State: Phase 1 complete and committed in both repositories. Working trees clean. Nothing
-half-finished — you are starting Phase 2 from a green baseline, not rescuing a broken one.**
+**State: Phase 2 complete and verified in both repositories. The implementation is the current
+local work on the active branch; Phase 3 is next.**
 
 | | |
 | --- | --- |
 | Branch | `claude/desktop-download-queue-bug-vowjy8` in **both** repos |
-| Last commit | `nuvio-z` `312d1855` · `NuvioZDesktop` `26b927a2` |
-| Baseline | Android host **576** tests · desktop **782** tests · both zero failures |
+| Current verification | Android host **585** tests · desktop **791** tests · both zero failures |
 | Not pushed | Commits are local only. `main`/`Dev` do not yet have this work. |
 | Not device-tested | No Android device was attached at any point. |
 
@@ -41,8 +40,8 @@ Do **not** write `sdk.dir` into `local.properties` — it is gitignored and hold
 configuration. Without `ANDROID_HOME` the build fails at *"SDK location not found"*, which
 looks like a configuration error and is not one.
 
-**Do this first in Phase 2:** wire `entry<StreamRoute>` to `PlaybackModeRouter.decide`. It was
-deferred from Phase 1 on purpose (see below) — it is not an oversight and not a bug.
+**Do this first in Phase 3:** add `NetworkQualityPlatform` and all three actuals, then build the
+network estimator before routing `AutoPick`. Instant remains labelled not ready until that lands.
 
 **Three traps this session actually hit** — all cost a failed build or a caught near-miss:
 
@@ -70,8 +69,8 @@ model) picks the work up mid-flight without re-deriving anything.
 | Phase | State | Notes |
 | --- | --- | --- |
 | 1 — foundations + Classic parity | **complete** | Landed 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Verified: Android host suite 576 tests, desktop suite 782 tests, both zero failures, and `desktopMain` compiles. Playback behaviour is still unchanged by design — the mode is stored and selectable, but `entry<StreamRoute>` does not read it yet. Not smoke-tested on a device. |
-| 2 — picker + Streamlined | **next** | First step is wiring `entry<StreamRoute>` to `PlaybackModeRouter.decide` - deferred from Phase 1 on purpose, see below. |
-| 3 — Instant + network quality | not started | |
+| 2 — picker + Streamlined | **complete** | Router wired; plugin metadata preserved; `releaseGroup`/`seeders` extracted; shared `SourceRanking`; playback selector, quality sheet, sticky pins, persisted tiers and torrent gate landed. Android 585 and desktop 791 tests pass. Not smoke-tested. |
+| 3 — Instant + network quality | **next** | Start with `NetworkQualityPlatform` plus Android/iOS/desktop actuals and the estimator. |
 | 4 — auto source-swap | not started | opt-in, default off |
 
 **Per-file progress (Phase 1) — all complete.** The mode is persisted, selectable on first
@@ -94,7 +93,22 @@ that is Phase 2's first step.
 | `features/playback/PlaybackModeSelectorScreen.kt` | **done, mirrored** |
 | `App.kt` first-launch gate | **done, both repos** (hand-ported) |
 | `features/details/MetaDetailsScreen.kt` manual-play override | **done, both repos** (hand-ported) |
-| `entry<StreamRoute>` router wiring | **deferred to Phase 2 — see below** |
+| `entry<StreamRoute>` router wiring | **done in Phase 2, both repos** (hand-ported) |
+
+**Per-file progress (Phase 2) — all complete.**
+
+| File | State |
+| --- | --- |
+| `App.kt` StreamRoute router/Streamlined integration | **done, both repos** (hand-ported) |
+| `features/streams/StreamModels.kt` + `StreamFetchSupport.kt` plugin metadata | **done, mirrored** |
+| `features/downloads/SourceFacts.kt` release group/seeders | **done, mirrored** |
+| `features/downloads/SourceRanking.kt` + preset refactor | **done, mirrored** |
+| `features/playback/PlaybackSourceSelector.kt` | **done, mirrored** |
+| `features/playback/PlaybackQualitySheet.kt` | **done, mirrored** |
+| `features/streams/BingeGroupCacheRepository.kt` sticky-pin widening | **done, mirrored** |
+| quality tiers + torrent gate storage/sync | **done, all three actuals** |
+| settings implementation captions/search/Classic-only auto-play state | **done, both repos** (hand-ported) |
+| Phase 2 common tests | **done — 9 new tests; both full suites pass** |
 
 The mode is now **reachable and changeable** in Settings → Playback → Player → Playback mode,
 and persists. Streamlined and Instant are selectable but carry a
@@ -120,19 +134,13 @@ evaluation, debrid resolution and P2P consent) in exchange for zero behaviour. D
 *first* step of Phase 2, when `ShowQualitySheet` has something to show — the router and its
 tests are already in place and unchanged.
 
-### Next actions, in order (Phase 2)
+### Next actions, in order (Phase 3)
 
-1. **Wire `entry<StreamRoute>` to `PlaybackModeRouter.decide`**, honouring every decision. This
-   is the step that makes the mode mean something.
-2. **`StreamFetchSupport.kt:85`** — stop discarding plugin metadata (see the Context section).
-   Highest-value change in the whole plan for auto-pick quality.
-3. `releaseGroup` + `seeders` on `SourceFacts`, then `SourceRanking` extraction with
-   `PresetDownloadsTest` green, then `PlaybackSourceSelector`, the quality sheet, sticky pins.
-4. **Drop the "not ready" caption per mode as each lands** —
-   `PlaybackMode.isImplemented()` in `PlaybackSettingsPage.kt`, and the
-   `mode != PlaybackMode.CLASSIC` check in `PlaybackModeSelectorScreen.kt`. Two places.
-5. **Grey out the Stream auto play section** in `StreamsSettingsPage.kt` when the mode is not
-   `CLASSIC` — only after step 1, or the caption will lie.
+1. Add `NetworkQualityPlatform` with Android, iOS, and desktop actuals.
+2. Implement the passive/cached network estimator and per-network/per-provider cache.
+3. Wire `PlaybackRouteDecision.AutoPick` to the estimated tier and ordered failure chain.
+4. Add the metered confirmation sheet and session-scoped answer.
+5. Drop Instant's "not ready" caption only after all four steps work, then run both full suites.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every
@@ -546,6 +554,11 @@ leaves the user alone. Manifest sources are exempt — the player already adapts
 
 Gradle cannot configure in the agent sandbox (`dl.google.com` blocked); CI is the only compiler
 there. See AGENTS.md "Verifying without Gradle".
+
+Phase 2 was verified on the maintainer's Windows machine with forced task reruns: Android host
+**585 tests across 85 classes**, and desktop **791 tests across 115 classes**, both with zero
+failures, errors, or skips. The desktop run compiled `desktopMain` and ran the complete download
+harness. No Android device or installed desktop app was available for runtime smoke testing.
 
 - **Unit tests, `commonTest`** (these run in CI and are the main safety net, since all the new
   decision logic is deliberately pure):

@@ -373,6 +373,15 @@ private fun PlaybackSettingsSection(
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_allow_torrent_autopick),
+                    description = stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+                    checked = autoPlayPlayerSettings.playbackAllowTorrentAutopick,
+                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_show_loading_overlay),
                     description = stringResource(Res.string.settings_playback_show_loading_overlay_description),
                     checked = showLoadingOverlay,
@@ -769,10 +778,21 @@ private fun PlaybackSettingsSection(
             title = stringResource(Res.string.settings_playback_section_stream_auto_play),
             isTablet = isTablet,
         ) {
+            val classicAutoPlayEnabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.CLASSIC
             SettingsGroup(isTablet = isTablet) {
+                if (!classicAutoPlayEnabled) {
+                    Text(
+                        text = stringResource(Res.string.settings_playback_auto_play_classic_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                }
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_stream_selection_mode),
                     description = stringResource(autoPlayPlayerSettings.streamAutoPlayMode.labelRes),
+                    enabled = classicAutoPlayEnabled,
                     isTablet = isTablet,
                     onClick = { showAutoPlayModeDialog = true },
                 )
@@ -782,6 +802,7 @@ private fun PlaybackSettingsSection(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_regex_pattern),
                         description = autoPlayPlayerSettings.streamAutoPlayRegex.ifBlank { notSetLabel },
+                        enabled = classicAutoPlayEnabled,
                         isTablet = isTablet,
                         onClick = { showAutoPlayRegexDialog = true },
                     )
@@ -796,6 +817,7 @@ private fun PlaybackSettingsSection(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .alpha(if (classicAutoPlayEnabled) 1f else 0.55f)
                         .padding(horizontal = if (isTablet) 18.dp else 16.dp, vertical = 10.dp),
                 ) {
                     Row(
@@ -822,6 +844,7 @@ private fun PlaybackSettingsSection(
                     var sliderValue by remember(timeoutIndex) { mutableFloatStateOf(timeoutIndex.toFloat()) }
                     var lastHapticStep by remember(timeoutIndex) { mutableStateOf(timeoutIndex.toFloat()) }
                     Slider(
+                        enabled = classicAutoPlayEnabled,
                         value = sliderValue,
                         onValueChange = {
                             val snapped = snapToStep(it, 1f)
@@ -849,6 +872,7 @@ private fun PlaybackSettingsSection(
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_source_scope),
                     description = stringResource(autoPlayPlayerSettings.streamAutoPlaySource.labelRes(pluginsEnabled)),
+                    enabled = classicAutoPlayEnabled,
                     isTablet = isTablet,
                     onClick = { showAutoPlaySourceDialog = true },
                 )
@@ -865,6 +889,7 @@ private fun PlaybackSettingsSection(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_allowed_addons),
                         description = addonSubtitle,
+                        enabled = classicAutoPlayEnabled,
                         isTablet = isTablet,
                         onClick = { showAutoPlayAddonSelectionDialog = true },
                     )
@@ -882,6 +907,7 @@ private fun PlaybackSettingsSection(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_allowed_plugins),
                         description = pluginSubtitle,
+                        enabled = classicAutoPlayEnabled,
                         isTablet = isTablet,
                         onClick = { showAutoPlayPluginSelectionDialog = true },
                     )
@@ -1716,7 +1742,7 @@ private fun playbackModeDescription(mode: PlaybackMode): String = when (mode) {
  * and its persistence can be exercised, but the row says so plainly - silently
  * behaving like Classic would read as a bug.
  */
-private fun PlaybackMode.isImplemented(): Boolean = this == PlaybackMode.CLASSIC
+private fun PlaybackMode.isImplemented(): Boolean = this != PlaybackMode.INSTANT
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
