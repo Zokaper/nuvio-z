@@ -112,6 +112,25 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 
 ## Build and Verification
 
+**Gradle does work on the maintainer's own Windows machine**, even though it cannot
+configure in the Claude/Codex sandbox. It needs two environment variables, because
+`JAVA_HOME` is unset there and `local.properties` is ignored and may carry no
+`sdk.dir`:
+
+```bash
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:testAndroidHostTest --console=plain --max-workers=4
+```
+
+Set them per-invocation rather than writing `sdk.dir` into `local.properties` - that
+file is ignored, carries the Supabase configuration, and must not be edited casually.
+Without `ANDROID_HOME` the build fails at *"SDK location not found"* during task
+dependency resolution, which reads like a configuration failure but is not one. A
+first run takes roughly 3-4 minutes; later runs are much faster. Prefer this over the
+sandbox workarounds below whenever the real machine is available - it runs the actual
+suite instead of a hand-assembled subset.
+
 Run commands from the repository root on Windows:
 
 ```powershell

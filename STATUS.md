@@ -33,6 +33,36 @@ hatch (long-press on mobile, right-click on desktop) that always reaches the Cla
 - **Instant** — quality and source chosen from the network connection; metered connections ask
   before playing.
 
+**Phase 1 landed so far — logic and persistence only, nothing user-visible.** The mode is
+stored and defaults to `CLASSIC`, and no code reads it yet, so behaviour is unchanged:
+
+- `features/playback/PlaybackModeModels.kt` — `PlaybackMode`, `PlaybackQualityTier` (a
+  *bandwidth* budget, deliberately not a `DownloadPreset`, with a 60% headroom constant),
+  `mergeStoredTiers` mirroring `mergeStoredPresets`, and `StickySourcePin` with a scored match.
+- `features/playback/PlaybackModeRouter.kt` — the precedence table as a pure function.
+- `playback_mode` and `playback_mode_selector_seen` through `PlayerSettingsStorage` with
+  **all three actuals** (android, ios, and the desktop one in `NuvioZDesktop`), added to
+  `syncKeys` and both sync payload paths, and surfaced on `PlayerSettingsUiState` with
+  `setPlaybackMode` / `markPlaybackModeSelectorSeen`.
+
+**A correction to this document's own build advice: Gradle works on the maintainer's Windows
+machine.** It only needs `JAVA_HOME` (Android Studio's JBR) and `ANDROID_HOME` set per
+invocation — the failure without them is "SDK location not found" during task dependency
+resolution, which reads like a configuration failure and is not one. `AGENTS.md` now records
+the exact invocation. The sandbox limitation is real but is a sandbox limitation, not a
+project one, and the standalone-kotlinc workarounds should be a second choice from now on.
+
+Verification of the above: `:composeApp:testAndroidHostTest` run in full on this machine —
+**576 tests, zero failures, errors or skips**, across 82 classes. That is the documented 554
+baseline plus the 22 new cases exactly, so nothing was displaced. `PlaybackModeRouterTest` (11)
+and `PlaybackQualityTierTest` (11) execute against the shipped sources — including the
+regression case that a sticky pin must outrank reuse-last-link, which is the specific bug the
+precedence table exists to prevent.
+Shared files are mirrored and the only diffs against `NuvioZDesktop` are the pre-existing,
+documented ones (its `AppFeaturePolicy` external-player gating and the NVIDIA RTX setting).
+**Not yet run on a device or a real desktop install, and `desktopMain` has not been compiled** —
+the Windows CI job is still the only thing that would catch a bad desktop actual.
+
 Findings from the exploration that shaped it, worth recording independently of the plan:
 
 - **Plugin sources are structurally invisible to the auto picker.**

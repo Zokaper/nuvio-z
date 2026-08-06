@@ -94,6 +94,17 @@ internal expect object PlayerSettingsStorage {
     fun saveIntroDbApiKey(apiKey: String)
     fun loadIntroSubmitEnabled(): Boolean?
     fun saveIntroSubmitEnabled(enabled: Boolean)
+    fun loadPlaybackMode(): String?
+    fun savePlaybackMode(mode: String)
+
+    /**
+     * Whether the mode selector has been shown, tracked separately from the mode itself.
+     *
+     * Without this, "chose Classic" and "never chose" are the same stored value, so the
+     * selector would either reappear forever or never reach an existing install.
+     */
+    fun loadPlaybackModeSelectorSeen(): Boolean?
+    fun savePlaybackModeSelectorSeen(seen: Boolean)
     fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean?
     fun saveStreamAutoPlayNextEpisodeEnabled(enabled: Boolean)
     fun loadStreamAutoPlayPreferBingeGroup(): Boolean?

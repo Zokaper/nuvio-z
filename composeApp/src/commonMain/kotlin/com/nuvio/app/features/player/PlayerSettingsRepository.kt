@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
+import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,6 +58,9 @@ data class PlayerSettingsUiState(
     val decoderPriority: Int = 1,
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
+    val playbackMode: PlaybackMode = PlaybackMode.Default,
+    /** False until the first-launch mode selector has been answered or dismissed. */
+    val playbackModeSelectorSeen: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
@@ -123,6 +127,8 @@ object PlayerSettingsRepository {
     private var decoderPriority = 1
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
+    private var playbackMode = PlaybackMode.Default
+    private var playbackModeSelectorSeen = false
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
@@ -194,6 +200,8 @@ object PlayerSettingsRepository {
         decoderPriority = 1
         mapDV7ToHevc = false
         tunnelingEnabled = false
+        playbackMode = PlaybackMode.Default
+        playbackModeSelectorSeen = false
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
         streamAutoPlaySelectedAddons = emptySet()
@@ -294,6 +302,9 @@ object PlayerSettingsRepository {
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
+        playbackMode = PlaybackMode.fromStorage(PlayerSettingsStorage.loadPlaybackMode())
+        playbackModeSelectorSeen =
+            PlayerSettingsStorage.loadPlaybackModeSelectorSeen() ?: false
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlayMode.MANUAL
@@ -587,6 +598,29 @@ object PlayerSettingsRepository {
         tunnelingEnabled = enabled
         publish()
         PlayerSettingsStorage.saveTunnelingEnabled(enabled)
+    }
+
+    fun setPlaybackMode(mode: PlaybackMode) {
+        ensureLoaded()
+        if (playbackMode == mode) return
+        playbackMode = mode
+        publish()
+        PlayerSettingsStorage.savePlaybackMode(mode.name)
+    }
+
+    /**
+     * Records that the mode selector has been answered.
+     *
+     * Kept separate from [setPlaybackMode] because choosing Classic - the
+     * pre-selected option - is a no-op for the mode and must still dismiss the
+     * selector for good.
+     */
+    fun markPlaybackModeSelectorSeen() {
+        ensureLoaded()
+        if (playbackModeSelectorSeen) return
+        playbackModeSelectorSeen = true
+        publish()
+        PlayerSettingsStorage.savePlaybackModeSelectorSeen(true)
     }
 
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
@@ -935,6 +969,8 @@ object PlayerSettingsRepository {
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,
+            playbackMode = playbackMode,
+            playbackModeSelectorSeen = playbackModeSelectorSeen,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,

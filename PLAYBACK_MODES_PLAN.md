@@ -16,30 +16,53 @@ model) picks the work up mid-flight without re-deriving anything.
 
 | Phase | State | Notes |
 | --- | --- | --- |
-| 1 — foundations + Classic parity | **in progress** | Started 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. |
+| 1 — foundations + Classic parity | **in progress** | Started 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Logic + persistence done and verified (22 tests); UI layer not started. Behaviour is unchanged — the mode is stored, defaults to `CLASSIC`, and nothing reads it yet. |
 | 2 — picker + Streamlined | not started | |
 | 3 — Instant + network quality | not started | |
 | 4 — auto source-swap | not started | opt-in, default off |
 
-**Per-file progress (Phase 1)** — mark each `todo` / `done (nuvio-z)` / `done (mirrored)`:
+**Per-file progress (Phase 1).** The logic and persistence layer is complete and verified; the
+UI layer is not started. Nothing user-visible has changed yet — the mode is persisted and
+defaults to `CLASSIC`, and nothing reads it.
 
 | File | State |
 | --- | --- |
-| `features/playback/PlaybackModeModels.kt` | todo |
-| `features/playback/PlaybackModeRouter.kt` | todo |
-| `features/playback/PlaybackModeRepository.kt` | todo |
+| `features/playback/PlaybackModeModels.kt` | **done, mirrored** |
+| `features/playback/PlaybackModeRouter.kt` | **done, mirrored** |
+| `features/player/PlayerSettingsStorage.kt` (expect) | **done, mirrored** |
+| ` └ android + ios actuals` | **done, both repos** |
+| ` └ desktop actual` (`NuvioZDesktop` only) | **done** |
+| `features/player/PlayerSettingsRepository.kt` | **done, both repos** |
+| `commonTest/.../PlaybackModeRouterTest.kt` | **done — 11 tests pass** |
+| `commonTest/.../PlaybackQualityTierTest.kt` | **done — 11 tests pass** |
 | `features/playback/PlaybackModeSelectorScreen.kt` | todo |
-| `features/player/PlayerSettingsStorage.kt` (+ 3 actuals) | todo |
-| `features/player/PlayerSettingsRepository.kt` | todo |
 | `features/settings/PlaybackSettingsPage.kt` + `SettingsSearch.kt` | todo |
 | `App.kt` gate + `entry<StreamRoute>` wiring | todo |
 | `features/details/MetaDetailsScreen.kt` long-press / right-click | todo (hand-port, files differ) |
-| `commonTest/.../PlaybackModeRouterTest.kt` | todo |
 | `values/strings.xml` (both repos) | todo |
 
-**Mirroring reminder:** every finished common file must be `diff -q`'d and `cp`'d to
-`NuvioZDesktop`, and every new `expect` needs a **`desktopMain` actual** that only the Windows
-CI job will catch.
+### Next actions, in order
+
+1. **`PlaybackModeSelectorScreen.kt`** — three cards, pre-selected to Classic, using the
+   recommendation copy in the Context section verbatim. On confirm call
+   `PlayerSettingsRepository.setPlaybackMode(mode)` **and**
+   `markPlaybackModeSelectorSeen()` — both, because choosing Classic is a no-op for the mode
+   and must still dismiss the selector.
+2. **`App.kt` `AppGateScreen`** — new gate value shown when
+   `playerSettingsUiState.playbackModeSelectorSeen == false`, after profile selection. Copy the
+   `ProfileSelection` gate as the pattern.
+3. **`PlaybackSettingsPage.kt`** — a "Playback mode" row in the Player section using
+   `NuvioDropdownChip`; register it in `SettingsSearch.kt`. Grey out the Stream auto play
+   section with a caption when the mode is not `CLASSIC` (per the precedence rule).
+4. **`MetaDetailsScreen.kt`** — long-press (mobile) / right-click (desktop) on an episode row
+   and the Play button routes with `manualSelection = true`. ⚠ hand-port, the two copies differ.
+5. **`entry<StreamRoute>`** — call `PlaybackModeRouter.decide` and honour `ShowSourceList` /
+   `PlayLocalDownload` / `ReuseLastLink`. `ShowQualitySheet` and `AutoPick` can fall through to
+   `ShowSourceList` until Phase 2 lands, so Phase 1 stays behaviour-neutral.
+
+**Mirroring reminder:** every finished common file must be `diff -q`'d (add
+`--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every
+new `expect` needs a **`desktopMain` actual** that only the Windows CI job will catch.
 
 ---
 

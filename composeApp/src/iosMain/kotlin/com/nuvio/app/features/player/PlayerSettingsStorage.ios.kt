@@ -51,6 +51,8 @@ actual object PlayerSettingsStorage {
     private const val decoderPriorityKey = "decoder_priority"
     private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
     private const val tunnelingEnabledKey = "tunneling_enabled"
+    private const val playbackModeKey = "playback_mode"
+    private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -120,6 +122,8 @@ actual object PlayerSettingsStorage {
         decoderPriorityKey,
         mapDV7ToHevcKey,
         tunnelingEnabledKey,
+        playbackModeKey,
+        playbackModeSelectorSeenKey,
         streamAutoPlayModeKey,
         streamAutoPlaySourceKey,
         streamAutoPlaySelectedAddonsKey,
@@ -574,6 +578,32 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(tunnelingEnabledKey))
     }
 
+    actual fun loadPlaybackMode(): String? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        return defaults.stringForKey(ProfileScopedKey.of(playbackModeKey))
+    }
+
+    actual fun savePlaybackMode(mode: String) {
+        NSUserDefaults.standardUserDefaults.setObject(mode, forKey = ProfileScopedKey.of(playbackModeKey))
+    }
+
+    actual fun loadPlaybackModeSelectorSeen(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackModeSelectorSeenKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun savePlaybackModeSelectorSeen(seen: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(
+            seen,
+            forKey = ProfileScopedKey.of(playbackModeSelectorSeenKey),
+        )
+    }
+
     actual fun loadStreamAutoPlayMode(): String? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(streamAutoPlayModeKey)
@@ -929,6 +959,10 @@ actual object PlayerSettingsStorage {
         loadDecoderPriority()?.let { put(decoderPriorityKey, encodeSyncInt(it)) }
         loadMapDV7ToHevc()?.let { put(mapDV7ToHevcKey, encodeSyncBoolean(it)) }
         loadTunnelingEnabled()?.let { put(tunnelingEnabledKey, encodeSyncBoolean(it)) }
+        loadPlaybackMode()?.let { put(playbackModeKey, encodeSyncString(it)) }
+        loadPlaybackModeSelectorSeen()?.let {
+            put(playbackModeSelectorSeenKey, encodeSyncBoolean(it))
+        }
         loadStreamAutoPlayMode()?.let { put(streamAutoPlayModeKey, encodeSyncString(it)) }
         loadStreamAutoPlaySource()?.let { put(streamAutoPlaySourceKey, encodeSyncString(it)) }
         loadStreamAutoPlaySelectedAddons()?.let { put(streamAutoPlaySelectedAddonsKey, encodeSyncStringSet(it)) }
@@ -1002,6 +1036,9 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(decoderPriorityKey)?.let(::saveDecoderPriority)
         payload.decodeSyncBoolean(mapDV7ToHevcKey)?.let(::saveMapDV7ToHevc)
         payload.decodeSyncBoolean(tunnelingEnabledKey)?.let(::saveTunnelingEnabled)
+        payload.decodeSyncString(playbackModeKey)?.let(::savePlaybackMode)
+        payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
+            ?.let(::savePlaybackModeSelectorSeen)
         payload.decodeSyncString(streamAutoPlayModeKey)?.let(::saveStreamAutoPlayMode)
         payload.decodeSyncString(streamAutoPlaySourceKey)?.let(::saveStreamAutoPlaySource)
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)
