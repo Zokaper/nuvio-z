@@ -16,7 +16,7 @@ model) picks the work up mid-flight without re-deriving anything.
 
 | Phase | State | Notes |
 | --- | --- | --- |
-| 1 — foundations + Classic parity | **in progress** | Started 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Logic + persistence done and verified (22 tests); UI layer not started. Behaviour is unchanged — the mode is stored, defaults to `CLASSIC`, and nothing reads it yet. |
+| 1 — foundations + Classic parity | **in progress** | Started 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Logic + persistence done and verified: Android host suite 576 tests and desktop suite 782 tests, both zero failures, and `desktopMain` compiles. UI layer not started. Behaviour is unchanged — the mode is stored, defaults to `CLASSIC`, and nothing reads it yet. |
 | 2 — picker + Streamlined | not started | |
 | 3 — Instant + network quality | not started | |
 | 4 — auto source-swap | not started | opt-in, default off |
@@ -62,7 +62,9 @@ defaults to `CLASSIC`, and nothing reads it.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every
-new `expect` needs a **`desktopMain` actual** that only the Windows CI job will catch.
+new `expect` needs a **`desktopMain` actual**. Verify it locally with
+`:composeApp:desktopTest` in `NuvioZDesktop` — that compiles `desktopMain`, so it catches a
+missing actual before CI does. Mirror `commonTest` too; those cases then run on both targets.
 
 ---
 

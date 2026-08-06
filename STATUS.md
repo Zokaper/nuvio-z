@@ -60,8 +60,16 @@ regression case that a sticky pin must outrank reuse-last-link, which is the spe
 precedence table exists to prevent.
 Shared files are mirrored and the only diffs against `NuvioZDesktop` are the pre-existing,
 documented ones (its `AppFeaturePolicy` external-player gating and the NVIDIA RTX setting).
-**Not yet run on a device or a real desktop install, and `desktopMain` has not been compiled** —
-the Windows CI job is still the only thing that would catch a bad desktop actual.
+
+`NuvioZDesktop :composeApp:desktopTest` also passed in full: **782 tests, zero failures,
+errors or skips**, across 112 classes — the 760 baseline plus the same 22 cases, which run on
+the desktop target too. **This compiled `desktopMain`, so the new desktop `actual` is verified
+rather than assumed**, and the download harness stayed green. Since `desktopTest` compiles
+`desktopMain` on the real machine, `desktop-release.yml mode=build-only` is now only *CI's*
+way of catching a missing actual, not the only way.
+
+**Still not run on a device or a real desktop install.** There is no UI yet, so there is
+nothing to smoke-test; that arrives with the selector screen.
 
 Findings from the exploration that shaped it, worth recording independently of the plan:
 

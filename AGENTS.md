@@ -123,13 +123,25 @@ ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
   ./gradlew.bat :composeApp:testAndroidHostTest --console=plain --max-workers=4
 ```
 
-Set them per-invocation rather than writing `sdk.dir` into `local.properties` - that
+The same two variables run the desktop suite in `NuvioZDesktop`:
+
+```bash
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:desktopTest --console=plain --max-workers=4
+```
+
+**That compiles `desktopMain`**, so on the real machine `desktop-release.yml
+mode=build-only` is no longer the only way to catch a missing desktop `actual` - it is
+just the only way in CI. Run `desktopTest` locally after touching any `expect`.
+
+Set both per-invocation rather than writing `sdk.dir` into `local.properties` - that
 file is ignored, carries the Supabase configuration, and must not be edited casually.
 Without `ANDROID_HOME` the build fails at *"SDK location not found"* during task
 dependency resolution, which reads like a configuration failure but is not one. A
-first run takes roughly 3-4 minutes; later runs are much faster. Prefer this over the
-sandbox workarounds below whenever the real machine is available - it runs the actual
-suite instead of a hand-assembled subset.
+first run takes 3-4 minutes; later runs are much faster. Prefer this over the sandbox
+workarounds below whenever the real machine is available - it runs the actual suite
+instead of a hand-assembled subset.
 
 Run commands from the repository root on Windows:
 

@@ -22,10 +22,22 @@ sealed class PlaybackRouteDecision {
     /** A cached link for this exact video is still valid; reuse it. */
     data class ReuseLastLink(override val reason: String) : PlaybackRouteDecision()
 
-    /** Streamlined: ask which quality, then auto-pick within it. */
+    /**
+     * Streamlined: ask which quality, then auto-pick within it.
+     *
+     * **Nothing consumes this yet.** The quality sheet lands in Phase 2; until then the
+     * route entry treats it as [ShowSourceList], which is what keeps Phase 1 behaviour
+     * neutral. It is modelled now so the precedence order can be settled and tested in
+     * one place rather than twice.
+     */
     data class ShowQualitySheet(override val reason: String) : PlaybackRouteDecision()
 
-    /** Instant: resolve a tier from the connection and auto-pick. */
+    /**
+     * Instant: resolve a tier from the connection and auto-pick.
+     *
+     * **Nothing consumes this yet** - see [ShowQualitySheet]. Lands in Phase 3, once
+     * network quality estimation exists.
+     */
     data class AutoPick(override val reason: String) : PlaybackRouteDecision()
 }
 
