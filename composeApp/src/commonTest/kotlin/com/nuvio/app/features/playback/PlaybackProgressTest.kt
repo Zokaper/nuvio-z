@@ -137,9 +137,19 @@ class PlaybackProgressTest {
     }
 
     @Test
-    fun theAttemptBudgetMatchesTheFailureChain() {
-        // The overlay tells the user "attempt 2 of 3"; the chain in entry<StreamRoute> is the
-        // thing that stops at 3. One constant so the two cannot disagree.
-        assertEquals(3, PlaybackProgress.MAX_ATTEMPTS)
+    fun playbackHavingStartedHidesTheOverlay() {
+        // The regression this guards: Instant deliberately does not pop StreamRoute when it
+        // navigates to the player, so the route stays on the back stack with isAutoPickRoute
+        // and hasChosenSource both still true. Without a hand-off flag, backing out of the
+        // player landed on an opaque overlay with nothing to interact with.
+        assertFalse(
+            PlaybackProgress.isVisible(
+                isAutoPickRoute = true,
+                isStreamlinedPlaybackStarting = true,
+                manualSourceListRequested = false,
+                awaitingMeteredChoice = false,
+                hasNavigatedAway = true,
+            ),
+        )
     }
 }

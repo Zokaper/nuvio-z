@@ -316,6 +316,17 @@ internal fun settingsSearchEntries(
             icon = Icons.Rounded.Info,
         )
     }
+    add(
+        key = "show-advanced-settings",
+        title = stringResource(Res.string.compose_settings_root_show_advanced),
+        description = stringResource(Res.string.compose_settings_root_show_advanced_description),
+        page = advancedPage,
+        section = stringResource(Res.string.compose_settings_root_advanced_section),
+        category = generalCategory,
+        icon = Icons.Rounded.Tune,
+        target = SettingsSearchTarget.Page(SettingsPage.Root),
+    )
+
     if (checkForUpdatesAvailable) {
         add(
             key = "check-updates",

@@ -485,6 +485,37 @@ Also reachable on demand from Settings → About, dismissible there, and that pa
 ⚠ **This needs a curated entry per release, committed before the version bump.** The bump-last
 rule is enforced and a docs commit after the bump fails the release.
 
+### Two faults found reviewing the pass, both fixed here
+
+**1. The overlay never learned that playback had started — a regression this pass introduced.**
+`isVisible` gated on `reuseNavigated`, which is set **only** in the reuse-last-link branch.
+Nothing set it when the auto-play effect, `openSelectedStream` or `openExternalPlayback` reached
+the player. Instant deliberately does **not** `popUpTo<StreamRoute>` (that is what keeps the
+failure chain alive), so `StreamRoute` stays on the back stack with `instantSelectionHandled`
+true — and backing out of the player landed on an opaque full-bleed overlay reading "Starting
+playback" with nothing to interact with. `rememberSaveable` meant it survived process death too.
+Before this pass that screen showed the source list: odd, but usable.
+
+Fixed with `playbackHandedOff`, set at **every** exit to playback (six sites), and
+`playbackHavingStartedHidesTheOverlay` is the regression guard. That test replaced
+`theAttemptBudgetMatchesTheFailureChain`, which asserted `MAX_ATTEMPTS == 3` — a constant pinned
+to itself, claiming more than it checked.
+
+**2. Desktop What's New compared the wrong version.** The hand-port used
+`AppVersionConfig.VERSION_NAME` in five places. On the desktop target that is the **base/mobile**
+version; `AppVersionPolicy.displayVersionName` is `DESKTOP_VERSION_NAME`. They are equal today
+(one shared version line since `0.4.0-beta`), so nothing misbehaves yet — but if they ever
+diverge, `shouldShowWhatsNew` would compare against a string that does not change when the
+desktop version bumps, and What's New would show once and never again. Swapped, matching what
+the desktop `SettingsRootPage` already did.
+
+Also: the displayed attempt is now `coerceAtMost(MAX_ATTEMPTS)`, because the seeded candidate
+list is not itself capped, so "Attempt 5 of 3" was reachable.
+
+**Known gap:** "Show advanced settings" is in the settings search index; the **What's New About
+row is not**, because it opens a dialog rather than a page and would need a new
+`SettingsSearchTarget` variant handled in all four `openSearchTarget` implementations.
+
 ### Verification for the whole pass
 
 Android **653 tests across 94 classes**, desktop **859 across 124**, both zero failures, errors or

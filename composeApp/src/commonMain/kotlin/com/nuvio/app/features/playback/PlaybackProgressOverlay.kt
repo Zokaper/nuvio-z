@@ -145,7 +145,13 @@ fun PlaybackProgressOverlay(
             )
             if (attempt > 1) {
                 Text(
-                    text = stringResource(Res.string.playback_progress_attempt, attempt, maxAttempts),
+                    // Coerced because the seeded candidate list is not itself capped at
+                    // MAX_ATTEMPTS - "Attempt 5 of 3" is otherwise reachable.
+                    text = stringResource(
+                        Res.string.playback_progress_attempt,
+                        attempt.coerceAtMost(maxAttempts),
+                        maxAttempts,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

@@ -2504,6 +2504,11 @@ private fun MainAppContent(
                     // 1-based, and only ever advanced by the auto-pick failure chain. The overlay
                     // shows it so a silent retry does not read as a hang.
                     var autoPickAttempt by rememberSaveable(route.launchId) { mutableStateOf(1) }
+                    // Set at *every* exit to playback, not just the reuse-last-link one.
+                    // Instant deliberately leaves StreamRoute on the back stack so the failure
+                    // chain survives, so without this, backing out of the player lands on an
+                    // opaque overlay with nothing to interact with.
+                    var playbackHandedOff by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var meteredChoice by remember(route.launchId) {
                         mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
                     }
@@ -2641,6 +2646,7 @@ private fun MainAppContent(
 
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         StreamsRepository.cancelLoading()
+                        playbackHandedOff = true
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                             if (replaceStreamRoute) {
                                 popUpTo<StreamRoute> { inclusive = true }
@@ -2858,6 +2864,7 @@ private fun MainAppContent(
                                 contentLanguage = cached.contentLanguage,
                             )
                             if (playerSettings.externalPlayerEnabled) {
+                                playbackHandedOff = true
                                 openExternalPlayback(playerLaunch)
                                 StreamsRepository.setOverlayVisible(false)
                                 reuseNavigated = true
@@ -2866,6 +2873,7 @@ private fun MainAppContent(
                             StreamsRepository.clear()
                             reuseNavigated = true
                             val launchId = PlayerLaunchStore.put(playerLaunch)
+                            playbackHandedOff = true
                             navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                                 popUpTo<StreamRoute> { inclusive = true }
                             }
@@ -2997,6 +3005,7 @@ private fun MainAppContent(
                             instantAutoPick = isInstantAutoPlay,
                         )
                         if (playerSettings.externalPlayerEnabled) {
+                            playbackHandedOff = true
                             openExternalPlayback(playerLaunch)
                             if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                             StreamsRepository.cancelLoading()
@@ -3005,6 +3014,7 @@ private fun MainAppContent(
                         if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
                         val launchId = PlayerLaunchStore.put(playerLaunch)
+                        playbackHandedOff = true
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                             if (!isInstantAutoPlay) popUpTo<StreamRoute> { inclusive = true }
                         }
@@ -3134,6 +3144,7 @@ private fun MainAppContent(
 
                         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
                             streamRouteScope.launch {
+                                playbackHandedOff = true
                                 openExternalPlayback(playerLaunch)
                                 StreamsRepository.cancelLoading()
                             }
@@ -3301,7 +3312,7 @@ private fun MainAppContent(
                         isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
                         manualSourceListRequested = manualSourceListRequested,
                         awaitingMeteredChoice = awaitingUserAnswer,
-                        hasNavigatedAway = reuseNavigated,
+                        hasNavigatedAway = reuseNavigated || playbackHandedOff,
                     )
 
                     Box(modifier = Modifier.fillMaxSize()) {
