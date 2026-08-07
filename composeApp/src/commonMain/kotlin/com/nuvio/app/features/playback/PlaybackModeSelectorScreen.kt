@@ -31,7 +31,6 @@ import nuvio.composeapp.generated.resources.playback_mode_classic
 import nuvio.composeapp.generated.resources.playback_mode_classic_description
 import nuvio.composeapp.generated.resources.playback_mode_instant
 import nuvio.composeapp.generated.resources.playback_mode_instant_description
-import nuvio.composeapp.generated.resources.playback_mode_not_ready
 import nuvio.composeapp.generated.resources.playback_mode_selector_confirm
 import nuvio.composeapp.generated.resources.playback_mode_selector_recommendation
 import nuvio.composeapp.generated.resources.playback_mode_selector_subtitle
@@ -138,13 +137,6 @@ private fun PlaybackModeCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (mode == PlaybackMode.INSTANT) {
-                Text(
-                    text = stringResource(Res.string.playback_mode_not_ready),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }

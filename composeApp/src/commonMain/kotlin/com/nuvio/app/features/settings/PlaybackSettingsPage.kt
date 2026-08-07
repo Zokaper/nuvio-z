@@ -1751,8 +1751,6 @@ private fun playbackModeDescription(mode: PlaybackMode): String = when (mode) {
  * and its persistence can be exercised, but the row says so plainly - silently
  * behaving like Classic would read as a bug.
  */
-private fun PlaybackMode.isImplemented(): Boolean = true
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaybackModeDialog(
@@ -1815,13 +1813,6 @@ private fun PlaybackModeDialog(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (!mode.isImplemented()) {
-                                    Text(
-                                        text = stringResource(Res.string.playback_mode_not_ready),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
                             }
                         }
                     }
