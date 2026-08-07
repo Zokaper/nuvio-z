@@ -7,7 +7,7 @@ Last updated: 2026-08-07
 | **Active branch** | `main` in `nuvio-z`; `Dev` in `NuvioZDesktop` |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Publish `0.4.5-beta`, then re-run the packaged smoke checklist on Android and desktop. The follow-up is merged into both default branches: cached/unknown debrid infohash handling, mode-aware episode switching, player-to-details back navigation, source-list masking, direct source downloads, next-episode control, responsive mode selector, top-level mode setting, Advanced badges, Continue Watching details, conservative bandwidth and platform network defaults, two-device sync coverage, and Windows network cost/type detection. Focused Android and desktop tests compile and pass. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
+| **Next** | **Derived quality options** have replaced the fixed `PlaybackQualityTier` presets on the streaming path (see below). Smoke-test Streamlined and Instant on device and desktop, then publish. Everything before it is merged into both default branches: cached/unknown debrid infohash handling, mode-aware episode switching, player-to-details back navigation, source-list masking, direct source downloads, next-episode control, responsive mode selector, top-level mode setting, Advanced badges, Continue Watching details, two-device sync coverage, and Windows network cost/type detection. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,70 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Quality options are derived from the catalogue (2026-08-07)
+
+The preset model ran backwards. A fixed list of `PlaybackQualityTier`s was the input and the
+addons' answers were filtered to fit it, so the sheet offered rows that matched nothing for a
+given title, hid quality that was on offer, and quoted the preset's nominal bandwidth rather
+than what the file you would actually receive costs.
+
+Now the catalogue leads. `features/playback/PlaybackQualityOptions.kt` (pure, repository-free,
+testable outside Gradle) buckets the real candidates by resolution, splits each bucket into
+High/Low when its top source costs at least 1.5x its cheapest, and quotes
+`fileBitrate / 0.6` - the connection speed that source actually needs. **An empty bucket
+produces no row**, so a title with no 4K release simply has no 4K option. Instant takes the
+highest option the estimate can carry; Streamlined shows them all with their bandwidth.
+
+Details worth knowing:
+
+- Bitrate uses the file's own runtime when an addon reports one. `SourceFacts.durationSeconds`
+  now carries `clientResolve.parsed.duration`, which the extractor previously dropped; the unit
+  is undocumented so it is inferred and discarded when not credible. Falls back to the title
+  runtime, then the shared 45/120 minute default.
+- `parseResolution` reads a bare `uhd`/`hd` out of a display name. A mislabel used to just fail
+  a filter; now it would mint a visible 4K row that plays a 720p file, so a source whose bitrate
+  is below the floor for what it claims is **demoted** to what its bitrate supports. Demotion
+  only - a bloated 1080p remux is still 1080p.
+- HDR policy follows resolution (2160 prefers, SD avoids), not the row's rank.
+- Headroom is applied in exactly one place. `PlaybackQualityTier.sizeCapBytes` folded the same
+  0.6 into a byte cap and is no longer on this path.
+- **The network estimate had to move in the same change.** The effective gate was
+  `fileBitrate <= 0.6 x estimate`, and the hardcoded WiFi default of 3 Mbps made that ~1.8 -
+  below a real 720p encode. It only looked fine because unknown-size candidates skipped the cap
+  entirely, which derived options remove. Defaults are now WiFi 25 / Ethernet 50 / cellular 8 /
+  unknown 10, and `recordSustainedBitrate` finally feeds the estimate from playback rather than
+  only from downloads. It is **monotonic**: a stream arrives at the file's own bitrate and no
+  faster, so a clean playback is a lower bound; smoothing it in would have dragged the estimate
+  down towards whatever the user last watched and cost Instant its top qualities over time.
+  Armed when a source is chosen, confirmed after a minute of unstarved playback. It reuses
+  `AutoDownshiftDetector.SETTLE_GRACE_MS` before judging anything: a snapshot starts with
+  `isLoading = true` and an empty buffer, so without the grace every source disqualified
+  itself on frame one and the measurement could never fire.
+- Two guards on erring high. `highestAffordable` returns null rather than Best available when
+  a metered cap excludes every option - Best available is ordered resolution-descending, so
+  the fallback would have handed a 4K remux to a capped mobile connection. And
+  `resolutionForEstimate`, which feeds the download button that never asks, will not reach
+  2160 on a `PLATFORM_DEFAULT` estimate; over-reaching costs a hiccup when streaming and ten
+  times the disk when downloading.
+- **`PlaybackQualityTier` is dormant, not deleted.** Nothing reads it to choose a source. Its
+  storage key, sync entries and `mergeStoredTiers` are untouched on purpose: editing that key
+  set is what wiped the playback settings in `0.4.0-beta`, and the removal buys nothing the user
+  can see. Remove it in its own commit. `presetForTier` became `presetForResolution`, fed by a
+  small `resolutionForEstimate` ladder, so the details-screen download button no longer keeps a
+  second picker alive.
+- Two stuck-spinner paths from the `0.4.3` smoke follow-up are fixed here, because this change
+  rewrites the code they live in: `isStreamlinedSelectionReady` now treats "settled with streams
+  but nothing selectable" as terminal (`toEmptyStateReason` reports no empty state in that
+  case), and every early return in the streamlined effect clears the pending flag. Option ids
+  are `resolution + variant` so they survive the `rememberSaveable` round-trip through a
+  refetch.
+
+**Verified:** `:composeApp:testAndroidHostTest` in `nuvio-z` - 675 tests, all pass;
+`:composeApp:desktopTest` in `NuvioZDesktop` - passes, and it is the only local `desktopMain`
+compile. Thirteen shared files are byte-identical across the repos; `App.kt`,
+`MetaDetailsScreen.kt` and the three player runtime files were hand-ported.
+**Not smoke-tested on a device or the desktop app yet.**
 
 ## Playback modes: Classic / Streamlined / Instant (2026-08-06, in progress)
 

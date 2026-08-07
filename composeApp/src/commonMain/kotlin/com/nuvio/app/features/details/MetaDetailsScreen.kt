@@ -1361,11 +1361,9 @@ fun MetaDetailsScreen(
                                 is DownloadEntryDecision.StartWithPreset ->
                                     LaunchedEffect(requestedScope) {
                                         presetDownloadScope = null
-                                        val preset = PlaybackModeDownloadRouter.presetForTier(
+                                        val preset = PlaybackModeDownloadRouter.presetForResolution(
                                             presets = downloadPresets,
-                                            tier = NetworkQualityRepository.resolveTier(
-                                                playerSettingsUiState.playbackQualityTiers,
-                                            ),
+                                            ceiling = NetworkQualityRepository.resolutionForEstimate(),
                                         ) ?: return@LaunchedEffect
                                         PresetDownloadCoordinator.start(
                                             meta = meta,

@@ -45,17 +45,19 @@ class PlaybackModeDownloadRouterTest {
     }
 
     @Test
-    fun presetForTierTakesTheHighestThatFitsUnderTheTier() {
-        val tier = tier(VideoResolution.FULL_HD_1080)
-        val picked = PlaybackModeDownloadRouter.presetForTier(DownloadPreset.BuiltIns, tier)
+    fun presetForResolutionTakesTheHighestThatFitsUnderTheCeiling() {
+        val picked = PlaybackModeDownloadRouter.presetForResolution(
+            DownloadPreset.BuiltIns,
+            VideoResolution.FULL_HD_1080,
+        )
         assertEquals(VideoResolution.FULL_HD_1080, picked?.targetResolution)
     }
 
     @Test
     fun aSlowConnectionDoesNotGetA4kPreset() {
-        val picked = PlaybackModeDownloadRouter.presetForTier(
+        val picked = PlaybackModeDownloadRouter.presetForResolution(
             DownloadPreset.BuiltIns,
-            tier(VideoResolution.SD),
+            VideoResolution.SD,
         )
         // Every built-in exceeds 480p, so the smallest is the honest answer - never a 2160p
         // preset chosen by accident because nothing matched.
@@ -66,8 +68,8 @@ class PlaybackModeDownloadRouterTest {
     }
 
     @Test
-    fun anUnknownTierIsTreatedConservatively() {
-        val picked = PlaybackModeDownloadRouter.presetForTier(DownloadPreset.BuiltIns, tier = null)
+    fun anUnknownConnectionIsTreatedConservatively() {
+        val picked = PlaybackModeDownloadRouter.presetForResolution(DownloadPreset.BuiltIns, ceiling = null)
         assertEquals(
             DownloadPreset.BuiltIns.minOf { it.targetResolution.height },
             picked?.targetResolution?.height,
@@ -77,13 +79,7 @@ class PlaybackModeDownloadRouterTest {
 
     @Test
     fun noPresetsMeansNoAutoStart() {
-        assertNull(PlaybackModeDownloadRouter.presetForTier(emptyList(), tier(VideoResolution.UHD_2160)))
+        assertNull(PlaybackModeDownloadRouter.presetForResolution(emptyList(), VideoResolution.UHD_2160))
     }
 
-    private fun tier(resolution: VideoResolution) = PlaybackQualityTier(
-        id = "test",
-        name = "Test",
-        targetResolution = resolution,
-        megabitsPerSecond = 10.0,
-    )
 }

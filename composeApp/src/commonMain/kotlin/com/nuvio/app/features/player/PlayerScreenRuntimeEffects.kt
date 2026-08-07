@@ -214,6 +214,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         autoDownshiftState = AutoDownshiftDetector.initial(autoDownshiftState.swapsUsed)
         autoDownshiftClock = TimeSource.Monotonic.markNow()
         autoDownshiftSourcesRequested = false
+        // A different file is a different bitrate, so the measurement starts over.
+        networkEstimateStartPositionMs = null
+        networkEstimateStalled = false
+        networkEstimateRecorded = false
     }
 
     // A session is one thing being watched. Moving to the next episode earns a fresh swap.

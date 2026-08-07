@@ -34,68 +34,58 @@ sealed interface PlaybackSelectionResult {
 object PlaybackSourceSelector {
     const val MIN_HEALTHY_SEEDERS = 5
 
+    /**
+     * Plays the chosen quality option.
+     *
+     * The option already *is* a ranked group of real sources, so there is nothing left to
+     * filter on quality here - no resolution ceiling, no byte cap, no overflow tier. What
+     * survives is the part that was never about quality: which protocols are safe to start
+     * unattended, and which debrid links might still be a "preparing" placeholder.
+     */
+    fun select(
+        option: PlaybackQualityOption,
+        context: PlaybackSelectionContext,
+    ): PlaybackSelectionResult = select(option.candidates, context)
+
+    /**
+     * Plays the best of [candidates] with no quality constraint.
+     *
+     * Used by Best available and by the sticky-pin path, which has already decided *which*
+     * release it wants and only needs the safety gates applied.
+     */
     fun select(
         candidates: List<PlaybackSourceCandidate>,
-        tier: PlaybackQualityTier?,
         context: PlaybackSelectionContext,
     ): PlaybackSelectionResult {
-        val cap = tier?.sizeCapBytes(context.runtimeMinutes, context.isEpisode)
-        val matchingQuality = candidates.filter { candidate ->
-            tier == null || candidate.facts.resolution?.height?.let {
-                it <= tier.targetResolution.height
-            } ?: true
-        }.filter { candidate ->
-            matchesRequirements(candidate.facts, tier)
-        }
-        val withinCap = matchingQuality.filter { candidate ->
-            cap == null || candidate.facts.sizeBytes?.let { it <= cap } ?: true
-        }
-        val protocolEligibleWithinCap = withinCap.filter { candidate ->
+        val eligible = candidates.filter { candidate ->
             isPlaybackProtocolEligible(candidate, context.allowTorrentSources)
         }
-        // A catalog is not guaranteed to contain a release beneath our preferred bandwidth
-        // budget. Streamlined must still streamline: if quality-compatible sources exist,
-        // choose the smallest safe overflow instead of abandoning the user on the Classic
-        // list. The cap remains the primary path and retains its largest-under-cap ranking.
-        val orderedWithinCap = protocolEligibleWithinCap.sortedWith(candidateComparator(tier))
-        val orderedOverflow = matchingQuality
-            .filter { it !in withinCap }
-            .filter { candidate ->
-                isPlaybackProtocolEligible(candidate, context.allowTorrentSources)
-            }
-            .sortedWith(overCapComparator(tier))
-        val playableWithinCap = orderedWithinCap.filterNot(::isUncachedDebrid)
-        playableWithinCap.firstOrNull()?.let { selected ->
+        val playable = eligible.filterNot(::isUncachedDebrid)
+        playable.firstOrNull()?.let { selected ->
             return PlaybackSelectionResult.Play(
                 stream = selected.stream,
-                fallbacks = playableWithinCap.drop(1).map(PlaybackSourceCandidate::stream),
+                fallbacks = playable.drop(1).map(PlaybackSourceCandidate::stream),
             )
         }
-        val playableOverflow = orderedOverflow.filterNot(::isUncachedDebrid)
-        playableOverflow.firstOrNull()?.let { selected ->
-            return PlaybackSelectionResult.Play(
-                stream = selected.stream,
-                fallbacks = playableOverflow.drop(1).map(PlaybackSourceCandidate::stream),
-            )
-        }
-        (orderedWithinCap + orderedOverflow).firstOrNull(::isUncachedDebrid)?.let { uncached ->
+        eligible.firstOrNull(::isUncachedDebrid)?.let { uncached ->
             return PlaybackSelectionResult.AskUncached(uncached.stream)
         }
         return PlaybackSelectionResult.NeedsManual(
-            if (matchingQuality.isEmpty()) "No source matched this quality tier"
+            if (candidates.isEmpty()) "No source matched this quality"
             else "No source can be auto-played safely",
         )
     }
 
-    private fun overCapComparator(tier: PlaybackQualityTier?): Comparator<PlaybackSourceCandidate> =
-        compareBy<PlaybackSourceCandidate> { it.facts.sizeBytes ?: Long.MAX_VALUE }
-            .then(candidateComparator(tier))
-
-    private fun candidateComparator(tier: PlaybackQualityTier?): Comparator<PlaybackSourceCandidate> {
+    /**
+     * The shared ordering, for callers that hold a bare candidate list rather than an option.
+     *
+     * P2P is deliberately behind every HTTP/debrid candidate even when explicitly enabled.
+     */
+    fun rank(candidates: List<PlaybackSourceCandidate>): List<PlaybackSourceCandidate> {
         val ranked = SourceRanking.comparator(
             preferences = SourceRankingPreferences(
-                codecPreference = tier?.codecPreference ?: CodecPreference.ANY,
-                dynamicRangePolicy = tier?.dynamicRangePolicy ?: DynamicRangePolicy.ANY,
+                codecPreference = CodecPreference.ANY,
+                dynamicRangePolicy = DynamicRangePolicy.ANY,
                 sizePreference = SizePreference.LARGEST_UNDER_CAP,
             ),
             midRangeTarget = null,
@@ -104,18 +94,9 @@ object PlaybackSourceSelector {
             addonOrderOf = PlaybackSourceCandidate::addonOrder,
             stableUrlOf = { it.stream.playableDirectUrl.orEmpty() },
         )
-        // P2P is deliberately behind every HTTP/debrid candidate even when explicitly enabled.
-        return compareBy<PlaybackSourceCandidate> { it.stream.isTorrentStream }.then(ranked)
-    }
-
-    private fun matchesRequirements(facts: SourceFacts, tier: PlaybackQualityTier?): Boolean {
-        tier ?: return true
-        val hasHdr = facts.dynamicRange.isNotEmpty()
-        return when (tier.dynamicRangePolicy) {
-            DynamicRangePolicy.REQUIRE_HDR -> hasHdr
-            DynamicRangePolicy.REQUIRE_DOLBY_VISION -> "DOLBY_VISION" in facts.dynamicRange
-            else -> true
-        }
+        return candidates.sortedWith(
+            compareBy<PlaybackSourceCandidate> { it.stream.isTorrentStream }.then(ranked),
+        )
     }
 
     private fun isPlaybackProtocolEligible(
@@ -169,13 +150,24 @@ object PlaybackSourceSelector {
             candidate.stream.isDirectDebridStream
 }
 
+/**
+ * Whether the stream request has settled enough to decide on.
+ *
+ * Firing on the first quiet moment picks from a half-filled list; never firing leaves the
+ * quality sheet spinning with every row disabled and only the dismiss button working. The
+ * third clause is what closes that second failure: a fetch can finish with streams present
+ * that all fail the protocol or cache gates, and `toEmptyStateReason` deliberately reports
+ * no empty state in that case - so without it, "settled but nothing is selectable" waited
+ * forever for a signal that was never coming.
+ */
 internal fun isStreamlinedSelectionReady(
     requestToken: String?,
     expectedRequestToken: String,
     isAnyLoading: Boolean,
     candidateCount: Int,
     hasTerminalEmptyState: Boolean,
+    hasStreams: Boolean = false,
 ): Boolean =
     requestToken == expectedRequestToken &&
         !isAnyLoading &&
-        (candidateCount > 0 || hasTerminalEmptyState)
+        (candidateCount > 0 || hasTerminalEmptyState || hasStreams)

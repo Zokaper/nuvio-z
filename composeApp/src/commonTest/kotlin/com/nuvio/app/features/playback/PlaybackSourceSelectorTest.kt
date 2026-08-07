@@ -36,6 +36,23 @@ class PlaybackSourceSelectorTest {
     }
 
     @Test
+    fun settledWithStreamsButNoCandidatesIsTerminal() {
+        // The stuck sheet: a fetch finishes with streams present that all fail the protocol
+        // or cache gates. `toEmptyStateReason` reports no empty state in that case, so
+        // without the streams clause this waited forever with every row disabled.
+        assertTrue(
+            isStreamlinedSelectionReady(
+                requestToken = "episode",
+                expectedRequestToken = "episode",
+                isAnyLoading = false,
+                candidateCount = 0,
+                hasTerminalEmptyState = false,
+                hasStreams = true,
+            ),
+        )
+    }
+
+    @Test
     fun allowsHttpHlsAndDashButRejectsTorrentFiles() {
         val result = select(
             candidate("https://cdn.example/video.torrent", resolution = VideoResolution.UHD_2160),
@@ -96,42 +113,9 @@ class PlaybackSourceSelectorTest {
     }
 
     @Test
-    fun bandwidthCapRejectsOversizedSourceAndKeepsOrderedFallbacks() {
-        val oversized = candidate("https://cdn.example/4k.mkv", VideoResolution.UHD_2160, size = 9_000_000_000)
-        val best = candidate("https://cdn.example/1080.mkv", VideoResolution.FULL_HD_1080, size = 2_000_000_000)
-        val fallback = candidate("https://cdn.example/720.mkv", VideoResolution.HD_720, size = 1_000_000_000)
-        val tier = PlaybackQualityTier(
-            id = "test",
-            name = "Test",
-            targetResolution = VideoResolution.UHD_2160,
-            megabitsPerSecond = 10.0,
-        )
-
-        val result = assertIs<PlaybackSelectionResult.Play>(
-            PlaybackSourceSelector.select(
-                listOf(oversized, fallback, best),
-                tier,
-                PlaybackSelectionContext(runtimeMinutes = 45, isEpisode = true),
-            ),
-        )
-        assertEquals(best.stream, result.stream)
-        assertEquals(listOf(fallback.stream), result.fallbacks)
-    }
-
-    @Test
-    fun catalogWithOnlyOverCapSourcesChoosesSmallestSafeSource() {
-        val largest = candidate("https://cdn.example/large.mkv", VideoResolution.UHD_2160, size = 9_130_000_000)
-        val smallest = candidate("https://cdn.example/small.mkv", VideoResolution.UHD_2160, size = 6_470_000_000)
-        val middle = candidate("https://cdn.example/middle.mkv", VideoResolution.UHD_2160, size = 6_990_000_000)
-
-        val result = assertIs<PlaybackSelectionResult.Play>(select(largest, smallest, middle))
-
-        assertEquals(smallest.stream, result.stream)
-        assertEquals(listOf(middle.stream, largest.stream), result.fallbacks)
-    }
-
-    @Test
-    fun cachedAioInfoHashesFromReportedCatalogChooseSmallestOverflow() {
+    fun aCachedAioInfoHashCatalogIsPlayableEndToEnd() {
+        // The shape that broke Streamlined entirely in 0.4.2-beta: AIOStreams returns only an
+        // infohash and advertises the cache state in the display name.
         fun aio(size: Long) = PlaybackSourceCandidate(
             stream = StreamItem(
                 name = "[TB ⚡] Comet 2160p",
@@ -149,19 +133,21 @@ class PlaybackSourceSelectorTest {
         )
 
         val largest = aio(9_130_000_000)
-        val middle = aio(6_990_000_000)
-        val smallest = aio(6_470_000_000)
-        val result = assertIs<PlaybackSelectionResult.Play>(
-            PlaybackSourceSelector.select(
-                listOf(largest, middle, smallest),
-                PlaybackQualityTier.Ultra,
-                PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true),
-            ),
+        val context = PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true)
+        val options = PlaybackQualityOptions.build(
+            listOf(largest, aio(6_990_000_000), aio(6_470_000_000)),
+            context,
         )
 
-        assertEquals(smallest.stream, result.stream)
-    }
+        // 15.7-22.1 Mbps across the three: one 4K row, not a High and a Low. A split the
+        // user cannot act on is worse than no split.
+        val row = options.single { it.resolution == VideoResolution.UHD_2160 }
+        assertEquals(PlaybackQualityOption.Variant.SINGLE, row.variant)
 
+        val result = assertIs<PlaybackSelectionResult.Play>(PlaybackSourceSelector.select(row, context))
+        assertEquals(largest.stream, result.stream)
+        assertEquals(2, result.fallbacks.size)
+    }
 
     @Test
     fun aDebridSourceOfUnknownCacheStateIsNeverAutoPlayed() {
@@ -226,8 +212,7 @@ class PlaybackSourceSelectorTest {
         vararg candidates: PlaybackSourceCandidate,
         allowTorrents: Boolean = false,
     ) = PlaybackSourceSelector.select(
-        candidates.toList(),
-        PlaybackQualityTier.Ultra,
+        PlaybackSourceSelector.rank(candidates.toList()),
         PlaybackSelectionContext(isEpisode = true, allowTorrentSources = allowTorrents),
     )
 

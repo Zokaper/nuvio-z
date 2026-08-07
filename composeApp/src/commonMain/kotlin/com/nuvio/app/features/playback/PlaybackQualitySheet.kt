@@ -22,17 +22,30 @@ import nuvio.composeapp.generated.resources.playback_quality_best
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual
-import nuvio.composeapp.generated.resources.playback_quality_summary
+import nuvio.composeapp.generated.resources.playback_quality_needs
+import nuvio.composeapp.generated.resources.playback_quality_needs_estimated
+import nuvio.composeapp.generated.resources.playback_quality_summary_with_size
 import nuvio.composeapp.generated.resources.playback_quality_title
+import nuvio.composeapp.generated.resources.playback_quality_variant_high
+import nuvio.composeapp.generated.resources.playback_quality_variant_low
+import com.nuvio.app.features.updater.formatFileSize
 import org.jetbrains.compose.resources.stringResource
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+/**
+ * Streamlined's quality picker.
+ *
+ * Every row here came from a source that exists for this title, so the list is different on
+ * every title and a quality nobody released simply has no row. The bandwidth figure is the
+ * one the chosen file actually needs, not a preset's nominal number.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaybackQualitySheet(
-    tiers: List<PlaybackQualityTier>,
+    options: List<PlaybackQualityOption>,
     isLoading: Boolean,
-    onTierSelected: (PlaybackQualityTier?) -> Unit,
+    onOptionSelected: (PlaybackQualityOption) -> Unit,
     onChooseManually: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -60,22 +73,12 @@ fun PlaybackQualitySheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                QualityRow(
-                    title = stringResource(Res.string.playback_quality_best),
-                    summary = stringResource(Res.string.playback_quality_description),
-                    enabled = !isLoading,
-                    onClick = { onTierSelected(null) },
-                )
-                tiers.sortedByDescending { it.targetResolution.height }.forEach { tier ->
+                options.forEach { option ->
                     QualityRow(
-                        title = tier.name,
-                        summary = stringResource(
-                            Res.string.playback_quality_summary,
-                            tier.targetResolution.height,
-                            tier.megabitsPerSecond.roundToInt(),
-                        ),
+                        title = optionTitle(option),
+                        summary = optionSummary(option),
                         enabled = !isLoading,
-                        onClick = { onTierSelected(tier) },
+                        onClick = { onOptionSelected(option) },
                     )
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -86,6 +89,34 @@ fun PlaybackQualitySheet(
             }
         }
     }
+}
+
+@Composable
+private fun optionTitle(option: PlaybackQualityOption): String = when (option.variant) {
+    PlaybackQualityOption.Variant.BEST -> stringResource(Res.string.playback_quality_best)
+    PlaybackQualityOption.Variant.HIGH ->
+        "${option.resolutionLabel} ${stringResource(Res.string.playback_quality_variant_high)}"
+    PlaybackQualityOption.Variant.LOW ->
+        "${option.resolutionLabel} ${stringResource(Res.string.playback_quality_variant_low)}"
+    PlaybackQualityOption.Variant.SINGLE -> option.resolutionLabel
+}
+
+@Composable
+private fun optionSummary(option: PlaybackQualityOption): String {
+    val required = option.requiredMbps
+        ?: return stringResource(Res.string.playback_quality_description)
+    // Rounded up: quoting 4 Mb/s for something that needs 4.6 is the one direction that
+    // turns an informed choice into a stall.
+    val speed = stringResource(
+        if (option.isEstimateApproximate) {
+            Res.string.playback_quality_needs_estimated
+        } else {
+            Res.string.playback_quality_needs
+        },
+        ceil(required).roundToInt(),
+    )
+    val size = option.representativeSizeBytes?.let(::formatFileSize) ?: return speed
+    return stringResource(Res.string.playback_quality_summary_with_size, speed, size)
 }
 
 @Composable

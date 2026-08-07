@@ -1,6 +1,7 @@
 package com.nuvio.app.features.playback
 
 import com.nuvio.app.features.downloads.DownloadPreset
+import com.nuvio.app.features.downloads.VideoResolution
 
 /**
  * Which download entry point a playback mode opens.
@@ -60,18 +61,22 @@ object PlaybackModeDownloadRouter {
     }
 
     /**
-     * The preset that best fits [tier], for Instant's no-dialog start.
+     * The preset that best fits [ceiling], for Instant's no-dialog start.
      *
-     * A download preset is a *storage* budget and a playback tier is a *bandwidth* budget -
-     * deliberately different types, per the plan. They are only comparable through target
-     * resolution, so that is the single axis used here: the highest preset that does not
-     * exceed the tier, falling back to the smallest preset when every one of them does.
+     * A download preset is a *storage* budget, and what the connection can sustain is a
+     * bandwidth one; resolution is the only axis on which they are comparable, so it is the
+     * only one used. The highest preset that does not exceed the ceiling wins, falling back
+     * to the smallest preset when every one of them does.
+     *
+     * This is the download *entry point* only - it never reaches the queue or the transfer
+     * stack. Playback does not come here: it costs real sources instead of guessing from
+     * the connection, which it can only do because it has a candidate list and this does not.
      *
      * Returns null only when there are no presets at all.
      */
-    fun presetForTier(presets: List<DownloadPreset>, tier: PlaybackQualityTier?): DownloadPreset? {
+    fun presetForResolution(presets: List<DownloadPreset>, ceiling: VideoResolution?): DownloadPreset? {
         if (presets.isEmpty()) return null
-        val ceiling = tier?.targetResolution ?: return presets.smallest()
+        ceiling ?: return presets.smallest()
         return presets
             .filter { it.targetResolution.height <= ceiling.height }
             .maxByOrNull { it.targetResolution.height }

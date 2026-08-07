@@ -35,6 +35,15 @@ data class SourceFacts(
     val resolution: VideoResolution? = null,
     /** Largest reported or verified size. This is always used for cap enforcement. */
     val sizeBytes: Long? = null,
+    /**
+     * This particular file's runtime, when the addon reported one.
+     *
+     * A per-source runtime is what turns a size into a bitrate honestly. The title-level
+     * runtime is often absent - Continue Watching carries none at all - and always describes
+     * the *title*, not the release, so an extended cut divided by the theatrical runtime
+     * reads as a higher bitrate than it is.
+     */
+    val durationSeconds: Long? = null,
     val reportedSizes: List<Long> = emptyList(),
     /** Exact byte reports from structured fields, Stremio hints, or HTTP verification. */
     val hardReportedSizes: List<Long> = emptyList(),
@@ -161,6 +170,7 @@ object SourceFactsExtractor {
         val facts = SourceFacts(
             resolution = resolution,
             sizeBytes = reportedSizes.maxOrNull(),
+            durationSeconds = normalizeDurationSeconds(nuvioParsed?.duration),
             reportedSizes = reportedSizes,
             hardReportedSizes = hardReportedSizes,
             codec = normalizeCodec(nuvioParsed?.codec)
@@ -268,6 +278,27 @@ object SourceFactsExtractor {
             releaseQuality = QUALITY_TOKENS.firstOrNull { it in lower }?.uppercase(),
         ).takeIf(TextFacts::hasAnyFact)
     }
+
+    /**
+     * The reported duration in seconds, or null when it is absent or not credible.
+     *
+     * The unit is not documented by the addons that send it, so it is inferred rather than
+     * assumed: anything above [MAX_CREDIBLE_DURATION_SECONDS] can only be milliseconds, and
+     * anything still out of range after that conversion is discarded. A wrong unit here
+     * would silently divide or multiply every derived bitrate by a thousand, so refusing to
+     * guess is worth more than the occasional lost sample.
+     */
+    internal fun normalizeDurationSeconds(value: Long?): Long? {
+        val raw = value?.takeIf { it > 0L } ?: return null
+        val seconds = if (raw > MAX_CREDIBLE_DURATION_SECONDS) raw / 1_000L else raw
+        return seconds.takeIf { it in MIN_CREDIBLE_DURATION_SECONDS..MAX_CREDIBLE_DURATION_SECONDS }
+    }
+
+    /** Two minutes. Below this it is a trailer or a placeholder, not the feature. */
+    private const val MIN_CREDIBLE_DURATION_SECONDS = 120L
+
+    /** Sixteen hours. Above this the value cannot be seconds. */
+    private const val MAX_CREDIBLE_DURATION_SECONDS = 57_600L
 
     private fun parseResolution(value: String?): VideoResolution? {
         val lower = value?.lowercase() ?: return null

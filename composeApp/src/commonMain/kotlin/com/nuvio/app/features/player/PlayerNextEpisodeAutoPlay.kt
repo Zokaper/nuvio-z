@@ -9,7 +9,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.playback.PlaybackMode
-import com.nuvio.app.features.playback.PlaybackQualityTier
+import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
@@ -150,6 +150,13 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
 
         fun tryModeSourceSelection(streams: List<StreamItem>): StreamItem? {
             if (settings.playbackMode == PlaybackMode.CLASSIC) return null
+            // The episode's own runtime, so a derived option's bitrate is honest here too.
+            // This context used to omit it and always assumed the 45-minute fallback.
+            val selectionContext = PlaybackSelectionContext(
+                runtimeMinutes = nextVideo.runtime,
+                isEpisode = true,
+                allowTorrentSources = settings.playbackAllowTorrentAutopick,
+            )
             val candidates = streams.mapIndexed { index, stream ->
                 PlaybackSourceCandidate(
                     stream = stream,
@@ -184,30 +191,19 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                     }
                 }
                 if (pinned != null) {
-                    val pinnedResult = PlaybackSourceSelector.select(
-                        listOf(pinned),
-                        tier = null,
-                        PlaybackSelectionContext(
-                            isEpisode = true,
-                            allowTorrentSources = settings.playbackAllowTorrentAutopick,
-                        ),
-                    )
+                    val pinnedResult = PlaybackSourceSelector.select(listOf(pinned), selectionContext)
                     if (pinnedResult is PlaybackSelectionResult.Play) return pinnedResult.stream
                 }
             }
-            val tier = when (settings.playbackMode) {
-                PlaybackMode.STREAMLINED -> PlaybackQualityTier.Standard
-                PlaybackMode.INSTANT -> NetworkQualityRepository.resolveTier(settings.playbackQualityTiers)
-                PlaybackMode.CLASSIC -> null
-            }
-            return when (val result = PlaybackSourceSelector.select(
-                candidates = candidates,
-                tier = tier,
-                context = PlaybackSelectionContext(
-                    isEpisode = true,
-                    allowTorrentSources = settings.playbackAllowTorrentAutopick,
-                ),
-            )) {
+            // The same derived options the sheet would show, picked the way Instant picks
+            // them. Streamlined used to hardcode the 1080p preset here and Instant resolved
+            // its own tier, which meant two pickers scoring one candidate set.
+            val options = PlaybackQualityOptions.build(candidates, selectionContext)
+            val option = PlaybackQualityOptions.highestAffordable(
+                options = options,
+                estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
+            ) ?: return null
+            return when (val result = PlaybackSourceSelector.select(option, selectionContext)) {
                 is PlaybackSelectionResult.Play -> result.stream
                 else -> null
             }

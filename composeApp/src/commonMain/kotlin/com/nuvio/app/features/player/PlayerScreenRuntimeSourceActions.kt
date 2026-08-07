@@ -10,6 +10,7 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
+import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.playback.AutoDownshiftCandidates
 import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.PlaybackMode
@@ -229,6 +230,53 @@ internal fun PlayerScreenRuntime.switchToP2pEpisodeStream(
     activeTorrentTrackers = stream.p2pTrackers
     applyEpisodeStreamMetadata(stream, episode, resume)
 }
+
+/**
+ * Turns "this bitrate played fine" into a network measurement.
+ *
+ * The estimate exists so Instant can tell a 5 Mbps encode from a 40 Mbps remux, and until
+ * now nothing on the playback path ever fed it - only the download stack did, so a user who
+ * never downloads was permanently judged by a hardcoded platform guess.
+ *
+ * What is recorded is a **lower bound**, and only that. A stream arrives at the file's own
+ * bitrate and no faster, so a clean playback proves the line can carry *at least* this much
+ * and says nothing about the ceiling; [NetworkQualityRepository.recordSustainedBitrate] is
+ * monotonic for exactly that reason. Sampling is deliberately once per source and only after
+ * a full minute of unstarved playback, because the interesting failure - a source that
+ * starts fine and starves at the two-minute mark - must not be counted as a success.
+ */
+internal fun PlayerScreenRuntime.observePlaybackForNetworkEstimate() {
+    if (networkEstimateRecorded || networkEstimateStalled) return
+    val snapshot = playbackSnapshot
+    if (snapshot.isEnded || !snapshot.isPlaying) return
+
+    val start = networkEstimateStartPositionMs ?: snapshot.positionMs.also {
+        networkEstimateStartPositionMs = it
+    }
+    val played = snapshot.positionMs - start
+
+    // Startup buffering is not starvation, and judging it as such would disqualify every
+    // source before it ever settled: `PlayerPlaybackSnapshot` starts with `isLoading = true`
+    // and the buffer is empty by definition. This is the same reason
+    // [AutoDownshiftDetector.SETTLE_GRACE_MS] exists, and it is the same grace.
+    if (played < AutoDownshiftDetector.SETTLE_GRACE_MS) return
+
+    // Past the grace, a stall disqualifies this source for the rest of the session: a file
+    // that starts fine and starves two minutes in is not evidence the line can carry it.
+    if (snapshot.isLoading ||
+        snapshot.bufferedPositionMs - snapshot.positionMs <= AutoDownshiftDetector.STARVED_BUFFER_MS
+    ) {
+        networkEstimateStalled = true
+        NetworkQualityRepository.cancelPlaybackObservation()
+        return
+    }
+    if (played < NETWORK_ESTIMATE_CLEAN_PLAYBACK_MS) return
+    networkEstimateRecorded = true
+    NetworkQualityRepository.confirmPlaybackBitrate()
+}
+
+/** One minute of playback, the settle grace included, before a bitrate counts as sustained. */
+private const val NETWORK_ESTIMATE_CLEAN_PLAYBACK_MS = 60_000L
 
 /**
  * Instant's automatic source downshift, folded once per playback snapshot.

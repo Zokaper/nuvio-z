@@ -137,6 +137,11 @@ internal class PlayerScreenRuntime(
     var autoDownshiftState by mutableStateOf(AutoDownshiftDetector.initial())
     var autoDownshiftClock by mutableStateOf(TimeSource.Monotonic.markNow())
     var autoDownshiftSourcesRequested by mutableStateOf(false)
+
+    /** Per-source state for the passive network measurement; see `observePlaybackForNetworkEstimate`. */
+    var networkEstimateStartPositionMs by mutableStateOf<Long?>(null)
+    var networkEstimateStalled by mutableStateOf(false)
+    var networkEstimateRecorded by mutableStateOf(false)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)

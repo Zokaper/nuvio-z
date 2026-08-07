@@ -235,6 +235,8 @@ import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressOverlay
 import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
+import com.nuvio.app.features.playback.PlaybackQualityOption
+import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackRouteDecision
 import com.nuvio.app.features.playback.PlaybackRouteInputs
@@ -2513,7 +2515,8 @@ private fun MainAppContent(
                     var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var streamlinedSelectionPending by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    var pendingStreamlinedTierId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
+                    // Ids are resolution+variant, so they survive the refetch this round-trips through.
+                    var pendingStreamlinedOptionId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Streamlined covers the source list with the quality sheet until a tier is
@@ -2734,6 +2737,23 @@ private fun MainAppContent(
                                 }
                             }
                         }
+                    }
+                    val playbackSelectionContext = remember(
+                        launch.runtimeMinutes,
+                        launch.seasonNumber,
+                        launch.episodeNumber,
+                        playerSettings.playbackAllowTorrentAutopick,
+                    ) {
+                        PlaybackSelectionContext(
+                            runtimeMinutes = launch.runtimeMinutes,
+                            isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
+                            allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
+                        )
+                    }
+                    // The quality choices for *this* title, derived from what the addons actually
+                    // returned. A quality nobody released simply produces no row.
+                    val playbackQualityOptions = remember(playbackCandidates, playbackSelectionContext) {
+                        PlaybackQualityOptions.build(playbackCandidates, playbackSelectionContext)
                     }
                     val stickyContentId = remember(launch.parentMetaId, launch.seasonNumber) {
                         val seriesId = launch.parentMetaId
@@ -3217,21 +3237,35 @@ private fun MainAppContent(
                     }
 
                     val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
-                    fun completeStreamlinedTierSelection(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
+
+                    /**
+                     * Arms the passive network measurement with what this source really costs.
+                     *
+                     * Confirmed only after a minute of unstarved playback, in
+                     * `observePlaybackForNetworkEstimate` - starting a stream proves nothing.
+                     */
+                    fun armNetworkObservation(stream: StreamItem) {
+                        val candidate = playbackCandidates.firstOrNull { it.stream === stream }
+                            ?: return
+                        val mbps = PlaybackQualityOptions.bitrateMbps(candidate, playbackSelectionContext)
+                            ?: return NetworkQualityRepository.cancelPlaybackObservation()
+                        NetworkQualityRepository.notePlaybackBitrate(
+                            mbps = mbps,
+                            providerId = candidate.facts.debridService ?: candidate.facts.providerId,
+                        )
+                    }
+
+                    fun completeStreamlinedOptionSelection(option: PlaybackQualityOption) {
                         when (
                             val result = PlaybackSourceSelector.select(
-                                candidates = playbackCandidates,
-                                tier = tier,
-                                context = PlaybackSelectionContext(
-                                    runtimeMinutes = launch.runtimeMinutes,
-                                    isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
-                                    allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
-                                ),
+                                option = option,
+                                context = playbackSelectionContext,
                             )
                         ) {
                             is PlaybackSelectionResult.Play -> {
                                 qualitySheetDismissed = true
                                 streamlinedPlaybackStarting = true
+                                armNetworkObservation(result.stream)
                                 openSelectedStream(
                                     stream = result.stream,
                                     resolvedResumePositionMs = launch.resumePositionMs,
@@ -3251,19 +3285,18 @@ private fun MainAppContent(
                         }
                     }
 
-                    fun selectStreamlinedTier(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
-                        pendingStreamlinedTierId = tier?.id
+                    fun selectStreamlinedOption(option: PlaybackQualityOption) {
+                        pendingStreamlinedOptionId = option.id
                         streamlinedSelectionPending = true
                     }
 
                     LaunchedEffect(
                         streamlinedSelectionPending,
-                        pendingStreamlinedTierId,
-                        playbackCandidates,
+                        pendingStreamlinedOptionId,
+                        playbackQualityOptions,
                         streamsUiState.requestToken,
                         streamsUiState.isAnyLoading,
                         streamsUiState.emptyStateReason,
-                        playerSettings.playbackQualityTiers,
                     ) {
                         if (!streamlinedSelectionPending) return@LaunchedEffect
                         if (
@@ -3273,16 +3306,27 @@ private fun MainAppContent(
                                 isAnyLoading = streamsUiState.isAnyLoading,
                                 candidateCount = playbackCandidates.size,
                                 hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
+                                hasStreams = streamsUiState.groups.any { it.streams.isNotEmpty() },
                             )
                         ) return@LaunchedEffect
 
-                        val tierId = pendingStreamlinedTierId
-                        val tier = tierId?.let { id ->
-                            playerSettings.playbackQualityTiers.firstOrNull { it.id == id }
-                                ?: return@LaunchedEffect
-                        }
+                        // Every exit past this point clears the flag. It gates the sheet's
+                        // spinner, so a path that returns while it is still set leaves the
+                        // user looking at disabled rows with nothing left to complete them.
                         streamlinedSelectionPending = false
-                        completeStreamlinedTierSelection(tier)
+                        val optionId = pendingStreamlinedOptionId
+                        val option = playbackQualityOptions.firstOrNull { it.id == optionId }
+                        // The tapped row can genuinely vanish - a refetch may return a
+                        // different catalogue - so fall back to Best available rather than
+                        // stranding a user who has already chosen.
+                            ?: playbackQualityOptions.firstOrNull()
+                        if (option == null) {
+                            qualitySheetDismissed = true
+                            manualSourceListRequested = true
+                            NuvioToastController.show(noAutomaticSourceMessage)
+                            return@LaunchedEffect
+                        }
+                        completeStreamlinedOptionSelection(option)
                     }
 
                     LaunchedEffect(
@@ -3301,44 +3345,47 @@ private fun MainAppContent(
                         val network = NetworkQualityRepository.current()
                         if (network.isMetered && meteredChoice == null) return@LaunchedEffect
 
-                        val estimatedTier = NetworkQualityRepository.resolveTier(playerSettings.playbackQualityTiers)
-                        val tier = if (network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED) {
-                            playerSettings.playbackQualityTiers
-                                .filter { it.targetResolution.height <= playerSettings.playbackMeteredCapHeight }
-                                .maxByOrNull { it.megabitsPerSecond }
-                                ?: playerSettings.playbackQualityTiers.minByOrNull { it.megabitsPerSecond }
-                                ?: estimatedTier
-                        } else {
-                            estimatedTier
-                        }
-                        fun selectFor(resolvedTier: com.nuvio.app.features.playback.PlaybackQualityTier) =
-                            PlaybackSourceSelector.select(
-                                candidates = playbackCandidates,
-                                tier = resolvedTier,
-                                context = PlaybackSelectionContext(
-                                    runtimeMinutes = launch.runtimeMinutes,
-                                    isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
-                                    allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
-                                ),
-                            )
+                        // The metered cap is a resolution ceiling, applied to the derived rows
+                        // exactly as it used to be applied to the preset list.
+                        val maxHeight = playerSettings.playbackMeteredCapHeight
+                            .takeIf { network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED }
+                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.highestAffordable(
+                            options = playbackQualityOptions,
+                            estimatedMbps = estimateMbps,
+                            maxHeight = maxHeight,
+                        )
 
-                        val first = selectFor(tier)
+                        val option = pickFor(network.estimatedMbps)
+                        val first = option?.let {
+                            PlaybackSourceSelector.select(option = it, context = playbackSelectionContext)
+                        } ?: PlaybackSelectionResult.NeedsManual(noAutomaticSourceMessage)
+                        // On debrid the throughput belongs to the host, not to the line: a fast
+                        // connection through a slow provider must not read as "4K is fine".
                         val selection = if (first is PlaybackSelectionResult.Play && !network.isMetered) {
-                            val provider = SourceFactsExtractor.extract(first.stream).debridService
-                                ?: SourceFactsExtractor.extract(first.stream).providerId
-                            val providerTier = NetworkQualityRepository.resolveTier(
-                                playerSettings.playbackQualityTiers,
-                                provider,
-                            )
-                            if (providerTier != tier) selectFor(providerTier) else first
+                            val facts = playbackCandidates
+                                .firstOrNull { it.stream === first.stream }?.facts
+                            val provider = facts?.debridService ?: facts?.providerId
+                            val providerEstimate = NetworkQualityRepository.current(provider).estimatedMbps
+                            val providerOption = pickFor(providerEstimate)
+                            if (providerOption != null && providerOption.id != option?.id) {
+                                PlaybackSourceSelector.select(
+                                    option = providerOption,
+                                    context = playbackSelectionContext,
+                                )
+                            } else {
+                                first
+                            }
                         } else {
                             first
                         }
                         instantSelectionHandled = true
                         when (selection) {
-                            is PlaybackSelectionResult.Play -> StreamsRepository.seedAutoPlayCandidates(
-                                listOf(selection.stream) + selection.fallbacks,
-                            )
+                            is PlaybackSelectionResult.Play -> {
+                                armNetworkObservation(selection.stream)
+                                StreamsRepository.seedAutoPlayCandidates(
+                                    listOf(selection.stream) + selection.fallbacks,
+                                )
+                            }
                             is PlaybackSelectionResult.AskUncached -> {
                                 manualSourceListRequested = true
                                 NuvioToastController.show(noAutomaticSourceMessage)
@@ -3432,20 +3479,20 @@ private fun MainAppContent(
                             !qualitySheetDismissed && !reuseNavigated
                         ) {
                             PlaybackQualitySheet(
-                                tiers = playerSettings.playbackQualityTiers,
+                                options = playbackQualityOptions,
                                 isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
                                     streamsUiState.isAnyLoading ||
                                     streamlinedSelectionPending,
-                                onTierSelected = ::selectStreamlinedTier,
+                                onOptionSelected = ::selectStreamlinedOption,
                                 onChooseManually = {
                                     streamlinedSelectionPending = false
-                                    pendingStreamlinedTierId = null
+                                    pendingStreamlinedOptionId = null
                                     qualitySheetDismissed = true
                                     manualSourceListRequested = true
                                 },
                                 onDismiss = {
                                     streamlinedSelectionPending = false
-                                    pendingStreamlinedTierId = null
+                                    pendingStreamlinedOptionId = null
                                     qualitySheetDismissed = true
                                     manualSourceListRequested = true
                                 },

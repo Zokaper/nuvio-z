@@ -49,6 +49,12 @@ enum class PlaybackMode {
  * shrank a preset to fit a season on their phone silently degraded their streaming too.
  *
  * What the two *do* share is ranking - see [com.nuvio.app.features.downloads.SourceRanking].
+ *
+ * **Dormant.** Nothing reads a tier to choose a source any more: quality options are derived
+ * from the catalogue instead - see [PlaybackQualityOptions]. The type, its storage key and
+ * its sync entries are kept only so an existing install's stored blob stays readable and the
+ * `syncKeysToClear` contract is not disturbed mid-change; an incomplete edit to that key set
+ * is what wiped the playback settings in `0.4.0-beta`. Remove it in its own commit.
  */
 @Serializable
 data class PlaybackQualityTier(
