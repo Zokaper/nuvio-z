@@ -34,6 +34,31 @@ The public Supabase client configuration used for personal builds is kept in
 the ignored `local.properties`; do not move it into tracked source. Before a
 commit or push, inspect staged files and run a targeted secret scan.
 
+## What a Download Has To Be
+
+**The standard is a Netflix download.** Start it, reorder it, pause it, resume
+it, close the app, lose the network, come back tomorrow: it finishes, or it says
+plainly why it cannot. Hold every change to the download stack against that.
+
+Concretely, and each of these has been violated at least once:
+
+- **No row that stops moving.** A download is either progressing, waiting for a
+  named reason the user can see, or finished. "Stuck at 43%" is a bug even when
+  something behind it is still running.
+- **No state only a restart can leave.** Every stopped download needs something
+  that will start it again - a retry timer, a platform that resumes it, or the
+  queue itself. If nothing owns that, the state must not exist.
+- **The user never has to know what a debrid link is.** Expiry, re-minting,
+  cache misses and provider outages are the app's problem. What reaches the user
+  is progress, or a message they can act on.
+- **A finished download is the whole file.** Byte counts that match an
+  authoritative total, `.part` files that survive, and no placeholder video
+  accepted as an episode.
+
+New download work is not done when it compiles and the unit tests pass. It is
+done when the desktop harness covers the fault it claims to fix - see item 3 of
+"Verifying without Gradle".
+
 ## Working Rules
 
 - Preserve unrelated user changes in the working tree.
@@ -52,6 +77,23 @@ commit or push, inspect staged files and run a targeted secret scan.
 - Persist every download state transition and preserve resumable `.part` files.
 - Resolve at most three episodes concurrently and transfer at most two files
   concurrently.
+- The download picker and the playback picker share one ranking comparator
+  (`features/downloads/SourceRanking.kt`) but **keep separate protocol gates**.
+  HLS, DASH, magnets and torrent files stay manual for downloads; playback may
+  auto-pick HLS/DASH, and torrent sources only behind the user's
+  `playback_allow_torrent_autopick` toggle.
+- A player property read on more than one engine must mean the same thing on each. mpv's
+  `demuxer-cache-time` is an **absolute** stream timestamp, not a duration ahead of the
+  position; iOS shipped it as a duration and its buffer readout grew with playback until
+  2026-08-07. When the three engines disagree, two agreeing implementations settle it - a
+  device is not required.
+- Anything that samples `PlayerPlaybackSnapshot` over time must be expressed in **wall-clock
+  duration, not snapshot counts**. Android polls every ~250 ms and desktop every 500 ms, so a
+  count-based threshold silently means two different things.
+- Source selection inside `entry<StreamRoute>` follows one precedence order:
+  `manualSelection` > completed local download > sticky pin > reuse-last-link >
+  playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
+  scoring the same candidates must never both run.
 
 ## Important Areas
 
@@ -71,8 +113,44 @@ commit or push, inspect staged files and run a targeted secret scan.
   `features/details/MetaDetailsScreen.kt`
 - Stream/AIO models:
   `features/streams/StreamModels.kt`, `StreamParser.kt`
+- Playback modes (Classic/Streamlined/Instant) - see `PLAYBACK_MODES_PLAN.md`:
+  `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
+  `PlaybackModeRepository.kt`, `PlaybackSourceSelector.kt`,
+  `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
+  `features/playback/AutoDownshiftDetector.kt`
 
 ## Build and Verification
+
+**Gradle does work on the maintainer's own Windows machine**, even though it cannot
+configure in the Claude/Codex sandbox. It needs two environment variables, because
+`JAVA_HOME` is unset there and `local.properties` is ignored and may carry no
+`sdk.dir`:
+
+```bash
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:testAndroidHostTest --console=plain --max-workers=4
+```
+
+The same two variables run the desktop suite in `NuvioZDesktop`:
+
+```bash
+JAVA_HOME="/c/Program Files/Android/Android Studio/jbr" \
+ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
+  ./gradlew.bat :composeApp:desktopTest --console=plain --max-workers=4
+```
+
+**That compiles `desktopMain`**, so on the real machine `desktop-release.yml
+mode=build-only` is no longer the only way to catch a missing desktop `actual` - it is
+just the only way in CI. Run `desktopTest` locally after touching any `expect`.
+
+Set both per-invocation rather than writing `sdk.dir` into `local.properties` - that
+file is ignored, carries the Supabase configuration, and must not be edited casually.
+Without `ANDROID_HOME` the build fails at *"SDK location not found"* during task
+dependency resolution, which reads like a configuration failure but is not one. A
+first run takes 3-4 minutes; later runs are much faster. Prefer this over the sandbox
+workarounds below whenever the real machine is available - it runs the actual suite
+instead of a hand-assembled subset.
 
 Run commands from the repository root on Windows:
 
@@ -89,6 +167,14 @@ For focused download tests:
   --tests "com.nuvio.app.features.downloads.SourceFactsExtractorTest" `
   --tests "com.nuvio.app.features.downloads.PresetDownloadsTest" `
   --console=plain --max-workers=4
+```
+
+In `NuvioZDesktop`, the desktop suite includes the download harness, which drives
+the real queue and the real downloader against a deliberately faulty local media
+host (see "Verifying without Gradle" below):
+
+```powershell
+.\gradlew.bat :composeApp:desktopTest --console=plain
 ```
 
 Release builds run R8 and can use substantial CPU. Use a bounded worker count
@@ -226,8 +312,8 @@ run a targeted secret scan before every commit.
 
 ## Verifying without Gradle
 
-Gradle cannot configure in the sandbox, but two things still can be done, and
-both have caught real errors:
+Gradle cannot configure in the sandbox, but three things still can be done, and
+every one of them has caught a real fault:
 
 1. **Parser check.** Run the Kotlin compiler over each changed file on its own
    and ignore everything caused by the missing classpath. Only
@@ -262,7 +348,38 @@ both have caught real errors:
    neighbours, never the file under test**, and say in `STATUS.md` which were
    stubbed - a test against a copy of the code proves nothing.
 
-Neither substitutes for CI. Compose, multiplatform `expect`/`actual` matching,
+3. **The desktop download harness.** `NuvioZDesktop`'s
+   `composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` runs the real
+   download queue and the real desktop downloader against a local server that
+   misbehaves the way debrid hosts do - drops the body, goes quiet without closing,
+   expires a link, serves a placeholder. **Use it before arguing about a download
+   fault.** `./gradlew :composeApp:desktopTest` runs it, and CI runs it on every push.
+
+   It also runs outside Gradle, which is how it was written here. Describe the source
+   set to the compiler as fragments so the `expect`/`actual` pairs resolve:
+
+   ```bash
+   kotlinc -Xmulti-platform -Xexpect-actual-classes \
+     -Xfragments=common -Xfragments=desktop -Xfragment-refines=desktop:common \
+     -Xfragment-sources=common:<file> ... -Xfragment-sources=desktop:<file> ... \
+     -Xplugin=kotlinc/lib/kotlinx-serialization-compiler-plugin.jar -cp "<jars>" -d out <sources>
+   java -cp "out:<jars>" org.junit.runner.JUnitCore \
+     com.nuvio.app.features.downloads.DesktopDownloadQueueE2ETest
+   ```
+
+   `DownloadsTiming` turns the minute-long stall and watchdog deadlines down to
+   seconds; leave the shipped defaults alone outside a harness.
+   `DownloadsRepository.resolvePlayableStream` stands in for the debrid provider so
+   the re-minting path is reachable without an account. Set
+   `NUVIO_DOWNLOAD_TEST_URLS` to real media URLs to run the same queue against a real
+   host at the real deadlines.
+
+   **Extend it rather than reasoning about the queue.** What it covers today is
+   listed in `STATUS.md`; the queue controls under load, the ways a provider fails,
+   and a real cached-on-the-provider check are the named next steps there. A fault
+   reproduced here is worth more than a fix argued for in a commit message.
+
+None of them substitutes for CI. Compose, multiplatform `expect`/`actual` matching,
 and anything touching resources are only checked by a real build.
 
 ## Status Handoff
