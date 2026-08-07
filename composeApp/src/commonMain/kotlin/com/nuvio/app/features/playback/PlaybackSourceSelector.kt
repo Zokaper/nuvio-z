@@ -113,7 +113,31 @@ object PlaybackSourceSelector {
             (candidate.facts.seeders ?: 0) >= MIN_HEALTHY_SEEDERS
     }
 
-    private fun isUncachedDebrid(candidate: PlaybackSourceCandidate): Boolean =
-        candidate.facts.isDebridReady == false &&
-            (candidate.stream.isTorrentStream || candidate.stream.clientResolve != null)
+    /**
+     * Whether this candidate must not be auto-played because the provider may still be
+     * preparing it.
+     *
+     * **Unknown is not cached.** An uncached debrid request answers with the provider's
+     * placeholder video - a two-minute "being prepared" slate - and auto-playing one is
+     * indistinguishable from the app being broken. Requiring *positive* evidence of a cached
+     * copy is the only safe default, because a debrid addon that advertises its cache state
+     * only in the display name leaves [SourceFacts.isDebridReady] null rather than false.
+     *
+     * Scoped to debrid-backed candidates on purpose. Plugin scrapers and plain direct links
+     * legitimately have no cache state at all, and treating their null as "not ready" would
+     * empty the candidate set and turn Instant into a mode that never plays anything.
+     */
+    private fun isUncachedDebrid(candidate: PlaybackSourceCandidate): Boolean {
+        if (candidate.facts.isDebridReady == false) {
+            return candidate.stream.isTorrentStream || candidate.stream.clientResolve != null ||
+                isDebridBacked(candidate)
+        }
+        return candidate.facts.isDebridReady == null && isDebridBacked(candidate)
+    }
+
+    /** Positive evidence that a debrid provider stands behind this candidate. */
+    private fun isDebridBacked(candidate: PlaybackSourceCandidate): Boolean =
+        candidate.facts.debridService != null ||
+            candidate.stream.clientResolve != null ||
+            candidate.stream.isDirectDebridStream
 }

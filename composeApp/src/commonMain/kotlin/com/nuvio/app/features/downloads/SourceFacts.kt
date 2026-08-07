@@ -203,7 +203,12 @@ object SourceFactsExtractor {
                     structuredResolutions.distinct().size > 1,
             isAioStreams = aioDetected,
             debridService = aio?.debridService ?: stream.clientResolve?.service,
-            isDebridReady = aio?.debridCached ?: stream.clientResolve?.isCached,
+            isDebridReady = aio?.debridCached
+                ?: stream.clientResolve?.isCached
+                // Last in the ladder: structured fields win, prose only fills the gap.
+                ?: parseDebridCacheMarker(
+                    listOfNotNull(stream.name, stream.description).joinToString(" "),
+                ),
         )
         return if (verifiedSizeBytes?.positive() != null) {
             facts.withVerifiedSize(verifiedSizeBytes)
@@ -278,6 +283,32 @@ object SourceFactsExtractor {
     }
 
     /** Release groups use a hyphen-delimited filename suffix; plain all-caps title words do not. */
+    /**
+     * Debrid cache state advertised in an addon's display text, when no structured field says.
+     *
+     * Many debrid addons only signal this in the stream name - AIOStreams/ElfHosted use
+     * ⏳ for "being prepared" and ⚡ for "instantly available", and `debridCached` is simply
+     * absent. Without this, an uncached source reads as *unknown* rather than *not cached*
+     * and auto-play happily starts the provider's two-minute placeholder video.
+     *
+     * Deliberately conservative in both directions. Negative markers are checked first so
+     * "not cached" cannot be read as "cached", and the positive set is restricted to markers
+     * that carry no other meaning in a release name - `instant` is excluded precisely
+     * because *Instant Family* exists. Returns null when nothing is claimed, which leaves
+     * the caller's own fail-safe in charge.
+     */
+    internal fun parseDebridCacheMarker(text: String): Boolean? {
+        if (text.isBlank()) return null
+        val normalized = text.lowercase()
+        val notCached = "⏳" in text ||
+            "not cached" in normalized ||
+            "uncached" in normalized ||
+            "not-cached" in normalized
+        if (notCached) return false
+        val cached = "⚡" in text || "cached" in normalized
+        return if (cached) true else null
+    }
+
     private fun parseFilenameReleaseGroup(filename: String): String? {
         val stem = filename.substringBeforeLast('.', filename).trim()
         val candidate = Regex("""-([A-Za-z0-9][A-Za-z0-9._]{1,31})$""")
