@@ -118,7 +118,12 @@ import com.nuvio.app.features.downloads.buildTitleDownloadState
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.toLibraryItem
+import com.nuvio.app.core.network.NetworkQualityRepository
+import com.nuvio.app.core.ui.NuvioToastAction
+import com.nuvio.app.features.downloads.PresetDownloadCoordinator
+import com.nuvio.app.features.playback.DownloadEntryDecision
 import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackModeDownloadRouter
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
@@ -166,6 +171,14 @@ fun MetaDetailsScreen(
     onBack: () -> Unit,
     onPlay: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
     onPlayManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
+    /**
+     * Opens the source list to download a chosen release - Classic's download entry point.
+     *
+     * Deliberately narrower than [onPlayManually]: a download carries no resume position,
+     * no pause description and no playback intent, and widening that callback to express
+     * "but for downloading" would put the distinction in the wrong place.
+     */
+    onDownloadManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?) -> Unit)? = null,
     onOpenMeta: ((MetaPreview) -> Unit)? = null,
     onPlayDownloadedItem: ((DownloadItem) -> Unit)? = null,
     onCastClick: ((MetaPerson, String?) -> Unit)? = null,
@@ -227,6 +240,9 @@ fun MetaDetailsScreen(
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
     val downloadBatches by DownloadsRepository.batches.collectAsStateWithLifecycle()
+    val downloadPresets by DownloadsRepository.presets.collectAsStateWithLifecycle()
+    val instantDownloadStartedMessage = stringResource(Res.string.download_batch_finding_sources_started)
+    val viewDownloadsLabel = stringResource(Res.string.download_batch_view_downloads)
     var manageDownloadTarget by remember(type, id) { mutableStateOf<ManageDownloadTarget?>(null) }
     val commentsEnabled by remember {
         TraktCommentsSettings.ensureLoaded()
@@ -1297,12 +1313,70 @@ fun MetaDetailsScreen(
                         }
 
                         presetDownloadScope?.let { requestedScope ->
-                            PresetDownloadDialog(
+                            // The playback mode chooses the download *entry point* only; the
+                            // queue and the picker behind it are identical in all three modes.
+                            val manualDownloadRoute = manualDownloadRouteFor(
                                 meta = meta,
-                                initialScope = requestedScope,
-                                currentSeason = currentViewedSeason ?: seriesAction?.seasonNumber,
-                                onDismiss = { presetDownloadScope = null },
+                                scope = requestedScope,
+                                onDownloadManually = onDownloadManually,
                             )
+                            val decision = PlaybackModeDownloadRouter.decide(
+                                mode = playerSettingsUiState.playbackMode,
+                                isSingleItem = requestedScope.isSingleItem(),
+                            )
+                            // Degrade rather than dead-tap: a manual pick needs a handler and
+                            // a single resolvable video, and Instant needs a preset to exist.
+                            val effective = when {
+                                decision is DownloadEntryDecision.ChooseSourceManually &&
+                                    manualDownloadRoute == null ->
+                                    DownloadEntryDecision.ShowPresetDialog("no manual route available")
+
+                                decision is DownloadEntryDecision.StartWithPreset &&
+                                    downloadPresets.isEmpty() ->
+                                    DownloadEntryDecision.ShowPresetDialog("no presets configured")
+
+                                else -> decision
+                            }
+
+                            when (effective) {
+                                is DownloadEntryDecision.ShowPresetDialog -> PresetDownloadDialog(
+                                    meta = meta,
+                                    initialScope = requestedScope,
+                                    currentSeason = currentViewedSeason ?: seriesAction?.seasonNumber,
+                                    onDismiss = { presetDownloadScope = null },
+                                )
+
+                                is DownloadEntryDecision.ChooseSourceManually ->
+                                    LaunchedEffect(requestedScope) {
+                                        presetDownloadScope = null
+                                        manualDownloadRoute?.invoke()
+                                    }
+
+                                is DownloadEntryDecision.StartWithPreset ->
+                                    LaunchedEffect(requestedScope) {
+                                        presetDownloadScope = null
+                                        val preset = PlaybackModeDownloadRouter.presetForTier(
+                                            presets = downloadPresets,
+                                            tier = NetworkQualityRepository.resolveTier(
+                                                playerSettingsUiState.playbackQualityTiers,
+                                            ),
+                                        ) ?: return@LaunchedEffect
+                                        PresetDownloadCoordinator.start(
+                                            meta = meta,
+                                            scope = requestedScope,
+                                            preset = preset,
+                                            // Matches the dialog's own default. Instant has no
+                                            // checkbox to offer, so it takes the safe side.
+                                            allowMeteredNetwork = false,
+                                        )
+                                        NuvioToastController.show(
+                                            message = instantDownloadStartedMessage,
+                                            durationMillis = 5_000L,
+                                            actionLabel = viewDownloadsLabel,
+                                            action = NuvioToastAction.OpenDownloads,
+                                        )
+                                    }
+                            }
                         }
 
                         if (inAppTrailerPlaybackEnabled) {
@@ -2331,4 +2405,61 @@ private fun Color.blendTowards(target: Color, fraction: Float): Color {
         blue = blue + (target.blue - blue) * clamped,
         alpha = alpha + (target.alpha - alpha) * clamped,
     )
+}
+
+/**
+ * Whether this scope resolves to exactly one video, and so is worth a source list.
+ *
+ * `SelectedSeasons` is deliberately not single even when one season is selected - the
+ * selection is made inside the dialog, so there is nothing to resolve at this point.
+ */
+private fun DownloadScope.isSingleItem(): Boolean = when (this) {
+    is DownloadScope.Movie -> true
+    is DownloadScope.Episode -> true
+    is DownloadScope.Season,
+    is DownloadScope.SeasonUnwatched,
+    is DownloadScope.SelectedSeasons,
+    -> false
+}
+
+/**
+ * The action that opens the source list for a Classic manual download, or null when there
+ * is none - no handler wired, or no single video to resolve.
+ *
+ * The destination is the same source list Classic already uses, launched with the download
+ * intent set so a tap enqueues the chosen release instead of playing it.
+ */
+private fun manualDownloadRouteFor(
+    meta: MetaDetails,
+    scope: DownloadScope,
+    onDownloadManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?) -> Unit)?,
+): (() -> Unit)? {
+    val handler = onDownloadManually ?: return null
+    return when (scope) {
+        is DownloadScope.Movie -> {
+            {
+                handler(
+                    meta.type, meta.id, meta.id, meta.type, meta.name,
+                    meta.logo, meta.poster, meta.background,
+                    null, null, null, null,
+                )
+            }
+        }
+
+        is DownloadScope.Episode -> {
+            val video = meta.videos.firstOrNull {
+                it.season == scope.season && it.episode == scope.episode
+            } ?: return null
+            val videoId = video.id.takeIf { it.isNotBlank() } ?: return null
+            {
+                handler(
+                    meta.type, videoId, meta.id, meta.type, meta.name,
+                    meta.logo, meta.poster, meta.background,
+                    scope.season, scope.episode, video.title, video.thumbnail,
+                )
+            }
+        }
+
+        else -> null
+    }
 }

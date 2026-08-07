@@ -19,6 +19,14 @@ data class StreamLaunch(
     val resumeProgressFraction: Float? = null,
     val manualSelection: Boolean = false,
     val startFromBeginning: Boolean = false,
+    /**
+     * The user came here to download, not to watch.
+     *
+     * Classic's download entry point opens this same source list so the release can be
+     * chosen by hand. Without this flag the list would play the tapped source, silently
+     * discarding the intent behind the button that was actually pressed.
+     */
+    val downloadIntent: Boolean = false,
 )
 
 object StreamLaunchStore {

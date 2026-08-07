@@ -1740,6 +1740,40 @@ private fun MainAppContent(
                 )
             }
 
+        /**
+         * Classic's download entry point: open the source list with the download intent set.
+         *
+         * Deliberately not routed through `launchPlaybackWithDownloadPreference`. That path
+         * short-circuits to playing a completed local download, which is right for a play
+         * but wrong here - the user asked to download this title, so the source list is the
+         * destination whether or not a copy already exists.
+         */
+        val onDownloadManually: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?) -> Unit =
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail ->
+                val downloadLaunchId = StreamLaunchStore.put(
+                    StreamLaunch(
+                        profileId = activePlaybackProfileId,
+                        type = type,
+                        videoId = videoId,
+                        parentMetaId = parentMetaId,
+                        parentMetaType = parentMetaType,
+                        title = title,
+                        logo = logo,
+                        poster = poster,
+                        background = background,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        episodeTitle = episodeTitle,
+                        episodeThumbnail = episodeThumbnail,
+                        manualSelection = true,
+                        downloadIntent = true,
+                    ),
+                )
+                navController.navigate(
+                    StreamRoute(launchId = downloadLaunchId, title = title),
+                )
+            }
+
         val onCatalogClick: (HomeCatalogSection) -> Unit = { section ->
             val launchId = CatalogLaunchStore.put(
                 CatalogLaunch(
@@ -2244,6 +2278,7 @@ private fun MainAppContent(
                         onBack = onBack,
                         onPlay = onPlay,
                         onPlayManually = onPlayManually,
+                        onDownloadManually = onDownloadManually,
                         onPlayDownloadedItem = ::openDownloadedItem,
                         onOpenMeta = { preview ->
                             coroutineScope.launch {
@@ -2459,6 +2494,9 @@ private fun MainAppContent(
                     // Streamlined and Instant own source selection. Passing them through the
                     // legacy auto-play policy would run two pickers over the same candidates.
                     val streamManualSelection = launch.manualSelection ||
+                        // A download-intent launch must never auto-play: the user pressed
+                        // Download, so every automatic playback path stays out of the way.
+                        launch.downloadIntent ||
                         playerSettings.playbackMode != PlaybackMode.CLASSIC
 
                     fun p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
@@ -3192,6 +3230,7 @@ private fun MainAppContent(
                             resumeProgressFraction = launch.resumeProgressFraction,
                             manualSelection = streamManualSelection,
                             startFromBeginning = launch.startFromBeginning,
+                            downloadOnSelect = launch.downloadIntent,
                             onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
                                 openManualStreamOrOfferPin(
                                     stream = stream,

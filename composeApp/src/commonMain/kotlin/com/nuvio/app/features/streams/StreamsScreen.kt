@@ -121,6 +121,14 @@ fun StreamsScreen(
     resumeProgressFraction: Float? = null,
     manualSelection: Boolean = false,
     startFromBeginning: Boolean = false,
+    /**
+     * Tapping a source downloads it instead of playing it.
+     *
+     * Classic's download entry point reaches this same screen, and the button the user
+     * actually pressed said Download. The per-source download path is unchanged - this only
+     * promotes it from the long-press sheet to the primary tap.
+     */
+    downloadOnSelect: Boolean = false,
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit = { _, _, _ -> },
     onStreamActionOpen: (
         stream: StreamItem,
@@ -301,7 +309,11 @@ fun StreamsScreen(
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
                 onStreamSelected = { stream, positionMs, progressFraction ->
-                    onStreamSelected(stream, positionMs, progressFraction)
+                    if (downloadOnSelect) {
+                        downloadPresetTarget = stream
+                    } else {
+                        onStreamSelected(stream, positionMs, progressFraction)
+                    }
                 },
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
@@ -321,7 +333,11 @@ fun StreamsScreen(
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
                 onStreamSelected = { stream, positionMs, progressFraction ->
-                    onStreamSelected(stream, positionMs, progressFraction)
+                    if (downloadOnSelect) {
+                        downloadPresetTarget = stream
+                    } else {
+                        onStreamSelected(stream, positionMs, progressFraction)
+                    }
                 },
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,

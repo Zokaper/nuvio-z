@@ -259,6 +259,38 @@ new `AutoDownshiftDetectorTest` cases, which run on both targets. The desktop ru
 behaviour — no Android device was attached and the Windows app was not installed at any
 point. The setting is off by default, so nothing here changes playback until a user opts in.
 
+### Phase 5 complete — the download entry point follows the mode (2026-08-07)
+
+**This phase existed because a decision had no phase.** "Modes change the download *entry
+point*, not the download engine" was recorded in the plan's **Decisions taken** section and
+never assigned to a numbered phase, so finishing Phases 1–4 left it unbuilt. `playbackMode`
+did not reach `features/downloads/` at all.
+
+- Classic downloading a **single** item opens the source list and the chosen release is
+  downloaded. A season still gets the preset dialog — hand-picking twenty releases is a
+  chore, not control.
+- Streamlined keeps today's preset dialog, unchanged.
+- Instant starts with no dialog, using the preset that matches the connection tier, capped
+  by the same `allowMeteredNetwork = false` default the dialog itself uses.
+
+**Routing Classic to the source list was not sufficient, and this is the part worth
+remembering.** That screen plays on tap and offers download only from the long-press sheet,
+so the Download button silently behaved as Play. `StreamLaunch.downloadIntent` now carries
+the intent, `StreamsScreen.downloadOnSelect` makes a tap enqueue instead of playing, and the
+same flag forces `streamManualSelection` so no automatic playback path can fire under a
+Download press. `onDownloadManually` deliberately does **not** go through
+`launchPlaybackWithDownloadPreference`: that short-circuits to playing a completed local
+download, which is right for a play and wrong for a download request.
+
+Every branch degrades rather than dead-tapping: no manual route (no handler, or no single
+resolvable video) and no configured presets both fall back to the preset dialog.
+`DownloadsRepository`, the queue, the transfer stack and `PresetSourceSelector` are
+untouched, per the plan's non-goal of destabilising the download stack.
+
+Verified: Android host **615 tests across 88 classes** and desktop **821 tests across 118
+classes**, both zero failures, errors or skips, with `desktopMain` compiled. Not smoke-tested
+on a device or an installed app.
+
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.

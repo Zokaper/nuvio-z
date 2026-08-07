@@ -90,6 +90,12 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - Anything that samples `PlayerPlaybackSnapshot` over time must be expressed in **wall-clock
   duration, not snapshot counts**. Android polls every ~250 ms and desktop every 500 ms, so a
   count-based threshold silently means two different things.
+- The playback mode selects the download **entry point** only
+  (`features/playback/PlaybackModeDownloadRouter.kt`). It must never reach
+  `DownloadsRepository`, the queue, the transfer stack or `PresetSourceSelector`.
+- A launch into `StreamsScreen` carries why it was opened. `StreamLaunch.downloadIntent`
+  makes a tap enqueue rather than play and forces manual selection; without it a Download
+  button that routes to the source list silently behaves as Play.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
   `manualSelection` > completed local download > sticky pin > reuse-last-link >
   playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
