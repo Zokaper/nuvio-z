@@ -168,3 +168,14 @@ object PlaybackSourceSelector {
             candidate.stream.clientResolve != null ||
             candidate.stream.isDirectDebridStream
 }
+
+internal fun isStreamlinedSelectionReady(
+    requestToken: String?,
+    expectedRequestToken: String,
+    isAnyLoading: Boolean,
+    candidateCount: Int,
+    hasTerminalEmptyState: Boolean,
+): Boolean =
+    requestToken == expectedRequestToken &&
+        !isAnyLoading &&
+        (candidateCount > 0 || hasTerminalEmptyState)

@@ -2512,6 +2512,8 @@ private fun MainAppContent(
                     var pendingStickyStreamOpen by remember { mutableStateOf<PendingStickyStreamOpen?>(null) }
                     var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var streamlinedSelectionPending by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var pendingStreamlinedTierId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Streamlined covers the source list with the quality sheet until a tier is
@@ -3215,7 +3217,7 @@ private fun MainAppContent(
                     }
 
                     val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
-                    fun selectStreamlinedTier(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
+                    fun completeStreamlinedTierSelection(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
                         when (
                             val result = PlaybackSourceSelector.select(
                                 candidates = playbackCandidates,
@@ -3247,6 +3249,40 @@ private fun MainAppContent(
                                 NuvioToastController.show(result.reason)
                             }
                         }
+                    }
+
+                    fun selectStreamlinedTier(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
+                        pendingStreamlinedTierId = tier?.id
+                        streamlinedSelectionPending = true
+                    }
+
+                    LaunchedEffect(
+                        streamlinedSelectionPending,
+                        pendingStreamlinedTierId,
+                        playbackCandidates,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                        streamsUiState.emptyStateReason,
+                        playerSettings.playbackQualityTiers,
+                    ) {
+                        if (!streamlinedSelectionPending) return@LaunchedEffect
+                        if (
+                            !com.nuvio.app.features.playback.isStreamlinedSelectionReady(
+                                requestToken = streamsUiState.requestToken,
+                                expectedRequestToken = expectedStreamsRequestToken,
+                                isAnyLoading = streamsUiState.isAnyLoading,
+                                candidateCount = playbackCandidates.size,
+                                hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
+                            )
+                        ) return@LaunchedEffect
+
+                        val tierId = pendingStreamlinedTierId
+                        val tier = tierId?.let { id ->
+                            playerSettings.playbackQualityTiers.firstOrNull { it.id == id }
+                                ?: return@LaunchedEffect
+                        }
+                        streamlinedSelectionPending = false
+                        completeStreamlinedTierSelection(tier)
                     }
 
                     LaunchedEffect(
@@ -3398,13 +3434,18 @@ private fun MainAppContent(
                             PlaybackQualitySheet(
                                 tiers = playerSettings.playbackQualityTiers,
                                 isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
-                                    streamsUiState.isAnyLoading,
+                                    streamsUiState.isAnyLoading ||
+                                    streamlinedSelectionPending,
                                 onTierSelected = ::selectStreamlinedTier,
                                 onChooseManually = {
+                                    streamlinedSelectionPending = false
+                                    pendingStreamlinedTierId = null
                                     qualitySheetDismissed = true
                                     manualSourceListRequested = true
                                 },
                                 onDismiss = {
+                                    streamlinedSelectionPending = false
+                                    pendingStreamlinedTierId = null
                                     qualitySheetDismissed = true
                                     manualSourceListRequested = true
                                 },

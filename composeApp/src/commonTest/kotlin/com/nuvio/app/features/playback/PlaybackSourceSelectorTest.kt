@@ -8,9 +8,33 @@ import com.nuvio.app.features.streams.AioStreamData
 import com.nuvio.app.features.streams.StreamItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class PlaybackSourceSelectorTest {
+    @Test
+    fun streamlinedWaitsThroughTransientEmptyRequestState() {
+        assertFalse(
+            isStreamlinedSelectionReady(
+                requestToken = "episode",
+                expectedRequestToken = "episode",
+                isAnyLoading = false,
+                candidateCount = 0,
+                hasTerminalEmptyState = false,
+            ),
+        )
+        assertTrue(
+            isStreamlinedSelectionReady(
+                requestToken = "episode",
+                expectedRequestToken = "episode",
+                isAnyLoading = false,
+                candidateCount = 3,
+                hasTerminalEmptyState = false,
+            ),
+        )
+    }
+
     @Test
     fun allowsHttpHlsAndDashButRejectsTorrentFiles() {
         val result = select(
