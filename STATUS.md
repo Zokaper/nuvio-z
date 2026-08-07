@@ -4,10 +4,10 @@ Last updated: 2026-08-07
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
+| **Active branch** | `claude/instant-streamlined-polish` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Release `0.4.2-beta` — Instant auto-played an uncached debrid placeholder (see "0.4.x field failures" below). `0.4.0-beta` and `0.4.1-beta` are superseded. Then: fix the same sync wipe-pattern in the four other settings stores, compile the iOS Swift buffer fix on macOS, and continue smoke-testing. |
+| **Next** | Finish the `0.4.3-beta` polish pass (see "Polish pass" below): mode-selector cards, the Advanced settings toggle, and What's New are outstanding. Then compile the iOS Swift buffer fix on macOS and continue smoke-testing. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -353,6 +353,159 @@ along with the dead gate and the unused string.
 
 Verified: Android **619 tests across 89 classes**, desktop **825 across 119**, both zero
 failures, `desktopMain` compiled.
+
+## Polish pass on 0.4.2-beta (2026-08-07, unreleased)
+
+Surface-tested `0.4.2-beta` on a phone: the playback-mode logic works, the presentation had not
+caught up with it. Five workstreams, landing in order, each verified on both targets.
+
+### 1 — The sync wipe pattern, everywhere it existed
+
+`STATUS.md` named four stores still carrying `replaceFromSyncPayload`'s clear-everything-first
+bug. **There were six.** `DebridSettingsStorage` and `ThemeSettingsStorage` had the same shape and
+were not on the list; Debrid is the worst of them, because its key list is built at runtime from
+`DebridProviders.all()`, so adding a provider would have deleted stored API keys for the others on
+the next pull.
+
+`syncKeysToClear` **moved from `features/player/PlayerSettingsStorage.kt` to
+`core/sync/SyncPreferenceJson.kt`** (`com.nuvio.app.core.sync`), next to the `decodeSync*` helpers
+every one of these stores already imports. It was `internal` in a feature package that five
+unrelated features would have had to import from.
+
+All six stores now clear only the keys the payload carries, across **19 actuals** (android, ios,
+and the six desktop ones in `NuvioZDesktop`). `TraktCommentsStorage.desktop.kt` needed a `syncKeys`
+list of its own — it had been removing its single key unconditionally, so a payload that omitted
+`comments_enabled` silently switched comments back off.
+
+`SyncKeysToClearTest` moved to `commonTest/.../core/sync/` and gained six cases, one per store,
+each reproducing that store's old-blob shape.
+
+### 2 — Instant and Streamlined no longer show the source list
+
+The complaint that started this pass. `entry<StreamRoute>` rendered `StreamsScreen` unconditionally
+as the base of its `Box` and drew the quality sheet on top, so Instant users watched a wall of
+releases populate and then get replaced.
+
+**The overlay covers `StreamsScreen`; it does not replace it.** `StreamsScreen.kt:203` owns
+`LaunchedEffect { StreamsRepository.load(...) }` — composing it away would cancel the very fetch
+the overlay reports on. This is the constraint that shaped the whole edit.
+
+`features/playback/PlaybackProgressOverlay.kt` is new, and its decision half is pure:
+`PlaybackProgress.step(...)` and `PlaybackProgress.isVisible(...)` are testable functions, with the
+composable a thin renderer over them.
+
+**Every step maps to state that already existed** — no timed or faked sequence:
+`FindingSources` from `isAnyLoading`/`requestToken`, `ChoosingSource` from `instantSelectionHandled`,
+`ResolvingLink` from the existing `resolvingDebridStream` flag, `StartingPlayback` otherwise.
+Resolving is checked **first**, because a slow addon can leave `isAnyLoading` true long after the
+pick while the debrid mint is the thing actually being waited on.
+
+Two new `rememberSaveable(route.launchId)` flags: `streamlinedPlaybackStarting` (set when a tier is
+picked, so Streamlined is covered from there to playback) and `autoPickAttempt` (advanced only by
+the failure chain, so a silent retry reads as "Attempt 2 of 3" rather than a hang).
+
+⚠ **The overlay uncovers the list for every path that needs the user**: `manualSourceListRequested`
+(all four bail-outs already set it), the metered sheet, the uncached sheet, the sticky-pin prompt
+and P2P consent. `everyBailOutToTheSourceListUncoversIt` is the regression guard — a spinner over a
+screen the user has to read or answer is worse than never covering it.
+
+⚠ **Scope boundary:** the overlay ends at navigation to `PlayerRoute`. The 8-second startup budget
+and the `onFatalPlaybackError` / `onPlaybackStarted` retry callbacks run on the **player** screen
+and are a separate surface. Classic and every manual path keep the old lighter scrim during debrid
+resolution, because there the source list behind it is what the user chose from.
+
+Verified: Android **639 tests across 90 classes**, desktop **845 across 120**, both zero failures,
+errors or skips; `desktopMain` compiled. `App.kt` was hand-ported, not copied. **Not smoke-tested
+on a device** — the step labels and the attempt counter are exactly what a device run is for.
+
+### 3 — The modes explain themselves
+
+`PlaybackModeCard` is one composable, used by both the first-launch selector and
+`PlaybackModeDialog` in settings. Each mode is a card with a tagline and two labelled blocks,
+**Streaming** and **Downloading**.
+
+⚠ **Those two files describing the modes separately is how Instant kept a stale "Not ready yet"
+caption in `0.4.0-beta`** after the other copy had been fixed (see the `0.4.1-beta` section).
+`playbackModeTitle`/`playbackModeDescription` in `PlaybackSettingsPage` are gone; the shared
+`playbackModeName` replaced them.
+
+`PlaybackModeDownloadCopyTest` pins the download lines to `PlaybackModeDownloadRouter.decide`.
+Classic is the only mode whose entry point depends on whether the scope is a single item, and its
+card is the only one that says so — copy contradicting the router is worse than no copy.
+
+### 4 — A global "Show advanced settings" toggle
+
+One switch in Settings → Advanced. Rows tagged `isAdvanced = true` render nothing when it is off,
+via `LocalShowAdvancedSettings` and a parameter on `SettingsNavigationRow` / `SettingsSwitchRow`.
+Per-row annotation rather than restructuring pages: `PlaybackSettingsPage` alone is ~3700 lines,
+and a defaulted parameter is something a future row gets right for free.
+
+**The default when unset is the part most likely to read as data loss, so it does not guess how
+old an install is.** `hasTunedAnAdvancedSetting` (`features/player/AdvancedSettingsDefault.kt`)
+asks the question that actually matters — has this profile ever *stored* a value for an advanced
+setting? — and a profile that has keeps them visible. An explicit stored `false` counts as
+touched: turning something off is as deliberate as turning it on.
+
+⚠ **Settings search deliberately ignores the flag.** `SettingsSearch` keeps indexing hidden rows
+and reveals them on the page it lands on; ordinary navigation back to Root clears the reveal.
+Hiding a setting the user just searched for by name would be worse than showing it.
+
+`settings_show_advanced` is profile-scoped and went through `syncKeys` and both payload paths in
+all three actuals — which is why item 1 landed first.
+
+Currently tagged: the Advanced page row, torrent auto-pick, auto-downshift, reuse-last-link and
+its cache duration, decoder priority, DV7→HEVC and tunneled playback. Deliberately small; nothing
+a normal user changes is tagged.
+
+### 5 — What's New, rebuilt with version history
+
+**It did not work because it was never merged.** `codex/whats-new` was one local commit in both
+repos; no shipped build contained it. Cherry-picked and then finished, because it had three gaps:
+
+- **No `desktopMain` actual** for `internal expect object WhatsNewStorage` — the trap `AGENTS.md`
+  flags twice. Added, plus the missing `WhatsNewStorage.initialize` in the desktop repo's
+  `MainActivity`.
+- **Single version, no history.** `AppUpdaterRepository` already fetched `releases?per_page=20`
+  and discarded everything but the newest. `fetchRecentReleaseNotes` reads that same response, so
+  the history costs no new kind of request.
+- **Markdown rendered raw.** `ReleaseNotesDialog` pushed `update.notes` through a plain `Text`, so
+  every heading showed as `## Fixes` and every bullet kept its literal `- `. `parseReleaseNotes`
+  handles headings, bullets and paragraphs and strips inline markers; unrecognised syntax falls
+  through as a paragraph, which is the safe direction — showing a line we did not understand beats
+  dropping it. Both the What's New history and the update banner now use it.
+
+The current version's notes stay **curated and offline** (`CurrentReleaseNotes`), because the
+screen has to work on the first launch after an update and on builds where the updater is off. It
+is **not** gated on `AppFeaturePolicy.inAppUpdaterEnabled` for the same reason; only the fetched
+history degrades, to "needs a connection".
+
+Also reachable on demand from Settings → About, dismissible there, and that path deliberately does
+**not** record the version as seen — otherwise opening it early would skip the post-update showing.
+
+⚠ **This needs a curated entry per release, committed before the version bump.** The bump-last
+rule is enforced and a docs commit after the bump fails the release.
+
+### Verification for the whole pass
+
+Android **653 tests across 94 classes**, desktop **859 across 124**, both zero failures, errors or
+skips; `desktopMain` compiled. `App.kt`, `PlaybackSettingsPage.kt`, `SettingsScreen.kt`,
+`SettingsRootPage.kt`, `SettingsComponents.kt`, `AppUpdater.kt`, `AppUpdaterBanner.kt` and
+`strings.xml` were **hand-ported** — all of them already differed between the repositories, and
+the desktop `SettingsRootPage` needed `AppVersionPolicy.displayVersionName` where mobile uses
+`AppVersionConfig.VERSION_NAME`.
+
+**Nothing here is smoke-tested on a device or an installed desktop app.** The parts a device run
+has to cover, because no unit test reaches them:
+
+1. Instant on Wi-Fi: progress overlay with changing step labels, never the source list.
+2. Instant with the chosen source killed mid-flight: "Attempt 2 of 3", still no source list.
+3. Instant on mobile data: the metered sheet appears *instead of* the overlay, once.
+4. Streamlined: quality sheet → tier → overlay → player; "Choose source manually" still works.
+5. Sign in on a second device and pull: playback mode, MDBList, TMDB, badge, Trakt-comment and
+   **debrid API keys** all survive.
+6. Advanced off/on, and settings search still finding and revealing a hidden row.
+7. Install over an older build: What's New shows once, lists previous versions, does not reappear,
+   and still opens from Settings → About with no network.
 
 ## Current Snapshot
 
