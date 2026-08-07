@@ -1229,8 +1229,13 @@ actual object PlayerSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
+        // Clear only what the payload actually carries. Wiping every sync key first would
+        // destroy any setting added since the remote blob was last written - the remote is
+        // authoritative for keys it knows about, not for keys it has never heard of. That
+        // bug reset the playback mode and re-showed the first-launch selector on every sync
+        // for anyone whose stored blob predated 0.4.0-beta.
         preferences?.edit()?.apply {
-            syncKeys.forEach { remove(ProfileScopedKey.of(it)) }
+            syncKeysToClear(syncKeys, payload).forEach { remove(ProfileScopedKey.of(it)) }
         }?.apply()
 
         payload.decodeSyncBoolean(showLoadingOverlayKey)?.let(::saveShowLoadingOverlay)

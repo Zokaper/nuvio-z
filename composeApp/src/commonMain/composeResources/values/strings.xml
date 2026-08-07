@@ -1095,7 +1095,6 @@
     <string name="playback_mode_streamlined_description">You pick the quality, Nuvio picks the source.</string>
     <string name="playback_mode_instant">Instant</string>
     <string name="playback_mode_instant_description">Nuvio picks the quality and the source from your connection.</string>
-    <string name="playback_mode_not_ready">Not ready yet - plays like Classic for now.</string>
     <string name="playback_quality_title">Choose playback quality</string>
     <string name="playback_quality_description">Nuvio will choose the best matching source.</string>
     <string name="playback_quality_loading">Finding available sources…</string>
