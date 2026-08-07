@@ -4,10 +4,10 @@ Last updated: 2026-08-07
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
+| **Active branch** | `claude/instant-streamlined-polish` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Release `0.4.2-beta` — Instant auto-played an uncached debrid placeholder (see "0.4.x field failures" below). `0.4.0-beta` and `0.4.1-beta` are superseded. Then: fix the same sync wipe-pattern in the four other settings stores, compile the iOS Swift buffer fix on macOS, and continue smoke-testing. |
+| **Next** | Finish the `0.4.3-beta` polish pass (see "Polish pass" below): mode-selector cards, the Advanced settings toggle, and What's New are outstanding. Then compile the iOS Swift buffer fix on macOS and continue smoke-testing. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -353,6 +353,70 @@ along with the dead gate and the unused string.
 
 Verified: Android **619 tests across 89 classes**, desktop **825 across 119**, both zero
 failures, `desktopMain` compiled.
+
+## Polish pass on 0.4.2-beta (2026-08-07, unreleased)
+
+Surface-tested `0.4.2-beta` on a phone: the playback-mode logic works, the presentation had not
+caught up with it. Five workstreams, landing in order, each verified on both targets.
+
+### 1 — The sync wipe pattern, everywhere it existed
+
+`STATUS.md` named four stores still carrying `replaceFromSyncPayload`'s clear-everything-first
+bug. **There were six.** `DebridSettingsStorage` and `ThemeSettingsStorage` had the same shape and
+were not on the list; Debrid is the worst of them, because its key list is built at runtime from
+`DebridProviders.all()`, so adding a provider would have deleted stored API keys for the others on
+the next pull.
+
+`syncKeysToClear` **moved from `features/player/PlayerSettingsStorage.kt` to
+`core/sync/SyncPreferenceJson.kt`** (`com.nuvio.app.core.sync`), next to the `decodeSync*` helpers
+every one of these stores already imports. It was `internal` in a feature package that five
+unrelated features would have had to import from.
+
+All six stores now clear only the keys the payload carries, across **19 actuals** (android, ios,
+and the six desktop ones in `NuvioZDesktop`). `TraktCommentsStorage.desktop.kt` needed a `syncKeys`
+list of its own — it had been removing its single key unconditionally, so a payload that omitted
+`comments_enabled` silently switched comments back off.
+
+`SyncKeysToClearTest` moved to `commonTest/.../core/sync/` and gained six cases, one per store,
+each reproducing that store's old-blob shape.
+
+### 2 — Instant and Streamlined no longer show the source list
+
+The complaint that started this pass. `entry<StreamRoute>` rendered `StreamsScreen` unconditionally
+as the base of its `Box` and drew the quality sheet on top, so Instant users watched a wall of
+releases populate and then get replaced.
+
+**The overlay covers `StreamsScreen`; it does not replace it.** `StreamsScreen.kt:203` owns
+`LaunchedEffect { StreamsRepository.load(...) }` — composing it away would cancel the very fetch
+the overlay reports on. This is the constraint that shaped the whole edit.
+
+`features/playback/PlaybackProgressOverlay.kt` is new, and its decision half is pure:
+`PlaybackProgress.step(...)` and `PlaybackProgress.isVisible(...)` are testable functions, with the
+composable a thin renderer over them.
+
+**Every step maps to state that already existed** — no timed or faked sequence:
+`FindingSources` from `isAnyLoading`/`requestToken`, `ChoosingSource` from `instantSelectionHandled`,
+`ResolvingLink` from the existing `resolvingDebridStream` flag, `StartingPlayback` otherwise.
+Resolving is checked **first**, because a slow addon can leave `isAnyLoading` true long after the
+pick while the debrid mint is the thing actually being waited on.
+
+Two new `rememberSaveable(route.launchId)` flags: `streamlinedPlaybackStarting` (set when a tier is
+picked, so Streamlined is covered from there to playback) and `autoPickAttempt` (advanced only by
+the failure chain, so a silent retry reads as "Attempt 2 of 3" rather than a hang).
+
+⚠ **The overlay uncovers the list for every path that needs the user**: `manualSourceListRequested`
+(all four bail-outs already set it), the metered sheet, the uncached sheet, the sticky-pin prompt
+and P2P consent. `everyBailOutToTheSourceListUncoversIt` is the regression guard — a spinner over a
+screen the user has to read or answer is worse than never covering it.
+
+⚠ **Scope boundary:** the overlay ends at navigation to `PlayerRoute`. The 8-second startup budget
+and the `onFatalPlaybackError` / `onPlaybackStarted` retry callbacks run on the **player** screen
+and are a separate surface. Classic and every manual path keep the old lighter scrim during debrid
+resolution, because there the source list behind it is what the user chose from.
+
+Verified: Android **639 tests across 90 classes**, desktop **845 across 120**, both zero failures,
+errors or skips; `desktopMain` compiled. `App.kt` was hand-ported, not copied. **Not smoke-tested
+on a device** — the step labels and the attempt counter are exactly what a device run is for.
 
 ## Current Snapshot
 

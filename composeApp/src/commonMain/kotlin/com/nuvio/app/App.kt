@@ -230,6 +230,9 @@ import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeRouter
+import com.nuvio.app.features.playback.PlaybackProgress
+import com.nuvio.app.features.playback.PlaybackProgressInputs
+import com.nuvio.app.features.playback.PlaybackProgressOverlay
 import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackRouteDecision
@@ -2431,6 +2434,13 @@ private fun MainAppContent(
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // Streamlined covers the source list with the quality sheet until a tier is
+                    // picked; from that point until playback starts the progress overlay owns the
+                    // screen, so the list is never what the user is left looking at.
+                    var streamlinedPlaybackStarting by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // 1-based, and only ever advanced by the auto-pick failure chain. The overlay
+                    // shows it so a silent retry does not read as a hang.
+                    var autoPickAttempt by rememberSaveable(route.launchId) { mutableStateOf(1) }
                     var meteredChoice by remember(route.launchId) {
                         mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
                     }
@@ -2831,6 +2841,7 @@ private fun MainAppContent(
                                 is DirectDebridPlayableResult.Success -> resolved.stream
                                 else -> {
                                     val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
+                                    if (hasNextCandidate && isInstantAutoPlay) autoPickAttempt += 1
                                     if (!hasNextCandidate) {
                                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
                                     }
@@ -2865,7 +2876,9 @@ private fun MainAppContent(
                             return@LaunchedEffect
                         }
                         if (sourceUrl == null) {
-                            StreamsRepository.skipAutoPlayStream(selectedStream)
+                            if (StreamsRepository.skipAutoPlayStream(selectedStream) && isInstantAutoPlay) {
+                                autoPickAttempt += 1
+                            }
                             return@LaunchedEffect
                         }
                         autoPlayHandled = true
@@ -3124,6 +3137,7 @@ private fun MainAppContent(
                         ) {
                             is PlaybackSelectionResult.Play -> {
                                 qualitySheetDismissed = true
+                                streamlinedPlaybackStarting = true
                                 openSelectedStream(
                                     stream = result.stream,
                                     resolvedResumePositionMs = launch.resumePositionMs,
@@ -3211,6 +3225,21 @@ private fun MainAppContent(
                             StreamsRepository.setOverlayVisible(false)
                         }
                     }
+
+                    // Instant and Streamlined must never leave the user reading the source list
+                    // while the app is still deciding. The overlay covers it - it cannot replace
+                    // it, because StreamsScreen owns the fetch this is reporting on.
+                    val awaitingUserAnswer = pendingUncachedStream != null ||
+                        pendingStickyStreamOpen != null ||
+                        pendingP2pStreamOpen != null ||
+                        (NetworkQualityRepository.current().isMetered && meteredChoice == null)
+                    val showPlaybackProgress = PlaybackProgress.isVisible(
+                        isAutoPickRoute = playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                        isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
+                        manualSourceListRequested = manualSourceListRequested,
+                        awaitingMeteredChoice = awaitingUserAnswer,
+                        hasNavigatedAway = reuseNavigated,
+                    )
 
                     Box(modifier = Modifier.fillMaxSize()) {
                         StreamsScreen(
@@ -3404,7 +3433,23 @@ private fun MainAppContent(
                                 },
                             )
                         }
-                        if (resolvingDebridStream) {
+                        if (showPlaybackProgress) {
+                            PlaybackProgressOverlay(
+                                step = PlaybackProgress.step(
+                                    PlaybackProgressInputs(
+                                        isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
+                                            streamsUiState.isAnyLoading,
+                                        hasChosenSource = instantSelectionHandled || streamlinedPlaybackStarting,
+                                        isResolvingLink = resolvingDebridStream,
+                                        attempt = autoPickAttempt,
+                                    ),
+                                ),
+                                attempt = autoPickAttempt,
+                            )
+                        } else if (resolvingDebridStream) {
+                            // Classic and every manual path keep the lighter scrim: the source
+                            // list behind it is what the user chose from and is worth keeping
+                            // visible.
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()

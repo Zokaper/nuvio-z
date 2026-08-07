@@ -1102,6 +1102,11 @@
     <string name="playback_quality_summary">%1$dp · up to %2$d Mbps</string>
     <string name="playback_quality_manual">Choose source manually</string>
     <string name="playback_quality_no_match">No safe automatic source matched. Choose a source manually.</string>
+    <string name="playback_progress_finding">Looking for sources…</string>
+    <string name="playback_progress_choosing">Choosing the best source</string>
+    <string name="playback_progress_resolving">Preparing the link</string>
+    <string name="playback_progress_starting">Starting playback</string>
+    <string name="playback_progress_attempt">Attempt %1$d of %2$d</string>
     <string name="playback_uncached_title">Nothing is cached</string>
     <string name="playback_uncached_description">This source needs to be prepared by your debrid provider before it can play.</string>
     <string name="playback_uncached_start">Start caching</string>
