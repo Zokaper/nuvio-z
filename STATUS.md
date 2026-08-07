@@ -7,7 +7,7 @@ Last updated: 2026-08-07
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Release `0.4.1-beta` — fixes two bugs device testing found in `0.4.0-beta` (see "0.4.0-beta regressions" below). `0.4.0-beta` is published on both repos and should be considered superseded. After that: compile the iOS Swift buffer fix on a macOS host, and continue smoke-testing the playback modes. |
+| **Next** | Release `0.4.2-beta` — Instant auto-played an uncached debrid placeholder (see "0.4.x field failures" below). `0.4.0-beta` and `0.4.1-beta` are superseded. Then: fix the same sync wipe-pattern in the four other settings stores, compile the iOS Swift buffer fix on macOS, and continue smoke-testing. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -291,6 +291,35 @@ untouched, per the plan's non-goal of destabilising the download stack.
 Verified: Android host **615 tests across 88 classes** and desktop **821 tests across 118
 classes**, both zero failures, errors or skips, with `desktopMain` compiled. Not smoke-tested
 on a device or an installed app.
+
+### Uncached debrid auto-played, fixed in 0.4.2-beta (2026-08-07)
+
+Instant started an ElfHosted placeholder — the two-minute `MEDIA_NOT_CACHED_YET` slate —
+on a source whose display name plainly carried the not-cached hourglass. This is the exact
+outcome `PLAYBACK_MODES_PLAN.md` said Instant must never produce, and it survived because
+two gaps lined up:
+
+- `SourceFactsExtractor` learned cache state only from the structured `debridCached` and
+  `clientResolve.isCached` fields. Many debrid addons advertise it **only in the display
+  name**, so `isDebridReady` was *null* — unknown — rather than false.
+- `PlaybackSourceSelector.isUncachedDebrid` excluded only an explicit `false`, so unknown
+  passed straight through to auto-play.
+
+**The rule is now: unknown is not cached.** Auto-pick requires positive evidence of a cached
+copy, and uncached candidates are kept out of the `fallbacks` list too — otherwise the
+failure chain lands on a placeholder one retry later instead of never.
+
+⚠ **The fail-safe is scoped to debrid-backed candidates only** (`debridService` set,
+`clientResolve` present, or a direct debrid stream). Plugin scrapers and plain direct HTTP
+links legitimately have no cache state at all; gating on null globally would empty the
+candidate set and leave Instant unable to play anything. `aNonDebridSourceWithNoCacheStateStillPlays`
+is the regression guard for that over-application — do not remove it.
+
+Display-name parsing (`parseDebridCacheMarker`) is a second layer, not the fix. Negatives are
+checked before positives so "not cached" cannot read as "cached", and `instant` is excluded
+from the positive set because *Instant Family* exists.
+
+Verified: Android **624 tests across 89 classes**, desktop **830 across 119**, zero failures.
 
 ### 0.4.0-beta regressions, fixed in 0.4.1-beta (2026-08-07)
 
