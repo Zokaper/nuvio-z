@@ -50,10 +50,10 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOf(
                 WhatsNewItem(
-                    title = "Streamlined always finds the safest match",
-                    description = "Quality tiers now use the title's actual runtime. If every matching " +
-                        "cached source is slightly above the preferred bandwidth budget, Streamlined " +
-                        "chooses the smallest one instead of returning to the source list.",
+                    title = "Streamlined waits for source results",
+                    description = "Choosing a quality tier now waits for the stream request to produce " +
+                        "results. A brief empty state at the start of loading can no longer send you " +
+                        "back to the source list with a no-match message.",
                 ),
             ),
         ),
