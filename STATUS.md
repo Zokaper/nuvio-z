@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-07
+Last updated: 2026-08-05
 
 | | |
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phases 1–3 complete and locally verified; Instant now uses network quality, metered consent, and bounded source failover. See `PLAYBACK_MODES_PLAN.md`.** |
-| **Next** | Playback modes **Phase 4 auto source-swap — in progress**. The libmpv buffer precondition is verified by source inspection and it found a real bug: iOS misreads `demuxer-cache-time` as a duration (see the Phase 4 section below). Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
+| **Unreleased work** | The stranded-download fix and the desktop download harness, on the branch above. The harness **reproduces the reported fault and proves the fix**, which is the first time a download queue change has had runtime evidence behind it. CI is green on both repositories. Still pending from the last release: the preset picker, the preset editor controls and the toast link have only ever been compiled and unit-tested. |
+| **Next** | **Make a download behave like a Netflix download** - see "NEXT" under Pending / Follow-up. Extend the harness over the queue controls (reorder, pause, resume, cancel) under load, every way a debrid provider can fail, and a real cached-on-the-provider check before a transfer starts; then fix what it exposes. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -16,248 +16,6 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
-
-## Playback modes: Classic / Streamlined / Instant (2026-08-06, in progress)
-
-**The plan is `PLAYBACK_MODES_PLAN.md` in this repository, and it is self-contained** — a cold
-agent can execute it without this conversation. It covers both repositories. Its execution
-ledger is the resume point; keep it current in the same commit as the code.
-
-Three global playback modes, chosen once on a new first-launch selector, with a per-play escape
-hatch (long-press on mobile, right-click on desktop) that always reaches the Classic source list:
-
-- **Classic** — today's flow, unchanged, and the fallback when auto-pick misjudges a user's
-  plugins or debrid.
-- **Streamlined** — pick a quality tier, the app picks the source. Optional sticky pin
-  (release group → bingeGroup → addon/provider/resolution) makes the rest of a season one tap.
-- **Instant** — quality and source chosen from the network connection; metered connections ask
-  before playing.
-
-**Phase 1 landed so far — logic and persistence only, nothing user-visible.** The mode is
-stored and defaults to `CLASSIC`, and no code reads it yet, so behaviour is unchanged:
-
-- `features/playback/PlaybackModeModels.kt` — `PlaybackMode`, `PlaybackQualityTier` (a
-  *bandwidth* budget, deliberately not a `DownloadPreset`, with a 60% headroom constant),
-  `mergeStoredTiers` mirroring `mergeStoredPresets`, and `StickySourcePin` with a scored match.
-- `features/playback/PlaybackModeRouter.kt` — the precedence table as a pure function.
-- `playback_mode` and `playback_mode_selector_seen` through `PlayerSettingsStorage` with
-  **all three actuals** (android, ios, and the desktop one in `NuvioZDesktop`), added to
-  `syncKeys` and both sync payload paths, and surfaced on `PlayerSettingsUiState` with
-  `setPlaybackMode` / `markPlaybackModeSelectorSeen`.
-
-**A correction to this document's own build advice: Gradle works on the maintainer's Windows
-machine.** It only needs `JAVA_HOME` (Android Studio's JBR) and `ANDROID_HOME` set per
-invocation — the failure without them is "SDK location not found" during task dependency
-resolution, which reads like a configuration failure and is not one. `AGENTS.md` now records
-the exact invocation. The sandbox limitation is real but is a sandbox limitation, not a
-project one, and the standalone-kotlinc workarounds should be a second choice from now on.
-
-Verification of the above: `:composeApp:testAndroidHostTest` run in full on this machine —
-**576 tests, zero failures, errors or skips**, across 82 classes. That is the documented 554
-baseline plus the 22 new cases exactly, so nothing was displaced. `PlaybackModeRouterTest` (11)
-and `PlaybackQualityTierTest` (11) execute against the shipped sources — including the
-regression case that a sticky pin must outrank reuse-last-link, which is the specific bug the
-precedence table exists to prevent.
-Shared files are mirrored and the only diffs against `NuvioZDesktop` are the pre-existing,
-documented ones (its `AppFeaturePolicy` external-player gating and the NVIDIA RTX setting).
-
-`NuvioZDesktop :composeApp:desktopTest` also passed in full: **782 tests, zero failures,
-errors or skips**, across 112 classes — the 760 baseline plus the same 22 cases, which run on
-the desktop target too. **This compiled `desktopMain`, so the new desktop `actual` is verified
-rather than assumed**, and the download harness stayed green. Since `desktopTest` compiles
-`desktopMain` on the real machine, `desktop-release.yml mode=build-only` is now only *CI's*
-way of catching a missing actual, not the only way.
-
-**The mode is now reachable in the UI.** Settings → Playback → Player → **Playback mode** opens
-a `PlaybackModeDialog` listing all three modes with descriptions, and the row is in the settings
-search index. Streamlined and Instant are selectable but carry a "Not ready yet - plays like
-Classic for now" caption, since nothing consumes them until Phases 2 and 3; `isImplemented()`
-in `PlaybackSettingsPage.kt` is the one place to update as each lands. Nine new string keys in
-both `values/strings.xml`; the other 24 locales fall back to English as usual.
-
-Both suites re-run green after the UI landed: Android **576** and desktop **782**, zero
-failures, errors or skips. Note the settings files genuinely differ between the repositories
-(desktop gates the external player behind `AppFeaturePolicy`, renamed the Trakt page to
-Tracking, and builds the search rows with `buildList`/`add` rather than `listOfNotNull`), so
-these were hand-ported, not copied — a straight `cp` would have broken the desktop build, and
-the first attempt did pass two arguments to a single-argument `add(...)`.
-
-**Phase 1 is complete.** Also landed: `PlaybackModeSelectorScreen`, shown on first launch to
-everyone (existing installs included) and pre-selected to Classic, so dismissing it changes
-nothing. It is gated by **wrapping the `AppGateScreen.Main` branch in `App.kt` rather than
-adding a gate value** — five separate transitions set the gate to `Main`, and wrapping covers
-every one of them with a single decision instead of five edits that could drift.
-
-Two findings from building the UI:
-
-- **The manual-selection escape hatch already existed.** `MetaDetailsScreen` has always had a
-  "Play manually" action in the episode long-press overlay, using the `onPlayManually` callback
-  `App.kt` already threads through — it was just gated on
-  `StreamAutoPlayPolicy.isEffectivelyEnabled(...)`. Showing it when the mode is not `CLASSIC`
-  was a one-condition change, not new plumbing, and since `onPlayManually` sets
-  `manualSelection = true` it already satisfies precedence rule 1.
-- **`entry<StreamRoute>` wiring is deliberately deferred to Phase 2**, and is its first step.
-  In Phase 1 every mode resolves to the source list, so calling `PlaybackModeRouter.decide`
-  there would refactor the riskiest block in the app — ~550 lines carrying reuse-last-link,
-  auto-play evaluation, debrid resolution and P2P consent — for zero behaviour change. The
-  router and its tests are in place and unchanged, waiting for it.
-
-Both suites green after the UI landed: Android **576**, desktop **782**, zero failures, errors
-or skips. `App.kt` and `MetaDetailsScreen.kt` were hand-ported, not copied — both already
-differ between the repositories.
-
-**Still not smoke-tested on a device or a real desktop install.** No Android device was
-attached (`adb devices` empty), so nothing has run against real storage. When one is available:
-launch and confirm the selector appears once and only once; pick Classic and confirm nothing
-about playback changes; change the mode in Settings, force-stop, relaunch, confirm it held;
-switch profiles and confirm the mode is per-profile. The selector shows for existing installs
-too, so **that first-launch behaviour is the thing most worth watching** on a device that
-already has data.
-
-### Phase 2 complete — picker and Streamlined (2026-08-06)
-
-- `entry<StreamRoute>` now delegates precedence to `PlaybackModeRouter`: explicit manual play,
-  completed local download (consumed before the route), matching season pin, valid cached link,
-  then playback mode. Non-Classic modes cannot run the legacy `streamAutoPlayMode` picker.
-- Plugin scraper metadata now survives ingestion as `PluginStreamMeta`; quality, byte size,
-  seeders/peers, provider, and language no longer depend on parsing the display subtitle.
-  `SourceFacts` adds plugin-structured provenance, seeders, and release-group extraction.
-- Download and playback selection share `SourceRanking` while retaining separate protocol gates.
-  Streamlined allows HTTP(S), HLS/DASH, safe debrid candidates, and opt-in torrents only with a
-  known healthy seeder count; download protocol policy is unchanged.
-- Streamlined shows configured quality tiers plus Best available, handles uncached debrid as an
-  explicit choice, and can pin a manually chosen release for the rest of a season through the
-  widened `BingeGroupCacheRepository`. The pin outranks cached-link reuse and falls through when
-  no candidate matches.
-- Quality tiers and the torrent auto-pick toggle are profile-scoped and included in settings sync;
-  Android, iOS, and desktop actuals are present. The old Stream auto-play section is disabled with
-  an explanation outside Classic, and only Instant retains the not-ready caption.
-- Verification: forced full Android host run **585 tests across 85 classes**, and forced full
-  desktop run **791 tests across 115 classes**; both had zero failures, errors, or skips. The
-  desktop run compiled `desktopMain` and ran the complete download harness. Nine new cases cover
-  plugin metadata, release groups, shared ranking, selector gates/caps/fallbacks, and sticky
-  release-group precedence. Focused suites also passed on both targets before the full runs.
-- **Not verified:** no Android device was attached and no installed Windows build was launched,
-  so the quality sheet, manual sticky prompt, persistence across app restart/profile switching,
-  plugin-heavy/debrid pick quality, and HLS/DASH playback remain runtime smoke-test work.
-
-### Phase 3 implementation complete — Instant and network quality (2026-08-06)
-
-- Added `NetworkQualityPlatform` using Android `ConnectivityManager`/`NetworkCapabilities`, iOS
-  `NWPathMonitor`, and an unmetered Ethernet desktop actual. The per-network estimator caches
-  passive throughput separately for each debrid/provider and resolves configured quality tiers.
-- Real download progress now feeds bounded throughput samples into the estimator. Unknown
-  networks remain conservative at 720p until a real measurement is available.
-- `PlaybackRouteDecision.AutoPick` selects the estimated tier, re-checks provider-specific
-  throughput, and seeds the existing `StreamsRepository` auto-play candidates in ranked order.
-- Instant retries at most three sources. A player error or failure to start within eight seconds
-  advances the existing chain; exhaustion returns to the Classic source list with a reason.
-- Metered connections ask once per network per app session. The capped choice uses the
-  profile-scoped, synced `playback_metered_cap_height` (720p default); full quality applies only
-  to that session. Instant's not-ready caption has been removed.
-- Added five common estimator tests. Desktop main and test source sets compile successfully.
-- Verification: Android host **590 tests across 86 classes** and desktop **796 tests across 116
-  classes**, both zero failures, errors, or skips. Desktop main compiled.
-- **Not verified:** iOS cannot compile on this Windows host, and no device or installed Windows
-  smoke test has been performed. Metered-session behavior and eight-second runtime failover
-  therefore still need real-device/installed-app coverage.
-
-Findings from the exploration that shaped it, worth recording independently of the plan:
-
-- **Plugin sources are structurally invisible to the auto picker.**
-  `AutomaticDownloadDiscovery` builds `DownloadSourceCandidate` from installed addons only, so
-  nothing a JS scraper returns is ever a candidate.
-- **Plugin metadata is destroyed on ingest.** `PluginRuntimeResult` carries `quality`, `size`,
-  `seeders`, `peers`, `provider`, `language`; `StreamFetchSupport.kt:85`
-  `PluginRuntimeResult.toStreamItem()` joins some into a `" • "` display string and **drops
-  `seeders` and `peers` entirely**. `SourceFactsExtractor` then regexes that prose back apart.
-  For a plugin-heavy profile the picker is guessing.
-- **No seeder signal exists anywhere** in `StreamItem` or `SourceFacts` — the strongest
-  predictor of whether a torrent source will actually start playing.
-- **Two selection mechanisms already run inside `entry<StreamRoute>`.** Verified ordering:
-  `manualSelection` gates the local-download check (`App.kt:1584`); the reuse-last-link effect
-  (`App.kt:2525`) is gated on `!launch.manualSelection` and fires **before** auto-play
-  evaluation. A third picker added without a precedence rule would break Streamlined outright
-  (reuse-last-link would pre-empt the quality sheet). The plan's precedence table is normative
-  and `streamAutoPlayMode` becomes Classic-only.
-- **Reuse, do not rebuild:** `StreamsRepository.skipAutoPlayStream` (`StreamsRepository.kt:767`)
-  is already the "candidate failed, advance to the next" mechanism the Instant failure chain
-  needs; `BingeGroupCacheRepository` is already per-content release memory and should be widened
-  to carry a `StickySourcePin` rather than gaining a parallel store.
-- **Mid-playback source switching already exists and preserves position.**
-  `PlayerScreenRuntimeSourceActions.kt:229` `switchToSource` captures `playbackSnapshot.positionMs`
-  and restores it via `activeInitialPositionMs`. Automatic downshift (Phase 4) is a trigger on
-  top of shipped, hand-testable plumbing — not adaptive bitrate, and not phase 1.
-- **Nothing detects network type, metered status, or throughput.** `NetworkStatusRepository` is
-  a reachability prober only. Instant needs a new `expect`/`actual` across Android, iOS and
-  desktop.
-- **There is no onboarding anywhere in the app**, so the mode selector is new construction on
-  the `AppGateScreen` state machine. It needs `playback_mode_selector_seen` persisted separately
-  from `playback_mode`, or "chose Classic" is indistinguishable from "never chose".
-
-### Phase 4 complete — auto source-swap, opt-in and default off (2026-08-07)
-
-**The precondition found a real bug, which is the main result of this phase.** Phase 4 was
-gated on verifying that `bufferedPositionMs` is meaningful on libmpv, not just ExoPlayer. It
-is not, on one platform:
-
-- Android mpv does `maxOf(positionMs, cachePositionMs)` (`PlayerEngine.android.kt:1249`) and
-  the desktop C++ does `cacheTime - effectivePosition` (`player_bridge.cpp:1896`). Both treat
-  mpv's `demuxer-cache-time` as what it is: an **absolute** stream timestamp for the end of
-  the cache.
-- iOS did `position + cached` (`MPVPlayerBridge.swift:883`), treating that same absolute
-  timestamp as a *duration ahead of the position*. So iOS reported a buffer that grew with
-  playback position and never looked starved.
-
-Two of three implementations of one libmpv property disagreed with the third, which settles
-it without a device. **This was already a live bug**, not only a Phase 4 blocker:
-`PlayerScreenRuntimeUi.kt` derives its user-visible buffer readout from
-`bufferedPositionMs - positionMs`. Fixed to match Android exactly. **The Swift change cannot
-be compiled on this Windows host and is unverified** — it is three lines and mirrors a
-verified implementation, but it has not been run.
-
-What landed on top of that:
-
-- `features/playback/AutoDownshiftDetector.kt` — the trigger, pure and clock-free, plus
-  `AutoDownshiftCandidates` for the swap constraints. **The run is measured in wall-clock
-  time, not snapshot counts.** Android polls the player every ~250 ms and desktop every
-  500 ms, so the plan's "≥3 consecutive snapshots" would have meant 0.75 s on one platform
-  and 1.5 s on the other — neither is "sustained", and they would not have agreed. A
-  duration threshold (4 s buffer-ahead, held 6 s continuously, minimum 3 samples) makes both
-  platforms behave identically with no per-platform tuning.
-- Arming conditions, each of which can otherwise burn the one-swap budget on a false
-  positive: a 15 s settle grace (desktop's `effectiveCachePositionSeconds()` clamps the cache
-  position to the resume point after a seek, so buffer-ahead is untrustworthy early); a run
-  reset on pause, seek, or source change; and a stall (`paused-for-cache`) counted as
-  starvation whatever the reported buffer says.
-- Swap constraints: same release group only, never upward, manifests exempt (HLS/DASH adapt
-  internally), never onto an uncached debrid candidate, and null — no swap — whenever the
-  release group or resolution is unknown.
-- `playback_auto_downshift` through `PlayerSettingsStorage` with **all three actuals**, in
-  `syncKeys` and both sync payload paths, surfaced as an Instant-only settings row.
-
-**"One swap per session" is read as one per playback session, reset on a new episode**, not
-one per source: a position-preserving switch keeps the budget spent. The budget is charged by
-`consumeSwap` at the call site, never by the detector — whether a swap is even possible
-depends on the candidate list, and charging for one that never happened would silently
-disable the feature for the rest of the episode.
-
-**Identifying the playing source cannot be done by URL.** `switchToSource` re-enters with the
-debrid-*resolved* stream, so `activeSourceUrl` holds a minted URL no candidate in the source
-list carries, and a P2P source holds a sentinel URL that matches nothing. Since Instant's
-users are mostly on debrid, URL matching would have made this a silent no-op on its main
-path. `matchesActiveSource` tries info-hash, then identity key, then URL, then
-addon + label — the last arm being the one that survives resolution, which rewrites `url`,
-`filename` and `videoSize` but leaves `addonId`, `streamLabel` and `streamSubtitle` alone.
-
-Verified: Android host **607 tests across 87 classes** and desktop **813 tests across 117
-classes**, both zero failures, errors or skips — the documented 590/796 baselines plus the 17
-new `AutoDownshiftDetectorTest` cases, which run on both targets. The desktop run compiled
-`desktopMain`, so the new desktop `actual` is verified rather than assumed.
-
-**Not covered:** the iOS Swift fix (no macOS host), and any on-device or installed-app
-behaviour — no Android device was attached and the Windows app was not installed at any
-point. The setting is off by default, so nothing here changes playback until a user opts in.
 
 ## Current Snapshot
 
@@ -447,20 +205,10 @@ so a test run cannot touch a developer's own Nuvio Z install, and the test asser
 landed somewhere disposable before writing anything.
 
 **Against real sources:** set `NUVIO_DOWNLOAD_TEST_URLS` to a comma-separated list of
-direct media URLs and `real sources download end to end` runs the same queue against
-them at the shipped deadlines; it skips when the variable is unset. That proves real
-transfer and concurrency behavior only: raw signed links have no provider/hash origin
-and cannot be re-minted.
-
-The provider-backed TorBox case uses `NUVIO_TORBOX_TEST_SOURCES` to name a local JSON
-fixture containing the original info hashes/file selectors and reads the API key from
-`NUVIO_TORBOX_API_KEY`. It pre-resolves the entire season as production preparation
-does, can wait more than fifteen minutes, then enqueues every resolved link with its
-durable origin. Every transfer must perform a fresh real provider check and the final
-files must match the queue's exact totals. `scripts/run-torbox-download-e2e.ps1`
-prompts for the key without putting it in shell history, uses a single-use Gradle
-daemon, and clears the environment afterward. The fixture and key are not logged or
-committed.
+direct media URLs (a real debrid link is the point) and `real sources download end to
+end` runs the same queue against them at the shipped deadlines; it skips when the
+variable is unset. Two links exercise the concurrency limit; a season's worth left
+running past the fifteen-minute window is what exercises re-minting for real.
 
 ## Preset UI and the mid-range size preference (2026-08-05, released in 0.3.10 / 0.1.23-alpha)
 
@@ -507,53 +255,6 @@ locales fall back to English until translated.
 
 ## Verification
 
-- Download reliability pass (2026-08-05):
-  - Added the opt-in full-provider TorBox season case described above, its local
-    fixture example, and a masked secure runner. The desktop suite passes **760
-    tests**, zero failures/errors.
-  - Ran that case against a real TorBox account with three cached episode files
-    totalling about 228 MB. It prepared the three provider links up front, held them
-    for **960 seconds**, then forced a fresh provider readiness check/re-mint for each
-    queue transfer. The case completed in **1,004.398 seconds**, with zero failures or
-    errors; all three files completed at the exact provider/HTTP totals and the queue
-    stranded nothing. The report contained no skip marker.
-  - The first live invocation exposed a harness-runner fault rather than a download
-    fault: Gradle could reuse the earlier credential-free skip as an up-to-date test
-    result. The secure runner now passes `--rerun-tasks` and disables configuration
-    caching, matching the successful live run. A targeted post-run scan found zero copies
-    of the credential in the temp log, fixture, disposable test profile, XML, or HTML
-    reports; the temporary fixture/log were removed and the isolated runtime reset.
-  - Extended the desktop E2E harness from 8 local fault/queue cases to 30. New
-    coverage exercises every reorder direction under load, ranged preemption,
-    user pause/resume during transfer and retry backoff, cancel and bulk delete,
-    active queue reload with preserved rank/partial files, controls during a
-    suspended re-mint, expiry after 20% and 90%, one-time and permanent re-mint
-    failures, provider hangs, 429/503, dead accounts, changed/truncated identity,
-    and the cached/not-cached/evicted/unknown/placeholder readiness outcomes.
-  - The harness reproduced four production faults before their fixes: permanent
-    re-mint failure retried forever; a hung provider call held a transfer slot
-    forever; and a re-minted same-sized different file was appended to the old
-    `.part` and marked complete; and a materially truncated replacement was
-    accepted at its shorter HTTP total. It also proved that a fresh resolved URL
-    skipped the provider cache check and downloaded even after the source was evicted.
-  - Fixed those paths by applying the finite re-resolution budget before transfer,
-    bounding provider calls at 60 seconds, retaining validators across re-mint so
-    `If-Range` resets changed objects, bypassing the resolver's 15-minute success
-    cache for download readiness, rejecting materially contradictory refreshed
-    provider sizes, and distinguishing not-ready, retryable, changed, and fatal
-    provider outcomes. Direct HTTP downloads remain direct.
-  - `NuvioZDesktop :composeApp:desktopTest` passed in full: **760 tests**, zero
-    failures/errors/skips, including all **30** local desktop download harness cases
-    plus the opt-in real-provider case's safe no-credential path.
-  - `nuvio-z :composeApp:testAndroidHostTest`: **554 passed**, zero failures,
-    errors, or skips. `:androidApp:assembleFullDebug` also completed successfully.
-    The four changed common files are byte-identical between repositories.
-  - CI is green on both code commits: `nuvio-z` `a6170825` passed Android host
-    tests and the debug APK build in run `31043186788`; `NuvioZDesktop`
-    `223a396e` passed desktop tests and the Windows MSI build in run `31043196526`.
-  - Real TorBox provider/hash coverage is complete as described above. The older
-    `NUVIO_DOWNLOAD_TEST_URLS` raw-URL mode remains useful only for direct transfer
-    and concurrency checks; it is not used as evidence for provider re-minting.
 - Stranded downloads and the harness (2026-08-05). The first download work here with
   runtime evidence rather than an argument. Gradle still cannot configure in the
   sandbox, so Kotlin 2.3.0 was driven directly, describing the source set to the
@@ -708,15 +409,15 @@ needs the user to know what a debrid link is.
 
 The harness in `NuvioZDesktop`
 (`composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` and
-`FaultyMediaServer.kt`) is where that gets proven. It now covers the local,
-deterministic parts of items 1-3 below: queue controls under load and across a
-repository reload, provider failures and controls during them, byte identity
-across re-mint, and provider readiness immediately before transfer. The harness
-was extended first and reproduced every production fault fixed in this pass.
-The real-account and real connectivity-transition work in item 4 remains.
+`FaultyMediaServer.kt`) is where that gets proven. It currently covers a clean
+queue, a dropped connection, a source going quiet, an expired link being
+re-minted, a placeholder file, the concurrency limit, and the stranding
+regression. **Everything below is uncovered.** Extend the harness, then fix what
+it exposes - in that order, because the last four faults in this file were all
+found by a user rather than by a test.
 
-**1. The queue controls, under load - covered locally.** Every one of these
-cancels a running transfer, and cancelling is what the stranding bug came out of.
+**1. The queue controls, under load.** Every one of these cancels a running
+transfer, and cancelling is what the stranding bug came out of. None is tested.
 
 - Reorder while transferring: move to top, up, down, to bottom; the promoted item
   starts at once and the preempted one keeps its `.part` file and resumes from
@@ -734,8 +435,9 @@ cancels a running transfer, and cancelling is what the stranding bug came out of
   from the same bytes, with user pauses still paused. `loadFromDiskLocked` has
   never been exercised against a queue in a real intermediate state.
 
-**2. Provider failures - covered locally except a real connectivity observer
-transition.** `FaultyMediaServer` and the re-mint stand-in now fail on demand:
+**2. The provider failing in every way it can.** `FaultyMediaServer` should grow
+these, and the re-mint stand-in
+(`DownloadsRepository.resolvePlayableStream`) should be able to fail on demand:
 
 - a link that expires *mid-transfer* rather than before it starts, at 20% and
   again at 90%;
@@ -751,9 +453,8 @@ transition.** `FaultyMediaServer` and the re-mint stand-in now fail on demand:
 - the network dropping entirely and coming back, which on desktop only
   `NetworkStatusRepository` reports.
 
-**3. Cached-on-the-debrid, checked immediately before transfer - implemented and
-covered through the provider seam.** This was the weakest link behind "download
-queued" placeholders reaching the disk.
+**3. Cached-on-the-debrid, checked for real.** The weakest link, and the one
+behind "download queued" placeholders reaching the disk.
 
 Today readiness is whatever the *addon* claimed at selection time
 (`SourceFacts.isDebridReady` from `aio.debridCached` / `clientResolve.isCached`),
@@ -763,14 +464,13 @@ planning a season and reaching episode 9 an hour later. The placeholder check
 (`isImplausiblySmallForMedia`) is the only real defence and it is *post-hoc* - it
 downloads the wrong file first, then retries on a 1-to-10-minute backoff.
 
-The queue now bypasses the resolver's fifteen-minute success cache and asks the
-provider again **before every debrid transfer starts**. Not-cached sources wait
-without touching the media URL, provider uncertainty retries with a visible
-reason, dead accounts fail plainly, and a placeholder that arrives after a
-successful check is still rejected. Cached, not cached, cached-then-evicted,
-provider unsure, and post-check placeholder outcomes all have harness cases.
+What it should do: ask the provider whether the hash is actually in the cache
+**before the transfer starts**, treat an uncached source as a thing to wait for
+or to swap out rather than a thing to download, and re-check when a link is
+re-minted. Then cover it: cached, not cached, cached-then-evicted between
+planning and transfer, provider unsure, and a placeholder that arrives anyway.
 
-**4. Prove it against a real account - still pending.** The local server cannot imitate provider
+**4. Prove it against a real account.** The local server cannot imitate provider
 quirks, which is where every fault so far has come from. Run the same queue
 against TorBox with `NUVIO_DOWNLOAD_TEST_URLS`, and run a real season batch left
 going long enough to cross the fifteen-minute link window - that is the only

@@ -19,6 +19,26 @@ internal const val PROGRESS_MIN_BYTE_DELTA = 512L * 1024L
 /** The partial file is flushed at least this often so a process kill loses little. */
 internal const val PARTIAL_FLUSH_BYTE_DELTA = 8L * 1024L * 1024L
 
+/**
+ * How long a transfer may receive nothing at all before it is treated as stalled.
+ *
+ * Reaching the end of a body is not the only way a transfer ends; a connection
+ * that simply goes quiet without closing is the other, and it is the one that has
+ * no natural end. Whoever owns the socket has to impose this bound, because a
+ * blocking read on a silent connection never returns on its own and cannot be
+ * interrupted by cancelling the coroutine around it.
+ */
+internal const val TRANSFER_STALL_TIMEOUT_MS = 60_000L
+
+/**
+ * How long the queue waits before deciding a transfer it can still see is stuck.
+ *
+ * The platform watchdog above is the first line; this is the backstop for a
+ * transfer whose watchdog never fired at all. Deliberately several times the
+ * stall timeout so a slow-but-alive source is never mistaken for a dead one.
+ */
+internal const val TRANSFER_WATCHDOG_TIMEOUT_MS = 5L * TRANSFER_STALL_TIMEOUT_MS
+
 internal const val MAX_DOWNLOAD_ATTEMPTS = 5
 
 /** Why a transfer stopped, which decides whether resuming it is worth attempting. */
@@ -42,6 +62,18 @@ internal enum class DownloadFailureReason {
      * than a network blip, because the wait is someone else's queue.
      */
     SourceNotReady,
+
+    /**
+     * This URL is dead, but the file behind it may not be.
+     *
+     * Debrid providers hand out signed, IP-scoped links that expire in minutes,
+     * and a download queue that runs two transfers at a time will routinely reach
+     * for one hours after it was minted. Retrying the same URL is pointless;
+     * minting a new one from the source it came from is not. Only useful for a
+     * download that kept the origin needed to ask again - see
+     * [DownloadItem.sourceOrigin].
+     */
+    SourceExpired,
 
     /** The source is gone or refuses us. Retrying cannot help. */
     Fatal,
@@ -87,6 +119,25 @@ internal fun evaluateCompletion(
 internal const val MAX_SOURCE_NOT_READY_ATTEMPTS = 8
 
 /**
+ * Attempts allowed at minting a fresh link for an expired source.
+ *
+ * Small on purpose. A link that cannot be re-minted three times running is not an
+ * expiry, it is a file that is genuinely gone, and the download should say so
+ * rather than reissuing API calls forever.
+ */
+internal const val MAX_SOURCE_RERESOLVE_ATTEMPTS = 3
+
+/**
+ * How long a resolved source URL is assumed to still work.
+ *
+ * Matches the resolver's own cache lifetime: playback already treats a link older
+ * than this as worth re-minting, and a download has no reason to be more
+ * optimistic. Downloads were the one place that kept a link forever, which is how
+ * a season batch ended up handing hours-old links to the queue.
+ */
+internal const val SOURCE_URL_FRESHNESS_MS = 15L * 60L * 1000L
+
+/**
  * No real episode or film is this small.
  *
  * The floor only has to be above placeholder videos and error bodies, and far
@@ -97,9 +148,22 @@ internal const val MIN_PLAUSIBLE_MEDIA_BYTES = 1L * 1024L * 1024L
 /** How far under the advertised size a finished file may land before it is suspect. */
 internal const val MIN_EXPECTED_SIZE_RATIO = 0.25
 
-/** Whether another attempt is worth making after [reason] on attempt number [attempt]. */
-internal fun shouldRetry(reason: DownloadFailureReason, attempt: Int): Boolean = when (reason) {
+/**
+ * Whether another attempt is worth making after [reason] on attempt number [attempt].
+ *
+ * [canReresolveSource] says whether the download kept enough of its origin to ask
+ * for a fresh link. Without it an expired URL is as dead as a fatal one, because
+ * every retry would replay the same dead URL - which is exactly what used to leave
+ * a debrid download failed with a retry button that could never work.
+ */
+internal fun shouldRetry(
+    reason: DownloadFailureReason,
+    attempt: Int,
+    canReresolveSource: Boolean = false,
+): Boolean = when (reason) {
     DownloadFailureReason.Fatal -> false
+    DownloadFailureReason.SourceExpired ->
+        canReresolveSource && attempt <= MAX_SOURCE_RERESOLVE_ATTEMPTS
     DownloadFailureReason.SourceNotReady -> attempt < MAX_SOURCE_NOT_READY_ATTEMPTS
     else -> attempt < MAX_DOWNLOAD_ATTEMPTS
 }
@@ -111,22 +175,28 @@ internal fun shouldRetry(reason: DownloadFailureReason, attempt: Int): Boolean =
  * retrying a debrid queue every few seconds neither helps nor is polite, and the
  * whole budget would be gone inside a minute.
  */
-internal fun retryBackoffMs(attempt: Int, reason: DownloadFailureReason): Long =
-    if (reason == DownloadFailureReason.SourceNotReady) {
-        when {
-            attempt <= 1 -> 60_000L
-            attempt == 2 -> 180_000L
-            attempt == 3 -> 300_000L
-            else -> 600_000L
-        }
-    } else {
-        when {
-            attempt <= 1 -> 2_000L
-            attempt == 2 -> 5_000L
-            attempt == 3 -> 15_000L
-            else -> 30_000L
-        }
+internal fun retryBackoffMs(attempt: Int, reason: DownloadFailureReason): Long = when (reason) {
+    DownloadFailureReason.SourceNotReady -> when {
+        attempt <= 1 -> 60_000L
+        attempt == 2 -> 180_000L
+        attempt == 3 -> 300_000L
+        else -> 600_000L
     }
+    // Nothing is being waited on here - the link is dead and a new one is a couple
+    // of API calls away - so this only exists to keep a re-resolve loop from
+    // spinning against a provider that is having a bad minute.
+    DownloadFailureReason.SourceExpired -> when {
+        attempt <= 1 -> 1_000L
+        attempt == 2 -> 5_000L
+        else -> 15_000L
+    }
+    else -> when {
+        attempt <= 1 -> 2_000L
+        attempt == 2 -> 5_000L
+        attempt == 3 -> 15_000L
+        else -> 30_000L
+    }
+}
 
 /**
  * Whether a finished transfer is too small to be the media it claims to be.
@@ -146,12 +216,15 @@ internal fun isImplausiblySmallForMedia(finalBytes: Long, expectedBytes: Long?):
 /**
  * Classifies an HTTP status so a dead source is not retried five times over.
  *
- * Anything that means "this URL will never work again" - a signed debrid link that
- * expired, a removed file - is [DownloadFailureReason.Fatal]. Overload and server
- * faults are transient.
+ * The statuses a signed link answers with once it expires, is bound to a different
+ * address, or has its token rotated are [DownloadFailureReason.SourceExpired]:
+ * this URL is finished, but the file behind it can be asked for again. Anything
+ * that condemns the request itself rather than the link is
+ * [DownloadFailureReason.Fatal]. Overload and server faults are transient.
  */
 internal fun failureReasonForHttpStatus(statusCode: Int): DownloadFailureReason = when (statusCode) {
-    400, 401, 403, 404, 405, 410, 451 -> DownloadFailureReason.Fatal
+    401, 403, 404, 410 -> DownloadFailureReason.SourceExpired
+    400, 405, 451 -> DownloadFailureReason.Fatal
     408, 425, 429 -> DownloadFailureReason.Transient
     else -> if (statusCode >= 500) DownloadFailureReason.Transient else DownloadFailureReason.Fatal
 }

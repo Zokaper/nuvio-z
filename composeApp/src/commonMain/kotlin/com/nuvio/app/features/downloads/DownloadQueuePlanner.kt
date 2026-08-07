@@ -41,6 +41,30 @@ internal object DownloadQueuePlanner {
             .toList()
     }
 
+    /**
+     * Transfers the queue has lost track of and should take back.
+     *
+     * Two kinds. One is an item recorded as downloading with no handle behind it,
+     * which nothing else here can see: the planner starts queued items and the
+     * system-pause recovery looks at paused ones, so this item sat at whatever
+     * percentage it had reached, holding a transfer slot for good. The other is a
+     * transfer still held but silent for far longer than any platform watchdog
+     * allows, which is the case where the watchdog itself never fired.
+     *
+     * Deliberately about the symptom rather than the cause. Handles can go missing
+     * in more ways than are worth enumerating, and every one of them looks the same
+     * to the person watching a download that stopped moving.
+     */
+    fun lostTransfers(
+        items: List<DownloadItem>,
+        activeIds: Set<String>,
+        nowEpochMs: Long,
+        silenceTimeoutMs: Long = TRANSFER_WATCHDOG_TIMEOUT_MS,
+    ): List<DownloadItem> = items.filter { item ->
+        item.status == DownloadStatus.Downloading &&
+            (item.id !in activeIds || nowEpochMs - item.updatedAtEpochMs >= silenceTimeoutMs)
+    }
+
     /** The rank to give a newly enqueued item so it lands at the back of the queue. */
     fun nextQueuePosition(items: List<DownloadItem>): Long =
         (items.maxOfOrNull { it.queuePosition } ?: -1L) + 1L
