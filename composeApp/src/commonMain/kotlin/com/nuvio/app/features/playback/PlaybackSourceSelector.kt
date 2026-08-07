@@ -40,36 +40,56 @@ object PlaybackSourceSelector {
         context: PlaybackSelectionContext,
     ): PlaybackSelectionResult {
         val cap = tier?.sizeCapBytes(context.runtimeMinutes, context.isEpisode)
-        val withinTier = candidates.filter { candidate ->
+        val matchingQuality = candidates.filter { candidate ->
             tier == null || candidate.facts.resolution?.height?.let {
                 it <= tier.targetResolution.height
             } ?: true
         }.filter { candidate ->
-            cap == null || candidate.facts.sizeBytes?.let { it <= cap } ?: true
-        }.filter { candidate ->
             matchesRequirements(candidate.facts, tier)
         }
-
-        val protocolEligible = withinTier.filter { candidate ->
+        val withinCap = matchingQuality.filter { candidate ->
+            cap == null || candidate.facts.sizeBytes?.let { it <= cap } ?: true
+        }
+        val protocolEligibleWithinCap = withinCap.filter { candidate ->
             isPlaybackProtocolEligible(candidate, context.allowTorrentSources)
         }
-        val ordered = protocolEligible.sortedWith(candidateComparator(tier))
-        val playable = ordered.filterNot(::isUncachedDebrid)
-
-        playable.firstOrNull()?.let { selected ->
+        // A catalog is not guaranteed to contain a release beneath our preferred bandwidth
+        // budget. Streamlined must still streamline: if quality-compatible sources exist,
+        // choose the smallest safe overflow instead of abandoning the user on the Classic
+        // list. The cap remains the primary path and retains its largest-under-cap ranking.
+        val orderedWithinCap = protocolEligibleWithinCap.sortedWith(candidateComparator(tier))
+        val orderedOverflow = matchingQuality
+            .filter { it !in withinCap }
+            .filter { candidate ->
+                isPlaybackProtocolEligible(candidate, context.allowTorrentSources)
+            }
+            .sortedWith(overCapComparator(tier))
+        val playableWithinCap = orderedWithinCap.filterNot(::isUncachedDebrid)
+        playableWithinCap.firstOrNull()?.let { selected ->
             return PlaybackSelectionResult.Play(
                 stream = selected.stream,
-                fallbacks = playable.drop(1).map(PlaybackSourceCandidate::stream),
+                fallbacks = playableWithinCap.drop(1).map(PlaybackSourceCandidate::stream),
             )
         }
-        ordered.firstOrNull(::isUncachedDebrid)?.let { uncached ->
+        val playableOverflow = orderedOverflow.filterNot(::isUncachedDebrid)
+        playableOverflow.firstOrNull()?.let { selected ->
+            return PlaybackSelectionResult.Play(
+                stream = selected.stream,
+                fallbacks = playableOverflow.drop(1).map(PlaybackSourceCandidate::stream),
+            )
+        }
+        (orderedWithinCap + orderedOverflow).firstOrNull(::isUncachedDebrid)?.let { uncached ->
             return PlaybackSelectionResult.AskUncached(uncached.stream)
         }
         return PlaybackSelectionResult.NeedsManual(
-            if (withinTier.isEmpty()) "No source matched this quality tier"
+            if (matchingQuality.isEmpty()) "No source matched this quality tier"
             else "No source can be auto-played safely",
         )
     }
+
+    private fun overCapComparator(tier: PlaybackQualityTier?): Comparator<PlaybackSourceCandidate> =
+        compareBy<PlaybackSourceCandidate> { it.facts.sizeBytes ?: Long.MAX_VALUE }
+            .then(candidateComparator(tier))
 
     private fun candidateComparator(tier: PlaybackQualityTier?): Comparator<PlaybackSourceCandidate> {
         val ranked = SourceRanking.comparator(

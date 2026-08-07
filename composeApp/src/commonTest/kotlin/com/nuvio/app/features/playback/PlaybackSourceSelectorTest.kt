@@ -3,6 +3,8 @@ package com.nuvio.app.features.playback
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.downloads.VideoResolution
+import com.nuvio.app.features.streams.AioParsedFile
+import com.nuvio.app.features.streams.AioStreamData
 import com.nuvio.app.features.streams.StreamItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -90,6 +92,50 @@ class PlaybackSourceSelectorTest {
         )
         assertEquals(best.stream, result.stream)
         assertEquals(listOf(fallback.stream), result.fallbacks)
+    }
+
+    @Test
+    fun catalogWithOnlyOverCapSourcesChoosesSmallestSafeSource() {
+        val largest = candidate("https://cdn.example/large.mkv", VideoResolution.UHD_2160, size = 9_130_000_000)
+        val smallest = candidate("https://cdn.example/small.mkv", VideoResolution.UHD_2160, size = 6_470_000_000)
+        val middle = candidate("https://cdn.example/middle.mkv", VideoResolution.UHD_2160, size = 6_990_000_000)
+
+        val result = assertIs<PlaybackSelectionResult.Play>(select(largest, smallest, middle))
+
+        assertEquals(smallest.stream, result.stream)
+        assertEquals(listOf(middle.stream, largest.stream), result.fallbacks)
+    }
+
+    @Test
+    fun cachedAioInfoHashesFromReportedCatalogChooseSmallestOverflow() {
+        fun aio(size: Long) = PlaybackSourceCandidate(
+            stream = StreamItem(
+                name = "[TB ⚡] Comet 2160p",
+                description = "WEB-DL HEVC HDR",
+                infoHash = HASH,
+                addonName = "AIOStreams | ElfHosted",
+                addonId = "addon:aiostreams",
+                streamData = AioStreamData(
+                    size = size,
+                    debridService = "torbox",
+                    debridCached = true,
+                    parsedFile = AioParsedFile(resolution = "2160p", codec = "HEVC", hdr = listOf("HDR")),
+                ),
+            ),
+        )
+
+        val largest = aio(9_130_000_000)
+        val middle = aio(6_990_000_000)
+        val smallest = aio(6_470_000_000)
+        val result = assertIs<PlaybackSelectionResult.Play>(
+            PlaybackSourceSelector.select(
+                listOf(largest, middle, smallest),
+                PlaybackQualityTier.Ultra,
+                PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true),
+            ),
+        )
+
+        assertEquals(smallest.stream, result.stream)
     }
 
 

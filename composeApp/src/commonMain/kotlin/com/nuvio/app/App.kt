@@ -1679,6 +1679,7 @@ private fun MainAppContent(
             episodeTitle: String?,
             episodeThumbnail: String?,
             pauseDescription: String?,
+            runtimeMinutes: Int?,
             resumePositionMs: Long?,
             resumeProgressFraction: Float?,
             manualSelection: Boolean,
@@ -1748,6 +1749,7 @@ private fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
+                    runtimeMinutes = runtimeMinutes,
                     resumePositionMs = if (startFromBeginning) 0L else resumePositionMs,
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
@@ -1759,8 +1761,8 @@ private fun MainAppContent(
             )
         }
 
-        val onPlay: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?, String?, Long?) -> Unit =
-            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, resumePositionMs ->
+        val onPlay: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?, String?, Int?, Long?) -> Unit =
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, runtimeMinutes, resumePositionMs ->
                 launchPlaybackWithDownloadPreference(
                     type = type,
                     videoId = videoId,
@@ -1775,6 +1777,7 @@ private fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
+                    runtimeMinutes = runtimeMinutes,
                     resumePositionMs = resumePositionMs,
                     resumeProgressFraction = null,
                     manualSelection = false,
@@ -1782,8 +1785,8 @@ private fun MainAppContent(
                 )
             }
 
-        val onPlayManually: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?, String?, Long?) -> Unit =
-            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, resumePositionMs ->
+        val onPlayManually: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?, String?, Int?, Long?) -> Unit =
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, runtimeMinutes, resumePositionMs ->
                 launchPlaybackWithDownloadPreference(
                     type = type,
                     videoId = videoId,
@@ -1798,6 +1801,7 @@ private fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
+                    runtimeMinutes = runtimeMinutes,
                     resumePositionMs = resumePositionMs,
                     resumeProgressFraction = null,
                     manualSelection = true,
@@ -1940,6 +1944,7 @@ private fun MainAppContent(
                     episodeTitle = item.episodeTitle,
                     episodeThumbnail = item.episodeThumbnail,
                     pauseDescription = item.pauseDescription,
+                    runtimeMinutes = null,
                     resumePositionMs = item.resumePositionMs,
                     resumeProgressFraction = item.resumeProgressFraction,
                     manualSelection = manualSelection,
@@ -2213,6 +2218,7 @@ private fun MainAppContent(
                                                 entry.season,
                                                 entry.episode,
                                                 entry.title.takeIf { entry.season != null },
+                                                null,
                                                 null,
                                                 null,
                                                 null,
@@ -3215,6 +3221,7 @@ private fun MainAppContent(
                                 candidates = playbackCandidates,
                                 tier = tier,
                                 context = PlaybackSelectionContext(
+                                    runtimeMinutes = launch.runtimeMinutes,
                                     isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
                                     allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
                                 ),
@@ -3273,6 +3280,7 @@ private fun MainAppContent(
                                 candidates = playbackCandidates,
                                 tier = resolvedTier,
                                 context = PlaybackSelectionContext(
+                                    runtimeMinutes = launch.runtimeMinutes,
                                     isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
                                     allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
                                 ),

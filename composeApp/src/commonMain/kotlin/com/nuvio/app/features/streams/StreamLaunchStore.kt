@@ -15,6 +15,7 @@ data class StreamLaunch(
     val episodeTitle: String? = null,
     val episodeThumbnail: String? = null,
     val pauseDescription: String? = null,
+    val runtimeMinutes: Int? = null,
     val resumePositionMs: Long? = null,
     val resumeProgressFraction: Float? = null,
     val manualSelection: Boolean = false,
