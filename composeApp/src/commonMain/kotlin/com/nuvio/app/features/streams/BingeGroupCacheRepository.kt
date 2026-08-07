@@ -6,6 +6,29 @@ import kotlinx.serialization.json.Json
 object BingeGroupCacheRepository {
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * Streamlined's sticky pins, deliberately **not** persisted.
+     *
+     * A pin skips the quality sheet outright, so a stored one silently turns Streamlined into
+     * Instant for that season - for as long as the pin exists, on that device, with nothing in
+     * the UI to clear it and no way to tell why the sheet stopped appearing. "Use this release
+     * for the rest of the season" is a reasonable thing to mean for the rest of a sitting; it
+     * is not a reasonable thing to mean forever.
+     *
+     * Keyed by [stickyContentId], which is a different key space from the binge-group cache
+     * below - that one is keyed by `parentMetaId`, is genuinely a long-lived preference, and
+     * keeps its storage untouched.
+     */
+    private val sessionPins = mutableMapOf<String, StickySourcePin>()
+
+    fun saveSessionPin(contentId: String, pin: StickySourcePin) {
+        if (pin.isEmpty) sessionPins.remove(contentId) else sessionPins[contentId] = pin
+    }
+
+    fun sessionPin(contentId: String): StickySourcePin? = sessionPins[contentId]
+
+    fun clearSessionPins() = sessionPins.clear()
+
     fun save(contentId: String, bingeGroup: String) {
         save(contentId, StickySourcePin(bingeGroup = bingeGroup))
     }

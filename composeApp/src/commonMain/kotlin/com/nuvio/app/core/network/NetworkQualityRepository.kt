@@ -167,13 +167,18 @@ object NetworkQualityRepository {
      * real file sizes rather than waved through for having no size, means never offering
      * more than a lean 720p. Erring high is the safer error now: [AutoDownshiftDetector]
      * catches an over-reach mid-playback, whereas an under-reach is invisible and permanent.
+     *
+     * 25 Mbps for Wi-Fi was still too timid: a 7 GB 4K episode needs about 25 after headroom,
+     * so it landed exactly on the boundary and Instant kept choosing 1080p on connections
+     * that had been playing 4K all along. These are first-play guesses only - one minute of
+     * clean playback replaces them with a measurement.
      */
     private fun defaultMbps(type: NetworkConnectionType): Double = when (type) {
         NetworkConnectionType.OFFLINE -> MIN_MBPS
-        NetworkConnectionType.CELLULAR -> 8.0
-        NetworkConnectionType.WIFI -> 25.0
-        NetworkConnectionType.ETHERNET -> 50.0
-        NetworkConnectionType.UNKNOWN -> 10.0
+        NetworkConnectionType.CELLULAR -> 10.0
+        NetworkConnectionType.WIFI -> 50.0
+        NetworkConnectionType.ETHERNET -> 100.0
+        NetworkConnectionType.UNKNOWN -> 15.0
     }
 
     private fun String?.normalizedProvider(): String? =

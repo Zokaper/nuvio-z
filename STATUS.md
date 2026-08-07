@@ -7,7 +7,7 @@ Last updated: 2026-08-07
 | **Active branch** | `main` in `nuvio-z`; `Dev` in `NuvioZDesktop` |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | **Derived quality options** have replaced the fixed `PlaybackQualityTier` presets on the streaming path (see below). Smoke-test Streamlined and Instant on device and desktop, then publish. Everything before it is merged into both default branches: cached/unknown debrid infohash handling, mode-aware episode switching, player-to-details back navigation, source-list masking, direct source downloads, next-episode control, responsive mode selector, top-level mode setting, Advanced badges, Continue Watching details, two-device sync coverage, and Windows network cost/type detection. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
+| **Next** | `0.4.9-beta` fixes the three findings from the `0.4.8-beta` smoke test: implausible "High" sizes, Instant refusing 4K, and persisted sticky pins skipping the Streamlined sheet (see below). Re-test Streamlined and Instant on both platforms. `0.4.8-beta` published the derived-quality-options change itself. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,34 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Derived options: first smoke test, three fixes (2026-08-07, `0.4.9-beta`)
+
+`0.4.8-beta` was tested on device and desktop. Three findings, all fixed:
+
+- **"High" was the biggest file in the catalogue.** A Daredevil episode offered 85 GB as
+  1080p High - 227 Mbps, which is a season pack's torrent-level size, not an episode.
+  `SourceRanking` sorts size descending, so the largest number always headed the row and the
+  quoted bandwidth was fiction. There is now a per-resolution plausibility ceiling (1080p
+  50 Mbps, 2160p 150 - above the ~128 Mbps UHD Blu-ray maximum, so a genuine remux still
+  leads). Implausible sizes cannot head a row, set its bandwidth, or set its displayed size;
+  they sort last within it and stay reachable, because a pack often still resolves to the
+  right file. A bucket with nothing credible falls back to an approximate estimate.
+- **Instant still chose 1080p on a connection watching 4K.** Two causes, both too cautious.
+  `HEADROOM` was 0.6 - a 1.67x margin, so a 19 Mbps 4K release read as needing 31. That suits
+  a live ladder with no buffer, not a VOD player buffering seconds ahead with downshift behind
+  it; it is now 0.75. And the Wi-Fi first-play default of 25 Mbps sat exactly on the boundary
+  for a 7 GB 4K episode, so defaults are now Wi-Fi 50 / Ethernet 100 / cellular 10 /
+  unknown 15. These are first-play guesses only; one minute of clean playback replaces them.
+- **Streamlined on desktop skipped the sheet and went straight to the player.** Not a
+  regression - a stored sticky pin outranks the quality sheet by design, and the pin was on
+  that device and not on the phone. But a *persisted* pin turns Streamlined into Instant for
+  that season with nothing in the UI to clear it and no clue why the sheet stopped appearing.
+  Sticky pins are now session-scoped (`BingeGroupCacheRepository.sessionPin` /
+  `saveSessionPin`), held in memory and gone on restart. The binge-group cache is untouched:
+  it is a different key space (`parentMetaId`, not `stickyContentId`) and genuinely long-lived.
+
+**Verified:** Android host suite and desktop suite both pass. Not re-smoke-tested.
 
 ## Quality options are derived from the catalogue (2026-08-07)
 

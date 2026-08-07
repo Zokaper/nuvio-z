@@ -59,12 +59,17 @@ data class PlaybackQualityOption(
 object PlaybackQualityOptions {
 
     /**
-     * Share of the line a stream may occupy. Identical in meaning to
-     * [PlaybackQualityTier.HEADROOM], and deliberately the only place it is applied on this
-     * path: `sizeCapBytes` folded the same 0.6 into a byte cap, and a build that used both
-     * would charge for it twice.
+     * Share of the line a stream may occupy, and the only place it is applied on this path -
+     * `sizeCapBytes` folded the same idea into a byte cap, and a build using both would
+     * charge for it twice.
+     *
+     * The old tier value was 0.6, which demanded a 1.67x margin: a 19 Mbps 4K release read as
+     * needing 31 Mbps and was refused on a connection comfortably streaming it. That margin
+     * suits a live ladder with no buffer, not a VOD player that buffers seconds ahead and has
+     * [AutoDownshiftDetector] behind it. A third over the file's own bitrate is the honest
+     * number to quote and the one to judge by.
      */
-    const val HEADROOM = 0.6
+    const val HEADROOM = 0.75
 
     /** A bucket splits only when its top source costs at least this much more than its cheapest. */
     private const val SPLIT_RATIO = 1.5
@@ -76,7 +81,12 @@ object PlaybackQualityOptions {
         if (candidates.isEmpty()) return emptyList()
 
         val measured = candidates.map { candidate ->
-            MeasuredCandidate(candidate, bitrateMbps(candidate, context))
+            val bitrate = bitrateMbps(candidate, context)
+            MeasuredCandidate(
+                candidate = candidate,
+                bitrateMbps = bitrate,
+                isPlausible = bitrate == null || bitrate <= bitrateCeilingMbps(candidate.facts.resolution),
+            )
         }
         val buckets = measured
             .mapNotNull { entry -> bucketFor(entry)?.let { it to entry } }
@@ -129,26 +139,38 @@ object PlaybackQualityOptions {
     private data class MeasuredCandidate(
         val candidate: PlaybackSourceCandidate,
         val bitrateMbps: Double?,
-    )
+        /**
+         * Whether the reported size can be a single episode or film at this resolution.
+         *
+         * An 85 GB "1080p" episode is not a very good 1080p encode - it is a season pack
+         * whose torrent-level size covers a dozen files, or a folder size, or simply wrong.
+         * Ranking sorts by size descending, so without this the largest number in the
+         * catalogue heads the High row every time and the quoted bandwidth is fiction.
+         */
+        val isPlausible: Boolean,
+    ) {
+        val credibleBitrateMbps: Double? get() = bitrateMbps?.takeIf { isPlausible }
+    }
 
     private fun optionsForBucket(
         resolution: VideoResolution,
         entries: List<MeasuredCandidate>,
     ): List<PlaybackQualityOption> {
         val ranked = entries.sortedWith(rankingFor(resolution))
-        val measured = ranked.filter { it.bitrateMbps != null }
-        val cheapest = measured.minOfOrNull { it.bitrateMbps!! }
-        val dearest = measured.maxOfOrNull { it.bitrateMbps!! }
+        val measured = ranked.mapNotNull(MeasuredCandidate::credibleBitrateMbps)
+        val cheapest = measured.minOrNull()
+        val dearest = measured.maxOrNull()
 
         val splits = if (
             measured.size >= 2 && cheapest != null && dearest != null &&
             cheapest > 0.0 && dearest >= cheapest * SPLIT_RATIO
         ) {
             // Geometric midpoint, so a 4 / 12 Mbps pair splits where a user would split it
-            // rather than wherever the arithmetic mean happens to land.
+            // rather than wherever the arithmetic mean happens to land. Sources with no
+            // credible size ride along with Low - they cannot justify the High row.
             val boundary = sqrt(cheapest * dearest)
-            val high = ranked.filter { (it.bitrateMbps ?: 0.0) >= boundary }
-            val low = ranked.filter { (it.bitrateMbps ?: 0.0) < boundary }
+            val high = ranked.filter { (it.credibleBitrateMbps ?: 0.0) >= boundary }
+            val low = ranked.filter { (it.credibleBitrateMbps ?: 0.0) < boundary }
             listOf(PlaybackQualityOption.Variant.HIGH to high, PlaybackQualityOption.Variant.LOW to low)
         } else {
             listOf(PlaybackQualityOption.Variant.SINGLE to ranked)
@@ -156,8 +178,10 @@ object PlaybackQualityOptions {
 
         return splits.mapNotNull { (variant, own) ->
             if (own.isEmpty()) return@mapNotNull null
-            val representative = own.firstOrNull { it.bitrateMbps != null } ?: own.first()
-            val bitrate = representative.bitrateMbps
+            // The row is described by the best source it would actually start, and an
+            // implausible size never gets to be that even when it ranks first.
+            val representative = own.firstOrNull { it.credibleBitrateMbps != null } ?: own.first()
+            val bitrate = representative.credibleBitrateMbps
             // Everything in the bucket stays reachable: the option's own sources first, the
             // rest of the bucket behind them, so a dead pick still has fallbacks.
             val ordered = own + ranked.filterNot { entry -> own.any { it === entry } }
@@ -168,7 +192,8 @@ object PlaybackQualityOptions {
                 requiredMbps = requiredMbps(bitrate ?: nominalBitrateMbps(resolution)),
                 representativeBitrateMbps = bitrate,
                 isEstimateApproximate = bitrate == null,
-                representativeSizeBytes = representative.candidate.facts.sizeBytes,
+                representativeSizeBytes = representative.candidate.facts.sizeBytes
+                    ?.takeIf { representative.isPlausible },
                 candidates = ordered.map(MeasuredCandidate::candidate),
             )
         }
@@ -198,7 +223,7 @@ object PlaybackQualityOptions {
     )
 
     private fun rankingFor(resolution: VideoResolution): Comparator<MeasuredCandidate> {
-        val ranked = SourceRanking.comparator(
+        val ranked: Comparator<MeasuredCandidate> = SourceRanking.comparator(
             preferences = preferencesFor(resolution),
             midRangeTarget = null,
             factsOf = { entry: MeasuredCandidate -> entry.candidate.facts },
@@ -206,7 +231,10 @@ object PlaybackQualityOptions {
             addonOrderOf = { it.candidate.addonOrder },
             stableUrlOf = { it.candidate.stream.playableDirectUrl.orEmpty() },
         )
-        return compareBy<MeasuredCandidate> { it.candidate.stream.isTorrentStream }.then(ranked)
+        // Implausible sizes sort last within their own row. They stay reachable - a season
+        // pack often still resolves to the right file - but they never lead.
+        return compareBy<MeasuredCandidate>({ !it.isPlausible }, { it.candidate.stream.isTorrentStream })
+            .then(ranked)
     }
 
     /**
@@ -298,6 +326,26 @@ object PlaybackQualityOptions {
         VideoResolution.FULL_HD_1080 -> 6.0
         VideoResolution.HD_720 -> 3.0
         VideoResolution.SD -> 1.5
+    }
+
+    /**
+     * Above this, the reported size cannot be one episode or film at this resolution.
+     *
+     * Set above a studio remux and well below a season pack: a 1080p remux peaks around
+     * 40 Mbps, while an eight-episode pack advertised as one 1080p "source" lands in the
+     * hundreds. Erring high is right here - a real release wrongly called implausible loses
+     * its place at the head of a row, which is worse than letting a slightly fat encode lead.
+     */
+    private fun bitrateCeilingMbps(resolution: VideoResolution?): Double = when (resolution) {
+        VideoResolution.UHD_4320 -> 300.0
+        // Comfortably past the ~128 Mbps UHD Blu-ray maximum, so a genuine remux still leads.
+        VideoResolution.UHD_2160 -> 150.0
+        VideoResolution.QHD_1440 -> 80.0
+        // Blu-ray tops out near 40 Mbps at 1080p; a season pack lands in the hundreds.
+        VideoResolution.FULL_HD_1080 -> 50.0
+        VideoResolution.HD_720 -> 20.0
+        VideoResolution.SD -> 10.0
+        null -> 150.0
     }
 
     /** Deliberately low - this only has to catch a mislabel, not police efficient encodes. */

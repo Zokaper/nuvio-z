@@ -82,6 +82,24 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOf(
                 WhatsNewItem(
+                    title = "High no longer means the biggest file in the list",
+                    description = "A size too large to be one episode - usually a whole season in a " +
+                        "single torrent - can no longer head a quality row or set the speed it claims. " +
+                        "It stays available as a fallback.",
+                ),
+                WhatsNewItem(
+                    title = "Instant reaches 4K on connections that can carry it",
+                    description = "The bandwidth margin and the first-play assumptions were both too " +
+                        "cautious, so a 4K release your connection handles comfortably was being passed " +
+                        "over for 1080p.",
+                ),
+                WhatsNewItem(
+                    title = "Pinned releases last for the session only",
+                    description = "\"Use this release for the rest of the season\" no longer survives a " +
+                        "restart. A stored pin skips the quality sheet entirely, so it could quietly " +
+                        "make Streamlined behave like Instant with nothing to undo it.",
+                ),
+                WhatsNewItem(
                     title = "The quality sheet can no longer hang",
                     description = "If a search finished with sources that none of them could be played " +
                         "from, the sheet used to spin forever with every row disabled. It now says so " +

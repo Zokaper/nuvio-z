@@ -60,12 +60,12 @@ class PlaybackQualityOptionsTest {
 
     @Test
     fun requiredSpeedIsTheFileBitratePlusHeadroom() {
-        // 9 GB over 60 minutes = 20 Mbps of file; at 60% headroom the line needs 33.3.
+        // 9 GB over 60 minutes = 20 Mbps of file; at 75% headroom the line needs 26.7.
         val options = build(candidate("movie", VideoResolution.FULL_HD_1080, gigabytes = 9.0), runtimeMinutes = 60)
         val row = options.single { it.resolution == VideoResolution.FULL_HD_1080 }
 
         assertEquals(20.0, row.representativeBitrateMbps!!, 0.1)
-        assertEquals(33.3, row.requiredMbps!!, 0.2)
+        assertEquals(26.7, row.requiredMbps!!, 0.2)
     }
 
     @Test
@@ -121,6 +121,39 @@ class PlaybackQualityOptionsTest {
     }
 
     @Test
+    fun aSeasonPackNeverHeadsTheHighRow() {
+        // The reported Daredevil case: an 85 GB "1080p episode" is a season pack whose
+        // torrent-level size covers a dozen files. Ranking sorts by size descending, so
+        // without a plausibility ceiling that number heads 1080p High every time and the
+        // quoted bandwidth is fiction.
+        val pack = candidate("season-pack", VideoResolution.FULL_HD_1080, gigabytes = 85.0, runtimeMinutes = 50)
+        val real = candidate("episode", VideoResolution.FULL_HD_1080, gigabytes = 4.0, runtimeMinutes = 50)
+        val lean = candidate("web", VideoResolution.FULL_HD_1080, gigabytes = 1.5, runtimeMinutes = 50)
+
+        val high = build(pack, real, lean, runtimeMinutes = 50)
+            .single { it.variant == PlaybackQualityOption.Variant.HIGH }
+
+        assertEquals("episode", high.candidates.first().stream.name)
+        // 4 GB over 50 minutes is 10.7 Mbps of file, so 14.2 of line - not 302.
+        assertEquals(14.2, high.requiredMbps!!, 0.3)
+        // Still reachable as a fallback - a pack often resolves to the right file.
+        assertEquals("season-pack", high.candidates.last().stream.name)
+    }
+
+    @Test
+    fun aBucketOfNothingButImplausibleSizesFallsBackToAnApproximateEstimate() {
+        val options = build(
+            candidate("pack-a", VideoResolution.FULL_HD_1080, gigabytes = 85.0, runtimeMinutes = 50),
+            candidate("pack-b", VideoResolution.FULL_HD_1080, gigabytes = 60.0, runtimeMinutes = 50),
+            runtimeMinutes = 50,
+        )
+        val row = options.single { it.resolution == VideoResolution.FULL_HD_1080 }
+
+        assertTrue(row.isEstimateApproximate)
+        assertNull(row.representativeSizeBytes)
+    }
+
+    @Test
     fun idsAreStableWhenAddonsAnswerInADifferentOrder() {
         val a = candidate("a", VideoResolution.UHD_2160, gigabytes = 60.0)
         val b = candidate("b", VideoResolution.UHD_2160, gigabytes = 12.0)
@@ -138,9 +171,9 @@ class PlaybackQualityOptionsTest {
             runtimeMinutes = 60,
         )
 
-        // 60 GB/h needs 222 Mbps, 9 GB/h needs 33, 3 GB/h needs 11.
-        assertEquals("1080_high", PlaybackQualityOptions.highestAffordable(options, 50.0)?.id)
-        assertEquals("1080_low", PlaybackQualityOptions.highestAffordable(options, 15.0)?.id)
+        // 60 GB/h needs 178 Mbps, 9 GB/h needs 27, 3 GB/h needs 9.
+        assertEquals("1080_high", PlaybackQualityOptions.highestAffordable(options, 40.0)?.id)
+        assertEquals("1080_low", PlaybackQualityOptions.highestAffordable(options, 12.0)?.id)
         assertEquals("2160_single", PlaybackQualityOptions.highestAffordable(options, 500.0)?.id)
     }
 

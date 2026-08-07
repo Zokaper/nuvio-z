@@ -167,7 +167,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             if (settings.playbackMode == PlaybackMode.STREAMLINED) {
                 val season = nextVideo.season
                 val pin = season?.let {
-                    BingeGroupCacheRepository.get(
+                    BingeGroupCacheRepository.sessionPin(
                         BingeGroupCacheRepository.stickyContentId(parentMetaId, it),
                     )
                 }
