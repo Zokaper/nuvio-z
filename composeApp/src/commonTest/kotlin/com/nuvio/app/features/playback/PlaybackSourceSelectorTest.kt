@@ -45,6 +45,31 @@ class PlaybackSourceSelectorTest {
     }
 
     @Test
+    fun cachedDebridInfoHashIsPlayableWithoutRawTorrentOptIn() {
+        val cached = candidate(
+            url = null,
+            resolution = VideoResolution.FULL_HD_1080,
+            isDebridReady = true,
+            infoHash = HASH,
+            debridService = "realdebrid",
+        )
+
+        assertEquals(cached.stream, assertIs<PlaybackSelectionResult.Play>(select(cached)).stream)
+    }
+
+    @Test
+    fun unknownDebridInfoHashIsOfferedInsteadOfRejectedAsATorrent() {
+        val unknown = candidate(
+            url = null,
+            resolution = VideoResolution.FULL_HD_1080,
+            infoHash = HASH,
+            debridService = "realdebrid",
+        )
+
+        assertIs<PlaybackSelectionResult.AskUncached>(select(unknown))
+    }
+
+    @Test
     fun bandwidthCapRejectsOversizedSourceAndKeepsOrderedFallbacks() {
         val oversized = candidate("https://cdn.example/4k.mkv", VideoResolution.UHD_2160, size = 9_000_000_000)
         val best = candidate("https://cdn.example/1080.mkv", VideoResolution.FULL_HD_1080, size = 2_000_000_000)

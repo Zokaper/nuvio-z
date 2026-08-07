@@ -6,7 +6,16 @@ import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
+import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackQualityTier
+import com.nuvio.app.features.playback.PlaybackSelectionContext
+import com.nuvio.app.features.playback.PlaybackSelectionResult
+import com.nuvio.app.features.playback.PlaybackSourceCandidate
+import com.nuvio.app.features.playback.PlaybackSourceSelector
+import com.nuvio.app.core.network.NetworkQualityRepository
+import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
@@ -22,6 +31,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     previousJob: Job?,
     nextEpisodeInfo: NextEpisodeInfo?,
+    targetEpisode: MetaVideo? = null,
     allEpisodes: List<MetaVideo>,
     parentMetaId: String,
     parentMetaType: String,
@@ -36,9 +46,10 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     onCountdownChanged: (Int?) -> Unit,
     onNextEpisodeCardVisibleChanged: (Boolean) -> Unit,
 ): Job? {
-    val nextVideoId = nextEpisodeInfo?.videoId ?: return null
-    val nextVideo = allEpisodes.firstOrNull { video -> video.id == nextVideoId } ?: return null
-    if (nextEpisodeInfo.hasAired != true) return null
+    val nextVideo = targetEpisode ?: nextEpisodeInfo?.videoId?.let { nextVideoId ->
+        allEpisodes.firstOrNull { video -> video.id == nextVideoId }
+    } ?: return null
+    if (targetEpisode == null && nextEpisodeInfo?.hasAired != true) return null
 
     val downloadedNextEpisode = DownloadsRepository.findPlayableDownload(
         parentMetaId = parentMetaId,
@@ -137,8 +148,75 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             settleAutoSelect()
         }
 
+        fun tryModeSourceSelection(streams: List<StreamItem>): StreamItem? {
+            if (settings.playbackMode == PlaybackMode.CLASSIC) return null
+            val candidates = streams.mapIndexed { index, stream ->
+                PlaybackSourceCandidate(
+                    stream = stream,
+                    facts = SourceFactsExtractor.extract(stream),
+                    addonOrder = index,
+                )
+            }
+            if (settings.playbackMode == PlaybackMode.STREAMLINED) {
+                val season = nextVideo.season
+                val pin = season?.let {
+                    BingeGroupCacheRepository.get(
+                        BingeGroupCacheRepository.stickyContentId(parentMetaId, it),
+                    )
+                }
+                val pinned = pin?.let { sticky ->
+                    candidates.maxByOrNull { candidate ->
+                        sticky.matchStrength(
+                            candidateReleaseGroup = candidate.facts.releaseGroup,
+                            candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
+                            candidateAddonId = candidate.stream.addonId,
+                            candidateProviderId = candidate.facts.providerId,
+                            candidateResolutionHeight = candidate.facts.resolution?.height,
+                        ) ?: Int.MIN_VALUE
+                    }?.takeIf { candidate ->
+                        sticky.matchStrength(
+                            candidateReleaseGroup = candidate.facts.releaseGroup,
+                            candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
+                            candidateAddonId = candidate.stream.addonId,
+                            candidateProviderId = candidate.facts.providerId,
+                            candidateResolutionHeight = candidate.facts.resolution?.height,
+                        ) != null
+                    }
+                }
+                if (pinned != null) {
+                    val pinnedResult = PlaybackSourceSelector.select(
+                        listOf(pinned),
+                        tier = null,
+                        PlaybackSelectionContext(
+                            isEpisode = true,
+                            allowTorrentSources = settings.playbackAllowTorrentAutopick,
+                        ),
+                    )
+                    if (pinnedResult is PlaybackSelectionResult.Play) return pinnedResult.stream
+                }
+            }
+            val tier = when (settings.playbackMode) {
+                PlaybackMode.STREAMLINED -> PlaybackQualityTier.Standard
+                PlaybackMode.INSTANT -> NetworkQualityRepository.resolveTier(settings.playbackQualityTiers)
+                PlaybackMode.CLASSIC -> null
+            }
+            return when (val result = PlaybackSourceSelector.select(
+                candidates = candidates,
+                tier = tier,
+                context = PlaybackSelectionContext(
+                    isEpisode = true,
+                    allowTorrentSources = settings.playbackAllowTorrentAutopick,
+                ),
+            )) {
+                is PlaybackSelectionResult.Play -> result.stream
+                else -> null
+            }
+        }
+
         fun trySelectStream(streams: List<StreamItem>): StreamItem? =
-            StreamAutoPlaySelector.selectAutoPlayStream(
+            if (settings.playbackMode != PlaybackMode.CLASSIC) {
+                tryModeSourceSelection(streams)
+            } else StreamAutoPlaySelector.selectAutoPlayStream(
                 streams = streams,
                 mode = effectiveMode,
                 regexPattern = effectiveRegex,
@@ -154,6 +232,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             )
 
         fun tryBingeGroupOnly(streams: List<StreamItem>): StreamItem? {
+            if (settings.playbackMode != PlaybackMode.CLASSIC) return tryModeSourceSelection(streams)
             if (preferredBingeGroup == null || !settings.streamAutoPlayPreferBingeGroup) return null
             return StreamAutoPlaySelector.selectAutoPlayStream(
                 streams = streams,

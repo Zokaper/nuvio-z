@@ -125,4 +125,25 @@ class SyncKeysToClearTest {
 
         assertEquals(listOf("selected_theme"), syncKeysToClear(syncKeys, oldBlob))
     }
+
+    @Test
+    fun twoDevicePullReplacesExplicitValuesButPreservesUnknownLocalSettings() {
+        val syncKeys = listOf("playback_mode", "show_loading_overlay", "future_setting")
+        val deviceB = mutableMapOf(
+            "playback_mode" to "CLASSIC",
+            "show_loading_overlay" to "true",
+            "future_setting" to "keep-me",
+        )
+        val deviceAPayload = buildJsonObject {
+            put("playback_mode", JsonPrimitive("STREAMLINED"))
+            put("show_loading_overlay", JsonPrimitive("false"))
+        }
+
+        syncKeysToClear(syncKeys, deviceAPayload).forEach(deviceB::remove)
+        deviceAPayload.forEach { (key, value) -> deviceB[key] = value.toString().trim('"') }
+
+        assertEquals("STREAMLINED", deviceB["playback_mode"])
+        assertEquals("false", deviceB["show_loading_overlay"])
+        assertEquals("keep-me", deviceB["future_setting"])
+    }
 }

@@ -114,6 +114,7 @@ fun HomeScreen(
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
+    onContinueWatchingDetails: ((ContinueWatchingItem) -> Unit)? = null,
     onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
     onFirstCatalogRendered: (() -> Unit)? = null,
@@ -930,6 +931,7 @@ fun HomeScreen(
                         continueWatchingListState = continueWatchingListState,
                         upcomingListState = upcomingListState,
                         onItemClick = onContinueWatchingClick,
+                        onDetailsClick = onContinueWatchingDetails,
                         onItemLongPress = onContinueWatchingLongPress,
                     )
                     item {
@@ -951,6 +953,7 @@ fun HomeScreen(
                         continueWatchingListState = continueWatchingListState,
                         upcomingListState = upcomingListState,
                         onItemClick = onContinueWatchingClick,
+                        onDetailsClick = onContinueWatchingDetails,
                         onItemLongPress = onContinueWatchingLongPress,
                     )
                     items(3) {
@@ -994,6 +997,7 @@ fun HomeScreen(
                         continueWatchingListState = continueWatchingListState,
                         upcomingListState = upcomingListState,
                         onItemClick = onContinueWatchingClick,
+                        onDetailsClick = onContinueWatchingDetails,
                         onItemLongPress = onContinueWatchingLongPress,
                     )
 
@@ -1050,6 +1054,7 @@ private fun LazyListScope.homeContinueWatchingSections(
     continueWatchingListState: LazyListState,
     upcomingListState: LazyListState,
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
+    onDetailsClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
 ) {
     if (!preferences.isVisible) return
@@ -1066,6 +1071,7 @@ private fun LazyListScope.homeContinueWatchingSections(
                 layout = layout,
                 listState = continueWatchingListState,
                 onItemClick = onItemClick,
+                onDetailsClick = onDetailsClick,
                 onItemLongPress = onItemLongPress,
             )
         }
@@ -1084,6 +1090,7 @@ private fun LazyListScope.homeContinueWatchingSections(
                 layout = layout,
                 listState = upcomingListState,
                 onItemClick = onItemClick,
+                onDetailsClick = onDetailsClick,
                 onItemLongPress = onItemLongPress,
             )
         }

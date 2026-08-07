@@ -49,6 +49,16 @@ class PlaybackQualityTierTest {
     }
 
     @Test
+    fun mergeMigratesTheOldUntouchedBandwidthDefaults() {
+        val oldDefaults = listOf(2.0, 5.0, 12.0, 25.0, 55.0)
+        val stored = PlaybackQualityTier.BuiltIns.zip(oldDefaults) { tier, oldRate ->
+            tier.copy(megabitsPerSecond = oldRate)
+        }
+
+        assertEquals(PlaybackQualityTier.BuiltIns, PlaybackQualityTier.mergeStoredTiers(stored))
+    }
+
+    @Test
     fun mergeIsIdempotent() {
         val once = PlaybackQualityTier.mergeStoredTiers(emptyList())
         assertEquals(once, PlaybackQualityTier.mergeStoredTiers(once))
