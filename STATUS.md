@@ -7,7 +7,7 @@ Last updated: 2026-08-07
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | **`0.4.0-beta` is staged, not published.** `nuvio-z` `main` is pushed with the bump as its final commit, CI is green on it, and `android-release.yml mode=dry-run` passed. Remaining, in order: push `NuvioZDesktop` `Dev`; dispatch `desktop-release.yml mode=build-only`; then `publish` on both. **Do not commit anything to `main` / `Dev` until the publish is done** - the bump must stay the final commit or release validation fails. Afterwards: compile the iOS Swift buffer fix on a macOS host, and smoke-test the playback modes on a device and on the installed Windows app. |
+| **Next** | Release `0.4.1-beta` — fixes two bugs device testing found in `0.4.0-beta` (see "0.4.0-beta regressions" below). `0.4.0-beta` is published on both repos and should be considered superseded. After that: compile the iOS Swift buffer fix on a macOS host, and continue smoke-testing the playback modes. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -291,6 +291,39 @@ untouched, per the plan's non-goal of destabilising the download stack.
 Verified: Android host **615 tests across 88 classes** and desktop **821 tests across 118
 classes**, both zero failures, errors or skips, with `desktopMain` compiled. Not smoke-tested
 on a device or an installed app.
+
+### 0.4.0-beta regressions, fixed in 0.4.1-beta (2026-08-07)
+
+Both found within minutes of installing `0.4.0-beta` on a real phone, and neither was
+reachable by any unit test. This is the concrete cost of the "not smoke-tested" caveat that
+had been carried since Phase 1.
+
+**1. Every sync pull deleted the new playback settings.**
+`PlayerSettingsStorage.replaceFromSyncPayload` cleared *all* of `syncKeys` before applying
+the payload. The remote blob is authoritative for settings it knows about — but it had never
+heard of any `playback_*` key, because none existed when it was last written. So a signed-in
+user lost `playback_mode`, the quality tiers, the metered cap, the torrent toggle and
+`playback_mode_selector_seen` on every pull. The visible symptom was the first-launch
+selector reappearing straight after pressing Continue; silently, the chosen mode was being
+reset to Classic at the same time.
+
+Fixed by clearing only the keys the payload actually carries, through a shared
+`syncKeysToClear` in `commonMain` so the rule cannot drift between the three actuals.
+`SyncKeysToClearTest` reproduces the old-blob shape directly.
+
+⚠ **The same wipe-then-apply pattern is still present in `MdbListSettingsStorage`,
+`StreamBadgeSettingsStorage`, `TmdbSettingsStorage` and `TraktCommentsStorage`.** None of
+them gained a key in this release, so none is currently losing data — but the next key added
+to any of them will hit exactly this. Fix them before adding one.
+
+**2. The selector captioned Instant "Not ready yet".**
+`PlaybackModeSelectorScreen` had its own hardcoded `mode == PlaybackMode.INSTANT` check,
+separate from `isImplemented()` in `PlaybackSettingsPage`. The plan said that function was
+"the single place to update" and that was simply wrong — there were two. Both are gone now,
+along with the dead gate and the unused string.
+
+Verified: Android **619 tests across 89 classes**, desktop **825 across 119**, both zero
+failures, `desktopMain` compiled.
 
 ## Current Snapshot
 
