@@ -61,6 +61,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentStorage
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesStorage
 import com.nuvio.app.features.watchprogress.ResumePromptStorage
 import com.nuvio.app.features.watchprogress.WatchProgressStorage
+import com.nuvio.app.features.whatsnew.WhatsNewStorage
 
 class MainActivity : AppCompatActivity() {
     private var pipRemoteActionReceiver: PipRemoteActionReceiver? = null
@@ -121,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         DownloadsStorage.initialize(applicationContext)
         DownloadsPlatformDownloader.initialize(applicationContext)
         DownloadsLiveStatusPlatform.initialize(applicationContext)
+        WhatsNewStorage.initialize(applicationContext)
         AndroidAppUpdaterPlatform.initialize(applicationContext)
         PlatformLocalAccountDataCleaner.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)

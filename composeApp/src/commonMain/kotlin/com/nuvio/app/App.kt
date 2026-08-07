@@ -87,6 +87,7 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.DeviceSessionRegistration
@@ -230,6 +231,9 @@ import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeRouter
+import com.nuvio.app.features.playback.PlaybackProgress
+import com.nuvio.app.features.playback.PlaybackProgressInputs
+import com.nuvio.app.features.playback.PlaybackProgressOverlay
 import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackRouteDecision
@@ -257,6 +261,12 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
 import com.nuvio.app.features.watchprogress.nextUpDismissKey
 import com.nuvio.app.features.watchprogress.toContinueWatchingItem
+import com.nuvio.app.features.updater.AppReleaseNotes
+import com.nuvio.app.features.updater.fetchRecentReleaseNotes
+import com.nuvio.app.features.whatsnew.CurrentReleaseNotes
+import com.nuvio.app.features.whatsnew.WhatsNewScreen
+import com.nuvio.app.features.whatsnew.WhatsNewStorage
+import com.nuvio.app.features.whatsnew.shouldShowWhatsNew
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
 import kotlinx.coroutines.flow.Flow
@@ -556,6 +566,35 @@ fun App(
         var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
         var isNewProfile by remember { mutableStateOf(false) }
         var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
+        val whatsNewSections = remember {
+            CurrentReleaseNotes.sections(isDesktop = WhatsNewStorage.isDesktop)
+        }
+        var showWhatsNew by remember { mutableStateOf(false) }
+        // Opened from Settings rather than shown after an update: dismissible, and it must not
+        // record the version as seen or the post-update showing would be skipped.
+        var showWhatsNewOnDemand by remember { mutableStateOf(false) }
+        // null while loading, empty when it could not be fetched. Either way the curated
+        // sections still render - this screen has to work offline and on builds where the
+        // in-app updater is disabled.
+        var whatsNewHistory by remember { mutableStateOf<List<AppReleaseNotes>?>(null) }
+
+        LaunchedEffect(ownsAppRuntime) {
+            if (!ownsAppRuntime) return@LaunchedEffect
+            showWhatsNew = shouldShowWhatsNew(
+                lastSeenVersion = WhatsNewStorage.loadLastSeenVersion(),
+                currentVersion = AppVersionConfig.VERSION_NAME,
+                sections = whatsNewSections,
+            )
+        }
+
+        LaunchedEffect(showWhatsNew, showWhatsNewOnDemand) {
+            if (!showWhatsNew && !showWhatsNewOnDemand) return@LaunchedEffect
+            if (whatsNewHistory != null) return@LaunchedEffect
+            whatsNewHistory = fetchRecentReleaseNotes()
+                .getOrNull()
+                ?.filter { it.tag.trimStart('v', 'V') != AppVersionConfig.VERSION_NAME }
+                ?: emptyList()
+        }
 
         LaunchedEffect(gateScreen, onAppReady) {
             if (gateScreen != AppGateScreen.Main.name) {
@@ -770,6 +809,7 @@ fun App(
                     )
                 } else {
                     MainAppContent(
+                        onWhatsNewClick = { showWhatsNewOnDemand = true },
                         initialTab = initialTab,
                         initialRoute = initialRoute,
                         useNativeNavigation = useNativeNavigation,
@@ -795,12 +835,37 @@ fun App(
                 }
             }
         }
+
+        if (showWhatsNew && gateScreen == AppGateScreen.Main.name) {
+            WhatsNewScreen(
+                versionName = AppVersionConfig.VERSION_NAME,
+                sections = whatsNewSections,
+                history = whatsNewHistory,
+                onContinue = {
+                    WhatsNewStorage.saveLastSeenVersion(AppVersionConfig.VERSION_NAME)
+                    showWhatsNew = false
+                },
+            )
+        } else if (showWhatsNewOnDemand) {
+            WhatsNewScreen(
+                versionName = AppVersionConfig.VERSION_NAME,
+                sections = whatsNewSections,
+                history = whatsNewHistory,
+                dismissible = true,
+                onContinue = { showWhatsNewOnDemand = false },
+            )
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun MainAppContent(
+    // Hoisted rather than owned here: the post-update showing lives in App(), and one flag for
+    // both keeps "opened from Settings" from recording the version as seen. Null on the
+    // bypass-gate path, which renders no What's New dialog - a row that opened nothing would
+    // be worse than no row.
+    onWhatsNewClick: (() -> Unit)? = null,
     initialTab: AppScreenTab = AppScreenTab.Home,
     initialRoute: AppRoute = TabsRoute,
     useNativeNavigation: Boolean = false,
@@ -2157,6 +2222,7 @@ private fun MainAppContent(
                                         onLicensesAttributionsSettingsClick = {
                                             navController.navigate(LicensesAttributionsSettingsRoute(licensesSettingsTitle))
                                         },
+                                        onWhatsNewClick = onWhatsNewClick,
                                         onCheckForUpdatesClick = if (AppFeaturePolicy.inAppUpdaterEnabled) {
                                             {
                                                 appUpdaterController.checkForUpdates(
@@ -2431,6 +2497,18 @@ private fun MainAppContent(
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // Streamlined covers the source list with the quality sheet until a tier is
+                    // picked; from that point until playback starts the progress overlay owns the
+                    // screen, so the list is never what the user is left looking at.
+                    var streamlinedPlaybackStarting by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // 1-based, and only ever advanced by the auto-pick failure chain. The overlay
+                    // shows it so a silent retry does not read as a hang.
+                    var autoPickAttempt by rememberSaveable(route.launchId) { mutableStateOf(1) }
+                    // Set at *every* exit to playback, not just the reuse-last-link one.
+                    // Instant deliberately leaves StreamRoute on the back stack so the failure
+                    // chain survives, so without this, backing out of the player lands on an
+                    // opaque overlay with nothing to interact with.
+                    var playbackHandedOff by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var meteredChoice by remember(route.launchId) {
                         mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
                     }
@@ -2568,6 +2646,7 @@ private fun MainAppContent(
 
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         StreamsRepository.cancelLoading()
+                        playbackHandedOff = true
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                             if (replaceStreamRoute) {
                                 popUpTo<StreamRoute> { inclusive = true }
@@ -2785,6 +2864,7 @@ private fun MainAppContent(
                                 contentLanguage = cached.contentLanguage,
                             )
                             if (playerSettings.externalPlayerEnabled) {
+                                playbackHandedOff = true
                                 openExternalPlayback(playerLaunch)
                                 StreamsRepository.setOverlayVisible(false)
                                 reuseNavigated = true
@@ -2793,6 +2873,7 @@ private fun MainAppContent(
                             StreamsRepository.clear()
                             reuseNavigated = true
                             val launchId = PlayerLaunchStore.put(playerLaunch)
+                            playbackHandedOff = true
                             navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                                 popUpTo<StreamRoute> { inclusive = true }
                             }
@@ -2831,6 +2912,7 @@ private fun MainAppContent(
                                 is DirectDebridPlayableResult.Success -> resolved.stream
                                 else -> {
                                     val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
+                                    if (hasNextCandidate && isInstantAutoPlay) autoPickAttempt += 1
                                     if (!hasNextCandidate) {
                                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
                                     }
@@ -2865,7 +2947,9 @@ private fun MainAppContent(
                             return@LaunchedEffect
                         }
                         if (sourceUrl == null) {
-                            StreamsRepository.skipAutoPlayStream(selectedStream)
+                            if (StreamsRepository.skipAutoPlayStream(selectedStream) && isInstantAutoPlay) {
+                                autoPickAttempt += 1
+                            }
                             return@LaunchedEffect
                         }
                         autoPlayHandled = true
@@ -2921,6 +3005,7 @@ private fun MainAppContent(
                             instantAutoPick = isInstantAutoPlay,
                         )
                         if (playerSettings.externalPlayerEnabled) {
+                            playbackHandedOff = true
                             openExternalPlayback(playerLaunch)
                             if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                             StreamsRepository.cancelLoading()
@@ -2929,6 +3014,7 @@ private fun MainAppContent(
                         if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
                         val launchId = PlayerLaunchStore.put(playerLaunch)
+                        playbackHandedOff = true
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
                             if (!isInstantAutoPlay) popUpTo<StreamRoute> { inclusive = true }
                         }
@@ -3058,6 +3144,7 @@ private fun MainAppContent(
 
                         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
                             streamRouteScope.launch {
+                                playbackHandedOff = true
                                 openExternalPlayback(playerLaunch)
                                 StreamsRepository.cancelLoading()
                             }
@@ -3124,6 +3211,7 @@ private fun MainAppContent(
                         ) {
                             is PlaybackSelectionResult.Play -> {
                                 qualitySheetDismissed = true
+                                streamlinedPlaybackStarting = true
                                 openSelectedStream(
                                     stream = result.stream,
                                     resolvedResumePositionMs = launch.resumePositionMs,
@@ -3211,6 +3299,21 @@ private fun MainAppContent(
                             StreamsRepository.setOverlayVisible(false)
                         }
                     }
+
+                    // Instant and Streamlined must never leave the user reading the source list
+                    // while the app is still deciding. The overlay covers it - it cannot replace
+                    // it, because StreamsScreen owns the fetch this is reporting on.
+                    val awaitingUserAnswer = pendingUncachedStream != null ||
+                        pendingStickyStreamOpen != null ||
+                        pendingP2pStreamOpen != null ||
+                        (NetworkQualityRepository.current().isMetered && meteredChoice == null)
+                    val showPlaybackProgress = PlaybackProgress.isVisible(
+                        isAutoPickRoute = playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                        isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
+                        manualSourceListRequested = manualSourceListRequested,
+                        awaitingMeteredChoice = awaitingUserAnswer,
+                        hasNavigatedAway = reuseNavigated || playbackHandedOff,
+                    )
 
                     Box(modifier = Modifier.fillMaxSize()) {
                         StreamsScreen(
@@ -3404,7 +3507,23 @@ private fun MainAppContent(
                                 },
                             )
                         }
-                        if (resolvingDebridStream) {
+                        if (showPlaybackProgress) {
+                            PlaybackProgressOverlay(
+                                step = PlaybackProgress.step(
+                                    PlaybackProgressInputs(
+                                        isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
+                                            streamsUiState.isAnyLoading,
+                                        hasChosenSource = instantSelectionHandled || streamlinedPlaybackStarting,
+                                        isResolvingLink = resolvingDebridStream,
+                                        attempt = autoPickAttempt,
+                                    ),
+                                ),
+                                attempt = autoPickAttempt,
+                            )
+                        } else if (resolvingDebridStream) {
+                            // Classic and every manual path keep the lighter scrim: the source
+                            // list behind it is what the user chose from and is worth keeping
+                            // visible.
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -3636,6 +3755,7 @@ private fun MainAppContent(
                         onCollectionsClick = {
                             navController.navigate(CollectionsRoute(collectionsTitle))
                         },
+                        onWhatsNewClick = onWhatsNewClick,
                         onCheckForUpdatesClick = if (AppFeaturePolicy.inAppUpdaterEnabled) {
                             {
                                 appUpdaterController.checkForUpdates(
@@ -4195,6 +4315,7 @@ private fun AppTabHost(
     onSupportersContributorsSettingsClick: () -> Unit = {},
     onLicensesAttributionsSettingsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
+    onWhatsNewClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsSettingsClick: () -> Unit = {},
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
@@ -4273,6 +4394,7 @@ private fun AppTabHost(
                         onSupportersContributorsClick = onSupportersContributorsSettingsClick,
                         onLicensesAttributionsClick = onLicensesAttributionsSettingsClick,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
+                        onWhatsNewClick = onWhatsNewClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsSettingsClick,
                     )

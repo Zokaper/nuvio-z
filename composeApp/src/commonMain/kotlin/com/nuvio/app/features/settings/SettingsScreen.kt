@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -131,6 +132,7 @@ fun SettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
+    onWhatsNewClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
@@ -255,8 +257,14 @@ fun SettingsScreen(
         }
         val previousPage = page.previousPage()
 
+        // Settings search still finds advanced rows while they are hidden, and reveals them
+        // on the page it lands on. Hiding a setting the user just searched for by name would
+        // be worse than showing it. Ordinary navigation clears the reveal again.
+        var revealAdvancedForSearch by rememberSaveable { mutableStateOf(false) }
+
         fun openPage(targetPage: SettingsPage) {
             if (!targetPage.isEnabledByPolicy()) return
+            if (targetPage == SettingsPage.Root) revealAdvancedForSearch = false
             val externalNavigator = onNavigatePage
             if (externalNavigator == null) {
                 currentPage = targetPage.name
@@ -357,12 +365,16 @@ fun SettingsScreen(
             onBack = ::navigateBack,
         )
 
+        CompositionLocalProvider(
+            LocalShowAdvancedSettings provides (playerSettingsUiState.showAdvancedSettings || revealAdvancedForSearch),
+        ) {
         if (maxWidth >= 768.dp) {
             TabletSettingsScreen(
                 page = page,
                 scrollToTopRequests = scrollToTopRequests,
                 onPageChange = ::openPage,
                 onNavigateBack = ::navigateBack,
+                onSearchNavigation = { revealAdvancedForSearch = true },
                 showInternalHeader = showInternalHeader,
                 showLoadingOverlay = playerSettingsUiState.showLoadingOverlay,
                 holdToSpeedEnabled = playerSettingsUiState.holdToSpeedEnabled,
@@ -414,6 +426,7 @@ fun SettingsScreen(
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
+                onWhatsNewClick = onWhatsNewClick,
                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                 onCollectionsClick = onCollectionsClick,
             )
@@ -423,6 +436,7 @@ fun SettingsScreen(
                 scrollToTopRequests = scrollToTopRequests,
                 onPageChange = ::openPage,
                 onNavigateBack = ::navigateBack,
+                onSearchNavigation = { revealAdvancedForSearch = true },
                 showInternalHeader = showInternalHeader,
                 showLoadingOverlay = playerSettingsUiState.showLoadingOverlay,
                 holdToSpeedEnabled = playerSettingsUiState.holdToSpeedEnabled,
@@ -480,9 +494,11 @@ fun SettingsScreen(
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
+                onWhatsNewClick = onWhatsNewClick,
                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                 onCollectionsClick = onCollectionsClick,
             )
+        }
         }
     }
 }
@@ -493,6 +509,7 @@ private fun MobileSettingsScreen(
     scrollToTopRequests: Flow<Unit>,
     onPageChange: (SettingsPage) -> Unit,
     onNavigateBack: () -> Unit,
+    onSearchNavigation: () -> Unit,
     showInternalHeader: Boolean,
     showLoadingOverlay: Boolean,
     holdToSpeedEnabled: Boolean,
@@ -550,6 +567,7 @@ private fun MobileSettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
+    onWhatsNewClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
@@ -585,6 +603,7 @@ private fun MobileSettingsScreen(
         )
 
         fun openSearchTarget(target: SettingsSearchTarget) {
+            onSearchNavigation()
             when (target) {
                 is SettingsSearchTarget.Page -> when (target.page) {
                     SettingsPage.Account -> onAccountClick()
@@ -665,6 +684,7 @@ private fun MobileSettingsScreen(
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
+                            onWhatsNewClick = onWhatsNewClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
                             onDownloadsClick = onDownloadsClick,
                             onAccountClick = onAccountClick,
@@ -849,6 +869,7 @@ private fun TabletSettingsScreen(
     scrollToTopRequests: Flow<Unit>,
     onPageChange: (SettingsPage) -> Unit,
     onNavigateBack: () -> Unit,
+    onSearchNavigation: () -> Unit,
     showInternalHeader: Boolean,
     showLoadingOverlay: Boolean,
     holdToSpeedEnabled: Boolean,
@@ -900,6 +921,7 @@ private fun TabletSettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
+    onWhatsNewClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
@@ -979,6 +1001,7 @@ private fun TabletSettingsScreen(
             )
 
             fun openSearchTarget(target: SettingsSearchTarget) {
+                onSearchNavigation()
                 when (target) {
                     is SettingsSearchTarget.Page -> {
                         if (target.page.isEnabledByPolicy()) {
@@ -1073,6 +1096,7 @@ private fun TabletSettingsScreen(
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
+                                onWhatsNewClick = onWhatsNewClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                                 onDownloadsClick = onDownloadsClick,
                                 onAccountClick = { openInlinePage(SettingsPage.Account) },

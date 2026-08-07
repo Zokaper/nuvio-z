@@ -2,6 +2,7 @@ package com.nuvio.app.features.tmdb
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.sync.syncKeysToClear
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.sync.encodeSyncBoolean
@@ -187,7 +188,8 @@ actual object TmdbSettingsStorage {
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
         preferences?.edit()?.apply {
-            syncKeys.forEach { remove(ProfileScopedKey.of(it)) }
+            // Clear only what the payload actually carries - see syncKeysToClear.
+            syncKeysToClear(syncKeys, payload).forEach { remove(ProfileScopedKey.of(it)) }
         }?.apply()
 
         payload.decodeSyncBoolean(enabledKey)?.let(::saveEnabled)

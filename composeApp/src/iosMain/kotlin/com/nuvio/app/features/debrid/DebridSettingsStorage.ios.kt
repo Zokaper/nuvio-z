@@ -1,6 +1,7 @@
 package com.nuvio.app.features.debrid
 
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.sync.syncKeysToClear
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncInt
 import com.nuvio.app.core.sync.decodeSyncString
@@ -213,7 +214,8 @@ actual object DebridSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
-        syncKeys().forEach { key ->
+        // Clear only what the payload actually carries - see syncKeysToClear.
+        syncKeysToClear(syncKeys(), payload).forEach { key ->
             NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
 

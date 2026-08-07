@@ -1,18 +1,24 @@
 package com.nuvio.app.features.playback
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,15 +34,27 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_mode_classic
-import nuvio.composeapp.generated.resources.playback_mode_classic_description
+import nuvio.composeapp.generated.resources.playback_mode_classic_download
+import nuvio.composeapp.generated.resources.playback_mode_classic_stream_1
+import nuvio.composeapp.generated.resources.playback_mode_classic_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_classic_tagline
+import nuvio.composeapp.generated.resources.playback_mode_escape_hatch
 import nuvio.composeapp.generated.resources.playback_mode_instant
-import nuvio.composeapp.generated.resources.playback_mode_instant_description
+import nuvio.composeapp.generated.resources.playback_mode_instant_download
+import nuvio.composeapp.generated.resources.playback_mode_instant_stream_1
+import nuvio.composeapp.generated.resources.playback_mode_instant_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_instant_tagline
+import nuvio.composeapp.generated.resources.playback_mode_section_downloading
+import nuvio.composeapp.generated.resources.playback_mode_section_streaming
 import nuvio.composeapp.generated.resources.playback_mode_selector_confirm
 import nuvio.composeapp.generated.resources.playback_mode_selector_recommendation
 import nuvio.composeapp.generated.resources.playback_mode_selector_subtitle
 import nuvio.composeapp.generated.resources.playback_mode_selector_title
 import nuvio.composeapp.generated.resources.playback_mode_streamlined
-import nuvio.composeapp.generated.resources.playback_mode_streamlined_description
+import nuvio.composeapp.generated.resources.playback_mode_streamlined_download
+import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_1
+import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_streamlined_tagline
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -88,6 +106,11 @@ fun PlaybackModeSelectorScreen(
             }
 
             Text(
+                text = stringResource(Res.string.playback_mode_escape_hatch),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
                 text = stringResource(Res.string.playback_mode_selector_recommendation),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -103,19 +126,43 @@ fun PlaybackModeSelectorScreen(
     }
 }
 
+/**
+ * One mode, described the way a plan-comparison card describes a tier.
+ *
+ * **Shared deliberately.** Two places describe the modes - this screen and
+ * `PlaybackModeDialog` in `PlaybackSettingsPage` - and the last time mode-descriptive logic
+ * was duplicated across those two files, one copy kept captioning Instant "Not ready yet"
+ * after the other had been fixed. One composable, so they cannot drift again.
+ *
+ * The download lines are not decoration: they must keep matching
+ * [PlaybackModeDownloadRouter.decide], which is what actually happens when the user presses
+ * Download. Copy that contradicts the router is worse than no copy at all.
+ */
 @Composable
-private fun PlaybackModeCard(
+fun PlaybackModeCard(
     mode: PlaybackMode,
     isSelected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+            .clickable(onClick = onClick)
+            .then(
+                if (isSelected) {
+                    Modifier.border(
+                        width = 1.5.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+        shape = RoundedCornerShape(16.dp),
         color = if (isSelected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         } else {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         },
@@ -124,35 +171,124 @@ private fun PlaybackModeCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = playbackModeName(mode),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = playbackModeName(mode),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = playbackModeTagline(mode),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            }
+
+            ModeDetailSection(
+                title = stringResource(Res.string.playback_mode_section_streaming),
+                lines = playbackModeStreamingLines(mode),
             )
-            Text(
-                text = playbackModeSummary(mode),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ModeDetailSection(
+                title = stringResource(Res.string.playback_mode_section_downloading),
+                lines = listOf(playbackModeDownloadLine(mode)),
             )
         }
     }
 }
 
 @Composable
-private fun playbackModeName(mode: PlaybackMode): String = when (mode) {
+private fun ModeDetailSection(title: String, lines: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+        )
+        lines.forEach { line ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "•",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun playbackModeName(mode: PlaybackMode): String = when (mode) {
     PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic)
     PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined)
     PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant)
 }
 
 @Composable
-private fun playbackModeSummary(mode: PlaybackMode): String = when (mode) {
-    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_description)
-    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_description)
-    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_description)
+private fun playbackModeTagline(mode: PlaybackMode): String = when (mode) {
+    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_tagline)
+    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_tagline)
+    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_tagline)
+}
+
+@Composable
+private fun playbackModeStreamingLines(mode: PlaybackMode): List<String> = when (mode) {
+    PlaybackMode.CLASSIC -> listOf(
+        stringResource(Res.string.playback_mode_classic_stream_1),
+        stringResource(Res.string.playback_mode_classic_stream_2),
+    )
+    PlaybackMode.STREAMLINED -> listOf(
+        stringResource(Res.string.playback_mode_streamlined_stream_1),
+        stringResource(Res.string.playback_mode_streamlined_stream_2),
+    )
+    PlaybackMode.INSTANT -> listOf(
+        stringResource(Res.string.playback_mode_instant_stream_1),
+        stringResource(Res.string.playback_mode_instant_stream_2),
+    )
+}
+
+/**
+ * Must stay in step with [PlaybackModeDownloadRouter.decide]. `PlaybackModeDownloadCopyTest`
+ * pins the two together: Classic is the only mode whose download entry point depends on
+ * whether the scope is a single item, and that is what its line has to say.
+ */
+@Composable
+private fun playbackModeDownloadLine(mode: PlaybackMode): String = when (mode) {
+    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_download)
+    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_download)
+    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_download)
 }
 
 /**

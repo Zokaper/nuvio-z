@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -67,6 +69,8 @@ import com.nuvio.app.features.player.localizedLabel
 import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackModeCard
+import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
@@ -367,7 +371,7 @@ private fun PlaybackSettingsSection(
             SettingsGroup(isTablet = isTablet) {
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_mode),
-                    description = playbackModeTitle(autoPlayPlayerSettings.playbackMode),
+                    description = playbackModeName(autoPlayPlayerSettings.playbackMode),
                     isTablet = isTablet,
                     onClick = { showPlaybackModeDialog = true },
                 )
@@ -377,6 +381,7 @@ private fun PlaybackSettingsSection(
                     description = stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
                     checked = autoPlayPlayerSettings.playbackAllowTorrentAutopick,
                     enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
                 )
@@ -386,6 +391,7 @@ private fun PlaybackSettingsSection(
                     description = stringResource(Res.string.settings_playback_auto_downshift_description),
                     checked = autoPlayPlayerSettings.playbackAutoDownshift,
                     enabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
                 )
@@ -768,6 +774,7 @@ private fun PlaybackSettingsSection(
                     title = stringResource(Res.string.settings_playback_reuse_last_link),
                     description = stringResource(Res.string.settings_playback_reuse_last_link_description),
                     checked = streamReuseLastLinkEnabled,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setStreamReuseLastLinkEnabled,
                 )
@@ -776,6 +783,7 @@ private fun PlaybackSettingsSection(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_last_link_cache_duration),
                         description = formatReuseCacheDuration(streamReuseLastLinkCacheHours),
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onClick = { showReuseCacheDurationDialog = true },
                     )
@@ -974,6 +982,7 @@ private fun PlaybackSettingsSection(
                         title = stringResource(Res.string.settings_playback_decoder_priority),
                         description = decoderPriorityLabel(decoderPriority),
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onClick = { showDecoderPriorityDialog = true },
                     )
@@ -983,6 +992,7 @@ private fun PlaybackSettingsSection(
                         description = stringResource(Res.string.settings_playback_map_dv7_to_hevc_description),
                         checked = mapDV7ToHevc,
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setMapDV7ToHevc,
                     )
@@ -992,6 +1002,7 @@ private fun PlaybackSettingsSection(
                         description = stringResource(Res.string.settings_playback_tunneled_playback_description),
                         checked = tunnelingEnabled,
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )
@@ -1729,20 +1740,6 @@ private data class LanguageSelectionOption(
     val description: String? = null,
 )
 
-@Composable
-private fun playbackModeTitle(mode: PlaybackMode): String = when (mode) {
-    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic)
-    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined)
-    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant)
-}
-
-@Composable
-private fun playbackModeDescription(mode: PlaybackMode): String = when (mode) {
-    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_description)
-    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_description)
-    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_description)
-}
-
 /**
  * Whether this mode actually changes anything yet.
  *
@@ -1780,41 +1777,20 @@ private fun PlaybackModeDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 460.dp)
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // The same card the first-launch selector uses. Describing the modes twice
+                    // is how Instant kept its stale "Not ready yet" caption in 0.4.0-beta.
                     PlaybackMode.entries.forEach { mode ->
-                        val isSelected = mode == selected
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onModeSelected(mode) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                            },
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Text(
-                                    text = playbackModeTitle(mode),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                                Text(
-                                    text = playbackModeDescription(mode),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        PlaybackModeCard(
+                            mode = mode,
+                            isSelected = mode == selected,
+                            onClick = { onModeSelected(mode) },
+                        )
                     }
                 }
             }

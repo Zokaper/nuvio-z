@@ -2,21 +2,6 @@ package com.nuvio.app.features.player
 
 import kotlinx.serialization.json.JsonObject
 
-/**
- * Which stored sync keys `replaceFromSyncPayload` may clear before applying [payload].
- *
- * **Only the keys the payload actually carries.** The remote blob is authoritative for
- * settings it knows about, never for settings it has never heard of: clearing every sync key
- * first destroys anything added since that blob was last written. That is not hypothetical -
- * it reset the playback mode and re-showed the first-launch selector on every sync for any
- * signed-in user whose stored blob predated `0.4.0-beta`, because none of the `playback_*`
- * keys existed when it was written.
- *
- * Shared by all three actuals so the rule cannot drift between platforms.
- */
-internal fun syncKeysToClear(syncKeys: List<String>, payload: JsonObject): List<String> =
-    syncKeys.filter(payload::containsKey)
-
 internal expect object PlayerSettingsStorage {
     fun loadShowLoadingOverlay(): Boolean?
     fun saveShowLoadingOverlay(enabled: Boolean)
@@ -113,6 +98,8 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackMode(mode: String)
     fun loadPlaybackAllowTorrentAutopick(): Boolean?
     fun savePlaybackAllowTorrentAutopick(enabled: Boolean)
+    fun loadShowAdvancedSettings(): Boolean?
+    fun saveShowAdvancedSettings(enabled: Boolean)
     fun loadPlaybackQualityTiers(): String?
     fun savePlaybackQualityTiers(payload: String)
     fun loadPlaybackMeteredCapHeight(): Int?

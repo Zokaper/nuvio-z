@@ -201,6 +201,19 @@ internal fun SettingsSidebarItem(
     }
 }
 
+/**
+ * Whether advanced settings rows are currently shown.
+ *
+ * Rows tagged `isAdvanced = true` render nothing when this is false. Gating per row rather
+ * than restructuring the pages is deliberate: `PlaybackSettingsPage` alone is ~3700 lines, and
+ * a one-parameter annotation is something a future row can get right by default.
+ *
+ * ⚠ **Settings search deliberately ignores this.** `SettingsSearch` keeps indexing hidden rows
+ * and still navigates to them - hiding a setting the user just searched for by name would be
+ * worse than showing it. Pages reveal their advanced rows for a search-driven visit.
+ */
+internal val LocalShowAdvancedSettings = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 @Composable
 internal fun SettingsSection(
     title: String,
@@ -234,9 +247,11 @@ internal fun SettingsNavigationRow(
     icon: ImageVector? = null,
     iconPainter: Painter? = null,
     enabled: Boolean = true,
+    isAdvanced: Boolean = false,
     isTablet: Boolean,
     onClick: () -> Unit,
 ) {
+    if (isAdvanced && !LocalShowAdvancedSettings.current) return
     val tokens = MaterialTheme.nuvio
     val iconSize = if (isTablet) 42.dp else 36.dp
     val verticalPadding = if (isTablet) 16.dp else 14.dp
@@ -312,9 +327,11 @@ internal fun SettingsSwitchRow(
     description: String? = null,
     checked: Boolean,
     enabled: Boolean = true,
+    isAdvanced: Boolean = false,
     isTablet: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    if (isAdvanced && !LocalShowAdvancedSettings.current) return
     val tokens = MaterialTheme.nuvio
     val verticalPadding = if (isTablet) 16.dp else 14.dp
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
