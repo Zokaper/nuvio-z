@@ -4,10 +4,10 @@ Last updated: 2026-08-07
 
 | | |
 | --- | --- |
-| **Active branch** | `codex/smoke-0.4.3-followup` in **both** repositories |
+| **Active branch** | `main` in `nuvio-z`; `Dev` in `NuvioZDesktop` |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Re-run the `0.4.3-beta` packaged smoke checklist on Android and desktop. The follow-up is implemented on the active branch: cached/unknown debrid infohash handling, mode-aware episode switching, player-to-details back navigation, source-list masking, direct source downloads, next-episode control, responsive mode selector, top-level mode setting, Advanced badges, Continue Watching details, conservative bandwidth defaults, two-device sync coverage, and Windows network cost/type detection. Focused Android and desktop tests compile and pass. |
+| **Next** | Publish `0.4.4-beta`, then re-run the packaged smoke checklist on Android and desktop. The follow-up is merged into both default branches: cached/unknown debrid infohash handling, mode-aware episode switching, player-to-details back navigation, source-list masking, direct source downloads, next-episode control, responsive mode selector, top-level mode setting, Advanced badges, Continue Watching details, conservative bandwidth defaults, two-device sync coverage, and Windows network cost/type detection. Focused Android and desktop tests compile and pass. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
