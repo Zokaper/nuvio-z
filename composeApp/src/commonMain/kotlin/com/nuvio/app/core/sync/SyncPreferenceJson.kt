@@ -87,3 +87,18 @@ internal fun JsonObject.decodeSyncStringSet(key: String): Set<String>? =
         ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
         ?.filter(String::isNotBlank)
         ?.toSet()
+
+/**
+ * Which stored sync keys a `replaceFromSyncPayload` may clear before applying [payload].
+ *
+ * **Only the keys the payload actually carries.** The remote blob is authoritative for
+ * settings it knows about, never for settings it has never heard of: clearing every sync key
+ * first destroys anything added since that blob was last written. That is not hypothetical -
+ * it reset the playback mode and re-showed the first-launch selector on every sync for any
+ * signed-in user whose stored blob predated `0.4.0-beta`, because none of the `playback_*`
+ * keys existed when it was written.
+ *
+ * Every settings store shares this so the rule cannot drift between stores or platforms.
+ */
+internal fun syncKeysToClear(syncKeys: List<String>, payload: JsonObject): List<String> =
+    syncKeys.filter(payload::containsKey)

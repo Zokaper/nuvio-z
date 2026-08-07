@@ -1,5 +1,6 @@
 package com.nuvio.app.features.mdblist
 
+import com.nuvio.app.core.sync.syncKeysToClear
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.sync.encodeSyncBoolean
@@ -123,7 +124,8 @@ actual object MdbListSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
-        syncKeys.forEach { key ->
+        // Clear only what the payload actually carries - see syncKeysToClear.
+        syncKeysToClear(syncKeys, payload).forEach { key ->
             NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
 

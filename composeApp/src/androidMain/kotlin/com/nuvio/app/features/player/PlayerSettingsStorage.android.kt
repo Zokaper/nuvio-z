@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.sync.syncKeysToClear
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncFloat
 import com.nuvio.app.core.sync.decodeSyncInt
