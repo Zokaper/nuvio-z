@@ -70,7 +70,7 @@ model) picks the work up mid-flight without re-deriving anything.
 | 1 — foundations + Classic parity | **complete** | Landed 2026-08-06 on `claude/desktop-download-queue-bug-vowjy8`. Verified: Android host suite 576 tests, desktop suite 782 tests, both zero failures, and `desktopMain` compiles. Playback behaviour is still unchanged by design — the mode is stored and selectable, but `entry<StreamRoute>` does not read it yet. Not smoke-tested on a device. |
 | 2 — picker + Streamlined | **complete** | Router wired; plugin metadata preserved; `releaseGroup`/`seeders` extracted; shared `SourceRanking`; playback selector, quality sheet, sticky pins, persisted tiers and torrent gate landed. Android 585 and desktop 791 tests pass. Not smoke-tested. |
 | 3 — Instant + network quality | **complete** | All platform actuals, estimator/cache, metered consent, tier routing, and three-attempt failure chain landed. Android 590 and desktop 796 tests pass. Not smoke-tested. |
-| 4 — auto source-swap | **next** | opt-in, default off; verify libmpv buffered-position semantics first |
+| 4 — auto source-swap | **complete** | Precondition check found a real iOS bug (`demuxer-cache-time` read as a duration) and fixed it. Wall-clock trigger, arming conditions, swap constraints and the opt-in setting landed. Android 607 and desktop 813 tests pass. iOS Swift change uncompiled; not smoke-tested. |
 
 **Per-file progress (Phase 1) — all complete.** The mode is persisted, selectable on first
 launch and in Settings, and defaults to `CLASSIC`. Playback routing does not consult it yet;
@@ -146,16 +146,49 @@ evaluation, debrid resolution and P2P consent) in exchange for zero behaviour. D
 *first* step of Phase 2, when `ShowQualitySheet` has something to show — the router and its
 tests are already in place and unchanged.
 
-### Next actions, in order (Phase 4)
+**Per-file progress (Phase 4) — all complete.**
 
-1. Verify `bufferedPositionMs` is meaningful and monotonic on libmpv for iOS, Windows, and the
-   Android fallback engine; use loading-transition counts instead where it is not.
-2. Add the opt-in, default-off Instant auto source-swap setting and all storage actuals/sync.
-3. Implement the sustained-starvation detector: under ~4 seconds for at least three snapshots,
-   tolerant of desktop's 500 ms polling, one downshift maximum per session.
-4. Restrict swaps to non-manifest sources in the same release group, never swap up, and reuse the
-   existing position-preserving `switchToSource` path.
-5. Run both full suites and document device/installed-app gaps explicitly.
+| File | State |
+| --- | --- |
+| `iosApp/.../MPVPlayerBridge.swift` buffered-position fix | **done, mirrored — uncompiled** |
+| `features/playback/AutoDownshiftDetector.kt` (+ `AutoDownshiftCandidates`) | **done, mirrored** |
+| `commonTest/.../AutoDownshiftDetectorTest.kt` | **done — 17 tests pass on both targets** |
+| `playback_auto_downshift` + all three actuals + sync | **done** |
+| `PlaybackSettingsPage.kt` / `SettingsSearch.kt` rows | **done, both repos** (hand-ported) |
+| `PlayerScreenRuntimeState.kt` / `Effects.kt` / `Ui.kt` wiring | **done, both repos** (hand-ported) |
+| `PlayerScreenRuntimeSourceActions.kt` trigger | **done, mirrored** |
+
+### What Phase 4 settled, for whoever picks this up
+
+**The libmpv precondition failed on iOS and that was the phase's main finding.** iOS read
+mpv's `demuxer-cache-time` — an absolute stream timestamp — as a duration and added it to the
+position, so its reported buffer grew with playback and never looked starved. Android and the
+desktop C++ both treat it as absolute; two implementations against one settles it without a
+device. Fixed to match Android. It was already affecting the user-visible buffer readout.
+
+**The trigger is wall-clock, not snapshot counts** — see `STATUS.md` for why "≥3 consecutive
+snapshots" could not work across a 250 ms and a 500 ms poll. If you change the thresholds,
+change them in `AutoDownshiftDetector`'s constants; the tests assert the two poll rates agree.
+
+**Never identify the playing source by `activeSourceUrl`.** It holds the debrid-*resolved*
+URL, which no candidate in `PlayerStreamsRepository.sourceState` carries, and for P2P it holds
+a sentinel that matches nothing. Anything comparing the active source against the candidate
+list wants `matchesActiveSource` in `PlayerScreenRuntimeSourceActions.kt`, whose last arm
+(addon + label + subtitle) is the part that survives `withResolvedDebridUrl`. This is the
+defect that would have made auto-swap a silent no-op for exactly the users Instant targets.
+
+**Remaining gaps, both real:** the Swift fix has never been compiled (no macOS host), and
+nothing here has been smoke-tested on a device or an installed desktop app. The setting is off
+by default, so the blast radius until someone opts in is zero.
+
+### Next actions
+
+1. Compile the iOS app on a macOS host and confirm the buffer readout no longer grows with
+   position — this is the one change with no local verification at all.
+2. Smoke-test on Android and on the installed Windows app: Instant with the toggle on, against
+   a deliberately throttled connection, confirming exactly one swap and a preserved position.
+3. The download stream's outstanding item is unchanged: cover a real `NetworkStatusRepository`
+   offline/online transition.
 
 **Mirroring reminder:** every finished common file must be `diff -q`'d (add
 `--strip-trailing-cr`; the desktop checkout is CRLF) and copied to `NuvioZDesktop`, and every

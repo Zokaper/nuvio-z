@@ -82,6 +82,14 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   HLS, DASH, magnets and torrent files stay manual for downloads; playback may
   auto-pick HLS/DASH, and torrent sources only behind the user's
   `playback_allow_torrent_autopick` toggle.
+- A player property read on more than one engine must mean the same thing on each. mpv's
+  `demuxer-cache-time` is an **absolute** stream timestamp, not a duration ahead of the
+  position; iOS shipped it as a duration and its buffer readout grew with playback until
+  2026-08-07. When the three engines disagree, two agreeing implementations settle it - a
+  device is not required.
+- Anything that samples `PlayerPlaybackSnapshot` over time must be expressed in **wall-clock
+  duration, not snapshot counts**. Android polls every ~250 ms and desktop every 500 ms, so a
+  count-based threshold silently means two different things.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
   `manualSelection` > completed local download > sticky pin > reuse-last-link >
   playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
@@ -108,7 +116,8 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - Playback modes (Classic/Streamlined/Instant) - see `PLAYBACK_MODES_PLAN.md`:
   `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
   `PlaybackModeRepository.kt`, `PlaybackSourceSelector.kt`,
-  `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`
+  `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
+  `features/playback/AutoDownshiftDetector.kt`
 
 ## Build and Verification
 

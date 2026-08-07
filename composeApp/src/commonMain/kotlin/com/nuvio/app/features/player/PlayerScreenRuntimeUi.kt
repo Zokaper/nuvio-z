@@ -170,6 +170,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         shouldPlay = false
                         controlsVisible = !playerControlsLocked
                     }
+                    observePlaybackForAutoDownshift()
                 },
                 onError = { message ->
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {

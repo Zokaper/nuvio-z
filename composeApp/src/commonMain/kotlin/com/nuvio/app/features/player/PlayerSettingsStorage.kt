@@ -102,6 +102,8 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackQualityTiers(payload: String)
     fun loadPlaybackMeteredCapHeight(): Int?
     fun savePlaybackMeteredCapHeight(height: Int)
+    fun loadPlaybackAutoDownshift(): Boolean?
+    fun savePlaybackAutoDownshift(enabled: Boolean)
 
     /**
      * Whether the mode selector has been shown, tracked separately from the mode itself.

@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 
 | | |
 | --- | --- |
 | **Active branch** | `claude/desktop-download-queue-bug-vowjy8` in **both** repositories |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. Shared files are byte-identical and local Android/desktop verification is green. (2) **Playback modes (Classic / Streamlined / Instant) — Phases 1–3 complete and locally verified; Instant now uses network quality, metered consent, and bounded source failover. See `PLAYBACK_MODES_PLAN.md`.** |
-| **Next** | Playback modes Phase 4 auto source-swap: verify libmpv buffer reporting before adding the opt-in trigger. Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
+| **Next** | Playback modes **Phase 4 auto source-swap — in progress**. The libmpv buffer precondition is verified by source inspection and it found a real bug: iOS misreads `demuxer-cache-time` as a duration (see the Phase 4 section below). Still outstanding from the download stream: cover a real `NetworkStatusRepository` offline/online transition; the real-account season-window case is complete. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -194,6 +194,70 @@ Findings from the exploration that shaped it, worth recording independently of t
 - **There is no onboarding anywhere in the app**, so the mode selector is new construction on
   the `AppGateScreen` state machine. It needs `playback_mode_selector_seen` persisted separately
   from `playback_mode`, or "chose Classic" is indistinguishable from "never chose".
+
+### Phase 4 complete — auto source-swap, opt-in and default off (2026-08-07)
+
+**The precondition found a real bug, which is the main result of this phase.** Phase 4 was
+gated on verifying that `bufferedPositionMs` is meaningful on libmpv, not just ExoPlayer. It
+is not, on one platform:
+
+- Android mpv does `maxOf(positionMs, cachePositionMs)` (`PlayerEngine.android.kt:1249`) and
+  the desktop C++ does `cacheTime - effectivePosition` (`player_bridge.cpp:1896`). Both treat
+  mpv's `demuxer-cache-time` as what it is: an **absolute** stream timestamp for the end of
+  the cache.
+- iOS did `position + cached` (`MPVPlayerBridge.swift:883`), treating that same absolute
+  timestamp as a *duration ahead of the position*. So iOS reported a buffer that grew with
+  playback position and never looked starved.
+
+Two of three implementations of one libmpv property disagreed with the third, which settles
+it without a device. **This was already a live bug**, not only a Phase 4 blocker:
+`PlayerScreenRuntimeUi.kt` derives its user-visible buffer readout from
+`bufferedPositionMs - positionMs`. Fixed to match Android exactly. **The Swift change cannot
+be compiled on this Windows host and is unverified** — it is three lines and mirrors a
+verified implementation, but it has not been run.
+
+What landed on top of that:
+
+- `features/playback/AutoDownshiftDetector.kt` — the trigger, pure and clock-free, plus
+  `AutoDownshiftCandidates` for the swap constraints. **The run is measured in wall-clock
+  time, not snapshot counts.** Android polls the player every ~250 ms and desktop every
+  500 ms, so the plan's "≥3 consecutive snapshots" would have meant 0.75 s on one platform
+  and 1.5 s on the other — neither is "sustained", and they would not have agreed. A
+  duration threshold (4 s buffer-ahead, held 6 s continuously, minimum 3 samples) makes both
+  platforms behave identically with no per-platform tuning.
+- Arming conditions, each of which can otherwise burn the one-swap budget on a false
+  positive: a 15 s settle grace (desktop's `effectiveCachePositionSeconds()` clamps the cache
+  position to the resume point after a seek, so buffer-ahead is untrustworthy early); a run
+  reset on pause, seek, or source change; and a stall (`paused-for-cache`) counted as
+  starvation whatever the reported buffer says.
+- Swap constraints: same release group only, never upward, manifests exempt (HLS/DASH adapt
+  internally), never onto an uncached debrid candidate, and null — no swap — whenever the
+  release group or resolution is unknown.
+- `playback_auto_downshift` through `PlayerSettingsStorage` with **all three actuals**, in
+  `syncKeys` and both sync payload paths, surfaced as an Instant-only settings row.
+
+**"One swap per session" is read as one per playback session, reset on a new episode**, not
+one per source: a position-preserving switch keeps the budget spent. The budget is charged by
+`consumeSwap` at the call site, never by the detector — whether a swap is even possible
+depends on the candidate list, and charging for one that never happened would silently
+disable the feature for the rest of the episode.
+
+**Identifying the playing source cannot be done by URL.** `switchToSource` re-enters with the
+debrid-*resolved* stream, so `activeSourceUrl` holds a minted URL no candidate in the source
+list carries, and a P2P source holds a sentinel URL that matches nothing. Since Instant's
+users are mostly on debrid, URL matching would have made this a silent no-op on its main
+path. `matchesActiveSource` tries info-hash, then identity key, then URL, then
+addon + label — the last arm being the one that survives resolution, which rewrites `url`,
+`filename` and `videoSize` but leaves `addonId`, `streamLabel` and `streamSubtitle` alone.
+
+Verified: Android host **607 tests across 87 classes** and desktop **813 tests across 117
+classes**, both zero failures, errors or skips — the documented 590/796 baselines plus the 17
+new `AutoDownshiftDetectorTest` cases, which run on both targets. The desktop run compiled
+`desktopMain`, so the new desktop `actual` is verified rather than assumed.
+
+**Not covered:** the iOS Swift fix (no macOS host), and any on-device or installed-app
+behaviour — no Android device was attached and the Windows app was not installed at any
+point. The setting is off by default, so nothing here changes playback until a user opts in.
 
 ## Current Snapshot
 

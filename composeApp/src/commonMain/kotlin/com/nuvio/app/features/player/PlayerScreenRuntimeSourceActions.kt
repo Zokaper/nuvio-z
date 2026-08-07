@@ -10,6 +10,10 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
+import com.nuvio.app.features.playback.AutoDownshiftCandidates
+import com.nuvio.app.features.playback.AutoDownshiftDetector
+import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
@@ -224,6 +228,87 @@ internal fun PlayerScreenRuntime.switchToP2pEpisodeStream(
     activeTorrentFilename = stream.behaviorHints.filename
     activeTorrentTrackers = stream.p2pTrackers
     applyEpisodeStreamMetadata(stream, episode, resume)
+}
+
+/**
+ * Instant's automatic source downshift, folded once per playback snapshot.
+ *
+ * Everything that decides *whether* to swap is in [AutoDownshiftDetector] and
+ * [AutoDownshiftCandidates], both pure and both tested; this function only supplies the
+ * clock, the candidate list and the existing position-preserving [switchToSource] path.
+ *
+ * The session's one swap is charged only when a swap actually happens. Identifying the
+ * currently playing candidate is the fiddly part and it must not be done by URL alone:
+ * `switchToSource` re-enters with the *debrid-resolved* stream, so `activeSourceUrl` holds
+ * a minted URL that no candidate in the source list carries, and a P2P source holds a
+ * sentinel URL that matches nothing at all. Instant's users are mostly on debrid, so URL
+ * matching would make this a silent no-op on the main path.
+ */
+internal fun PlayerScreenRuntime.observePlaybackForAutoDownshift() {
+    val settings = playerSettingsUiState
+    if (!settings.playbackAutoDownshift || settings.playbackMode != PlaybackMode.INSTANT) return
+
+    val sample = AutoDownshiftDetector.Sample(
+        elapsedRealtimeMs = autoDownshiftClock.elapsedNow().inWholeMilliseconds,
+        positionMs = playbackSnapshot.positionMs,
+        bufferedPositionMs = playbackSnapshot.bufferedPositionMs,
+        isPlaying = playbackSnapshot.isPlaying,
+        isLoading = playbackSnapshot.isLoading,
+        isEnded = playbackSnapshot.isEnded,
+    )
+
+    // Warm the source list while the run is still building, so a fired trigger has
+    // something to choose from without waiting on a fetch mid-stall.
+    if (sample.isStarved && sample.isActive && !autoDownshiftSourcesRequested) {
+        autoDownshiftSourcesRequested = true
+        val videoId = activeVideoId
+        if (videoId != null) {
+            scope.launch {
+                PlayerStreamsRepository.loadSources(
+                    type = contentType ?: parentMetaType,
+                    videoId = videoId,
+                    season = activeSeasonNumber,
+                    episode = activeEpisodeNumber,
+                )
+            }
+        }
+    }
+
+    val outcome = AutoDownshiftDetector.observe(autoDownshiftState, sample, enabled = true)
+    autoDownshiftState = outcome.state
+    if (!outcome.shouldDownshift) return
+
+    val streams = PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams }
+    val candidates = streams.map { PlaybackSourceCandidate(stream = it) }
+    val current = candidates.firstOrNull { matchesActiveSource(it.stream) } ?: return
+    val replacement = AutoDownshiftCandidates.select(current, candidates) ?: return
+    autoDownshiftState = AutoDownshiftDetector.consumeSwap(autoDownshiftState)
+    switchToSource(replacement.stream)
+}
+
+/**
+ * Whether [stream] is the one currently playing, tried from most to least specific.
+ *
+ * The label arm is the one that carries a debrid source across resolution:
+ * `withResolvedDebridUrl` rewrites `url` and may rewrite `behaviorHints.filename` and
+ * `videoSize`, but it leaves `addonId`, `streamLabel` and `streamSubtitle` alone - and those
+ * are exactly what the identity key stops being stable across.
+ */
+private fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolean {
+    val activeHash = activeTorrentInfoHash?.trim()?.lowercase()
+    if (activeHash != null) {
+        return stream.p2pInfoHash?.trim()?.lowercase() == activeHash &&
+            stream.p2pFileIdx == activeTorrentFileIdx
+    }
+    stream.playerSourceIdentityKey()?.let { key ->
+        if (key == activeSourceIdentityKey) return true
+    }
+    stream.playableDirectUrl?.let { url ->
+        if (url == activeSourceUrl) return true
+    }
+    return stream.addonId == activeProviderAddonId &&
+        stream.streamLabel == activeStreamTitle &&
+        stream.streamSubtitle == activeStreamSubtitle
 }
 
 internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {

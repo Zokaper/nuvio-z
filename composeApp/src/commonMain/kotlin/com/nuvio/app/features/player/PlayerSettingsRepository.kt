@@ -65,6 +65,11 @@ data class PlayerSettingsUiState(
     val playbackAllowTorrentAutopick: Boolean = false,
     val playbackQualityTiers: List<PlaybackQualityTier> = PlaybackQualityTier.BuiltIns,
     val playbackMeteredCapHeight: Int = 720,
+    /**
+     * Instant's opt-in automatic source downshift. Off by default: it trades a visible
+     * 1-3s hiccup for avoiding a stall, which is only worth it under sustained starvation.
+     */
+    val playbackAutoDownshift: Boolean = false,
     /** False until the first-launch mode selector has been answered or dismissed. */
     val playbackModeSelectorSeen: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
@@ -138,6 +143,7 @@ object PlayerSettingsRepository {
     private var playbackAllowTorrentAutopick = false
     private var playbackQualityTiers = PlaybackQualityTier.BuiltIns
     private var playbackMeteredCapHeight = 720
+    private var playbackAutoDownshift = false
     private var playbackModeSelectorSeen = false
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
@@ -214,6 +220,7 @@ object PlayerSettingsRepository {
         playbackAllowTorrentAutopick = false
         playbackQualityTiers = PlaybackQualityTier.BuiltIns
         playbackMeteredCapHeight = 720
+        playbackAutoDownshift = false
         playbackModeSelectorSeen = false
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
@@ -325,6 +332,7 @@ object PlayerSettingsRepository {
         playbackQualityTiers = PlaybackQualityTier.mergeStoredTiers(storedPlaybackQualityTiers)
         playbackMeteredCapHeight = PlayerSettingsStorage.loadPlaybackMeteredCapHeight()
             ?.takeIf { it in 360..2160 } ?: 720
+        playbackAutoDownshift = PlayerSettingsStorage.loadPlaybackAutoDownshift() ?: false
         if (playbackQualityTiers != storedPlaybackQualityTiers) {
             PlayerSettingsStorage.savePlaybackQualityTiers(
                 json.encodeToString(ListSerializer(PlaybackQualityTier.serializer()), playbackQualityTiers),
@@ -661,6 +669,14 @@ object PlayerSettingsRepository {
         playbackMeteredCapHeight = normalized
         publish()
         PlayerSettingsStorage.savePlaybackMeteredCapHeight(normalized)
+    }
+
+    fun setPlaybackAutoDownshift(enabled: Boolean) {
+        ensureLoaded()
+        if (playbackAutoDownshift == enabled) return
+        playbackAutoDownshift = enabled
+        publish()
+        PlayerSettingsStorage.savePlaybackAutoDownshift(enabled)
     }
 
     /**
@@ -1028,6 +1044,7 @@ object PlayerSettingsRepository {
             playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
             playbackQualityTiers = playbackQualityTiers,
             playbackMeteredCapHeight = playbackMeteredCapHeight,
+            playbackAutoDownshift = playbackAutoDownshift,
             playbackModeSelectorSeen = playbackModeSelectorSeen,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,

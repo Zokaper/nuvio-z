@@ -382,6 +382,15 @@ private fun PlaybackSettingsSection(
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_auto_downshift),
+                    description = stringResource(Res.string.settings_playback_auto_downshift_description),
+                    checked = autoPlayPlayerSettings.playbackAutoDownshift,
+                    enabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_show_loading_overlay),
                     description = stringResource(Res.string.settings_playback_show_loading_overlay_description),
                     checked = showLoadingOverlay,
