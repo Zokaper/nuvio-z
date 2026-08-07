@@ -483,6 +483,49 @@ internal fun PlayerScreenRuntime.playNextEpisode() {
     }
 }
 
+internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
+    if (
+        selectDownloadedEpisodeForPlayback(
+            parentMetaId = parentMetaId,
+            episode = episode,
+            onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
+        )
+    ) return
+
+    if (playerSettingsUiState.playbackMode == com.nuvio.app.features.playback.PlaybackMode.CLASSIC) {
+        PlayerStreamsRepository.loadEpisodeStreams(
+            type = contentType ?: parentMetaType,
+            videoId = episode.id,
+            season = episode.season,
+            episode = episode.episode,
+        )
+        episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
+        return
+    }
+
+    nextEpisodeAutoPlayJob = scope.launchPlayerNextEpisodeAutoPlay(
+        previousJob = nextEpisodeAutoPlayJob,
+        nextEpisodeInfo = null,
+        targetEpisode = episode,
+        allEpisodes = playerMetaVideos,
+        parentMetaId = parentMetaId,
+        parentMetaType = parentMetaType,
+        contentType = contentType,
+        settings = playerSettingsUiState,
+        currentStreamBingeGroup = currentStreamBingeGroup,
+        onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
+        onEpisodeStreamSelected = { stream, video -> switchToEpisodeStream(stream, video) },
+        onManualSelectionRequired = { video ->
+            episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = video)
+            showEpisodesPanel = true
+        },
+        onSearchingChanged = { nextEpisodeAutoPlaySearching = it },
+        onSourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
+        onCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
+        onNextEpisodeCardVisibleChanged = { showNextEpisodeCard = it },
+    )
+}
+
 internal fun PlayerScreenRuntime.openSourcesPanel() {
     val vid = activeVideoId ?: return
     PlayerStreamsRepository.loadSources(

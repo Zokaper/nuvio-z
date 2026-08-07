@@ -1952,6 +1952,16 @@ private fun MainAppContent(
             openContinueWatching(item, false, false)
         }
 
+        val onContinueWatchingDetails: (ContinueWatchingItem) -> Unit = { item ->
+            navController.navigate(
+                DetailRoute(
+                    type = item.parentMetaType,
+                    id = item.parentMetaId,
+                    title = item.title,
+                ),
+            )
+        }
+
         val onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = { item ->
             openContinueWatching(item, false, true)
         }
@@ -2172,6 +2182,7 @@ private fun MainAppContent(
                                             }
                                         },
                                         onContinueWatchingClick = onContinueWatchingClick,
+                                        onContinueWatchingDetails = onContinueWatchingDetails,
                                         onContinueWatchingLongPress = onContinueWatchingLongPress,
                                         onSwitchProfile = onSwitchProfile,
                                         onSettingsPageClick = if (useNativeNavigation && !isTabletLayout) {
@@ -3226,7 +3237,7 @@ private fun MainAppContent(
                             is PlaybackSelectionResult.NeedsManual -> {
                                 qualitySheetDismissed = true
                                 manualSourceListRequested = true
-                                NuvioToastController.show(noAutomaticSourceMessage)
+                                NuvioToastController.show(result.reason)
                             }
                         }
                     }
@@ -3284,11 +3295,13 @@ private fun MainAppContent(
                             is PlaybackSelectionResult.Play -> StreamsRepository.seedAutoPlayCandidates(
                                 listOf(selection.stream) + selection.fallbacks,
                             )
-                            is PlaybackSelectionResult.AskUncached,
-                            is PlaybackSelectionResult.NeedsManual,
-                            -> {
+                            is PlaybackSelectionResult.AskUncached -> {
                                 manualSourceListRequested = true
                                 NuvioToastController.show(noAutomaticSourceMessage)
+                            }
+                            is PlaybackSelectionResult.NeedsManual -> {
+                                manualSourceListRequested = true
+                                NuvioToastController.show(selection.reason)
                             }
                         }
                     }
@@ -3334,6 +3347,7 @@ private fun MainAppContent(
                             manualSelection = streamManualSelection,
                             startFromBeginning = launch.startFromBeginning,
                             downloadOnSelect = launch.downloadIntent,
+                            showRepositoryAutoPlayOverlay = playerSettings.playbackMode == PlaybackMode.CLASSIC,
                             onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
                                 openManualStreamOrOfferPin(
                                     stream = stream,
@@ -3353,6 +3367,22 @@ private fun MainAppContent(
                             onBack = onBack,
                             modifier = Modifier.fillMaxSize(),
                         )
+                        // StreamsScreen owns the fetch, but its list is an implementation
+                        // detail in Streamlined and Instant. Paint an opaque hand-off surface
+                        // from the first frame; sheets and PlaybackProgressOverlay render above
+                        // it, while an explicit manual fallback removes it.
+                        if (
+                            playerSettings.playbackMode != PlaybackMode.CLASSIC &&
+                            !launch.manualSelection &&
+                            !launch.downloadIntent &&
+                            !manualSourceListRequested
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.nuvio.colors.background),
+                            )
+                        }
                         if (
                             playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet &&
                             !qualitySheetDismissed && !reuseNavigated
@@ -3558,14 +3588,42 @@ private fun MainAppContent(
                         emptyMap()
                     },
                 ) { route ->
-                    val onBack = rememberGuardedPopBackStack(navController, route)
                     val launch = remember(route.launchId) { PlayerLaunchStore.get(route.launchId) }
                     if (launch == null) {
+                        val onBack = rememberGuardedPopBackStack(navController, route)
                         LaunchedEffect(route.launchId) {
                             onBack()
                         }
                         Box(modifier = Modifier.fillMaxSize())
                         return@entry
+                    }
+                    val detailsRoute = remember(launch.parentMetaType, launch.parentMetaId, launch.title) {
+                        DetailRoute(
+                            type = launch.parentMetaType,
+                            id = launch.parentMetaId,
+                            title = launch.title,
+                        )
+                    }
+                    val onBackToDetails: () -> Unit = remember(navController, route, detailsRoute) {
+                        {
+                            val hasMatchingDetails = navController.routes.any { candidate ->
+                                candidate is DetailRoute &&
+                                    candidate.type == detailsRoute.type &&
+                                    candidate.id == detailsRoute.id
+                            }
+                            when {
+                                hasMatchingDetails -> navController.navigate(detailsRoute) {
+                                    popUpTo<DetailRoute>()
+                                    launchSingleTop = true
+                                }
+                                navController.routes.any { it is StreamRoute } -> navController.navigate(detailsRoute) {
+                                    popUpTo<StreamRoute> { inclusive = true }
+                                }
+                                else -> navController.navigate(detailsRoute) {
+                                    popUpTo<PlayerRoute> { inclusive = true }
+                                }
+                            }
+                        }
                     }
                     val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
                     var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
@@ -3605,7 +3663,7 @@ private fun MainAppContent(
                         initialPositionMs = launch.initialPositionMs,
                         initialProgressFraction = launch.initialProgressFraction,
                         contentLanguage = launch.contentLanguage,
-                        onBack = onBack,
+                        onBack = onBackToDetails,
                         onOpenInExternalPlayer = { request ->
                             val playerLaunch = PlayerLaunch(
                                 profileId = launch.profileId,
@@ -3664,7 +3722,7 @@ private fun MainAppContent(
                                         StreamsRepository.consumeAutoPlay()
                                         NuvioToastController.show(noAutomaticSourceText)
                                     }
-                                    onBack()
+                                    onBackToDetails()
                                 }
                             }
                         } else null,
@@ -4299,6 +4357,7 @@ private fun AppTabHost(
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
+    onContinueWatchingDetails: ((ContinueWatchingItem) -> Unit)? = null,
     onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     onSwitchProfile: (() -> Unit)? = null,
     onSettingsPageClick: ((pageName: String, title: String) -> Unit)? = null,
@@ -4337,6 +4396,7 @@ private fun AppTabHost(
                         onPosterClick = onPosterClick,
                         onPosterLongClick = onPosterLongClick,
                         onContinueWatchingClick = onContinueWatchingClick,
+                        onContinueWatchingDetails = onContinueWatchingDetails,
                         onContinueWatchingLongPress = onContinueWatchingLongPress,
                         onFolderClick = onFolderClick,
                         onFirstCatalogRendered = onInitialHomeContentRendered,

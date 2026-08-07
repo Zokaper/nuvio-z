@@ -98,37 +98,46 @@ data class PlaybackQualityTier(
             id = "tier_data",
             name = "Data saver",
             targetResolution = VideoResolution.SD,
-            megabitsPerSecond = 2.0,
+            megabitsPerSecond = 1.0,
             dynamicRangePolicy = DynamicRangePolicy.AVOID_HDR,
         )
         val Low = PlaybackQualityTier(
             id = "tier_720",
             name = "720p",
             targetResolution = VideoResolution.HD_720,
-            megabitsPerSecond = 5.0,
+            megabitsPerSecond = 2.0,
         )
         val Standard = PlaybackQualityTier(
             id = "tier_1080",
             name = "1080p",
             targetResolution = VideoResolution.FULL_HD_1080,
-            megabitsPerSecond = 12.0,
+            megabitsPerSecond = 3.0,
         )
         val High = PlaybackQualityTier(
             id = "tier_1080_high",
             name = "1080p High",
             targetResolution = VideoResolution.FULL_HD_1080,
-            megabitsPerSecond = 25.0,
+            megabitsPerSecond = 7.0,
         )
         val Ultra = PlaybackQualityTier(
             id = "tier_2160",
             name = "4K",
             targetResolution = VideoResolution.UHD_2160,
-            megabitsPerSecond = 55.0,
+            megabitsPerSecond = 22.0,
             dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
         )
 
         /** Ascending by bandwidth. Order is relied on when resolving a measurement to a tier. */
         val BuiltIns = listOf(Data, Low, Standard, High, Ultra)
+
+        /** Defaults shipped in 0.4.3-beta, used only to migrate untouched stored tiers. */
+        private val PreviousBuiltIns = listOf(
+            Data.copy(megabitsPerSecond = 2.0),
+            Low.copy(megabitsPerSecond = 5.0),
+            Standard.copy(megabitsPerSecond = 12.0),
+            High.copy(megabitsPerSecond = 25.0),
+            Ultra.copy(megabitsPerSecond = 55.0),
+        ).associateBy(PlaybackQualityTier::id)
 
         /**
          * Built-ins that no longer ship, kept only to be recognised on load.
@@ -149,7 +158,10 @@ data class PlaybackQualityTier(
          * Deliberately the same shape as `mergeStoredPresets`.
          */
         fun mergeStoredTiers(stored: List<PlaybackQualityTier>): List<PlaybackQualityTier> {
-            val retained = stored.filterNot { it in RetiredBuiltIns }
+            val retained = stored.filterNot { it in RetiredBuiltIns }.map { tier ->
+                val previousDefault = PreviousBuiltIns[tier.id]
+                if (tier == previousDefault) BuiltIns.first { it.id == tier.id } else tier
+            }
             val knownIds = retained.mapTo(mutableSetOf()) { it.id }
             return retained + BuiltIns.filterNot { it.id in knownIds }
         }

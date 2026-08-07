@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_about_made_with
@@ -66,6 +67,7 @@ import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced_
 import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
 import nuvio.composeapp.generated.resources.compose_settings_page_trakt
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
+import nuvio.composeapp.generated.resources.settings_playback_mode
 import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
 import nuvio.composeapp.generated.resources.about_supporters_contributors_subtitle
@@ -77,6 +79,7 @@ private const val PRIVACY_POLICY_URL = "https://nuvio.tv/privacy-policy"
 internal fun LazyListScope.settingsRootContent(
     isTablet: Boolean,
     onPlaybackClick: () -> Unit,
+    onPlaybackModeClick: () -> Unit,
     onAppearanceClick: () -> Unit,
     onAdvancedClick: () -> Unit,
     onNotificationsClick: () -> Unit,
@@ -140,6 +143,18 @@ internal fun LazyListScope.settingsRootContent(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
+                    val playerSettings by remember {
+                        PlayerSettingsRepository.ensureLoaded()
+                        PlayerSettingsRepository.uiState
+                    }.collectAsStateWithLifecycle()
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_mode),
+                        description = playbackModeName(playerSettings.playbackMode),
+                        icon = Icons.Rounded.PlayArrow,
+                        isTablet = isTablet,
+                        onClick = onPlaybackModeClick,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_appearance),
                         description = stringResource(Res.string.compose_settings_root_appearance_description),

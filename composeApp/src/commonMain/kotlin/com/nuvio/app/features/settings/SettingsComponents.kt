@@ -54,6 +54,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_settings_page_advanced
 import nuvio.composeapp.generated.resources.settings_homescreen_collection_with_addon
 import nuvio.composeapp.generated.resources.settings_homescreen_display_name
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_source
@@ -318,6 +319,7 @@ internal fun SettingsNavigationRow(
                 )
             }
         }
+        if (isAdvanced) AdvancedSettingBadge()
     }
 }
 
@@ -366,6 +368,7 @@ internal fun SettingsSwitchRow(
                 )
             }
         }
+        if (isAdvanced) AdvancedSettingBadge()
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -377,6 +380,22 @@ internal fun SettingsSwitchRow(
                 uncheckedThumbColor = tokens.colors.textMuted,
                 uncheckedTrackColor = tokens.colors.borderDefault,
             ),
+        )
+    }
+}
+
+@Composable
+private fun AdvancedSettingBadge() {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(999.dp),
+        modifier = Modifier.padding(horizontal = 6.dp),
+    ) {
+        Text(
+            text = stringResource(Res.string.compose_settings_page_advanced),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
         )
     }
 }

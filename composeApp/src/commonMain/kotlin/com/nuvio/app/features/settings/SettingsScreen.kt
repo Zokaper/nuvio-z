@@ -136,14 +136,15 @@ fun SettingsScreen(
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
+    val playerSettingsUiState by remember {
+        PlayerSettingsRepository.ensureLoaded()
+        PlayerSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    var showRootPlaybackModeDialog by rememberSaveable { mutableStateOf(false) }
+
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
     ) {
-        val playerSettingsUiState by remember {
-            PlayerSettingsRepository.ensureLoaded()
-            PlayerSettingsRepository.uiState
-        }.collectAsStateWithLifecycle()
-
         val selectedTheme by remember {
             ThemeSettingsRepository.ensureLoaded()
             ThemeSettingsRepository.selectedTheme
@@ -374,6 +375,7 @@ fun SettingsScreen(
                 scrollToTopRequests = scrollToTopRequests,
                 onPageChange = ::openPage,
                 onNavigateBack = ::navigateBack,
+                onPlaybackModeClick = { showRootPlaybackModeDialog = true },
                 onSearchNavigation = { revealAdvancedForSearch = true },
                 showInternalHeader = showInternalHeader,
                 showLoadingOverlay = playerSettingsUiState.showLoadingOverlay,
@@ -436,6 +438,7 @@ fun SettingsScreen(
                 scrollToTopRequests = scrollToTopRequests,
                 onPageChange = ::openPage,
                 onNavigateBack = ::navigateBack,
+                onPlaybackModeClick = { showRootPlaybackModeDialog = true },
                 onSearchNavigation = { revealAdvancedForSearch = true },
                 showInternalHeader = showInternalHeader,
                 showLoadingOverlay = playerSettingsUiState.showLoadingOverlay,
@@ -499,6 +502,17 @@ fun SettingsScreen(
                 onCollectionsClick = onCollectionsClick,
             )
         }
+        if (showRootPlaybackModeDialog) {
+            PlaybackModeDialog(
+                selected = playerSettingsUiState.playbackMode,
+                onModeSelected = { mode ->
+                    PlayerSettingsRepository.setPlaybackMode(mode)
+                    PlayerSettingsRepository.markPlaybackModeSelectorSeen()
+                    showRootPlaybackModeDialog = false
+                },
+                onDismiss = { showRootPlaybackModeDialog = false },
+            )
+        }
         }
     }
 }
@@ -509,6 +523,7 @@ private fun MobileSettingsScreen(
     scrollToTopRequests: Flow<Unit>,
     onPageChange: (SettingsPage) -> Unit,
     onNavigateBack: () -> Unit,
+    onPlaybackModeClick: () -> Unit,
     onSearchNavigation: () -> Unit,
     showInternalHeader: Boolean,
     showLoadingOverlay: Boolean,
@@ -675,6 +690,7 @@ private fun MobileSettingsScreen(
                         settingsRootContent(
                             isTablet = false,
                             onPlaybackClick = { onPageChange(SettingsPage.Playback) },
+                            onPlaybackModeClick = onPlaybackModeClick,
                             onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
                             onAdvancedClick = { onPageChange(SettingsPage.Advanced) },
                             onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
@@ -869,6 +885,7 @@ private fun TabletSettingsScreen(
     scrollToTopRequests: Flow<Unit>,
     onPageChange: (SettingsPage) -> Unit,
     onNavigateBack: () -> Unit,
+    onPlaybackModeClick: () -> Unit,
     onSearchNavigation: () -> Unit,
     showInternalHeader: Boolean,
     showLoadingOverlay: Boolean,
@@ -1087,6 +1104,7 @@ private fun TabletSettingsScreen(
                             settingsRootContent(
                                 isTablet = true,
                                 onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
+                                onPlaybackModeClick = onPlaybackModeClick,
                                 onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
                                 onAdvancedClick = { openInlinePage(SettingsPage.Advanced) },
                                 onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },

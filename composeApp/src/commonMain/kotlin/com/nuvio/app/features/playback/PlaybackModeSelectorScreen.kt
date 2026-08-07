@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -73,13 +74,14 @@ fun PlaybackModeSelectorScreen(
 ) {
     var selected by remember { mutableStateOf(initialMode) }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier.background(MaterialTheme.nuvio.colors.background),
         contentAlignment = Alignment.Center,
     ) {
+        val availableWidth = maxWidth
         Column(
             modifier = Modifier
-                .widthIn(max = 520.dp)
+                .widthIn(max = 1120.dp)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
@@ -97,12 +99,25 @@ fun PlaybackModeSelectorScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            PlaybackMode.entries.forEach { mode ->
-                PlaybackModeCard(
-                    mode = mode,
-                    isSelected = mode == selected,
-                    onClick = { selected = mode },
-                )
+            if (availableWidth >= 900.dp) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PlaybackMode.entries.forEach { mode ->
+                        PlaybackModeCard(
+                            mode = mode,
+                            isSelected = mode == selected,
+                            onClick = { selected = mode },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            } else {
+                PlaybackMode.entries.forEach { mode ->
+                    PlaybackModeCard(
+                        mode = mode,
+                        isSelected = mode == selected,
+                        onClick = { selected = mode },
+                    )
+                }
             }
 
             Text(

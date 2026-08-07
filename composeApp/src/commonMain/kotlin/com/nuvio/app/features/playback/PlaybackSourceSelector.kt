@@ -108,7 +108,14 @@ object PlaybackSourceSelector {
             return ".torrent" !in directUrl
         }
         if (stream.isDirectDebridStream) return true
-        if (candidate.facts.isDebridReady == false && stream.p2pInfoHash != null) return true
+        // Cache state is not a transport. Torrentio/AIOStreams commonly return only an
+        // infohash and ask the client to mint the debrid URL. A known-cached item in that
+        // shape used to fall through to the raw-torrent gate while an uncached one was
+        // admitted, which inverted the safe behaviour and broke Streamlined entirely.
+        if (
+            stream.p2pInfoHash != null &&
+            (candidate.facts.isDebridReady != null || isDebridBacked(candidate) || stream.isAddonDebridCandidate)
+        ) return true
         return allowTorrentSources && stream.isTorrentStream && stream.p2pInfoHash != null &&
             (candidate.facts.seeders ?: 0) >= MIN_HEALTHY_SEEDERS
     }

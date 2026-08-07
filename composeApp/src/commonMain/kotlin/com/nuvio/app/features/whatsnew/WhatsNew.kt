@@ -51,16 +51,14 @@ object CurrentReleaseNotes {
                 category = WhatsNewCategory.NewFeatures,
                 items = listOf(
                     WhatsNewItem(
-                        title = "What's New after each update",
-                        description = "This screen. It opens once when you first launch a new version, " +
-                            "and it is always available from Settings under About - along with the notes " +
-                            "for the last few releases.",
+                        title = "Next episode in the player",
+                        description = "Jump to the next aired episode from the player controls. Episode " +
+                            "switching now keeps Instant and Streamlined source selection active.",
                     ),
                     WhatsNewItem(
-                        title = "Show advanced settings",
-                        description = "A switch in Settings under Advanced hides the tuning options - " +
-                            "playback engine, buffering, auto-pick and stream selection - so the screens " +
-                            "are easier to scan. Search still finds them either way.",
+                        title = "Open details from Continue Watching",
+                        description = "Continue Watching cards now have a direct details button, without " +
+                            "changing the normal tap-to-resume action.",
                     ),
                 ),
             ),
@@ -71,27 +69,26 @@ object CurrentReleaseNotes {
                 items = buildList {
                     add(
                         WhatsNewItem(
-                            title = "Instant and Streamlined feel instant",
-                            description = "Neither mode shows you the source list any more. You get a " +
-                                "progress indicator that says what it is doing - looking for sources, " +
-                                "choosing one, preparing the link - and it moves on quietly if a source " +
-                                "turns out to be dead.",
+                            title = "Playback mode is easier to reach",
+                            description = "Playback mode now appears at the top level of Settings. Advanced " +
+                                "rows are visibly labelled, and the first-run selector uses the available " +
+                                "desktop width instead of a narrow mobile layout.",
                         ),
                     )
                     add(
                         WhatsNewItem(
-                            title = "The playback modes explain themselves",
-                            description = "Each mode is now a card describing what it does for streaming " +
-                                "and for downloading, so the choice is not a guess.",
+                            title = "Cleaner playback hand-off",
+                            description = "Instant and Streamlined keep the source list covered while they " +
+                                "choose and resolve a source. Backing out of the player now returns to the " +
+                                "title details page.",
                         ),
                     )
                     if (isDesktop) {
                         add(
                             WhatsNewItem(
-                                title = "Faster desktop startup",
-                                description = "Player setup runs asynchronously, and the packaged native " +
-                                    "player and P2P files no longer need extracting from the app JAR " +
-                                    "before the window opens.",
+                                title = "Desktop network awareness",
+                                description = "Windows now detects Wi-Fi, Ethernet and metered connections " +
+                                    "for Instant mode instead of treating every desktop network as unknown.",
                             ),
                         )
                     }
@@ -103,11 +100,14 @@ object CurrentReleaseNotes {
                 category = WhatsNewCategory.BugFixes,
                 items = listOf(
                     WhatsNewItem(
-                        title = "Settings sync no longer deletes settings",
-                        description = "Syncing could wipe any setting added since your account last " +
-                            "uploaded its settings - including your playback mode, MDBList, TMDB, " +
-                            "stream badge, Trakt comment and debrid preferences. Fixed everywhere it " +
-                            "could happen.",
+                        title = "Streamlined can select debrid sources again",
+                        description = "Cached debrid results that provide an infohash are recognized as " +
+                            "safe automatic sources. Uncached results still require your confirmation.",
+                    ),
+                    WhatsNewItem(
+                        title = "Selected downloads stay selected",
+                        description = "Choosing Download from a source's action menu now queues that exact " +
+                            "source instead of opening the automatic preset picker.",
                     ),
                 ),
             ),
