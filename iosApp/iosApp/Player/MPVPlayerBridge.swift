@@ -867,7 +867,11 @@ final class MPVPlayerViewController: UIViewController {
         guard mpv != nil else { return }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
-        let cached = getDouble("demuxer-cache-time")
+        // `demuxer-cache-time` is an absolute playback timestamp for the end of the
+        // demuxer cache, not a duration ahead of the position. Adding it to the
+        // position made the reported buffer grow with playback. Android does
+        // `maxOf(positionMs, cachePositionMs)`; match that exactly.
+        let cacheEnd = getDouble("demuxer-cache-time")
         let speed = getDouble("speed")
         let paused = getFlag("pause")
         let eofReached = getFlag("eof-reached")
@@ -880,7 +884,7 @@ final class MPVPlayerViewController: UIViewController {
         isPlayerEnded = eofReached
         durationMs = Int64(duration * 1000)
         positionMs = Int64(max(position, 0) * 1000)
-        bufferedMs = Int64(max(position + cached, 0) * 1000)
+        bufferedMs = Int64(max(max(position, cacheEnd), 0) * 1000)
         currentSpeed = Float(speed > 0 ? speed : 1.0)
 
         let shouldPublishNowPlayingState = !isPlayerLoading || isPlayerPlaying || durationMs > 0 || positionMs > 0

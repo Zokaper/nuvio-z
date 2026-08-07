@@ -541,6 +541,21 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.PlayArrow,
         rows = listOfNotNull(
             PlaybackSearchRow(
+                "playback-mode",
+                stringResource(Res.string.settings_playback_mode),
+                stringResource(Res.string.settings_playback_mode_description),
+            ),
+            PlaybackSearchRow(
+                "playback-torrent-autopick",
+                stringResource(Res.string.settings_playback_allow_torrent_autopick),
+                stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+            ),
+            PlaybackSearchRow(
+                "playback-auto-downshift",
+                stringResource(Res.string.settings_playback_auto_downshift),
+                stringResource(Res.string.settings_playback_auto_downshift_description),
+            ),
+            PlaybackSearchRow(
                 "loading-overlay",
                 stringResource(Res.string.settings_playback_show_loading_overlay),
                 stringResource(Res.string.settings_playback_show_loading_overlay_description),

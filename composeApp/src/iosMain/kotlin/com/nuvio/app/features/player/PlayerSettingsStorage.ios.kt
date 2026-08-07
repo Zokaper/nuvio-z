@@ -51,6 +51,12 @@ actual object PlayerSettingsStorage {
     private const val decoderPriorityKey = "decoder_priority"
     private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
     private const val tunnelingEnabledKey = "tunneling_enabled"
+    private const val playbackModeKey = "playback_mode"
+    private const val playbackAllowTorrentAutopickKey = "playback_allow_torrent_autopick"
+    private const val playbackQualityTiersKey = "playback_quality_tiers"
+    private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
+    private const val playbackAutoDownshiftKey = "playback_auto_downshift"
+    private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -120,6 +126,12 @@ actual object PlayerSettingsStorage {
         decoderPriorityKey,
         mapDV7ToHevcKey,
         tunnelingEnabledKey,
+        playbackModeKey,
+        playbackAllowTorrentAutopickKey,
+        playbackQualityTiersKey,
+        playbackMeteredCapHeightKey,
+        playbackAutoDownshiftKey,
+        playbackModeSelectorSeenKey,
         streamAutoPlayModeKey,
         streamAutoPlaySourceKey,
         streamAutoPlaySelectedAddonsKey,
@@ -574,6 +586,69 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(tunnelingEnabledKey))
     }
 
+    actual fun loadPlaybackMode(): String? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        return defaults.stringForKey(ProfileScopedKey.of(playbackModeKey))
+    }
+
+    actual fun savePlaybackMode(mode: String) {
+        NSUserDefaults.standardUserDefaults.setObject(mode, forKey = ProfileScopedKey.of(playbackModeKey))
+    }
+
+    actual fun loadPlaybackAllowTorrentAutopick(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackAllowTorrentAutopickKey)
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+
+    actual fun savePlaybackAllowTorrentAutopick(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(playbackAllowTorrentAutopickKey))
+    }
+
+    actual fun loadPlaybackQualityTiers(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(playbackQualityTiersKey))
+
+    actual fun savePlaybackQualityTiers(payload: String) {
+        NSUserDefaults.standardUserDefaults.setObject(payload, forKey = ProfileScopedKey.of(playbackQualityTiersKey))
+    }
+
+    actual fun loadPlaybackMeteredCapHeight(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackMeteredCapHeightKey)
+        return if (defaults.objectForKey(key) != null) defaults.integerForKey(key).toInt() else null
+    }
+
+    actual fun savePlaybackMeteredCapHeight(height: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(height.toLong(), forKey = ProfileScopedKey.of(playbackMeteredCapHeightKey))
+    }
+
+    actual fun loadPlaybackAutoDownshift(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackAutoDownshiftKey)
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+
+    actual fun savePlaybackAutoDownshift(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(playbackAutoDownshiftKey))
+    }
+
+    actual fun loadPlaybackModeSelectorSeen(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackModeSelectorSeenKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun savePlaybackModeSelectorSeen(seen: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(
+            seen,
+            forKey = ProfileScopedKey.of(playbackModeSelectorSeenKey),
+        )
+    }
+
     actual fun loadStreamAutoPlayMode(): String? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(streamAutoPlayModeKey)
@@ -929,6 +1004,16 @@ actual object PlayerSettingsStorage {
         loadDecoderPriority()?.let { put(decoderPriorityKey, encodeSyncInt(it)) }
         loadMapDV7ToHevc()?.let { put(mapDV7ToHevcKey, encodeSyncBoolean(it)) }
         loadTunnelingEnabled()?.let { put(tunnelingEnabledKey, encodeSyncBoolean(it)) }
+        loadPlaybackMode()?.let { put(playbackModeKey, encodeSyncString(it)) }
+        loadPlaybackAllowTorrentAutopick()?.let {
+            put(playbackAllowTorrentAutopickKey, encodeSyncBoolean(it))
+        }
+        loadPlaybackQualityTiers()?.let { put(playbackQualityTiersKey, encodeSyncString(it)) }
+        loadPlaybackMeteredCapHeight()?.let { put(playbackMeteredCapHeightKey, encodeSyncInt(it)) }
+        loadPlaybackAutoDownshift()?.let { put(playbackAutoDownshiftKey, encodeSyncBoolean(it)) }
+        loadPlaybackModeSelectorSeen()?.let {
+            put(playbackModeSelectorSeenKey, encodeSyncBoolean(it))
+        }
         loadStreamAutoPlayMode()?.let { put(streamAutoPlayModeKey, encodeSyncString(it)) }
         loadStreamAutoPlaySource()?.let { put(streamAutoPlaySourceKey, encodeSyncString(it)) }
         loadStreamAutoPlaySelectedAddons()?.let { put(streamAutoPlaySelectedAddonsKey, encodeSyncStringSet(it)) }
@@ -1002,6 +1087,14 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(decoderPriorityKey)?.let(::saveDecoderPriority)
         payload.decodeSyncBoolean(mapDV7ToHevcKey)?.let(::saveMapDV7ToHevc)
         payload.decodeSyncBoolean(tunnelingEnabledKey)?.let(::saveTunnelingEnabled)
+        payload.decodeSyncString(playbackModeKey)?.let(::savePlaybackMode)
+        payload.decodeSyncBoolean(playbackAllowTorrentAutopickKey)
+            ?.let(::savePlaybackAllowTorrentAutopick)
+        payload.decodeSyncString(playbackQualityTiersKey)?.let(::savePlaybackQualityTiers)
+        payload.decodeSyncInt(playbackMeteredCapHeightKey)?.let(::savePlaybackMeteredCapHeight)
+        payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)
+        payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
+            ?.let(::savePlaybackModeSelectorSeen)
         payload.decodeSyncString(streamAutoPlayModeKey)?.let(::saveStreamAutoPlayMode)
         payload.decodeSyncString(streamAutoPlaySourceKey)?.let(::saveStreamAutoPlaySource)
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)

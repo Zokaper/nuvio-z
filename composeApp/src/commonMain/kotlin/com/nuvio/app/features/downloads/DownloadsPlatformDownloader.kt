@@ -67,4 +67,15 @@ internal expect object DownloadsPlatformDownloader {
     fun openDownloadsDirectory(): Boolean
 
     fun freeStorageBytes(): Long
+
+    /**
+     * Whether this platform brings its own system-paused transfers back.
+     *
+     * A system pause is a promise that something other than the user will restart the
+     * download: Android pauses the queue when the background job is stopped and iOS
+     * when the app leaves the foreground, and both have a counterpart that resumes it.
+     * Desktop has neither half, so an item that reaches that state there has nothing
+     * to release it and the queue has to take it back itself.
+     */
+    val recoversSystemPauses: Boolean
 }

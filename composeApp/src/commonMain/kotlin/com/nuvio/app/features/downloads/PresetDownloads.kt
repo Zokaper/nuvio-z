@@ -3,7 +3,6 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.math.abs
 import kotlin.math.roundToLong
 
 @Serializable
@@ -235,7 +234,21 @@ object PresetSourceSelector {
                 candidate.facts.resolution?.height?.let { it <= preset.targetResolution.height } ?: true
             }
             .filter { matchesRequirements(it.facts, preset) }
-        val eligible = matching.sortedWith(candidateComparator(preset, midRangeTarget(matching, cap)))
+        val eligible = matching.sortedWith(
+            SourceRanking.comparator(
+                preferences = SourceRankingPreferences(
+                    preferredAudioLanguage = preset.preferredAudioLanguage,
+                    codecPreference = preset.codecPreference,
+                    dynamicRangePolicy = preset.dynamicRangePolicy,
+                    sizePreference = preset.sizePreference,
+                ),
+                midRangeTarget = SourceRanking.midRangeTarget(matching.map { it.facts }, cap),
+                factsOf = DownloadSourceCandidate::facts,
+                isDirectOf = { it.stream.playableDirectUrl != null },
+                addonOrderOf = DownloadSourceCandidate::addonOrder,
+                stableUrlOf = { it.resolvedUrl.orEmpty() },
+            ),
+        )
 
         eligible.firstOrNull { candidate ->
             val size = candidate.facts.sizeBytes
@@ -291,88 +304,6 @@ object PresetSourceSelector {
         }
     }
 
-    /**
-     * The size [SizePreference.MID_RANGE] aims at: the median of the candidates that
-     * would actually be startable.
-     *
-     * Taking a real candidate size rather than a share of the cap keeps the target
-     * meaningful when every source for a title clusters far below the cap, and the
-     * upper middle of an even-sized list keeps it deterministic. Sizes above the cap
-     * are excluded because [select] would never take them anyway - letting them pull
-     * the median up would just push the pick towards the cap.
-     *
-     * Null when nothing with a known size fits, in which case ordering falls back to
-     * largest-under-cap.
-     */
-    private fun midRangeTarget(candidates: List<DownloadSourceCandidate>, cap: Long): Long? {
-        val fittingSizes = candidates
-            .mapNotNull { it.facts.sizeBytes }
-            .filter { it <= cap }
-            .sorted()
-        return fittingSizes.getOrNull(fittingSizes.size / 2)
-    }
-
-    // The mid-range target is computed once over every matching candidate, while the
-    // comparator only ever decides between candidates that already tie on resolution,
-    // language, dynamic range, codec and release quality - those still outrank size.
-    private fun candidateComparator(
-        preset: DownloadPreset,
-        midRangeTarget: Long?,
-    ): Comparator<DownloadSourceCandidate> =
-        compareByDescending<DownloadSourceCandidate> {
-            it.facts.resolution?.height ?: Int.MIN_VALUE
-        }.thenByDescending {
-            val preferred = preset.preferredAudioLanguage?.trim()?.uppercase()
-            preferred != null && preferred in it.facts.languages
-        }.thenByDescending {
-            when (preset.dynamicRangePolicy) {
-                DynamicRangePolicy.AVOID_HDR -> it.facts.dynamicRange.isEmpty()
-                DynamicRangePolicy.PREFER_HDR -> it.facts.dynamicRange.isNotEmpty()
-                else -> true
-            }
-        }.thenByDescending {
-            preset.codecPreference == CodecPreference.ANY ||
-                it.facts.codec == preset.codecPreference.name
-        }.thenByDescending {
-            releaseQualityScore(it.facts.releaseQuality)
-        }.thenByDescending {
-            // Below every quality key on purpose: a cached source should decide
-            // between otherwise equal candidates, never cost a resolution tier.
-            it.facts.isDebridReady == true
-        }.thenByDescending {
-            it.stream.playableDirectUrl != null
-        }.let { comparator ->
-            val largestFirst: Comparator<DownloadSourceCandidate> = comparator.thenByDescending {
-                it.facts.sizeBytes ?: Long.MIN_VALUE
-            }
-            when (preset.sizePreference) {
-                // select() takes the first candidate that fits the cap, so ordering
-                // largest-first makes that the largest one under the cap.
-                SizePreference.LARGEST_UNDER_CAP -> largestFirst
-                SizePreference.MID_RANGE -> if (midRangeTarget == null) {
-                    largestFirst
-                } else {
-                    // An unknown size is Long.MAX_VALUE away from the target, which
-                    // keeps it behind every candidate that reports one, and an exact
-                    // tie between two equidistant sizes goes to the larger file.
-                    comparator.thenBy { candidate ->
-                        candidate.facts.sizeBytes
-                            ?.let { abs(it - midRangeTarget) }
-                            ?: Long.MAX_VALUE
-                    }.thenByDescending {
-                        it.facts.sizeBytes ?: Long.MIN_VALUE
-                    }
-                }
-                SizePreference.SMALLEST -> comparator.thenBy {
-                    it.facts.sizeBytes ?: Long.MAX_VALUE
-                }
-            }
-        }.thenBy {
-            it.addonOrder
-        }.thenBy {
-            it.resolvedUrl.orEmpty()
-        }
-
     private fun DownloadSourceCandidate.selected(cap: Long) =
         SourceSelectionResult.Selected(
             streamUrl = requireNotNull(resolvedUrl),
@@ -396,16 +327,4 @@ object PresetSourceSelector {
         return ".m3u8" !in normalized && ".mpd" !in normalized && ".torrent" !in normalized
     }
 
-    private fun releaseQualityScore(value: String?): Int {
-        val normalized = value?.uppercase().orEmpty()
-        return when {
-            "REMUX" in normalized -> 6
-            "BLURAY" in normalized || "BLU-RAY" in normalized -> 5
-            "WEB-DL" in normalized -> 4
-            "WEBRIP" in normalized -> 3
-            "HDTV" in normalized -> 2
-            "CAM" in normalized -> 0
-            else -> 1
-        }
-    }
 }

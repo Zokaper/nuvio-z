@@ -34,6 +34,10 @@ private val downloadHttpClient = OkHttpClient.Builder()
     .build()
 
 internal actual object DownloadsPlatformDownloader {
+    // The background job is stopped when the system reclaims it and started again
+    // when it may run, so a system pause here really is temporary.
+    actual val recoversSystemPauses: Boolean = true
+
     private var appContext: Context? = null
 
     fun initialize(context: Context) {

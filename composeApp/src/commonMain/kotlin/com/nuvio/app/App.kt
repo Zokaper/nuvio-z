@@ -42,12 +42,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -154,6 +156,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsScreen
 import com.nuvio.app.features.downloads.DownloadsSettingsScreen
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaDetailsScreen
 import com.nuvio.app.features.details.MetaPerson
@@ -225,6 +228,19 @@ import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
+import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackModeRouter
+import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
+import com.nuvio.app.features.playback.PlaybackQualitySheet
+import com.nuvio.app.features.playback.PlaybackRouteDecision
+import com.nuvio.app.features.playback.PlaybackRouteInputs
+import com.nuvio.app.features.playback.PlaybackSelectionContext
+import com.nuvio.app.features.playback.PlaybackSelectionResult
+import com.nuvio.app.features.playback.PlaybackSourceCandidate
+import com.nuvio.app.features.playback.PlaybackSourceSelector
+import com.nuvio.app.features.playback.StickySourcePin
+import com.nuvio.app.core.network.MeteredPlaybackChoice
+import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktListTab
@@ -302,6 +318,12 @@ private data class PendingP2pStreamOpen(
     val forceExternal: Boolean,
     val forceInternal: Boolean,
     val isAutoPlay: Boolean,
+)
+
+private data class PendingStickyStreamOpen(
+    val stream: StreamItem,
+    val resumePositionMs: Long?,
+    val resumeProgressFraction: Float?,
 )
 
 private data class CatalogLaunch(
@@ -522,6 +544,14 @@ fun App(
             )
         }
 
+        // Gates the first-launch playback-mode selector. Read here rather than as a new
+        // AppGateScreen value because five separate transitions set the gate to Main;
+        // wrapping the Main branch covers every one of them with a single decision.
+        val gatePlayerSettings by remember {
+            PlayerSettingsRepository.ensureLoaded()
+            PlayerSettingsRepository.uiState
+        }.collectAsStateWithLifecycle()
+
         var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
         var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
         var isNewProfile by remember { mutableStateOf(false) }
@@ -727,7 +757,18 @@ fun App(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                AppGateScreen.Main.name -> {
+                AppGateScreen.Main.name -> if (!gatePlayerSettings.playbackModeSelectorSeen) {
+                    PlaybackModeSelectorScreen(
+                        initialMode = gatePlayerSettings.playbackMode,
+                        onConfirm = { mode ->
+                            // Both, always: choosing Classic is a no-op for the mode, so
+                            // the seen flag is the only thing that dismisses the selector.
+                            PlayerSettingsRepository.setPlaybackMode(mode)
+                            PlayerSettingsRepository.markPlaybackModeSelectorSeen()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
                     MainAppContent(
                         initialTab = initialTab,
                         initialRoute = initialRoute,
@@ -1699,6 +1740,40 @@ private fun MainAppContent(
                 )
             }
 
+        /**
+         * Classic's download entry point: open the source list with the download intent set.
+         *
+         * Deliberately not routed through `launchPlaybackWithDownloadPreference`. That path
+         * short-circuits to playing a completed local download, which is right for a play
+         * but wrong here - the user asked to download this title, so the source list is the
+         * destination whether or not a copy already exists.
+         */
+        val onDownloadManually: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?) -> Unit =
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail ->
+                val downloadLaunchId = StreamLaunchStore.put(
+                    StreamLaunch(
+                        profileId = activePlaybackProfileId,
+                        type = type,
+                        videoId = videoId,
+                        parentMetaId = parentMetaId,
+                        parentMetaType = parentMetaType,
+                        title = title,
+                        logo = logo,
+                        poster = poster,
+                        background = background,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        episodeTitle = episodeTitle,
+                        episodeThumbnail = episodeThumbnail,
+                        manualSelection = true,
+                        downloadIntent = true,
+                    ),
+                )
+                navController.navigate(
+                    StreamRoute(launchId = downloadLaunchId, title = title),
+                )
+            }
+
         val onCatalogClick: (HomeCatalogSection) -> Unit = { section ->
             val launchId = CatalogLaunchStore.put(
                 CatalogLaunch(
@@ -2203,6 +2278,7 @@ private fun MainAppContent(
                         onBack = onBack,
                         onPlay = onPlay,
                         onPlayManually = onPlayManually,
+                        onDownloadManually = onDownloadManually,
                         onPlayDownloadedItem = ::openDownloadedItem,
                         onOpenMeta = { preview ->
                             coroutineScope.launch {
@@ -2350,6 +2426,14 @@ private fun MainAppContent(
                     val streamRouteScope = rememberCoroutineScope()
                     var resolvingDebridStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var pendingP2pStreamOpen by remember { mutableStateOf<PendingP2pStreamOpen?>(null) }
+                    var pendingStickyStreamOpen by remember { mutableStateOf<PendingStickyStreamOpen?>(null) }
+                    var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
+                    var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var meteredChoice by remember(route.launchId) {
+                        mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
+                    }
                     val shouldResolveEpisodeVideoId =
                         launch.parentMetaId != null &&
                             launch.seasonNumber != null &&
@@ -2407,6 +2491,13 @@ private fun MainAppContent(
                         PlayerSettingsRepository.ensureLoaded()
                         PlayerSettingsRepository.uiState
                     }.collectAsStateWithLifecycle()
+                    // Streamlined and Instant own source selection. Passing them through the
+                    // legacy auto-play policy would run two pickers over the same candidates.
+                    val streamManualSelection = launch.manualSelection ||
+                        // A download-intent launch must never auto-play: the user pressed
+                        // Download, so every automatic playback path stays out of the way.
+                        launch.downloadIntent ||
+                        playerSettings.playbackMode != PlaybackMode.CLASSIC
 
                     fun p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
                         "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
@@ -2519,15 +2610,99 @@ private fun MainAppContent(
                         )
                     }
 
-                    // Reuse Last Link: auto-play from cache if enabled (only on first entry)
-                    var reuseHandled by rememberSaveable(launch.videoId, effectiveVideoId) { mutableStateOf(false) }
+                    val streamsUiState by StreamsRepository.uiState.collectAsStateWithLifecycle()
+                    val expectedStreamsRequestToken = StreamsRepository.requestToken(
+                        type = launch.type,
+                        videoId = effectiveVideoId,
+                        season = launch.seasonNumber,
+                        episode = launch.episodeNumber,
+                        manualSelection = streamManualSelection,
+                    )
+                    val playbackCandidates = remember(
+                        streamsUiState.groups,
+                        streamsUiState.requestToken,
+                        expectedStreamsRequestToken,
+                    ) {
+                        if (streamsUiState.requestToken != expectedStreamsRequestToken) {
+                            emptyList()
+                        } else {
+                            streamsUiState.groups.flatMapIndexed { addonOrder, group ->
+                                group.streams.map { stream ->
+                                    PlaybackSourceCandidate(
+                                        stream = stream,
+                                        facts = SourceFactsExtractor.extract(stream),
+                                        addonOrder = addonOrder,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    val stickyContentId = remember(launch.parentMetaId, launch.seasonNumber) {
+                        val seriesId = launch.parentMetaId
+                        val season = launch.seasonNumber
+                        if (seriesId != null && season != null) {
+                            BingeGroupCacheRepository.stickyContentId(seriesId, season)
+                        } else {
+                            null
+                        }
+                    }
+                    val stickyPin = remember(stickyContentId) {
+                        stickyContentId?.let(BingeGroupCacheRepository::get)
+                    }
+                    val matchingStickyCandidate = remember(stickyPin, playbackCandidates) {
+                        stickyPin?.let { pin ->
+                            playbackCandidates.filter { it.stream.hasPlayableSource }.maxByOrNull { candidate ->
+                                pin.matchStrength(
+                                    candidateReleaseGroup = candidate.facts.releaseGroup,
+                                    candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
+                                    candidateAddonId = candidate.stream.addonId,
+                                    candidateProviderId = candidate.facts.providerId,
+                                    candidateResolutionHeight = candidate.facts.resolution?.height,
+                                ) ?: Int.MIN_VALUE
+                            }?.takeIf { candidate ->
+                                pin.matchStrength(
+                                    candidateReleaseGroup = candidate.facts.releaseGroup,
+                                    candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
+                                    candidateAddonId = candidate.stream.addonId,
+                                    candidateProviderId = candidate.facts.providerId,
+                                    candidateResolutionHeight = candidate.facts.resolution?.height,
+                                ) != null
+                            }
+                        }
+                    }
+
+                    // Reuse Last Link: auto-play from cache if enabled (only on first entry).
+                    // A stored Streamlined pin must wait for candidates so it can outrank reuse.
+                    var playbackRouteDecision by remember(
+                        launch.videoId,
+                        effectiveVideoId,
+                        playerSettings.playbackMode,
+                    ) { mutableStateOf<PlaybackRouteDecision?>(null) }
+                    var reuseHandled by rememberSaveable(
+                        launch.videoId,
+                        effectiveVideoId,
+                        playerSettings.playbackMode,
+                    ) { mutableStateOf(false) }
                     var reuseNavigated by remember { mutableStateOf(false) }
-                    LaunchedEffect(effectiveVideoId, hasResolvedVideoId, playerSettings.streamReuseLastLinkEnabled, launch.manualSelection) {
+                    LaunchedEffect(
+                        effectiveVideoId,
+                        hasResolvedVideoId,
+                        playerSettings.playbackMode,
+                        playerSettings.streamReuseLastLinkEnabled,
+                        playerSettings.streamReuseLastLinkCacheHours,
+                        launch.manualSelection,
+                        stickyPin,
+                        matchingStickyCandidate,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                    ) {
                         if (!hasResolvedVideoId) return@LaunchedEffect
                         if (reuseHandled) return@LaunchedEffect
+                        if (
+                            playerSettings.playbackMode == PlaybackMode.STREAMLINED && stickyPin != null &&
+                            (streamsUiState.requestToken != expectedStreamsRequestToken || streamsUiState.isAnyLoading)
+                        ) return@LaunchedEffect
                         reuseHandled = true
-                        if (launch.manualSelection) return@LaunchedEffect
-                        if (!playerSettings.streamReuseLastLinkEnabled) return@LaunchedEffect
                         val cacheKey = StreamLinkCacheRepository.contentKey(
                             type = launch.type,
                             videoId = effectiveVideoId,
@@ -2536,8 +2711,24 @@ private fun MainAppContent(
                             episode = launch.episodeNumber,
                         )
                         val maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
-                        val cached = StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)
-                        if (cached != null) {
+                        val cached = if (playerSettings.streamReuseLastLinkEnabled) {
+                            StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)
+                        } else {
+                            null
+                        }
+                        val decision = PlaybackModeRouter.decide(
+                            PlaybackRouteInputs(
+                                mode = playerSettings.playbackMode,
+                                manualSelection = launch.manualSelection,
+                                // Completed downloads are consumed before StreamRoute is created.
+                                hasCompletedLocalDownload = false,
+                                hasMatchingStickyPin = matchingStickyCandidate != null,
+                                reuseLastLinkEnabled = playerSettings.streamReuseLastLinkEnabled,
+                                hasValidCachedLink = cached != null,
+                            ),
+                        )
+                        playbackRouteDecision = decision
+                        if (decision is PlaybackRouteDecision.ReuseLastLink && cached != null) {
                             if (cached.url.isBlank() && !cached.infoHash.isNullOrBlank()) {
                                 val cachedStream = StreamItem(
                                     name = cached.streamName,
@@ -2608,26 +2799,25 @@ private fun MainAppContent(
                         }
                     }
 
-                    val streamsUiState by StreamsRepository.uiState.collectAsStateWithLifecycle()
-                    val expectedStreamsRequestToken = StreamsRepository.requestToken(
-                        type = launch.type,
-                        videoId = effectiveVideoId,
-                        season = launch.seasonNumber,
-                        episode = launch.episodeNumber,
-                        manualSelection = launch.manualSelection,
-                    )
                     var autoPlayHandled by rememberSaveable(launch.videoId, effectiveVideoId) { mutableStateOf(false) }
                     LaunchedEffect(
                         streamsUiState.autoPlayStream,
                         streamsUiState.requestToken,
                         expectedStreamsRequestToken,
                         reuseHandled,
+                        playbackRouteDecision,
+                        playerSettings.playbackMode,
                         launch.manualSelection,
                     ) {
                         if (!reuseHandled) return@LaunchedEffect
                         if (launch.manualSelection) return@LaunchedEffect
+                        val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
+                            playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
+                        val isInstantAutoPlay = playerSettings.playbackMode == PlaybackMode.INSTANT &&
+                            playbackRouteDecision is PlaybackRouteDecision.AutoPick
+                        if (!isClassicAutoPlay && !isInstantAutoPlay) return@LaunchedEffect
                         if (reuseNavigated) return@LaunchedEffect
-                        if (autoPlayHandled) return@LaunchedEffect
+                        if (autoPlayHandled && !isInstantAutoPlay) return@LaunchedEffect
                         if (streamsUiState.requestToken != expectedStreamsRequestToken) return@LaunchedEffect
                         val selectedStream = streamsUiState.autoPlayStream ?: return@LaunchedEffect
                         val stream = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
@@ -2651,7 +2841,7 @@ private fun MainAppContent(
                                             parentMetaId = launch.parentMetaId,
                                             season = launch.seasonNumber,
                                             episode = launch.episodeNumber,
-                                            manualSelection = launch.manualSelection,
+                                            manualSelection = streamManualSelection,
                                         )
                                     }
                                     return@LaunchedEffect
@@ -2728,18 +2918,19 @@ private fun MainAppContent(
                             parentMetaType = launch.parentMetaType ?: launch.type,
                             initialPositionMs = launch.resumePositionMs ?: 0L,
                             initialProgressFraction = launch.resumeProgressFraction,
+                            instantAutoPick = isInstantAutoPlay,
                         )
                         if (playerSettings.externalPlayerEnabled) {
                             openExternalPlayback(playerLaunch)
-                            StreamsRepository.consumeAutoPlay()
+                            if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                             StreamsRepository.cancelLoading()
                             return@LaunchedEffect
                         }
-                        StreamsRepository.consumeAutoPlay()
+                        if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-                            popUpTo<StreamRoute> { inclusive = true }
+                            if (!isInstantAutoPlay) popUpTo<StreamRoute> { inclusive = true }
                         }
                     }
 
@@ -2787,7 +2978,7 @@ private fun MainAppContent(
                                                 parentMetaId = launch.parentMetaId,
                                                 season = launch.seasonNumber,
                                                 episode = launch.episodeNumber,
-                                                manualSelection = launch.manualSelection,
+                                                manualSelection = streamManualSelection,
                                             )
                                         }
                                     }
@@ -2880,6 +3071,140 @@ private fun MainAppContent(
                         )
                     }
 
+                    var stickyPinHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    LaunchedEffect(playbackRouteDecision, matchingStickyCandidate, stickyPinHandled) {
+                        if (playbackRouteDecision !is PlaybackRouteDecision.PlayStickyPin) return@LaunchedEffect
+                        val candidate = matchingStickyCandidate ?: return@LaunchedEffect
+                        if (stickyPinHandled) return@LaunchedEffect
+                        stickyPinHandled = true
+                        openSelectedStream(
+                            stream = candidate.stream,
+                            resolvedResumePositionMs = launch.resumePositionMs,
+                            resolvedResumeProgressFraction = launch.resumeProgressFraction,
+                            forceExternal = false,
+                            forceInternal = false,
+                        )
+                    }
+
+                    fun openManualStreamOrOfferPin(
+                        stream: StreamItem,
+                        resolvedResumePositionMs: Long?,
+                        resolvedResumeProgressFraction: Float?,
+                    ) {
+                        val shouldOfferPin = playerSettings.playbackMode == PlaybackMode.STREAMLINED &&
+                            stickyContentId != null && (launch.manualSelection || manualSourceListRequested)
+                        if (shouldOfferPin) {
+                            pendingStickyStreamOpen = PendingStickyStreamOpen(
+                                stream = stream,
+                                resumePositionMs = resolvedResumePositionMs,
+                                resumeProgressFraction = resolvedResumeProgressFraction,
+                            )
+                        } else {
+                            openSelectedStream(
+                                stream = stream,
+                                resolvedResumePositionMs = resolvedResumePositionMs,
+                                resolvedResumeProgressFraction = resolvedResumeProgressFraction,
+                                forceExternal = false,
+                                forceInternal = false,
+                            )
+                        }
+                    }
+
+                    val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
+                    fun selectStreamlinedTier(tier: com.nuvio.app.features.playback.PlaybackQualityTier?) {
+                        when (
+                            val result = PlaybackSourceSelector.select(
+                                candidates = playbackCandidates,
+                                tier = tier,
+                                context = PlaybackSelectionContext(
+                                    isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
+                                    allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
+                                ),
+                            )
+                        ) {
+                            is PlaybackSelectionResult.Play -> {
+                                qualitySheetDismissed = true
+                                openSelectedStream(
+                                    stream = result.stream,
+                                    resolvedResumePositionMs = launch.resumePositionMs,
+                                    resolvedResumeProgressFraction = launch.resumeProgressFraction,
+                                    forceExternal = false,
+                                    forceInternal = false,
+                                )
+                            }
+                            is PlaybackSelectionResult.AskUncached -> {
+                                pendingUncachedStream = result.stream
+                            }
+                            is PlaybackSelectionResult.NeedsManual -> {
+                                qualitySheetDismissed = true
+                                manualSourceListRequested = true
+                                NuvioToastController.show(noAutomaticSourceMessage)
+                            }
+                        }
+                    }
+
+                    LaunchedEffect(
+                        playbackRouteDecision,
+                        playbackCandidates,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                        meteredChoice,
+                        instantSelectionHandled,
+                    ) {
+                        if (playbackRouteDecision !is PlaybackRouteDecision.AutoPick) return@LaunchedEffect
+                        if (instantSelectionHandled || reuseNavigated) return@LaunchedEffect
+                        if (streamsUiState.requestToken != expectedStreamsRequestToken || streamsUiState.isAnyLoading) {
+                            return@LaunchedEffect
+                        }
+                        val network = NetworkQualityRepository.current()
+                        if (network.isMetered && meteredChoice == null) return@LaunchedEffect
+
+                        val estimatedTier = NetworkQualityRepository.resolveTier(playerSettings.playbackQualityTiers)
+                        val tier = if (network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED) {
+                            playerSettings.playbackQualityTiers
+                                .filter { it.targetResolution.height <= playerSettings.playbackMeteredCapHeight }
+                                .maxByOrNull { it.megabitsPerSecond }
+                                ?: playerSettings.playbackQualityTiers.minByOrNull { it.megabitsPerSecond }
+                                ?: estimatedTier
+                        } else {
+                            estimatedTier
+                        }
+                        fun selectFor(resolvedTier: com.nuvio.app.features.playback.PlaybackQualityTier) =
+                            PlaybackSourceSelector.select(
+                                candidates = playbackCandidates,
+                                tier = resolvedTier,
+                                context = PlaybackSelectionContext(
+                                    isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
+                                    allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
+                                ),
+                            )
+
+                        val first = selectFor(tier)
+                        val selection = if (first is PlaybackSelectionResult.Play && !network.isMetered) {
+                            val provider = SourceFactsExtractor.extract(first.stream).debridService
+                                ?: SourceFactsExtractor.extract(first.stream).providerId
+                            val providerTier = NetworkQualityRepository.resolveTier(
+                                playerSettings.playbackQualityTiers,
+                                provider,
+                            )
+                            if (providerTier != tier) selectFor(providerTier) else first
+                        } else {
+                            first
+                        }
+                        instantSelectionHandled = true
+                        when (selection) {
+                            is PlaybackSelectionResult.Play -> StreamsRepository.seedAutoPlayCandidates(
+                                listOf(selection.stream) + selection.fallbacks,
+                            )
+                            is PlaybackSelectionResult.AskUncached,
+                            is PlaybackSelectionResult.NeedsManual,
+                            -> {
+                                manualSourceListRequested = true
+                                NuvioToastController.show(noAutomaticSourceMessage)
+                            }
+                        }
+                    }
+
                     // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
                     LaunchedEffect(reuseNavigated) {
                         if (reuseNavigated) {
@@ -2903,15 +3228,14 @@ private fun MainAppContent(
                             episodeThumbnail = launch.episodeThumbnail,
                             resumePositionMs = launch.resumePositionMs,
                             resumeProgressFraction = launch.resumeProgressFraction,
-                            manualSelection = launch.manualSelection,
+                            manualSelection = streamManualSelection,
                             startFromBeginning = launch.startFromBeginning,
+                            downloadOnSelect = launch.downloadIntent,
                             onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
-                                openSelectedStream(
+                                openManualStreamOrOfferPin(
                                     stream = stream,
                                     resolvedResumePositionMs = resolvedResumePositionMs,
                                     resolvedResumeProgressFraction = resolvedResumeProgressFraction,
-                                    forceExternal = false,
-                                    forceInternal = false,
                                 )
                             },
                             onStreamActionOpen = { stream, openExternally, resolvedResumePositionMs, resolvedResumeProgressFraction ->
@@ -2926,6 +3250,139 @@ private fun MainAppContent(
                             onBack = onBack,
                             modifier = Modifier.fillMaxSize(),
                         )
+                        if (
+                            playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet &&
+                            !qualitySheetDismissed && !reuseNavigated
+                        ) {
+                            PlaybackQualitySheet(
+                                tiers = playerSettings.playbackQualityTiers,
+                                isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
+                                    streamsUiState.isAnyLoading,
+                                onTierSelected = ::selectStreamlinedTier,
+                                onChooseManually = {
+                                    qualitySheetDismissed = true
+                                    manualSourceListRequested = true
+                                },
+                                onDismiss = {
+                                    qualitySheetDismissed = true
+                                    manualSourceListRequested = true
+                                },
+                            )
+                        }
+                        pendingUncachedStream?.let { uncached ->
+                            AlertDialog(
+                                onDismissRequest = { pendingUncachedStream = null },
+                                title = { Text(stringResource(Res.string.playback_uncached_title)) },
+                                text = { Text(stringResource(Res.string.playback_uncached_description)) },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            pendingUncachedStream = null
+                                            qualitySheetDismissed = true
+                                            openSelectedStream(
+                                                stream = uncached,
+                                                resolvedResumePositionMs = launch.resumePositionMs,
+                                                resolvedResumeProgressFraction = launch.resumeProgressFraction,
+                                                forceExternal = false,
+                                                forceInternal = false,
+                                            )
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_uncached_start)) }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            pendingUncachedStream = null
+                                            qualitySheetDismissed = true
+                                            manualSourceListRequested = true
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_quality_manual)) }
+                                },
+                            )
+                        }
+                        if (
+                            playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+                            NetworkQualityRepository.current().isMetered &&
+                            meteredChoice == null
+                        ) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
+                                    meteredChoice = MeteredPlaybackChoice.CAPPED
+                                },
+                                title = { Text(stringResource(Res.string.playback_metered_title)) },
+                                text = { Text(stringResource(Res.string.playback_metered_description)) },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
+                                        meteredChoice = MeteredPlaybackChoice.CAPPED
+                                    }) { Text(stringResource(Res.string.playback_metered_capped)) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = {
+                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.FULL_QUALITY)
+                                        meteredChoice = MeteredPlaybackChoice.FULL_QUALITY
+                                    }) { Text(stringResource(Res.string.playback_metered_full)) }
+                                },
+                            )
+                        }
+                        pendingStickyStreamOpen?.let { pending ->
+                            AlertDialog(
+                                onDismissRequest = {
+                                    pendingStickyStreamOpen = null
+                                    openSelectedStream(
+                                        pending.stream,
+                                        pending.resumePositionMs,
+                                        pending.resumeProgressFraction,
+                                        forceExternal = false,
+                                        forceInternal = false,
+                                    )
+                                },
+                                title = { Text(stringResource(Res.string.playback_sticky_title)) },
+                                text = { Text(stringResource(Res.string.playback_sticky_description)) },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            val facts = SourceFactsExtractor.extract(pending.stream)
+                                            stickyContentId?.let { contentId ->
+                                                BingeGroupCacheRepository.save(
+                                                    contentId,
+                                                    StickySourcePin(
+                                                        releaseGroup = facts.releaseGroup,
+                                                        bingeGroup = pending.stream.behaviorHints.bingeGroup,
+                                                        addonId = pending.stream.addonId,
+                                                        providerId = facts.providerId,
+                                                        resolutionHeight = facts.resolution?.height,
+                                                    ),
+                                                )
+                                            }
+                                            pendingStickyStreamOpen = null
+                                            openSelectedStream(
+                                                pending.stream,
+                                                pending.resumePositionMs,
+                                                pending.resumeProgressFraction,
+                                                forceExternal = false,
+                                                forceInternal = false,
+                                            )
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_sticky_use)) }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            pendingStickyStreamOpen = null
+                                            openSelectedStream(
+                                                pending.stream,
+                                                pending.resumePositionMs,
+                                                pending.resumeProgressFraction,
+                                                forceExternal = false,
+                                                forceInternal = false,
+                                            )
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_sticky_once)) }
+                                },
+                            )
+                        }
                         pendingP2pStreamOpen?.let { pending ->
                             P2pConsentDialog(
                                 onEnableP2p = {
@@ -2991,6 +3448,8 @@ private fun MainAppContent(
                         Box(modifier = Modifier.fillMaxSize())
                         return@entry
                     }
+                    val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
+                    var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     LaunchedEffect(launch.videoId) {
                         launch.videoId?.let { ResumePromptRepository.markPlayerEntered(it) }
                     }
@@ -3076,6 +3535,23 @@ private fun MainAppContent(
                         onOpenExternalUrl = { url ->
                             openExternalStreamUrl(url)
                         },
+                        onFatalPlaybackError = if (launch.instantAutoPick) {
+                            {
+                                if (!instantFailureHandled) {
+                                    instantFailureHandled = true
+                                    val failed = StreamsRepository.uiState.value.autoPlayStream
+                                    val hasNext = failed != null && StreamsRepository.skipAutoPlayStream(failed)
+                                    if (!hasNext) {
+                                        StreamsRepository.consumeAutoPlay()
+                                        NuvioToastController.show(noAutomaticSourceText)
+                                    }
+                                    onBack()
+                                }
+                            }
+                        } else null,
+                        onPlaybackStarted = if (launch.instantAutoPick) {
+                            { StreamsRepository.consumeAutoPlay() }
+                        } else null,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

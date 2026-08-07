@@ -119,7 +119,7 @@ object StreamsRepository {
             playerSettings.streamAutoPlayPreferBingeGroup &&
             playerSettings.streamAutoPlayReuseBingeGroup
         ) {
-            parentMetaId?.let { BingeGroupCacheRepository.get(it) }
+            parentMetaId?.let { BingeGroupCacheRepository.get(it)?.bingeGroup }
         } else null
 
         // Enable direct auto-play flow if normal auto-play is enabled,
@@ -760,6 +760,19 @@ object StreamsRepository {
                 autoPlayCandidates = emptyList(),
                 isDirectAutoPlayFlow = false,
                 showDirectAutoPlayOverlay = false,
+            )
+        }
+    }
+
+    /** Seeds Instant's ranked failure chain into the existing auto-play mechanism. */
+    fun seedAutoPlayCandidates(candidates: List<StreamItem>) {
+        val limited = candidates.distinct().take(3)
+        _uiState.update { current ->
+            current.copy(
+                autoPlayStream = limited.firstOrNull(),
+                autoPlayCandidates = limited,
+                isDirectAutoPlayFlow = limited.isNotEmpty(),
+                showDirectAutoPlayOverlay = limited.isNotEmpty(),
             )
         }
     }

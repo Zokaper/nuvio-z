@@ -71,6 +71,7 @@ model) picks the work up mid-flight without re-deriving anything.
 | 2 — picker + Streamlined | **complete** | Router wired; plugin metadata preserved; `releaseGroup`/`seeders` extracted; shared `SourceRanking`; playback selector, quality sheet, sticky pins, persisted tiers and torrent gate landed. Android 585 and desktop 791 tests pass. Not smoke-tested. |
 | 3 — Instant + network quality | **complete** | All platform actuals, estimator/cache, metered consent, tier routing, and three-attempt failure chain landed. Android 590 and desktop 796 tests pass. Not smoke-tested. |
 | 4 — auto source-swap | **complete** | Precondition check found a real iOS bug (`demuxer-cache-time` read as a duration) and fixed it. Wall-clock trigger, arming conditions, swap constraints and the opt-in setting landed. Android 607 and desktop 813 tests pass. iOS Swift change uncompiled; not smoke-tested. |
+| 5 — download entry point | **complete** | The "Decisions taken" item that no numbered phase had covered. Classic picks the release, Streamlined keeps the preset dialog, Instant starts from the connection tier. Needed a real `downloadIntent` flag through `StreamLaunch` — routing to the source list alone made Download behave as Play. Android 615 and desktop 821 tests pass. Not smoke-tested. |
 
 **Per-file progress (Phase 1) — all complete.** The mode is persisted, selectable on first
 launch and in Settings, and defaults to `CLASSIC`. Playback routing does not consult it yet;
@@ -157,6 +158,28 @@ tests are already in place and unchanged.
 | `PlaybackSettingsPage.kt` / `SettingsSearch.kt` rows | **done, both repos** (hand-ported) |
 | `PlayerScreenRuntimeState.kt` / `Effects.kt` / `Ui.kt` wiring | **done, both repos** (hand-ported) |
 | `PlayerScreenRuntimeSourceActions.kt` trigger | **done, mirrored** |
+
+**Per-file progress (Phase 5) — all complete.**
+
+| File | State |
+| --- | --- |
+| `features/playback/PlaybackModeDownloadRouter.kt` | **done, mirrored** |
+| `commonTest/.../PlaybackModeDownloadRouterTest.kt` | **done — 8 tests pass on both targets** |
+| `features/streams/StreamLaunchStore.kt` `downloadIntent` | **done, mirrored** |
+| `features/streams/StreamsScreen.kt` `downloadOnSelect` | **done, both repos** (hand-ported) |
+| `App.kt` `onDownloadManually` + route wiring | **done, both repos** (hand-ported) |
+| `features/details/MetaDetailsScreen.kt` entry-point branch | **done, both repos** (hand-ported) |
+
+**Why Phase 5 existed at all:** "Modes change the download *entry point*, not the download
+engine" was recorded under **Decisions taken** but never assigned to a numbered phase, so it
+was still unbuilt when Phases 1–4 were finished. If a decision in this plan has no phase, it
+does not get built — check that section against the ledger before declaring the plan done.
+
+**The trap it hit:** routing Classic's Download tap to the source list is not enough. That
+screen *plays* on tap and only offers download from the long-press sheet, so the download
+intent was silently dropped and the button behaved as Play. `StreamLaunch.downloadIntent`
+now carries it, `StreamsScreen.downloadOnSelect` makes a tap enqueue, and the flag also
+forces `streamManualSelection` so nothing auto-plays under a Download press.
 
 ### What Phase 4 settled, for whoever picks this up
 

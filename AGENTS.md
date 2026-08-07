@@ -90,6 +90,12 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - Anything that samples `PlayerPlaybackSnapshot` over time must be expressed in **wall-clock
   duration, not snapshot counts**. Android polls every ~250 ms and desktop every 500 ms, so a
   count-based threshold silently means two different things.
+- The playback mode selects the download **entry point** only
+  (`features/playback/PlaybackModeDownloadRouter.kt`). It must never reach
+  `DownloadsRepository`, the queue, the transfer stack or `PresetSourceSelector`.
+- A launch into `StreamsScreen` carries why it was opened. `StreamLaunch.downloadIntent`
+  makes a tap enqueue rather than play and forces manual selection; without it a Download
+  button that routes to the source list silently behaves as Play.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
   `manualSelection` > completed local download > sticky pin > reuse-last-link >
   playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
@@ -232,6 +238,34 @@ still be checked locally.
 thing that compiles `desktopMain`**. Run it before any desktop release.
 
 ### Release procedure
+
+### Versioning
+
+**From `0.4.0-beta` (2026-08-07) the two apps share one version name.** Before that
+they ran independent lines inherited from upstream Nuvio - mobile had reached
+`0.3.10` and desktop `0.1.23-alpha`, which meant nothing to each other. A single
+number means "Nuvio Z 0.4.0-beta" is the same product on both platforms.
+
+Rules:
+
+- `MARKETING_VERSION` (nuvio-z) and `VERSION_NAME` (NuvioZDesktop) are **always
+  equal**. Bump both, in the same release.
+- The internal codes stay independent and **only ever increase**.
+  `CURRENT_PROJECT_VERSION` *is* the Android `versionCode`
+  (`androidApp/build.gradle.kts`); lowering it means existing installs can never
+  update again. It does not need to match the desktop's `VERSION_CODE`.
+- Stay pre-1.0 until the app has earned it. `1.0.0` should mean device-verified,
+  not just green tests.
+- A `-beta` suffix is safe for the in-app updater: `parseVersionParts` reads the
+  leading digits of each dot-separated token, so `0.4.0-beta` compares as
+  `[0, 4, 0]`, `releaseChannelBranch` is `null` so channel matching always passes,
+  and `android-release.yml` never passes `--prerelease`. Re-check those three
+  before adopting any new suffix.
+- `NuvioZDesktop/iosApp/Configuration/Version.xcconfig` is **not read by anything**.
+  The desktop release uses `DesktopVersion.properties`. Ignore that file; do not
+  treat it as a version source.
+
+### Release mechanics
 
 Versions live in files, not tags. The workflow derives the tag from the file and
 refuses to run if the state is wrong.

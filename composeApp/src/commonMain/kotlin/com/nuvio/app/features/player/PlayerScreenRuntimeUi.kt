@@ -162,12 +162,15 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     playerControllerSourceUrl = activeSourceUrl
                 },
                 onSnapshot = { snapshot ->
+                    val wasPlaying = playbackSnapshot.isPlaying
                     playbackSnapshot = snapshot
+                    if (!wasPlaying && snapshot.isPlaying) args.onPlaybackStarted?.invoke()
                     if (!snapshot.isLoading) initialLoadCompleted = true
                     if (snapshot.isEnded) {
                         shouldPlay = false
                         controlsVisible = !playerControlsLocked
                     }
+                    observePlaybackForAutoDownshift()
                 },
                 onError = { message ->
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
@@ -177,6 +180,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (message != null) {
                         controlsVisible = !playerControlsLocked
                         removeFailedStreamFromCache()
+                        args.onFatalPlaybackError?.invoke()
                     }
                 },
             )

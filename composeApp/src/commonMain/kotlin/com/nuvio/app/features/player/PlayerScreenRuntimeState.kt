@@ -13,6 +13,7 @@ import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamsUiState
@@ -21,6 +22,7 @@ import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watchprogress.WatchProgressUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlin.time.TimeSource
 
 internal class PlayerScreenRuntime(
     args: PlayerScreenArgs,
@@ -125,6 +127,16 @@ internal class PlayerScreenRuntime(
     var resizeMode by mutableStateOf(playerSettingsUiState.resizeMode)
     var layoutSize by mutableStateOf(IntSize.Zero)
     var playbackSnapshot by mutableStateOf(PlayerPlaybackSnapshot())
+
+    /**
+     * Instant's auto source-swap trigger state, carried across snapshots.
+     *
+     * The swap budget lives here rather than in the detector so it survives a source
+     * change: one swap per playback session, not one per source.
+     */
+    var autoDownshiftState by mutableStateOf(AutoDownshiftDetector.initial())
+    var autoDownshiftClock by mutableStateOf(TimeSource.Monotonic.markNow())
+    var autoDownshiftSourcesRequested by mutableStateOf(false)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)

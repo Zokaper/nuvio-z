@@ -8,6 +8,7 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamRequest
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.skip.SkipIntroRepository
@@ -21,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+import kotlin.time.TimeSource
 
 @Composable
 internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
@@ -201,6 +203,29 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     LaunchedEffect(playbackSnapshot.isLoading, playerController) {
         if (!playbackSnapshot.isLoading && playerController != null) {
             refreshTracks()
+        }
+    }
+
+    // A new source - whether the user picked it or a downshift did - starts its own settle
+    // window. Without this, a position-preserving switch inherits the previous source's
+    // "already settled" state and its perfectly normal startup buffering reads as
+    // starvation. The swap budget deliberately does *not* reset here.
+    LaunchedEffect(activeSourceUrl) {
+        autoDownshiftState = AutoDownshiftDetector.initial(autoDownshiftState.swapsUsed)
+        autoDownshiftClock = TimeSource.Monotonic.markNow()
+        autoDownshiftSourcesRequested = false
+    }
+
+    // A session is one thing being watched. Moving to the next episode earns a fresh swap.
+    LaunchedEffect(activeVideoId) {
+        autoDownshiftState = AutoDownshiftDetector.initial()
+    }
+
+    LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError) {
+        val onFatalPlaybackError = args.onFatalPlaybackError ?: return@LaunchedEffect
+        delay(8_000L)
+        if (!playbackSnapshot.isPlaying && playbackSnapshot.positionMs <= 0L) {
+            onFatalPlaybackError()
         }
     }
 

@@ -33,6 +33,7 @@ data class StreamItem(
     val behaviorHints: StreamBehaviorHints = StreamBehaviorHints(),
     val clientResolve: StreamClientResolve? = null,
     val streamData: AioStreamData? = null,
+    val pluginMeta: PluginStreamMeta? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
@@ -118,6 +119,17 @@ data class StreamItem(
     val hasPlayableSource: Boolean
         get() = url != null || infoHash != null || externalUrl != null || clientResolve != null
 }
+
+/** Structured metadata supplied by a plugin scraper, preserved independently of UI prose. */
+@Serializable
+data class PluginStreamMeta(
+    val quality: String? = null,
+    val sizeBytes: Long? = null,
+    val seeders: Int? = null,
+    val peers: Int? = null,
+    val provider: String? = null,
+    val language: String? = null,
+)
 
 @Serializable
 data class StreamBadge(

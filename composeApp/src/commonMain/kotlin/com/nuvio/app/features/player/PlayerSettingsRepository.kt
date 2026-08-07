@@ -2,11 +2,15 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
+import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackQualityTier
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlin.math.abs
 
 val STREAM_AUTO_PLAY_TIMEOUT_VALUES: List<Int> = listOf(
@@ -57,6 +61,17 @@ data class PlayerSettingsUiState(
     val decoderPriority: Int = 1,
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
+    val playbackMode: PlaybackMode = PlaybackMode.Default,
+    val playbackAllowTorrentAutopick: Boolean = false,
+    val playbackQualityTiers: List<PlaybackQualityTier> = PlaybackQualityTier.BuiltIns,
+    val playbackMeteredCapHeight: Int = 720,
+    /**
+     * Instant's opt-in automatic source downshift. Off by default: it trades a visible
+     * 1-3s hiccup for avoiding a stall, which is only worth it under sustained starvation.
+     */
+    val playbackAutoDownshift: Boolean = false,
+    /** False until the first-launch mode selector has been answered or dismissed. */
+    val playbackModeSelectorSeen: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
@@ -94,6 +109,7 @@ data class PlayerSettingsUiState(
 )
 
 object PlayerSettingsRepository {
+    private val json = Json { ignoreUnknownKeys = true }
     private val _uiState = MutableStateFlow(PlayerSettingsUiState())
     val uiState: StateFlow<PlayerSettingsUiState> = _uiState.asStateFlow()
 
@@ -123,6 +139,12 @@ object PlayerSettingsRepository {
     private var decoderPriority = 1
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
+    private var playbackMode = PlaybackMode.Default
+    private var playbackAllowTorrentAutopick = false
+    private var playbackQualityTiers = PlaybackQualityTier.BuiltIns
+    private var playbackMeteredCapHeight = 720
+    private var playbackAutoDownshift = false
+    private var playbackModeSelectorSeen = false
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
@@ -194,6 +216,12 @@ object PlayerSettingsRepository {
         decoderPriority = 1
         mapDV7ToHevc = false
         tunnelingEnabled = false
+        playbackMode = PlaybackMode.Default
+        playbackAllowTorrentAutopick = false
+        playbackQualityTiers = PlaybackQualityTier.BuiltIns
+        playbackMeteredCapHeight = 720
+        playbackAutoDownshift = false
+        playbackModeSelectorSeen = false
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
         streamAutoPlaySelectedAddons = emptySet()
@@ -294,6 +322,24 @@ object PlayerSettingsRepository {
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
+        playbackMode = PlaybackMode.fromStorage(PlayerSettingsStorage.loadPlaybackMode())
+        playbackAllowTorrentAutopick = PlayerSettingsStorage.loadPlaybackAllowTorrentAutopick() ?: false
+        val storedPlaybackQualityTiers = PlayerSettingsStorage.loadPlaybackQualityTiers()?.let { payload ->
+            runCatching {
+                json.decodeFromString(ListSerializer(PlaybackQualityTier.serializer()), payload)
+            }.getOrNull()
+        }.orEmpty()
+        playbackQualityTiers = PlaybackQualityTier.mergeStoredTiers(storedPlaybackQualityTiers)
+        playbackMeteredCapHeight = PlayerSettingsStorage.loadPlaybackMeteredCapHeight()
+            ?.takeIf { it in 360..2160 } ?: 720
+        playbackAutoDownshift = PlayerSettingsStorage.loadPlaybackAutoDownshift() ?: false
+        if (playbackQualityTiers != storedPlaybackQualityTiers) {
+            PlayerSettingsStorage.savePlaybackQualityTiers(
+                json.encodeToString(ListSerializer(PlaybackQualityTier.serializer()), playbackQualityTiers),
+            )
+        }
+        playbackModeSelectorSeen =
+            PlayerSettingsStorage.loadPlaybackModeSelectorSeen() ?: false
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlayMode.MANUAL
@@ -587,6 +633,65 @@ object PlayerSettingsRepository {
         tunnelingEnabled = enabled
         publish()
         PlayerSettingsStorage.saveTunnelingEnabled(enabled)
+    }
+
+    fun setPlaybackMode(mode: PlaybackMode) {
+        ensureLoaded()
+        if (playbackMode == mode) return
+        playbackMode = mode
+        publish()
+        PlayerSettingsStorage.savePlaybackMode(mode.name)
+    }
+
+    fun setPlaybackAllowTorrentAutopick(enabled: Boolean) {
+        ensureLoaded()
+        if (playbackAllowTorrentAutopick == enabled) return
+        playbackAllowTorrentAutopick = enabled
+        publish()
+        PlayerSettingsStorage.savePlaybackAllowTorrentAutopick(enabled)
+    }
+
+    fun setPlaybackQualityTiers(tiers: List<PlaybackQualityTier>) {
+        ensureLoaded()
+        val normalized = PlaybackQualityTier.mergeStoredTiers(tiers)
+        if (playbackQualityTiers == normalized) return
+        playbackQualityTiers = normalized
+        publish()
+        PlayerSettingsStorage.savePlaybackQualityTiers(
+            json.encodeToString(ListSerializer(PlaybackQualityTier.serializer()), normalized),
+        )
+    }
+
+    fun setPlaybackMeteredCapHeight(height: Int) {
+        ensureLoaded()
+        val normalized = height.coerceIn(360, 2160)
+        if (playbackMeteredCapHeight == normalized) return
+        playbackMeteredCapHeight = normalized
+        publish()
+        PlayerSettingsStorage.savePlaybackMeteredCapHeight(normalized)
+    }
+
+    fun setPlaybackAutoDownshift(enabled: Boolean) {
+        ensureLoaded()
+        if (playbackAutoDownshift == enabled) return
+        playbackAutoDownshift = enabled
+        publish()
+        PlayerSettingsStorage.savePlaybackAutoDownshift(enabled)
+    }
+
+    /**
+     * Records that the mode selector has been answered.
+     *
+     * Kept separate from [setPlaybackMode] because choosing Classic - the
+     * pre-selected option - is a no-op for the mode and must still dismiss the
+     * selector for good.
+     */
+    fun markPlaybackModeSelectorSeen() {
+        ensureLoaded()
+        if (playbackModeSelectorSeen) return
+        playbackModeSelectorSeen = true
+        publish()
+        PlayerSettingsStorage.savePlaybackModeSelectorSeen(true)
     }
 
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
@@ -935,6 +1040,12 @@ object PlayerSettingsRepository {
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,
+            playbackMode = playbackMode,
+            playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
+            playbackQualityTiers = playbackQualityTiers,
+            playbackMeteredCapHeight = playbackMeteredCapHeight,
+            playbackAutoDownshift = playbackAutoDownshift,
+            playbackModeSelectorSeen = playbackModeSelectorSeen,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,
