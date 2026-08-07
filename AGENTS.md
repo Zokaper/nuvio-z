@@ -96,6 +96,22 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - A launch into `StreamsScreen` carries why it was opened. `StreamLaunch.downloadIntent`
   makes a tap enqueue rather than play and forces manual selection; without it a Download
   button that routes to the source list silently behaves as Play.
+- Every `replaceFromSyncPayload` must clear only the keys the payload carries, through
+  `syncKeysToClear` in `core/sync/SyncPreferenceJson.kt`. Clearing all of `syncKeys`
+  first deletes anything added since the remote blob was last written - it wiped the
+  playback settings in `0.4.0-beta` and would have wiped stored debrid API keys the
+  next time a provider was added.
+- Instant and Streamlined must never leave the user reading the source list while the
+  app is still deciding. `PlaybackProgressOverlay` **covers** `StreamsScreen` rather
+  than replacing it - that screen owns the fetch the overlay reports on - and every
+  path that needs an answer from the user uncovers it again.
+- A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
+  `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
+  the user searched for by name is worse than showing it.
+- What's New keeps the current version's notes curated in `CurrentReleaseNotes` and
+  fetches only older releases. **Add an entry per release before the version bump** -
+  a docs commit after the bump fails release validation. Never gate the screen on the
+  in-app updater; it has to work offline.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
   `manualSelection` > completed local download > sticky pin > reuse-last-link >
   playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
@@ -123,7 +139,13 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
   `PlaybackModeRepository.kt`, `PlaybackSourceSelector.kt`,
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
-  `features/playback/AutoDownshiftDetector.kt`
+  `features/playback/AutoDownshiftDetector.kt`,
+  `features/playback/PlaybackProgressOverlay.kt`
+- Settings sync key clearing: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`)
+- Advanced settings gating: `features/settings/SettingsComponents.kt`
+  (`LocalShowAdvancedSettings`), `features/player/AdvancedSettingsDefault.kt`
+- What's New and release notes: `features/whatsnew/`,
+  `features/updater/AppUpdater.kt` (`fetchRecentReleaseNotes`)
 
 ## Build and Verification
 

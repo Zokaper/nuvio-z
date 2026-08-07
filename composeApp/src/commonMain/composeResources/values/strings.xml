@@ -2225,6 +2225,15 @@
     <string name="downloads_allowed_sources_description">Choose which enabled addons automatic downloads may request.</string>
     <string name="downloads_treat_as_aio">Treat as AIOStreams</string>
     <string name="downloads_no_enabled_sources">No enabled stream addons are available.</string>
+    <string name="whats_new_title">What&apos;s new</string>
+    <string name="whats_new_version">Version %1$s</string>
+    <string name="whats_new_new_features">NEW FEATURES</string>
+    <string name="whats_new_improvements">IMPROVEMENTS</string>
+    <string name="whats_new_bug_fixes">BUG FIXES</string>
+    <string name="whats_new_previous_versions">Previous versions</string>
+    <string name="whats_new_previous_versions_loading">Loading earlier release notes…</string>
+    <string name="whats_new_previous_versions_unavailable">Earlier release notes need a connection.</string>
+    <string name="whats_new_no_notes">No notes were published for this version.</string>
     <plurals name="entity_browse_title_count">
         <item quantity="one">%d title</item>
         <item quantity="other">%d titles</item>

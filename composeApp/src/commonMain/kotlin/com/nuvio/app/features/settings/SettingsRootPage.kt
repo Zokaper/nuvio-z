@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.People
@@ -58,6 +59,8 @@ import nuvio.composeapp.generated.resources.compose_settings_root_about_section
 import nuvio.composeapp.generated.resources.compose_settings_root_account_section
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_description
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_section
+import nuvio.composeapp.generated.resources.whats_new_title
+import nuvio.composeapp.generated.resources.whats_new_version
 import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced
 import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced_description
 import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
@@ -83,6 +86,7 @@ internal fun LazyListScope.settingsRootContent(
     onSupportersContributorsClick: () -> Unit,
     onLicensesAttributionsClick: () -> Unit,
     onCheckForUpdatesClick: (() -> Unit)? = null,
+    onWhatsNewClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onDownloadsClick: () -> Unit,
     onAccountClick: () -> Unit,
@@ -220,6 +224,19 @@ internal fun LazyListScope.settingsRootContent(
                         isTablet = isTablet,
                         onClick = onLicensesAttributionsClick,
                     )
+                    if (onWhatsNewClick != null) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.whats_new_title),
+                            description = stringResource(
+                                Res.string.whats_new_version,
+                                AppVersionConfig.VERSION_NAME,
+                            ),
+                            icon = Icons.Rounded.NewReleases,
+                            isTablet = isTablet,
+                            onClick = onWhatsNewClick,
+                        )
+                    }
                     if (onCheckForUpdatesClick != null) {
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(

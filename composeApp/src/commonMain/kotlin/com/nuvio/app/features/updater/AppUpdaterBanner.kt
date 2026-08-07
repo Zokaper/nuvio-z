@@ -58,6 +58,8 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.appTheme
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.whatsnew.ReleaseNoteLine
+import com.nuvio.app.features.whatsnew.parseReleaseNotes
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.action_continue
@@ -360,15 +362,41 @@ private fun ReleaseNotesDialog(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                Text(
-                    text = update.notes.ifBlank { stringResource(Res.string.updates_no_release_notes) },
+                // GitHub bodies are markdown. Rendered raw, every heading showed as "## Fixes"
+                // and every bullet kept its literal "- ".
+                val lines = parseReleaseNotes(update.notes)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp)
                         .verticalScroll(rememberScrollState()),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (lines.isEmpty()) {
+                        Text(
+                            text = stringResource(Res.string.updates_no_release_notes),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        lines.forEach { line ->
+                            Text(
+                                text = if (line is ReleaseNoteLine.Bullet) "•  ${line.text}" else line.text,
+                                style = if (line is ReleaseNoteLine.Heading) {
+                                    MaterialTheme.typography.titleSmall
+                                } else {
+                                    MaterialTheme.typography.bodyMedium
+                                },
+                                fontWeight = if (line is ReleaseNoteLine.Heading) FontWeight.SemiBold else null,
+                                color = if (line is ReleaseNoteLine.Heading) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }

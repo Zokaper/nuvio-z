@@ -418,6 +418,95 @@ Verified: Android **639 tests across 90 classes**, desktop **845 across 120**, b
 errors or skips; `desktopMain` compiled. `App.kt` was hand-ported, not copied. **Not smoke-tested
 on a device** — the step labels and the attempt counter are exactly what a device run is for.
 
+### 3 — The modes explain themselves
+
+`PlaybackModeCard` is one composable, used by both the first-launch selector and
+`PlaybackModeDialog` in settings. Each mode is a card with a tagline and two labelled blocks,
+**Streaming** and **Downloading**.
+
+⚠ **Those two files describing the modes separately is how Instant kept a stale "Not ready yet"
+caption in `0.4.0-beta`** after the other copy had been fixed (see the `0.4.1-beta` section).
+`playbackModeTitle`/`playbackModeDescription` in `PlaybackSettingsPage` are gone; the shared
+`playbackModeName` replaced them.
+
+`PlaybackModeDownloadCopyTest` pins the download lines to `PlaybackModeDownloadRouter.decide`.
+Classic is the only mode whose entry point depends on whether the scope is a single item, and its
+card is the only one that says so — copy contradicting the router is worse than no copy.
+
+### 4 — A global "Show advanced settings" toggle
+
+One switch in Settings → Advanced. Rows tagged `isAdvanced = true` render nothing when it is off,
+via `LocalShowAdvancedSettings` and a parameter on `SettingsNavigationRow` / `SettingsSwitchRow`.
+Per-row annotation rather than restructuring pages: `PlaybackSettingsPage` alone is ~3700 lines,
+and a defaulted parameter is something a future row gets right for free.
+
+**The default when unset is the part most likely to read as data loss, so it does not guess how
+old an install is.** `hasTunedAnAdvancedSetting` (`features/player/AdvancedSettingsDefault.kt`)
+asks the question that actually matters — has this profile ever *stored* a value for an advanced
+setting? — and a profile that has keeps them visible. An explicit stored `false` counts as
+touched: turning something off is as deliberate as turning it on.
+
+⚠ **Settings search deliberately ignores the flag.** `SettingsSearch` keeps indexing hidden rows
+and reveals them on the page it lands on; ordinary navigation back to Root clears the reveal.
+Hiding a setting the user just searched for by name would be worse than showing it.
+
+`settings_show_advanced` is profile-scoped and went through `syncKeys` and both payload paths in
+all three actuals — which is why item 1 landed first.
+
+Currently tagged: the Advanced page row, torrent auto-pick, auto-downshift, reuse-last-link and
+its cache duration, decoder priority, DV7→HEVC and tunneled playback. Deliberately small; nothing
+a normal user changes is tagged.
+
+### 5 — What's New, rebuilt with version history
+
+**It did not work because it was never merged.** `codex/whats-new` was one local commit in both
+repos; no shipped build contained it. Cherry-picked and then finished, because it had three gaps:
+
+- **No `desktopMain` actual** for `internal expect object WhatsNewStorage` — the trap `AGENTS.md`
+  flags twice. Added, plus the missing `WhatsNewStorage.initialize` in the desktop repo's
+  `MainActivity`.
+- **Single version, no history.** `AppUpdaterRepository` already fetched `releases?per_page=20`
+  and discarded everything but the newest. `fetchRecentReleaseNotes` reads that same response, so
+  the history costs no new kind of request.
+- **Markdown rendered raw.** `ReleaseNotesDialog` pushed `update.notes` through a plain `Text`, so
+  every heading showed as `## Fixes` and every bullet kept its literal `- `. `parseReleaseNotes`
+  handles headings, bullets and paragraphs and strips inline markers; unrecognised syntax falls
+  through as a paragraph, which is the safe direction — showing a line we did not understand beats
+  dropping it. Both the What's New history and the update banner now use it.
+
+The current version's notes stay **curated and offline** (`CurrentReleaseNotes`), because the
+screen has to work on the first launch after an update and on builds where the updater is off. It
+is **not** gated on `AppFeaturePolicy.inAppUpdaterEnabled` for the same reason; only the fetched
+history degrades, to "needs a connection".
+
+Also reachable on demand from Settings → About, dismissible there, and that path deliberately does
+**not** record the version as seen — otherwise opening it early would skip the post-update showing.
+
+⚠ **This needs a curated entry per release, committed before the version bump.** The bump-last
+rule is enforced and a docs commit after the bump fails the release.
+
+### Verification for the whole pass
+
+Android **653 tests across 94 classes**, desktop **859 across 124**, both zero failures, errors or
+skips; `desktopMain` compiled. `App.kt`, `PlaybackSettingsPage.kt`, `SettingsScreen.kt`,
+`SettingsRootPage.kt`, `SettingsComponents.kt`, `AppUpdater.kt`, `AppUpdaterBanner.kt` and
+`strings.xml` were **hand-ported** — all of them already differed between the repositories, and
+the desktop `SettingsRootPage` needed `AppVersionPolicy.displayVersionName` where mobile uses
+`AppVersionConfig.VERSION_NAME`.
+
+**Nothing here is smoke-tested on a device or an installed desktop app.** The parts a device run
+has to cover, because no unit test reaches them:
+
+1. Instant on Wi-Fi: progress overlay with changing step labels, never the source list.
+2. Instant with the chosen source killed mid-flight: "Attempt 2 of 3", still no source list.
+3. Instant on mobile data: the metered sheet appears *instead of* the overlay, once.
+4. Streamlined: quality sheet → tier → overlay → player; "Choose source manually" still works.
+5. Sign in on a second device and pull: playback mode, MDBList, TMDB, badge, Trakt-comment and
+   **debrid API keys** all survive.
+6. Advanced off/on, and settings search still finding and revealing a hidden row.
+7. Install over an older build: What's New shows once, lists previous versions, does not reappear,
+   and still opens from Settings → About with no network.
+
 ## Current Snapshot
 
 - Base: NuvioMobile commit `979d5680`.
