@@ -88,10 +88,10 @@ object NetworkQualityRepository {
 
     private fun defaultMbps(type: NetworkConnectionType): Double = when (type) {
         NetworkConnectionType.OFFLINE -> MIN_MBPS
-        NetworkConnectionType.CELLULAR -> 5.0
-        NetworkConnectionType.WIFI -> 12.0
-        NetworkConnectionType.ETHERNET -> 25.0
-        NetworkConnectionType.UNKNOWN -> 5.0
+        NetworkConnectionType.CELLULAR -> 2.0
+        NetworkConnectionType.WIFI -> 3.0
+        NetworkConnectionType.ETHERNET -> 7.0
+        NetworkConnectionType.UNKNOWN -> 2.0
     }
 
     private fun String?.normalizedProvider(): String? =

@@ -36,7 +36,7 @@ class NetworkQualityRepositoryTest {
     @Test
     fun providerEstimateDoesNotPoisonGenericNetworkEstimate() {
         NetworkQualityRepository.recordTransfer(bytes = 8_000_000, elapsedMs = 1_000)
-        NetworkQualityRepository.recordTransfer(bytes = 500_000, elapsedMs = 1_000, providerId = "slow-host")
+        NetworkQualityRepository.recordTransfer(bytes = 500_000, elapsedMs = 4_000, providerId = "slow-host")
 
         val generic = NetworkQualityRepository.current().estimatedMbps
         val slowProvider = NetworkQualityRepository.current("slow-host").estimatedMbps
