@@ -98,6 +98,8 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackMode(mode: String)
     fun loadPlaybackAllowTorrentAutopick(): Boolean?
     fun savePlaybackAllowTorrentAutopick(enabled: Boolean)
+    fun loadShowAdvancedSettings(): Boolean?
+    fun saveShowAdvancedSettings(enabled: Boolean)
     fun loadPlaybackQualityTiers(): String?
     fun savePlaybackQualityTiers(payload: String)
     fun loadPlaybackMeteredCapHeight(): Int?

@@ -381,6 +381,7 @@ private fun PlaybackSettingsSection(
                     description = stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
                     checked = autoPlayPlayerSettings.playbackAllowTorrentAutopick,
                     enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
                 )
@@ -390,6 +391,7 @@ private fun PlaybackSettingsSection(
                     description = stringResource(Res.string.settings_playback_auto_downshift_description),
                     checked = autoPlayPlayerSettings.playbackAutoDownshift,
                     enabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
                 )
@@ -772,6 +774,7 @@ private fun PlaybackSettingsSection(
                     title = stringResource(Res.string.settings_playback_reuse_last_link),
                     description = stringResource(Res.string.settings_playback_reuse_last_link_description),
                     checked = streamReuseLastLinkEnabled,
+                    isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setStreamReuseLastLinkEnabled,
                 )
@@ -780,6 +783,7 @@ private fun PlaybackSettingsSection(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_last_link_cache_duration),
                         description = formatReuseCacheDuration(streamReuseLastLinkCacheHours),
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onClick = { showReuseCacheDurationDialog = true },
                     )
@@ -978,6 +982,7 @@ private fun PlaybackSettingsSection(
                         title = stringResource(Res.string.settings_playback_decoder_priority),
                         description = decoderPriorityLabel(decoderPriority),
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onClick = { showDecoderPriorityDialog = true },
                     )
@@ -987,6 +992,7 @@ private fun PlaybackSettingsSection(
                         description = stringResource(Res.string.settings_playback_map_dv7_to_hevc_description),
                         checked = mapDV7ToHevc,
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setMapDV7ToHevc,
                     )
@@ -996,6 +1002,7 @@ private fun PlaybackSettingsSection(
                         description = stringResource(Res.string.settings_playback_tunneled_playback_description),
                         checked = tunnelingEnabled,
                         enabled = exoOptionsEnabled,
+                        isAdvanced = true,
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )

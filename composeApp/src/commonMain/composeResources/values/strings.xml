@@ -506,6 +506,8 @@
     <string name="compose_settings_root_about_section">ABOUT</string>
     <string name="compose_settings_root_account_description">Account and sync status</string>
     <string name="compose_settings_root_account_section">ACCOUNT</string>
+    <string name="compose_settings_root_show_advanced">Show advanced settings</string>
+    <string name="compose_settings_root_show_advanced_description">Reveals the tuning options - playback engine, buffering, auto-pick and stream selection. Search still finds them either way.</string>
     <string name="compose_settings_root_advanced_description">Startup and profile behavior.</string>
     <string name="compose_settings_root_advanced_section">ADVANCED</string>
     <string name="compose_settings_root_appearance_description">Home, streams, collections, and detail pages</string>
