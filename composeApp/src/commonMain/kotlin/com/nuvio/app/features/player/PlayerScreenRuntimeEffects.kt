@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.core.debug.PlaybackDebugSettings
+import com.nuvio.app.core.debug.isDebugBuild
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -225,8 +227,12 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         autoDownshiftState = AutoDownshiftDetector.initial()
     }
 
-    LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError) {
+    LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError, PlaybackDebugSettings.hudEnabled) {
         val onFatalPlaybackError = args.onFatalPlaybackError ?: return@LaunchedEffect
+        // Instant normally abandons a source that has not started within eight seconds. While
+        // diagnosing startup/buffering, that hides the useful state (and can reject a healthy
+        // large source that is merely slow to prepare), so leave the player open for inspection.
+        if (isDebugBuild && PlaybackDebugSettings.hudEnabled) return@LaunchedEffect
         delay(8_000L)
         if (!playbackSnapshot.isPlaying && playbackSnapshot.positionMs <= 0L) {
             onFatalPlaybackError()

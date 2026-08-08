@@ -14,6 +14,8 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.isIos
+import com.nuvio.app.core.debug.PlaybackDebugSettings
+import com.nuvio.app.core.debug.isDebugBuild
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import com.nuvio.app.features.playback.SwapDiagnosticsLog
@@ -197,7 +199,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (message != null) {
                         controlsVisible = !playerControlsLocked
                         removeFailedStreamFromCache()
-                        args.onFatalPlaybackError?.invoke()
+                        // Diagnostics must retain the failure screen so the tester can read the
+                        // real player error instead of being silently returned to details.
+                        if (!(isDebugBuild && PlaybackDebugSettings.hudEnabled)) {
+                            args.onFatalPlaybackError?.invoke()
+                        }
                     }
                 },
             )

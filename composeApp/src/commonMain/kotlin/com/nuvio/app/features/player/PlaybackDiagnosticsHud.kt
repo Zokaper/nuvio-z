@@ -95,6 +95,12 @@ internal fun PlayerScreenRuntime.RenderPlaybackDiagnosticsHud() {
                 HudLine("downshift settled=${state.settledAtMs != null} run=${state.runStartedAtMs != null} " +
                     "samples=${state.samplesInRun} swaps=${state.swapsUsed}/${AutoDownshiftDetector.MAX_SWAPS_PER_SESSION} " +
                     "triggerIn=${untilTriggerMs?.let(::formatDebugMs) ?: "waiting"}")
+                errorMessage?.let { message ->
+                    HudLine(
+                        "error=${message.replace('\n', ' ').replace('\r', ' ').take(220)}",
+                        Color(0xFFFF8A80),
+                    )
+                }
 
                 if (PlatformPlaybackDebugTools.throttleOptionsMbps.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
