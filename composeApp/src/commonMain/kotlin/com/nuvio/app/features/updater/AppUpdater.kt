@@ -33,6 +33,21 @@ private const val gitHubUserAgent = "NuvioZ"
 // therefore reject every release; leave the channel unset to accept them all.
 private val releaseChannelBranch: String? = null
 
+/**
+ * The debug update line.
+ *
+ * Debug builds install under their own applicationId, so they can never be updated by the
+ * stable channel's APKs - and without a channel of their own, testing a fix meant sideloading
+ * a file by hand every time. Debug builds are published as GitHub **prereleases** tagged
+ * `debug-v<version>`; the stable channel already discards prereleases, so the two lines cannot
+ * see each other and nothing about the release flow changes.
+ *
+ * Whether the install actually succeeds is a signing question, not an updater one: every debug
+ * APK must be signed with the committed `androidApp/nuvio-debug.keystore`, or Android refuses
+ * the upgrade.
+ */
+private const val debugChannelTagPrefix = "debug-"
+
 data class AppUpdate(
     val tag: String,
     val title: String,
@@ -85,10 +100,16 @@ private class NoChannelReleaseException : IllegalStateException(
     runBlocking { getString(Res.string.updates_no_channel_release) },
 )
 
-private object VersionUtils {
+internal object VersionUtils {
     fun normalize(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
-        return raw.trim().removePrefix("v").removePrefix("V")
+        // The debug prefix has to come off before the "v", and both before parsing: left on,
+        // "debug-v0.4.9-beta.2" tokenises to [4, 9, 2] - the leading 0 lost with the "v0" token -
+        // and every debug release would read as newer than every local version forever.
+        return raw.trim()
+            .removePrefix(debugChannelTagPrefix)
+            .removePrefix("v")
+            .removePrefix("V")
     }
 
     fun parseVersionParts(raw: String?): List<Int>? {
@@ -172,8 +193,13 @@ private object AppUpdaterRepository {
 
     suspend fun getLatestChannelUpdate(): Result<AppUpdate> = runCatching {
         val releases = fetchReleases()
-        val release = releases.firstOrNull { it.matchesRequestedChannel() && !it.draft && !it.prerelease }
-            ?: throw NoChannelReleaseException()
+        val release = if (AppUpdaterPlatform.isDebugBuild) {
+            releases.firstOrNull { !it.draft && it.prerelease && it.isDebugChannelRelease() }
+                ?: throw NoChannelReleaseException()
+        } else {
+            releases.firstOrNull { it.matchesRequestedChannel() && !it.draft && !it.prerelease }
+                ?: throw NoChannelReleaseException()
+        }
 
         val tag = release.tagName?.takeIf { it.isNotBlank() }
             ?: release.name?.takeIf { it.isNotBlank() }
@@ -192,6 +218,9 @@ private object AppUpdaterRepository {
             assetSizeBytes = asset.size,
         )
     }
+
+    private fun GitHubReleaseDto.isDebugChannelRelease(): Boolean =
+        tagName?.trim()?.startsWith(debugChannelTagPrefix, ignoreCase = true) == true
 
     private fun GitHubReleaseDto.matchesRequestedChannel(): Boolean {
         val channel = releaseChannelBranch?.takeIf { it.isNotBlank() } ?: return true
@@ -267,7 +296,14 @@ class AppUpdaterController internal constructor(
             val result = AppUpdaterRepository.getLatestChannelUpdate()
 
             result.onSuccess { update ->
-                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
+                // A debug build compares against its own four-component version, or every debug
+                // release cut from the same release version would look identical to it.
+                val localVersion = if (AppUpdaterPlatform.isDebugBuild) {
+                    AppVersionConfig.DEBUG_VERSION_NAME
+                } else {
+                    AppVersionConfig.VERSION_NAME
+                }
+                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, localVersion)
                 val ignored = ignoredTag != null && ignoredTag == update.tag
                 val shouldShowDialog = force || (remoteNewer && !ignored)
 

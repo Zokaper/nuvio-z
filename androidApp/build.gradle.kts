@@ -42,6 +42,16 @@ val releaseAppVersionName = readXcconfigValue(appVersionConfigFile, "MARKETING_V
 val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
     ?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+// The debug update channel needs its own monotonic version, because every debug APK cut from
+// one release version would otherwise look identical to the installed one and no update would
+// ever be offered. Version name gains a fourth component; version code is derived so it always
+// rises with the release line it was cut from. Debug is a separate applicationId, so this
+// numbering cannot collide with the release line.
+val debugAppBuildNumber = readXcconfigValue(appVersionConfigFile, "DEBUG_BUILD")
+    ?.toIntOrNull()
+    ?: 1
+val debugAppVersionName = "$releaseAppVersionName.$debugAppBuildNumber"
+val debugAppVersionCode = releaseAppVersionCode * 1000 + debugAppBuildNumber
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val buildsReleaseApks = requestedTaskNames.any {
     it.startsWith("assemble", ignoreCase = true) && it.endsWith("Release", ignoreCase = true)
@@ -53,6 +63,16 @@ android {
     compileSdkMinor = libs.versions.android.compileSdkMinor.get().toInt()
 
     signingConfigs {
+        // Committed on purpose (see .gitignore). Every debug APK must carry one signature or the
+        // in-app debug update line cannot install over an existing debug install - Android
+        // rejects a signature change and the only way out is an uninstall. AGP's per-machine
+        // default debug key cannot give that.
+        create("debugShared") {
+            storeFile = rootProject.file("androidApp/nuvio-debug.keystore")
+            storePassword = "nuviodebug"
+            keyAlias = "nuviodebug"
+            keyPassword = "nuviodebug"
+        }
         create("release") {
             if (releaseKeystore != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
                 storeFile = releaseKeystore
@@ -112,6 +132,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debugShared")
+            versionNameSuffix = ".$debugAppBuildNumber"
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -136,6 +160,9 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.applicationId.set("com.nuvio.app.z.debug")
+        // Must rise with every published debug build: Android refuses to install an APK whose
+        // versionCode is below the installed one, which would read as "the update is broken".
+        variant.outputs.forEach { output -> output.versionCode.set(debugAppVersionCode) }
     }
 }
 

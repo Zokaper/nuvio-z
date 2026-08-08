@@ -26,6 +26,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     abstract val appVersionCode: Property<Int>
 
     @get:Input
+    abstract val debugBuildNumber: Property<Int>
+
+    @get:Input
     abstract val supabaseUrl: Property<String>
 
     @get:Input
@@ -157,6 +160,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object AppVersionConfig {
                 |    const val VERSION_NAME = "${appVersionName.get()}"
                 |    const val VERSION_CODE = ${appVersionCode.get()}
+                |
+                |    /** Debug-channel build counter; see DEBUG_BUILD in Version.xcconfig. */
+                |    const val DEBUG_BUILD = ${debugBuildNumber.get()}
+                |
+                |    /**
+                |     * What a debug build compares against the debug update channel.
+                |     *
+                |     * A fourth component, so every debug APK cut from one release version still
+                |     * orders against the others. VersionUtils splits on '.' and '-' and keeps the
+                |     * leading digits of each token, so "0.4.9-beta.2" parses to [0, 4, 9, 2] and
+                |     * sorts above both "0.4.9-beta" and "0.4.9-beta.1".
+                |     */
+                |    const val DEBUG_VERSION_NAME = "${appVersionName.get()}.${debugBuildNumber.get()}"
                 |}
                 """.trimMargin()
             )
@@ -211,6 +227,11 @@ val releaseAppVersionName = readXcconfigValue(appVersionConfigFile, "MARKETING_V
 val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
     ?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+// Optional, and defaulted rather than required: a checkout that predates the debug update
+// channel must still configure.
+val releaseAppDebugBuildNumber = readXcconfigValue(appVersionConfigFile, "DEBUG_BUILD")
+    ?.toIntOrNull()
+    ?: 1
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -289,6 +310,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     localPropertiesFile.set(rootProject.layout.projectDirectory.file("local.properties"))
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
+    debugBuildNumber.set(releaseAppDebugBuildNumber)
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
