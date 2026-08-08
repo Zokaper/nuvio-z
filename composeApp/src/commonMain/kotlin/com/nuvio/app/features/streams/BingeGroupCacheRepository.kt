@@ -27,7 +27,30 @@ object BingeGroupCacheRepository {
 
     fun sessionPin(contentId: String): StickySourcePin? = sessionPins[contentId]
 
-    fun clearSessionPins() = sessionPins.clear()
+    /**
+     * Instant's remembered resolution for a series, for this sitting only.
+     *
+     * Deliberately **not** a [StickySourcePin]: a pin carrying only a resolution reads as
+     * [StickySourcePin.isEmpty], so it would be dropped on save, and a non-empty one would
+     * make Streamlined skip its quality sheet. This is a weaker, separate idea - "keep giving
+     * me the resolution you gave me last episode" - and it must not leak into that path.
+     *
+     * Keyed by `parentMetaId`, because the complaint it answers is episode-to-episode churn
+     * within one show, not within one season.
+     */
+    private val sessionInstantHeights = mutableMapOf<String, Int>()
+
+    fun saveSessionInstantHeight(parentMetaId: String, height: Int) {
+        if (parentMetaId.isBlank() || height <= 0) return
+        sessionInstantHeights[parentMetaId] = height
+    }
+
+    fun sessionInstantHeight(parentMetaId: String): Int? = sessionInstantHeights[parentMetaId]
+
+    fun clearSessionPins() {
+        sessionPins.clear()
+        sessionInstantHeights.clear()
+    }
 
     fun save(contentId: String, bingeGroup: String) {
         save(contentId, StickySourcePin(bingeGroup = bingeGroup))

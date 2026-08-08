@@ -244,6 +244,7 @@ import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
+import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.playback.StickySourcePin
 import com.nuvio.app.core.network.MeteredPlaybackChoice
 import com.nuvio.app.core.network.NetworkQualityRepository
@@ -2971,6 +2972,33 @@ private fun MainAppContent(
                         } else {
                             selectedStream
                         }
+                        if (isInstantAutoPlay) {
+                            // Record what is actually about to play, not what was first chosen -
+                            // the failure chain above may have advanced past a dead candidate to
+                            // a different resolution, and both the pin and the toast have to
+                            // describe the source the user ends up watching.
+                            val openedFacts = playbackCandidates
+                                .firstOrNull { it.stream === selectedStream }?.facts
+                            openedFacts?.resolution?.height?.let { height ->
+                                BingeGroupCacheRepository.saveSessionInstantHeight(
+                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                    height = height,
+                                )
+                            }
+                            // Instant otherwise gives no indication of what it decided, which is
+                            // most of why a defensible pick reads as a random one.
+                            val detail = listOfNotNull(
+                                openedFacts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+                                openedFacts?.releaseQuality?.takeIf { it.isNotBlank() },
+                                (openedFacts?.providerName ?: openedFacts?.debridService)
+                                    ?.takeIf { it.isNotBlank() },
+                            ).joinToString(" · ")
+                            if (detail.isNotBlank()) {
+                                NuvioToastController.show(
+                                    getString(Res.string.playback_instant_selected, detail),
+                                )
+                            }
+                        }
                         val sourceUrl = stream.playableDirectUrl
                         if (sourceUrl == null && stream.needsLocalDebridResolve && stream.p2pInfoHash != null) {
                             autoPlayHandled = true
@@ -3349,8 +3377,14 @@ private fun MainAppContent(
                         // exactly as it used to be applied to the preset list.
                         val maxHeight = playerSettings.playbackMeteredCapHeight
                             .takeIf { network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED }
-                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.highestAffordable(
+                        // Keep giving this show the resolution it got last episode, so long as
+                        // the estimate still carries it and the cap still allows it.
+                        val instantStickyId = launch.parentMetaId ?: effectiveVideoId
+                        val pinnedHeight = BingeGroupCacheRepository
+                            .sessionInstantHeight(instantStickyId)
+                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.stickyAffordable(
                             options = playbackQualityOptions,
+                            pinnedHeight = pinnedHeight,
                             estimatedMbps = estimateMbps,
                             maxHeight = maxHeight,
                         )
@@ -3381,6 +3415,11 @@ private fun MainAppContent(
                         instantSelectionHandled = true
                         when (selection) {
                             is PlaybackSelectionResult.Play -> {
+                                // The pin and the "playing X" toast are deliberately NOT written
+                                // here. This is the source Instant *chose*; the failure chain
+                                // below can still advance past it to a different resolution, and
+                                // pinning an intent that never played would reintroduce exactly
+                                // the churn this is meant to remove. Both happen at the open.
                                 armNetworkObservation(selection.stream)
                                 StreamsRepository.seedAutoPlayCandidates(
                                     listOf(selection.stream) + selection.fallbacks,

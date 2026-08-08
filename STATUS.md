@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-07
+Last updated: 2026-08-08
 
 | | |
 | --- | --- |
-| **Active branch** | `main` in `nuvio-z`; `Dev` in `NuvioZDesktop` |
+| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). Instant predictability plus the desktop Next Episode button - see below. Local only, not pushed, not smoke-tested. |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | `0.4.9-beta` fixes the three findings from the `0.4.8-beta` smoke test: implausible "High" sizes, Instant refusing 4K, and persisted sticky pins skipping the Streamlined sheet (see below). Re-test Streamlined and Instant on both platforms. `0.4.8-beta` published the derived-quality-options change itself. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
+| **Next** | Smoke-test `claude/instant-predictability-next-ep` on a device and the installed Windows app - the desktop Next Episode button has never been clicked. Then decide on the two gaps it names: an Instant max-quality ceiling, and user codec/HDR/language preferences being dead on the playback path. Before that, `0.4.9-beta` fixes the three findings from the `0.4.8-beta` smoke test: implausible "High" sizes, Instant refusing 4K, and persisted sticky pins skipping the Streamlined sheet (see below). Re-test Streamlined and Instant on both platforms. `0.4.8-beta` published the derived-quality-options change itself. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,99 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Instant predictability, and the missing desktop Next Episode button (2026-08-08)
+
+Two user reports from the `0.4.9-beta` build: Instant "feels like spinning a roulette wheel on
+what resolution I'm going to get", and there is still no Next Episode button in the player.
+Branch `claude/instant-predictability-next-ep` in **both** repositories.
+
+**The Next Episode button was a desktop-only gap, and not where it looked.** The Compose
+player has had one since forever - `PlayerControls.kt` renders a `SkipNext` pill whenever
+`nextEpisodeInfo?.hasAired == true`, and that file is byte-identical across the repos. But
+**desktop never mounts that control bar.** `5b3fc81d` ("feat: skip intro/outro to native
+player") moved the desktop player to a native HTML overlay
+(`desktopMain/resources/player-ui/controls.html` + `controls.js`, driven by
+`NativePlayerController`), and its action row had resize/speed/subs/audio/sources/episodes and
+no next-episode entry. Added one: `data-command="nextEpisode"` →
+`PlayerControlsAction.NextEpisode` → the same `playNextEpisode()` the Compose pill calls, with
+`nextEpisodeLabel`/`showNextEpisode` crossing the bridge beside the `nextEpisodeVisible` fields
+that were already there. Reuses `#icon-skip-next` and the existing `player_next_episode`
+string, so no new icon and no new string key.
+
+⚠ **The `!isDesktop` guards in the desktop `PlayerScreenRuntimeUi.kt` are correct - do not
+"fix" them.** `showNextEpisodeCard && !isDesktop` and `activeSkipInterval.takeUnless
+{ isDesktop }` suppress the *Compose* card and skip prompt because the HTML layer owns both
+(`#nextEpisodeCard`, `#skipPrompt`). Removing them double-renders.
+
+**Instant was never random - it was opaque, and it churned.** Checked before changing
+anything: no `shuffled`/`Random` anywhere in `features/playback/` or `features/streams/`, and
+`SourceRanking`'s comparator ends in `.thenBy(addonOrderOf).thenBy(stableUrlOf)`. The one
+plausible real race was ruled out too - `isAnyLoading` cannot flip false while a debrid cache
+check is outstanding, because a group awaiting annotation is not republished until
+`publishAddonGroup` runs *inside* the availability job (`StreamsRepository.kt:302-339`), so the
+pre-completion `isLoading = true` copy is what `anyLoading` sees. Instant genuinely waits for
+settled cache state.
+
+What actually varies between two taps that look identical: the derived rows come from *this*
+episode's catalogue (an empty bucket produces no row), and the estimate ratchets upward as you
+watch. Both are correct; neither is visible. So:
+
+- **`PlaybackQualityOptions.stickyAffordable`** - `highestAffordable` biased towards the
+  resolution this series already got in this sitting. It will not override a metered cap, will
+  not hold a resolution the estimate can no longer carry, and will not invent a row the
+  episode does not have. A tie-break towards stability, never a ceiling or a floor.
+- **Instant now says what it opened** - a toast, `Playing 1080p · WEB-DL · TorBox`, raised
+  before navigation so it works on both platforms without a Compose overlay over the desktop's
+  native surface.
+
+Two traps worth not re-stepping on:
+
+- **The pin is written where a source *opens*, not where Instant *chooses*.** Instant's failure
+  chain (`skipAutoPlayStream`) can advance past a dead or evicted candidate to a different
+  resolution. Pinning the choice would record something that never played, and the next episode
+  would then prefer a resolution that just failed - reintroducing exactly the churn this
+  removes. Same reasoning for the toast.
+- **`BingeGroupCacheRepository.sessionPin` could not be reused for this**, despite being the
+  obvious home. `StickySourcePin.isEmpty` ignores `resolutionHeight`, so a resolution-only pin
+  is *discarded* on save; and a non-empty one would make Streamlined skip its quality sheet.
+  `sessionInstantHeight`/`saveSessionInstantHeight` is a separate map in the same file, keyed
+  by `parentMetaId`, session-scoped for the same reason the sticky pins are, and cleared by the
+  same `clearSessionPins()`.
+
+**Two known gaps, both deliberate, neither started:**
+
+- **No max-quality ceiling for Instant.** The user has no lever over resolution at all. It
+  wants a profile-scoped key, which means three `PlayerSettingsStorage` actuals across both
+  repos plus `syncKeys` and both sync-payload paths - and editing that key set is what wiped
+  the playback settings in `0.4.0-beta`. Left for its own commit.
+- **User codec/HDR/audio-language preferences are dead on the playback path.**
+  `PlaybackSourceSelector.rank` hardcodes `CodecPreference.ANY` / `DynamicRangePolicy.ANY` and
+  never populates `preferredAudioLanguage`; `PlaybackQualityOptions.preferencesFor` does the
+  same. They work for downloads only. This is a real defect, not a missing feature, and fixing
+  it changes what Instant picks for anyone who has set them - so it needs its own commit and
+  its own smoke test.
+
+**Verified:** `:composeApp:testAndroidHostTest` in `nuvio-z` - **687 tests across 96 classes**,
+zero failures, errors or skips, including six new `stickyAffordable` cases.
+`:composeApp:desktopTest` in `NuvioZDesktop` - **895 tests across 127 classes**, zero failures,
+errors or skips, and it compiled `desktopMain`, which is the only local check that the new
+`PlayerControlsAction.NextEpisode` arm and the `PlayerControlsState` fields actually build.
+Four shared files are byte-identical across the repos
+(`PlaybackQualityOptions.kt`, `BingeGroupCacheRepository.kt`, `PlaybackQualityOptionsTest.kt`,
+`PlayerControls.kt`); `App.kt` and `PlayerScreenRuntimeUi.kt` were hand-ported.
+
+⚠ **`controls.html` and `controls.js` have no automated coverage at all** - `desktopTest`
+compiles `desktopMain` Kotlin and never parses the resources, so a typo there ships silently
+and a duplicate `const` would blank the entire overlay. Checked by hand instead:
+`node --check controls.js` passes, and `nextEpisodeLabel`/`nextEpisodeButton` are each declared
+exactly once in the JS and appear exactly once as an id in the HTML.
+
+**Not smoke-tested.** No Android device and no installed desktop app were available. **Nobody
+has clicked the new button** - item A is verified by code inspection and a compiling desktop
+build only. Still outstanding: the desktop button on a series (and hidden on a movie and on a
+last episode), that the native next-episode card and skip prompt still work, three consecutive
+Instant episodes holding one resolution, and Instant on a metered connection with a pin in play.
 
 ## Derived options: first smoke test, three fixes (2026-08-07, `0.4.9-beta`)
 

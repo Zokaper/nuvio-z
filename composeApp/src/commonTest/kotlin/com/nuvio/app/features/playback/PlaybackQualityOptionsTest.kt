@@ -223,6 +223,104 @@ class PlaybackQualityOptionsTest {
         assertEquals("4k-web", low.candidates.first().stream.name)
     }
 
+    @Test
+    fun aPinnedResolutionSurvivesAnEstimateThatWouldNowReachHigher() {
+        // The churn this exists to stop: episode 1 played 1080p, then a minute of clean
+        // playback ratcheted the estimate up, and episode 2 silently became 4K.
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 20.0),
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            runtimeMinutes = 60,
+        )
+
+        assertEquals("2160_single", PlaybackQualityOptions.highestAffordable(options, 500.0)?.id)
+        assertEquals(
+            "1080_single",
+            PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = 1080, estimatedMbps = 500.0)?.id,
+        )
+    }
+
+    @Test
+    fun aPinForAResolutionThisEpisodeDoesNotHaveIsIgnored() {
+        val options = build(
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            runtimeMinutes = 60,
+        )
+
+        assertEquals(
+            "1080_single",
+            PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = 2160, estimatedMbps = 500.0)?.id,
+        )
+    }
+
+    @Test
+    fun aPinIsDroppedRatherThanStalling() {
+        // Holding 4K on a connection that can no longer carry it trades churn for buffering,
+        // which is the worse of the two.
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 60.0),
+            candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            runtimeMinutes = 60,
+        )
+
+        assertEquals(
+            "720_single",
+            PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = 2160, estimatedMbps = 12.0)?.id,
+        )
+    }
+
+    @Test
+    fun aPinNeverOverridesTheMeteredCap() {
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 20.0),
+            candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            runtimeMinutes = 60,
+        )
+
+        val picked = PlaybackQualityOptions.stickyAffordable(
+            options = options,
+            pinnedHeight = 2160,
+            estimatedMbps = 500.0,
+            maxHeight = 720,
+        )
+        assertEquals(VideoResolution.HD_720, picked?.resolution)
+    }
+
+    @Test
+    fun aPinDoesNotResurrectACapNothingFitsUnder() {
+        // The refusal guard from `highestAffordable` has to survive the sticky path, or a pin
+        // becomes a way to hand a 4K remux to a capped mobile connection.
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 20.0),
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            runtimeMinutes = 60,
+        )
+
+        assertNull(
+            PlaybackQualityOptions.stickyAffordable(
+                options = options,
+                pinnedHeight = 2160,
+                estimatedMbps = 500.0,
+                maxHeight = 720,
+            ),
+        )
+    }
+
+    @Test
+    fun noPinBehavesExactlyLikeHighestAffordable() {
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 20.0),
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            runtimeMinutes = 60,
+        )
+
+        assertEquals(
+            PlaybackQualityOptions.highestAffordable(options, 500.0)?.id,
+            PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = null, estimatedMbps = 500.0)?.id,
+        )
+    }
+
     private fun build(
         vararg candidates: PlaybackSourceCandidate,
         runtimeMinutes: Int? = 60,
