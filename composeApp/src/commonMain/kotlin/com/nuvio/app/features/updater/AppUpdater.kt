@@ -343,7 +343,13 @@ class AppUpdaterController internal constructor(
                     )
                 }
 
-                if (showNoUpdateFeedback || error is NoChannelReleaseException) {
+                // "No release on this channel" was effectively unreachable on the stable channel,
+                // so toasting it unconditionally cost nothing. On the debug channel it is a
+                // normal state - no debug prerelease published yet - and the silent auto-check at
+                // app start would then toast on every single launch.
+                val announceMissingChannel = error is NoChannelReleaseException &&
+                    !AppUpdaterPlatform.isDebugBuild
+                if (showNoUpdateFeedback || announceMissingChannel) {
                     NuvioToastController.show(error.message ?: getString(Res.string.updates_check_failed))
                 }
             }
