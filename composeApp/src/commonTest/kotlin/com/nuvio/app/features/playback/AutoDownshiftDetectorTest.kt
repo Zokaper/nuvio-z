@@ -242,6 +242,18 @@ class AutoDownshiftDetectorTest {
         assertNull(AutoDownshiftCandidates.select(current, listOf(uncached)))
     }
 
+    @Test
+    fun forcedUpshiftChoosesTheNextStepInTheSameReleaseGroup() {
+        val current = candidate("https://cdn/720.mkv", VideoResolution.HD_720, "NUVIO")
+        val next = candidate("https://cdn/1080.mkv", VideoResolution.FULL_HD_1080, "NUVIO")
+        val highest = candidate("https://cdn/2160.mkv", VideoResolution.UHD_2160, "NUVIO")
+        val other = candidate("https://cdn/other.mkv", VideoResolution.FULL_HD_1080, "OTHER")
+
+        val picked = AutoDownshiftCandidates.selectUpshift(current, listOf(highest, other, next))
+
+        assertEquals(next.stream, picked?.stream)
+    }
+
     private data class RunResult(val fireCount: Int, val firedAtMs: Long?) {
         val fired: Boolean get() = fireCount > 0
     }

@@ -227,6 +227,38 @@ object AutoDownshiftCandidates {
             .maxByOrNull { it.facts.resolution?.height ?: 0 }
     }
 
+    /**
+     * The mirror image of [select]: the next step *up* in the same release group.
+     *
+     * Nothing automatic calls this yet. It exists so the debug build can force an upshift and
+     * measure what recovering costs, because "go back up when the connection recovers" cannot
+     * be designed without knowing whether the interruption is worth it - and an upshift is the
+     * one direction where the user was not about to stall anyway, so the pause buys nothing
+     * unless the quality gain is real.
+     *
+     * Same gates as [select] in every other respect: same group, no manifests, nothing that
+     * would have to be cached first.
+     */
+    fun selectUpshift(
+        current: PlaybackSourceCandidate,
+        candidates: List<PlaybackSourceCandidate>,
+    ): PlaybackSourceCandidate? {
+        if (isManifest(current.stream)) return null
+        val group = current.facts.releaseGroup?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        val currentHeight = current.facts.resolution?.height ?: return null
+
+        return candidates.asSequence()
+            .filterNot { it.stream.playableDirectUrl == current.stream.playableDirectUrl }
+            .filterNot { isManifest(it.stream) }
+            // Unknown resolution sorts itself out of contention rather than being assumed high.
+            .filter { (it.facts.resolution?.height ?: Int.MIN_VALUE) > currentHeight }
+            .filter { sameReleaseGroup(it.facts, group) }
+            .filterNot { it.facts.isDebridReady == false }
+            // One step up, not a leap to the largest release in the group.
+            .minByOrNull { it.facts.resolution?.height ?: Int.MAX_VALUE }
+    }
+
     private fun sameReleaseGroup(facts: SourceFacts, group: String): Boolean =
         facts.releaseGroup?.trim()?.lowercase() == group
 

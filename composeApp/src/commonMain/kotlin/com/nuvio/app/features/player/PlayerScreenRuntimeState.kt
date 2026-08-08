@@ -138,6 +138,17 @@ internal class PlayerScreenRuntime(
     var autoDownshiftClock by mutableStateOf(TimeSource.Monotonic.markNow())
     var autoDownshiftSourcesRequested by mutableStateOf(false)
 
+    /**
+     * When the in-flight source swap was requested, or null when none is.
+     *
+     * Set by `switchToSource` and cleared when the replacement produces its first frame, so
+     * the difference is the visible interruption a quality change actually costs. That number
+     * is the evidence for whether automatic downshift is worth turning on by default; it is
+     * null during normal startup because only a swap sets it.
+     */
+    var swapStartedAt by mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null)
+    var debugStatusMessage by mutableStateOf<String?>(null)
+
     /** Per-source state for the passive network measurement; see `observePlaybackForNetworkEstimate`. */
     var networkEstimateStartPositionMs by mutableStateOf<Long?>(null)
     var networkEstimateStalled by mutableStateOf(false)

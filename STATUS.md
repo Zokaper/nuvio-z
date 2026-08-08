@@ -4,10 +4,10 @@ Last updated: 2026-08-08
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). Instant predictability plus the desktop Next Episode button - see below. Local only, not pushed, not smoke-tested. |
+| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work is committed; the playback-drop diagnostics described below are uncommitted. Local only, not pushed, not smoke-tested. |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Smoke-test `claude/instant-predictability-next-ep` on a device and the installed Windows app - the desktop Next Episode button has never been clicked. Then decide on the two gaps it names: an Instant max-quality ceiling, and user codec/HDR/language preferences being dead on the playback path. Before that, `0.4.9-beta` fixes the three findings from the `0.4.8-beta` smoke test: implausible "High" sizes, Instant refusing 4K, and persisted sticky pins skipping the Streamlined sheet (see below). Re-test Streamlined and Instant on both platforms. `0.4.8-beta` published the derived-quality-options change itself. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
+| **Next** | Install the local debug APK and run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,51 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Playback connection-drop diagnostics (2026-08-08, Phase 1 complete in code)
+
+The instrumented build from `~/.claude/plans/okay-we-need-to-humble-balloon.md` is implemented
+in both repositories. It is debug-gated and off until Settings -> Playback -> **Playback
+diagnostics HUD** is enabled. In a debug build the normally advanced automatic-downshift row
+is visible without enabling all advanced settings.
+
+The HUD reports real buffer ahead/position/duration and labels it with the live engine
+(ExoPlayer or libmpv), source resolution/release group/provider/addon, the provider-keyed
+network estimate and confidence, and every state-machine field plus time remaining to the
+trigger. Android ExoPlayer can be throttled live to Off / 20 / 10 / 5 / 2 Mbps. The HUD also
+forces one safe step down or up in the same release group and resets the automatic swap budget.
+It explicitly warns when libmpv is live because the ExoPlayer throttle cannot affect it.
+
+Every automatic or forced swap is recorded in a bounded, in-memory, copyable log: elapsed
+timestamp, reason, from/to quality, group, provider and addon, buffer at trigger, position
+before/after, and the gap until the replacement actually plays. Automatic downshift now shows
+a user-facing toast instead of changing quality silently. Manual source choices are not logged
+or toasted. No Phase 2 buffer tuning or Phase 3 automatic upshift/default change was made.
+
+**Local verification:** Android host tests and desktop tests pass, including the new forced
+upshift and swap-log cases; desktopMain compiled with the new debug actual. A clean
+`:androidApp:assembleFullDebug` passes and produces the side-by-side-installable debug APK.
+The first combined debug/release packaging attempt hit a stale Gradle transform pointing to
+the repository's old path; cleaning generated build outputs fixed the debug build. A standalone
+`:androidApp:assembleFullRelease` then compiled, passed lint, R8/minification and resource
+optimization, and stopped only at final APK packaging because this checkout has no release
+keystore (`SigningConfig "release" is missing storeFile`). No device verification.
+
+### Device test script
+
+0. Settings -> Playback: set **Playback mode = Instant**, enable **Switch source when buffering
+   persists**, and enable **Playback diagnostics HUD**.
+1. Start a 4K episode and confirm the HUD says **ExoPlayer**. If it says libmpv, throttle tests
+   are invalid. Record buffer ahead after it settles.
+2. Tap **Force down**. Check the preserved position, audio/subtitle selection, replacement
+   quality, and the measured gap in **Log**.
+3. Restart playback, confirm ExoPlayer again, let it settle for at least 15 seconds, then select
+   **2 M**. Confirm the starvation run builds and fires after roughly 21 seconds total
+   (15-second settle plus 6-second sustained starvation).
+4. Turn the throttle **Off** and confirm there is no oscillation.
+5. Tap **Reset budget**, restart if needed, and repeat with **10 M** to test a partial drop.
+6. Copy the log and report it together with the settled buffer-ahead value and whether the
+   forced swap preserved position and tracks.
 
 ## Instant predictability, and the missing desktop Next Episode button (2026-08-08)
 

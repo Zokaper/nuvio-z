@@ -220,6 +220,8 @@ data class PlayerPlaybackSnapshot(
     val playbackSpeed: Float = 1f,
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
+    /** Concrete engine producing this snapshot; especially important for buffer diagnostics. */
+    val engineName: String = "Unknown",
 )
 
 data class PlayerNowPlayingInfo(

@@ -1,6 +1,8 @@
 package com.nuvio.app.features.settings
 
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.debug.PlaybackDebugSettings
+import com.nuvio.app.core.debug.isDebugBuild
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -391,10 +393,20 @@ private fun PlaybackSettingsSection(
                     description = stringResource(Res.string.settings_playback_auto_downshift_description),
                     checked = autoPlayPlayerSettings.playbackAutoDownshift,
                     enabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
-                    isAdvanced = true,
+                    isAdvanced = !isDebugBuild,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
                 )
+                if (isDebugBuild) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = "Playback diagnostics HUD",
+                        description = "Show live buffer, engine, source, network, throttle, and swap controls.",
+                        checked = PlaybackDebugSettings.hudEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = { PlaybackDebugSettings.hudEnabled = it },
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_show_loading_overlay),
