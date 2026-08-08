@@ -4,10 +4,10 @@ Last updated: 2026-08-08
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work is committed; the playback-drop diagnostics described below are uncommitted. Local only, not pushed, not smoke-tested. |
+| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work, the playback-drop diagnostics described below, and the Instant failure-chain fix are all committed. Local only, not pushed, not smoke-tested. |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Install the local debug APK and run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
+| **Next** | Install the freshly built debug APK and confirm the Instant failure chain now retries instead of exiting to details (see "Instant's failure chain died the moment playback started" below). Then run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,70 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Instant's failure chain died the moment playback started (2026-08-08)
+
+**Reported as "the debug video player keeps kicking me out": the logo overlay appears, the
+episode plays for about a second, and the user is dropped back on the details screen.** That is
+not a diagnostics bug. Instant's three-source failure chain was unreachable for the most common
+failure there is - a source that opens, starts, and then dies.
+
+Two independent defects, both in the same handler (`App.kt`, `onFatalPlaybackError`):
+
+1. **It read state that had already been cleared.** `onPlaybackStarted` fires on the first
+   `!wasPlaying && isPlaying` edge and calls `consumeAutoPlay()`, which nulls `autoPlayStream`
+   **and** empties `autoPlayCandidates`. The handler then read `autoPlayStream`, found null,
+   concluded `hasNext = false`, and took the exhausted branch - the "no automatic source" toast -
+   on the *first* failure, with two ranked candidates untried. The chain only ever worked for
+   sources that failed before rendering a frame.
+   Consuming on the first frame is not the bug and must not be "fixed": Instant deliberately
+   leaves `StreamRoute` on the back stack, so an unconsumed chain means backing out of the player
+   relaunches it. `StreamsRepository` now *retains* what `consumeAutoPlay` retired, and
+   `failOverAfterPlaybackStarted()` re-arms it and advances past the dead source. It is
+   single-shot and is dropped by `seedAutoPlayCandidates`, so a chain can never fail over to
+   candidates ranked for different content.
+2. **It navigated past the thing that does the retrying.** The handler called
+   `onBackToDetails()`, whose every branch pops `StreamRoute` - and `StreamRoute` is where the
+   whole chain lives: the auto-play `LaunchedEffect` keyed on `autoPlayStream`, `autoPickAttempt`,
+   and the "Finding a source" overlay. So even with a next candidate correctly selected, nothing
+   was left alive to launch it. The comment at the `playbackHandedOff` declaration
+   ("Instant deliberately leaves StreamRoute on the back stack so the failure chain survives")
+   states the invariant this violated. `onPlaybackFailureExit` now pops only the `PlayerRoute`,
+   falling back to `onBackToDetails()` when there is no `StreamRoute` to return to (the
+   reuse-last-link and P2P paths both produce that) **and** when the pop itself no-ops.
+   That second case matters: `popBackStack(expectedRoute)` returns `false` without moving if the
+   player is not on top, and `instantFailureHandled` is already spent by then, so a silent no-op
+   would strand the user on a dead player with neither a retry nor an exit.
+
+Exhaustion now lands on `StreamRoute` too, not details. With `autoPlayStream` cleared that route
+renders the plain source list, which is what `PLAYBACK_MODES_PLAN.md` specifies: *"Only after the
+chain is exhausted does it fall back to the Classic source list with a reason."* It was going to
+details instead - a deviation from the plan that no test covered because the whole chain is
+UI-level navigation.
+
+Returning to `StreamRoute` also had to un-hide the progress overlay: `playbackHandedOff` survives
+in `rememberSaveable(route.launchId)` and forces `PlaybackProgress.isVisible` false, so a retry
+would otherwise land on a bare source list. A `LaunchedEffect` gated on *this route being current*
+resets it and advances `autoPickAttempt`. The gate matters - Instant leaves `autoPlayStream` set
+while the player is open, so without it the reset fires at hand-off and uncovers the overlay
+underneath the player.
+
+⚠ **`instantSelectionHandled` must stay latched — do not reset it alongside `playbackHandedOff`.**
+It guards the effect that *selects* Instant's source and calls `seedAutoPlayCandidates`. Clearing
+it on a retry would re-seed the chain back to candidate 1, and the failure would loop forever
+instead of advancing.
+
+**Verified:** `:composeApp:testAndroidHostTest` in `nuvio-z` - **700 tests, zero failures**,
+including five new `AutoPlayFailoverTest` cases. `:composeApp:desktopTest` in `NuvioZDesktop` -
+**908 tests, zero failures**, and it compiled `desktopMain`. `:androidApp:assembleFullDebug`
+rebuilt so the installed APK contains the fix. `StreamsRepository.kt` was hand-ported (the repos
+already differ at `presentStreamGroup`), `App.kt` hand-ported per the never-`cp` rule, and the
+test file copied. **Not smoke-tested on a device.**
+
+⚠ **This makes the failure recoverable and visible; it does not explain why the source died after
+a second.** To capture that, enable Settings → Playback → **Playback diagnostics HUD** before
+playing: `f3a30dcb` makes the player retain the real error instead of exiting. Note the HUD flag
+is a non-persisted `mutableStateOf`, so it resets on every app start and must be re-enabled.
 
 ## Playback connection-drop diagnostics (2026-08-08, Phase 1 complete in code)
 

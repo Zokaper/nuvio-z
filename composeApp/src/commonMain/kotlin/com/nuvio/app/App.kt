@@ -2920,6 +2920,20 @@ private fun MainAppContent(
                         }
                     }
 
+                    // Coming back from a player that died with the chain re-armed: this is a
+                    // retry, so re-show the progress overlay the hand-off had hidden. Gated on
+                    // this route being current because Instant deliberately leaves
+                    // `autoPlayStream` set while the player is open - without that check this
+                    // would fire the moment playback was handed off and uncover the overlay
+                    // underneath the player.
+                    LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute) {
+                        if (navController.currentRoute != route) return@LaunchedEffect
+                        if (!playbackHandedOff) return@LaunchedEffect
+                        if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
+                        playbackHandedOff = false
+                        autoPickAttempt += 1
+                    }
+
                     var autoPlayHandled by rememberSaveable(launch.videoId, effectiveVideoId) { mutableStateOf(false) }
                     LaunchedEffect(
                         streamsUiState.autoPlayStream,
@@ -3760,6 +3774,31 @@ private fun MainAppContent(
                             }
                         }
                     }
+                    /**
+                     * Where Instant goes when a source dies: back to the `StreamRoute` it
+                     * deliberately left on the back stack, not out to details.
+                     *
+                     * That route hosts the whole failure chain - the auto-play effect keyed on
+                     * `autoPlayStream`, the retry counter and the "Finding a source" overlay - so
+                     * popping past it is what turned a recoverable failure into a dead end and
+                     * dropped the user on the details screen mid-play. When the chain is
+                     * exhausted it is also the right destination: the plan's fallback is the
+                     * Classic source list with a reason, and with `autoPlayStream` cleared that
+                     * is exactly what `StreamRoute` renders.
+                     *
+                     * Falls back to details when there is no `StreamRoute` to return to, which
+                     * the reuse-last-link and P2P paths can both produce.
+                     */
+                    val onPlaybackFailureExit: () -> Unit = remember(navController, route, onBackToDetails) {
+                        {
+                            // The pop is a no-op unless the player is genuinely on top, so it
+                            // falls through to the navigating exit rather than leaving the user
+                            // on a dead player with `instantFailureHandled` already spent.
+                            val popped = navController.routes.any { it is StreamRoute } &&
+                                navController.popBackStack(expectedRoute = route)
+                            if (!popped) onBackToDetails()
+                        }
+                    }
                     val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
                     var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     LaunchedEffect(launch.videoId) {
@@ -3852,12 +3891,20 @@ private fun MainAppContent(
                                 if (!instantFailureHandled) {
                                     instantFailureHandled = true
                                     val failed = StreamsRepository.uiState.value.autoPlayStream
-                                    val hasNext = failed != null && StreamsRepository.skipAutoPlayStream(failed)
+                                    // A null `autoPlayStream` here does not mean the chain is
+                                    // spent - it means playback started, and `onPlaybackStarted`
+                                    // consumed it. That is the common failure: a source that
+                                    // opens, plays a second, and dies.
+                                    val hasNext = if (failed != null) {
+                                        StreamsRepository.skipAutoPlayStream(failed)
+                                    } else {
+                                        StreamsRepository.failOverAfterPlaybackStarted()
+                                    }
                                     if (!hasNext) {
                                         StreamsRepository.consumeAutoPlay()
                                         NuvioToastController.show(noAutomaticSourceText)
                                     }
-                                    onBackToDetails()
+                                    onPlaybackFailureExit()
                                 }
                             }
                         } else null,
