@@ -7,7 +7,7 @@ Last updated: 2026-08-08
 | **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work, the playback-drop diagnostics described below, and the Instant failure-chain fix are all committed. Local only, not pushed, not smoke-tested. |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Install the freshly built debug APK and confirm the Instant failure chain now retries instead of exiting to details (see "Instant's failure chain died the moment playback started" below). Then run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
+| **Next** | Uninstall the old debug app (the debug signing key changed), install `debug-v0.4.9-beta.1` from the new debug update line, and confirm the Instant failure chain now retries instead of exiting to details. Then run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,51 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## The debug update line (2026-08-08)
+
+Debug builds install as `com.nuvio.app.z.debug`, so the stable channel's APKs can never update
+them and testing a fix meant sideloading a file by hand every time. Debug builds now read GitHub
+**prereleases** tagged `debug-v*` from `Zokaper/nuvio-z`. The stable channel already discarded
+prereleases, so the two lines cannot see each other and the release flow is untouched — verified
+after publishing: `0.4.9-beta` is still `latest`, `debug-v0.4.9-beta.1` is `prerelease`.
+
+Only the Android **full debug** build takes this path; every other `isDebugBuild` actual (iOS,
+desktop, Playstore) is `false`.
+
+**Three pieces, and each exists for a reason that is not obvious:**
+
+- **`androidApp/nuvio-debug.keystore` is committed**, with an explicit `.gitignore` negation. It
+  is not a secret — it signs debug builds only. It exists because Android refuses an install
+  whose signature changed, and AGP's default debug key lives in `~/.android/` per machine, so
+  two machines (or a machine and CI) produce mutually un-installable debug APKs. The release
+  keystore is still excluded and must stay that way.
+- **`DEBUG_BUILD` in `Version.xcconfig`** is the debug counter. It produces a fourth version
+  component (`0.4.9-beta.1`) and a derived `versionCode` (`releaseCode * 1000 + n`). Without it
+  every debug APK cut from one release version looks identical to the installed one and no update
+  is ever offered. **Bump it for every debug build you publish** — that is the whole mechanism.
+- **`VersionUtils.normalize` strips `debug-` before `v`.** Left on, `debug-v0.4.9-beta.2`
+  tokenises to `[4, 9, 2]` — the leading zero is lost with the `v0` token — and every debug
+  release outranks every local version permanently. `DebugChannelVersionTest` pins this and the
+  four-component ordering.
+
+⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
+Every debug build after `0.4.9-beta.1` updates in place from inside the app.
+
+**Publishing a debug build:** bump `DEBUG_BUILD`, `:androidApp:assembleFullDebug`, then
+`gh release create debug-v<version> <apk> --repo Zokaper/nuvio-z --prerelease --target main`.
+The tag targets `main` because the working branch is local-only; the updater reads only the tag
+and the asset, so the target does not affect it.
+
+**Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
+different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
+`Zokaper/NuvioZDesktop` release line with `includePrereleases` already `true`, so this channel
+split does not apply there.
+
+**Verified:** Android **706 tests, zero failures** (six new `DebugChannelVersionTest` cases).
+APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed
+`CN=Nuvio Z Debug`. The in-app update flow itself is **not** device-tested — the first real proof
+is publishing `debug-v0.4.9-beta.2` and watching `.1` offer it.
 
 ## Instant's failure chain died the moment playback started (2026-08-08)
 
