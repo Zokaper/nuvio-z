@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-07
+Last updated: 2026-08-08
 
 | | |
 | --- | --- |
-| **Active branch** | `main` in `nuvio-z`; `Dev` in `NuvioZDesktop` |
+| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work, the playback-drop diagnostics described below, and the Instant failure-chain fix are all committed. Local only, not pushed, not smoke-tested. |
 | **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
 | **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | `0.4.9-beta` fixes the three findings from the `0.4.8-beta` smoke test: implausible "High" sizes, Instant refusing 4K, and persisted sticky pins skipping the Streamlined sheet (see below). Re-test Streamlined and Instant on both platforms. `0.4.8-beta` published the derived-quality-options change itself. `0.4.4-beta` was bumped but intentionally left unpublished after full CI caught stale network-tier expectations. |
+| **Next** | Uninstall the old debug app (the debug signing key changed), install `debug-v0.4.9-beta.1` from the new debug update line, and confirm the Instant failure chain now retries instead of exiting to details. Then run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -17,6 +17,253 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## The debug update line (2026-08-08)
+
+Debug builds install as `com.nuvio.app.z.debug`, so the stable channel's APKs can never update
+them and testing a fix meant sideloading a file by hand every time. Debug builds now read GitHub
+**prereleases** tagged `debug-v*` from `Zokaper/nuvio-z`. The stable channel already discarded
+prereleases, so the two lines cannot see each other and the release flow is untouched — verified
+after publishing: `0.4.9-beta` is still `latest`, `debug-v0.4.9-beta.1` is `prerelease`.
+
+Only the Android **full debug** build takes this path; every other `isDebugBuild` actual (iOS,
+desktop, Playstore) is `false`.
+
+**Three pieces, and each exists for a reason that is not obvious:**
+
+- **`androidApp/nuvio-debug.keystore` is committed**, with an explicit `.gitignore` negation. It
+  is not a secret — it signs debug builds only. It exists because Android refuses an install
+  whose signature changed, and AGP's default debug key lives in `~/.android/` per machine, so
+  two machines (or a machine and CI) produce mutually un-installable debug APKs. The release
+  keystore is still excluded and must stay that way.
+- **`DEBUG_BUILD` in `Version.xcconfig`** is the debug counter. It produces a fourth version
+  component (`0.4.9-beta.1`) and a derived `versionCode` (`releaseCode * 1000 + n`). Without it
+  every debug APK cut from one release version looks identical to the installed one and no update
+  is ever offered. **Bump it for every debug build you publish** — that is the whole mechanism.
+- **`VersionUtils.normalize` strips `debug-` before `v`.** Left on, `debug-v0.4.9-beta.2`
+  tokenises to `[4, 9, 2]` — the leading zero is lost with the `v0` token — and every debug
+  release outranks every local version permanently. `DebugChannelVersionTest` pins this and the
+  four-component ordering.
+
+⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
+Every debug build after `0.4.9-beta.1` updates in place from inside the app.
+
+**Publishing a debug build:** bump `DEBUG_BUILD`, `:androidApp:assembleFullDebug`, then
+`gh release create debug-v<version> <apk> --repo Zokaper/nuvio-z --prerelease --target main`.
+The tag targets `main` because the working branch is local-only; the updater reads only the tag
+and the asset, so the target does not affect it.
+
+**Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
+different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
+`Zokaper/NuvioZDesktop` release line with `includePrereleases` already `true`, so this channel
+split does not apply there.
+
+**Verified:** Android **706 tests, zero failures** (six new `DebugChannelVersionTest` cases).
+APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed
+`CN=Nuvio Z Debug`. The in-app update flow itself is **not** device-tested — the first real proof
+is publishing `debug-v0.4.9-beta.2` and watching `.1` offer it.
+
+## Instant's failure chain died the moment playback started (2026-08-08)
+
+**Reported as "the debug video player keeps kicking me out": the logo overlay appears, the
+episode plays for about a second, and the user is dropped back on the details screen.** That is
+not a diagnostics bug. Instant's three-source failure chain was unreachable for the most common
+failure there is - a source that opens, starts, and then dies.
+
+Two independent defects, both in the same handler (`App.kt`, `onFatalPlaybackError`):
+
+1. **It read state that had already been cleared.** `onPlaybackStarted` fires on the first
+   `!wasPlaying && isPlaying` edge and calls `consumeAutoPlay()`, which nulls `autoPlayStream`
+   **and** empties `autoPlayCandidates`. The handler then read `autoPlayStream`, found null,
+   concluded `hasNext = false`, and took the exhausted branch - the "no automatic source" toast -
+   on the *first* failure, with two ranked candidates untried. The chain only ever worked for
+   sources that failed before rendering a frame.
+   Consuming on the first frame is not the bug and must not be "fixed": Instant deliberately
+   leaves `StreamRoute` on the back stack, so an unconsumed chain means backing out of the player
+   relaunches it. `StreamsRepository` now *retains* what `consumeAutoPlay` retired, and
+   `failOverAfterPlaybackStarted()` re-arms it and advances past the dead source. It is
+   single-shot and is dropped by `seedAutoPlayCandidates`, so a chain can never fail over to
+   candidates ranked for different content.
+2. **It navigated past the thing that does the retrying.** The handler called
+   `onBackToDetails()`, whose every branch pops `StreamRoute` - and `StreamRoute` is where the
+   whole chain lives: the auto-play `LaunchedEffect` keyed on `autoPlayStream`, `autoPickAttempt`,
+   and the "Finding a source" overlay. So even with a next candidate correctly selected, nothing
+   was left alive to launch it. The comment at the `playbackHandedOff` declaration
+   ("Instant deliberately leaves StreamRoute on the back stack so the failure chain survives")
+   states the invariant this violated. `onPlaybackFailureExit` now pops only the `PlayerRoute`,
+   falling back to `onBackToDetails()` when there is no `StreamRoute` to return to (the
+   reuse-last-link and P2P paths both produce that) **and** when the pop itself no-ops.
+   That second case matters: `popBackStack(expectedRoute)` returns `false` without moving if the
+   player is not on top, and `instantFailureHandled` is already spent by then, so a silent no-op
+   would strand the user on a dead player with neither a retry nor an exit.
+
+Exhaustion now lands on `StreamRoute` too, not details. With `autoPlayStream` cleared that route
+renders the plain source list, which is what `PLAYBACK_MODES_PLAN.md` specifies: *"Only after the
+chain is exhausted does it fall back to the Classic source list with a reason."* It was going to
+details instead - a deviation from the plan that no test covered because the whole chain is
+UI-level navigation.
+
+Returning to `StreamRoute` also had to un-hide the progress overlay: `playbackHandedOff` survives
+in `rememberSaveable(route.launchId)` and forces `PlaybackProgress.isVisible` false, so a retry
+would otherwise land on a bare source list. A `LaunchedEffect` gated on *this route being current*
+resets it and advances `autoPickAttempt`. The gate matters - Instant leaves `autoPlayStream` set
+while the player is open, so without it the reset fires at hand-off and uncovers the overlay
+underneath the player.
+
+⚠ **`instantSelectionHandled` must stay latched — do not reset it alongside `playbackHandedOff`.**
+It guards the effect that *selects* Instant's source and calls `seedAutoPlayCandidates`. Clearing
+it on a retry would re-seed the chain back to candidate 1, and the failure would loop forever
+instead of advancing.
+
+**Verified:** `:composeApp:testAndroidHostTest` in `nuvio-z` - **700 tests, zero failures**,
+including five new `AutoPlayFailoverTest` cases. `:composeApp:desktopTest` in `NuvioZDesktop` -
+**908 tests, zero failures**, and it compiled `desktopMain`. `:androidApp:assembleFullDebug`
+rebuilt so the installed APK contains the fix. `StreamsRepository.kt` was hand-ported (the repos
+already differ at `presentStreamGroup`), `App.kt` hand-ported per the never-`cp` rule, and the
+test file copied. **Not smoke-tested on a device.**
+
+⚠ **This makes the failure recoverable and visible; it does not explain why the source died after
+a second.** To capture that, enable Settings → Playback → **Playback diagnostics HUD** before
+playing: `f3a30dcb` makes the player retain the real error instead of exiting. Note the HUD flag
+is a non-persisted `mutableStateOf`, so it resets on every app start and must be re-enabled.
+
+## Playback connection-drop diagnostics (2026-08-08, Phase 1 complete in code)
+
+The instrumented build from `~/.claude/plans/okay-we-need-to-humble-balloon.md` is implemented
+in both repositories. It is debug-gated and off until Settings -> Playback -> **Playback
+diagnostics HUD** is enabled. In a debug build the normally advanced automatic-downshift row
+is visible without enabling all advanced settings.
+
+The HUD reports real buffer ahead/position/duration and labels it with the live engine
+(ExoPlayer or libmpv), source resolution/release group/provider/addon, the provider-keyed
+network estimate and confidence, and every state-machine field plus time remaining to the
+trigger. Android ExoPlayer can be throttled live to Off / 20 / 10 / 5 / 2 Mbps. The HUD also
+forces one safe step down or up in the same release group and resets the automatic swap budget.
+It explicitly warns when libmpv is live because the ExoPlayer throttle cannot affect it.
+
+Every automatic or forced swap is recorded in a bounded, in-memory, copyable log: elapsed
+timestamp, reason, from/to quality, group, provider and addon, buffer at trigger, position
+before/after, and the gap until the replacement actually plays. Automatic downshift now shows
+a user-facing toast instead of changing quality silently. Manual source choices are not logged
+or toasted. No Phase 2 buffer tuning or Phase 3 automatic upshift/default change was made.
+
+**Local verification:** Android host tests and desktop tests pass, including the new forced
+upshift and swap-log cases; desktopMain compiled with the new debug actual. A clean
+`:androidApp:assembleFullDebug` passes and produces the side-by-side-installable debug APK.
+The first combined debug/release packaging attempt hit a stale Gradle transform pointing to
+the repository's old path; cleaning generated build outputs fixed the debug build. A standalone
+`:androidApp:assembleFullRelease` then compiled, passed lint, R8/minification and resource
+optimization, and stopped only at final APK packaging because this checkout has no release
+keystore (`SigningConfig "release" is missing storeFile`). No device verification.
+
+### Device test script
+
+0. Settings -> Playback: set **Playback mode = Instant**, enable **Switch source when buffering
+   persists**, and enable **Playback diagnostics HUD**.
+1. Start a 4K episode and confirm the HUD says **ExoPlayer**. If it says libmpv, throttle tests
+   are invalid. Record buffer ahead after it settles.
+2. Tap **Force down**. Check the preserved position, audio/subtitle selection, replacement
+   quality, and the measured gap in **Log**.
+3. Restart playback, confirm ExoPlayer again, let it settle for at least 15 seconds, then select
+   **2 M**. Confirm the starvation run builds and fires after roughly 21 seconds total
+   (15-second settle plus 6-second sustained starvation).
+4. Turn the throttle **Off** and confirm there is no oscillation.
+5. Tap **Reset budget**, restart if needed, and repeat with **10 M** to test a partial drop.
+6. Copy the log and report it together with the settled buffer-ahead value and whether the
+   forced swap preserved position and tracks.
+
+## Instant predictability, and the missing desktop Next Episode button (2026-08-08)
+
+Two user reports from the `0.4.9-beta` build: Instant "feels like spinning a roulette wheel on
+what resolution I'm going to get", and there is still no Next Episode button in the player.
+Branch `claude/instant-predictability-next-ep` in **both** repositories.
+
+**The Next Episode button was a desktop-only gap, and not where it looked.** The Compose
+player has had one since forever - `PlayerControls.kt` renders a `SkipNext` pill whenever
+`nextEpisodeInfo?.hasAired == true`, and that file is byte-identical across the repos. But
+**desktop never mounts that control bar.** `5b3fc81d` ("feat: skip intro/outro to native
+player") moved the desktop player to a native HTML overlay
+(`desktopMain/resources/player-ui/controls.html` + `controls.js`, driven by
+`NativePlayerController`), and its action row had resize/speed/subs/audio/sources/episodes and
+no next-episode entry. Added one: `data-command="nextEpisode"` →
+`PlayerControlsAction.NextEpisode` → the same `playNextEpisode()` the Compose pill calls, with
+`nextEpisodeLabel`/`showNextEpisode` crossing the bridge beside the `nextEpisodeVisible` fields
+that were already there. Reuses `#icon-skip-next` and the existing `player_next_episode`
+string, so no new icon and no new string key.
+
+⚠ **The `!isDesktop` guards in the desktop `PlayerScreenRuntimeUi.kt` are correct - do not
+"fix" them.** `showNextEpisodeCard && !isDesktop` and `activeSkipInterval.takeUnless
+{ isDesktop }` suppress the *Compose* card and skip prompt because the HTML layer owns both
+(`#nextEpisodeCard`, `#skipPrompt`). Removing them double-renders.
+
+**Instant was never random - it was opaque, and it churned.** Checked before changing
+anything: no `shuffled`/`Random` anywhere in `features/playback/` or `features/streams/`, and
+`SourceRanking`'s comparator ends in `.thenBy(addonOrderOf).thenBy(stableUrlOf)`. The one
+plausible real race was ruled out too - `isAnyLoading` cannot flip false while a debrid cache
+check is outstanding, because a group awaiting annotation is not republished until
+`publishAddonGroup` runs *inside* the availability job (`StreamsRepository.kt:302-339`), so the
+pre-completion `isLoading = true` copy is what `anyLoading` sees. Instant genuinely waits for
+settled cache state.
+
+What actually varies between two taps that look identical: the derived rows come from *this*
+episode's catalogue (an empty bucket produces no row), and the estimate ratchets upward as you
+watch. Both are correct; neither is visible. So:
+
+- **`PlaybackQualityOptions.stickyAffordable`** - `highestAffordable` biased towards the
+  resolution this series already got in this sitting. It will not override a metered cap, will
+  not hold a resolution the estimate can no longer carry, and will not invent a row the
+  episode does not have. A tie-break towards stability, never a ceiling or a floor.
+- **Instant now says what it opened** - a toast, `Playing 1080p · WEB-DL · TorBox`, raised
+  before navigation so it works on both platforms without a Compose overlay over the desktop's
+  native surface.
+
+Two traps worth not re-stepping on:
+
+- **The pin is written where a source *opens*, not where Instant *chooses*.** Instant's failure
+  chain (`skipAutoPlayStream`) can advance past a dead or evicted candidate to a different
+  resolution. Pinning the choice would record something that never played, and the next episode
+  would then prefer a resolution that just failed - reintroducing exactly the churn this
+  removes. Same reasoning for the toast.
+- **`BingeGroupCacheRepository.sessionPin` could not be reused for this**, despite being the
+  obvious home. `StickySourcePin.isEmpty` ignores `resolutionHeight`, so a resolution-only pin
+  is *discarded* on save; and a non-empty one would make Streamlined skip its quality sheet.
+  `sessionInstantHeight`/`saveSessionInstantHeight` is a separate map in the same file, keyed
+  by `parentMetaId`, session-scoped for the same reason the sticky pins are, and cleared by the
+  same `clearSessionPins()`.
+
+**Two known gaps, both deliberate, neither started:**
+
+- **No max-quality ceiling for Instant.** The user has no lever over resolution at all. It
+  wants a profile-scoped key, which means three `PlayerSettingsStorage` actuals across both
+  repos plus `syncKeys` and both sync-payload paths - and editing that key set is what wiped
+  the playback settings in `0.4.0-beta`. Left for its own commit.
+- **User codec/HDR/audio-language preferences are dead on the playback path.**
+  `PlaybackSourceSelector.rank` hardcodes `CodecPreference.ANY` / `DynamicRangePolicy.ANY` and
+  never populates `preferredAudioLanguage`; `PlaybackQualityOptions.preferencesFor` does the
+  same. They work for downloads only. This is a real defect, not a missing feature, and fixing
+  it changes what Instant picks for anyone who has set them - so it needs its own commit and
+  its own smoke test.
+
+**Verified:** `:composeApp:testAndroidHostTest` in `nuvio-z` - **687 tests across 96 classes**,
+zero failures, errors or skips, including six new `stickyAffordable` cases.
+`:composeApp:desktopTest` in `NuvioZDesktop` - **895 tests across 127 classes**, zero failures,
+errors or skips, and it compiled `desktopMain`, which is the only local check that the new
+`PlayerControlsAction.NextEpisode` arm and the `PlayerControlsState` fields actually build.
+Four shared files are byte-identical across the repos
+(`PlaybackQualityOptions.kt`, `BingeGroupCacheRepository.kt`, `PlaybackQualityOptionsTest.kt`,
+`PlayerControls.kt`); `App.kt` and `PlayerScreenRuntimeUi.kt` were hand-ported.
+
+⚠ **`controls.html` and `controls.js` have no automated coverage at all** - `desktopTest`
+compiles `desktopMain` Kotlin and never parses the resources, so a typo there ships silently
+and a duplicate `const` would blank the entire overlay. Checked by hand instead:
+`node --check controls.js` passes, and `nextEpisodeLabel`/`nextEpisodeButton` are each declared
+exactly once in the JS and appear exactly once as an id in the HTML.
+
+**Not smoke-tested.** No Android device and no installed desktop app were available. **Nobody
+has clicked the new button** - item A is verified by code inspection and a compiling desktop
+build only. Still outstanding: the desktop button on a series (and hidden on a movie and on a
+last episode), that the native next-episode card and skip prompt still work, three consecutive
+Instant episodes holding one resolution, and Instant on a metered connection with a pin in play.
 
 ## Derived options: first smoke test, three fixes (2026-08-07, `0.4.9-beta`)
 
