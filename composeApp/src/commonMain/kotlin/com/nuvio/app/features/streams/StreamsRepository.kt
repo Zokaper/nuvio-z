@@ -796,7 +796,13 @@ object StreamsRepository {
         return skipAutoPlayStream(failed)
     }
 
-    /** Seeds Instant's ranked failure chain into the existing auto-play mechanism. */
+    /**
+     * Seeds a ranked failure chain into the existing auto-play mechanism.
+     *
+     * Used by Instant, which ranks the whole catalogue, and by Streamlined, which ranks one
+     * quality row - `PlaybackSourceSelector.select` hands back the winner's alternatives for
+     * exactly this, and dropping them left one provider error as the end of the road.
+     */
     fun seedAutoPlayCandidates(candidates: List<StreamItem>) {
         val limited = candidates.distinct().take(3)
         // A fresh chain retires the previous one for good, so a failure here can never fail over

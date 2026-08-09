@@ -46,7 +46,16 @@ data class PlayerLaunch(
     val initialPositionMs: Long = 0L,
     val initialProgressFraction: Float? = null,
     val contentLanguage: String? = null,
-    val instantAutoPick: Boolean = false,
+    /**
+     * Whether a ranked list of alternatives is standing behind this source.
+     *
+     * Instant and Streamlined both seed `StreamsRepository`'s auto-play chain before handing
+     * off, so a source that refuses to resolve - or opens and dies a second later - can be
+     * stepped past rather than surfaced as a dead end. Classic and every manual path leave
+     * this false: there the user chose the source and picking a different one for them would
+     * be a surprise, not a recovery.
+     */
+    val autoPickedWithFailureChain: Boolean = false,
 )
 
 object PlayerLaunchStore {

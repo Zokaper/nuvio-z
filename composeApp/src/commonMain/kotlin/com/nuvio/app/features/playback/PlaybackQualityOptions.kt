@@ -279,8 +279,18 @@ object PlaybackQualityOptions {
         )
         // Implausible sizes sort last within their own row. They stay reachable - a season
         // pack often still resolves to the right file - but they never lead.
-        return compareBy<MeasuredCandidate>({ !it.isPlausible }, { it.candidate.stream.isTorrentStream })
-            .then(ranked)
+        //
+        // Cache evidence is the *third* key, deliberately. A source known to be cached should
+        // lead an equally plausible one whose state is only hoped for, because the alternative
+        // is the provider answering "not cached" at resolve time and the user reading an error.
+        // But promoting it above plausibility would let an implausible cached season pack head
+        // the row again, and it would not show: the displayed bitrate and size come from
+        // `credibleBitrateMbps`, so only what actually *plays* would regress.
+        return compareBy<MeasuredCandidate>(
+            { !it.isPlausible },
+            { it.candidate.stream.isTorrentStream },
+            { it.candidate.facts.isDebridReady != true },
+        ).then(ranked)
     }
 
     /**
