@@ -25,6 +25,22 @@ enum class PlaybackMode {
     INSTANT,
     ;
 
+    /**
+     * Whether this mode may be chosen right now.
+     *
+     * **The only availability test in the codebase.** Nothing else may ask `== INSTANT` to
+     * decide whether a mode can be picked: `0.4.0-beta` shipped a stale "Not ready yet"
+     * caption precisely because two files described the modes independently, and the
+     * machinery that produced it was deleted in `0.4.1-beta` rather than fixed.
+     *
+     * Instant is withdrawn while its source selection is unfinished - it picks a tier from a
+     * measured line and then has no ceiling to hold it, so it reaches for releases the
+     * connection cannot carry. Withdrawing it is not a decision about the idea; it is a
+     * decision not to ship a mode that behaves worse than the one beside it.
+     */
+    val isSelectable: Boolean
+        get() = this != INSTANT
+
     companion object {
         /**
          * Existing installs must land on [CLASSIC].
@@ -37,6 +53,20 @@ enum class PlaybackMode {
 
         fun fromStorage(value: String?): PlaybackMode =
             entries.firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) } ?: Default
+
+        /**
+         * The mode a profile stored on [INSTANT] behaves as while Instant is withdrawn.
+         *
+         * Streamlined, because it is the closest experience: the source is still chosen for
+         * the user, they only add one tap for quality. Classic would take away the automatic
+         * selection they opted into.
+         *
+         * Applied at **read** time, deliberately. Rewriting storage would forget the choice
+         * for good, so re-enabling Instant later would silently leave those profiles behind;
+         * this way the stored key is untouched and they come back on their own.
+         */
+        fun coerceSelectable(mode: PlaybackMode): PlaybackMode =
+            if (mode.isSelectable) mode else STREAMLINED
     }
 }
 

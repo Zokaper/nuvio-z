@@ -1112,6 +1112,7 @@
     <string name="playback_mode_instant_stream_2">Asks once before using mobile data</string>
     <string name="playback_mode_instant_download">Starts straight away with the preset matching your connection</string>
     <string name="playback_mode_escape_hatch">In every mode, long-press an episode to pick the source yourself for one play.</string>
+    <string name="playback_mode_unavailable">Not available in this version</string>
     <string name="playback_quality_title">Choose playback quality</string>
     <string name="playback_quality_description">Nuvio will choose the best matching source.</string>
     <string name="playback_quality_loading">Finding available sources…</string>

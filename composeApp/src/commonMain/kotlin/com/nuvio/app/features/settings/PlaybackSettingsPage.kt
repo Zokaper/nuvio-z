@@ -388,11 +388,22 @@ private fun PlaybackSettingsSection(
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                // Automatic source swapping only ever ran in Instant, so withdrawing Instant
+                // takes it with it - `maybeDownshift` already returns early on every other
+                // mode, and no profile can now be on Instant. It goes dead on its own; saying
+                // so is the difference between withheld and broken.
+                val autoDownshiftAvailable = PlaybackMode.INSTANT.isSelectable
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_auto_downshift),
-                    description = stringResource(Res.string.settings_playback_auto_downshift_description),
-                    checked = autoPlayPlayerSettings.playbackAutoDownshift,
-                    enabled = autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
+                    description = if (autoDownshiftAvailable) {
+                        stringResource(Res.string.settings_playback_auto_downshift_description)
+                    } else {
+                        stringResource(Res.string.settings_playback_auto_downshift_description) +
+                            "\n" + stringResource(Res.string.playback_mode_unavailable)
+                    },
+                    checked = autoDownshiftAvailable && autoPlayPlayerSettings.playbackAutoDownshift,
+                    enabled = autoDownshiftAvailable &&
+                        autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
                     isAdvanced = !isDebugBuild,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
@@ -1752,14 +1763,6 @@ private data class LanguageSelectionOption(
     val description: String? = null,
 )
 
-/**
- * Whether this mode actually changes anything yet.
- *
- * Streamlined lands in Phase 2 and Instant in Phase 3; until then both fall through
- * to the Classic source list. They are selectable rather than hidden so the setting
- * and its persistence can be exercised, but the row says so plainly - silently
- * behaving like Classic would read as a bug.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlaybackModeDialog(
@@ -1802,6 +1805,7 @@ internal fun PlaybackModeDialog(
                             mode = mode,
                             isSelected = mode == selected,
                             onClick = { onModeSelected(mode) },
+                            enabled = mode.isSelectable,
                         )
                     }
                 }
