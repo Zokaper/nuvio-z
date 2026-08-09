@@ -10,6 +10,28 @@ import kotlin.test.assertTrue
 class DownloadTransferTest {
 
     @Test
+    fun meaningfulProgressScalesWithTheFileAtBothEnds() {
+        // A flat figure is wrong at both ends. On a 60 GB remux 16 MiB is 0.03%, so a source
+        // could inch through the whole file and never be called stalled.
+        assertEquals(600_000_000L, meaningfulProgressBytes(60_000_000_000L))
+        // On a small episode the flat figure is most of the download, and a bar the transfer
+        // cannot clear is the same stuck row in different clothes. This is the case that
+        // matters: the harness serves 6 MiB files, and a 16 MiB floor would mean no retry
+        // there could ever refresh its budget.
+        val small = 6L * 1024L * 1024L
+        assertEquals(small / 4L, meaningfulProgressBytes(small))
+        assertTrue(meaningfulProgressBytes(small) < small)
+        // In between, the flat figure stands.
+        assertEquals(MEANINGFUL_PROGRESS_BYTES, meaningfulProgressBytes(400L * 1024L * 1024L))
+        // Nothing to scale against.
+        assertEquals(MEANINGFUL_PROGRESS_BYTES, meaningfulProgressBytes(null))
+        assertEquals(MEANINGFUL_PROGRESS_BYTES, meaningfulProgressBytes(0L))
+        // Never zero, or every callback would count as progress and the budget would never
+        // be spent - the exact fault this was written to close.
+        assertTrue(meaningfulProgressBytes(1L) >= 1L)
+    }
+
+    @Test
     fun contentRangeTotalIsReadFromBothSatisfiedAndUnsatisfiedForms() {
         assertEquals(1_000L, parseContentRangeTotal("bytes 100-199/1000"))
         // The form a 416 carries; recognising it is what lets an already complete

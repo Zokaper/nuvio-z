@@ -871,6 +871,16 @@ object DownloadsRepository {
                         downloadedBytes.takeIf { it > 0L },
                         totalBytes?.takeIf { it > 0L },
                     ).maxOrNull()
+                    // Measured from where this run of bad luck began, not from the last
+                    // callback: the question is whether the transfer is getting anywhere,
+                    // and a few hundred KB at a time is not an answer.
+                    val cycleStart = item.retryCycleStartBytes
+                    val hasMeaningfulProgress = if (cycleStart == null) {
+                        downloadedBytes > item.downloadedBytes
+                    } else {
+                        downloadedBytes - cycleStart >=
+                            meaningfulProgressBytes(totalBytes ?: item.totalBytes)
+                    }
 
                     item.copy(
                         downloadedBytes = downloadedBytes.coerceAtLeast(0L),
@@ -883,8 +893,12 @@ object DownloadsRepository {
                         exceedsSizeCap = item.exceedsSizeCap ||
                             (cap != null && largestKnownSize != null && largestKnownSize > cap),
                         // Bytes arriving means the source works, so a previous run of bad
-                        // luck should not count against this attempt's retry budget.
-                        attemptCount = if (downloadedBytes > item.downloadedBytes) 0 else item.attemptCount,
+                        // luck should not count against this attempt's retry budget - but it
+                        // has to be enough bytes to mean it. A source that trickles and drops
+                        // used to refresh the budget every cycle, so `shouldRetry` never
+                        // returned false and the row retried forever without finishing.
+                        attemptCount = if (hasMeaningfulProgress) 0 else item.attemptCount,
+                        retryCycleStartBytes = if (hasMeaningfulProgress) null else item.retryCycleStartBytes,
                         nextRetryAtEpochMs = null,
                         updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                         errorMessage = null,
@@ -1001,6 +1015,38 @@ object DownloadsRepository {
                 } else {
                     val attempt = current.attemptCount + 1
                     val now = DownloadsClock.nowEpochMs()
+                    // Entering the retry cycle. From here the budget is only refreshed by
+                    // real progress measured against this mark - see `onTransferProgress`.
+                    val cycleStart = current.retryCycleStartBytes ?: downloadedBytes.coerceAtLeast(0L)
+                    // The budget is spent and nothing has moved. A partial file the server
+                    // will not correctly resume is the likeliest explanation for a stall
+                    // pinned near the end, so run the file once from the beginning on a
+                    // freshly minted link before giving up. `startDownloadLocked` already
+                    // force-refreshes the link on every start, so this only has to discard
+                    // the bytes; `restartedFromZero` keeps it to one attempt, because a
+                    // restart loop is the same fault wearing a different hat.
+                    val canRestartFromZero = !current.restartedFromZero &&
+                        reason != DownloadFailureReason.Fatal &&
+                        downloadedBytes > 0L
+                    if (!shouldRetry(reason, attempt, current.canReresolveSource) && canRestartFromZero) {
+                        DownloadsPlatformDownloader.removePartialFile(current.fileName)
+                        return@mutateLocked current.copy(
+                            status = DownloadStatus.Queued,
+                            pauseReason = null,
+                            downloadedBytes = 0L,
+                            localFileUri = null,
+                            attemptCount = 0,
+                            restartedFromZero = true,
+                            retryCycleStartBytes = 0L,
+                            // A dead link cannot be what we start over with.
+                            sourceUrlResolvedAtEpochMs = null,
+                            resumeEtag = null,
+                            resumeLastModified = null,
+                            nextRetryAtEpochMs = now + retryBackoffMs(attempt, reason),
+                            errorMessage = fallbackMessage,
+                            updatedAtEpochMs = now,
+                        )
+                    }
                     if (shouldRetry(reason, attempt, current.canReresolveSource)) {
                         // Backed off rather than retried on the spot: a dead network used
                         // to burn every attempt within milliseconds of the first failure.
@@ -1010,6 +1056,7 @@ object DownloadsRepository {
                             downloadedBytes = downloadedBytes.coerceAtLeast(0L),
                             localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
+                            retryCycleStartBytes = cycleStart,
                             // A dead link is not worth replaying; clearing the stamp is
                             // what makes the next start mint a new one.
                             sourceUrlResolvedAtEpochMs =
@@ -1023,6 +1070,15 @@ object DownloadsRepository {
                             updatedAtEpochMs = now,
                         )
                     } else {
+                        // Out of budget, and starting over has already been tried. Say what
+                        // happened in words the user can act on rather than counting down to
+                        // another attempt that will end the same way - a countdown that never
+                        // finishes its sentence is what made this look like a hang.
+                        val stalledMessage = if (current.restartedFromZero) {
+                            runBlocking { getString(Res.string.downloads_error_stalled) }
+                        } else {
+                            fallbackMessage
+                        }
                         current.copy(
                             status = DownloadStatus.Failed,
                             pauseReason = null,
@@ -1030,7 +1086,7 @@ object DownloadsRepository {
                             localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
                             nextRetryAtEpochMs = null,
-                            errorMessage = fallbackMessage,
+                            errorMessage = stalledMessage,
                             updatedAtEpochMs = now,
                         )
                     }
@@ -1116,9 +1172,18 @@ object DownloadsRepository {
                 if (item.id !in lostIds) {
                     item
                 } else {
+                    // Charged an attempt, like any other failure. This path does not go
+                    // through `onTransferFailed`, so it used to recycle an item for free -
+                    // a second unbounded loop, independent of the progress reset, in which
+                    // the queue watchdog could recover the same download forever. Anything
+                    // that puts a download back in the queue has to cost it something, or
+                    // "no row that stops moving" is traded for a row that never finishes.
                     item.copy(
                         status = DownloadStatus.Queued,
                         pauseReason = null,
+                        attemptCount = item.attemptCount + 1,
+                        retryCycleStartBytes = item.retryCycleStartBytes
+                            ?: item.downloadedBytes.coerceAtLeast(0L),
                         nextRetryAtEpochMs = null,
                         updatedAtEpochMs = now,
                     )
