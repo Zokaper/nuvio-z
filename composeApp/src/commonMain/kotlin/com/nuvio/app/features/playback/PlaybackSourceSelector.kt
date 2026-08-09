@@ -105,6 +105,17 @@ object PlaybackSourceSelector {
     ).joinToString(" · ")
 
     /**
+     * The same words without the resolution: `WEB-DL · TorBox`.
+     *
+     * For callers that have already said which resolution this is - the quality sheet puts it
+     * in a badge - where repeating it would be noise.
+     */
+    fun describeRelease(facts: SourceFacts?): String = listOfNotNull(
+        facts?.releaseQuality?.takeIf { it.isNotBlank() },
+        (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    /**
      * The shared ordering, for callers that hold a bare candidate list rather than an option.
      *
      * P2P is deliberately behind every HTTP/debrid candidate even when explicitly enabled.

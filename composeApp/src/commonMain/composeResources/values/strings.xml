@@ -1118,7 +1118,9 @@
     <string name="playback_quality_loading">Finding available sources…</string>
     <string name="playback_quality_best">Best available</string>
     <string name="playback_quality_variant_high">High</string>
+    <string name="playback_quality_variant_mid">Mid</string>
     <string name="playback_quality_variant_low">Low</string>
+    <string name="playback_quality_over_connection">May be more than your connection carries</string>
     <string name="playback_quality_needs">Needs %1$d Mb/s</string>
     <string name="playback_quality_needs_estimated">Needs about %1$d Mb/s</string>
     <string name="playback_quality_summary_with_size">%1$s · %2$s</string>

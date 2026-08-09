@@ -3599,6 +3599,8 @@ private fun MainAppContent(
                                 isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
                                     streamsUiState.isAnyLoading ||
                                     streamlinedSelectionPending,
+                                selectionContext = playbackSelectionContext,
+                                estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
                                 onOptionSelected = ::selectStreamlinedOption,
                                 onChooseManually = {
                                     streamlinedSelectionPending = false
