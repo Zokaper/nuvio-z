@@ -1125,6 +1125,7 @@
     <string name="playback_quality_needs_estimated">Needs about %1$d Mb/s</string>
     <string name="playback_quality_summary_with_size">%1$s · %2$s</string>
     <string name="playback_quality_manual">Choose source manually</string>
+    <string name="playback_quality_your_connection">Your connection: about %1$d Mb/s</string>
     <string name="player_source_switched">Connection dropped - switched to %1$s</string>
     <string name="playback_instant_selected">Playing %1$s</string>
     <string name="playback_quality_no_match">No safe automatic source matched. Choose a source manually.</string>

@@ -335,6 +335,14 @@ data class NuvioComponentTokens(
     val navItemMaxWidth: Dp,
     val sheetMaxWidth: Dp,
     val dialogMaxWidth: Dp,
+    /**
+     * For a centred panel whose body is a grid rather than a column of rows.
+     *
+     * Separate from [dialogMaxWidth] rather than a widening of it: 460 dp is a phone-dialog
+     * width and two settings pickers in NuvioZDesktop are laid out against it, so widening
+     * that token to fit a three-column grid would silently stretch them too.
+     */
+    val wideDialogMaxWidth: Dp,
     val chipHorizontalPadding: Dp,
     val chipVerticalPadding: Dp,
     val posterRadius: Dp,
@@ -516,6 +524,8 @@ internal fun defaultNuvioThemeTokens(
             navItemMaxWidth = 150.dp,
             sheetMaxWidth = 520.dp,
             dialogMaxWidth = 460.dp,
+            // Three 240 dp grid columns plus their gaps and the panel's own padding.
+            wideDialogMaxWidth = 880.dp,
             chipHorizontalPadding = NuvioTokens.Space.s14,
             chipVerticalPadding = NuvioTokens.Space.s8,
             posterRadius = NuvioTokens.Radius.poster,

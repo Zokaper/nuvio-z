@@ -5,6 +5,7 @@ import com.nuvio.app.features.downloads.VideoResolution
 import com.nuvio.app.features.streams.StreamItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -384,6 +385,72 @@ class PlaybackQualityOptionsTest {
             PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = null, estimatedMbps = 500.0)?.id,
         )
     }
+
+    @Test
+    fun anUnmeasuredConnectionGetsNoFit() {
+        // No estimate means the sheet has nothing to compare against, and a meter drawn from
+        // nothing implies a measurement that was never taken. A zero is the same case: it is
+        // what an unmeasured network reports, not a line that carries nothing.
+        val option = option(requiredMbps = 20.0)
+
+        assertNull(PlaybackQualityOptions.connectionFit(option, estimatedMbps = null))
+        assertNull(PlaybackQualityOptions.connectionFit(option, estimatedMbps = 0.0))
+    }
+
+    @Test
+    fun bestAvailableGetsNoFit() {
+        // Best available deliberately carries no `requiredMbps` - it is whatever ranks first,
+        // and quoting a bandwidth for it would be quoting a source it may not open.
+        assertNull(
+            PlaybackQualityOptions.connectionFit(option(requiredMbps = null), estimatedMbps = 50.0),
+        )
+    }
+
+    @Test
+    fun anOptionUnderTheEstimateIsNotOverTheConnection() {
+        val fit = PlaybackQualityOptions.connectionFit(option(requiredMbps = 12.0), estimatedMbps = 24.0)
+
+        assertNotNull(fit)
+        assertEquals(0.5, fit.loadFraction, 1e-9)
+        assertFalse(fit.isOverConnection)
+    }
+
+    @Test
+    fun anOptionExactlyAtTheEstimateIsNotOverIt() {
+        // The boundary case. `requiredMbps` already carries HEADROOM, so an option costing
+        // exactly what the line is thought to carry is the case that headroom exists to cover -
+        // warning about it would flag the very thing the estimate says is fine.
+        val fit = PlaybackQualityOptions.connectionFit(option(requiredMbps = 24.0), estimatedMbps = 24.0)
+
+        assertNotNull(fit)
+        assertEquals(1.0, fit.loadFraction, 1e-9)
+        assertFalse(fit.isOverConnection)
+    }
+
+    @Test
+    fun anAbsurdRatioIsCappedForDisplayButStillReadsAsOver() {
+        // A 200 Mbps season pack against an 8 Mbps line is 25x. The meter caps so that every
+        // ordinary option stays visible on the same scale; the warning is computed from the
+        // real numbers and must not cap with it.
+        val fit = PlaybackQualityOptions.connectionFit(option(requiredMbps = 200.0), estimatedMbps = 8.0)
+
+        assertNotNull(fit)
+        assertEquals(PlaybackQualityOptions.MAX_LOAD_FRACTION, fit.loadFraction, 1e-9)
+        assertTrue(fit.isOverConnection)
+        assertEquals(200.0, fit.requiredMbps, 1e-9)
+        assertEquals(8.0, fit.estimatedMbps, 1e-9)
+    }
+
+    private fun option(requiredMbps: Double?) = PlaybackQualityOption(
+        id = "test",
+        resolution = VideoResolution.FULL_HD_1080,
+        variant = PlaybackQualityOption.Variant.SINGLE,
+        requiredMbps = requiredMbps,
+        representativeBitrateMbps = null,
+        isEstimateApproximate = false,
+        representativeSizeBytes = null,
+        candidates = emptyList(),
+    )
 
     private fun build(
         vararg candidates: PlaybackSourceCandidate,

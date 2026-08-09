@@ -4,10 +4,10 @@ Last updated: 2026-08-09
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories, merged into `main` / `Dev` for `0.4.10-beta`. |
+| **Active branch** | `claude/quality-selector-grid` in **both** repositories — **code complete and both suites green, but nothing is committed: the work is uncommitted in both working trees.** Committing it, and then putting `STATUS.md` on `main` per "Keeping `main` current", is the next mechanical step. Its plan and execution ledger are `~/.claude/plans/ok-i-like-the-wiggly-scone.md` (all nine steps ☑). See "The quality selector is a grid" below. Previous branch `claude/instant-predictability-next-ep` is merged into `main` / `Dev` for `0.4.10-beta`. |
 | **Released** | `0.4.10-beta` on both. **Not device-verified** — published on the maintainer's explicit instruction with the test suites as the only evidence. See the `0.4.10-beta` section below for the three behaviours no test reaches; check those first if anything is reported. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | **Smoke-test `0.4.10-beta` on a device and on desktop** — it shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
+| **Next** | **Smoke-test on a device and on desktop.** The quality-selector grid has never been looked at — Compose is verified here by compilation only — so its five checks (below, newest section) fold into the same run: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -62,6 +62,119 @@ split does not apply there.
 APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed
 `CN=Nuvio Z Debug`. The in-app update flow itself is **not** device-tested — the first real proof
 is publishing `debug-v0.4.9-beta.2` and watching `.1` offer it.
+
+## The quality selector is a grid, and it waits for its numbers (2026-08-09, unreleased)
+
+Streamlined's quality selector was a scrolling stack of rows in a `BasicAlertDialog` —
+identical on a phone and on a 1080p desktop window, off the design system (raw
+`MaterialTheme.colorScheme` and hardcoded `.dp` throughout, never `MaterialTheme.nuvio`), and
+showing figures that changed under the user as addons answered. Branch
+`claude/quality-selector-grid` in **both** repositories. The option set, the ranking, the
+banding and everything under `PlaybackSourceSelector` are untouched: this is presentation, one
+navigation change, and one gate on when the options become visible.
+
+**1. Nothing is shown until the numbers are final.** `isLoading` used to only grey the rows
+out, so partial options sat on screen for the whole time they were still changing — a row could
+say "Needs about 9 Mb/s · 3.2 GB" and, a second later, say something else, with rows appearing
+and re-banding around it. The body now renders **one of three states and never a blend**:
+a skeleton grid on the same card footprint while loading; the option grid with final figures
+once settled; and, for settled-but-nothing-selectable — which `isStreamlinedSelectionReady`
+treats as terminal — the existing `playback_quality_no_match` text rather than an empty grid
+with only "Choose source manually" under it, which is a dead end wearing a grid. No new state
+and no timer: the gate is the `isLoading` value the call site already computed.
+
+⚠ **`isLoading` and `isSelecting` are two parameters on the sheet and must not be merged
+back.** The call site's old single flag was `tokenMismatch || isAnyLoading ||
+streamlinedSelectionPending`, and that third term flips true the moment the user taps a card.
+Under the old rendering it only greyed the rows out; under the three-state body it would have
+replaced the grid with a skeleton *after* the user had chosen — and the uncached-debrid path
+leaves the sheet composed under the consent dialog, so they would have watched it happen. So
+`isLoading` now means only "the figures are still moving" and owns the skeleton, while
+`isSelecting` leaves the grid exactly as it is and only stops it accepting taps (disabled, not
+removed: a second tap would re-arm the selection effect against a different option). While
+selecting, the subtitle is the progress overlay's own `playback_progress_choosing` rather than
+"Finding available sources…", which after a choice is simply untrue.
+
+⚠ **This trades an early wrong-looking choice for a wait**, deliberately. `StreamsRepository`
+does settle, so the wait is bounded — but **how long the skeleton is up is the first thing to
+watch in the smoke test.** If it feels broken, the fix is a "still searching" line, not
+reinstating partial figures.
+
+**2. A responsive surface, chosen from the real window.** `BoxWithConstraints` is at the top so
+it measures `entry<StreamRoute>`'s full-screen `Box`, not a phone-sized dialog — a
+`BasicAlertDialog` here clamps width and would have silently shipped the phone layout
+everywhere. Wide (≥768 dp, the repo's threshold at `App.kt:2051` and
+`ProfileSelectionScreen.kt:112`) gets a scrim and a centred panel; narrow gets
+`NuvioModalBottomSheet`. The wide branch must **not** use the bottom sheet:
+`usesNativeNuvioBottomSheet` is false on desktop, so it falls through to Material's
+`ModalBottomSheet` and would pin a phone sheet to the bottom of a 1080p window. The body is a
+`LazyVerticalGrid(GridCells.Adaptive(240.dp))`, so one composable serves phone, tablet and
+desktop, and the height ceiling is derived from the measured window rather than the old literal
+420 dp — which is what made the third quality band unreachable.
+
+**3. The meter and the warning cannot disagree.** `PlaybackQualityOptions.connectionFit`
+absorbed the sheet's private `isOverConnection` predicate, so the bar and the sentence are two
+renderings of one pure function rather than two expressions of the same comparison in different
+files. The track runs to twice the estimate, so the marker at its midpoint *is* the connection
+and a fill past it is the warning restated. The over-connection text keeps its wording, its
+prominence and its strong colour — it is the part of the old sheet the user asked to keep. The
+marker's position is derived from `MAX_LOAD_FRACTION` rather than restating its inverse as a
+literal, since the two constants live in different files.
+
+**Everything is on `MaterialTheme.nuvio` tokens.** `NuvioSurfaceCard` and `NuvioInfoBadge` were
+**not** reused, and that is not an oversight: both take their colour from `colors.surface` /
+`colors.surfaceCard`, and `surfaceSheet == surface` in the token set, so a `NuvioSurfaceCard` on
+this sheet would have been invisible against its own background, and `NuvioInfoBadge` invisible
+against the card.
+
+**4. `NuvioComponentTokens.wideDialogMaxWidth` (880 dp) is new, and is not a widening of
+`dialogMaxWidth`.** 460 dp leaves 420 dp of content and therefore exactly **one** 240 dp column.
+`dialogMaxWidth` looks unused in `nuvio-z` but **`NuvioZDesktop`'s `TrackingAdaptivePicker.kt`
+and `TrackingProviderCards.kt` lay out against it**, so widening it would have stretched two
+desktop settings pickers as a side effect. 880 dp is three columns plus their gaps and padding.
+
+**5. Dismiss returns to details; only "Choose source manually" reaches the source list.**
+`onDismiss` and `onChooseManually` were byte-identical — both set `manualSourceListRequested`,
+uncovering the Classic source list. Tolerable behind a dialog, wrong behind a bottom sheet,
+where a stray swipe drops the user into the list they chose Streamlined to avoid. Dismiss now
+calls `onBack`.
+
+⚠ **`onBack` can silently do nothing, so it has a fallback.** `rememberGuardedPopBackStack`
+pops only while its route is current and returns `Unit`, so the caller cannot tell; with
+`qualitySheetDismissed` set and `manualSourceListRequested` still false, the opaque hand-off
+`Box` keeps painting over `StreamsScreen` and the user gets a blank screen with no affordance —
+the same class of fault as `onPlaybackFailureExit`'s silent no-op. A `withFrameNanos` effect
+re-checks the current route and uncovers the source list if the pop no-oped.
+
+⚠ **That effect is declared beside the route's flags, not inside the sheet's `if`.** `onDismiss`
+sets `qualitySheetDismissed = true`, which is part of that `if`'s own condition, so an effect
+declared inside it would be cancelled mid-`withFrameNanos` by the very state change it exists to
+observe — the fallback would never fire and the blank-screen strand would ship.
+
+⚠ **The other five `manualSourceListRequested = true` sites are untouched**, deliberately: they
+are the failure-chain exhaustion and uncached-debrid paths, and the exhaustion one is the
+"hang wearing a spinner" the `0.4.10-beta` section exists to kill.
+
+**Verified:** Android **729 tests across 101 classes** and desktop **934 tests across 131 classes**, both zero
+failures, errors or skips — the 724 / 929 baselines plus the same five new `connectionFit` cases
+(unknown estimate, unknown requirement, exactly at the line, over the line, and the display
+clamp). The desktop run compiled `desktopMain`. `PlaybackQualitySheet.kt`,
+`PlaybackQualityOptions.kt`, `PlaybackQualityOptionsTest.kt` and `Tokens.kt` are byte-identical
+across the repos and were `cp`'d; `App.kt` and `strings.xml` were hand-ported.
+
+**Not smoke-tested on a device or an installed desktop app — nothing here has been looked at.**
+Compose is verified by compilation only, so the entire layout is unseen. In order:
+
+1. **Numbers never change once visible.** On a plugin-heavy profile, watch from the first frame:
+   skeleton, then the grid, and no figure that moves afterwards. Time the skeleton.
+2. Swipe the sheet away → **details, not the source list**; hardware back the same; and never a
+   blank opaque screen (the `onBack` no-op fallback).
+3. An **uncached debrid** option → the consent `AlertDialog` is readable and on top. It is now a
+   Material `AlertDialog` over a `ModalBottomSheet` — **two platform dialog windows on Android**,
+   which the old `BasicAlertDialog` pairing did not produce. This is the most likely new defect.
+4. Exhaustion (an episode whose whole chain fails) → still uncovers the source list, not details.
+5. Desktop: resize across the 768 dp threshold with the sheet open — panel ↔ sheet without
+   losing state, and 2–3 columns when wide.
 
 ## Streamlined made to work, Instant withdrawn, downloads that cannot loop (2026-08-09, `0.4.10-beta`)
 

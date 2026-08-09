@@ -182,6 +182,53 @@ object PlaybackQualityOptions {
             ?: fallback
     }
 
+    /**
+     * Where one option sits against the connection estimate.
+     *
+     * Null whenever either figure is unknown - Best available carries no `requiredMbps`, and a
+     * connection nothing has measured yet carries no estimate. A null fit means the quality
+     * sheet says nothing about the connection for that option, which is the honest answer;
+     * drawing an empty meter would imply a measurement that does not exist.
+     *
+     * This is the single source of both the warning and the meter beside it. They were two
+     * expressions of the same comparison in different files, which is how a bar and a sentence
+     * come to disagree.
+     */
+    data class ConnectionFit(
+        val requiredMbps: Double,
+        val estimatedMbps: Double,
+        /**
+         * `required / estimate`, capped at [MAX_LOAD_FRACTION] for display. Above 1.0 the
+         * option asks for more than the line is thought to carry.
+         *
+         * The cap is a drawing concern only: a 200 Mbps season pack against an 8 Mbps estimate
+         * is 25x, and a meter that honoured that would need a scale on which every ordinary
+         * option is invisible. [isOverConnection] is computed from the real numbers.
+         */
+        val loadFraction: Double,
+        val isOverConnection: Boolean,
+    )
+
+    /** Ratio beyond which the meter stops growing. See [ConnectionFit.loadFraction]. */
+    const val MAX_LOAD_FRACTION = 2.0
+
+    fun connectionFit(
+        option: PlaybackQualityOption,
+        estimatedMbps: Double?,
+    ): ConnectionFit? {
+        val required = option.requiredMbps?.takeIf { it > 0.0 } ?: return null
+        val estimate = estimatedMbps?.takeIf { it > 0.0 } ?: return null
+        return ConnectionFit(
+            requiredMbps = required,
+            estimatedMbps = estimate,
+            loadFraction = (required / estimate).coerceIn(0.0, MAX_LOAD_FRACTION),
+            // Strictly greater: an option that costs exactly what the line carries is the
+            // boundary case the headroom in `requiredMbps` already exists to cover, and
+            // warning about it would flag the very thing the estimate says is fine.
+            isOverConnection = required > estimate,
+        )
+    }
+
     private val qualityOrder = compareBy<PlaybackQualityOption>(
         { it.resolution?.height ?: 0 },
         { it.requiredMbps ?: 0.0 },

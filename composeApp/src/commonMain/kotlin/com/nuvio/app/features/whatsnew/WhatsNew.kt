@@ -45,65 +45,39 @@ internal fun shouldShowWhatsNew(
  * bump-last rule is enforced, so a docs commit after the bump fails the release.
  */
 object CurrentReleaseNotes {
-    fun sections(@Suppress("UNUSED_PARAMETER") isDesktop: Boolean): List<WhatsNewSection> = listOf(
+    fun sections(isDesktop: Boolean): List<WhatsNewSection> = listOf(
         WhatsNewSection(
             category = WhatsNewCategory.NewFeatures,
-            items = listOf(
+            items = listOfNotNull(
                 WhatsNewItem(
-                    title = "A middle quality, where there is one",
-                    description = "Titles with a wide range of releases now offer High, Mid and Low " +
-                        "rather than only two ends. Titles without a real middle still show two, or " +
-                        "one - the rows come from what exists, not from a fixed list.",
+                    title = "A quality picker you can actually read",
+                    description = "Choosing a quality now shows a grid of cards rather than a stack of " +
+                        "rows: each one leads with its resolution, names the release and provider it " +
+                        "would really open, and draws how much of your connection it would take.",
                 ),
                 WhatsNewItem(
-                    title = "A quality sheet that says what it will play",
-                    description = "Each row now shows its resolution as a badge and names the release " +
-                        "and provider it would actually open - not the first source in the list, which " +
-                        "is often not the one that gets used. Rows that ask for more than your " +
-                        "connection is likely to carry say so, and stay pickable anyway.",
-                ),
+                    title = "It fits the window it is in",
+                    description = "On a tablet or a desktop window the picker is a centred panel two or " +
+                        "three cards across instead of a phone dialog with everything hidden below the " +
+                        "fold.",
+                ).takeIf { isDesktop },
             ),
         ),
         WhatsNewSection(
             category = WhatsNewCategory.Improvements,
             items = listOf(
                 WhatsNewItem(
-                    title = "Known-cached sources are preferred",
-                    description = "Where two releases are otherwise equal, the one the provider says " +
-                        "it already has ready is played first, rather than one whose state is only " +
-                        "hoped for.",
+                    title = "The numbers stop changing under you",
+                    description = "The picker used to appear as soon as the first sources arrived, so a " +
+                        "card could say one speed and size and then quietly say another as more addons " +
+                        "answered. It now waits until the figures are settled and shows placeholders " +
+                        "until then - nothing you read is about to be replaced.",
                 ),
                 WhatsNewItem(
-                    title = "Instant is unavailable for now",
-                    description = "Instant chooses a quality from your measured connection but has no " +
-                        "ceiling to hold it to, so it reached for releases the connection could not " +
-                        "carry. It is greyed out until that is fixed. If you were using it, playback " +
-                        "behaves as Streamlined - the source is still chosen for you - and your choice " +
-                        "is remembered for when it returns.",
-                ),
-            ),
-        ),
-        WhatsNewSection(
-            category = WhatsNewCategory.BugFixes,
-            items = listOf(
-                WhatsNewItem(
-                    title = "Streamlined no longer gives up on the first bad source",
-                    description = "\"Stream not cached\" and similar provider errors used to end the " +
-                        "attempt outright. Streamlined now moves on to the next source, says which one " +
-                        "failed and why, and shows you the full source list only once it has run out.",
-                ),
-                WhatsNewItem(
-                    title = "Downloads can no longer retry forever",
-                    description = "A download that trickled a little and then dropped kept resetting " +
-                        "its own retry budget, so it counted down and retried and never finished or " +
-                        "failed - pausing did not help. It now restarts once from the beginning on a " +
-                        "fresh link, and if that does not work it stops and says so.",
-                ),
-                WhatsNewItem(
-                    title = "Retrying downloads say which attempt they are on",
-                    description = "A countdown with no end in sight is what made a stalled download " +
-                        "look like a hang. The row now shows the attempt number and says when it is " +
-                        "starting the file over.",
+                    title = "Backing out of the picker goes back",
+                    description = "Dismissing the quality picker returns you to the title instead of " +
+                        "dropping you into the full source list. \"Choose source manually\" still opens " +
+                        "that list whenever you want it.",
                 ),
             ),
         ),

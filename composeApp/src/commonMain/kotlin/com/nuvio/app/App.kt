@@ -2519,6 +2519,27 @@ private fun MainAppContent(
                     // Ids are resolution+variant, so they survive the refetch this round-trips through.
                     var pendingStreamlinedOptionId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // Backing out of the quality sheet means "not now", so it returns to details
+                    // rather than uncovering the Classic source list the user chose Streamlined
+                    // to avoid - behind a bottom sheet a stray swipe would otherwise land there.
+                    //
+                    // `onBack` can silently do nothing: rememberGuardedPopBackStack pops only
+                    // while this route is current and returns Unit, so the caller cannot tell.
+                    // With `qualitySheetDismissed` set and `manualSourceListRequested` false the
+                    // opaque hand-off Box keeps painting over StreamsScreen, which would leave a
+                    // blank screen with no affordance - the same fault onPlaybackFailureExit
+                    // exists to prevent. Declared out here, beside the flags: this effect must
+                    // outlive the sheet, which leaves composition the moment `onDismiss` runs.
+                    var qualitySheetDismissRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    LaunchedEffect(qualitySheetDismissRequested) {
+                        if (!qualitySheetDismissRequested) return@LaunchedEffect
+                        withFrameNanos { }
+                        if (navController.currentRoute == route) {
+                            // The pop no-oped. Uncovering the source list is what every other
+                            // dead end in this route does, and it leaves the user able to act.
+                            manualSourceListRequested = true
+                        }
+                    }
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Streamlined covers the source list with the quality sheet until a tier is
                     // picked; from that point until playback starts the progress overlay owns the
@@ -3596,9 +3617,15 @@ private fun MainAppContent(
                         ) {
                             PlaybackQualitySheet(
                                 options = playbackQualityOptions,
+                                // Only "the figures are still moving" belongs here. Selection
+                                // pending is passed separately: folding it in would replace
+                                // the grid with a skeleton the instant the user tapped a card
+                                // - and on the uncached-debrid path, which leaves the sheet
+                                // composed under the consent dialog, they would watch it
+                                // happen.
                                 isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
-                                    streamsUiState.isAnyLoading ||
-                                    streamlinedSelectionPending,
+                                    streamsUiState.isAnyLoading,
+                                isSelecting = streamlinedSelectionPending,
                                 selectionContext = playbackSelectionContext,
                                 estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
                                 onOptionSelected = ::selectStreamlinedOption,
@@ -3612,7 +3639,8 @@ private fun MainAppContent(
                                     streamlinedSelectionPending = false
                                     pendingStreamlinedOptionId = null
                                     qualitySheetDismissed = true
-                                    manualSourceListRequested = true
+                                    qualitySheetDismissRequested = true
+                                    onBack()
                                 },
                             )
                         }
