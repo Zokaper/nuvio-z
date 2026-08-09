@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories (off `main` / `Dev`). The Instant predictability/desktop Next Episode work, the playback-drop diagnostics described below, and the Instant failure-chain fix are all committed. Local only, not pushed, not smoke-tested. |
-| **Released** | `nuvio-z` `0.3.10` · `NuvioZDesktop` `0.1.23-alpha` |
-| **Unreleased work** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | Uninstall the old debug app (the debug signing key changed), install `debug-v0.4.9-beta.1` from the new debug update line, and confirm the Instant failure chain now retries instead of exiting to details. Then run the playback-drop script below. Its measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes and whether Phase 3 automatic down/upshift is worth shipping. Also smoke-test the committed Instant predictability and desktop Next Episode work. Do not tune thresholds or enable downshift by default before the device run. |
+| **Active branch** | `claude/instant-predictability-next-ep` in **both** repositories, merged into `main` / `Dev` for `0.4.10-beta`. |
+| **Released** | `0.4.10-beta` on both. **Not device-verified** — published on the maintainer's explicit instruction with the test suites as the only evidence. See the `0.4.10-beta` section below for the three behaviours no test reaches; check those first if anything is reported. |
+| **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
+| **Next** | **Smoke-test `0.4.10-beta` on a device and on desktop** — it shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -62,6 +62,116 @@ split does not apply there.
 APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed
 `CN=Nuvio Z Debug`. The in-app update flow itself is **not** device-tested — the first real proof
 is publishing `debug-v0.4.9-beta.2` and watching `.1` offer it.
+
+## Streamlined made to work, Instant withdrawn, downloads that cannot loop (2026-08-09, `0.4.10-beta`)
+
+Four commits in `nuvio-z`, mirrored to `NuvioZDesktop`. Reported as: AIOStreams errors
+("stream not cached", an unnamed error) dead-ending Streamlined since `0.4.9-beta`; the
+resolution selector being a plain list with no middle option; and a Punisher episode stuck at
+5.8 of 6.2 GB saying "Retrying" forever, which pause/resume could not clear.
+
+**1. Streamlined had no failure chain, and never had one.**
+`completeStreamlinedOptionSelection` called `PlaybackSourceSelector.select`, took
+`Play.stream` and threw `Play.fallbacks` away, so one `NotCached` answer from the provider was
+the end of the road — while Instant, seeding the very same chain through
+`seedAutoPlayCandidates`, stepped past it. `1df19a17` (the plausibility ceiling that shipped in
+`0.4.9-beta`) is the likeliest *trigger*, because it changed which candidate heads each row,
+but the missing chain is the fault and the fix is right either way. **Nobody should spend time
+proving the 0.4.9 connection.** Streamlined now seeds the whole row and hands off to the
+auto-play effect, so resolve failures, P2P, reuse-last-link and the attempt counter behave
+identically in both modes. Every `isInstantAutoPlay` test in that effect was really asking "is
+there a next candidate?", so they became one `hasFailureChain`.
+
+Each advance names the source and the reason — stepping past a dead candidate silently is
+indistinguishable from a hang, and "unknown error" is what the absence of that looks like.
+An exhausted chain uncovers the source list instead of leaving the progress overlay up.
+
+Cache evidence became the **third** ranking key, below plausibility and torrent-ness. Promoting
+it above plausibility would let an implausible cached season pack head the row again and it
+would not show, because `credibleBitrateMbps` filters the display — only what actually plays
+would regress. Pinned by a test.
+
+**2. Instant is withdrawn**, behind a single `PlaybackMode.isSelectable` predicate — the
+`isImplemented()` machinery was deleted in `0.4.1-beta`, so this is new construction. A stored
+`INSTANT` is coerced to `STREAMLINED` at **read** time; `fromStorage` still answers `INSTANT`,
+so the key survives and those profiles come back if the mode returns. Auto source-swap needed
+no behavioural change — `maybeDownshift` already returns early unless the mode is `INSTANT` —
+only a caption saying it is withheld rather than broken.
+
+**3. A third quality band.** Buckets split three ways once their spread reaches 2.25
+(`SPLIT_RATIO²`) on geometric thirds, two ways at 1.5, otherwise not at all. Mid is a band, not
+a fixed row, so a title with nothing in the middle still shows exactly High and Low — which is
+why no existing test expectation moved. **A lone "Mid" row is unreachable**: the cheapest source
+always falls below the lower boundary and the dearest always reaches the upper one, so High and
+Low are always occupied. The collapse guard is kept for whoever moves those boundaries later,
+not because a hole is open; `aThreeWaySplitAlwaysHasBothEnds` pins it. The
+`PlaybackQualityTier` storage key set was **not** touched.
+
+The sheet was two `Text`s in a `Column`. Rows now lead with a resolution badge and name the
+provider and release of the source that would really open — `previewSelection`, not
+`candidates.first()`, because the protocol and cache gates can skip several candidates.
+
+**4. Downloads could retry forever.** `DownloadsRepository.kt:887` zeroed `attemptCount` on
+*any* forward byte, so a source that trickled and dropped refreshed its budget every cycle:
+`shouldRetry` never returned false and the row cycled Downloading → trickle → drop → Queued
+indefinitely. Pause/resume could not clear it because nothing was wedged — during the backoff
+the item is `Queued` with no handle, so `pauseDownload` had nothing to cancel and
+`resumeDownload` zeroed `attemptCount`, which is what the loop was already doing to itself.
+
+Now the budget only resets on progress measured from `retryCycleStartBytes`; an exhausted
+budget restarts from zero **once** on a fresh link, then fails with a named message. No new
+`expect` was needed: setting `downloadedBytes = 0` makes the existing downloaders take their
+`appendToTemp = false` path and delete the `.part` themselves.
+
+- **`meaningfulProgressBytes` scales both ways.** The plan called for `max(16 MiB, 1%)`, which
+  is wrong at the small end — the harness serves 6 MiB episodes, so a flat 16 MiB floor could
+  never be cleared and would have replaced one stuck state with another. It is now 1% on large
+  files, capped at a quarter of the file on small ones.
+- **`reclaimLostTransfersLocked` now charges an attempt.** It was a second, independent
+  unbounded cycle: it never went through `onTransferFailed` and never touched `attemptCount`,
+  so the queue watchdog could recycle an item forever for free. The two mechanisms cannot
+  double-bill: `DownloadQueuePlanner.lostTransfers` (`:71-80`) matches only `Downloading` and
+  system-paused items, never a `Queued` item waiting out `nextRetryAtEpochMs`. **Re-check that
+  if the filter ever grows a `Queued` arm.**
+
+**Verified:** Android **724 tests**, desktop **929 tests**, zero failures — baselines were 700
+and 908. Three new harness scenarios drive the real queue against twelve queued
+`DropConnection` faults: trickle-and-drop ends in a named failure, the restart happens exactly
+once, and a source that recovers still completes.
+
+**The harness is now slower on purpose.** `retryBackoffMs` is real time and deliberately not
+turned down — 2 + 5 + 15 + 30 seconds per budget, twice, plus the restart between them, so a
+trickling source takes about 130 s to be allowed to give up. Measured: the two exhaustion
+scenarios take 134 s each and the recovery one 82 s, so `DesktopDownloadQueueE2ETest` went from
+about 290 s to about 470 s. If that becomes intolerable, add a `retryBackoffScale` to
+`DownloadsTiming` beside the stall and watchdog knobs rather than shortening the schedule
+itself — but re-run the whole harness afterwards, because several existing scenarios observe
+the `Queued`/backoff window and a short scale makes that window smaller than the poll interval.
+
+**Not device-verified.** Released on the maintainer's explicit instruction with tests as the
+only evidence. Two behaviours no test reaches:
+
+1. **Streamlined no longer pops `StreamRoute`** (`if (!hasFailureChain) popUpTo<StreamRoute>`).
+   Required for retries, but it changes Back-from-player for the *default* mode. Check that
+   Back after a **successful** Streamlined start shows neither a re-displayed quality sheet nor
+   a stuck progress overlay.
+2. **Exhaustion sets `manualSourceListRequested`** while `qualitySheetDismissed` and
+   `streamlinedPlaybackStarting` are both true. Confirm the source list actually wins over the
+   overlay — that is the "hang wearing a spinner" this exists to kill.
+3. The plan's "a Streamlined retry advances rather than re-seeding" case has **no unit test**:
+   it is Compose state inside `entry<StreamRoute>`. Verified by reading — the re-arm effect at
+   `App.kt:2929` touches only `playbackHandedOff`/`autoPickAttempt`, and the selection effect
+   self-clears `streamlinedSelectionPending` — but not by running.
+
+**Flagged, not fixed: Android has no active stall watchdog.** Desktop polls and force-closes a
+silent stream (`DownloadsPlatformDownloader.desktop.kt:60-84`); Android relies on a
+**hardcoded** `readTimeout(60s)` (`android.kt:26-34`) that ignores `DownloadsTiming.stallTimeoutMs`,
+so the harness cannot exercise Android's stall path at all. Its own commit.
+
+**Also deliberately out of scope:** `PlaybackSourceSelector.rank` and
+`PlaybackQualityOptions.preferencesFor` still hardcode `CodecPreference.ANY` /
+`DynamicRangePolicy.ANY` and never set `preferredAudioLanguage`. A real defect, but it changes
+what gets picked for anyone with those preferences set — its own commit, its own smoke test.
 
 ## Instant's failure chain died the moment playback started (2026-08-08)
 

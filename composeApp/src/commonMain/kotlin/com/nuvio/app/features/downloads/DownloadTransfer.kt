@@ -66,6 +66,33 @@ internal object DownloadsTiming {
 
 internal const val MAX_DOWNLOAD_ATTEMPTS = 5
 
+/**
+ * How far a retry has to get before it counts as the source working again.
+ *
+ * The retry budget is reset by progress, which is right - a download that keeps advancing
+ * should not be failed for a rough patch hours ago. But *any* forward byte used to do it,
+ * so a source dropping after a few hundred KB refreshed the budget every cycle and the row
+ * retried forever without ever finishing. Sixteen mebibytes is far more than the dribble a
+ * failing connection produces and far less than a working one delivers between hiccups.
+ */
+internal const val MEANINGFUL_PROGRESS_BYTES = 16L * 1024L * 1024L
+
+/**
+ * Bytes that have to arrive in one retry cycle before the budget is refreshed.
+ *
+ * Scales both ways, because a fixed number is wrong at both ends. On a 60 GB remux 16 MiB is
+ * 0.03% - a source could inch through the whole file and never be called stalled - so the bar
+ * rises to 1% of the file. On a 300 MB episode the flat figure is most of the download, and a
+ * bar the transfer cannot clear is the same stuck row in a different costume, so it is capped
+ * at a quarter of the file.
+ *
+ * With no known total there is nothing to scale against and the flat figure stands.
+ */
+internal fun meaningfulProgressBytes(totalBytes: Long?): Long {
+    val total = totalBytes?.takeIf { it > 0L } ?: return MEANINGFUL_PROGRESS_BYTES
+    return minOf(maxOf(total / 100L, MEANINGFUL_PROGRESS_BYTES), total / 4L).coerceAtLeast(1L)
+}
+
 /** Why a transfer stopped, which decides whether resuming it is worth attempting. */
 internal enum class DownloadFailureReason {
     /** A network blip, timeout or 5xx. Worth retrying from the partial file. */

@@ -75,13 +75,27 @@ internal fun downloadStatusText(item: DownloadItem): String {
                 active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),
             )
             if (retryAtEpochMs != null && retryAtEpochMs > nowEpochMs) {
-                val countdown = stringResource(
-                    Res.string.downloads_status_retry_countdown,
-                    ((retryAtEpochMs - nowEpochMs + 999L) / 1000L).toInt(),
-                )
+                val seconds = ((retryAtEpochMs - nowEpochMs + 999L) / 1000L).toInt()
+                // A countdown with no end in sight is what made a stalled download look like
+                // a hang. Saying which attempt this is turns it into something with a finish.
+                val countdown = if (item.attemptCount > 0) {
+                    stringResource(
+                        Res.string.downloads_status_retry_countdown_attempt,
+                        seconds,
+                        item.attemptCount,
+                        MAX_DOWNLOAD_ATTEMPTS,
+                    )
+                } else {
+                    stringResource(Res.string.downloads_status_retry_countdown, seconds)
+                }
+                val restarting = if (item.restartedFromZero && item.downloadedBytes == 0L) {
+                    stringResource(Res.string.downloads_status_restarting) + " "
+                } else {
+                    ""
+                }
                 // A bare countdown does not say why. When something explained the wait -
                 // a source still preparing the file, most often - lead with that.
-                item.errorMessage?.takeIf { it.isNotBlank() }?.let { "$it $countdown" } ?: countdown
+                restarting + (item.errorMessage?.takeIf { it.isNotBlank() }?.let { "$it $countdown" } ?: countdown)
             } else {
                 stringResource(Res.string.downloads_status_queued_position, item.queuePosition + 1L)
             }

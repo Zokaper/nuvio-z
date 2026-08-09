@@ -752,9 +752,21 @@ object StreamsRepository {
         _uiState.update { it.copy(selectedFilter = addonId) }
     }
 
+    // What [consumeAutoPlay] retired, kept so a source that dies *after* it started playing can
+    // still fail over. Instant consumes the chain on the first frame - it has to, or backing out
+    // of the player would relaunch it - and that used to be the end of the chain: the player's
+    // fatal-error handler read an already-cleared `autoPlayStream`, concluded nothing was left,
+    // and dropped the user on the details screen on the very first failure with two ranked
+    // candidates still untried. Retained rather than re-derived because the ranking that
+    // produced the order is gone by then.
+    private var retiredAutoPlayStream: StreamItem? = null
+    private var retiredAutoPlayCandidates: List<StreamItem> = emptyList()
+
     fun consumeAutoPlay() {
         activeRequestKey = null
         _uiState.update {
+            retiredAutoPlayStream = it.autoPlayStream
+            retiredAutoPlayCandidates = it.autoPlayCandidates
             it.copy(
                 autoPlayStream = null,
                 autoPlayCandidates = emptyList(),
@@ -764,9 +776,39 @@ object StreamsRepository {
         }
     }
 
-    /** Seeds Instant's ranked failure chain into the existing auto-play mechanism. */
+    /**
+     * Re-arms the chain [consumeAutoPlay] retired, then advances past the source that just died.
+     *
+     * Only for the case where playback genuinely started and then failed. Returns whether a next
+     * candidate exists, matching [skipAutoPlayStream] so the caller branches identically either
+     * way. It is single-shot: the retained chain is dropped as it is read, so a second failure on
+     * the same play cannot resurrect candidates that have already been through the player.
+     */
+    fun failOverAfterPlaybackStarted(): Boolean {
+        val failed = retiredAutoPlayStream ?: return false
+        val candidates = retiredAutoPlayCandidates
+        retiredAutoPlayStream = null
+        retiredAutoPlayCandidates = emptyList()
+        if (candidates.isEmpty()) return false
+        _uiState.update {
+            it.copy(autoPlayStream = failed, autoPlayCandidates = candidates)
+        }
+        return skipAutoPlayStream(failed)
+    }
+
+    /**
+     * Seeds a ranked failure chain into the existing auto-play mechanism.
+     *
+     * Used by Instant, which ranks the whole catalogue, and by Streamlined, which ranks one
+     * quality row - `PlaybackSourceSelector.select` hands back the winner's alternatives for
+     * exactly this, and dropping them left one provider error as the end of the road.
+     */
     fun seedAutoPlayCandidates(candidates: List<StreamItem>) {
         val limited = candidates.distinct().take(3)
+        // A fresh chain retires the previous one for good, so a failure here can never fail over
+        // to a candidate ranked for different content.
+        retiredAutoPlayStream = null
+        retiredAutoPlayCandidates = emptyList()
         _uiState.update { current ->
             current.copy(
                 autoPlayStream = limited.firstOrNull(),

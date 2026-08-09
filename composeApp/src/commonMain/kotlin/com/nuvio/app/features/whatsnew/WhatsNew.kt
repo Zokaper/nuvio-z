@@ -50,15 +50,17 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.NewFeatures,
             items = listOf(
                 WhatsNewItem(
-                    title = "Quality choices built from what's actually available",
-                    description = "The quality sheet no longer offers a fixed list of presets. It now " +
-                        "shows what this title actually has - 4K High and Low, 1080p High and Low, 720p - " +
-                        "and a quality nobody released simply doesn't appear.",
+                    title = "A middle quality, where there is one",
+                    description = "Titles with a wide range of releases now offer High, Mid and Low " +
+                        "rather than only two ends. Titles without a real middle still show two, or " +
+                        "one - the rows come from what exists, not from a fixed list.",
                 ),
                 WhatsNewItem(
-                    title = "Every quality says what it needs",
-                    description = "Each option shows the connection speed the real file requires and how " +
-                        "big it is, so the choice is yours to make rather than a guess.",
+                    title = "A quality sheet that says what it will play",
+                    description = "Each row now shows its resolution as a badge and names the release " +
+                        "and provider it would actually open - not the first source in the list, which " +
+                        "is often not the one that gets used. Rows that ask for more than your " +
+                        "connection is likely to carry say so, and stay pickable anyway.",
                 ),
             ),
         ),
@@ -66,15 +68,18 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.Improvements,
             items = listOf(
                 WhatsNewItem(
-                    title = "Instant reaches the quality your connection can carry",
-                    description = "Instant now compares what each source really costs against your " +
-                        "connection instead of a fixed assumption, and the estimate improves as you " +
-                        "watch. Previously it rarely offered more than 1080p.",
+                    title = "Known-cached sources are preferred",
+                    description = "Where two releases are otherwise equal, the one the provider says " +
+                        "it already has ready is played first, rather than one whose state is only " +
+                        "hoped for.",
                 ),
                 WhatsNewItem(
-                    title = "Next episode uses the same choices",
-                    description = "Auto-playing the next episode now picks from the same options the " +
-                        "quality sheet would show, using that episode's own runtime.",
+                    title = "Instant is unavailable for now",
+                    description = "Instant chooses a quality from your measured connection but has no " +
+                        "ceiling to hold it to, so it reached for releases the connection could not " +
+                        "carry. It is greyed out until that is fixed. If you were using it, playback " +
+                        "behaves as Streamlined - the source is still chosen for you - and your choice " +
+                        "is remembered for when it returns.",
                 ),
             ),
         ),
@@ -82,33 +87,23 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOf(
                 WhatsNewItem(
-                    title = "High no longer means the biggest file in the list",
-                    description = "A size too large to be one episode - usually a whole season in a " +
-                        "single torrent - can no longer head a quality row or set the speed it claims. " +
-                        "It stays available as a fallback.",
+                    title = "Streamlined no longer gives up on the first bad source",
+                    description = "\"Stream not cached\" and similar provider errors used to end the " +
+                        "attempt outright. Streamlined now moves on to the next source, says which one " +
+                        "failed and why, and shows you the full source list only once it has run out.",
                 ),
                 WhatsNewItem(
-                    title = "Instant reaches 4K on connections that can carry it",
-                    description = "The bandwidth margin and the first-play assumptions were both too " +
-                        "cautious, so a 4K release your connection handles comfortably was being passed " +
-                        "over for 1080p.",
+                    title = "Downloads can no longer retry forever",
+                    description = "A download that trickled a little and then dropped kept resetting " +
+                        "its own retry budget, so it counted down and retried and never finished or " +
+                        "failed - pausing did not help. It now restarts once from the beginning on a " +
+                        "fresh link, and if that does not work it stops and says so.",
                 ),
                 WhatsNewItem(
-                    title = "Pinned releases last for the session only",
-                    description = "\"Use this release for the rest of the season\" no longer survives a " +
-                        "restart. A stored pin skips the quality sheet entirely, so it could quietly " +
-                        "make Streamlined behave like Instant with nothing to undo it.",
-                ),
-                WhatsNewItem(
-                    title = "The quality sheet can no longer hang",
-                    description = "If a search finished with sources that none of them could be played " +
-                        "from, the sheet used to spin forever with every row disabled. It now says so " +
-                        "and offers the source list.",
-                ),
-                WhatsNewItem(
-                    title = "Mislabelled sources no longer fake a 4K option",
-                    description = "Some addons put \"UHD\" in every stream name. A source too small to " +
-                        "be what it claims is now listed as the quality it really is.",
+                    title = "Retrying downloads say which attempt they are on",
+                    description = "A countdown with no end in sight is what made a stalled download " +
+                        "look like a hang. The row now shows the attempt number and says when it is " +
+                        "starting the file over.",
                 ),
             ),
         ),

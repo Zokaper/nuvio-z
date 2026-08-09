@@ -6,6 +6,7 @@ import com.nuvio.app.features.downloads.SizePreference
 import com.nuvio.app.features.downloads.SourceRanking
 import com.nuvio.app.features.downloads.SourceRankingPreferences
 import com.nuvio.app.features.downloads.VideoResolution
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -41,20 +42,28 @@ data class PlaybackQualityOption(
     /** The whole bucket, best first, so the failure chain still has somewhere to go. */
     val candidates: List<PlaybackSourceCandidate>,
 ) {
-    enum class Variant { BEST, HIGH, LOW, SINGLE }
+    enum class Variant { BEST, HIGH, MID, LOW, SINGLE }
 
     /** "4K", "1080p", "SD". The High/Low half of the label is localized by the caller. */
     val resolutionLabel: String
-        get() = when (resolution) {
-            VideoResolution.UHD_4320 -> "8K"
-            VideoResolution.UHD_2160 -> "4K"
-            VideoResolution.QHD_1440 -> "1440p"
-            VideoResolution.FULL_HD_1080 -> "1080p"
-            VideoResolution.HD_720 -> "720p"
-            VideoResolution.SD -> "SD"
-            null -> ""
-        }
+        get() = resolution.qualityLabel
 }
+
+/**
+ * The user-facing name for a resolution, shared by the quality rows and by anything that has
+ * only [SourceFacts] to go on - such as reporting which source Instant actually opened, which
+ * is not always the one it first chose.
+ */
+val VideoResolution?.qualityLabel: String
+    get() = when (this) {
+        VideoResolution.UHD_4320 -> "8K"
+        VideoResolution.UHD_2160 -> "4K"
+        VideoResolution.QHD_1440 -> "1440p"
+        VideoResolution.FULL_HD_1080 -> "1080p"
+        VideoResolution.HD_720 -> "720p"
+        VideoResolution.SD -> "SD"
+        null -> ""
+    }
 
 object PlaybackQualityOptions {
 
@@ -73,6 +82,15 @@ object PlaybackQualityOptions {
 
     /** A bucket splits only when its top source costs at least this much more than its cheapest. */
     private const val SPLIT_RATIO = 1.5
+
+    /**
+     * Spread at which two rows become three.
+     *
+     * `SPLIT_RATIO` squared, so the reasoning is the same one applied twice: a band is worth
+     * offering when the thing above it costs half again as much. A 4 / 9 Mbps bucket splits
+     * in two; a 4 / 18 one has room for a middle a user can actually aim at.
+     */
+    private const val THREE_WAY_RATIO = SPLIT_RATIO * SPLIT_RATIO
 
     fun build(
         candidates: List<PlaybackSourceCandidate>,
@@ -126,6 +144,44 @@ object PlaybackQualityOptions {
         return affordable.maxWithOrNull(qualityOrder) ?: derived.minWithOrNull(costOrder)
     }
 
+    /**
+     * [highestAffordable], but preferring the resolution Instant already settled on for this
+     * series in this sitting.
+     *
+     * The complaint this answers: two taps that look identical to the user - same show, same
+     * connection, next episode - can land on different resolutions, because the derived rows
+     * come from *this* episode's catalogue and the bandwidth estimate ratchets upward as you
+     * watch. Neither is a bug, and both read as a roulette wheel.
+     *
+     * Three things it deliberately will not do:
+     *  - override a metered cap ([maxHeight]), which is a refusal and outranks a preference;
+     *  - hold a resolution the estimate can no longer carry, which would trade churn for stalls;
+     *  - invent a row - if this episode has no release at the pinned height, the pin simply
+     *    does not apply and the normal answer stands.
+     *
+     * So it is a tie-break towards stability, never a ceiling and never a floor.
+     */
+    fun stickyAffordable(
+        options: List<PlaybackQualityOption>,
+        pinnedHeight: Int?,
+        estimatedMbps: Double,
+        maxHeight: Int? = null,
+    ): PlaybackQualityOption? {
+        val fallback = highestAffordable(
+            options = options,
+            estimatedMbps = estimatedMbps,
+            maxHeight = maxHeight,
+        )
+        if (pinnedHeight == null || fallback == null) return fallback
+        if (maxHeight != null && pinnedHeight > maxHeight) return fallback
+        return options
+            .filter { it.variant != PlaybackQualityOption.Variant.BEST }
+            .filter { it.resolution?.height == pinnedHeight }
+            .filter { (it.requiredMbps ?: Double.MAX_VALUE) <= estimatedMbps }
+            .maxWithOrNull(qualityOrder)
+            ?: fallback
+    }
+
     private val qualityOrder = compareBy<PlaybackQualityOption>(
         { it.resolution?.height ?: 0 },
         { it.requiredMbps ?: 0.0 },
@@ -161,22 +217,51 @@ object PlaybackQualityOptions {
         val cheapest = measured.minOrNull()
         val dearest = measured.maxOrNull()
 
-        val splits = if (
-            measured.size >= 2 && cheapest != null && dearest != null &&
-            cheapest > 0.0 && dearest >= cheapest * SPLIT_RATIO
-        ) {
+        // Sources with no credible size ride along with the cheapest band throughout - they
+        // cannot justify a dearer row.
+        fun bandOf(entry: MeasuredCandidate): Double = entry.credibleBitrateMbps ?: 0.0
+        val spread = if (cheapest != null && dearest != null && cheapest > 0.0) {
+            dearest / cheapest
+        } else {
+            1.0
+        }
+
+        val splits = if (measured.size >= 2 && cheapest != null && spread >= THREE_WAY_RATIO) {
+            // Two geometric boundaries at the thirds, extending the midpoint reasoning rather
+            // than replacing it: the bands are equal *multiples* of each other, which is how
+            // bitrate differences are actually felt.
+            val lower = cheapest * spread.pow(1.0 / 3.0)
+            val upper = cheapest * spread.pow(2.0 / 3.0)
+            listOf(
+                PlaybackQualityOption.Variant.HIGH to ranked.filter { bandOf(it) >= upper },
+                PlaybackQualityOption.Variant.MID to ranked.filter { bandOf(it) >= lower && bandOf(it) < upper },
+                PlaybackQualityOption.Variant.LOW to ranked.filter { bandOf(it) < lower },
+            )
+        } else if (measured.size >= 2 && cheapest != null && dearest != null && spread >= SPLIT_RATIO) {
             // Geometric midpoint, so a 4 / 12 Mbps pair splits where a user would split it
-            // rather than wherever the arithmetic mean happens to land. Sources with no
-            // credible size ride along with Low - they cannot justify the High row.
+            // rather than wherever the arithmetic mean happens to land.
             val boundary = sqrt(cheapest * dearest)
-            val high = ranked.filter { (it.credibleBitrateMbps ?: 0.0) >= boundary }
-            val low = ranked.filter { (it.credibleBitrateMbps ?: 0.0) < boundary }
-            listOf(PlaybackQualityOption.Variant.HIGH to high, PlaybackQualityOption.Variant.LOW to low)
+            listOf(
+                PlaybackQualityOption.Variant.HIGH to ranked.filter { bandOf(it) >= boundary },
+                PlaybackQualityOption.Variant.LOW to ranked.filter { bandOf(it) < boundary },
+            )
         } else {
             listOf(PlaybackQualityOption.Variant.SINGLE to ranked)
         }
 
-        return splits.mapNotNull { (variant, own) ->
+        // An empty band produces no row, and a lone row labelled "1080p Mid" would be a
+        // comparative label with nothing to compare against. The boundaries make that
+        // unreachable - the cheapest source always falls below `lower` and the dearest always
+        // reaches `upper`, so High and Low are both occupied whenever a split happens at all,
+        // and only Mid can come out empty. This is the guard for someone moving those
+        // boundaries later, not a hole being closed: see the test that pins the invariant.
+        val resolved = if (splits.count { it.second.isNotEmpty() } < 2) {
+            listOf(PlaybackQualityOption.Variant.SINGLE to ranked)
+        } else {
+            splits
+        }
+
+        return resolved.mapNotNull { (variant, own) ->
             if (own.isEmpty()) return@mapNotNull null
             // The row is described by the best source it would actually start, and an
             // implausible size never gets to be that even when it ranks first.
@@ -233,8 +318,18 @@ object PlaybackQualityOptions {
         )
         // Implausible sizes sort last within their own row. They stay reachable - a season
         // pack often still resolves to the right file - but they never lead.
-        return compareBy<MeasuredCandidate>({ !it.isPlausible }, { it.candidate.stream.isTorrentStream })
-            .then(ranked)
+        //
+        // Cache evidence is the *third* key, deliberately. A source known to be cached should
+        // lead an equally plausible one whose state is only hoped for, because the alternative
+        // is the provider answering "not cached" at resolve time and the user reading an error.
+        // But promoting it above plausibility would let an implausible cached season pack head
+        // the row again, and it would not show: the displayed bitrate and size come from
+        // `credibleBitrateMbps`, so only what actually *plays* would regress.
+        return compareBy<MeasuredCandidate>(
+            { !it.isPlausible },
+            { it.candidate.stream.isTorrentStream },
+            { it.candidate.facts.isDebridReady != true },
+        ).then(ranked)
     }
 
     /**

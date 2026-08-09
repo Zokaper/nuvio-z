@@ -117,6 +117,26 @@ data class DownloadItem(
     /** `Last-Modified` fallback validator for sources that send no `ETag`. */
     val resumeLastModified: String? = null,
     val attemptCount: Int = 0,
+    /**
+     * Byte count when this run of bad luck started, or null when nothing is being retried.
+     *
+     * [attemptCount] used to be zeroed by *any* forward byte movement, on the reasoning that
+     * bytes arriving means the source works. A source that trickles a few hundred KB and then
+     * drops refreshes the budget every cycle, so `shouldRetry` never returns false and the row
+     * cycles Downloading -> trickle -> drop -> Queued forever. That is the reported
+     * "it says Retrying, it does retry, nothing happens".
+     *
+     * Nullable with a default so queues persisted before this field deserialize unchanged.
+     */
+    val retryCycleStartBytes: Long? = null,
+    /**
+     * Whether this download has already been run again from byte zero on a fresh link.
+     *
+     * A partial file the server will not correctly resume is the likeliest explanation for a
+     * stall pinned near the end, and starting over is the only thing left to try. Recorded so
+     * it happens at most once: a restart loop is the same fault wearing a different hat.
+     */
+    val restartedFromZero: Boolean = false,
     /** When set, the item stays queued until this time to back off after a failure. */
     val nextRetryAtEpochMs: Long? = null,
     val createdAtEpochMs: Long,

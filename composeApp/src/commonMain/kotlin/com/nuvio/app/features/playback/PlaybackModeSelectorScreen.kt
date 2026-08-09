@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
@@ -56,6 +57,7 @@ import nuvio.composeapp.generated.resources.playback_mode_streamlined_download
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_1
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_2
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_tagline
+import nuvio.composeapp.generated.resources.playback_mode_unavailable
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -107,6 +109,7 @@ fun PlaybackModeSelectorScreen(
                             isSelected = mode == selected,
                             onClick = { selected = mode },
                             modifier = Modifier.weight(1f),
+                            enabled = mode.isSelectable,
                         )
                     }
                 }
@@ -116,6 +119,7 @@ fun PlaybackModeSelectorScreen(
                         mode = mode,
                         isSelected = mode == selected,
                         onClick = { selected = mode },
+                        enabled = mode.isSelectable,
                     )
                 }
             }
@@ -152,6 +156,10 @@ fun PlaybackModeSelectorScreen(
  * The download lines are not decoration: they must keep matching
  * [PlaybackModeDownloadRouter.decide], which is what actually happens when the user presses
  * Download. Copy that contradicts the router is worse than no copy at all.
+ *
+ * [enabled] comes from [PlaybackMode.isSelectable] and from nowhere else. A card that is
+ * greyed must also be un-tappable and un-ticked: greyed *and* selected reads as a bug rather
+ * than as a mode being withheld.
  */
 @Composable
 fun PlaybackModeCard(
@@ -159,11 +167,13 @@ fun PlaybackModeCard(
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .alpha(if (enabled) 1f else 0.55f)
+            .clickable(enabled = enabled, onClick = onClick)
             .then(
                 if (isSelected) {
                     Modifier.border(
@@ -208,6 +218,16 @@ fun PlaybackModeCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!enabled) {
+                        // Say why, on the card itself. A greyed row with no explanation is
+                        // the thing users report as broken.
+                        Text(
+                            text = stringResource(Res.string.playback_mode_unavailable),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
                 if (isSelected) {
                     Box(

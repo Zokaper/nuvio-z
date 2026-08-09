@@ -325,7 +325,12 @@ object PlayerSettingsRepository {
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
-        playbackMode = PlaybackMode.fromStorage(PlayerSettingsStorage.loadPlaybackMode())
+        // Coerced on the way out of storage, never on the way in - see `coerceSelectable`.
+        // A profile that chose Instant keeps its stored key and gets it back when the mode
+        // returns; until then it behaves as the mode nearest to what it asked for.
+        playbackMode = PlaybackMode.coerceSelectable(
+            PlaybackMode.fromStorage(PlayerSettingsStorage.loadPlaybackMode()),
+        )
         playbackAllowTorrentAutopick = PlayerSettingsStorage.loadPlaybackAllowTorrentAutopick() ?: false
         // Unset means the profile predates this toggle. Defaulting it to false there would
         // hide settings the user had already tuned, which reads as data loss rather than as

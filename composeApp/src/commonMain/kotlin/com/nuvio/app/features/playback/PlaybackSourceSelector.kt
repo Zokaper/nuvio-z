@@ -77,6 +77,45 @@ object PlaybackSourceSelector {
     }
 
     /**
+     * The candidate [select] would start for [option], without starting it.
+     *
+     * The sheet describes each row by the source that will actually open, and that is not
+     * `option.candidates.first()`: the protocol and cache gates below can skip several
+     * candidates before landing on one. Describing the first entry would name a release the
+     * user never receives, which is the same class of untruth as quoting a season pack's
+     * bandwidth for a row.
+     */
+    fun previewSelection(
+        option: PlaybackQualityOption,
+        context: PlaybackSelectionContext,
+    ): PlaybackSourceCandidate? = option.candidates
+        .filter { isPlaybackProtocolEligible(it, context.allowTorrentSources) }
+        .let { eligible -> eligible.firstOrNull { !isUncachedDebrid(it) } ?: eligible.firstOrNull() }
+
+    /**
+     * A short human description of a source: `1080p · WEB-DL · TorBox`.
+     *
+     * Used by the quality sheet to say what a row would open and by the failure chain to say
+     * what it just gave up on. Both need the same words, so there is one function.
+     */
+    fun describe(facts: SourceFacts?): String = listOfNotNull(
+        facts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+        facts?.releaseQuality?.takeIf { it.isNotBlank() },
+        (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    /**
+     * The same words without the resolution: `WEB-DL · TorBox`.
+     *
+     * For callers that have already said which resolution this is - the quality sheet puts it
+     * in a badge - where repeating it would be noise.
+     */
+    fun describeRelease(facts: SourceFacts?): String = listOfNotNull(
+        facts?.releaseQuality?.takeIf { it.isNotBlank() },
+        (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    /**
      * The shared ordering, for callers that hold a bare candidate list rather than an option.
      *
      * P2P is deliberately behind every HTTP/debrid candidate even when explicitly enabled.

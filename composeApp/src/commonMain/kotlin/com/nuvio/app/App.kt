@@ -244,6 +244,7 @@ import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
+import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.playback.StickySourcePin
 import com.nuvio.app.core.network.MeteredPlaybackChoice
 import com.nuvio.app.core.network.NetworkQualityRepository
@@ -2919,6 +2920,44 @@ private fun MainAppContent(
                         }
                     }
 
+                    // Coming back from a player that died with the chain re-armed: this is a
+                    // retry, so re-show the progress overlay the hand-off had hidden. Gated on
+                    // this route being current because Instant deliberately leaves
+                    // `autoPlayStream` set while the player is open - without that check this
+                    // would fire the moment playback was handed off and uncover the overlay
+                    // underneath the player.
+                    LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute) {
+                        if (navController.currentRoute != route) return@LaunchedEffect
+                        if (!playbackHandedOff) return@LaunchedEffect
+                        if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
+                        playbackHandedOff = false
+                        autoPickAttempt += 1
+                    }
+
+                    val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
+
+                    /**
+                     * Says which source just failed and why, on the way to the next one.
+                     *
+                     * Instant and Streamlined both step past a dead candidate silently today,
+                     * which is indistinguishable from the app hanging - and when the chain then
+                     * runs out, the only thing left on screen is whatever the last provider
+                     * said, out of context. Naming the source turns "unknown error" into
+                     * something the user can act on, or at least recognise.
+                     */
+                    suspend fun announceSourceFailure(stream: StreamItem, reason: String?) {
+                        val label = PlaybackSourceSelector.describe(
+                            playbackCandidates.firstOrNull { it.stream === stream }?.facts,
+                        ).takeIf { it.isNotBlank() } ?: stream.streamLabel
+                        NuvioToastController.show(
+                            if (reason.isNullOrBlank()) {
+                                getString(Res.string.playback_source_failed_advancing, label)
+                            } else {
+                                getString(Res.string.playback_source_failed_advancing_reason, label, reason)
+                            },
+                        )
+                    }
+
                     var autoPlayHandled by rememberSaveable(launch.videoId, effectiveVideoId) { mutableStateOf(false) }
                     LaunchedEffect(
                         streamsUiState.autoPlayStream,
@@ -2928,6 +2967,7 @@ private fun MainAppContent(
                         playbackRouteDecision,
                         playerSettings.playbackMode,
                         launch.manualSelection,
+                        streamlinedPlaybackStarting,
                     ) {
                         if (!reuseHandled) return@LaunchedEffect
                         if (launch.manualSelection) return@LaunchedEffect
@@ -2935,9 +2975,20 @@ private fun MainAppContent(
                             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
                         val isInstantAutoPlay = playerSettings.playbackMode == PlaybackMode.INSTANT &&
                             playbackRouteDecision is PlaybackRouteDecision.AutoPick
-                        if (!isClassicAutoPlay && !isInstantAutoPlay) return@LaunchedEffect
+                        // Streamlined runs through the same chain from the moment a tier is
+                        // chosen. Before that `streamlinedPlaybackStarting` is false and nothing
+                        // has been seeded, so the sheet is still the user's to answer.
+                        val isStreamlinedAutoPlay =
+                            playerSettings.playbackMode == PlaybackMode.STREAMLINED &&
+                                streamlinedPlaybackStarting
+                        // Everything below that used to read `isInstantAutoPlay` was really
+                        // asking "is there a next candidate to fall to?". Streamlined now has
+                        // one, and answering that question in two different ways is how the
+                        // chain ends up half-wired.
+                        val hasFailureChain = isInstantAutoPlay || isStreamlinedAutoPlay
+                        if (!isClassicAutoPlay && !hasFailureChain) return@LaunchedEffect
                         if (reuseNavigated) return@LaunchedEffect
-                        if (autoPlayHandled && !isInstantAutoPlay) return@LaunchedEffect
+                        if (autoPlayHandled && !hasFailureChain) return@LaunchedEffect
                         if (streamsUiState.requestToken != expectedStreamsRequestToken) return@LaunchedEffect
                         val selectedStream = streamsUiState.autoPlayStream ?: return@LaunchedEffect
                         val stream = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
@@ -2951,9 +3002,23 @@ private fun MainAppContent(
                                 is DirectDebridPlayableResult.Success -> resolved.stream
                                 else -> {
                                     val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
-                                    if (hasNextCandidate && isInstantAutoPlay) autoPickAttempt += 1
+                                    if (hasNextCandidate && hasFailureChain) {
+                                        autoPickAttempt += 1
+                                        // Silently stepping to the next source is how "not
+                                        // cached" turned into a spinner nobody could explain.
+                                        // Name the source and the reason on the way past.
+                                        announceSourceFailure(
+                                            stream = selectedStream,
+                                            reason = resolved.toastMessage(),
+                                        )
+                                    }
                                     if (!hasNextCandidate) {
                                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                                        // The chain is spent and nothing else will move. Without
+                                        // this the progress overlay keeps covering the source
+                                        // list with "Starting playback" for a playback that is
+                                        // never going to start - a hang wearing a spinner.
+                                        manualSourceListRequested = true
                                     }
                                     if (!hasNextCandidate && resolved == DirectDebridPlayableResult.Stale) {
                                         StreamsRepository.reload(
@@ -2971,6 +3036,33 @@ private fun MainAppContent(
                         } else {
                             selectedStream
                         }
+                        if (isInstantAutoPlay) {
+                            // Record what is actually about to play, not what was first chosen -
+                            // the failure chain above may have advanced past a dead candidate to
+                            // a different resolution, and both the pin and the toast have to
+                            // describe the source the user ends up watching.
+                            val openedFacts = playbackCandidates
+                                .firstOrNull { it.stream === selectedStream }?.facts
+                            openedFacts?.resolution?.height?.let { height ->
+                                BingeGroupCacheRepository.saveSessionInstantHeight(
+                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                    height = height,
+                                )
+                            }
+                            // Instant otherwise gives no indication of what it decided, which is
+                            // most of why a defensible pick reads as a random one.
+                            val detail = listOfNotNull(
+                                openedFacts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+                                openedFacts?.releaseQuality?.takeIf { it.isNotBlank() },
+                                (openedFacts?.providerName ?: openedFacts?.debridService)
+                                    ?.takeIf { it.isNotBlank() },
+                            ).joinToString(" · ")
+                            if (detail.isNotBlank()) {
+                                NuvioToastController.show(
+                                    getString(Res.string.playback_instant_selected, detail),
+                                )
+                            }
+                        }
                         val sourceUrl = stream.playableDirectUrl
                         if (sourceUrl == null && stream.needsLocalDebridResolve && stream.p2pInfoHash != null) {
                             autoPlayHandled = true
@@ -2986,8 +3078,16 @@ private fun MainAppContent(
                             return@LaunchedEffect
                         }
                         if (sourceUrl == null) {
-                            if (StreamsRepository.skipAutoPlayStream(selectedStream) && isInstantAutoPlay) {
-                                autoPickAttempt += 1
+                            if (StreamsRepository.skipAutoPlayStream(selectedStream)) {
+                                if (hasFailureChain) {
+                                    autoPickAttempt += 1
+                                    announceSourceFailure(stream = selectedStream, reason = null)
+                                }
+                            } else if (hasFailureChain) {
+                                // Same reasoning as the resolve-failure arm: an exhausted chain
+                                // must uncover the list rather than leave the overlay up.
+                                manualSourceListRequested = true
+                                NuvioToastController.show(noAutomaticSourceMessage)
                             }
                             return@LaunchedEffect
                         }
@@ -3041,21 +3141,24 @@ private fun MainAppContent(
                             parentMetaType = launch.parentMetaType ?: launch.type,
                             initialPositionMs = launch.resumePositionMs ?: 0L,
                             initialProgressFraction = launch.resumeProgressFraction,
-                            instantAutoPick = isInstantAutoPlay,
+                            autoPickedWithFailureChain = hasFailureChain,
                         )
                         if (playerSettings.externalPlayerEnabled) {
                             playbackHandedOff = true
                             openExternalPlayback(playerLaunch)
-                            if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
+                            if (!hasFailureChain) StreamsRepository.consumeAutoPlay()
                             StreamsRepository.cancelLoading()
                             return@LaunchedEffect
                         }
-                        if (!isInstantAutoPlay) StreamsRepository.consumeAutoPlay()
+                        if (!hasFailureChain) StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         playbackHandedOff = true
+                        // A mode with a chain keeps StreamRoute on the back stack: that route
+                        // owns the auto-play effect, the attempt counter and the overlay, so
+                        // popping it is popping the thing that does the retrying.
                         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-                            if (!isInstantAutoPlay) popUpTo<StreamRoute> { inclusive = true }
+                            if (!hasFailureChain) popUpTo<StreamRoute> { inclusive = true }
                         }
                     }
 
@@ -3236,7 +3339,6 @@ private fun MainAppContent(
                         }
                     }
 
-                    val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
 
                     /**
                      * Arms the passive network measurement with what this source really costs.
@@ -3266,12 +3368,15 @@ private fun MainAppContent(
                                 qualitySheetDismissed = true
                                 streamlinedPlaybackStarting = true
                                 armNetworkObservation(result.stream)
-                                openSelectedStream(
-                                    stream = result.stream,
-                                    resolvedResumePositionMs = launch.resumePositionMs,
-                                    resolvedResumeProgressFraction = launch.resumeProgressFraction,
-                                    forceExternal = false,
-                                    forceInternal = false,
+                                // `select` has already ranked the whole row and handed back
+                                // everything behind the winner. Throwing those away is what made
+                                // one "not cached" answer the end of the road in Streamlined,
+                                // while Instant - seeding the very same chain - stepped past it.
+                                // Seeding rather than opening also puts the auto-play effect in
+                                // charge, so resolve failures, P2P, reuse-last-link and the
+                                // attempt counter all behave identically in both modes.
+                                StreamsRepository.seedAutoPlayCandidates(
+                                    listOf(result.stream) + result.fallbacks,
                                 )
                             }
                             is PlaybackSelectionResult.AskUncached -> {
@@ -3349,8 +3454,14 @@ private fun MainAppContent(
                         // exactly as it used to be applied to the preset list.
                         val maxHeight = playerSettings.playbackMeteredCapHeight
                             .takeIf { network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED }
-                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.highestAffordable(
+                        // Keep giving this show the resolution it got last episode, so long as
+                        // the estimate still carries it and the cap still allows it.
+                        val instantStickyId = launch.parentMetaId ?: effectiveVideoId
+                        val pinnedHeight = BingeGroupCacheRepository
+                            .sessionInstantHeight(instantStickyId)
+                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.stickyAffordable(
                             options = playbackQualityOptions,
+                            pinnedHeight = pinnedHeight,
                             estimatedMbps = estimateMbps,
                             maxHeight = maxHeight,
                         )
@@ -3381,6 +3492,11 @@ private fun MainAppContent(
                         instantSelectionHandled = true
                         when (selection) {
                             is PlaybackSelectionResult.Play -> {
+                                // The pin and the "playing X" toast are deliberately NOT written
+                                // here. This is the source Instant *chose*; the failure chain
+                                // below can still advance past it to a different resolution, and
+                                // pinning an intent that never played would reintroduce exactly
+                                // the churn this is meant to remove. Both happen at the open.
                                 armNetworkObservation(selection.stream)
                                 StreamsRepository.seedAutoPlayCandidates(
                                     listOf(selection.stream) + selection.fallbacks,
@@ -3483,6 +3599,8 @@ private fun MainAppContent(
                                 isLoading = streamsUiState.requestToken != expectedStreamsRequestToken ||
                                     streamsUiState.isAnyLoading ||
                                     streamlinedSelectionPending,
+                                selectionContext = playbackSelectionContext,
+                                estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
                                 onOptionSelected = ::selectStreamlinedOption,
                                 onChooseManually = {
                                     streamlinedSelectionPending = false
@@ -3721,6 +3839,31 @@ private fun MainAppContent(
                             }
                         }
                     }
+                    /**
+                     * Where Instant goes when a source dies: back to the `StreamRoute` it
+                     * deliberately left on the back stack, not out to details.
+                     *
+                     * That route hosts the whole failure chain - the auto-play effect keyed on
+                     * `autoPlayStream`, the retry counter and the "Finding a source" overlay - so
+                     * popping past it is what turned a recoverable failure into a dead end and
+                     * dropped the user on the details screen mid-play. When the chain is
+                     * exhausted it is also the right destination: the plan's fallback is the
+                     * Classic source list with a reason, and with `autoPlayStream` cleared that
+                     * is exactly what `StreamRoute` renders.
+                     *
+                     * Falls back to details when there is no `StreamRoute` to return to, which
+                     * the reuse-last-link and P2P paths can both produce.
+                     */
+                    val onPlaybackFailureExit: () -> Unit = remember(navController, route, onBackToDetails) {
+                        {
+                            // The pop is a no-op unless the player is genuinely on top, so it
+                            // falls through to the navigating exit rather than leaving the user
+                            // on a dead player with `instantFailureHandled` already spent.
+                            val popped = navController.routes.any { it is StreamRoute } &&
+                                navController.popBackStack(expectedRoute = route)
+                            if (!popped) onBackToDetails()
+                        }
+                    }
                     val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
                     var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     LaunchedEffect(launch.videoId) {
@@ -3808,21 +3951,29 @@ private fun MainAppContent(
                         onOpenExternalUrl = { url ->
                             openExternalStreamUrl(url)
                         },
-                        onFatalPlaybackError = if (launch.instantAutoPick) {
+                        onFatalPlaybackError = if (launch.autoPickedWithFailureChain) {
                             {
                                 if (!instantFailureHandled) {
                                     instantFailureHandled = true
                                     val failed = StreamsRepository.uiState.value.autoPlayStream
-                                    val hasNext = failed != null && StreamsRepository.skipAutoPlayStream(failed)
+                                    // A null `autoPlayStream` here does not mean the chain is
+                                    // spent - it means playback started, and `onPlaybackStarted`
+                                    // consumed it. That is the common failure: a source that
+                                    // opens, plays a second, and dies.
+                                    val hasNext = if (failed != null) {
+                                        StreamsRepository.skipAutoPlayStream(failed)
+                                    } else {
+                                        StreamsRepository.failOverAfterPlaybackStarted()
+                                    }
                                     if (!hasNext) {
                                         StreamsRepository.consumeAutoPlay()
                                         NuvioToastController.show(noAutomaticSourceText)
                                     }
-                                    onBackToDetails()
+                                    onPlaybackFailureExit()
                                 }
                             }
                         } else null,
-                        onPlaybackStarted = if (launch.instantAutoPick) {
+                        onPlaybackStarted = if (launch.autoPickedWithFailureChain) {
                             { StreamsRepository.consumeAutoPlay() }
                         } else null,
                         modifier = Modifier.fillMaxSize(),

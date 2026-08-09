@@ -10,6 +10,11 @@ local.properties
 .signing/
 *.jks
 *.keystore
+# Deliberately tracked. Not a secret: it signs debug builds only, and it is committed
+# precisely so every debug APK shares one signature - otherwise the in-app debug update
+# line cannot install over an existing debug install and every build means an uninstall.
+# The release keystore is still excluded by the rule above and must never be committed.
+!androidApp/nuvio-debug.keystore
 *.apk
 *.aab
 .android-sdk/

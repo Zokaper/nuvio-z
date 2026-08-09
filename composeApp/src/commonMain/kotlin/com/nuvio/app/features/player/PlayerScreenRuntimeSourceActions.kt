@@ -15,11 +15,17 @@ import com.nuvio.app.features.playback.AutoDownshiftCandidates
 import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
+import com.nuvio.app.features.playback.SwapDiagnosticsLog
+import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.player_source_switched
+import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     stream: StreamItem,
@@ -331,7 +337,105 @@ internal fun PlayerScreenRuntime.observePlaybackForAutoDownshift() {
     val current = candidates.firstOrNull { matchesActiveSource(it.stream) } ?: return
     val replacement = AutoDownshiftCandidates.select(current, candidates) ?: return
     autoDownshiftState = AutoDownshiftDetector.consumeSwap(autoDownshiftState)
+    beginDiagnosedSwap(
+        trigger = SwapDiagnosticsLog.Trigger.AUTO_DOWNSHIFT,
+        current = current,
+        replacement = replacement,
+        bufferAheadMs = sample.bufferedAheadMs,
+    )
     switchToSource(replacement.stream)
+}
+
+/**
+ * Logs a swap, starts its clock, and tells the user, then leaves the caller to perform it.
+ *
+ * The announcement is deliberately *not* inside `switchToSource`: that path also serves the
+ * user picking a source by hand, where a toast saying what they just chose is noise. It is an
+ * automatic change of quality that is indistinguishable from a bug when it happens silently.
+ *
+ * **The clock starts here rather than in `switchToSource`, and both reasons matter.**
+ * `switchToSource` re-enters itself for debrid - the first call kicks off an async link mint
+ * and returns, the resolved stream comes back through a second call - so starting it there
+ * would exclude the minting wait on exactly the path Instant users are almost always on, and
+ * understate what they sit through. And because `switchToSource` also serves manual picks, a
+ * mark set there could be closed by a hand-picked source's first frame and credited to an
+ * earlier automatic swap that never rendered at all. Pairing the mark with the record makes
+ * both impossible: no record, no clock.
+ */
+internal fun PlayerScreenRuntime.beginDiagnosedSwap(
+    trigger: SwapDiagnosticsLog.Trigger,
+    current: PlaybackSourceCandidate,
+    replacement: PlaybackSourceCandidate,
+    bufferAheadMs: Long,
+) {
+    SwapDiagnosticsLog.record(
+        SwapDiagnosticsLog.SwapRecord(
+            trigger = trigger,
+            fromLabel = current.stream.streamLabel,
+            toLabel = replacement.stream.streamLabel,
+            fromHeight = current.facts.resolution?.height,
+            toHeight = replacement.facts.resolution?.height,
+            fromReleaseGroup = current.facts.releaseGroup,
+            toReleaseGroup = replacement.facts.releaseGroup,
+            fromProvider = current.facts.providerName ?: current.facts.providerId,
+            toProvider = replacement.facts.providerName ?: replacement.facts.providerId,
+            fromAddon = current.stream.addonName,
+            toAddon = replacement.stream.addonName,
+            bufferAheadMsAtTrigger = bufferAheadMs,
+            positionMsBefore = playbackSnapshot.positionMs.coerceAtLeast(0L),
+        ),
+    )
+    swapStartedAt = TimeSource.Monotonic.markNow()
+    val label = replacement.facts.resolution.qualityLabel
+    if (label.isNotBlank()) {
+        scope.launch {
+            NuvioToastController.show(getString(Res.string.player_source_switched, label))
+        }
+    }
+}
+
+internal fun PlayerScreenRuntime.forceDebugSourceSwap(upshift: Boolean) {
+    val candidates = PlayerStreamsRepository.sourceState.value.groups
+        .flatMap { it.streams }
+        .map { PlaybackSourceCandidate(stream = it) }
+    val current = candidates.firstOrNull { matchesActiveSource(it.stream) }
+    if (current == null) {
+        debugStatusMessage = "Current source is not in the loaded catalogue."
+        return
+    }
+    val replacement = if (upshift) {
+        AutoDownshiftCandidates.selectUpshift(current, candidates)
+    } else {
+        AutoDownshiftCandidates.select(current, candidates)
+    }
+    if (replacement == null) {
+        debugStatusMessage = if (upshift) {
+            "No safe higher source in the same release group."
+        } else {
+            "No safe lower source in the same release group."
+        }
+        return
+    }
+    debugStatusMessage = "Forcing ${if (upshift) "upshift" else "downshift"}…"
+    beginDiagnosedSwap(
+        trigger = if (upshift) {
+            SwapDiagnosticsLog.Trigger.FORCED_UPSHIFT
+        } else {
+            SwapDiagnosticsLog.Trigger.FORCED_DOWNSHIFT
+        },
+        current = current,
+        replacement = replacement,
+        bufferAheadMs = (playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs)
+            .coerceAtLeast(0L),
+    )
+    switchToSource(replacement.stream)
+}
+
+internal fun PlayerScreenRuntime.resetDebugSwapBudget() {
+    autoDownshiftState = AutoDownshiftDetector.initial()
+    autoDownshiftClock = TimeSource.Monotonic.markNow()
+    autoDownshiftSourcesRequested = false
+    debugStatusMessage = "Automatic swap budget reset."
 }
 
 /**
@@ -342,7 +446,7 @@ internal fun PlayerScreenRuntime.observePlaybackForAutoDownshift() {
  * `videoSize`, but it leaves `addonId`, `streamLabel` and `streamSubtitle` alone - and those
  * are exactly what the identity key stops being stable across.
  */
-private fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolean {
+internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolean {
     val activeHash = activeTorrentInfoHash?.trim()?.lowercase()
     if (activeHash != null) {
         return stream.p2pInfoHash?.trim()?.lowercase() == activeHash &&
