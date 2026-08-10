@@ -57,6 +57,7 @@ import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_quality_best
 import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_description
+import nuvio.composeapp.generated.resources.playback_quality_estimated_connection
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.playback_quality_needs
@@ -90,11 +91,15 @@ import kotlin.math.roundToInt
  * [PlaybackQualityOptions] and [PlaybackSourceSelector], which are testable outside Compose.
  * The same reasoning `PlaybackProgress.step`/`isVisible` are built on.
  *
- * [estimatedMbps] is what the connection has been **measured** to carry, and is null until it
- * has been - a platform default is not a measurement and this sheet no longer prints one as if
- * it were. While a probe is in flight [isMeasuringConnection] says so. The figure is used only
- * to mark a card as a stretch; it never disables one, because the estimate is still an estimate
- * and the user may know their line better than the app does.
+ * [estimatedMbps] is what the connection is thought to carry and [isConnectionMeasured] says
+ * whether that came from a measurement or from the link type. Both are needed: the figure drives
+ * every card's meter, so withholding it until measured stripped the meters off a sheet that had
+ * them before - a connection that could not be measured ended up showing *less* than one that
+ * was never measured at all. The header names which kind of number it is instead, and
+ * [isMeasuringConnection] says when one is being taken.
+ *
+ * The figure is used only to mark a card as a stretch; it never disables one, because the
+ * estimate is still an estimate and the user may know their line better than the app does.
  *
  * Two structural properties, both of which the previous stacked-list version got wrong:
  *
@@ -119,6 +124,7 @@ fun PlaybackQualitySheet(
     isSelecting: Boolean,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
     isMeasuringConnection: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
     onChooseManually: () -> Unit,
@@ -174,6 +180,7 @@ fun PlaybackQualitySheet(
                         isSelecting = isSelecting,
                         selectionContext = selectionContext,
                         estimatedMbps = estimatedMbps,
+                        isConnectionMeasured = isConnectionMeasured,
                         isMeasuringConnection = isMeasuringConnection,
                         gridMaxHeight = gridMaxHeight,
                         contentBottomPadding = tokens.spacing.dialogPadding,
@@ -197,6 +204,7 @@ fun PlaybackQualitySheet(
                     isSelecting = isSelecting,
                     selectionContext = selectionContext,
                     estimatedMbps = estimatedMbps,
+                    isConnectionMeasured = isConnectionMeasured,
                     isMeasuringConnection = isMeasuringConnection,
                     gridMaxHeight = gridMaxHeight,
                     contentBottomPadding = nuvioSafeBottomPadding(tokens.spacing.sheetPadding),
@@ -228,6 +236,7 @@ private fun QualitySheetBody(
     isSelecting: Boolean,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
     isMeasuringConnection: Boolean,
     gridMaxHeight: Dp,
     contentBottomPadding: Dp,
@@ -272,11 +281,15 @@ private fun QualitySheetBody(
         // the third case, where there is nothing to measure with and nothing to report.
         Text(
             text = when {
-                estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
+                isConnectionMeasured && estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
                     Res.string.playback_quality_your_connection,
                     estimatedMbps.roundToInt(),
                 )
                 isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
+                estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
+                    Res.string.playback_quality_estimated_connection,
+                    estimatedMbps.roundToInt(),
+                )
                 else -> "\u00A0"
             },
             style = MaterialTheme.typography.bodySmall,

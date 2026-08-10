@@ -47,38 +47,27 @@ internal fun shouldShowWhatsNew(
 object CurrentReleaseNotes {
     fun sections(isDesktop: Boolean): List<WhatsNewSection> = listOf(
         WhatsNewSection(
-            category = WhatsNewCategory.Improvements,
+            category = WhatsNewCategory.BugFixes,
             items = listOfNotNull(
                 WhatsNewItem(
-                    title = "Your connection is measured, not guessed",
-                    description = "The quality picker used to assume every Wi-Fi network was the same " +
-                        "speed and label that assumption \"your connection\". It now measures what your " +
-                        "connection actually carries - briefly, before the first play, and continuously " +
-                        "while something is playing - so the speed beside each option is a real one.",
+                    title = "The connection figure is back",
+                    description = "0.4.13 hid it whenever the speed had not been measured yet - which " +
+                        "also took the connection bars off every option, so a picker that could not " +
+                        "measure showed less than one that never tried. It now always shows a figure " +
+                        "and says which kind it is: \"Estimated\" before anything has been measured, " +
+                        "\"Your connection\" once it has.",
                 ),
                 WhatsNewItem(
-                    title = "It measures the source, not just the line",
-                    description = "Speed through a debrid service is the service's, not your " +
-                        "broadband's. The check runs against the host that would actually serve your " +
-                        "stream and is remembered per provider, so a fast connection behind a slow host " +
-                        "no longer reads as fast.",
+                    title = "The check no longer cancels itself",
+                    description = "It was being restarted every time another source arrived, so on a " +
+                        "title with many sources it could be interrupted repeatedly and never finish. " +
+                        "It now runs to completion alongside the source list, as intended.",
                 ),
                 WhatsNewItem(
-                    title = "What it learns survives a restart",
-                    description = "Measurements are kept per network for a week, so opening the app " +
-                        "does not throw away everything it knew about your connection. Nothing is " +
-                        "measured on mobile data.",
-                ),
-                WhatsNewItem(
-                    title = "\"Best available\" says what you would get",
-                    description = "It named the release type and the host - neither of which is what " +
-                        "you are choosing between. It now leads with resolution, HDR and file size, and " +
-                        "quotes the speed that file really needs.",
-                ),
-                WhatsNewItem(
-                    title = "No number until there is one",
-                    description = "While the check is running the picker says so, and if nothing can be " +
-                        "measured it shows nothing rather than a figure it made up.",
+                    title = "Mobile data is measured too",
+                    description = "The check used to skip metered connections, which left mobile data - " +
+                        "where speed varies most - as the one case still decided by a guess. It now " +
+                        "measures there as well, using about 4 MB once per network.",
                 ),
             ),
         ),
