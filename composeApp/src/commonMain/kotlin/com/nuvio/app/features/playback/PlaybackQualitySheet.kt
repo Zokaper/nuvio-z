@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_quality_best
+import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual

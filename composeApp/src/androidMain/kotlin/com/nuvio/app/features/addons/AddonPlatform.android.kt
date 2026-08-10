@@ -302,20 +302,49 @@ actual suspend fun httpMeasureThroughput(
     if (maxBytes > 0L) builder.header("Range", "bytes=0-${maxBytes - 1}")
 
     // Before the call, not after it: `execute` already blocks until the response headers are
-    // in, so a clock started on the line below would report a time-to-first-byte of nearly zero
-    // for a host that took two seconds to answer.
+    // in, so a clock started inside the body reader would report a time-to-first-byte of
+    // nearly zero for a host that took two seconds to answer.
     val startNs = System.nanoTime()
     addonHttpClient.newCall(builder.get().build()).execute().use { response ->
         if (response.code !in 200..299) {
             return@withContext ThroughputSample(response.code, bytes = 0L, transferMs = 0L, ttfbMs = 0L)
         }
-        val stream = response.body.byteStream()
-        val buffer = ByteArray(READ_CHUNK_BYTES)
-        var firstByteNs = 0L
-        var measuredBytes = 0L
-        var lastNs = 0L
+        measureBodyThroughput(
+            body = response.body,
+            status = response.code,
+            startNs = startNs,
+            maxBytes = maxBytes,
+            maxMillis = maxMillis,
+            stopAboveMbps = stopAboveMbps,
+        )
+    }
+}
+
+/**
+ * Streams the body, counting bytes and timing them from the first one.
+ *
+ * Takes a nullable [ResponseBody] rather than dereferencing `response.body` at the call site:
+ * OkHttp's accessor is non-null on one of these two source sets and nullable on the other, and
+ * `response.body.byteStream()` compiles on Android while failing the desktop build outright.
+ * Every other body reader in this file takes the nullable type for the same reason.
+ */
+private fun measureBodyThroughput(
+    body: ResponseBody?,
+    status: Int,
+    startNs: Long,
+    maxBytes: Long,
+    maxMillis: Long,
+    stopAboveMbps: Double?,
+): ThroughputSample {
+    val stream = body?.byteStream()
+        ?: return ThroughputSample(status, bytes = 0L, transferMs = 0L, ttfbMs = 0L)
+    val buffer = ByteArray(READ_CHUNK_BYTES)
+    var firstByteNs = 0L
+    var measuredBytes = 0L
+    var lastNs = 0L
+    stream.use {
         while (measuredBytes < maxBytes) {
-            val read = stream.read(buffer)
+            val read = it.read(buffer)
             if (read <= 0) break
             lastNs = System.nanoTime()
             if (firstByteNs == 0L) {
@@ -333,13 +362,13 @@ actual suspend fun httpMeasureThroughput(
                 break
             }
         }
-        ThroughputSample(
-            status = response.code,
-            bytes = measuredBytes,
-            transferMs = if (firstByteNs == 0L) 0L else (lastNs - firstByteNs) / 1_000_000L,
-            ttfbMs = if (firstByteNs == 0L) 0L else (firstByteNs - startNs) / 1_000_000L,
-        )
     }
+    return ThroughputSample(
+        status = status,
+        bytes = measuredBytes,
+        transferMs = if (firstByteNs == 0L) 0L else (lastNs - firstByteNs) / 1_000_000L,
+        ttfbMs = if (firstByteNs == 0L) 0L else (firstByteNs - startNs) / 1_000_000L,
+    )
 }
 
 private const val READ_CHUNK_BYTES = 64 * 1024
