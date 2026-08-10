@@ -47,38 +47,32 @@ internal fun shouldShowWhatsNew(
 object CurrentReleaseNotes {
     fun sections(isDesktop: Boolean): List<WhatsNewSection> = listOf(
         WhatsNewSection(
-            category = WhatsNewCategory.NewFeatures,
+            category = WhatsNewCategory.Improvements,
             items = listOfNotNull(
                 WhatsNewItem(
-                    title = "A quality picker you can actually read",
-                    description = "Choosing a quality now shows a grid of cards rather than a stack of " +
-                        "rows: each one leads with its resolution, names the release and provider it " +
-                        "would really open, and draws how much of your connection it would take.",
+                    title = "One card per resolution",
+                    description = "The quality picker no longer repeats a resolution once for every " +
+                        "option it holds. Each resolution is a single card that names itself once, with " +
+                        "its higher and lower options stacked inside it as the things you tap - so you " +
+                        "choose the resolution first and the trade-off second.",
                 ),
                 WhatsNewItem(
-                    title = "It fits the window it is in",
-                    description = "On a tablet or a desktop window the picker is a centred panel two or " +
-                        "three cards across instead of a phone dialog with everything hidden below the " +
-                        "fold.",
+                    title = "Every option still says what it would open",
+                    description = "Each option keeps the release and provider it would really play and " +
+                        "the share of your connection it would take, because those differ between the " +
+                        "options inside one resolution.",
+                ),
+                WhatsNewItem(
+                    title = "\"Best available\" reads as one thing",
+                    description = "It used to carry a star, then say \"Best available\" underneath it, " +
+                        "then repeat the picker's own description a third time. It now says it once.",
+                ),
+                WhatsNewItem(
+                    title = "Still two or three across on a wide window",
+                    description = "The cards are taller now that they hold their options, so the wide " +
+                        "layout was widened to match, so a desktop window keeps three columns instead " +
+                        "of quietly dropping to two.",
                 ).takeIf { isDesktop },
-            ),
-        ),
-        WhatsNewSection(
-            category = WhatsNewCategory.Improvements,
-            items = listOf(
-                WhatsNewItem(
-                    title = "The numbers stop changing under you",
-                    description = "The picker used to appear as soon as the first sources arrived, so a " +
-                        "card could say one speed and size and then quietly say another as more addons " +
-                        "answered. It now waits until the figures are settled and shows placeholders " +
-                        "until then - nothing you read is about to be replaced.",
-                ),
-                WhatsNewItem(
-                    title = "Backing out of the picker goes back",
-                    description = "Dismissing the quality picker returns you to the title instead of " +
-                        "dropping you into the full source list. \"Choose source manually\" still opens " +
-                        "that list whenever you want it.",
-                ),
             ),
         ),
     )

@@ -441,6 +441,105 @@ class PlaybackQualityOptionsTest {
         assertEquals(8.0, fit.estimatedMbps, 1e-9)
     }
 
+    @Test
+    fun groupsBandsUnderTheirResolutionHighestFirst() {
+        val groups = PlaybackQualityOptions.group(
+            build(
+                candidate("4k-remux", VideoResolution.UHD_2160, gigabytes = 60.0),
+                candidate("4k-web", VideoResolution.UHD_2160, gigabytes = 12.0),
+                candidate("1080-big", VideoResolution.FULL_HD_1080, gigabytes = 9.0),
+                candidate("1080-mid", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+                candidate("1080-small", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
+                candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                null,
+                VideoResolution.UHD_2160,
+                VideoResolution.FULL_HD_1080,
+                VideoResolution.HD_720,
+            ),
+            groups.map { it.resolution },
+        )
+        assertEquals(
+            listOf(
+                listOf("best"),
+                listOf("2160_high", "2160_low"),
+                listOf("1080_high", "1080_mid", "1080_low"),
+                listOf("720_single"),
+            ),
+            groups.map { group -> group.options.map { it.id } },
+        )
+    }
+
+    @Test
+    fun bestAvailableIsAGroupOfItsOwn() {
+        // It claims no resolution, so grouping by resolution would put it in the same null
+        // bucket as anything else that ever does - rendering them as bands of each other.
+        val groups = PlaybackQualityOptions.group(
+            build(candidate("only", VideoResolution.FULL_HD_1080, gigabytes = 4.0)),
+        )
+
+        assertEquals(PlaybackQualityOption.Variant.BEST, groups.first().options.single().variant)
+        assertNull(groups.first().resolution)
+        assertEquals("", groups.first().resolutionLabel)
+    }
+
+    @Test
+    fun aResolutionWithOneSourceIsAGroupOfOneBand() {
+        // Variant.SINGLE has no band word, so the card is a badge and one row. It must not
+        // collapse into the resolution above it.
+        val groups = PlaybackQualityOptions.group(
+            build(
+                candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+                candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            ),
+        )
+
+        val single = groups.single { it.resolution == VideoResolution.HD_720 }
+        assertEquals(PlaybackQualityOption.Variant.SINGLE, single.options.single().variant)
+        assertEquals("720p", single.resolutionLabel)
+    }
+
+    @Test
+    fun groupingPreservesEveryOptionAndInventsNone() {
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 30.0),
+            candidate("1080-big", VideoResolution.FULL_HD_1080, gigabytes = 9.0),
+            candidate("1080-mid", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            candidate("1080-small", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
+        )
+
+        assertEquals(options, PlaybackQualityOptions.group(options).flatMap { it.options })
+    }
+
+    @Test
+    fun everyGroupHasADistinctResolutionLabel() {
+        // The sheet keys its grid on this label. A collision is a duplicate-key crash in
+        // LazyVerticalGrid, not a visual glitch. `qualityLabel` returns "" for null, which is
+        // why exactly one group is blank and why the sheet substitutes a constant for it.
+        val groups = PlaybackQualityOptions.group(
+            build(
+                candidate("4k", VideoResolution.UHD_2160, gigabytes = 30.0),
+                candidate("1440", VideoResolution.QHD_1440, gigabytes = 12.0),
+                candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 6.0),
+                candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+                candidate("sd", VideoResolution.SD, gigabytes = 1.0),
+            ),
+        )
+        val labels = groups.map { it.resolutionLabel }
+
+        assertEquals(labels.size, labels.distinct().size)
+        assertEquals(1, labels.count { it.isBlank() })
+    }
+
+    @Test
+    fun nothingToOfferGroupsToNothing() {
+        assertEquals(emptyList<PlaybackQualityGroup>(), PlaybackQualityOptions.group(emptyList()))
+    }
+
     private fun option(requiredMbps: Double?) = PlaybackQualityOption(
         id = "test",
         resolution = VideoResolution.FULL_HD_1080,

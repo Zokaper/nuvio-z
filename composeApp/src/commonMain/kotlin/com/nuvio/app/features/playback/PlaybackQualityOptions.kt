@@ -50,6 +50,26 @@ data class PlaybackQualityOption(
 }
 
 /**
+ * One resolution and every band offered at it, which is the shape the sheet draws.
+ *
+ * [PlaybackQualityOptions.build] already emits its options in this order; a group is that
+ * hierarchy made explicit rather than a re-derivation of it. Keeping the grouping here rather
+ * than in the Compose layer is the same reasoning the rest of this file is built on - it can
+ * be exercised outside Gradle, and two renderers cannot disagree about what a resolution
+ * offers.
+ *
+ * [resolution] is null only for the Best available group, which claims no resolution and is
+ * always alone.
+ */
+data class PlaybackQualityGroup(
+    val resolution: VideoResolution?,
+    val options: List<PlaybackQualityOption>,
+) {
+    val resolutionLabel: String
+        get() = resolution.qualityLabel
+}
+
+/**
  * The user-facing name for a resolution, shared by the quality rows and by anything that has
  * only [SourceFacts] to go on - such as reporting which source Instant actually opened, which
  * is not always the one it first chose.
@@ -115,6 +135,31 @@ object PlaybackQualityOptions {
             .flatMap { (resolution, entries) -> optionsForBucket(resolution, entries) }
 
         return listOf(bestAvailable(candidates, buckets.keys.maxByOrNull { it.height })) + derived
+    }
+
+    /**
+     * [build]'s output as one entry per resolution, which is how the sheet draws it.
+     *
+     * A user chooses a resolution first and a band second, so "1080p High", "1080p Mid" and
+     * "1080p Low" are one decision, not three - the flat list made them three peers of each
+     * other and of every other resolution, and said "1080p" three times to say it once.
+     *
+     * **Order is [build]'s, not re-derived here.** That function already sorts buckets by
+     * height descending and bands High to Low within each, and `groupBy` preserves the order
+     * keys are first seen in. Re-sorting would be a second opinion on an ordering that is
+     * already decided, and the two would drift.
+     *
+     * [PlaybackQualityOption.Variant.BEST] is pulled out rather than grouped: it claims no
+     * resolution, so every future variant that does the same would otherwise land in one
+     * shared null bucket and render as bands of each other.
+     */
+    fun group(options: List<PlaybackQualityOption>): List<PlaybackQualityGroup> {
+        val (best, banded) = options.partition {
+            it.variant == PlaybackQualityOption.Variant.BEST
+        }
+        return best.map { PlaybackQualityGroup(it.resolution, listOf(it)) } +
+            banded.groupBy { it.resolution }
+                .map { (resolution, bucket) -> PlaybackQualityGroup(resolution, bucket) }
     }
 
     /**

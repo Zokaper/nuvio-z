@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 | | |
 | --- | --- |
-| **Active branch** | None. `claude/quality-selector-grid` is merged into `main` / `Dev` for `0.4.11-beta`; its plan and ledger (all nine steps ☑) are `~/.claude/plans/ok-i-like-the-wiggly-scone.md`. Previous branch `claude/instant-predictability-next-ep` was merged for `0.4.10-beta`. |
-| **Released** | `0.4.11-beta` on both. **Not device-verified, and this one is riskier than the last**: it replaces the whole quality-selector surface for **Streamlined, the default mode**, and Compose is verified here by compilation only — nobody has looked at the new sheet. Published on the maintainer's explicit instruction with the suites as the only evidence. See "The quality selector is a grid" below for the five checks, and the `0.4.10-beta` section for the three behaviours it shipped untested. Check both first if anything is reported. |
+| **Active branch** | None. The quality selector regrouped by resolution landed **directly on `main` / `Dev`** in both repositories and shipped as `0.4.12-beta` — see "One card per resolution" below. `claude/quality-selector-grid` is merged into `main` / `Dev` for `0.4.11-beta`; its plan and ledger (all nine steps ☑) are `~/.claude/plans/ok-i-like-the-wiggly-scone.md`. Previous branch `claude/instant-predictability-next-ep` was merged for `0.4.10-beta`. |
+| **Released** | `0.4.12-beta` on both — the resolution-grouped quality selector, published on the maintainer's explicit instruction. **Not device-verified**, but unlike `0.4.11-beta` the sheet has now been *looked at*: rendered off-screen at 420 dp and 1100 dp through the `desktopTest` harness described below, which caught two defects both suites missed. That is the real composable against synthetic state, not the real data, so the seven outstanding checks below still stand. `0.4.11-beta` shipped this same surface unlooked-at; `0.4.10-beta` shipped three behaviours untested. Check all three sections first if anything is reported. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | **Smoke-test on a device and on desktop.** The quality-selector grid has never been looked at — Compose is verified here by compilation only — so its five checks (below, newest section) fold into the same run: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
+| **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -63,7 +63,127 @@ APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9
 `CN=Nuvio Z Debug`. The in-app update flow itself is **not** device-tested — the first real proof
 is publishing `debug-v0.4.9-beta.2` and watching `.1` offer it.
 
+## One card per resolution, bands stacked inside it (2026-08-10, `0.4.12-beta`)
+
+**Reported on sight: the `0.4.11-beta` selector reads worse than the stacked list it
+replaced.** It was a flat grid of one card per `PlaybackQualityOption`, so "1080p High",
+"1080p Mid" and "1080p Low" were three unrelated tiles competing with "4K" and "720p" — the
+resolution, which is the first thing the user is choosing, said three times to say it once.
+That layout shipped without anyone looking at it; this is the first correction from seeing it.
+
+**The hierarchy already existed in the data and the sheet was flattening it.**
+`PlaybackQualityOptions.build` emits Best available, then buckets high→low resolution, each
+split High/Mid/Low. `PlaybackQualityOptions.group` now makes that explicit and the sheet draws
+it: one card per resolution, badge once, bands stacked inside as the tap targets.
+
+**Presentation only.** The option set, the banding, the ranking, `PlaybackSourceSelector` and
+the `PlaybackQualitySheet` signature are untouched — which is why **`App.kt` and `strings.xml`
+were not edited in either repository** and all four changed files were `cp`'d rather than
+hand-ported. No new string keys.
+
+⚠ **Bands are stacked full-width rows, not a row of chips, and that was the deciding
+constraint.** Chips were the original sketch. A 3-across chip on a phone is about 105 dp,
+which holds the band word and the figures and nothing else — so it would have cost both
+`sourceLine` and the over-connection sentence. Neither can be lifted to card level: they are
+**per-option**, so a card-level provider line names a release two of the three bands never
+open, and the warning is true of one band and false of the one under it. `0.4.10-beta` added
+that provider line precisely because naming `candidates.first()` was the same untruth.
+
+⚠ **The card is not a tap target; the rows are.** A card holds up to three options with no
+sensible default among them, so a tap on the header would either do nothing or silently pick
+one.
+
+**No source count in the header**, though the sketch had one: `option.candidates` is the whole
+bucket including candidates the protocol and cache gates skip, so any number there overstates
+what can play.
+
+**Three constants moved, and each was documented in terms of the old card:**
+
+- `QUALITY_CARD_MIN_WIDTH` 240 → **280 dp**. Its stated reason — the width below which the
+  over-connection warning stops fitting on two lines — still holds, but that warning is now
+  two levels of padding in rather than one.
+- `NuvioComponentTokens.wideDialogMaxWidth` 880 → **920 dp**, following it: 880 was exactly
+  three 240 dp columns and would have silently fallen to two. **Safe to change** —
+  `wideDialogMaxWidth` is read only by `PlaybackQualitySheet.kt` in both repos, and
+  `NuvioZDesktop`'s `TrackingAdaptivePicker.kt:132` / `TrackingProviderCards.kt:710` read
+  `dialogMaxWidth` (460 dp), untouched. That check is the reason the two tokens are separate.
+- `SKELETON_CARD_HEIGHT` / `SKELETON_CARD_COUNT` re-derived (taller cards, three not four).
+  The skeleton exists so the surface does not jump when the figures arrive, so it is wrong the
+  moment the real card's footprint changes.
+
+The band row is drawn as an `overlayHover` lift plus a hairline `borderSubtle`, not a second
+`Surface` colour: `surfaceCard` on `surfaceCard` is invisible and there is no third card
+colour in the token set — the same trap that kept `NuvioSurfaceCard` off this sheet.
+
+**This one was looked at before being called done, and looking caught two defects the suites
+could not.** Both were on the Best available card, and both were the layout's own stated fault
+committed again:
+
+- It carried a **`★` badge over a row that then said "Best available"** — the same thing said
+  twice, which is exactly what grouping by resolution exists to stop. The badge now carries
+  the name, and `variantLabel` returns `""` for `BEST` for the same reason it does for
+  `SINGLE`: the badge above it already names it.
+- It **repeated the sheet's own description sentence** three lines under itself.
+  `optionSummary` falls back to `playback_quality_description` when `requiredMbps` is null,
+  which only Best available is — so only real figures take the trailing slot now.
+
+With both gone the row held one muted caption in a full-height box and read as empty, so the
+provider line is promoted to `bodyMedium`/`textPrimary` when it is a row's only content.
+
+⚠ **Compose can be looked at on this machine without a device, and this is the general point,
+not a footnote to this change.** `desktopTest` can construct an `ImageComposeScene`, render any
+composable against synthetic state and write a PNG — `compose.desktop.currentOs` is already on
+the desktop test classpath, so it needs no new dependency. That is the only local check that
+sees layout at all; both suites and a careful read missed two defects it caught in one pass.
+
+The harness used here is kept at
+`C:\Users\Rayoa\.claude\plans\QualitySheetRenderHarness.kt` — drop it into
+`NuvioZDesktop/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/playback/`, run
+`:composeApp:desktopTest --tests "*QualitySheetRenderHarness"`, and read the PNGs from
+`composeApp/build/quality-sheet-render/`. It renders at 420 dp and 1100 dp, either side of the
+768 dp threshold, so one run covers the bottom-sheet and centred-panel branches.
+**Delete it again afterwards** — it asserts nothing, so it is not a test, and leaving it in
+adds a rendering pass to every CI run.
+
+**Verified:** Android **735 tests across 101 classes** and desktop **940 tests across 131
+classes**, both zero failures, errors or skips — the 729 / 934 baselines plus exactly the six
+new `group` cases, which run on both targets, so nothing was displaced. The desktop run
+compiled `desktopMain`. `PlaybackQualitySheet.kt`, `PlaybackQualityOptions.kt`,
+`PlaybackQualityOptionsTest.kt` and `Tokens.kt` are byte-identical across the repositories.
+
+⚠ **Check the arithmetic, not the green tick.** An earlier desktop run here reported 939 and
+was taken as passing; the real cause was that `PlaybackQualityOptionsTest.kt` had not been
+re-copied after a sixth case was added, so the desktop target was silently running five of
+six. A `cp` that happens before the last edit to a shared file is the failure mode, and a
+green suite cannot see it — **`diff -q` all four shared files immediately before quoting a
+count**, which is what AGENTS.md's mirroring rule is really protecting.
+
+⚠ **`DesktopDownloadQueueE2ETest > a source that trickles and drops forever fails instead of
+retrying forever` failed once here, then passed on a re-run — treat it as load-sensitive, not
+flaky-in-principle.** It timed out at 240 s during a run that overlapped other Gradle work,
+and passed on an idle machine. The scenario is documented above as taking ~134 s against that
+240 s ceiling on a **real-time** backoff schedule (2 + 5 + 15 + 30 s per budget, twice), so
+its margin is under 2x. Nothing in this change touches downloads. If it starts failing on an
+idle machine, the fix is a `retryBackoffScale` in `DownloadsTiming` beside the stall and
+watchdog knobs — not a longer timeout, and not shortening the schedule, which several other
+scenarios observe.
+
+**Committed directly on `main` / `Dev`** in both repositories and released as `0.4.12-beta`;
+no branch, since the release procedure needs the bump as the last commit on the default branch.
+`CurrentReleaseNotes` was rewritten for this release in the same pre-bump commit, per
+`AGENTS.md`. **Still not smoke-tested in the running app**: the rendered PNGs are the real
+composable but not the real data, so the five outstanding `0.4.11-beta` checks below carry
+forward unchanged. Add two: a title with a three-way 1080p split should show one card with
+three rows, and a title with one source per resolution should show single-row cards with no
+band word.
+
 ## The quality selector is a grid, and it waits for its numbers (2026-08-09, `0.4.11-beta`)
+
+⚠ **The flat-grid layout described here was replaced on 2026-08-10 — see "One card per
+resolution" above.** Everything else in this section still stands: the three-state body, the
+responsive container, the meter/warning coupling, the new width token and the dismiss
+behaviour are all unchanged by that follow-up.
+
 
 Streamlined's quality selector was a scrolling stack of rows in a `BasicAlertDialog` —
 identical on a phone and on a 1080p desktop window, off the design system (raw

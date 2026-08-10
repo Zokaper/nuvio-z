@@ -524,8 +524,9 @@ internal fun defaultNuvioThemeTokens(
             navItemMaxWidth = 150.dp,
             sheetMaxWidth = 520.dp,
             dialogMaxWidth = 460.dp,
-            // Three 240 dp grid columns plus their gaps and the panel's own padding.
-            wideDialogMaxWidth = 880.dp,
+            // Three 280 dp grid columns plus their gaps and the panel's own padding. Follows
+            // QUALITY_CARD_MIN_WIDTH: at 880 dp the wider card fell to two columns.
+            wideDialogMaxWidth = 920.dp,
             chipHorizontalPadding = NuvioTokens.Space.s14,
             chipVerticalPadding = NuvioTokens.Space.s8,
             posterRadius = NuvioTokens.Radius.poster,

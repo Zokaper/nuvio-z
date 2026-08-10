@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,12 +75,17 @@ import kotlin.math.roundToInt
 /**
  * Streamlined's quality picker.
  *
- * Every card here came from a source that exists for this title, so the set is different on
+ * Every band here came from a source that exists for this title, so the set is different on
  * every title and a quality nobody released simply has no card. The bandwidth figure is the
  * one the chosen file actually needs, not a preset's nominal number.
  *
- * A thin renderer over pure functions, deliberately: the resolution badge, the tier word, the
- * required speed, the provider line and the connection meter all come from
+ * **One card per resolution, with its bands stacked inside it.** That is the shape
+ * [PlaybackQualityOptions.build] already emits - Best available, then resolutions high to low,
+ * each split High/Mid/Low - and the flat grid this replaced threw it away, making three bands
+ * of one resolution peers of each other and of every other resolution.
+ *
+ * A thin renderer over pure functions, deliberately: the grouping, the resolution badge, the
+ * band word, the required speed, the provider line and the connection meter all come from
  * [PlaybackQualityOptions] and [PlaybackSourceSelector], which are testable outside Compose.
  * The same reasoning `PlaybackProgress.step`/`isVisible` are built on.
  *
@@ -221,6 +228,7 @@ private fun QualitySheetBody(
     onChooseManually: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val groups = remember(options) { PlaybackQualityOptions.group(options) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -279,15 +287,27 @@ private fun QualitySheetBody(
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
             ) {
-                items(options, key = { it.id }) { option ->
-                    QualityCard(
-                        option = option,
+                items(
+                    items = groups,
+                    // The resolution, not a position: the grid is rebuilt whenever an addon
+                    // answers, and a positional key would re-associate every card's state
+                    // with a different resolution as the set grows. Same reasoning as
+                    // PlaybackQualityOption.id, which this replaces at the group level.
+                    key = { it.resolutionLabel.ifBlank { BEST_GROUP_KEY } },
+                    // Best available is not a resolution and has no bands, so it heads the
+                    // grid on its own line rather than sitting beside 4K as its peer.
+                    span = {
+                        if (it.resolution == null) GridItemSpan(maxLineSpan) else GridItemSpan(1)
+                    },
+                ) { group ->
+                    ResolutionGroupCard(
+                        group = group,
                         selectionContext = selectionContext,
                         estimatedMbps = estimatedMbps,
                         // Disabled, not removed. A second tap while the first is being acted
                         // on would re-arm the selection effect against a different option.
                         enabled = !isSelecting,
-                        onClick = { onOptionSelected(option) },
+                        onOptionSelected = onOptionSelected,
                     )
                 }
             }
@@ -301,8 +321,75 @@ private fun QualitySheetBody(
     }
 }
 
+/**
+ * One resolution and every band offered at it.
+ *
+ * The resolution is named once, in the badge, because it is one decision - the flat grid this
+ * replaced made "1080p High", "1080p Mid" and "1080p Low" three peers of each other and of
+ * every other resolution, and repeated the word three times to say it once.
+ *
+ * **The card is not a tap target; the rows inside it are.** A card carries up to three
+ * options and there is no sensible default among them, so a tap on the header would either do
+ * nothing or silently pick one.
+ *
+ * **No source count in the header, deliberately.** `option.candidates` is the whole bucket
+ * including candidates the protocol and cache gates will skip, so any number printed here
+ * would overstate what can actually play - the same class of untruth as [sourceLine] naming
+ * `candidates.first()`.
+ */
 @Composable
-private fun QualityCard(
+private fun ResolutionGroupCard(
+    group: PlaybackQualityGroup,
+    selectionContext: PlaybackSelectionContext,
+    estimatedMbps: Double?,
+    enabled: Boolean,
+    onOptionSelected: (PlaybackQualityOption) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = tokens.shapes.card,
+        color = tokens.colors.surfaceCard,
+    ) {
+        Column(
+            modifier = Modifier.padding(tokens.spacing.cardPaddingCompact),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+        ) {
+            // Best available claims no resolution, so the badge carries its name instead of a
+            // glyph standing in for one. A "★" badge over a row that then said "Best
+            // available" was the same thing said twice - the fault this layout exists to fix.
+            ResolutionBadge(
+                group.resolutionLabel.ifBlank { stringResource(Res.string.playback_quality_best) },
+            )
+            group.options.forEach { option ->
+                QualityTierRow(
+                    option = option,
+                    selectionContext = selectionContext,
+                    estimatedMbps = estimatedMbps,
+                    enabled = enabled,
+                    onClick = { onOptionSelected(option) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One band within a resolution, and the thing the user actually taps.
+ *
+ * Everything on it is per-option and none of it can be lifted to the card: [sourceLine] names
+ * the release *this* band would open, and the over-connection warning is true of one band and
+ * false of the one under it. That is why the bands are stacked rows and not a row of chips -
+ * a chip three-across on a phone is about 105 dp, which holds the band word and the figures
+ * and nothing else, and dropping the provider line to fit would name a release the user never
+ * receives.
+ *
+ * Drawn as a lift over the card rather than a second [Surface] colour: `surfaceCard` on
+ * `surfaceCard` is invisible, and there is no third card colour in the token set. The
+ * hairline border is what survives if the lift is ever tuned towards the card.
+ */
+@Composable
+private fun QualityTierRow(
     option: PlaybackQualityOption,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
@@ -314,59 +401,80 @@ private fun QualityCard(
     val band = variantLabel(option)
     val source = sourceLine(option, selectionContext)
 
-    Surface(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick),
-        shape = tokens.shapes.card,
-        color = tokens.colors.surfaceCard,
-    ) {
-        Column(
-            modifier = Modifier.padding(tokens.spacing.cardPaddingCompact),
-            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ResolutionBadge(option.resolutionLabel.ifBlank { BEST_AVAILABLE_BADGE })
-                if (band.isNotBlank()) {
-                    Text(
-                        text = band,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = tokens.colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Text(
-                text = optionSummary(option),
-                style = MaterialTheme.typography.bodySmall,
-                color = tokens.colors.textSecondary,
+            .clip(tokens.shapes.compactCard)
+            .background(tokens.colors.overlayHover)
+            .border(
+                width = tokens.borders.hairline,
+                color = tokens.colors.borderSubtle,
+                shape = tokens.shapes.compactCard,
             )
-            if (source.isNotBlank()) {
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(tokens.spacing.cardPaddingCompact),
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+    ) {
+        // Only real figures earn the trailing slot. Best available quotes no bandwidth, and
+        // what `optionSummary` falls back to for it is the sheet's own description - printing
+        // it here restated the sentence three lines under itself.
+        val figures = option.requiredMbps?.let { optionSummary(option) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (band.isNotBlank()) {
                 Text(
-                    text = source,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tokens.colors.textMuted,
+                    text = band,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = tokens.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (fit != null) {
-                ConnectionMeter(fit = fit)
-            }
-            if (fit?.isOverConnection == true) {
-                // Said, not enforced. The estimate is a guess; the user may know better
-                // than the app does, and a card they cannot pick is worse than a warning.
+            if (figures != null) {
+                // Trailing, so the figures line up down a card whose band words differ in
+                // width. Carries the whole row for Variant.SINGLE, which has no band word.
                 Text(
-                    text = stringResource(Res.string.playback_quality_over_connection),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tokens.colors.danger,
+                    text = figures,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textSecondary,
+                    textAlign = if (band.isBlank()) TextAlign.Start else TextAlign.End,
                 )
             }
+        }
+        if (source.isNotBlank()) {
+            // Normally a caption under the figures. On Best available there are no figures
+            // and no band word, so this is the row's only content and a muted caption reads
+            // as an empty box - it carries the row there and is styled as such.
+            val isOnlyContent = band.isBlank() && figures == null
+            Text(
+                text = source,
+                style = if (isOnlyContent) {
+                    MaterialTheme.typography.bodyMedium
+                } else {
+                    MaterialTheme.typography.labelSmall
+                },
+                color = if (isOnlyContent) tokens.colors.textPrimary else tokens.colors.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (fit != null) {
+            ConnectionMeter(fit = fit)
+        }
+        if (fit?.isOverConnection == true) {
+            // Said, not enforced. The estimate is a guess; the user may know better
+            // than the app does, and a band they cannot pick is worse than a warning.
+            Text(
+                text = stringResource(Res.string.playback_quality_over_connection),
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.colors.danger,
+            )
         }
     }
 }
@@ -480,15 +588,18 @@ private fun ResolutionBadge(text: String) {
 }
 
 /**
- * The card's band word, given that the resolution is already in the badge beside it.
+ * The row's band word, given that the resolution is already in the badge above it.
  *
- * "4K" belongs in the badge; "High" is a comparison with the cards around it. A resolution
- * with a single card has nothing to compare against, so it says nothing rather than
+ * "4K" belongs in the badge; "High" is a comparison with the rows around it. A resolution
+ * with a single row has nothing to compare against, so it says nothing rather than
  * repeating the badge back to the user - the badge alone already names it.
+ *
+ * [PlaybackQualityOption.Variant.BEST] is silent for that same reason and not because it has
+ * no name: its card's badge *is* its name, since it has no resolution to put there.
  */
 @Composable
 private fun variantLabel(option: PlaybackQualityOption): String = when (option.variant) {
-    PlaybackQualityOption.Variant.BEST -> stringResource(Res.string.playback_quality_best)
+    PlaybackQualityOption.Variant.BEST -> ""
     PlaybackQualityOption.Variant.HIGH -> stringResource(Res.string.playback_quality_variant_high)
     PlaybackQualityOption.Variant.MID -> stringResource(Res.string.playback_quality_variant_mid)
     PlaybackQualityOption.Variant.LOW -> stringResource(Res.string.playback_quality_variant_low)
@@ -527,8 +638,11 @@ private fun optionSummary(option: PlaybackQualityOption): String {
     return stringResource(Res.string.playback_quality_summary_with_size, speed, size)
 }
 
-/** Standing in for a resolution on the Best available card, which claims no resolution. */
-private const val BEST_AVAILABLE_BADGE = "★"
+/**
+ * The grid key for the Best available card, which has no resolution label to be keyed on.
+ * Never rendered - a resolution label is what the user sees on every other card.
+ */
+private const val BEST_GROUP_KEY = "best"
 
 /**
  * Where the estimate sits along the meter's track. Derived from
@@ -539,23 +653,36 @@ private const val BEST_AVAILABLE_BADGE = "★"
 private val ESTIMATE_MARKER_FRACTION =
     (1.0 / PlaybackQualityOptions.MAX_LOAD_FRACTION).toFloat()
 
-private const val SKELETON_CARD_COUNT = 4
+/**
+ * A settled title is usually Best available plus two or three resolutions, not the four flat
+ * options the old grid placed here. Both this and [SKELETON_CARD_HEIGHT] exist only so the
+ * surface does not jump when the figures arrive, which makes them wrong the moment the real
+ * card's footprint changes - they are not free-standing constants.
+ */
+private const val SKELETON_CARD_COUNT = 3
 private const val SKELETON_PULSE_MILLIS = 900
 private const val SKELETON_MIN_ALPHA = 0.4f
 private const val SKELETON_MAX_ALPHA = 1f
 
 /**
- * Card width below which the over-connection warning stops fitting on two lines. It is the
- * part of the card the user asked to keep legible, so it sets the column width rather than
- * being shrunk to fit more columns in.
+ * Card width below which the over-connection warning stops fitting on two lines - still the
+ * part of the card the user asked to keep legible, so it still sets the column width rather
+ * than being shrunk to fit more columns in.
+ *
+ * Wider than the 240 dp the flat grid used, because that warning is now two levels of padding
+ * in rather than one: the card's `cardPaddingCompact` and the tier row's own. 280 dp leaves
+ * the row the same interior the old card gave it, plus room for the band word and the figures
+ * to share a line.
  */
-private val QUALITY_CARD_MIN_WIDTH = 240.dp
+private val QUALITY_CARD_MIN_WIDTH = 280.dp
 
 /** The repo's tablet threshold. See App.kt:2051 and ProfileSelectionScreen.kt:112. */
 private val WIDE_LAYOUT_MIN_WIDTH = 768.dp
 
 private val RESOLUTION_BADGE_MIN_WIDTH = NuvioTokens.Space.s56
-private val SKELETON_CARD_HEIGHT = NuvioTokens.Space.s96 + NuvioTokens.Space.s24
+
+/** A badge and two tier rows: the middle of the range a group card can occupy. */
+private val SKELETON_CARD_HEIGHT = NuvioTokens.Space.s96 * 2 + NuvioTokens.Space.s56
 private val GRID_HEIGHT_INSET = NuvioTokens.Space.s96 * 2
 private val GRID_MIN_HEIGHT = NuvioTokens.Space.s96 * 2
 private val GRID_MAX_HEIGHT = NuvioTokens.Space.s96 * 6
