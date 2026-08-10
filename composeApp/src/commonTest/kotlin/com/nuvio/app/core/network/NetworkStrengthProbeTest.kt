@@ -10,9 +10,11 @@ import kotlin.test.assertTrue
 class NetworkStrengthProbeTest {
 
     @Test
-    fun aMeteredConnectionIsNeverProbed() {
-        // The user's allowance is not ours to spend on a measurement they did not ask for.
-        assertNull(NetworkStrengthProbe.plan(inputs(isMetered = true)))
+    fun aMeteredConnectionIsProbedToo() {
+        // Skipping metered left mobile data - the connection whose speed varies most and
+        // matters most - as the one case still decided entirely by a preset, which is the
+        // fault this path exists to remove.
+        assertNotNull(NetworkStrengthProbe.plan(inputs(isMetered = true)))
     }
 
     @Test

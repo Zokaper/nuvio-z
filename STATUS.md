@@ -4,8 +4,8 @@ Last updated: 2026-08-10
 
 | | |
 | --- | --- |
-| **Active branch** | None. `claude/network-strength-sources-4rrysy` is merged into `main` / `Dev` and shipped as `0.4.13-beta` — see "Network strength is measured, not assumed" below, whose five outstanding checks are all still open. Its plan is `~/.claude/plans/hey-claude-the-way-noble-sky.md`.<br><br>Previously: the quality selector regrouped by resolution landed directly on `main` / `Dev` and shipped as `0.4.12-beta`. `claude/quality-selector-grid` was merged for `0.4.11-beta`; `claude/instant-predictability-next-ep` for `0.4.10-beta`. |
-| **Released** | `0.4.13-beta` on both — network strength measured rather than assumed, and the Best available card naming the file rather than the protocol. **CI green on both repositories, but not device-verified**, published on the maintainer's explicit instruction. Its outstanding checks are listed in "Network strength is measured, not assumed" below and none of them has been done. Previously `0.4.12-beta` — the resolution-grouped quality selector, published on the maintainer's explicit instruction. **Not device-verified**, but unlike `0.4.11-beta` the sheet has been *looked at* — when the change was built, not at release time: it was rendered off-screen at 420 dp and 1100 dp through the `desktopTest` harness described below, which caught two defects both suites missed. The release run itself added no new visual evidence. That is the real composable against synthetic state, not the real data, so the seven outstanding checks below still stand. `0.4.11-beta` shipped this same surface unlooked-at; `0.4.10-beta` shipped three behaviours untested. Check all three sections first if anything is reported. |
+| **Active branch** | `claude/network-strength-sources-4rrysy`, restarted from `main` after the `0.4.13-beta` merge, carrying the `0.4.14-beta` fix. Plan: `~/.claude/plans/hey-claude-the-way-noble-sky.md`. |
+| **Released** | `0.4.14-beta` on both — fixes the `0.4.13-beta` picker showing no connection figure and no meters at all. See "The 0.4.13 picker showed nothing at all" below. **CI green, still not device-verified.** `0.4.13-beta` shipped the measurement work itself and is superseded. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
 | **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
@@ -18,7 +18,49 @@ This table is the first thing to update in any session, and it is kept current o
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
 
-## Network strength is measured, not assumed (2026-08-10, unreleased)
+## The 0.4.13 picker showed nothing at all (2026-08-10, `0.4.14-beta`)
+
+**Reported on sight, with a screenshot: the quality sheet had no connection line and no meters
+on any card.** Not a rendering fault - it is what `0.4.13-beta` was built to do, and the design
+was wrong. `estimatedMbps` was passed as null unless a measurement existed, so the header
+collapsed to its non-breaking space *and* `connectionFit` returned null for every option, taking
+the meters and the over-connection warnings with it. A connection that could not be measured
+therefore displayed **less than before any of this existed**.
+
+Three ways to reach that screen, and all three were silent:
+
+1. ⚠ **The probe cancelled itself.** Its `LaunchedEffect` was keyed on `qualityProbeTarget`,
+   which derives from `playbackQualityOptions` - rebuilt *every time an addon answers*
+   (`App.kt:2779`). Every new source restarted the effect and killed the transfer part way
+   through. The comment above it claimed it "runs beside the source fetch"; it was being killed
+   by that fetch. It now launches into a `rememberCoroutineScope`, so re-triggering is harmless
+   (`probe` refuses to start a second one while the first is in flight) and cancellation happens
+   when the sheet actually leaves composition.
+2. **Metered connections were skipped entirely**, which left mobile data - the connection whose
+   speed varies most and matters most - as the one case still decided by a preset. **The skip is
+   gone**: metered is probed too, at about 4 MB once per network per ten minutes, on the
+   maintainer's explicit instruction.
+3. **A failed probe reported nothing** - non-2xx, or a sample under the 512 KiB floor.
+
+**The sheet now always shows a figure and labels its provenance:** `Estimated ~50 Mb/s for this
+connection` until measured, `Your connection: about 42 Mb/s` after, `Checking your connection…`
+while a probe is in flight. The meters are back on every card, scored against whichever figure
+is current. This is a deliberate step back from "never show an unmeasured number" - the label
+carries the truth instead, and a meter comparing 33 against 48 Mb/s is useful even when the
+baseline is rough.
+
+One new string key in both repos: `playback_quality_estimated_connection`.
+
+**Verified:** the three pure suites still pass standalone - **34 tests** across
+`NetworkThroughputMeterTest`, `NetworkStrengthProbeTest` (metered now asserts a probe *is*
+planned) and `NetworkQualityRepositoryTest`. CI is the gate, as before.
+
+⚠ **Still not device-verified, and the screenshot above is the reason that matters.** No amount
+of green CI would have caught this; it took someone looking at the screen. The outstanding
+checks below are unchanged and this release adds one: confirm the labelled figure appears on a
+first play, and that the probe now completes rather than being cancelled.
+
+## Network strength is measured, not assumed (2026-08-10, `0.4.13-beta`)
 
 **The quality sheet was printing a preset as if it were a measurement.**
 `NetworkQualityRepository.defaultMbps` returns 50 Mbps for any Wi-Fi, 100 for Ethernet, 10 for

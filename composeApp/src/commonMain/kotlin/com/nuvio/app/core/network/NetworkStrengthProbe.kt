@@ -25,6 +25,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * the user's link resolutions on, and a minted-but-unplayed link is exactly the churn the
  * playback stack is built to avoid.
  *
+ * **It runs on metered connections as well.** Skipping them left mobile data - the connection
+ * whose speed varies most - as the one case still decided by a preset, which is the fault this
+ * whole path exists to remove.
+ *
  * [plan] is pure and holds every rule about whether and what to measure; [measure] is the only
  * part that touches the network.
  */
@@ -66,6 +70,10 @@ object NetworkStrengthProbe {
 
     /** Everything [plan] needs, as plain values, so the rules are testable without a network. */
     data class Inputs(
+        /**
+         * Kept for the record and for [Plan] consumers; it no longer suppresses the probe.
+         * See the note on [plan].
+         */
         val isMetered: Boolean,
         val isOffline: Boolean,
         /** Age of the estimate [NetworkQualityRepository] would use, or null if there is none. */
@@ -93,9 +101,11 @@ object NetworkStrengthProbe {
 
     fun plan(inputs: Inputs): Plan? {
         if (inputs.isOffline) return null
-        // The user's allowance is not ours to spend on a measurement they did not ask for. The
-        // buffer meter still measures cellular for free once something is playing.
-        if (inputs.isMetered) return null
+        // **Metered connections are probed too.** The first cut skipped them to protect the
+        // user's allowance, and the result was that mobile data - the connection whose speed
+        // varies most and matters most - was the one case decided entirely by a preset. At
+        // 4 MiB, once per network per ten minutes, the measurement costs a fraction of the
+        // first few seconds of the video it is about to choose.
         if (inputs.estimateAgeMs != null && inputs.estimateAgeMs < FRESH_ESTIMATE_MS) return null
 
         val stopAbove = inputs.requiredMbps

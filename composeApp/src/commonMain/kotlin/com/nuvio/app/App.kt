@@ -3436,27 +3436,31 @@ private fun MainAppContent(
                         NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
                     }
 
-                    // Runs beside the source fetch the skeleton is already waiting on, so in the
-                    // common case the figure is there before the grid is. Cancelled with the
-                    // sheet: a measurement nobody is left to read is bytes spent for nothing.
+                    // **Launched into the sheet's own scope, not the effect's.** `qualityProbeTarget`
+                    // is derived from `playbackQualityOptions`, which is rebuilt every time an addon
+                    // answers - so keying a `LaunchedEffect` body on it cancelled the transfer part
+                    // way through on every new source, and the probe was killed by the very fetch it
+                    // was meant to run beside. Re-triggering is harmless here: `probe` refuses to
+                    // start a second one while the first is in flight, and this scope is cancelled
+                    // when the sheet leaves composition, which is the cancellation actually wanted.
+                    val probeScope = rememberCoroutineScope()
                     LaunchedEffect(playbackRouteDecision, qualityProbeTarget, qualitySheetDismissed) {
                         if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) {
                             return@LaunchedEffect
                         }
                         if (qualitySheetDismissed) return@LaunchedEffect
                         val platform = NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
-                        NetworkStrengthProbe.probe(
-                            NetworkStrengthProbe.Inputs(
-                                isMetered = platform.isMetered,
-                                isOffline = platform.connectionType == NetworkConnectionType.OFFLINE,
-                                estimateAgeMs = NetworkQualityRepository
-                                    .estimateAgeMs(qualityProbeTarget?.providerId),
-                                sourceUrl = qualityProbeTarget?.url,
-                                sourceHeaders = qualityProbeTarget?.headers.orEmpty(),
-                                providerId = qualityProbeTarget?.providerId,
-                                requiredMbps = playbackQualityOptions.firstOrNull()?.requiredMbps,
-                            ),
+                        val inputs = NetworkStrengthProbe.Inputs(
+                            isMetered = platform.isMetered,
+                            isOffline = platform.connectionType == NetworkConnectionType.OFFLINE,
+                            estimateAgeMs = NetworkQualityRepository
+                                .estimateAgeMs(qualityProbeTarget?.providerId),
+                            sourceUrl = qualityProbeTarget?.url,
+                            sourceHeaders = qualityProbeTarget?.headers.orEmpty(),
+                            providerId = qualityProbeTarget?.providerId,
+                            requiredMbps = playbackQualityOptions.firstOrNull()?.requiredMbps,
                         )
+                        probeScope.launch { NetworkStrengthProbe.probe(inputs) }
                     }
 
                     LaunchedEffect(
@@ -3670,13 +3674,13 @@ private fun MainAppContent(
                                     streamsUiState.isAnyLoading,
                                 isSelecting = streamlinedSelectionPending,
                                 selectionContext = playbackSelectionContext,
-                                // Null until the connection has actually been measured. A
-                                // platform default is not a measurement, and quoting one as
-                                // "your connection" is the same untruth as quoting a preset's
-                                // bandwidth for a card.
-                                estimatedMbps = sheetNetworkQuality
-                                    .takeIf { it.isMeasured }
-                                    ?.estimatedMbps,
+                                // Always a figure, never an unlabelled one. Hiding it until a
+                                // measurement landed took the connection meters off every card
+                                // as well, so a connection that could not be measured showed
+                                // less than before the measuring existed. The sheet says which
+                                // kind of number it is holding.
+                                estimatedMbps = sheetNetworkQuality.estimatedMbps,
+                                isConnectionMeasured = sheetNetworkQuality.isMeasured,
                                 isMeasuringConnection = isProbingConnection,
                                 onOptionSelected = ::selectStreamlinedOption,
                                 onChooseManually = {
