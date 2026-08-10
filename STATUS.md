@@ -4,7 +4,7 @@ Last updated: 2026-08-10
 
 | | |
 | --- | --- |
-| **Active branch** | None. `claude/network-strength-sources-4rrysy` is merged into `main` / `Dev` and shipped as `0.4.14-beta`. Plan: `~/.claude/plans/hey-claude-the-way-noble-sky.md`. **The next thing to do is a device smoke test** — the `0.4.13-beta` defect was invisible to three green CI runs and 767 passing tests, and was found by looking at the screen. |
+| **Active branch** | `claude/network-strength-sources-4rrysy` in both repositories, restarted from `main` / `Dev` after the `0.4.14-beta` merge. Carries **one unreleased fix**, queued for the next release rather than shipped on its own — see "Queued, unreleased" below. **A device smoke test is still the next thing to do**: the `0.4.13-beta` defect was invisible to three green CI runs and 767 passing tests, and was found by looking at the screen. |
 | **Released** | `0.4.14-beta` on both — fixes the `0.4.13-beta` picker showing no connection figure and no meters at all. See "The 0.4.13 picker showed nothing at all" below. **CI green, still not device-verified.** `0.4.13-beta` shipped the measurement work itself and is superseded. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
 | **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
@@ -17,6 +17,31 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Queued, unreleased: a fresh line estimate suppressed probing a new host
+
+**Not in any release. Sitting on `claude/network-strength-sources-4rrysy` for whatever ships
+next** - deliberately, on the maintainer's instruction, rather than as a release of its own.
+
+`estimateAgeMs` answered with `peek`'s exact-then-generic fallback, so it reported the age of
+the number the sheet would *show* rather than of the key the probe would *write*. A two-minute
+old line-wide reading therefore declared a brand-new debrid host freshly measured, the host was
+never probed, and it went on borrowing a figure measured somewhere else - which is precisely
+what the per-provider keying exists to prevent.
+
+⚠ **The obvious fix is wrong and would have been worse.** Making the check exact-key-only breaks
+the other direction: a source that still needs minting has no direct URL, so the probe falls
+back to the CDN and files the answer under **no** provider. That host's own entry then never
+fills, an exact-key check is never satisfied, and the sheet re-probes 4 MiB on *every single
+open*. On debrid - the main path - that is most opens.
+
+So the freshness question now names the key the probe would write:
+`plan` resolves its target first, then gates on the host's age when it will pull from that host
+and file the answer under it, and on the line's age whenever it falls back to the CDN or the
+source carries no provider. `Inputs` takes both ages because only `plan` knows which applies.
+
+**Verified:** the three pure suites, **39 tests**, up from 34 - five new cases pin both
+directions of the trap, including `aCdnBoundProbeIsJudgedByTheLineNotTheHost`. CI is the gate.
 
 ## The 0.4.13 picker showed nothing at all (2026-08-10, `0.4.14-beta`)
 
