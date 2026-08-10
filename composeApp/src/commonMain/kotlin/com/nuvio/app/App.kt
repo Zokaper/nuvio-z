@@ -247,7 +247,9 @@ import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.playback.StickySourcePin
 import com.nuvio.app.core.network.MeteredPlaybackChoice
+import com.nuvio.app.core.network.NetworkConnectionType
 import com.nuvio.app.core.network.NetworkQualityRepository
+import com.nuvio.app.core.network.NetworkStrengthProbe
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktListTab
@@ -3416,6 +3418,47 @@ private fun MainAppContent(
                         streamlinedSelectionPending = true
                     }
 
+                    // The connection figure on the sheet belongs to the host that would serve
+                    // the stream, not to the line in the abstract: on debrid the throughput is
+                    // the provider's. Scoped to what Best available would open, which is the
+                    // card the estimate is read against most often.
+                    val qualityProbeTarget = remember(playbackQualityOptions, playbackSelectionContext) {
+                        playbackQualityOptions.firstOrNull()?.let { option ->
+                            PlaybackSourceSelector.probeTarget(option, playbackSelectionContext)
+                        }
+                    }
+                    // The flow is a change signal only - it carries whichever provider asked
+                    // last. `peek` is the read, and it is pure, which is what keeps a value
+                    // derived during composition from writing back into the flow driving it.
+                    val networkSignal by NetworkQualityRepository.uiState.collectAsStateWithLifecycle()
+                    val isProbingConnection by NetworkStrengthProbe.isProbing.collectAsStateWithLifecycle()
+                    val sheetNetworkQuality = remember(networkSignal, qualityProbeTarget?.providerId) {
+                        NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
+                    }
+
+                    // Runs beside the source fetch the skeleton is already waiting on, so in the
+                    // common case the figure is there before the grid is. Cancelled with the
+                    // sheet: a measurement nobody is left to read is bytes spent for nothing.
+                    LaunchedEffect(playbackRouteDecision, qualityProbeTarget, qualitySheetDismissed) {
+                        if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) {
+                            return@LaunchedEffect
+                        }
+                        if (qualitySheetDismissed) return@LaunchedEffect
+                        val platform = NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
+                        NetworkStrengthProbe.probe(
+                            NetworkStrengthProbe.Inputs(
+                                isMetered = platform.isMetered,
+                                isOffline = platform.connectionType == NetworkConnectionType.OFFLINE,
+                                estimateAgeMs = NetworkQualityRepository
+                                    .estimateAgeMs(qualityProbeTarget?.providerId),
+                                sourceUrl = qualityProbeTarget?.url,
+                                sourceHeaders = qualityProbeTarget?.headers.orEmpty(),
+                                providerId = qualityProbeTarget?.providerId,
+                                requiredMbps = playbackQualityOptions.firstOrNull()?.requiredMbps,
+                            ),
+                        )
+                    }
+
                     LaunchedEffect(
                         streamlinedSelectionPending,
                         pendingStreamlinedOptionId,
@@ -3627,7 +3670,14 @@ private fun MainAppContent(
                                     streamsUiState.isAnyLoading,
                                 isSelecting = streamlinedSelectionPending,
                                 selectionContext = playbackSelectionContext,
-                                estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
+                                // Null until the connection has actually been measured. A
+                                // platform default is not a measurement, and quoting one as
+                                // "your connection" is the same untruth as quoting a preset's
+                                // bandwidth for a card.
+                                estimatedMbps = sheetNetworkQuality
+                                    .takeIf { it.isMeasured }
+                                    ?.estimatedMbps,
+                                isMeasuringConnection = isProbingConnection,
                                 onOptionSelected = ::selectStreamlinedOption,
                                 onChooseManually = {
                                     streamlinedSelectionPending = false
