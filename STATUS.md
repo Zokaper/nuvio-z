@@ -4,7 +4,7 @@ Last updated: 2026-08-10
 
 | | |
 | --- | --- |
-| **Active branch** | None. The quality selector regrouped by resolution landed **directly on `main` / `Dev`** in both repositories and shipped as `0.4.12-beta` — see "One card per resolution" below. `claude/quality-selector-grid` is merged into `main` / `Dev` for `0.4.11-beta`; its plan and ledger (all nine steps ☑) are `~/.claude/plans/ok-i-like-the-wiggly-scone.md`. Previous branch `claude/instant-predictability-next-ep` was merged for `0.4.10-beta`. |
+| **Active branch** | `claude/network-strength-sources-4rrysy` in **both** repositories — network strength is measured rather than assumed, and the Best available card names the file rather than the protocol. See "Network strength is measured, not assumed" below: **unreleased, and its five outstanding checks include the only `desktopMain` compile, which this change needs because it adds two new desktop actuals.** Its plan is `~/.claude/plans/hey-claude-the-way-noble-sky.md`.<br><br>Previously: the quality selector regrouped by resolution landed **directly on `main` / `Dev`** in both repositories and shipped as `0.4.12-beta` — see "One card per resolution" below. `claude/quality-selector-grid` is merged into `main` / `Dev` for `0.4.11-beta`; its plan and ledger (all nine steps ☑) are `~/.claude/plans/ok-i-like-the-wiggly-scone.md`. Previous branch `claude/instant-predictability-next-ep` was merged for `0.4.10-beta`. |
 | **Released** | `0.4.12-beta` on both — the resolution-grouped quality selector, published on the maintainer's explicit instruction. **Not device-verified**, but unlike `0.4.11-beta` the sheet has been *looked at* — when the change was built, not at release time: it was rendered off-screen at 420 dp and 1100 dp through the `desktopTest` harness described below, which caught two defects both suites missed. The release run itself added no new visual evidence. That is the real composable against synthetic state, not the real data, so the seven outstanding checks below still stand. `0.4.11-beta` shipped this same surface unlooked-at; `0.4.10-beta` shipped three behaviours untested. Check all three sections first if anything is reported. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
 | **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
@@ -17,6 +17,95 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Network strength is measured, not assumed (2026-08-10, unreleased)
+
+**The quality sheet was printing a preset as if it were a measurement.**
+`NetworkQualityRepository.defaultMbps` returns 50 Mbps for any Wi-Fi, 100 for Ethernet, 10 for
+cellular, and `PlaybackQualitySheet` rendered that verbatim as *"Your connection: about 50 Mb/s"*
+with no hedge. Every `ConnectionMeter` and every "May be more than your connection carries" was
+scored against a guess. Four things kept it one, and all four are now fixed:
+
+- **Nothing measured throughput before the first play.** New `core/network/NetworkStrengthProbe.kt`
+  runs a bounded ranged GET — 4 MiB or 2500 ms, whichever first — while the source fetch the
+  skeleton is already waiting on is still running.
+- **The playback signal was a lower bound that could not correct downwards.** New
+  `core/network/NetworkThroughputMeter.kt` converts `bufferedPositionMs` growth against the
+  playing file's bitrate into a real rate. `recordSustainedBitrate` stays, monotonic, as the
+  fallback for sources whose size nobody reported.
+- **Estimates were in-memory only**, so every cold start was a preset again. They now persist
+  through `core/network/NetworkQualityStorage.kt` (a new `expect` with android/ios/**desktop**
+  actuals), aged out at seven days, capped at 32 entries.
+- **The sheet read the estimate wrong** — `NetworkQualityRepository.current()` called directly in
+  composition, so no recomposition when a measurement landed, and no provider scope. It now
+  collects `uiState` and reads through the new pure `peek(providerId)`, scoped to the host that
+  would actually serve the stream.
+
+⚠ **The probe measures the source, not the line.** When the top option has a direct URL it pulls
+from that host with that source's own `proxyHeaders`, and files the answer under its provider id.
+Only a candidate that still needs `clientResolve`, or a manifest, falls back to
+`speed.cloudflare.com`, and that result is stored against **no provider** — a fast CDN must never
+vouch for a slow debrid. **No debrid link is ever minted to run a probe.** Metered connections are
+never probed at all; the buffer meter covers them for free.
+
+⚠ **A flat buffer and a draining buffer are not the same reading.** A full buffer back-pressures
+the transfer down to the file's own bitrate, so a flat window measures the *file*; two of them
+stop the meter. A *draining* buffer is the line failing to keep up and is reported even when it is
+below an earlier window, because suppressing it is how an estimate survives being disproved.
+
+**Best available now says what the user gets.** Its card had no resolution badge and no bandwidth
+figure, so `describeRelease` — `WEB-DL · TorBox` — was the whole card: the two facts named were
+which rip it came from and which host serves it. It now leads with
+`PlaybackSourceSelector.describeBestRelease` (`4K · DV · 18.2 GB`), quotes a real
+`Needs 21 Mb/s` from `PlaybackQualityOptions.requiredMbpsFor` on the source that would actually
+open, and therefore has a `ConnectionMeter` and an over-connection warning for the first time.
+Resolution cards are unchanged except for gaining the dynamic-range token. Unknown fields are
+omitted, never placeholdered, and a null `previewSelection` still yields an empty line rather than
+`candidates.first()`.
+
+**One new string key in both repos:** `playback_quality_checking_connection`. The header line is
+now always drawn at fixed height with three states — the measured figure, "Checking your
+connection…", or a non-breaking space — so the grid never jumps when a figure lands.
+
+**Instant is still withdrawn, and this does not change that.** But `PlaybackMode.isSelectable`'s
+comment was stale — it blamed tier-picking that `PlaybackQualityOptions` replaced — and now names
+the real blocker: no device evidence for the failure chain, downshift, or metered consent.
+
+**Verified — no Gradle in this sandbox, so this is the "Verifying without Gradle" route:**
+
+- **Parser check** over every changed file in both repositories: clean.
+- **Standalone compile-and-run of the shipped sources** with JUnit, per item 2:
+  `NetworkThroughputMeterTest` **10/10**, `NetworkStrengthProbeTest` **9/9**,
+  `NetworkQualityRepositoryTest` **15/15** (the six pre-existing cases plus nine new ones,
+  covering the downward correction, `PROBED`, seven-day expiry, the cold-start restore as
+  `CACHED`, a corrupt blob, and `peek` not publishing).
+- **Stubbed neighbours, never a file under test:** `NetworkQualityPlatform` and
+  `PlatformNetworkQuality`/`NetworkConnectionType` (the real file also declares the `expect`),
+  `NetworkQualityStorage`, `DownloadsClock`, `VideoResolution`, and `httpMeasureThroughput`.
+  `NetworkQualityRepository`, `NetworkThroughputMeter` and `NetworkStrengthProbe` are the
+  shipped sources, unmodified.
+- **`PlaybackSourceSelectorTest`'s five new cases are parser-checked only** — the real
+  `StreamItem` reaches the generated resource bundle, so they need CI. **CI compiles them on
+  push; treat that run as the gate.**
+
+**Not verified, and the next steps:**
+
+1. `:composeApp:desktopTest` in `NuvioZDesktop` — the only `desktopMain` compile, and this change
+   adds **two** new desktop actuals (`NetworkQualityStorage`, `httpMeasureThroughput`). A missing
+   desktop actual has broken that build twice before.
+2. **Extend the desktop download harness with a rate-limited endpoint** and assert
+   `httpMeasureThroughput` measures a known 20 Mbps server, that a delayed first byte does not
+   depress the figure, and that both the time cap and the early exit fire. Nothing has yet
+   exercised the platform actuals against a real socket.
+3. **Render the sheet off-screen at 420 dp and 1100 dp** in both header states and confirm the
+   height does not change, and that the Best available card's longest line
+   (`4K · DV · 128.4 GB` plus `Needs 78 Mb/s`) fits the 280 dp `QUALITY_CARD_MIN_WIDTH`. Both
+   defects `0.4.12-beta` caught this way were on that card.
+4. **On device:** `DebugBandwidthThrottle` at 5 Mbps — the sheet should converge near 5 rather
+   than sitting on the 50 Mbps Wi-Fi preset, with `PlaybackDiagnosticsHud` showing
+   `confidence=PROBED`/`PASSIVE` and the provider key. Then cellular: confirm no probe runs.
+5. Fresh install → play → force-stop → relaunch: the estimate survives and the sheet shows a
+   figure immediately instead of "Checking your connection…".
 
 ## The debug update line (2026-08-08)
 
@@ -674,8 +763,10 @@ Details worth knowing:
 - **The network estimate had to move in the same change.** The effective gate was
   `fileBitrate <= 0.6 x estimate`, and the hardcoded WiFi default of 3 Mbps made that ~1.8 -
   below a real 720p encode. It only looked fine because unknown-size candidates skipped the cap
-  entirely, which derived options remove. Defaults are now WiFi 25 / Ethernet 50 / cellular 8 /
-  unknown 10, and `recordSustainedBitrate` finally feeds the estimate from playback rather than
+  entirely, which derived options remove. Defaults were raised again after this was written and
+  are WiFi 50 / Ethernet 100 / cellular 10 / unknown 15 — and as of the network-strength work
+  below they are never shown to the user as a connection speed. `recordSustainedBitrate` feeds
+  the estimate from playback rather than
   only from downloads. It is **monotonic**: a stream arrives at the file's own bitrate and no
   faster, so a clean playback is a lower bound; smoothing it in would have dragged the estimate
   down towards whatever the user last watched and cost Instant its top qualities over time.
