@@ -168,6 +168,14 @@ idle machine, the fix is a `retryBackoffScale` in `DownloadsTiming` beside the s
 watchdog knobs — not a longer timeout, and not shortening the schedule, which several other
 scenarios observe.
 
+**Published and checked after the fact, not just dispatched.** `0.4.12-beta` is `latest` on
+both repositories, draft `false` and prerelease `false`, so the stable channel offers it and the
+`debug-v*` line is unaffected. The arm64 APK was pulled back down from the release and
+inspected: `com.nuvio.app.z`, `versionCode 122`, `versionName 0.4.12-beta`, signer SHA-256
+`2325A339…84787C` — the same CI certificate as every release from `0.3.3`, which is what makes
+the in-app update land rather than fail as "App not installed". Desktop shipped
+`Nuvio-Z-Windows-x64-0.4.12-beta.msi` plus `SHA256SUMS.txt`.
+
 **Committed directly on `main` / `Dev`** in both repositories and released as `0.4.12-beta`;
 no branch, since the release procedure needs the bump as the last commit on the default branch.
 `CurrentReleaseNotes` was rewritten for this release in the same pre-bump commit, per
