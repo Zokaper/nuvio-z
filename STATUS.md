@@ -5,7 +5,7 @@ Last updated: 2026-08-10
 | | |
 | --- | --- |
 | **Active branch** | `claude/network-strength-sources-4rrysy` in **both** repositories — network strength is measured rather than assumed, and the Best available card names the file rather than the protocol. See "Network strength is measured, not assumed" below: **unreleased, and its five outstanding checks include the only `desktopMain` compile, which this change needs because it adds two new desktop actuals.** Its plan is `~/.claude/plans/hey-claude-the-way-noble-sky.md`.<br><br>Previously: the quality selector regrouped by resolution landed **directly on `main` / `Dev`** in both repositories and shipped as `0.4.12-beta` — see "One card per resolution" below. `claude/quality-selector-grid` is merged into `main` / `Dev` for `0.4.11-beta`; its plan and ledger (all nine steps ☑) are `~/.claude/plans/ok-i-like-the-wiggly-scone.md`. Previous branch `claude/instant-predictability-next-ep` was merged for `0.4.10-beta`. |
-| **Released** | `0.4.12-beta` on both — the resolution-grouped quality selector, published on the maintainer's explicit instruction. **Not device-verified**, but unlike `0.4.11-beta` the sheet has been *looked at* — when the change was built, not at release time: it was rendered off-screen at 420 dp and 1100 dp through the `desktopTest` harness described below, which caught two defects both suites missed. The release run itself added no new visual evidence. That is the real composable against synthetic state, not the real data, so the seven outstanding checks below still stand. `0.4.11-beta` shipped this same surface unlooked-at; `0.4.10-beta` shipped three behaviours untested. Check all three sections first if anything is reported. |
+| **Released** | `0.4.13-beta` on both — network strength measured rather than assumed, and the Best available card naming the file rather than the protocol. **CI green on both repositories, but not device-verified**, published on the maintainer's explicit instruction. Its outstanding checks are listed in "Network strength is measured, not assumed" below and none of them has been done. Previously `0.4.12-beta` — the resolution-grouped quality selector, published on the maintainer's explicit instruction. **Not device-verified**, but unlike `0.4.11-beta` the sheet has been *looked at* — when the change was built, not at release time: it was rendered off-screen at 420 dp and 1100 dp through the `desktopTest` harness described below, which caught two defects both suites missed. The release run itself added no new visual evidence. That is the real composable against synthetic state, not the real data, so the seven outstanding checks below still stand. `0.4.11-beta` shipped this same surface unlooked-at; `0.4.10-beta` shipped three behaviours untested. Check all three sections first if anything is reported. |
 | **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
 | **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
@@ -71,7 +71,26 @@ connection…", or a non-breaking space — so the grid never jumps when a figur
 comment was stale — it blamed tier-picking that `PlaybackQualityOptions` replaced — and now names
 the real blocker: no device evidence for the failure chain, downshift, or metered consent.
 
-**Verified — no Gradle in this sandbox, so this is the "Verifying without Gradle" route:**
+**Verified — CI is green on both repositories** (`nuvio-z@6f55f51`, `NuvioZDesktop@eadaece`):
+Android host suite **767 tests, zero failures**, debug APK built; desktop tests and the
+**Windows MSI job**, which is what compiles `desktopMain` and therefore exercises both new
+desktop actuals. That took three red runs to reach, and each failure was real:
+
+1. `playback_quality_checking_connection` was in `strings.xml` but not imported —
+   `PlaybackQualitySheet` imports every key explicitly, so `compileAndroidMain` failed.
+2. `response.body` is non-null on androidMain and **nullable on desktopMain**, so
+   `response.body.byteStream()` compiled for Android and failed `compileKotlinDesktop`. The
+   read loop now takes a nullable `ResponseBody`, as every other body reader in that file does.
+3. `theProbeMeasuresTheSourceThatWouldOpenNotTheFirstCandidate` asserted a premise its fixture
+   did not meet: `isUncachedDebrid` treats a debrid-backed candidate whose `isDebridReady` is
+   **null** as uncached, so both fixtures were uncached and `previewSelection` fell through to
+   the first candidate. Production path unchanged; the fixture is now explicitly cached.
+
+**None of the three was reachable by the sandbox checks below** — they catch syntax and pure
+logic, never resources, never `expect`/`actual` nullability skew, never a wrong test premise.
+Treat a green CI run as the gate, not this section.
+
+Also verified in the sandbox:
 
 - **Parser check** over every changed file in both repositories: clean.
 - **Standalone compile-and-run of the shipped sources** with JUnit, per item 2:
@@ -88,11 +107,18 @@ the real blocker: no device evidence for the failure chain, downshift, or metere
   `StreamItem` reaches the generated resource bundle, so they need CI. **CI compiles them on
   push; treat that run as the gate.**
 
+⚠ **`AGENTS.md` says `desktop-release.yml mode=build-only` is "the only thing that compiles
+`desktopMain`". That is out of date** — `ci.yml`'s Windows MSI job compiles it on every push to
+`NuvioZDesktop`, and it is what caught defect 2 above. Keep running build-only before a desktop
+release, but the every-push safety net is better than that line claims.
+
 **Not verified, and the next steps:**
 
-1. `:composeApp:desktopTest` in `NuvioZDesktop` — the only `desktopMain` compile, and this change
-   adds **two** new desktop actuals (`NetworkQualityStorage`, `httpMeasureThroughput`). A missing
-   desktop actual has broken that build twice before.
+1. **Nothing has run against a real socket or a real device.** Everything above is compile plus
+   pure logic; `httpMeasureThroughput`'s three actuals have never opened a connection in anger,
+   and the iOS one is compiled by **no** CI job at all (the Android job disables `iosArm64` /
+   `iosSimulatorArm64` — cinterop cannot cross-compile on Linux). It uses Ktor's
+   `bodyAsChannel()` / `readAvailable`, which nothing here has verified.
 2. **Extend the desktop download harness with a rate-limited endpoint** and assert
    `httpMeasureThroughput` measures a known 20 Mbps server, that a delayed first byte does not
    depress the figure, and that both the time cap and the early exit fire. Nothing has yet
