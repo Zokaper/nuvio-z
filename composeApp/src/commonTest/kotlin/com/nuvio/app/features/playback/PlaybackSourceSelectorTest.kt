@@ -276,6 +276,10 @@ class PlaybackSourceSelectorTest {
         val playable = candidate(
             "https://fast.example/ready.mkv",
             resolution = VideoResolution.FULL_HD_1080,
+            // Explicitly cached. A debrid candidate that merely *doesn't say* is uncached as
+            // far as `isUncachedDebrid` is concerned, so leaving this null made both entries
+            // uncached and the preview fell back to the first one.
+            isDebridReady = true,
             debridService = "Real-Debrid",
         )
         val option = option(uncached, playable)
