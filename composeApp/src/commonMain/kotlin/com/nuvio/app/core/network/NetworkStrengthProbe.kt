@@ -76,8 +76,17 @@ object NetworkStrengthProbe {
          */
         val isMetered: Boolean,
         val isOffline: Boolean,
-        /** Age of the estimate [NetworkQualityRepository] would use, or null if there is none. */
-        val estimateAgeMs: Long?,
+        /**
+         * Age of the estimate stored under the source's **own host**, or null if that host has
+         * never been measured. Only consulted when the probe would actually pull from that host.
+         */
+        val sourceEstimateAgeMs: Long?,
+        /**
+         * Age of the line-wide estimate - the one a CDN probe writes and reads. Consulted
+         * whenever the probe falls back to the neutral endpoint, or when the source it would
+         * pull from carries no provider to file the answer under.
+         */
+        val lineEstimateAgeMs: Long?,
         /** The top option's playable direct URL, when it has one that is worth pulling bytes from. */
         val sourceUrl: String?,
         val sourceHeaders: Map<String, String> = emptyMap(),
@@ -101,17 +110,27 @@ object NetworkStrengthProbe {
 
     fun plan(inputs: Inputs): Plan? {
         if (inputs.isOffline) return null
-        // **Metered connections are probed too.** The first cut skipped them to protect the
-        // user's allowance, and the result was that mobile data - the connection whose speed
-        // varies most and matters most - was the one case decided entirely by a preset. At
-        // 4 MiB, once per network per ten minutes, the measurement costs a fraction of the
-        // first few seconds of the video it is about to choose.
-        if (inputs.estimateAgeMs != null && inputs.estimateAgeMs < FRESH_ESTIMATE_MS) return null
 
         val stopAbove = inputs.requiredMbps
             ?.takeIf { it.isFinite() && it > 0.0 }
             ?.let { it * EARLY_EXIT_MARGIN }
         val sourceUrl = inputs.sourceUrl?.trim()?.takeIf(::isProbeableUrl)
+
+        // **The freshness question is about the key this probe would write, not the one the
+        // sheet would read.** A source probe refreshes its host's entry; a CDN probe refreshes
+        // the line-wide one. Asking the wrong one breaks in both directions: check the line's
+        // age before a host probe and a new debrid host is never measured at all, check the
+        // host's age before a CDN probe and - since a CDN result is filed under no provider -
+        // that host's entry stays empty forever and the sheet re-probes on every single open.
+        val writesToHost = sourceUrl != null && inputs.providerId != null
+        val relevantAgeMs = if (writesToHost) inputs.sourceEstimateAgeMs else inputs.lineEstimateAgeMs
+        // **Metered connections are probed too.** The first cut skipped them to protect the
+        // user's allowance, and the result was that mobile data - the connection whose speed
+        // varies most and matters most - was the one case decided entirely by a preset. At
+        // 4 MiB, and only once the stored answer has gone stale, the measurement costs a
+        // fraction of the first few seconds of the video it is about to choose.
+        if (relevantAgeMs != null && relevantAgeMs < FRESH_ESTIMATE_MS) return null
+
         return if (sourceUrl != null) {
             Plan(
                 url = sourceUrl,
