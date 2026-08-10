@@ -33,10 +33,19 @@ enum class PlaybackMode {
      * caption precisely because two files described the modes independently, and the
      * machinery that produced it was deleted in `0.4.1-beta` rather than fixed.
      *
-     * Instant is withdrawn while its source selection is unfinished - it picks a tier from a
-     * measured line and then has no ceiling to hold it, so it reaches for releases the
-     * connection cannot carry. Withdrawing it is not a decision about the idea; it is a
-     * decision not to ship a mode that behaves worse than the one beside it.
+     * Instant is withdrawn until its selection has been watched working on a real device.
+     *
+     * The original reason - it picked a tier from a measured line and then had no ceiling to
+     * hold it - **no longer applies**: options are derived from the catalogue by
+     * [PlaybackQualityOptions] and `stickyAffordable` costs each one against the estimate. Nor
+     * is the estimate a platform guess any more; `NetworkStrengthProbe` measures the host
+     * before the first play and `NetworkThroughputMeter` keeps measuring during it.
+     *
+     * What is left is evidence. Instant's bounded failure chain, its metered consent and its
+     * automatic downshift have all passed on tests alone and none has been seen on a device,
+     * and `playbackAutoDownshift` is still default-off pending the measured buffer ceiling
+     * `STATUS.md` asks for. Withdrawing it is not a decision about the idea; it is a decision
+     * not to ship a mode nobody has watched behave.
      */
     val isSelectable: Boolean
         get() = this != INSTANT

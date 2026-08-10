@@ -260,8 +260,21 @@ object PlaybackQualityOptions {
     fun connectionFit(
         option: PlaybackQualityOption,
         estimatedMbps: Double?,
+    ): ConnectionFit? = connectionFit(option.requiredMbps, estimatedMbps)
+
+    /**
+     * The same comparison for a cost that did not come from an option's own bucket.
+     *
+     * Best available needs it: its `requiredMbps` is null by construction, so it had no meter
+     * and no over-connection warning at all - on the card most likely to be tapped, and the one
+     * whose source can be the most expensive in the catalogue. Its figure comes from
+     * [requiredMbpsFor] on the source that would actually open.
+     */
+    fun connectionFit(
+        requiredMbps: Double?,
+        estimatedMbps: Double?,
     ): ConnectionFit? {
-        val required = option.requiredMbps?.takeIf { it > 0.0 } ?: return null
+        val required = requiredMbps?.takeIf { it > 0.0 } ?: return null
         val estimate = estimatedMbps?.takeIf { it > 0.0 } ?: return null
         return ConnectionFit(
             requiredMbps = required,
@@ -484,6 +497,27 @@ object PlaybackQualityOptions {
         val seconds = durationSeconds(candidate, context)
         if (seconds <= 0L) return null
         return bytes.toDouble() * 8.0 / seconds.toDouble() / 1_000_000.0
+    }
+
+    /**
+     * What one concrete source needs off the connection, headroom included.
+     *
+     * [PlaybackQualityOption.requiredMbps] answers this for a bucket, but Best available has no
+     * bucket to answer for - it spans the whole catalogue, so its `requiredMbps` is null by
+     * construction and its card quoted no figure at all. The source it would *open* has a real
+     * bitrate, and that is the honest number for that card.
+     *
+     * Null when the size is unknown, and also when the implied bitrate is beyond what the
+     * resolution can plausibly be - a season pack advertised as one file would otherwise have
+     * the card demanding hundreds of Mbps. [build] applies the same ceiling for the same reason.
+     */
+    fun requiredMbpsFor(
+        candidate: PlaybackSourceCandidate,
+        context: PlaybackSelectionContext,
+    ): Double? {
+        val bitrate = bitrateMbps(candidate, context) ?: return null
+        if (bitrate > bitrateCeilingMbps(candidate.facts.resolution)) return null
+        return requiredMbps(bitrate)
     }
 
     /**

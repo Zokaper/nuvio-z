@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_quality_best
+import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual
@@ -89,9 +90,11 @@ import kotlin.math.roundToInt
  * [PlaybackQualityOptions] and [PlaybackSourceSelector], which are testable outside Compose.
  * The same reasoning `PlaybackProgress.step`/`isVisible` are built on.
  *
- * [estimatedMbps] is what the connection is currently thought to carry, and is used only to
- * mark a card as a stretch. It never disables one: the estimate is a guess, and the user may
- * know their line better than the app does.
+ * [estimatedMbps] is what the connection has been **measured** to carry, and is null until it
+ * has been - a platform default is not a measurement and this sheet no longer prints one as if
+ * it were. While a probe is in flight [isMeasuringConnection] says so. The figure is used only
+ * to mark a card as a stretch; it never disables one, because the estimate is still an estimate
+ * and the user may know their line better than the app does.
  *
  * Two structural properties, both of which the previous stacked-list version got wrong:
  *
@@ -116,6 +119,7 @@ fun PlaybackQualitySheet(
     isSelecting: Boolean,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isMeasuringConnection: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
     onChooseManually: () -> Unit,
     onDismiss: () -> Unit,
@@ -170,6 +174,7 @@ fun PlaybackQualitySheet(
                         isSelecting = isSelecting,
                         selectionContext = selectionContext,
                         estimatedMbps = estimatedMbps,
+                        isMeasuringConnection = isMeasuringConnection,
                         gridMaxHeight = gridMaxHeight,
                         contentBottomPadding = tokens.spacing.dialogPadding,
                         onOptionSelected = onOptionSelected,
@@ -192,6 +197,7 @@ fun PlaybackQualitySheet(
                     isSelecting = isSelecting,
                     selectionContext = selectionContext,
                     estimatedMbps = estimatedMbps,
+                    isMeasuringConnection = isMeasuringConnection,
                     gridMaxHeight = gridMaxHeight,
                     contentBottomPadding = nuvioSafeBottomPadding(tokens.spacing.sheetPadding),
                     onOptionSelected = onOptionSelected,
@@ -222,6 +228,7 @@ private fun QualitySheetBody(
     isSelecting: Boolean,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isMeasuringConnection: Boolean,
     gridMaxHeight: Dp,
     contentBottomPadding: Dp,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
@@ -257,18 +264,25 @@ private fun QualitySheetBody(
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
-        // Named only when it is known. An unmeasured connection has no number, and printing
-        // a placeholder for one is the same untruth as quoting a preset's bandwidth.
-        estimatedMbps?.takeIf { it > 0.0 }?.let { estimate ->
-            Text(
-                text = stringResource(
+        // Three states, one line, always drawn. A number appears only once the connection has
+        // actually been measured - an unmeasured one has no number, and printing a preset's
+        // bandwidth as "your connection" is the untruth this whole surface exists to stop.
+        // While a probe is running it says so rather than showing nothing and then pushing the
+        // grid down when the figure lands; the non-breaking space holds the same line open in
+        // the third case, where there is nothing to measure with and nothing to report.
+        Text(
+            text = when {
+                estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
                     Res.string.playback_quality_your_connection,
-                    estimate.roundToInt(),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = tokens.colors.textMuted,
-            )
-        }
+                    estimatedMbps.roundToInt(),
+                )
+                isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
+                else -> "\u00A0"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textMuted,
+            maxLines = 1,
+        )
 
         when {
             isLoading -> QualitySkeletonGrid(gridMaxHeight = gridMaxHeight)
@@ -334,8 +348,8 @@ private fun QualitySheetBody(
  *
  * **No source count in the header, deliberately.** `option.candidates` is the whole bucket
  * including candidates the protocol and cache gates will skip, so any number printed here
- * would overstate what can actually play - the same class of untruth as [sourceLine] naming
- * `candidates.first()`.
+ * would overstate what can actually play - the same class of untruth as describing a row from
+ * `candidates.first()` rather than from [PlaybackSourceSelector.previewSelection].
  */
 @Composable
 private fun ResolutionGroupCard(
@@ -377,7 +391,7 @@ private fun ResolutionGroupCard(
 /**
  * One band within a resolution, and the thing the user actually taps.
  *
- * Everything on it is per-option and none of it can be lifted to the card: [sourceLine] names
+ * Everything on it is per-option and none of it can be lifted to the card: the caption names
  * the release *this* band would open, and the over-connection warning is true of one band and
  * false of the one under it. That is why the bands are stacked rows and not a row of chips -
  * a chip three-across on a phone is about 105 dp, which holds the band word and the figures
@@ -397,9 +411,20 @@ private fun QualityTierRow(
     onClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    val fit = PlaybackQualityOptions.connectionFit(option, estimatedMbps)
-    val band = variantLabel(option)
-    val source = sourceLine(option, selectionContext)
+    // Resolved once. Both the headline and the figures describe the source that would really
+    // open, and asking twice would let them describe two different ones if the gates ever
+    // stopped being deterministic.
+    val preview = remember(option, selectionContext) {
+        PlaybackSourceSelector.previewSelection(option, selectionContext)
+    }
+    val isBest = option.variant == PlaybackQualityOption.Variant.BEST
+    // Best available spans the whole catalogue, so it has no bucket cost of its own - but the
+    // file it would open has one, and that is the number this card has never quoted.
+    val requiredMbps = option.requiredMbps
+        ?: preview?.let { PlaybackQualityOptions.requiredMbpsFor(it, selectionContext) }
+    val fit = PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps)
+    val band = if (isBest) bestReleaseLine(preview) else variantLabel(option)
+    val source = preview?.let { PlaybackSourceSelector.describeRelease(it.facts) }.orEmpty()
 
     Column(
         modifier = Modifier
@@ -415,10 +440,18 @@ private fun QualityTierRow(
             .padding(tokens.spacing.cardPaddingCompact),
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
     ) {
-        // Only real figures earn the trailing slot. Best available quotes no bandwidth, and
-        // what `optionSummary` falls back to for it is the sheet's own description - printing
-        // it here restated the sentence three lines under itself.
-        val figures = option.requiredMbps?.let { optionSummary(option) }
+        // Only real figures earn the trailing slot. A source whose size nobody reported still
+        // has none, and the sheet's own description standing in for one restated the sentence
+        // three lines under itself.
+        val figures = requiredMbps?.let {
+            optionSummary(
+                requiredMbps = it,
+                isApproximate = option.isEstimateApproximate,
+                // Best available already carries its size in the headline; repeating it in the
+                // trailing slot would spend the widest line on the card saying it twice.
+                sizeBytes = if (isBest) null else option.representativeSizeBytes,
+            )
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -448,9 +481,9 @@ private fun QualityTierRow(
             }
         }
         if (source.isNotBlank()) {
-            // Normally a caption under the figures. On Best available there are no figures
-            // and no band word, so this is the row's only content and a muted caption reads
-            // as an empty box - it carries the row there and is styled as such.
+            // A caption under the figures, on every card now. Best available used to reach
+            // here with nothing above it and had to carry the row in `bodyMedium`; it has a
+            // headline of its own since that headline started saying what the file is.
             val isOnlyContent = band.isBlank() && figures == null
             Text(
                 text = source,
@@ -607,34 +640,39 @@ private fun variantLabel(option: PlaybackQualityOption): String = when (option.v
 }
 
 /**
- * `WEB-DL · TorBox` for the source this card would really open.
+ * `4K · DV · 18.2 GB` - the headline for Best available.
  *
- * Not `option.candidates.first()`: the protocol and cache gates can skip several candidates
- * before landing on one, and naming a release the user never receives is the same class of
- * untruth as quoting a season pack's bandwidth for a card.
+ * That card has no resolution badge over it, so until now its only line was the shared
+ * `WEB-DL · TorBox` caption: on the option a user is most likely to tap, the two facts named
+ * were which rip it came from and which host is serving it. Neither is what anyone is
+ * choosing between. Resolution, dynamic range and size are, and this card is the one place
+ * they are not already on screen.
+ *
+ * Empty when no source survives the gates - the release the user would actually receive is
+ * the only one worth naming, and `option.candidates.first()` is not it.
  */
-private fun sourceLine(
-    option: PlaybackQualityOption,
-    context: PlaybackSelectionContext,
-): String = PlaybackSourceSelector.previewSelection(option, context)
-    ?.let { PlaybackSourceSelector.describeRelease(it.facts) }
-    .orEmpty()
+@Composable
+private fun bestReleaseLine(preview: PlaybackSourceCandidate?): String =
+    preview?.let { PlaybackSourceSelector.describeBestRelease(it.facts, ::formatFileSize) }
+        .orEmpty()
 
 @Composable
-private fun optionSummary(option: PlaybackQualityOption): String {
-    val required = option.requiredMbps
-        ?: return stringResource(Res.string.playback_quality_description)
+private fun optionSummary(
+    requiredMbps: Double,
+    isApproximate: Boolean,
+    sizeBytes: Long?,
+): String {
     // Rounded up: quoting 4 Mb/s for something that needs 4.6 is the one direction that
     // turns an informed choice into a stall.
     val speed = stringResource(
-        if (option.isEstimateApproximate) {
+        if (isApproximate) {
             Res.string.playback_quality_needs_estimated
         } else {
             Res.string.playback_quality_needs
         },
-        ceil(required).roundToInt(),
+        ceil(requiredMbps).roundToInt(),
     )
-    val size = option.representativeSizeBytes?.let(::formatFileSize) ?: return speed
+    val size = sizeBytes?.let(::formatFileSize) ?: return speed
     return stringResource(Res.string.playback_quality_summary_with_size, speed, size)
 }
 

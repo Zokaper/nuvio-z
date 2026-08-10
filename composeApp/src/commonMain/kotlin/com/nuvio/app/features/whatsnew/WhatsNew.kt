@@ -50,29 +50,36 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.Improvements,
             items = listOfNotNull(
                 WhatsNewItem(
-                    title = "One card per resolution",
-                    description = "The quality picker no longer repeats a resolution once for every " +
-                        "option it holds. Each resolution is a single card that names itself once, with " +
-                        "its higher and lower options stacked inside it as the things you tap - so you " +
-                        "choose the resolution first and the trade-off second.",
+                    title = "Your connection is measured, not guessed",
+                    description = "The quality picker used to assume every Wi-Fi network was the same " +
+                        "speed and label that assumption \"your connection\". It now measures what your " +
+                        "connection actually carries - briefly, before the first play, and continuously " +
+                        "while something is playing - so the speed beside each option is a real one.",
                 ),
                 WhatsNewItem(
-                    title = "Every option still says what it would open",
-                    description = "Each option keeps the release and provider it would really play and " +
-                        "the share of your connection it would take, because those differ between the " +
-                        "options inside one resolution.",
+                    title = "It measures the source, not just the line",
+                    description = "Speed through a debrid service is the service's, not your " +
+                        "broadband's. The check runs against the host that would actually serve your " +
+                        "stream and is remembered per provider, so a fast connection behind a slow host " +
+                        "no longer reads as fast.",
                 ),
                 WhatsNewItem(
-                    title = "\"Best available\" reads as one thing",
-                    description = "It used to carry a star, then say \"Best available\" underneath it, " +
-                        "then repeat the picker's own description a third time. It now says it once.",
+                    title = "What it learns survives a restart",
+                    description = "Measurements are kept per network for a week, so opening the app " +
+                        "does not throw away everything it knew about your connection. Nothing is " +
+                        "measured on mobile data.",
                 ),
                 WhatsNewItem(
-                    title = "Still two or three across on a wide window",
-                    description = "The cards are taller now that they hold their options, so the wide " +
-                        "layout was widened to match, so a desktop window keeps three columns instead " +
-                        "of quietly dropping to two.",
-                ).takeIf { isDesktop },
+                    title = "\"Best available\" says what you would get",
+                    description = "It named the release type and the host - neither of which is what " +
+                        "you are choosing between. It now leads with resolution, HDR and file size, and " +
+                        "quotes the speed that file really needs.",
+                ),
+                WhatsNewItem(
+                    title = "No number until there is one",
+                    description = "While the check is running the picker says so, and if nothing can be " +
+                        "measured it shows nothing rather than a figure it made up.",
+                ),
             ),
         ),
     )

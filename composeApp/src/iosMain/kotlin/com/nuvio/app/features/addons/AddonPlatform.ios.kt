@@ -7,15 +7,19 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.runBlocking
+import kotlin.time.TimeSource
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
 import nuvio.composeapp.generated.resources.network_request_failed_http
@@ -191,3 +195,68 @@ actual suspend fun httpRequestRaw(
                 },
             )
         }
+
+actual suspend fun httpMeasureThroughput(
+    url: String,
+    headers: Map<String, String>,
+    maxBytes: Long,
+    maxMillis: Long,
+    stopAboveMbps: Double?,
+): ThroughputSample {
+    val started = TimeSource.Monotonic.markNow()
+    return addonHttpClient
+        .prepareGet(url) {
+            headers.forEach { (key, value) ->
+                header(key, value)
+            }
+            // Both deliberate, and both would silently ruin the number: a compressed body
+            // times compressed bytes, and an open-ended GET would keep pulling a
+            // multi-gigabyte file long after the measurement is over.
+            header(HttpHeaders.AcceptEncoding, "identity")
+            if (maxBytes > 0L) header(HttpHeaders.Range, "bytes=0-${maxBytes - 1}")
+        }
+        .execute { response ->
+            if (!response.status.isSuccess()) {
+                return@execute ThroughputSample(
+                    status = response.status.value,
+                    bytes = 0L,
+                    transferMs = 0L,
+                    ttfbMs = 0L,
+                )
+            }
+            val channel = response.bodyAsChannel()
+            val buffer = ByteArray(READ_CHUNK_BYTES)
+            var firstByte: TimeSource.Monotonic.ValueTimeMark? = null
+            var ttfbMs = 0L
+            var measuredBytes = 0L
+            var transferMs = 0L
+            while (measuredBytes < maxBytes) {
+                val read = channel.readAvailable(buffer, 0, buffer.size)
+                if (read <= 0) break
+                val mark = firstByte
+                if (mark == null) {
+                    // The chunk that starts the clock is not counted - its own transfer time
+                    // is exactly what has not been measured yet.
+                    firstByte = TimeSource.Monotonic.markNow()
+                    ttfbMs = started.elapsedNow().inWholeMilliseconds
+                    continue
+                }
+                measuredBytes += read
+                transferMs = mark.elapsedNow().inWholeMilliseconds
+                if (transferMs >= maxMillis) break
+                if (stopAboveMbps != null && transferMs > 0L &&
+                    measuredBytes.toDouble() * 8.0 / transferMs.toDouble() / 1_000.0 > stopAboveMbps
+                ) {
+                    break
+                }
+            }
+            ThroughputSample(
+                status = response.status.value,
+                bytes = measuredBytes,
+                transferMs = transferMs,
+                ttfbMs = ttfbMs,
+            )
+        }
+}
+
+private const val READ_CHUNK_BYTES = 64 * 1024

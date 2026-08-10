@@ -7,6 +7,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.addons.AddonsUiState
 import com.nuvio.app.features.details.MetaDetailsUiState
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
@@ -153,6 +154,9 @@ internal class PlayerScreenRuntime(
     var networkEstimateStartPositionMs by mutableStateOf<Long?>(null)
     var networkEstimateStalled by mutableStateOf(false)
     var networkEstimateRecorded by mutableStateOf(false)
+
+    /** Per-source state for the buffer-fill throughput measurement; see [NetworkThroughputMeter]. */
+    var networkThroughputState by mutableStateOf(NetworkThroughputMeter.initial())
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)

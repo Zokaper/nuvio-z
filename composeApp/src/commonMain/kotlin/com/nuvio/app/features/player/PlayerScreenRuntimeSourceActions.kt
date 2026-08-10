@@ -11,6 +11,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.core.network.NetworkQualityRepository
+import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.playback.AutoDownshiftCandidates
 import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.PlaybackMode
@@ -283,6 +284,41 @@ internal fun PlayerScreenRuntime.observePlaybackForNetworkEstimate() {
 
 /** One minute of playback, the settle grace included, before a bitrate counts as sustained. */
 private const val NETWORK_ESTIMATE_CLEAN_PLAYBACK_MS = 60_000L
+
+/**
+ * Measures what the connection is actually delivering, from the buffer the player already has.
+ *
+ * This is the signal [observePlaybackForNetworkEstimate] cannot give. That one confirms a
+ * *lower bound* after a full minute - useful, but a 6 Mbps file playing perfectly can never
+ * contradict a 50 Mbps platform guess, and the quality sheet quoting that guess has long since
+ * closed. Buffer growth against the file's own bitrate is a real rate, arrives within seconds,
+ * and can correct the estimate downwards.
+ *
+ * The two run together deliberately and neither replaces the other: this needs a known file
+ * bitrate, and the lower-bound path is what still works for a source whose size nobody reported.
+ */
+internal fun PlayerScreenRuntime.observePlaybackForThroughput() {
+    val armed = NetworkQualityRepository.armedPlayback ?: return
+    val snapshot = playbackSnapshot
+    val outcome = NetworkThroughputMeter.observe(
+        state = networkThroughputState,
+        sample = NetworkThroughputMeter.Sample(
+            // The same monotonic clock the downshift detector folds, for the same reason: a
+            // window measured in snapshots means 2 s on Android and 4 s on desktop.
+            elapsedRealtimeMs = autoDownshiftClock.elapsedNow().inWholeMilliseconds,
+            positionMs = snapshot.positionMs,
+            bufferedPositionMs = snapshot.bufferedPositionMs,
+            isPlaying = snapshot.isPlaying,
+            isLoading = snapshot.isLoading,
+            isEnded = snapshot.isEnded,
+        ),
+        fileBitrateMbps = armed.mbps,
+    )
+    networkThroughputState = outcome.state
+    outcome.measuredMbps?.let { mbps ->
+        NetworkQualityRepository.recordMeasuredThroughput(mbps, armed.providerId)
+    }
+}
 
 /**
  * Instant's automatic source downshift, folded once per playback snapshot.

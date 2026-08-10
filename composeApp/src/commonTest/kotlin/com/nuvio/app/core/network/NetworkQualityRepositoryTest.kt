@@ -4,7 +4,10 @@ import com.nuvio.app.features.downloads.VideoResolution
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 class NetworkQualityRepositoryTest {
@@ -76,6 +79,114 @@ class NetworkQualityRepositoryTest {
     fun tinySamplesAreIgnored() {
         NetworkQualityRepository.recordTransfer(bytes = 1_024, elapsedMs = 1_000)
         assertEquals(NetworkEstimateConfidence.PLATFORM_DEFAULT, NetworkQualityRepository.current().confidence)
+    }
+
+    @Test
+    fun aRealMeasurementCanLowerTheEstimateWhereASustainedBitrateCannot() {
+        // The fault this whole change exists to fix. The platform default for Wi-Fi is 50, and
+        // until now the only playback signal was monotonic - so a connection that had never
+        // carried more than 8 Mbps kept being told it could carry fifty.
+        NetworkQualityRepository.recordProbeResult(8.0)
+        assertEquals(8.0, NetworkQualityRepository.current().estimatedMbps, 1e-9)
+
+        // Blended, not replaced: one window is not the whole story either.
+        NetworkQualityRepository.recordMeasuredThroughput(3.0)
+        val blended = NetworkQualityRepository.current().estimatedMbps
+        assertTrue(blended < 8.0, "a measurement must be able to lower the estimate, got $blended")
+        assertTrue(blended > 3.0, "and must not throw the earlier one away, got $blended")
+    }
+
+    @Test
+    fun aProbeIsReportedAsAProbe() {
+        NetworkQualityRepository.recordProbeResult(42.0, providerId = "TorBox")
+
+        // Normalized, so the sheet's "torbox" and a stream's "TorBox" are one host.
+        val state = NetworkQualityRepository.current("torbox")
+        assertEquals(NetworkEstimateConfidence.PROBED, state.confidence)
+        assertTrue(state.isMeasured)
+        assertEquals(42.0, state.estimatedMbps, 1e-9)
+    }
+
+    @Test
+    fun anUnmeasuredConnectionIsNotMeasured() {
+        // What the quality sheet reads to decide between a figure and "Checking your
+        // connection" - a platform default must never be presented as an observation.
+        assertFalse(NetworkQualityRepository.current().isMeasured)
+    }
+
+    @Test
+    fun peekDoesNotPublish() {
+        // The sheet derives its figure during composition from a flow it is also collecting.
+        // A read that writes back would be a recomposition loop.
+        NetworkQualityRepository.recordProbeResult(30.0, providerId = "fast-host")
+        val published = NetworkQualityRepository.uiState.value
+
+        NetworkQualityRepository.peek("some-other-host")
+
+        assertEquals(published, NetworkQualityRepository.uiState.value)
+    }
+
+    @Test
+    fun theProbeSkipsAFreshEstimateAndNotAStaleOne() {
+        assertNull(NetworkQualityRepository.estimateAgeMs())
+
+        NetworkQualityRepository.recordProbeResult(20.0)
+
+        val age = assertNotNull(NetworkQualityRepository.estimateAgeMs())
+        assertTrue(age < NetworkStrengthProbe.FRESH_ESTIMATE_MS, "a just-taken estimate is fresh")
+    }
+
+    @Test
+    fun anEstimateFromLastWeekIsNotEvidenceAboutTonight() {
+        var now = 1_000_000_000L
+        NetworkQualityRepository.nowProvider = { now }
+        NetworkQualityRepository.recordProbeResult(60.0)
+        assertEquals(60.0, NetworkQualityRepository.current().estimatedMbps, 1e-9)
+
+        // Six days on it still stands - a network the app has seen before is worth more than
+        // a guess, even if nobody has measured it since.
+        now += 6L * 24L * 60L * 60L * 1_000L
+        assertEquals(60.0, NetworkQualityRepository.current().estimatedMbps, 1e-9)
+
+        // Eight, and the identity behind it has probably outlived the network it named.
+        now += 2L * 24L * 60L * 60L * 1_000L
+        assertEquals(
+            NetworkEstimateConfidence.PLATFORM_DEFAULT,
+            NetworkQualityRepository.current().confidence,
+        )
+    }
+
+    @Test
+    fun aMeasurementSurvivesTheProcessAndComesBackAsCached() {
+        // What makes a cold start something other than a guess. Everything measured yesterday
+        // was thrown away on every launch, so the first play of every session ran on the
+        // connection-type preset no matter how much the app had learned.
+        var written: String? = null
+        NetworkQualityRepository.saveJson = { written = it }
+        NetworkQualityRepository.recordProbeResult(37.0, providerId = "torbox")
+        val payload = assertNotNull(written, "a new key must be persisted immediately")
+
+        // A fresh process: nothing in memory, the blob on disk.
+        NetworkQualityRepository.resetForTest(restoredAlready = false)
+        NetworkQualityRepository.loadJson = { payload }
+
+        val state = NetworkQualityRepository.current("torbox")
+        assertEquals(37.0, state.estimatedMbps, 1e-9)
+        // Restored, so worth using but not evidence about the network in front of the user
+        // right now - which is exactly the distinction the probe's freshness check reads.
+        assertEquals(NetworkEstimateConfidence.CACHED, state.confidence)
+        assertTrue(state.isMeasured)
+    }
+
+    @Test
+    fun aCorruptOrEmptyBlobIsNotFatal() {
+        NetworkQualityRepository.resetForTest(restoredAlready = false)
+        NetworkQualityRepository.loadJson = { "not json at all" }
+
+        assertEquals(
+            NetworkEstimateConfidence.PLATFORM_DEFAULT,
+            NetworkQualityRepository.current().confidence,
+        )
     }
 
     @Test

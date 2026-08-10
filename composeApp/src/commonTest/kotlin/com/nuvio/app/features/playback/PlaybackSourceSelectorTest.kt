@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackSourceSelectorTest {
@@ -216,6 +217,101 @@ class PlaybackSourceSelectorTest {
         PlaybackSelectionContext(isEpisode = true, allowTorrentSources = allowTorrents),
     )
 
+    @Test
+    fun bestAvailableNamesTheFileNotTheProtocol() {
+        // The whole point of the Best available card's line: `WEB-DL · TorBox` told the user
+        // which rip it came from and which host serves it, neither of which is what they are
+        // choosing between.
+        val facts = SourceFacts(
+            resolution = VideoResolution.UHD_2160,
+            sizeBytes = 18_200_000_000L,
+            dynamicRange = setOf("DOLBY_VISION", "HDR10"),
+            releaseQuality = "WEB-DL",
+            debridService = "TorBox",
+        )
+
+        assertEquals(
+            "4K · DV · 18.2 GB",
+            PlaybackSourceSelector.describeBestRelease(facts) { "18.2 GB" },
+        )
+        // One word, never a list: a Dolby Vision release routinely carries an HDR10 base layer.
+        assertEquals("DV", PlaybackSourceSelector.dynamicRangeLabel(facts))
+        // The caption keeps the provider and gains the range; the resolution stays out of it
+        // because the badge above already carries it on every card that has one.
+        assertEquals("WEB-DL · DV · TorBox", PlaybackSourceSelector.describeRelease(facts))
+    }
+
+    @Test
+    fun anUnknownFieldIsOmittedRatherThanPlaceholdered() {
+        val noSize = SourceFacts(resolution = VideoResolution.UHD_2160, dynamicRange = setOf("HDR"))
+        assertEquals("4K · HDR", PlaybackSourceSelector.describeBestRelease(noSize) { "never called" })
+
+        val bare = SourceFacts(resolution = VideoResolution.FULL_HD_1080)
+        assertEquals("1080p", PlaybackSourceSelector.describeBestRelease(bare) { "never called" })
+        assertEquals("", PlaybackSourceSelector.describeBestRelease(null) { "never called" })
+    }
+
+    @Test
+    fun dynamicRangeLabelPrefersTheBetterFormat() {
+        fun label(vararg ranges: String) =
+            PlaybackSourceSelector.dynamicRangeLabel(SourceFacts(dynamicRange = ranges.toSet()))
+
+        assertEquals("DV", label("HLG", "HDR10", "DOLBY_VISION"))
+        assertEquals("HDR10", label("HDR", "HDR10"))
+        assertEquals("HDR", label("HDR"))
+        assertEquals("HLG", label("HLG"))
+        assertNull(label())
+    }
+
+    @Test
+    fun theProbeMeasuresTheSourceThatWouldOpenNotTheFirstCandidate() {
+        // Same rule the description line follows: an uncached debrid entry at the head of the
+        // bucket is skipped, so measuring its host would measure one the user never reaches.
+        val uncached = candidate(
+            "https://slow.example/uncached.mkv",
+            resolution = VideoResolution.UHD_2160,
+            isDebridReady = false,
+            debridService = "TorBox",
+        )
+        val playable = candidate(
+            "https://fast.example/ready.mkv",
+            resolution = VideoResolution.FULL_HD_1080,
+            // Explicitly cached. A debrid candidate that merely *doesn't say* is uncached as
+            // far as `isUncachedDebrid` is concerned, so leaving this null made both entries
+            // uncached and the preview fell back to the first one.
+            isDebridReady = true,
+            debridService = "Real-Debrid",
+        )
+        val option = option(uncached, playable)
+
+        val target = PlaybackSourceSelector.probeTarget(option, CONTEXT)
+
+        assertEquals("https://fast.example/ready.mkv", target?.url)
+        assertEquals("Real-Debrid", target?.providerId)
+    }
+
+    @Test
+    fun aSourceStillNeedingResolvingOffersNoUrlToProbe() {
+        // No debrid link is ever minted to run a measurement, so a candidate without a direct
+        // URL yields none and the probe falls back to a neutral endpoint.
+        val option = option(candidate(url = null, resolution = VideoResolution.UHD_2160, infoHash = HASH))
+
+        val target = PlaybackSourceSelector.probeTarget(option, CONTEXT.copy(allowTorrentSources = true))
+
+        assertNull(target?.url)
+    }
+
+    private fun option(vararg candidates: PlaybackSourceCandidate) = PlaybackQualityOption(
+        id = "test",
+        resolution = null,
+        variant = PlaybackQualityOption.Variant.BEST,
+        requiredMbps = null,
+        representativeBitrateMbps = null,
+        isEstimateApproximate = false,
+        representativeSizeBytes = null,
+        candidates = candidates.toList(),
+    )
+
     private fun candidate(
         url: String?,
         resolution: VideoResolution,
@@ -243,5 +339,6 @@ class PlaybackSourceSelectorTest {
 
     private companion object {
         const val HASH = "0123456789012345678901234567890123456789"
+        val CONTEXT = PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true)
     }
 }

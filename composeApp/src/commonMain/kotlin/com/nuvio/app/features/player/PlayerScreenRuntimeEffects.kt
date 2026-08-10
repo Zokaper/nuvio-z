@@ -10,6 +10,7 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamRequest
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
@@ -220,6 +221,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         networkEstimateStartPositionMs = null
         networkEstimateStalled = false
         networkEstimateRecorded = false
+        networkThroughputState = NetworkThroughputMeter.initial()
     }
 
     // A session is one thing being watched. Moving to the next episode earns a fresh swap.

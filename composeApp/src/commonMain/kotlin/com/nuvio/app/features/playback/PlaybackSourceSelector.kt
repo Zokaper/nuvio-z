@@ -105,15 +105,86 @@ object PlaybackSourceSelector {
     ).joinToString(" · ")
 
     /**
-     * The same words without the resolution: `WEB-DL · TorBox`.
+     * The same words without the resolution: `WEB-DL · DV · TorBox`.
      *
      * For callers that have already said which resolution this is - the quality sheet puts it
-     * in a badge - where repeating it would be noise.
+     * in a badge - where repeating it would be noise. Dynamic range is not in that badge and
+     * is the one thing here the user chooses between two otherwise identical 4K releases on.
      */
     fun describeRelease(facts: SourceFacts?): String = listOfNotNull(
         facts?.releaseQuality?.takeIf { it.isNotBlank() },
+        dynamicRangeLabel(facts),
         (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
+
+    /**
+     * What the file *is*: `4K · DV · 18.2 GB`.
+     *
+     * For the Best available card, which has no resolution badge above it and quotes no
+     * bandwidth of its own, so [describeRelease] was left carrying the whole card - and
+     * `WEB-DL · TorBox` tells a user nothing about what they are about to receive. Which
+     * protocol a release was ripped from and which host is serving it are the least useful
+     * facts on hand; resolution, dynamic range and size are the ones being chosen between.
+     *
+     * Every part is omitted when unknown rather than placeholdered. A source that reported no
+     * size reads `4K · DV`, because a card admitting it does not know is worth more than one
+     * printing a figure it invented - the whole reason this sheet stopped quoting presets.
+     */
+    fun describeBestRelease(
+        facts: SourceFacts?,
+        // Passed in rather than called: `formatFileSize` reaches the generated resource
+        // bundle, and this file's whole point is that it compiles and runs without Compose.
+        formatSize: (Long) -> String,
+    ): String = listOfNotNull(
+        facts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+        dynamicRangeLabel(facts),
+        facts?.sizeBytes?.takeIf { it > 0L }?.let(formatSize),
+    ).joinToString(" · ")
+
+    /**
+     * One dynamic-range word, best first, or null.
+     *
+     * Never a list. `SourceFacts.dynamicRange` is a set and a Dolby Vision release routinely
+     * carries an HDR10 base layer too, so joining it would spend a 280 dp single-line row on
+     * `DV · HDR10` - two ways of saying the same file is the good one.
+     */
+    fun dynamicRangeLabel(facts: SourceFacts?): String? {
+        val ranges = facts?.dynamicRange.orEmpty()
+        return when {
+            "DOLBY_VISION" in ranges -> "DV"
+            "HDR10" in ranges -> "HDR10"
+            "HDR" in ranges -> "HDR"
+            "HLG" in ranges -> "HLG"
+            else -> null
+        }
+    }
+
+    /**
+     * The host worth measuring the connection against for [option], if there is one.
+     *
+     * Deliberately built from [previewSelection] rather than from the whole bucket: the probe
+     * should pull bytes from the host that will actually serve this card, and it must not mint
+     * a debrid link to find one - a candidate still needing `clientResolve` has no URL here and
+     * the probe falls back to a neutral endpoint.
+     */
+    fun probeTarget(
+        option: PlaybackQualityOption,
+        context: PlaybackSelectionContext,
+    ): ProbeTarget? {
+        val candidate = previewSelection(option, context) ?: return null
+        return ProbeTarget(
+            url = candidate.stream.playableDirectUrl,
+            headers = candidate.stream.behaviorHints.proxyHeaders?.request.orEmpty(),
+            providerId = candidate.facts.debridService ?: candidate.facts.providerId,
+        )
+    }
+
+    data class ProbeTarget(
+        /** Null when the source still needs resolving; the caller measures a neutral endpoint. */
+        val url: String?,
+        val headers: Map<String, String>,
+        val providerId: String?,
+    )
 
     /**
      * The shared ordering, for callers that hold a bare candidate list rather than an option.
