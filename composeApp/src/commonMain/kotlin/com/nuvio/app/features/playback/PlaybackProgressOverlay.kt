@@ -84,24 +84,12 @@ object PlaybackProgress {
         else -> PlaybackProgressStep.StartingPlayback
     }
 
-    /**
-     * Whether the source list should be covered at all.
-     *
-     * The bail-outs are what matter here. Every path that gives up on automatic selection sets
-     * `manualSourceListRequested`, and the metered sheet needs an answer from the user - so
-     * both have to uncover the list rather than leave a spinner over a screen the user is
-     * meant to be reading or answering.
-     */
-    fun isVisible(
-        isAutoPickRoute: Boolean,
-        isStreamlinedPlaybackStarting: Boolean,
-        manualSourceListRequested: Boolean,
-        awaitingMeteredChoice: Boolean,
-        hasNavigatedAway: Boolean,
-    ): Boolean {
-        if (manualSourceListRequested || awaitingMeteredChoice || hasNavigatedAway) return false
-        return isAutoPickRoute || isStreamlinedPlaybackStarting
-    }
+    // `isVisible` used to live here and answered only "does the overlay cover the list?".
+    // That was half the question: the route also paints an opaque hand-off surface under the
+    // overlay, and hiding the overlay while that surface stayed up traded a blank screen for
+    // a blank screen one layer down - which is what backing out of the player actually did.
+    // The whole stack is decided by `streamRouteSurface` in StreamRouteSurface.kt, so the two
+    // cannot disagree - and that file has no imports, so unlike this one it actually runs.
 }
 
 /**

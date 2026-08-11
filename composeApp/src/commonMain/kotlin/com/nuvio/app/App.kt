@@ -56,6 +56,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -63,6 +65,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -234,6 +237,9 @@ import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressOverlay
+import com.nuvio.app.features.playback.StreamRouteSurface
+import com.nuvio.app.features.playback.StreamRouteSurfaceInputs
+import com.nuvio.app.features.playback.streamRouteSurface
 import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
 import com.nuvio.app.features.playback.PlaybackQualityOption
 import com.nuvio.app.features.playback.PlaybackQualityOptions
@@ -440,6 +446,28 @@ private fun PlayerLaunch.toExternalPlayerPlaybackRequest(): ExternalPlayerPlayba
         episode = episodeNumber,
         episodeTitle = episodeTitle,
     )
+
+/**
+ * Carries the stream route's decision across the route leaving composition.
+ *
+ * Key and reason are saved separately rather than the decision being re-derived, because the
+ * inputs genuinely change while the player is open - a play writes a reuse-last-link entry, so
+ * re-running the router on the way back answers `ReuseLastLink` where it first answered
+ * `AutoPick`, and Instant's failure chain is gated on that answer.
+ *
+ * The saver lives here rather than beside `PlaybackRouteDecision` on purpose:
+ * `PlaybackModeRouter.kt` has no imports at all, which is what lets it be compiled and run
+ * outside Gradle per `AGENTS.md`. A Compose import there would end that.
+ */
+private val PlaybackRouteDecisionSaver: Saver<PlaybackRouteDecision?, Any> = listSaver(
+    save = { decision -> decision?.let { listOf(it.key, it.reason) } ?: emptyList() },
+    restore = { saved ->
+        PlaybackRouteDecision.fromKey(
+            key = saved.getOrNull(0),
+            reason = saved.getOrNull(1).orEmpty(),
+        )
+    },
+)
 
 private enum class AppGateScreen {
     Loading,
@@ -2542,6 +2570,25 @@ private fun MainAppContent(
                             manualSourceListRequested = true
                         }
                     }
+                    val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
+
+                    /**
+                     * Gives the screen back to the user, with a reason.
+                     *
+                     * Every automatic path can end without a source: the chain runs out, a
+                     * protocol is refused, a consent dialog is declined. Each of those used to
+                     * be its own two lines at its own call site, and the ones that forgot them
+                     * left the opaque hand-off surface - or the progress overlay - up over a
+                     * screen the user could neither read nor leave. There is one way out now,
+                     * and it always says something.
+                     */
+                    fun fallBackToSourceList(reason: String? = null) {
+                        qualitySheetDismissed = true
+                        manualSourceListRequested = true
+                        (reason?.takeIf { it.isNotBlank() } ?: noAutomaticSourceMessage)
+                            .let(NuvioToastController::show)
+                    }
+
                     var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Streamlined covers the source list with the quality sheet until a tier is
                     // picked; from that point until playback starts the progress overlay owns the
@@ -2708,12 +2755,20 @@ private fun MainAppContent(
                         forceInternal: Boolean,
                         isAutoPlay: Boolean,
                     ) {
+                        // Both of these advance the chain and *must* honour the answer. They
+                        // discarded it, so a refusal on the last candidate advanced to nothing
+                        // and returned - leaving whatever was covering the screen still up,
+                        // with no candidate left to take it down.
                         if (stream.p2pInfoHash == null) {
-                            if (isAutoPlay) StreamsRepository.skipAutoPlayStream(stream)
+                            if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
+                                fallBackToSourceList()
+                            }
                             return
                         }
                         if (!P2pSettingsRepository.isVisible) {
-                            if (isAutoPlay) StreamsRepository.skipAutoPlayStream(stream)
+                            if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
+                                fallBackToSourceList()
+                            }
                             return
                         }
                         if (!p2pSettingsUiState.p2pEnabled) {
@@ -2815,10 +2870,18 @@ private fun MainAppContent(
 
                     // Reuse Last Link: auto-play from cache if enabled (only on first entry).
                     // A stored Streamlined pin must wait for candidates so it can outrank reuse.
-                    var playbackRouteDecision by remember(
+                    // Saved, not remembered. A mode with a failure chain keeps this route on the
+                    // back stack while the player is open, and NavDisplay composes only the top
+                    // entry - so a plain `remember` came back null while `reuseHandled` (which
+                    // is saved) stayed true and blocked the effect that would set it again.
+                    // Every branch below then read "no decision": no sheet, no overlay, and the
+                    // opaque hand-off surface still painting. That was the blank screen after
+                    // backing out of the player.
+                    var playbackRouteDecision by rememberSaveable(
                         launch.videoId,
                         effectiveVideoId,
                         playerSettings.playbackMode,
+                        stateSaver = PlaybackRouteDecisionSaver,
                     ) { mutableStateOf<PlaybackRouteDecision?>(null) }
                     var reuseHandled by rememberSaveable(
                         launch.videoId,
@@ -2957,8 +3020,6 @@ private fun MainAppContent(
                         autoPickAttempt += 1
                     }
 
-                    val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
-
                     /**
                      * Says which source just failed and why, on the way to the next one.
                      *
@@ -3036,12 +3097,11 @@ private fun MainAppContent(
                                         )
                                     }
                                     if (!hasNextCandidate) {
-                                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
                                         // The chain is spent and nothing else will move. Without
                                         // this the progress overlay keeps covering the source
                                         // list with "Starting playback" for a playback that is
                                         // never going to start - a hang wearing a spinner.
-                                        manualSourceListRequested = true
+                                        fallBackToSourceList(resolved.toastMessage())
                                     }
                                     if (!hasNextCandidate && resolved == DirectDebridPlayableResult.Stale) {
                                         StreamsRepository.reload(
@@ -3109,8 +3169,7 @@ private fun MainAppContent(
                             } else if (hasFailureChain) {
                                 // Same reasoning as the resolve-failure arm: an exhausted chain
                                 // must uncover the list rather than leave the overlay up.
-                                manualSourceListRequested = true
-                                NuvioToastController.show(noAutomaticSourceMessage)
+                                fallBackToSourceList()
                             }
                             return@LaunchedEffect
                         }
@@ -3318,6 +3377,12 @@ private fun MainAppContent(
 
                         val launchId = PlayerLaunchStore.put(playerLaunch)
                         StreamsRepository.cancelLoading()
+                        // The flag's own comment says "set at *every* exit to playback" and this
+                        // exit did not set it. That mattered for the Streamlined sticky-pin path,
+                        // which reaches the player through here and leaves StreamRoute on the
+                        // stack: coming back, nothing knew playback had ever been handed off, so
+                        // the opaque surface kept painting over a list nobody could see.
+                        playbackHandedOff = true
                         navController.navigate(
                             PlayerRoute(launchId = launchId, title = playerLaunch.title)
                         )
@@ -3405,12 +3470,29 @@ private fun MainAppContent(
                             is PlaybackSelectionResult.AskUncached -> {
                                 pendingUncachedStream = result.stream
                             }
-                            is PlaybackSelectionResult.NeedsManual -> {
-                                qualitySheetDismissed = true
-                                manualSourceListRequested = true
-                                NuvioToastController.show(result.reason)
-                            }
+                            is PlaybackSelectionResult.NeedsManual -> fallBackToSourceList(result.reason)
                         }
+                    }
+
+                    /**
+                     * Starts an uncached debrid source the user accepted, with a chain behind it.
+                     *
+                     * It used to call `openSelectedStream` directly, which made this the one
+                     * Streamlined start with no fallbacks at all - and it is the start most
+                     * likely to need them, because the provider has already said it does not
+                     * hold this file. Seeding puts it on the same auto-play path as every
+                     * other tier pick.
+                     */
+                    fun startUncachedStream(uncached: StreamItem) {
+                        qualitySheetDismissed = true
+                        streamlinedPlaybackStarting = true
+                        armNetworkObservation(uncached)
+                        // A chain of one, deliberately. Everything else in this row failed the
+                        // same cache gate, so there is no better candidate to fall to - what
+                        // this buys is the *path*: the progress overlay while the mint runs,
+                        // the provider's reason named if it refuses, and the source list
+                        // uncovered afterwards instead of a toast under an opaque surface.
+                        StreamsRepository.seedAutoPlayCandidates(listOf(uncached))
                     }
 
                     fun selectStreamlinedOption(option: PlaybackQualityOption) {
@@ -3499,9 +3581,7 @@ private fun MainAppContent(
                         // stranding a user who has already chosen.
                             ?: playbackQualityOptions.firstOrNull()
                         if (option == null) {
-                            qualitySheetDismissed = true
-                            manualSourceListRequested = true
-                            NuvioToastController.show(noAutomaticSourceMessage)
+                            fallBackToSourceList()
                             return@LaunchedEffect
                         }
                         completeStreamlinedOptionSelection(option)
@@ -3575,14 +3655,9 @@ private fun MainAppContent(
                                     listOf(selection.stream) + selection.fallbacks,
                                 )
                             }
-                            is PlaybackSelectionResult.AskUncached -> {
-                                manualSourceListRequested = true
-                                NuvioToastController.show(noAutomaticSourceMessage)
-                            }
-                            is PlaybackSelectionResult.NeedsManual -> {
-                                manualSourceListRequested = true
-                                NuvioToastController.show(selection.reason)
-                            }
+                            is PlaybackSelectionResult.AskUncached -> fallBackToSourceList()
+                            is PlaybackSelectionResult.NeedsManual ->
+                                fallBackToSourceList(selection.reason)
                         }
                     }
 
@@ -3600,12 +3675,21 @@ private fun MainAppContent(
                         pendingStickyStreamOpen != null ||
                         pendingP2pStreamOpen != null ||
                         (NetworkQualityRepository.current().isMetered && meteredChoice == null)
-                    val showPlaybackProgress = PlaybackProgress.isVisible(
-                        isAutoPickRoute = playbackRouteDecision is PlaybackRouteDecision.AutoPick,
-                        isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
-                        manualSourceListRequested = manualSourceListRequested,
-                        awaitingMeteredChoice = awaitingUserAnswer,
-                        hasNavigatedAway = reuseNavigated || playbackHandedOff,
+                    val streamSurface = streamRouteSurface(
+                        StreamRouteSurfaceInputs(
+                            isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
+                            isManualLaunch = launch.manualSelection || launch.downloadIntent,
+                            manualSourceListRequested = manualSourceListRequested,
+                            isRouteCurrent = navController.currentRoute == route,
+                            hasNavigatedAway = reuseNavigated || playbackHandedOff,
+                            hasArmedFailureChain = streamsUiState.autoPlayStream != null,
+                            isQualitySheetRoute =
+                                playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
+                            qualitySheetDismissed = qualitySheetDismissed,
+                            isAutoPickRoute = playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                            isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
+                            awaitingUserAnswer = awaitingUserAnswer,
+                        ),
                     )
 
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -3650,23 +3734,27 @@ private fun MainAppContent(
                         // StreamsScreen owns the fetch, but its list is an implementation
                         // detail in Streamlined and Instant. Paint an opaque hand-off surface
                         // from the first frame; sheets and PlaybackProgressOverlay render above
-                        // it, while an explicit manual fallback removes it.
-                        if (
-                            playerSettings.playbackMode != PlaybackMode.CLASSIC &&
-                            !launch.manualSelection &&
-                            !launch.downloadIntent &&
-                            !manualSourceListRequested
-                        ) {
+                        // it, while every bail-out removes it - see `streamRouteSurface`.
+                        //
+                        // It consumes pointer input on purpose. Without that it painted over a
+                        // source list that was still fully tappable underneath, so the one
+                        // state where this surface should never be resting was also one where
+                        // an invisible row could be started by a stray tap.
+                        if (streamSurface != StreamRouteSurface.SourceList) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(MaterialTheme.nuvio.colors.background),
+                                    .background(MaterialTheme.nuvio.colors.background)
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent().changes.forEach { it.consume() }
+                                            }
+                                        }
+                                    },
                             )
                         }
-                        if (
-                            playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet &&
-                            !qualitySheetDismissed && !reuseNavigated
-                        ) {
+                        if (streamSurface == StreamRouteSurface.QualitySheet) {
                             PlaybackQualitySheet(
                                 options = playbackQualityOptions,
                                 // Only "the figures are still moving" belongs here. Selection
@@ -3712,14 +3800,7 @@ private fun MainAppContent(
                                     TextButton(
                                         onClick = {
                                             pendingUncachedStream = null
-                                            qualitySheetDismissed = true
-                                            openSelectedStream(
-                                                stream = uncached,
-                                                resolvedResumePositionMs = launch.resumePositionMs,
-                                                resolvedResumeProgressFraction = launch.resumeProgressFraction,
-                                                forceExternal = false,
-                                                forceInternal = false,
-                                            )
+                                            startUncachedStream(uncached)
                                         },
                                     ) { Text(stringResource(Res.string.playback_uncached_start)) }
                                 },
@@ -3832,13 +3913,20 @@ private fun MainAppContent(
                                 onDismiss = {
                                     if (pending.isAutoPlay) {
                                         StreamsRepository.skipAutoPlayStream(pending.stream)
+                                        // The chain is retired here, not advanced: declining
+                                        // P2P is a decision about every torrent candidate, not
+                                        // about this one. So there is nothing left to run, and
+                                        // without uncovering the list the progress overlay sat
+                                        // on "Starting playback" for a playback that had just
+                                        // been called off.
                                         StreamsRepository.consumeAutoPlay()
+                                        fallBackToSourceList()
                                     }
                                     pendingP2pStreamOpen = null
                                 },
                             )
                         }
-                        if (showPlaybackProgress) {
+                        if (streamSurface == StreamRouteSurface.ProgressOverlay) {
                             PlaybackProgressOverlay(
                                 step = PlaybackProgress.step(
                                     PlaybackProgressInputs(

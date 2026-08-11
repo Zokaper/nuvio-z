@@ -10,17 +10,41 @@ package com.nuvio.app.features.playback
 sealed class PlaybackRouteDecision {
     abstract val reason: String
 
+    /**
+     * A stable name for this branch, for saving the decision across a route leaving composition.
+     *
+     * `NavDisplay` composes only the top entry, so a mode with a failure chain - which
+     * deliberately keeps `StreamRoute` on the back stack while the player is open - loses every
+     * plain `remember` the moment it hands off. Re-running [PlaybackModeRouter.decide] on the
+     * way back is **not** a substitute: by then the play just wrote a reuse-last-link entry, so
+     * the same inputs answer [ReuseLastLink] where they first answered [AutoPick], and Instant's
+     * retry chain is gated on that answer. The decision has to be carried, not re-derived.
+     */
+    abstract val key: String
+
     /** Show the full source list. Classic, and every per-play override. */
-    data class ShowSourceList(override val reason: String) : PlaybackRouteDecision()
+    data class ShowSourceList(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "source_list" }
+    }
 
     /** Play a completed local download without touching the network. */
-    data class PlayLocalDownload(override val reason: String) : PlaybackRouteDecision()
+    data class PlayLocalDownload(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "local_download" }
+    }
 
     /** A pinned release matched; play it and skip the quality sheet. */
-    data class PlayStickyPin(override val reason: String) : PlaybackRouteDecision()
+    data class PlayStickyPin(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "sticky_pin" }
+    }
 
     /** A cached link for this exact video is still valid; reuse it. */
-    data class ReuseLastLink(override val reason: String) : PlaybackRouteDecision()
+    data class ReuseLastLink(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "reuse_last_link" }
+    }
 
     /**
      * Streamlined: ask which quality, then auto-pick within it.
@@ -30,7 +54,10 @@ sealed class PlaybackRouteDecision {
      * neutral. It is modelled now so the precedence order can be settled and tested in
      * one place rather than twice.
      */
-    data class ShowQualitySheet(override val reason: String) : PlaybackRouteDecision()
+    data class ShowQualitySheet(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "quality_sheet" }
+    }
 
     /**
      * Instant: resolve a tier from the connection and auto-pick.
@@ -38,7 +65,27 @@ sealed class PlaybackRouteDecision {
      * **Nothing consumes this yet** - see [ShowQualitySheet]. Lands in Phase 3, once
      * network quality estimation exists.
      */
-    data class AutoPick(override val reason: String) : PlaybackRouteDecision()
+    data class AutoPick(override val reason: String) : PlaybackRouteDecision() {
+        override val key: String get() = KEY
+        companion object { const val KEY = "auto_pick" }
+    }
+
+    companion object {
+        /**
+         * Rebuilds a decision from [key] and [reason], for restoring one that outlived its
+         * composition. Unknown keys answer null rather than guessing a branch - a wrong answer
+         * here silently changes which selection mechanism runs.
+         */
+        fun fromKey(key: String?, reason: String): PlaybackRouteDecision? = when (key) {
+            ShowSourceList.KEY -> ShowSourceList(reason)
+            PlayLocalDownload.KEY -> PlayLocalDownload(reason)
+            PlayStickyPin.KEY -> PlayStickyPin(reason)
+            ReuseLastLink.KEY -> ReuseLastLink(reason)
+            ShowQualitySheet.KEY -> ShowQualitySheet(reason)
+            AutoPick.KEY -> AutoPick(reason)
+            else -> null
+        }
+    }
 }
 
 /**
