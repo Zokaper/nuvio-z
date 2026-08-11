@@ -245,6 +245,19 @@ repositories, with identical results:
 
 **Thirteen shared files confirmed byte-identical** across the two repositories after mirroring.
 
+**CI is now green on `nuvio-z` (run `31486710102`, commit `3178ae9`).** The Android host suite
+passes and `:androidApp:assembleFullDebug` builds, which is the **first time any of this pass
+has been compiled at all** — everything before it was a parser pass plus the standalone pure
+suites. Two things it settled, and one it did not:
+
+- Every change to `App.kt`, the player runtime and the two new settings keys compiles on
+  Android, and the full host suite passes with them.
+- ⚠ It took two runs. The first failed to compile `commonTest`, because deleting
+  `PlaybackSourceSelector.rank` left a caller in `PlaybackSourceSelectorTest` — see item 6.
+- ⚠ **It says nothing about `desktopMain`.** Two new `expect` members landed this pass, and only
+  `:composeApp:desktopTest` in `NuvioZDesktop` (or its Windows CI job) proves their desktop
+  actuals exist. **Run that before the release.**
+
 **Not covered, and CI is the gate:**
 
 1. `PlaybackSourceSelectorTest` reaches the real AIO types and cannot run standalone — unchanged
@@ -499,6 +512,12 @@ desktop, Playstore) is `false`.
 
 ⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
 Every debug build after `0.4.9-beta.1` updates in place from inside the app.
+
+**Published for the 0.5.0-beta device run: `debug-v0.4.14-beta.4`** (versionCode 124004), cut
+from `claude/release-0.5.0-beta-polish-ivcjsl` at `3178ae9`. The installed debug app is
+`0.4.9-beta.3` at 119003, so it should offer the update. The marketing version stays at
+`0.4.14-beta` deliberately — bumping it to 0.5.0 now would break the release line's bump-last
+rule with phase 2 still to come, so the debug counter carries the identity instead.
 
 **Publishing a debug build (2026-08-11): dispatch `debug-release.yml`.** Bump `DEBUG_BUILD` in
 `Version.xcconfig`, push, then run the workflow against whatever branch you want the build cut
