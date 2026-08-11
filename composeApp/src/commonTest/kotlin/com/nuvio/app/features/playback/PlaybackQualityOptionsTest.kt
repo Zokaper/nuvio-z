@@ -559,15 +559,87 @@ class PlaybackQualityOptionsTest {
         PlaybackSelectionContext(runtimeMinutes = runtimeMinutes, isEpisode = false),
     )
 
+    @Test
+    fun bestAvailableDoesNotLeadWithASeasonPack() {
+        // The defect `0.4.9-beta` fixed for the banded rows and never applied to this card.
+        // `SourceRanking` sorts size descending, so the largest number in the catalogue headed
+        // Best available - and 85 GB for one 1080p episode is a season pack, a folder size, or
+        // simply wrong. It is still reachable, it just never leads.
+        val options = build(
+            candidate("season-pack", VideoResolution.FULL_HD_1080, gigabytes = 85.0),
+            candidate("real-release", VideoResolution.FULL_HD_1080, gigabytes = 9.0),
+        )
+
+        val best = options.first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("real-release", best.candidates.first().stream.name)
+        assertTrue(best.candidates.any { it.stream.name == "season-pack" })
+    }
+
+    @Test
+    fun bestAvailableFailedQuietlyWhenItLedWithAPack() {
+        // Why the ordering mattered more than it looks: `requiredMbpsFor` returns null above
+        // the plausibility ceiling, so a card led by a season pack quoted no bandwidth and
+        // drew no connection meter. It went silent rather than warning - the ceiling was
+        // protecting the label while the pick walked past it.
+        val context = PlaybackSelectionContext(isEpisode = true)
+        val pack = candidate("season-pack", VideoResolution.FULL_HD_1080, gigabytes = 85.0)
+        val real = candidate("real-release", VideoResolution.FULL_HD_1080, gigabytes = 9.0)
+
+        assertNull(PlaybackQualityOptions.requiredMbpsFor(pack, context))
+        assertNotNull(PlaybackQualityOptions.requiredMbpsFor(real, context))
+    }
+
+    @Test
+    fun bestAvailablePrefersEvidenceOfACachedCopy() {
+        // Third key, below plausibility and torrent-ness. Two equally plausible releases: the
+        // one the provider has confirmed leads, because the alternative is the user reading
+        // "not cached" at resolve time on the card they were most likely to tap.
+        val options = build(
+            candidate(
+                "hoped-for",
+                VideoResolution.FULL_HD_1080,
+                gigabytes = 9.0,
+                debridService = "torbox",
+            ),
+            candidate(
+                "known-cached",
+                VideoResolution.FULL_HD_1080,
+                gigabytes = 9.0,
+                debridService = "torbox",
+                isDebridReady = true,
+            ),
+        )
+
+        val best = options.first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("known-cached", best.candidates.first().stream.name)
+    }
+
+    @Test
+    fun bestAvailableKeepsTorrentsBehindEverythingElse() {
+        // A raw torrent is behind every HTTP and debrid candidate even when it is the largest
+        // and the protocol gate would let it through. Best available had no such rule.
+        val options = build(
+            candidate("torrent", VideoResolution.UHD_2160, gigabytes = 40.0, infoHash = "abc123"),
+            candidate("http", VideoResolution.UHD_2160, gigabytes = 20.0),
+        )
+
+        val best = options.first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("http", best.candidates.first().stream.name)
+    }
+
     private fun candidate(
         name: String,
         resolution: VideoResolution,
         gigabytes: Double?,
         runtimeMinutes: Int? = null,
+        infoHash: String? = null,
+        debridService: String? = null,
+        isDebridReady: Boolean? = null,
     ) = PlaybackSourceCandidate(
         stream = StreamItem(
             name = name,
-            url = "https://cdn.example/$name.mkv",
+            url = if (infoHash == null) "https://cdn.example/$name.mkv" else null,
+            infoHash = infoHash,
             addonName = "addon",
             addonId = "addon",
         ),
@@ -575,6 +647,8 @@ class PlaybackQualityOptionsTest {
             resolution = resolution,
             sizeBytes = gigabytes?.let { (it * 1_000_000_000.0).toLong() },
             durationSeconds = runtimeMinutes?.let { it * 60L },
+            debridService = debridService,
+            isDebridReady = isDebridReady,
         ),
     )
 }

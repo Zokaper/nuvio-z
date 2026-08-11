@@ -134,7 +134,7 @@ object PlaybackQualityOptions {
             .sortedByDescending { it.key.height }
             .flatMap { (resolution, entries) -> optionsForBucket(resolution, entries) }
 
-        return listOf(bestAvailable(candidates, buckets.keys.maxByOrNull { it.height })) + derived
+        return listOf(bestAvailable(measured, buckets.keys.maxByOrNull { it.height })) + derived
     }
 
     /**
@@ -389,8 +389,23 @@ object PlaybackQualityOptions {
         }
     }
 
+    /**
+     * The card at the top of the sheet, and the one most people tap.
+     *
+     * **Ranked by exactly the same rules as every other row.** It used to sort with a bare
+     * `SourceRanking.comparator` and skip all three of [rankingFor]'s leading keys, so the card
+     * that claims to be the best available was the one place the catalogue's worst traps still
+     * led: `LARGEST_UNDER_CAP` sorts size descending, so an 85 GB season pack advertised as one
+     * file headed it every time - the precise defect `0.4.9-beta` fixed for the banded rows and
+     * never applied here. A torrent could lead it, and so could a debrid source nobody had
+     * evidence was cached.
+     *
+     * It failed quietly, too: [requiredMbpsFor] returns null above the plausibility ceiling, so
+     * the season-pack case showed no bandwidth figure and no connection meter rather than a
+     * warning. The ceiling was protecting the label while the pick walked straight past it.
+     */
     private fun bestAvailable(
-        candidates: List<PlaybackSourceCandidate>,
+        measured: List<MeasuredCandidate>,
         topResolution: VideoResolution?,
     ): PlaybackQualityOption = PlaybackQualityOption(
         id = BEST_ID,
@@ -400,19 +415,11 @@ object PlaybackQualityOptions {
         representativeBitrateMbps = null,
         isEstimateApproximate = false,
         representativeSizeBytes = null,
-        candidates = candidates.sortedWith(
-            SourceRanking.comparator(
-                preferences = preferencesFor(topResolution),
-                midRangeTarget = null,
-                factsOf = PlaybackSourceCandidate::facts,
-                isDirectOf = { it.stream.playableDirectUrl != null },
-                addonOrderOf = PlaybackSourceCandidate::addonOrder,
-                stableUrlOf = { it.stream.playableDirectUrl.orEmpty() },
-            ),
-        ),
+        candidates = measured.sortedWith(rankingFor(topResolution))
+            .map(MeasuredCandidate::candidate),
     )
 
-    private fun rankingFor(resolution: VideoResolution): Comparator<MeasuredCandidate> {
+    private fun rankingFor(resolution: VideoResolution?): Comparator<MeasuredCandidate> {
         val ranked: Comparator<MeasuredCandidate> = SourceRanking.comparator(
             preferences = preferencesFor(resolution),
             midRangeTarget = null,
