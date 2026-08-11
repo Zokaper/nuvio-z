@@ -284,4 +284,41 @@ class DownloadTransferTest {
             ),
         )
     }
+
+    @Test
+    fun theStallWatchdogAlwaysDecidesBeforeTheReadTimeout() {
+        // Both mechanisms end the same silent connection, but only the watchdog knows *why* it
+        // ended - it sets the flag that makes the failure report as a stall rather than as a
+        // pause the user never asked for. A read timeout that fires first produces a bare IO
+        // error and the queue waits for a resume that is never coming.
+        listOf(1_000L, 5_000L, 60_000L, 300_000L).forEach { timeout ->
+            assertTrue(
+                stallReadTimeoutMs(timeout) > timeout,
+                "read timeout must sit past the stall deadline for $timeout",
+            )
+            assertTrue(
+                stallCheckIntervalMs(timeout) < timeout,
+                "the watchdog must get at least one look inside $timeout",
+            )
+        }
+    }
+
+    @Test
+    fun aHarnessCanTurnTheStallDeadlineDownToSeconds() {
+        // The whole reason these are derived rather than constant. Android hardcoded a
+        // 60-second read timeout and consulted DownloadsTiming not at all, so its stall path
+        // could be neither shortened nor tested - at a two-second deadline the old client
+        // would still have sat there for a minute.
+        assertEquals(500L, stallCheckIntervalMs(2_000L))
+        assertTrue(stallReadTimeoutMs(2_000L) < 5_000L)
+    }
+
+    @Test
+    fun theCheckIntervalNeverCollapsesToZero() {
+        // A harness that sets an aggressive deadline must not turn the watchdog into a busy
+        // loop, and must never divide it away to nothing.
+        assertEquals(50L, stallCheckIntervalMs(1L))
+        assertEquals(50L, stallCheckIntervalMs(0L))
+    }
+
 }

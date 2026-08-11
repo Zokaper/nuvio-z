@@ -64,6 +64,32 @@ internal object DownloadsTiming {
     }
 }
 
+
+/**
+ * How often a platform downloader's stall watchdog should look, given [stallTimeoutMs].
+ *
+ * A quarter of the deadline, floored, so a harness that turns the deadline down to seconds
+ * still gets several checks inside it.
+ */
+internal fun stallCheckIntervalMs(stallTimeoutMs: Long): Long =
+    (stallTimeoutMs / 4).coerceAtLeast(50L)
+
+/**
+ * The socket read timeout that goes with [stallTimeoutMs].
+ *
+ * **The watchdog must decide first.** Both mechanisms end the same silent connection, but only
+ * the watchdog knows *why* it ended - it sets the flag that makes the failure report as a
+ * stall rather than as a pause the user never asked for. A read timeout that fires first
+ * produces a bare IO error and the queue waits for a resume that is never coming.
+ *
+ * So this always lands one check interval past the point the watchdog would have acted, and
+ * exists only as a backstop for the case where cancelling the call does not unblock the read.
+ * Android hardcoded 60 seconds here and consulted [DownloadsTiming] not at all, which is why
+ * its stall path could be neither shortened nor tested.
+ */
+internal fun stallReadTimeoutMs(stallTimeoutMs: Long): Long =
+    (stallTimeoutMs + stallCheckIntervalMs(stallTimeoutMs)).coerceAtLeast(1_000L)
+
 internal const val MAX_DOWNLOAD_ATTEMPTS = 5
 
 /**

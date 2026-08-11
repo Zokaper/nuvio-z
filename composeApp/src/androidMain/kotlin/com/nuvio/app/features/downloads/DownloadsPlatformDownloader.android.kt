@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,7 @@ import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 private const val TRANSFER_BUFFER_BYTES = 64 * 1024
@@ -31,6 +33,18 @@ private val downloadHttpClient = OkHttpClient.Builder()
     .writeTimeout(60, TimeUnit.SECONDS)
     .followRedirects(true)
     .followSslRedirects(true)
+    .build()
+
+/**
+ * The client for one transfer, with a read timeout that agrees with the watchdog.
+ *
+ * The shared client above hardcodes 60 seconds and **consulted `DownloadsTiming` not at all**,
+ * so Android's stall behaviour could be neither shortened nor tested - the platform gap
+ * `STATUS.md` flagged after `0.4.10-beta`. Both deadlines now come from one rule in
+ * `DownloadTransfer.kt`, so they cannot disagree about which fires first.
+ */
+private fun stallAwareClient(): OkHttpClient = downloadHttpClient.newBuilder()
+    .readTimeout(stallReadTimeoutMs(DownloadsTiming.stallTimeoutMs), TimeUnit.MILLISECONDS)
     .build()
 
 internal actual object DownloadsPlatformDownloader {
@@ -51,6 +65,28 @@ internal actual object DownloadsPlatformDownloader {
         val job = SupervisorJob()
         val scope = CoroutineScope(job + Dispatchers.IO)
         val handle = AndroidDownloadsTaskHandle(job)
+        val lastByteAtEpochMs = AtomicLong(DownloadsClock.nowEpochMs())
+
+        // Android had no active stall watchdog at all. Desktop has polled and force-closed a
+        // silent stream since `0.4.5-beta`; here a connection that went quiet without closing
+        // sat on OkHttp's fixed 60-second read timeout, which no test could shorten and which
+        // is itself longer than most of the deadlines around it. A download stuck behind it
+        // held a transfer slot and showed its last percentage - "no row that stops moving",
+        // violated on the platform most people are running.
+        //
+        // Cancelling the call is what unblocks the read; OkHttp propagates it as an IO error
+        // on the reading thread. Flagged before the cancel, never after, so the handler can
+        // tell a stall from a user pause - the two arrive as the same exception otherwise.
+        val watchdog = scope.launch {
+            while (true) {
+                delay(stallCheckIntervalMs(DownloadsTiming.stallTimeoutMs))
+                if (DownloadsClock.nowEpochMs() - lastByteAtEpochMs.get() < DownloadsTiming.stallTimeoutMs) {
+                    continue
+                }
+                handle.markStalled()
+                lastByteAtEpochMs.set(DownloadsClock.nowEpochMs())
+            }
+        }
 
         scope.launch {
             val context = appContext
@@ -104,7 +140,7 @@ internal actual object DownloadsPlatformDownloader {
                 var attemptedRangeRequest = resumeFromBytes > 0L
                 var response = handle
                     .attachCall(
-                        downloadHttpClient.newCall(
+                        stallAwareClient().newCall(
                             buildRequest(if (attemptedRangeRequest) resumeFromBytes else null),
                         ),
                     )
@@ -137,7 +173,7 @@ internal actual object DownloadsPlatformDownloader {
                     downloadedBytes = 0L
                     attemptedRangeRequest = false
                     response = handle
-                        .attachCall(downloadHttpClient.newCall(buildRequest(null)))
+                        .attachCall(stallAwareClient().newCall(buildRequest(null)))
                         .execute()
                 }
 
@@ -183,6 +219,7 @@ internal actual object DownloadsPlatformDownloader {
                     )
                     listener.onProgress(downloadedBytes, totalBytes)
 
+                    lastByteAtEpochMs.set(DownloadsClock.nowEpochMs())
                     var lastReportedBytes = downloadedBytes
                     var lastReportedAtEpochMs = DownloadsClock.nowEpochMs()
 
@@ -193,6 +230,9 @@ internal actual object DownloadsPlatformDownloader {
                                 ensureActive()
                                 val read = input.read(buffer)
                                 if (read <= 0) break
+                                // Bytes, not iterations: a read that returns is what proves
+                                // the connection is still alive.
+                                lastByteAtEpochMs.set(DownloadsClock.nowEpochMs())
                                 output.write(buffer, 0, read)
                                 downloadedBytes += read.toLong()
 
@@ -263,7 +303,18 @@ internal actual object DownloadsPlatformDownloader {
                 listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
                 throw cancellation
             } catch (error: Throwable) {
-                if (handle.isCancelled) {
+                if (handle.isStalled) {
+                    // Transient on purpose: the source went quiet, which is exactly what the
+                    // retry budget is for. Checked before `isCancelled` because cancelling
+                    // the call is *how* a stalled read is unblocked, so both arrive here as
+                    // the same exception - and reporting a stall as a pause would leave the
+                    // queue waiting for a resume the user never asked for and will never give.
+                    listener.onFailed(
+                        DownloadFailureReason.Transient,
+                        runBlocking { getString(Res.string.downloads_error_stalled) },
+                        currentPartialBytes(tempFile, downloadedBytes),
+                    )
+                } else if (handle.isCancelled) {
                     listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
                 } else {
                     listener.onFailed(
@@ -272,6 +323,8 @@ internal actual object DownloadsPlatformDownloader {
                         currentPartialBytes(tempFile, downloadedBytes),
                     )
                 }
+            } finally {
+                watchdog.cancel()
             }
         }
 
@@ -393,10 +446,21 @@ private class AndroidDownloadsTaskHandle(
 ) : DownloadsTaskHandle {
     private val activeCall = AtomicReference<Call?>(null)
     private val cancelled = AtomicBoolean(false)
+    private val stalled = AtomicBoolean(false)
 
     /** True once [cancel] has been called, so a resulting IO error reads as a pause. */
     val isCancelled: Boolean
         get() = cancelled.get()
+
+    /** True once the watchdog gave up on a connection that went quiet without closing. */
+    val isStalled: Boolean
+        get() = stalled.get()
+
+    /** Unblocks a read that has gone quiet. Flagged first so the failure keeps its name. */
+    fun markStalled() {
+        stalled.set(true)
+        activeCall.get()?.let { runCatching { it.cancel() } }
+    }
 
     /** Registers [call] as the one to interrupt, and hands it straight back. */
     fun attachCall(call: Call): Call {
