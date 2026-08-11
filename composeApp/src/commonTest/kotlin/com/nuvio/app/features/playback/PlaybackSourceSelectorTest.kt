@@ -1,7 +1,12 @@
 package com.nuvio.app.features.playback
 
+import com.nuvio.app.features.downloads.CodecPreference
+import com.nuvio.app.features.downloads.DynamicRangePolicy
+import com.nuvio.app.features.downloads.SizePreference
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
+import com.nuvio.app.features.downloads.SourceRankingPreferences
+import com.nuvio.app.features.downloads.SourceRanking
 import com.nuvio.app.features.downloads.VideoResolution
 import com.nuvio.app.features.streams.AioParsedFile
 import com.nuvio.app.features.streams.AioStreamData
@@ -213,9 +218,43 @@ class PlaybackSourceSelectorTest {
         vararg candidates: PlaybackSourceCandidate,
         allowTorrents: Boolean = false,
     ) = PlaybackSourceSelector.select(
-        PlaybackSourceSelector.rank(candidates.toList()),
+        rankForGateTests(candidates.toList()),
         PlaybackSelectionContext(isEpisode = true, allowTorrentSources = allowTorrents),
     )
+
+    /**
+     * A deterministic input order for the gate cases below.
+     *
+     * This was `PlaybackSourceSelector.rank`, a third ordering in production that **nothing in
+     * production ever called** - only this helper did. Wiring the user's codec and HDR
+     * preferences into it, which is what `0.5.0-beta` set out to do, would have been wiring
+     * them into a function no playback ever reached, so it was deleted and
+     * `PlaybackQualityOptions.rankingFor` is now the only ordering the app has.
+     *
+     * The cases below are about the **protocol and cache gates**, not about ranking: they need
+     * candidates to arrive in a known order and do not care which one. So the old comparator
+     * lives here, unchanged, rather than the expectations being rewritten against a different
+     * order that no test could then justify.
+     */
+    private fun rankForGateTests(
+        candidates: List<PlaybackSourceCandidate>,
+    ): List<PlaybackSourceCandidate> {
+        val ranked = SourceRanking.comparator(
+            preferences = SourceRankingPreferences(
+                codecPreference = CodecPreference.ANY,
+                dynamicRangePolicy = DynamicRangePolicy.ANY,
+                sizePreference = SizePreference.LARGEST_UNDER_CAP,
+            ),
+            midRangeTarget = null,
+            factsOf = PlaybackSourceCandidate::facts,
+            isDirectOf = { it.stream.playableDirectUrl != null },
+            addonOrderOf = PlaybackSourceCandidate::addonOrder,
+            stableUrlOf = { it.stream.playableDirectUrl.orEmpty() },
+        )
+        return candidates.sortedWith(
+            compareBy<PlaybackSourceCandidate> { it.stream.isTorrentStream }.then(ranked),
+        )
+    }
 
     @Test
     fun bestAvailableNamesTheFileNotTheProtocol() {

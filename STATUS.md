@@ -119,9 +119,16 @@ meter at all. The ceiling was protecting the label while the pick walked straigh
 Named twice in this file as a real defect deferred to its own commit. Two findings changed the
 shape of the fix:
 
-- ⚠ **`PlaybackSourceSelector.rank` had no callers in either repository.** It was one of the two
-  places listed as needing preferences wired in, which would have been wiring them into nothing.
-  Deleted. `PlaybackQualityOptions.rankingFor` is the ordering, and now it is the only one.
+- ⚠ **`PlaybackSourceSelector.rank` had no *production* callers.** It was one of the two places
+  listed as needing preferences wired in, which would have been wiring them into a function no
+  playback ever reached. Deleted; `PlaybackQualityOptions.rankingFor` is now the only ordering.
+  ⚠ **It did have one test caller**, and the first claim here said "no callers in either
+  repository" - which was wrong, because the grep behind it covered `commonMain` only. That
+  broke `testAndroidHostTest` on the first real CI run of this branch. The old comparator now
+  lives in `PlaybackSourceSelectorTest` as `rankForGateTests`, unchanged, because those cases
+  are about the protocol and cache gates and only need a deterministic input order.
+  **`PlaybackSourceSelectorTest` is the one file the standalone harness cannot compile** - it
+  reaches the real AIO types - so it is exactly where a deletion like this hides.
 - **Only one of the three preferences existed.** Codec and dynamic range lived solely on
   `DownloadPreset`, so this adds `playback_codec_preference` and `playback_dynamic_range_policy`
   as profile-scoped keys with all three actuals across both repos, settings rows, search entries
