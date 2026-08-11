@@ -1,0 +1,191 @@
+name: Debug release
+
+# Publishes an Android debug APK to the debug update channel, so an installed
+# debug build can update itself from inside the app.
+#
+# The channel is GitHub **prereleases** tagged `debug-v*`. The stable updater
+# discards prereleases, so the two lines cannot see each other and the release
+# flow is untouched - see "The debug update line" in STATUS.md.
+#
+# This existed only as a manual ritual before: bump DEBUG_BUILD, build locally,
+# `gh release create`. That meant a debug build could only come from a machine
+# with a working Gradle, which the agent sandbox is not, and it made the whole
+# device-testing loop depend on the maintainer being at their desk.
+#
+# Signing needs no secret: `androidApp/nuvio-debug.keystore` is committed on
+# purpose, because AGP's per-machine default debug key produces APKs that cannot
+# update each other. The release keystore is not here and must stay that way.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: debug-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish debug APK
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Resolve debug version
+        id: version
+        run: |
+          set -euo pipefail
+          config=iosApp/Configuration/Version.xcconfig
+          read_value() {
+            sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p" "${config}" | head -1
+          }
+          marketing="$(read_value MARKETING_VERSION)"
+          debug_build="$(read_value DEBUG_BUILD)"
+          project="$(read_value CURRENT_PROJECT_VERSION)"
+          if [[ -z "${marketing}" || -z "${debug_build}" || -z "${project}" ]]; then
+            echo "::error::Could not read MARKETING_VERSION / DEBUG_BUILD / CURRENT_PROJECT_VERSION"
+            exit 1
+          fi
+
+          version="${marketing}.${debug_build}"
+          tag="debug-v${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          # The versionCode androidApp/build.gradle.kts will derive, restated here
+          # so a mismatch shows up in the log rather than on the device.
+          echo "Publishing ${tag} (expected versionCode $((project * 1000 + debug_build)))"
+
+          # A tag is single-use, exactly as it is on the release line: republishing
+          # one would leave installs that already took it stranded on older code
+          # with a newer name. Bump DEBUG_BUILD instead.
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::${tag} already exists. Bump DEBUG_BUILD in ${config} and dispatch again."
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cap Gradle memory for hosted runners
+        run: |
+          # gradle.properties asks for 12G heap, which is more than a standard
+          # hosted runner has. Values in GRADLE_USER_HOME take precedence over
+          # the project file, so override without touching the repository.
+          mkdir -p "${HOME}/.gradle"
+          {
+            echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+            echo 'kotlin.daemon.jvmargs=-Xmx3g'
+          } >> "${HOME}/.gradle/gradle.properties"
+
+      - name: Configure runtime properties
+        run: |
+          # Copied from ci.yml rather than shared, because the two workflows must
+          # not be able to break each other. Without the secret the build still
+          # succeeds but ships with no backend, so sign-in and Trakt will not work
+          # - which is worth knowing before spending a device session on it.
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set; building without backend configuration."
+            : > local.properties
+            exit 0
+          fi
+
+          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
+          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
+          # character the base64 alphabet does not contain rather than failing.
+          normalise_b64() {
+            printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
+          }
+          # A properties file stored without any encoding: it has KEY= lines and
+          # contains characters base64 never does.
+          looks_like_properties() {
+            printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
+              && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
+          }
+          decode_text_secret() {
+            local name="$1" raw="$2" out="$3" cleaned
+            if looks_like_properties "${raw}"; then
+              echo "::warning::${name} is not base64; storing it as literal file content."
+              printf '%s\n' "${raw}" > "${out}"
+            else
+              cleaned="$(normalise_b64 "${raw}")"
+              echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
+              printf '%s' "${cleaned}" | base64 --decode > "${out}"
+            fi
+            if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' "${out}"; then
+              echo "${name} did not yield a properties file." >&2
+              exit 1
+            fi
+          }
+
+          decode_text_secret LOCAL_PROPERTIES_BASE64 "${LOCAL_PROPERTIES_BASE64}" local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
+
+      # --stacktrace is deliberately omitted: on a Kotlin compilation failure it
+      # emits ~150 lines of Gradle internals that bury the actual 'e:' errors.
+      - name: Run Android host tests
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:testAndroidHostTest --console=plain 2>&1 | tee build.log || {
+            echo "::error::Android host tests failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          ./gradlew :androidApp:assembleFullDebug --console=plain 2>&1 | tee build.log || {
+            echo "::error::Debug APK build failed"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
+      - name: Identify the APK
+        id: apk
+        run: |
+          set -euo pipefail
+          apk="$(find androidApp/build/outputs/apk/full/debug -name '*.apk' | head -1)"
+          if [[ -z "${apk}" ]]; then
+            echo "::error::No debug APK was produced"
+            exit 1
+          fi
+          echo "path=${apk}" >> "${GITHUB_OUTPUT}"
+
+          # Print what the device will actually see. The updater compares these,
+          # so a wrong versionCode here is a build that silently never offers
+          # itself - the failure mode this counter exists to prevent.
+          aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt2 | sort | tail -1 || true)"
+          if [[ -n "${aapt}" ]]; then
+            "${aapt}" dump badging "${apk}" | grep -E "^package:" || true
+          fi
+
+      - name: Publish to the debug channel
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" "${{ steps.apk.outputs.path }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "Debug ${{ steps.version.outputs.version }}" \
+            --prerelease \
+            --notes "Debug build from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA}\`.
+
+          Installs as \`com.nuvio.app.z.debug\`, side by side with the release app.
+          Signed with the committed debug keystore, so it updates over any debug
+          build from \`0.4.9-beta.1\` onwards.
+
+          Not a release. The stable updater ignores prereleases."
+
+          echo "Published ${{ steps.version.outputs.tag }}"

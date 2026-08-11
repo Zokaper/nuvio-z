@@ -3,4 +3,4 @@ MARKETING_VERSION=0.4.14-beta
 # Debug-only build counter. Bump this for every debug APK published to the debug update
 # channel; it is what makes the installed debug app see a newer one. Ignored by release
 # builds and by Xcode.
-DEBUG_BUILD=3
+DEBUG_BUILD=4
