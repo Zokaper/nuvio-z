@@ -147,6 +147,50 @@ reporting a stall as a pause leaves the queue waiting for a resume that never co
 Both deadlines now come from one rule in `DownloadTransfer.kt`: **the watchdog must decide before
 the read timeout**, because only the watchdog knows why the connection ended.
 
+### 8. A dead debrid link looped forever inside the player
+
+**Reported after the rest of this pass landed**, and it is the one a user actually hits first:
+choose a source from the Streamlined sheet, get the loading screen with the series logo, the
+video loads, the player shows for about a second, then back to the loading screen — forever.
+
+⚠ **It is inside the player**, which is why nothing above bounded it and why the failure chain
+never ran. `tryRefreshCredentialedSourceAfterError` guarded against repeating itself by
+remembering the URL it had already tried, and **the reset block keyed on `activeSourceUrl` nulled
+that guard** — while a successful re-mint is precisely what changes `activeSourceUrl`. The next
+line of the same block sets `initialLoadCompleted = false`, which is the logo overlay coming
+back. Two independent reasons the guard never bit: it was cleared every iteration, and a re-mint
+returns a freshly signed URL so the comparison would have failed anyway.
+
+⚠ **`onError` returns early when the refresh is accepted**, so `onFatalPlaybackError` was never
+invoked. Every error was swallowed. The failure chain, the attempt counter and every bail-out in
+items 1–5 above were unreachable on this path.
+
+Bounded by a budget now, not by a URL, and scoped to the item being watched rather than to the
+source — because re-minting *is* a new source. One refresh: the premise is a link that expired
+while playing, so a fresh one fixes it; if the replacement also dies in a second, the source is
+the problem and declining is what lets the chain name it and move on. A deliberate source pick
+by the user earns a new budget; an automatic retry does not.
+
+**Not Streamlined-specific in the code** — any debrid source that fails early reaches it.
+Streamlined hits it constantly because it picks one without the user vetting it, and essentially
+every debrid link satisfies `hasLikelyExpiringPlaybackCredentials` (the key set includes the bare
+`t` and `e`).
+
+### 9. The stream route re-decided itself on every return
+
+Found while tracing item 8, and it silently defeated item 1 for the content being tested.
+
+`effectiveVideoId` is resolved asynchronously, and its effect — which restarts every time the
+route re-enters composition, so every return from the player — **blanked it to `launch.videoId`
+first**. So the value went resolved → placeholder → resolved on each return.
+`playbackRouteDecision`, `reuseHandled` and `autoPlayHandled` were all keyed on it and were
+therefore discarded twice per return, and `StreamsScreen` issued **two full stream loads**, the
+first against the parent id.
+
+That is exactly the saved decision item 1 added to stop the blank screen — discarded, for series
+episodes specifically. Movies were unaffected. They now key on `route.launchId`, as every other
+flag in that route already did, and the resolve effect no longer blanks an id it has resolved.
+
 ## Verification for 0.5.0-beta
 
 **Standalone compile-and-run of the shipped sources** (`AGENTS.md` item 2), in **both**
@@ -154,7 +198,8 @@ repositories, with identical results:
 
 - `PlaybackQualityOptionsTest` **45**, `StreamRouteSurfaceTest` **10**, `PlaybackModeRouterTest`
   **11** — 66 tests, zero failures.
-- `DownloadTransferTest` **22**, zero failures, compiled with no stubs at all.
+- `DownloadTransferTest` **22** and `PlaybackUrlCredentialsTest` **7**, zero failures, both
+  compiled with no stubs at all.
 - **Stubbed neighbours, never a file under test:** `SourceFacts`, `SourceFactsExtractor`,
   `StreamItem` and its behaviour-hint types, `PlaybackMode`, and the three ranking enums.
   `SourceRanking`, `PlaybackSourceSelector`, `PlaybackQualityOptions`, `StreamRouteSurface`,
@@ -169,8 +214,9 @@ repositories, with identical results:
 
 1. `PlaybackSourceSelectorTest` reaches the real AIO types and cannot run standalone — unchanged
    from `0.4.13-beta`.
-2. **Nothing Compose was run at all.** `App.kt` is parser-checked only; every behavioural claim
-   about the route above is reasoning from the code plus the pure tests underneath it.
+2. **Nothing Compose was run at all.** `App.kt` and the player runtime files are parser-checked
+   only; every behavioural claim about the route and the player above is reasoning from the code
+   plus the pure tests underneath it. That covers items 1–3, 8's wiring and all of 9.
 3. **The Android stall watchdog has no automated coverage and cannot get any here.** The desktop
    harness drives the *desktop* downloader; `FaultyMediaServer.GoSilent` already existed. What was
    missing was the Android implementation, and only CI compiles it and only a device runs it.
@@ -195,7 +241,11 @@ repositories, with identical results:
    sign out and back in — both must survive. That is the sync-key check, and editing that key set
    is what wiped the playback settings in `0.4.0-beta`.
 8. Three consecutive episodes: the resolution holds and Back works every time.
-9. **Downloads, Android:** start one and cut the connection without disconnecting (aeroplane mode
+9. **The loop, and the reason for this second pass.** Play a Streamlined episode from a debrid
+   provider and let a source fail on its own. Expect **one** toast naming it and **one** advance
+   to the next candidate — never the logo screen a second time for the same choice. If the chain
+   runs out, expect the source list.
+10. **Downloads, Android:** start one and cut the connection without disconnecting (aeroplane mode
    mid-transfer). The row should fail with a named reason and retry, not sit on its percentage.
 
 Report what each step actually showed. A step that was not run is not a pass.
