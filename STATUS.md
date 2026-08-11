@@ -119,9 +119,16 @@ meter at all. The ceiling was protecting the label while the pick walked straigh
 Named twice in this file as a real defect deferred to its own commit. Two findings changed the
 shape of the fix:
 
-- ⚠ **`PlaybackSourceSelector.rank` had no callers in either repository.** It was one of the two
-  places listed as needing preferences wired in, which would have been wiring them into nothing.
-  Deleted. `PlaybackQualityOptions.rankingFor` is the ordering, and now it is the only one.
+- ⚠ **`PlaybackSourceSelector.rank` had no *production* callers.** It was one of the two places
+  listed as needing preferences wired in, which would have been wiring them into a function no
+  playback ever reached. Deleted; `PlaybackQualityOptions.rankingFor` is now the only ordering.
+  ⚠ **It did have one test caller**, and the first claim here said "no callers in either
+  repository" - which was wrong, because the grep behind it covered `commonMain` only. That
+  broke `testAndroidHostTest` on the first real CI run of this branch. The old comparator now
+  lives in `PlaybackSourceSelectorTest` as `rankForGateTests`, unchanged, because those cases
+  are about the protocol and cache gates and only need a deterministic input order.
+  **`PlaybackSourceSelectorTest` is the one file the standalone harness cannot compile** - it
+  reaches the real AIO types - so it is exactly where a deletion like this hides.
 - **Only one of the three preferences existed.** Codec and dynamic range lived solely on
   `DownloadPreset`, so this adds `playback_codec_preference` and `playback_dynamic_range_policy`
   as profile-scoped keys with all three actuals across both repos, settings rows, search entries
@@ -237,6 +244,19 @@ repositories, with identical results:
 **Parser check** clean over every changed file in both repositories.
 
 **Thirteen shared files confirmed byte-identical** across the two repositories after mirroring.
+
+**CI is now green on `nuvio-z` (run `31486710102`, commit `3178ae9`).** The Android host suite
+passes and `:androidApp:assembleFullDebug` builds, which is the **first time any of this pass
+has been compiled at all** — everything before it was a parser pass plus the standalone pure
+suites. Two things it settled, and one it did not:
+
+- Every change to `App.kt`, the player runtime and the two new settings keys compiles on
+  Android, and the full host suite passes with them.
+- ⚠ It took two runs. The first failed to compile `commonTest`, because deleting
+  `PlaybackSourceSelector.rank` left a caller in `PlaybackSourceSelectorTest` — see item 6.
+- ⚠ **It says nothing about `desktopMain`.** Two new `expect` members landed this pass, and only
+  `:composeApp:desktopTest` in `NuvioZDesktop` (or its Windows CI job) proves their desktop
+  actuals exist. **Run that before the release.**
 
 **Not covered, and CI is the gate:**
 
@@ -493,10 +513,27 @@ desktop, Playstore) is `false`.
 ⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
 Every debug build after `0.4.9-beta.1` updates in place from inside the app.
 
-**Publishing a debug build:** bump `DEBUG_BUILD`, `:androidApp:assembleFullDebug`, then
-`gh release create debug-v<version> <apk> --repo Zokaper/nuvio-z --prerelease --target main`.
-The tag targets `main` because the working branch is local-only; the updater reads only the tag
-and the asset, so the target does not affect it.
+**Published for the 0.5.0-beta device run: `debug-v0.4.14-beta.4`** (versionCode 124004), cut
+from `claude/release-0.5.0-beta-polish-ivcjsl` at `3178ae9`. The installed debug app is
+`0.4.9-beta.3` at 119003, so it should offer the update. The marketing version stays at
+`0.4.14-beta` deliberately — bumping it to 0.5.0 now would break the release line's bump-last
+rule with phase 2 still to come, so the debug counter carries the identity instead.
+
+**Publishing a debug build (2026-08-11): dispatch `debug-release.yml`.** Bump `DEBUG_BUILD` in
+`Version.xcconfig`, push, then run the workflow against whatever branch you want the build cut
+from. It runs the host suite, builds `:androidApp:assembleFullDebug` and publishes
+`debug-v<version>` as a prerelease with the APK attached.
+
+It replaces the manual `gh release create` ritual, which required a machine with a working
+Gradle and so could not be done from the agent sandbox at all - every device-testing loop had to
+wait for the maintainer. `ci.yml` builds the same APK on every push but only uploads an Actions
+artifact, which an installed app cannot update from.
+
+⚠ **The tag is single-use** and the workflow refuses to run if it already exists: republishing
+one would strand installs that already took it on older code carrying a newer name. Bump
+`DEBUG_BUILD` instead. It targets the dispatched commit rather than `main`, so a working branch
+is fine. The workflow file must also exist on `main`, because that is where GitHub looks to
+decide whether `workflow_dispatch` is available at all.
 
 **Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
 different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
