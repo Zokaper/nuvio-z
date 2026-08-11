@@ -98,6 +98,10 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackMode(mode: String)
     fun loadPlaybackAllowTorrentAutopick(): Boolean?
     fun savePlaybackAllowTorrentAutopick(enabled: Boolean)
+    fun loadPlaybackCodecPreference(): String?
+    fun savePlaybackCodecPreference(preference: String)
+    fun loadPlaybackDynamicRangePolicy(): String?
+    fun savePlaybackDynamicRangePolicy(policy: String)
     fun loadShowAdvancedSettings(): Boolean?
     fun saveShowAdvancedSettings(enabled: Boolean)
     fun loadPlaybackQualityTiers(): String?

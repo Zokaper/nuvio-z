@@ -562,6 +562,16 @@ internal fun settingsSearchEntries(
                 stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
             ),
             PlaybackSearchRow(
+                "playback-codec-preference",
+                stringResource(Res.string.settings_playback_codec_preference),
+                stringResource(Res.string.settings_playback_codec_preference_description),
+            ),
+            PlaybackSearchRow(
+                "playback-dynamic-range",
+                stringResource(Res.string.settings_playback_dynamic_range),
+                stringResource(Res.string.settings_playback_dynamic_range_description),
+            ),
+            PlaybackSearchRow(
                 "playback-auto-downshift",
                 stringResource(Res.string.settings_playback_auto_downshift),
                 stringResource(Res.string.settings_playback_auto_downshift_description),

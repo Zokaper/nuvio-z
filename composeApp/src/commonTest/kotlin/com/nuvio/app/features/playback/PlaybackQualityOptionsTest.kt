@@ -1,5 +1,6 @@
 package com.nuvio.app.features.playback
 
+import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.VideoResolution
 import com.nuvio.app.features.streams.StreamItem
@@ -627,6 +628,60 @@ class PlaybackQualityOptionsTest {
         assertEquals("http", best.candidates.first().stream.name)
     }
 
+    @Test
+    fun anExplicitDynamicRangeChoiceBeatsTheByResolutionDefault() {
+        // 1080p defaults to ANY, so an SDR and an HDR release tie there and fall through to
+        // size. Asking for HDR has to break that tie - it did not, because `preferencesFor`
+        // hardcoded ANY and never saw the setting at all.
+        val hdr = candidate("hdr", VideoResolution.FULL_HD_1080, gigabytes = 6.0, hdr = true)
+        val sdr = candidate("sdr", VideoResolution.FULL_HD_1080, gigabytes = 9.0)
+
+        val ignored = PlaybackQualityOptions.build(
+            listOf(sdr, hdr),
+            PlaybackSelectionContext(isEpisode = true),
+        ).first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("sdr", ignored.candidates.first().stream.name)
+
+        val honoured = PlaybackQualityOptions.build(
+            listOf(sdr, hdr),
+            PlaybackSelectionContext(
+                isEpisode = true,
+                dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR,
+            ),
+        ).first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("hdr", honoured.candidates.first().stream.name)
+    }
+
+    @Test
+    fun anyMeansNoOpinionRatherThanPreferNothing() {
+        // The distinction the composition rule turns on. Left at ANY, the SD row must still
+        // avoid HDR and the 4K row must still seek it out - flattening every row to "no
+        // preference" would be a silent behaviour change for every user who never opens the
+        // setting, which is almost all of them.
+        val hdr = candidate("hdr", VideoResolution.UHD_2160, gigabytes = 20.0, hdr = true)
+        val sdr = candidate("sdr", VideoResolution.UHD_2160, gigabytes = 20.0)
+
+        val best = PlaybackQualityOptions.build(
+            listOf(sdr, hdr),
+            PlaybackSelectionContext(isEpisode = true),
+        ).first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("hdr", best.candidates.first().stream.name)
+    }
+
+    @Test
+    fun aPreferredAudioLanguageLeadsItsRow() {
+        // Never populated before 0.5.0-beta, so this preference worked for downloads and did
+        // nothing for playback.
+        val english = candidate("english", VideoResolution.FULL_HD_1080, gigabytes = 6.0, languages = setOf("EN"))
+        val other = candidate("other", VideoResolution.FULL_HD_1080, gigabytes = 9.0, languages = setOf("DE"))
+
+        val best = PlaybackQualityOptions.build(
+            listOf(other, english),
+            PlaybackSelectionContext(isEpisode = true, preferredAudioLanguage = "en"),
+        ).first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("english", best.candidates.first().stream.name)
+    }
+
     private fun candidate(
         name: String,
         resolution: VideoResolution,
@@ -635,6 +690,8 @@ class PlaybackQualityOptionsTest {
         infoHash: String? = null,
         debridService: String? = null,
         isDebridReady: Boolean? = null,
+        hdr: Boolean = false,
+        languages: Set<String> = emptySet(),
     ) = PlaybackSourceCandidate(
         stream = StreamItem(
             name = name,
@@ -649,6 +706,8 @@ class PlaybackQualityOptionsTest {
             durationSeconds = runtimeMinutes?.let { it * 60L },
             debridService = debridService,
             isDebridReady = isDebridReady,
+            dynamicRange = if (hdr) setOf("HDR10") else emptySet(),
+            languages = languages,
         ),
     )
 }

@@ -70,6 +70,8 @@ import com.nuvio.app.features.player.IosHardwareDecoderMode
 import com.nuvio.app.features.player.localizedLabel
 import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
+import com.nuvio.app.features.downloads.CodecPreference
+import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.playback.playbackModeName
@@ -318,6 +320,8 @@ private fun PlaybackSettingsSection(
     var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
     var showSubtitleOutlineColorDialog by remember { mutableStateOf(false) }
     var showPlaybackModeDialog by remember { mutableStateOf(false) }
+    var showPlaybackCodecDialog by remember { mutableStateOf(false) }
+    var showPlaybackDynamicRangeDialog by remember { mutableStateOf(false) }
     var showExternalPlayerDialog by remember { mutableStateOf(false) }
     var showExternalPlayerAppDialog by remember { mutableStateOf(false) }
     var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
@@ -386,6 +390,32 @@ private fun PlaybackSettingsSection(
                     isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                // Both of these existed only on download presets until 0.5.0-beta, so setting
+                // one got it honoured for episodes you downloaded and ignored for every
+                // episode you watched. Advanced, because "Automatic" is the right answer for
+                // most people and the by-resolution default already picks HDR where it helps.
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_codec_preference),
+                    description = playbackCodecPreferenceLabel(
+                        autoPlayPlayerSettings.playbackCodecPreference,
+                    ),
+                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    isAdvanced = true,
+                    isTablet = isTablet,
+                    onClick = { showPlaybackCodecDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_dynamic_range),
+                    description = playbackDynamicRangeLabel(
+                        autoPlayPlayerSettings.playbackDynamicRangePolicy,
+                    ),
+                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    isAdvanced = true,
+                    isTablet = isTablet,
+                    onClick = { showPlaybackDynamicRangeDialog = true },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Automatic source swapping only ever ran in Instant, so withdrawing Instant
@@ -1500,6 +1530,37 @@ private fun PlaybackSettingsSection(
                 showReuseCacheDurationDialog = false
             },
             onDismiss = { showReuseCacheDurationDialog = false },
+        )
+    }
+
+    // Reuses the generic enum dialog rather than adding a third selection surface. Its name
+    // says Ios; it is not iOS-specific, and renaming it is a bigger diff than this change
+    // deserves.
+    if (showPlaybackCodecDialog) {
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_playback_codec_preference),
+            options = CodecPreference.entries,
+            selected = autoPlayPlayerSettings.playbackCodecPreference,
+            label = { playbackCodecPreferenceLabel(it) },
+            onSelect = {
+                PlayerSettingsRepository.setPlaybackCodecPreference(it)
+                showPlaybackCodecDialog = false
+            },
+            onDismiss = { showPlaybackCodecDialog = false },
+        )
+    }
+
+    if (showPlaybackDynamicRangeDialog) {
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_playback_dynamic_range),
+            options = DynamicRangePolicy.entries,
+            selected = autoPlayPlayerSettings.playbackDynamicRangePolicy,
+            label = { playbackDynamicRangeLabel(it) },
+            onSelect = {
+                PlayerSettingsRepository.setPlaybackDynamicRangePolicy(it)
+                showPlaybackDynamicRangeDialog = false
+            },
+            onDismiss = { showPlaybackDynamicRangeDialog = false },
         )
     }
 
@@ -3714,3 +3775,21 @@ private fun libassRenderTypeRes(renderType: String): StringResource = when (rend
 
 @Composable
 private fun libassRenderTypeLabel(renderType: String): String = stringResource(libassRenderTypeRes(renderType))
+
+@Composable
+private fun playbackCodecPreferenceLabel(preference: CodecPreference): String = when (preference) {
+    CodecPreference.ANY -> stringResource(Res.string.settings_playback_preference_any)
+    CodecPreference.HEVC -> stringResource(Res.string.settings_playback_codec_hevc)
+    CodecPreference.AV1 -> stringResource(Res.string.settings_playback_codec_av1)
+    CodecPreference.AVC -> stringResource(Res.string.settings_playback_codec_avc)
+}
+
+@Composable
+private fun playbackDynamicRangeLabel(policy: DynamicRangePolicy): String = when (policy) {
+    DynamicRangePolicy.ANY -> stringResource(Res.string.settings_playback_preference_any)
+    DynamicRangePolicy.AVOID_HDR -> stringResource(Res.string.settings_playback_dynamic_range_avoid)
+    DynamicRangePolicy.PREFER_HDR -> stringResource(Res.string.settings_playback_dynamic_range_prefer)
+    DynamicRangePolicy.REQUIRE_HDR -> stringResource(Res.string.settings_playback_dynamic_range_require)
+    DynamicRangePolicy.REQUIRE_DOLBY_VISION ->
+        stringResource(Res.string.settings_playback_dynamic_range_require_dv)
+}

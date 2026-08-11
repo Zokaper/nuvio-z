@@ -2825,11 +2825,17 @@ private fun MainAppContent(
                         launch.seasonNumber,
                         launch.episodeNumber,
                         playerSettings.playbackAllowTorrentAutopick,
+                        playerSettings.preferredAudioLanguage,
+                        playerSettings.playbackCodecPreference,
+                        playerSettings.playbackDynamicRangePolicy,
                     ) {
                         PlaybackSelectionContext(
                             runtimeMinutes = launch.runtimeMinutes,
                             isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
                             allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
+                            preferredAudioLanguage = playerSettings.rankableAudioLanguage,
+                            codecPreference = playerSettings.playbackCodecPreference,
+                            dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
                         )
                     }
                     // The quality choices for *this* title, derived from what the addons actually

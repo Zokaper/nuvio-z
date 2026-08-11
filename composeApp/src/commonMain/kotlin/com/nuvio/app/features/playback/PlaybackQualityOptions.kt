@@ -132,9 +132,11 @@ object PlaybackQualityOptions {
 
         val derived = buckets.entries
             .sortedByDescending { it.key.height }
-            .flatMap { (resolution, entries) -> optionsForBucket(resolution, entries) }
+            .flatMap { (resolution, entries) -> optionsForBucket(resolution, entries, context) }
 
-        return listOf(bestAvailable(measured, buckets.keys.maxByOrNull { it.height })) + derived
+        return listOf(
+            bestAvailable(measured, buckets.keys.maxByOrNull { it.height }, context),
+        ) + derived
     }
 
     /**
@@ -316,8 +318,9 @@ object PlaybackQualityOptions {
     private fun optionsForBucket(
         resolution: VideoResolution,
         entries: List<MeasuredCandidate>,
+        context: PlaybackSelectionContext,
     ): List<PlaybackQualityOption> {
-        val ranked = entries.sortedWith(rankingFor(resolution))
+        val ranked = entries.sortedWith(rankingFor(resolution, context))
         val measured = ranked.mapNotNull(MeasuredCandidate::credibleBitrateMbps)
         val cheapest = measured.minOrNull()
         val dearest = measured.maxOrNull()
@@ -407,6 +410,7 @@ object PlaybackQualityOptions {
     private fun bestAvailable(
         measured: List<MeasuredCandidate>,
         topResolution: VideoResolution?,
+        context: PlaybackSelectionContext,
     ): PlaybackQualityOption = PlaybackQualityOption(
         id = BEST_ID,
         resolution = null,
@@ -415,13 +419,16 @@ object PlaybackQualityOptions {
         representativeBitrateMbps = null,
         isEstimateApproximate = false,
         representativeSizeBytes = null,
-        candidates = measured.sortedWith(rankingFor(topResolution))
+        candidates = measured.sortedWith(rankingFor(topResolution, context))
             .map(MeasuredCandidate::candidate),
     )
 
-    private fun rankingFor(resolution: VideoResolution?): Comparator<MeasuredCandidate> {
+    private fun rankingFor(
+        resolution: VideoResolution?,
+        context: PlaybackSelectionContext,
+    ): Comparator<MeasuredCandidate> {
         val ranked: Comparator<MeasuredCandidate> = SourceRanking.comparator(
-            preferences = preferencesFor(resolution),
+            preferences = preferencesFor(resolution, context),
             midRangeTarget = null,
             factsOf = { entry: MeasuredCandidate -> entry.candidate.facts },
             isDirectOf = { it.candidate.stream.playableDirectUrl != null },
@@ -450,11 +457,24 @@ object PlaybackQualityOptions {
      * Attaching it to rank - "the cheapest row avoids HDR" - would demote a perfectly good
      * HDR 1080p release on any title whose cheapest row happens to be 1080p Low. Someone
      * choosing a 4K row wants the full picture; someone on the SD row is economizing.
+     *
+     * **The user's choice composes with that rather than replacing it.** The by-resolution
+     * default is a guess about what someone probably wants; an explicit setting is not a
+     * guess, so it wins wherever one exists - but leaving it set to `ANY` must keep the
+     * resolution-shaped behaviour rather than flattening every row to no preference at all.
+     * That distinction is why this takes the whole context: `ANY` means "no opinion, use the
+     * default", not "prefer nothing".
      */
-    private fun preferencesFor(resolution: VideoResolution?): SourceRankingPreferences =
+    private fun preferencesFor(
+        resolution: VideoResolution?,
+        context: PlaybackSelectionContext,
+    ): SourceRankingPreferences =
         SourceRankingPreferences(
-            codecPreference = CodecPreference.ANY,
-            dynamicRangePolicy = when (resolution) {
+            preferredAudioLanguage = context.preferredAudioLanguage,
+            codecPreference = context.codecPreference,
+            dynamicRangePolicy = context.dynamicRangePolicy.takeIf {
+                it != DynamicRangePolicy.ANY
+            } ?: when (resolution) {
                 VideoResolution.UHD_4320, VideoResolution.UHD_2160 -> DynamicRangePolicy.PREFER_HDR
                 VideoResolution.SD -> DynamicRangePolicy.AVOID_HDR
                 else -> DynamicRangePolicy.ANY

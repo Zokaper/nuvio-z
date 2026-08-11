@@ -2,6 +2,8 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
+import com.nuvio.app.features.downloads.CodecPreference
+import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackQualityTier
 import com.nuvio.app.features.streams.StreamAutoPlayMode
@@ -63,6 +65,16 @@ data class PlayerSettingsUiState(
     val tunnelingEnabled: Boolean = false,
     val playbackMode: PlaybackMode = PlaybackMode.Default,
     val playbackAllowTorrentAutopick: Boolean = false,
+    /**
+     * What the *playback* picker should prefer, as distinct from what a download preset does.
+     *
+     * These existed only on `DownloadPreset` until 0.5.0-beta, so a user who set a codec or an
+     * HDR policy got it honoured for the episodes they downloaded and silently ignored for
+     * every episode they watched. `ANY` means "no opinion" and leaves the by-resolution
+     * default in `PlaybackQualityOptions.preferencesFor` in charge.
+     */
+    val playbackCodecPreference: CodecPreference = CodecPreference.ANY,
+    val playbackDynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
     val showAdvancedSettings: Boolean = false,
     val playbackQualityTiers: List<PlaybackQualityTier> = PlaybackQualityTier.BuiltIns,
     val playbackMeteredCapHeight: Int = 720,
@@ -107,7 +119,25 @@ data class PlayerSettingsUiState(
     val iosContrast: Int = 0,
     val iosSaturation: Int = 0,
     val iosGamma: Int = 0,
-)
+) {
+    /**
+     * [preferredAudioLanguage] as something a *release* can be ranked against, or null.
+     *
+     * The stored value doubles as an instruction to the player's own track selection, and
+     * three of its values - `default`, `device`, `original` - name no language at all.
+     * Passing one of those to `SourceRanking` matches nothing, which looks exactly like the
+     * preference not being wired up: the defect this exists to close. Resolved in one place
+     * because two callers build a `PlaybackSelectionContext`, and a rule applied in one of
+     * them is a rule that holds for the first episode and not the next one.
+     */
+    val rankableAudioLanguage: String?
+        get() = preferredAudioLanguage.takeIf {
+            it.isNotBlank() &&
+                it != AudioLanguageOption.DEFAULT &&
+                it != AudioLanguageOption.DEVICE &&
+                it != AudioLanguageOption.ORIGINAL
+        }
+}
 
 object PlayerSettingsRepository {
     private val json = Json { ignoreUnknownKeys = true }
@@ -142,6 +172,8 @@ object PlayerSettingsRepository {
     private var tunnelingEnabled = false
     private var playbackMode = PlaybackMode.Default
     private var playbackAllowTorrentAutopick = false
+    private var playbackCodecPreference = CodecPreference.ANY
+    private var playbackDynamicRangePolicy = DynamicRangePolicy.ANY
     private var showAdvancedSettings = false
     private var playbackQualityTiers = PlaybackQualityTier.BuiltIns
     private var playbackMeteredCapHeight = 720
@@ -220,6 +252,8 @@ object PlayerSettingsRepository {
         tunnelingEnabled = false
         playbackMode = PlaybackMode.Default
         playbackAllowTorrentAutopick = false
+        playbackCodecPreference = CodecPreference.ANY
+        playbackDynamicRangePolicy = DynamicRangePolicy.ANY
         showAdvancedSettings = false
         playbackQualityTiers = PlaybackQualityTier.BuiltIns
         playbackMeteredCapHeight = 720
@@ -332,6 +366,14 @@ object PlayerSettingsRepository {
             PlaybackMode.fromStorage(PlayerSettingsStorage.loadPlaybackMode()),
         )
         playbackAllowTorrentAutopick = PlayerSettingsStorage.loadPlaybackAllowTorrentAutopick() ?: false
+        // An unreadable stored value falls back to ANY rather than throwing: a renamed enum
+        // constant must not make the app unable to load its own settings.
+        playbackCodecPreference = PlayerSettingsStorage.loadPlaybackCodecPreference()
+            ?.let { stored -> CodecPreference.entries.firstOrNull { it.name == stored } }
+            ?: CodecPreference.ANY
+        playbackDynamicRangePolicy = PlayerSettingsStorage.loadPlaybackDynamicRangePolicy()
+            ?.let { stored -> DynamicRangePolicy.entries.firstOrNull { it.name == stored } }
+            ?: DynamicRangePolicy.ANY
         // Unset means the profile predates this toggle. Defaulting it to false there would
         // hide settings the user had already tuned, which reads as data loss rather than as
         // a cleaner screen - so a profile that has touched any advanced setting keeps them
@@ -681,6 +723,22 @@ object PlayerSettingsRepository {
         playbackAllowTorrentAutopick = enabled
         publish()
         PlayerSettingsStorage.savePlaybackAllowTorrentAutopick(enabled)
+    }
+
+    fun setPlaybackCodecPreference(preference: CodecPreference) {
+        ensureLoaded()
+        if (playbackCodecPreference == preference) return
+        playbackCodecPreference = preference
+        publish()
+        PlayerSettingsStorage.savePlaybackCodecPreference(preference.name)
+    }
+
+    fun setPlaybackDynamicRangePolicy(policy: DynamicRangePolicy) {
+        ensureLoaded()
+        if (playbackDynamicRangePolicy == policy) return
+        playbackDynamicRangePolicy = policy
+        publish()
+        PlayerSettingsStorage.savePlaybackDynamicRangePolicy(policy.name)
     }
 
     fun setPlaybackQualityTiers(tiers: List<PlaybackQualityTier>) {
@@ -1074,6 +1132,8 @@ object PlayerSettingsRepository {
             tunnelingEnabled = tunnelingEnabled,
             playbackMode = playbackMode,
             playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
+            playbackCodecPreference = playbackCodecPreference,
+            playbackDynamicRangePolicy = playbackDynamicRangePolicy,
             showAdvancedSettings = showAdvancedSettings,
             playbackQualityTiers = playbackQualityTiers,
             playbackMeteredCapHeight = playbackMeteredCapHeight,

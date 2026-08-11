@@ -15,10 +15,30 @@ data class PlaybackSourceCandidate(
     val addonOrder: Int = 0,
 )
 
+/**
+ * The title's facts plus the settings that shape a pick, gathered by the route.
+ *
+ * The three preference fields exist because they were **not** being applied. `preferencesFor`
+ * hardcoded `CodecPreference.ANY` / `DynamicRangePolicy.ANY` and never populated
+ * `preferredAudioLanguage`, so a user who set them got them honoured for downloads and
+ * silently ignored for everything they watched. They belong here rather than being read
+ * inside the selector for the same reason [allowTorrentSources] does: this file stays pure,
+ * and the route is the one place that reads settings.
+ */
 data class PlaybackSelectionContext(
     val runtimeMinutes: Int? = null,
     val isEpisode: Boolean,
     val allowTorrentSources: Boolean = false,
+    /**
+     * An ISO code, or null.
+     *
+     * `PlayerSettingsRepository` also stores the sentinels `default`, `device` and `original`,
+     * which are instructions to the *player's* track selection and name no language a release
+     * can be ranked against. The route resolves those to null.
+     */
+    val preferredAudioLanguage: String? = null,
+    val codecPreference: CodecPreference = CodecPreference.ANY,
+    val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
 )
 
 sealed interface PlaybackSelectionResult {
@@ -186,28 +206,11 @@ object PlaybackSourceSelector {
         val providerId: String?,
     )
 
-    /**
-     * The shared ordering, for callers that hold a bare candidate list rather than an option.
-     *
-     * P2P is deliberately behind every HTTP/debrid candidate even when explicitly enabled.
-     */
-    fun rank(candidates: List<PlaybackSourceCandidate>): List<PlaybackSourceCandidate> {
-        val ranked = SourceRanking.comparator(
-            preferences = SourceRankingPreferences(
-                codecPreference = CodecPreference.ANY,
-                dynamicRangePolicy = DynamicRangePolicy.ANY,
-                sizePreference = SizePreference.LARGEST_UNDER_CAP,
-            ),
-            midRangeTarget = null,
-            factsOf = PlaybackSourceCandidate::facts,
-            isDirectOf = { it.stream.playableDirectUrl != null },
-            addonOrderOf = PlaybackSourceCandidate::addonOrder,
-            stableUrlOf = { it.stream.playableDirectUrl.orEmpty() },
-        )
-        return candidates.sortedWith(
-            compareBy<PlaybackSourceCandidate> { it.stream.isTorrentStream }.then(ranked),
-        )
-    }
+    // `rank` used to live here: a third ordering, hardcoding `CodecPreference.ANY` and
+    // `DynamicRangePolicy.ANY`, with **no callers anywhere in either repository**. It was
+    // listed as one of the two places user preferences needed wiring into, which would have
+    // been wiring them into nothing. `PlaybackQualityOptions.rankingFor` is the ordering, and
+    // now it is the only one.
 
     private fun isPlaybackProtocolEligible(
         candidate: PlaybackSourceCandidate,

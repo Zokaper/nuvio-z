@@ -156,6 +156,12 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 runtimeMinutes = nextVideo.runtime,
                 isEpisode = true,
                 allowTorrentSources = settings.playbackAllowTorrentAutopick,
+                // The same preferences the first episode was picked with. Applying them only
+                // at the stream route would mean a user's codec or HDR choice held until the
+                // next episode auto-played and then quietly stopped.
+                preferredAudioLanguage = settings.rankableAudioLanguage,
+                codecPreference = settings.playbackCodecPreference,
+                dynamicRangePolicy = settings.playbackDynamicRangePolicy,
             )
             val candidates = streams.mapIndexed { index, stream ->
                 PlaybackSourceCandidate(
