@@ -105,6 +105,12 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   app is still deciding. `PlaybackProgressOverlay` **covers** `StreamsScreen` rather
   than replacing it - that screen owns the fetch the overlay reports on - and every
   path that needs an answer from the user uncovers it again.
+- **What `entry<StreamRoute>` shows is decided in one place, `streamRouteSurface`**
+  (`features/playback/StreamRouteSurface.kt`), and that file has no imports so it can
+  be run outside Gradle. Do not add a fifth thing to that Box with its own inline
+  condition: four separate dead ends reached "covered screen, nothing behind it" that
+  way, and the worst of them was a blank screen with a fully tappable source list
+  underneath. A new terminal state is a new case in that function and its test.
 - A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
   `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
   the user searched for by name is worse than showing it.
@@ -256,8 +262,11 @@ still be checked locally.
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
 | `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
 
-`desktop-release.yml` with `mode=build-only`, `target=windows` is **the only
-thing that compiles `desktopMain`**. Run it before any desktop release.
+`desktop-release.yml` with `mode=build-only`, `target=windows` compiles `desktopMain`.
+Run it before any desktop release - but it is **not** the only thing that does:
+`ci.yml`'s Windows MSI job compiles it on every push to `NuvioZDesktop`, and that is
+what caught the nullable-`response.body` skew in `0.4.13-beta`. Keep running
+build-only before a release; the every-push net is better than this line used to claim.
 
 ### Release procedure
 

@@ -50,24 +50,48 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOfNotNull(
                 WhatsNewItem(
-                    title = "The connection figure is back",
-                    description = "0.4.13 hid it whenever the speed had not been measured yet - which " +
-                        "also took the connection bars off every option, so a picker that could not " +
-                        "measure showed less than one that never tried. It now always shows a figure " +
-                        "and says which kind it is: \"Estimated\" before anything has been measured, " +
-                        "\"Your connection\" once it has.",
+                    title = "Coming back from the player works",
+                    description = "In Streamlined and Instant, backing out of the player with the " +
+                        "system Back gesture could land on a blank screen you could not read and " +
+                        "could not leave. It now returns you to the source list or to the show.",
                 ),
                 WhatsNewItem(
-                    title = "The check no longer cancels itself",
-                    description = "It was being restarted every time another source arrived, so on a " +
-                        "title with many sources it could be interrupted repeatedly and never finish. " +
-                        "It now runs to completion alongside the source list, as intended.",
+                    title = "No more spinner that never ends",
+                    description = "Several ways of ending up with no source - declining the torrent " +
+                        "prompt, a chain of dead sources running out, an add-on that never answers - " +
+                        "left \"Starting playback\" on screen for a playback that had already been " +
+                        "called off. Every one of them now hands you back the source list and says why.",
                 ),
                 WhatsNewItem(
-                    title = "Mobile data is measured too",
-                    description = "The check used to skip metered connections, which left mobile data - " +
-                        "where speed varies most - as the one case still decided by a guess. It now " +
-                        "measures there as well, using about 4 MB once per network.",
+                    title = "A source that dies mid-episode retries properly",
+                    description = "When a source failed after playback had already started, the next " +
+                        "one was lined up and then immediately thrown away, so nothing happened. The " +
+                        "retry now actually runs.",
+                ),
+                WhatsNewItem(
+                    title = "Best available stops picking season packs",
+                    description = "The top card in the quality picker was ranked by different rules " +
+                        "from every other card, so an entire season advertised as one file would head " +
+                        "it - and quietly show no size or speed figure at all. It now follows the " +
+                        "same rules as the rest, and prefers sources known to be ready.",
+                ),
+                WhatsNewItem(
+                    title = "Downloads that go quiet give up",
+                    description = "On Android, a source that stopped sending without disconnecting " +
+                        "held its place in the queue and sat on its last percentage. It is now " +
+                        "detected and retried, as it already was on desktop.",
+                ),
+            ),
+        ),
+        WhatsNewSection(
+            category = WhatsNewCategory.Improvements,
+            items = listOfNotNull(
+                WhatsNewItem(
+                    title = "Your codec and HDR preferences apply to playback",
+                    description = "Preferred codec and preferred dynamic range are now settings for " +
+                        "watching, not only for downloading, and your audio language preference is " +
+                        "taken into account when a source is picked for you. Find them under " +
+                        "Settings \u2192 Playback. Leave them on Automatic and nothing changes.",
                 ),
             ),
         ),
