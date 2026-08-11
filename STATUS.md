@@ -1,14 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/network-strength-sources-4rrysy` in both repositories, restarted from `main` / `Dev` after the `0.4.14-beta` merge. Carries **one unreleased fix**, queued for the next release rather than shipped on its own — see "Queued, unreleased" below. **A device smoke test is still the next thing to do**: the `0.4.13-beta` defect was invisible to three green CI runs and 767 passing tests, and was found by looking at the screen. |
-| **Released** | `0.4.14-beta` on both — fixes the `0.4.13-beta` picker showing no connection figure and no meters at all. See "The 0.4.13 picker showed nothing at all" below. **CI green, still not device-verified.** `0.4.13-beta` shipped the measurement work itself and is superseded. |
-| **Earlier unreleased work, now shipped** | Two streams. (1) The stranded-download fix plus an expanded desktop harness and four provider-safety fixes. Queue controls now have load/restart coverage; provider resolution is bounded and finite; resumed bytes and materially truncated replacements are rejected when a re-minted URL changes identity; and every debrid transfer forces a real provider readiness check immediately before starting. The credential-safe, provider-backed TorBox season mode has passed against a real account after aging prepared links for sixteen minutes. (2) **Playback modes (Classic / Streamlined / Instant) — all five phases complete and locally verified. See `PLAYBACK_MODES_PLAN.md`.** Both merged into `main` / `Dev` for the `0.4.0-beta` release. |
-| **Next** | **Smoke-test on a device and on desktop.** The quality selector has never run against real data, so its checks fold into the same run — first the two added by `0.4.12-beta` (a three-way 1080p split should be one card with three rows; one source per resolution should be single-row cards with no band word), then the five carried from `0.4.11-beta`: the skeleton-then-grid gate and how long the skeleton is up, dismiss landing on details rather than the source list, the uncached-debrid `AlertDialog` now stacking over a `ModalBottomSheet` on Android, exhaustion still uncovering the source list, and the desktop 768 dp resize. Then the `0.4.10-beta` items, which also shipped on tests alone. In order: (1) Back out of the player after a *successful* Streamlined start, which no longer pops `StreamRoute`; (2) an episode whose top source is uncached, which should name the failure and advance rather than stop; (3) force exhaustion and confirm the source list appears rather than the overlay; (4) a title with a wide spread, which should now show High/Mid/Low. Then the playback-drop script below, whose measured buffer ceiling and source-swap gap decide Phase 2 buffer sizes. Do not tune thresholds or enable downshift by default before the device run. |
-| **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified, not part of `0.4.0-beta`. |
+| **Active branch** | `claude/release-0.5.0-beta-polish-ivcjsl` in both repositories, cut from `main` / `Dev`. Carries the **0.5.0-beta polish pass** below, plus the previously queued network-strength fix, which has been merged in rather than held again. **Not yet released, and the version is deliberately not bumped**: the maintainer is smoke-testing first — see "The 0.5.0-beta device script" below. |
+| **Released** | `0.4.14-beta` on both. Superseded by the branch above once it ships. |
+| **Next** | **Run the device script.** `0.5.0-beta` is the first build going to other people, and the defect it mostly fixes — a blank screen after backing out of the player — was reachable on every Streamlined play and survived every green CI run since `0.4.10-beta`. Then bump both version files as the final commit and dispatch the release workflows. |
+| **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
@@ -18,10 +17,194 @@ This table is the first thing to update in any session, and it is kept current o
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
 
-## Queued, unreleased: a fresh line estimate suppressed probing a new host
+## The 0.5.0-beta polish pass (2026-08-11, unreleased)
 
-**Not in any release. Sitting on `claude/network-strength-sources-4rrysy` for whatever ships
-next** - deliberately, on the maintainer's instruction, rather than as a release of its own.
+**The first build going to other people**, so this is a bugfix pass rather than a feature
+release. Instant stays withheld. Reading the Streamlined flow end to end turned up one family
+of faults rather than a list of unrelated ones:
+
+> **Every dead end that was not one of the two fixed in `0.4.10-beta` still left the user on a
+> covered screen with nothing behind it.**
+
+`entry<StreamRoute>` stacks four things over one `StreamsScreen` — the opaque hand-off surface,
+the quality sheet, the progress overlay, and the list itself — and each was decided by its own
+inline expression over the same six flags. Nothing held the rule that matters: whatever is on
+top, the user must be able to act on it.
+
+### 1. Backing out of the player landed on a blank screen
+
+This was flagged in `0.4.10-beta` as check 1 and never run. It is real, and it was reachable on
+**every** Streamlined play.
+
+A mode with a failure chain deliberately leaves `StreamRoute` on the back stack, and
+`NavDisplay(onBack = { navController.popBackStack() })` pops the player straight onto it. The
+in-app back *button* calls `onBackToDetails`, which pops past it — which is why this was never
+seen by whoever tested with the button. The **system Back gesture** is the common path and lands
+there. `playbackRouteDecision` was a plain `remember` and `NavDisplay` composes only the top
+entry, so it came back null, while `reuseHandled` — which is saved — stayed true and blocked the
+effect that would set it again. No sheet, no overlay, opaque surface still painting.
+
+⚠ **The surface consumed no pointer input**, so the invisible source list underneath was fully
+tappable. A blank screen that starts a random episode if you touch it.
+
+Fixed by `streamRouteSurface` (new `features/playback/StreamRouteSurface.kt`), which decides the
+whole stack in one place. **It has no imports and never may** — that is what lets the route's
+covering rules be compiled and run outside Gradle, which they never could be before.
+`PlaybackProgress.isVisible` is gone: it answered only "does the overlay cover the list?", and
+hiding the overlay while the surface underneath stayed up traded a blank screen for a blank
+screen one layer down.
+
+⚠ **`playbackRouteDecision` is saved, not re-derived.** Re-running the router on the way back is
+not a substitute: the play just wrote a reuse-last-link entry, so the same inputs answer
+`ReuseLastLink` where they first answered `AutoPick`, and Instant's retry chain is gated on that
+answer. `openSelectedStream` also now sets `playbackHandedOff`, which that flag's own comment
+already claimed happened at every exit to playback — it did not, and the Streamlined sticky-pin
+path reaches the player through there.
+
+### 2. Three more dead ends, all the same shape
+
+Routed through one `fallBackToSourceList`, which always says something:
+
+- **Declining the P2P consent dialog** retired the chain and set no flag, so the overlay sat on
+  "Starting playback" for a playback that had just been called off. Retiring is correct —
+  declining P2P is a decision about every torrent candidate, not about this one.
+- **`requestOrOpenP2pStream`'s two early returns** called `skipAutoPlayStream` and discarded the
+  answer, so a refusal on the last candidate advanced to nothing.
+- **Uncached "Start anyway"** called `openSelectedStream` directly, making it the one Streamlined
+  start with no chain behind it — and the start most likely to need one. It now seeds a chain of
+  one, which buys the *path* rather than the fallbacks.
+
+### 3. The mid-playback retry could not work
+
+`STATUS.md` recorded this as "verified by reading, not by running". Reading it again against
+`StreamsRepository` says it did not hold.
+
+`consumeAutoPlay` clears `activeRequestKey`, so returning to the stream route after a play always
+misses `load`'s no-op guard and does a full reload — and that reload was a blanket
+`_uiState.value = StreamsUiState(requestToken)`, discarding `autoPlayStream` and
+`autoPlayCandidates`. So `failOverAfterPlaybackStarted` re-armed the chain, popped to the stream
+route, and the route's `StreamsScreen` re-mount wiped it. Nothing refilled it either: Streamlined
+and Instant both load with `manualSelection = true`, so `isAutoPlayEnabled` is false.
+
+A chain armed for the same request now survives, carried across the resets on the way *to* a
+result but **not onto a terminal empty state** — "no addons installed" is not a screen a retained
+candidate should be playing over. The rule is hoisted into `carriedAutoPlayChain` /
+`withCarriedChain` so it is executable.
+
+### 4. Best available was ranked by different rules from every other card
+
+`rankingFor` leads with three keys — implausible sizes last, torrents behind everything, then
+evidence of a cached copy. `bestAvailable` sorted with a **bare** `SourceRanking.comparator` and
+applied none of them, so the top card, the one most people tap, was the only place the
+catalogue's worst traps still led. `LARGEST_UNDER_CAP` sorts size descending, so an 85 GB "1080p"
+season pack headed it every time — the precise defect `0.4.9-beta` fixed for the banded rows and
+never applied here.
+
+⚠ **It failed silently, which is why nothing caught it.** `requiredMbpsFor` returns null above the
+plausibility ceiling, so a card led by a season pack drew no bandwidth figure and no connection
+meter at all. The ceiling was protecting the label while the pick walked straight past it.
+
+### 5. Two unbounded waits
+
+- `isStreamlinedSelectionReady` closes every *known* way the settle signal fails to arrive, but it
+  is still a wait on a condition owned by addons the app does not control. Twenty seconds, then
+  the source list with a reason. One new string key, `playback_sources_timed_out`.
+- A **backstop** for the dead ends nobody has found yet: overlay showing, no candidate armed,
+  nothing resolving, fetch settled and matching — so whatever it is waiting for is not coming.
+  Reachable today by a retry whose reload lands on a terminal empty state. The grace period is
+  what makes it safe: every legitimate state there is transient.
+
+### 6. Codec, HDR and audio-language preferences now apply to playback
+
+Named twice in this file as a real defect deferred to its own commit. Two findings changed the
+shape of the fix:
+
+- ⚠ **`PlaybackSourceSelector.rank` had no callers in either repository.** It was one of the two
+  places listed as needing preferences wired in, which would have been wiring them into nothing.
+  Deleted. `PlaybackQualityOptions.rankingFor` is the ordering, and now it is the only one.
+- **Only one of the three preferences existed.** Codec and dynamic range lived solely on
+  `DownloadPreset`, so this adds `playback_codec_preference` and `playback_dynamic_range_policy`
+  as profile-scoped keys with all three actuals across both repos, settings rows, search entries
+  and both sync paths — through `syncKeysToClear`, unchanged.
+
+⚠ **`ANY` means "no opinion", not "prefer nothing".** `preferencesFor` sets dynamic range *by
+resolution* on purpose and that reasoning is sound, so an explicit setting composes with it rather
+than replacing it. Leaving the new rows alone keeps today's behaviour exactly.
+
+⚠ **`default`, `device` and `original` are not languages.** They instruct the player's own track
+selection and match no release. `PlayerSettingsUiState.rankableAudioLanguage` resolves them in one
+place, because `PlayerNextEpisodeAutoPlay` builds its own selection context — a rule applied in
+only one of them holds for the first episode and not the next.
+
+### 7. Android has a stall watchdog at last
+
+Flagged after `0.4.10-beta`. Desktop has polled and force-closed a silent stream since
+`0.4.5-beta`; Android sat on OkHttp's hardcoded 60-second read timeout, which consulted
+`DownloadsTiming` not at all. Cancelling the call unblocks the read; the flag is set **before** the
+cancel, and checked before `isCancelled`, because a user pause arrives as the same exception and
+reporting a stall as a pause leaves the queue waiting for a resume that never comes.
+
+Both deadlines now come from one rule in `DownloadTransfer.kt`: **the watchdog must decide before
+the read timeout**, because only the watchdog knows why the connection ended.
+
+## Verification for 0.5.0-beta
+
+**Standalone compile-and-run of the shipped sources** (`AGENTS.md` item 2), in **both**
+repositories, with identical results:
+
+- `PlaybackQualityOptionsTest` **45**, `StreamRouteSurfaceTest` **10**, `PlaybackModeRouterTest`
+  **11** — 66 tests, zero failures.
+- `DownloadTransferTest` **22**, zero failures, compiled with no stubs at all.
+- **Stubbed neighbours, never a file under test:** `SourceFacts`, `SourceFactsExtractor`,
+  `StreamItem` and its behaviour-hint types, `PlaybackMode`, and the three ranking enums.
+  `SourceRanking`, `PlaybackSourceSelector`, `PlaybackQualityOptions`, `StreamRouteSurface`,
+  `PlaybackModeRouter` and `DownloadTransfer` are the real shipped files, unmodified.
+- The harness lives at `scratchpad/run-pure-suites.sh`; it takes a repository path.
+
+**Parser check** clean over every changed file in both repositories.
+
+**Thirteen shared files confirmed byte-identical** across the two repositories after mirroring.
+
+**Not covered, and CI is the gate:**
+
+1. `PlaybackSourceSelectorTest` reaches the real AIO types and cannot run standalone — unchanged
+   from `0.4.13-beta`.
+2. **Nothing Compose was run at all.** `App.kt` is parser-checked only; every behavioural claim
+   about the route above is reasoning from the code plus the pure tests underneath it.
+3. **The Android stall watchdog has no automated coverage and cannot get any here.** The desktop
+   harness drives the *desktop* downloader; `FaultyMediaServer.GoSilent` already existed. What was
+   missing was the Android implementation, and only CI compiles it and only a device runs it.
+4. Two new `expect` members, so **`desktopTest` in `NuvioZDesktop` matters before release** — it is
+   what catches a missing desktop actual locally.
+
+## The 0.5.0-beta device script
+
+**Hold the version bump until this has been run.** Set Playback mode = Streamlined.
+
+1. Play an episode, let it start, **press system Back out of the player** (the gesture, not the
+   on-screen button — they take different paths and only the gesture reaches the defect). Expect
+   the source list or the show. Never a blank screen, never the quality sheet again.
+2. Same again, then tap where a source row would be on the screen you land on. Nothing should
+   happen.
+3. An episode whose top source is uncached: it should name the source and move on, not stop.
+4. Force chain exhaustion: expect the source list, not the overlay.
+5. A P2P-only source with P2P disabled, then decline the consent dialog. Expect the source list.
+6. A title with a known season pack in its catalogue: **Best available must not name the pack**,
+   and must show a size and a speed figure.
+7. Set a codec and an HDR preference. Confirm the pick changes, then force-stop, relaunch, and
+   sign out and back in — both must survive. That is the sync-key check, and editing that key set
+   is what wiped the playback settings in `0.4.0-beta`.
+8. Three consecutive episodes: the resolution holds and Back works every time.
+9. **Downloads, Android:** start one and cut the connection without disconnecting (aeroplane mode
+   mid-transfer). The row should fail with a named reason and retry, not sit on its percentage.
+
+Report what each step actually showed. A step that was not run is not a pass.
+
+## A fresh line estimate suppressed probing a new host (merged into 0.5.0-beta)
+
+**Was held on `claude/network-strength-sources-4rrysy` for whatever shipped next. That is
+`0.5.0-beta`**, so it has been merged into the release branch in both repositories rather than
+queued a second time.
 
 `estimateAgeMs` answered with `peek`'s exact-then-generic fallback, so it reported the age of
 the number the sheet would *show* rather than of the key the probe would *write*. A two-minute
