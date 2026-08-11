@@ -16,9 +16,7 @@ class StreamRouteSurfaceTest {
         isClassic: Boolean = false,
         isManualLaunch: Boolean = false,
         manualSourceListRequested: Boolean = false,
-        isRouteCurrent: Boolean = true,
         hasNavigatedAway: Boolean = false,
-        hasArmedFailureChain: Boolean = false,
         isQualitySheetRoute: Boolean = false,
         qualitySheetDismissed: Boolean = false,
         isAutoPickRoute: Boolean = false,
@@ -28,9 +26,7 @@ class StreamRouteSurfaceTest {
         isClassic = isClassic,
         isManualLaunch = isManualLaunch,
         manualSourceListRequested = manualSourceListRequested,
-        isRouteCurrent = isRouteCurrent,
         hasNavigatedAway = hasNavigatedAway,
-        hasArmedFailureChain = hasArmedFailureChain,
         isQualitySheetRoute = isQualitySheetRoute,
         qualitySheetDismissed = qualitySheetDismissed,
         isAutoPickRoute = isAutoPickRoute,
@@ -101,21 +97,39 @@ class StreamRouteSurfaceTest {
     }
 
     @Test
-    fun backingOutOfThePlayerLandsOnSomethingTheUserCanActOn() {
-        // The defect this whole function was written for. A mode with a failure chain leaves
-        // StreamRoute on the back stack, so the system Back gesture pops the player straight
-        // onto it. Every covering condition was false and the opaque hand-off surface was
-        // still painting: a blank screen, with a fully tappable source list underneath it.
+    fun comingBackFromThePlayerStaysCoveredWhileTheRouteLeaves() {
+        // Streamlined must not land the user on the source list - this route is the mechanism,
+        // not a destination they asked for, and uncovering here also re-fetched the list
+        // because `consumeAutoPlay` clears the request key. One Back put you on a "source
+        // loading" screen and it took a second press to actually leave.
+        //
+        // So the surface stays covered and `entry<StreamRoute>` pops itself to details. The
+        // guarantee that this is never a *resting* state lives in the route, not here.
         assertEquals(
-            StreamRouteSurface.SourceList,
+            StreamRouteSurface.HandOff,
             streamRouteSurface(
                 inputs(
                     isQualitySheetRoute = true,
                     qualitySheetDismissed = true,
                     isStreamlinedPlaybackStarting = true,
                     hasNavigatedAway = true,
-                    hasArmedFailureChain = false,
-                    isRouteCurrent = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun theRoutesFallbackAfterAFailedPopUncoversTheList() {
+        // The other half of that guarantee, and the reason the blank screen cannot come back:
+        // if the pop to details no-ops, the route sets `manualSourceListRequested`, and rule 1
+        // outranks everything.
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(
+                inputs(
+                    isStreamlinedPlaybackStarting = true,
+                    hasNavigatedAway = true,
+                    manualSourceListRequested = true,
                 ),
             ),
         )
@@ -125,9 +139,10 @@ class StreamRouteSurfaceTest {
     fun theQualitySheetIsNeverRedisplayedAfterAPlay() {
         // Even if the sheet's dismissal flag were somehow lost, having handed off to the
         // player means the question has been answered. Re-asking it on the way back would
-        // read as the app forgetting what the user just did.
+        // read as the app forgetting what the user just did. The hand-off rule outranks the
+        // sheet for exactly this reason - what matters is that it is not `QualitySheet`.
         assertEquals(
-            StreamRouteSurface.SourceList,
+            StreamRouteSurface.HandOff,
             streamRouteSurface(
                 inputs(
                     isQualitySheetRoute = true,
@@ -140,16 +155,15 @@ class StreamRouteSurfaceTest {
 
     @Test
     fun aRetryStillGetsItsOverlay() {
-        // The other half of the rule above: when the chain is still armed the user has *not*
-        // finished, they are between two candidates. Uncovering there would show the source
-        // list mid-retry, which is the thing the overlay exists to prevent.
+        // A retry clears the hand-off flag before relaunching - that is what the failover
+        // signal is for - so the overlay comes back and the user sees the attempt counter
+        // rather than the list they are not choosing from.
         assertEquals(
             StreamRouteSurface.ProgressOverlay,
             streamRouteSurface(
                 inputs(
                     isStreamlinedPlaybackStarting = true,
                     hasNavigatedAway = false,
-                    hasArmedFailureChain = true,
                 ),
             ),
         )
@@ -157,18 +171,12 @@ class StreamRouteSurfaceTest {
 
     @Test
     fun leavingForThePlayerDoesNotFlashTheList() {
-        // While the hand-off is in flight this route is no longer current. Uncovering then
-        // would show the list for the length of the outgoing transition - the exact thing
-        // the opaque surface is for.
+        // The outgoing direction of the same rule: uncovering during the transition would show
+        // the list for its duration, which is the exact thing the opaque surface is for.
         assertEquals(
             StreamRouteSurface.HandOff,
             streamRouteSurface(
-                inputs(
-                    isStreamlinedPlaybackStarting = true,
-                    isRouteCurrent = false,
-                    hasNavigatedAway = true,
-                    hasArmedFailureChain = false,
-                ),
+                inputs(isStreamlinedPlaybackStarting = true, hasNavigatedAway = true),
             ),
         )
     }

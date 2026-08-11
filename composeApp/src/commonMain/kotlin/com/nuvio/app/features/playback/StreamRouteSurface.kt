@@ -27,7 +27,13 @@ enum class StreamRouteSurface {
     /** [PlaybackProgressOverlay]: the automatic path is working and can still finish. */
     ProgressOverlay,
 
-    /** Opaque and empty. Only ever a hand-off, never a resting state. */
+    /**
+     * Opaque and empty. **Only ever between screens, never a resting state.**
+     *
+     * Either a hand-off to the player is in flight, or the route is popping itself out to the
+     * details screen. `entry<StreamRoute>` owns that guarantee - this function cannot see a
+     * navigation, so it cannot enforce it.
+     */
     HandOff,
 }
 
@@ -44,12 +50,8 @@ data class StreamRouteSurfaceInputs(
     val isManualLaunch: Boolean,
     /** Set by every path that gives up on choosing automatically. */
     val manualSourceListRequested: Boolean,
-    /** This route is on top. False while a hand-off to the player is in flight. */
-    val isRouteCurrent: Boolean,
     /** `reuseNavigated || playbackHandedOff` - playback has been handed off at least once. */
     val hasNavigatedAway: Boolean,
-    /** `autoPlayStream != null` - a candidate is still queued to try. */
-    val hasArmedFailureChain: Boolean,
     /** The route decision is `ShowQualitySheet`. */
     val isQualitySheetRoute: Boolean,
     val qualitySheetDismissed: Boolean,
@@ -66,35 +68,32 @@ data class StreamRouteSurfaceInputs(
  * The ordering is the argument:
  *
  * 1. **An uncovered list wins outright.** Classic, a manual launch and every bail-out are the
- *    cases where the list is the answer, and no later rule may cover it again.
- * 2. **Coming back from the player uncovers.** This is the defect the whole function exists
- *    for. A mode with a failure chain deliberately leaves `StreamRoute` on the back stack, so
- *    the system Back gesture pops the player straight onto it - and the route's
- *    `playbackRouteDecision` is rebuilt from scratch, because `NavDisplay` composes only the
- *    top entry. Sheet gone, overlay suppressed by the hand-off flag, opaque surface still
- *    painting: a blank screen the user could neither read nor leave. Gated on the route being
- *    *current* so it does not flash the list on the way out, and on the chain being spent so
- *    a genuine retry still gets its overlay.
+ *    cases where the list is the answer, and no later rule may cover it again. Every path that
+ *    gives up on choosing automatically ends here, which is the "escape hatch" half of the
+ *    rule: in Streamlined the list appears when the app could not choose, never otherwise.
+ * 2. **Anything after a hand-off stays covered.** Between screens, in both directions: leaving
+ *    for the player, and on the way back out to the details screen. It used to uncover the
+ *    list on the way back, which was wrong twice over - it flashed a screen the user chose
+ *    Streamlined to avoid, and `consumeAutoPlay` clears the request key, so `StreamsScreen`
+ *    immediately re-fetched and the "source loading" screen sat there until a second Back.
+ *    **The route must not rest here** - `entry<StreamRoute>` pops itself to details, and falls
+ *    back to `manualSourceListRequested` if that pop no-ops.
  * 3. The sheet, while it is still the user's to answer.
  * 4. **A question uncovers the list too**, so dismissing the dialog leaves something usable
  *    behind it rather than the opaque surface.
- * 5. Hand-off, while leaving.
- * 6. The overlay, while the automatic path can still finish.
- * 7. Hand-off, before a decision exists. The only legitimate blank frame there is.
+ * 5. The overlay, while the automatic path can still finish.
+ * 6. Hand-off, before a decision exists. The only legitimate blank frame there is.
  */
 fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = when {
     inputs.isClassic || inputs.isManualLaunch || inputs.manualSourceListRequested ->
         StreamRouteSurface.SourceList
 
-    inputs.hasNavigatedAway && inputs.isRouteCurrent && !inputs.hasArmedFailureChain ->
-        StreamRouteSurface.SourceList
+    inputs.hasNavigatedAway -> StreamRouteSurface.HandOff
 
-    inputs.isQualitySheetRoute && !inputs.qualitySheetDismissed && !inputs.hasNavigatedAway ->
+    inputs.isQualitySheetRoute && !inputs.qualitySheetDismissed ->
         StreamRouteSurface.QualitySheet
 
     inputs.awaitingUserAnswer -> StreamRouteSurface.SourceList
-
-    inputs.hasNavigatedAway -> StreamRouteSurface.HandOff
 
     inputs.isAutoPickRoute || inputs.isStreamlinedPlaybackStarting ->
         StreamRouteSurface.ProgressOverlay

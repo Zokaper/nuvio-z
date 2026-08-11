@@ -3051,11 +3051,33 @@ private fun MainAppContent(
                         if (!playbackHandedOff) return@LaunchedEffect
                         if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
                         if (!StreamsRepository.consumeFailoverRetry()) {
-                            // The user came back on their own. Retire the chain rather than
-                            // leaving it armed: nothing should relaunch behind them, and an
-                            // armed chain is also what would keep the hand-off surface up
-                            // instead of uncovering the list.
+                            // The user came back on their own. Retire the chain first, so
+                            // nothing relaunches behind them.
                             StreamsRepository.consumeAutoPlay()
+                            if (
+                                playerSettings.playbackMode == PlaybackMode.CLASSIC ||
+                                launch.manualSelection ||
+                                launch.downloadIntent
+                            ) {
+                                // Classic and the manual paths came *from* the list, so the
+                                // list is where backing out belongs.
+                                return@LaunchedEffect
+                            }
+                            // Streamlined and Instant did not, and must not end up there:
+                            // this route is the mechanism, not a destination the user asked
+                            // for. Uncovering the list here also re-fetched it, because
+                            // `consumeAutoPlay` clears the request key - so one Back landed on
+                            // a "source loading" screen and it took a second to actually
+                            // leave. Carry the gesture through to the details screen instead,
+                            // which is what backing out of the quality sheet already does.
+                            onBack()
+                            withFrameNanos { }
+                            if (navController.currentRoute == route) {
+                                // The pop no-oped. Uncovering is a poor outcome here but an
+                                // opaque nothing is a worse one, and this is the same guard
+                                // `qualitySheetDismissRequested` carries for the same reason.
+                                manualSourceListRequested = true
+                            }
                             return@LaunchedEffect
                         }
                         playbackHandedOff = false
@@ -3738,9 +3760,7 @@ private fun MainAppContent(
                             isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
                             isManualLaunch = launch.manualSelection || launch.downloadIntent,
                             manualSourceListRequested = manualSourceListRequested,
-                            isRouteCurrent = navController.currentRoute == route,
                             hasNavigatedAway = reuseNavigated || playbackHandedOff,
-                            hasArmedFailureChain = streamsUiState.autoPlayStream != null,
                             isQualitySheetRoute =
                                 playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
                             qualitySheetDismissed = qualitySheetDismissed,
@@ -3768,7 +3788,14 @@ private fun MainAppContent(
                         streamsUiState.requestToken,
                         resolvingDebridStream,
                     ) {
-                        if (streamSurface != StreamRouteSurface.ProgressOverlay) return@LaunchedEffect
+                        // Both covered surfaces, not just the overlay. `HandOff` is supposed
+                        // to be a navigation in flight and nothing else, so resting on it once
+                        // the fetch has settled is the original blank screen returning by some
+                        // route nobody has found yet.
+                        if (
+                            streamSurface != StreamRouteSurface.ProgressOverlay &&
+                            streamSurface != StreamRouteSurface.HandOff
+                        ) return@LaunchedEffect
                         if (streamsUiState.autoPlayStream != null) return@LaunchedEffect
                         if (resolvingDebridStream) return@LaunchedEffect
                         if (
