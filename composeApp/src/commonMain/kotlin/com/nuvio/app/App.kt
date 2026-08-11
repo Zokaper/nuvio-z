@@ -237,6 +237,8 @@ import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressOverlay
+import com.nuvio.app.features.playback.PLAYBACK_PROGRESS_STALL_GRACE_MS
+import com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS
 import com.nuvio.app.features.playback.StreamRouteSurface
 import com.nuvio.app.features.playback.StreamRouteSurfaceInputs
 import com.nuvio.app.features.playback.streamRouteSurface
@@ -280,6 +282,7 @@ import com.nuvio.app.features.whatsnew.WhatsNewStorage
 import com.nuvio.app.features.whatsnew.shouldShowWhatsNew
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -3550,6 +3553,22 @@ private fun MainAppContent(
                         probeScope.launch { NetworkStrengthProbe.probe(inputs) }
                     }
 
+                    // Nothing else bounds this wait. `isStreamlinedSelectionReady` closes every
+                    // *known* way the settle signal fails to arrive, but it is still a wait on
+                    // a condition owned by addons and plugins the app does not control: a
+                    // scraper that neither answers nor errors leaves `isAnyLoading` true for
+                    // good, and the sheet sits with every row disabled and only dismiss
+                    // working. The user tapped a quality and nothing happened, with nothing on
+                    // screen to say why. Cancelled automatically when the selection resolves,
+                    // because the effect is keyed on the flag it is waiting out.
+                    LaunchedEffect(streamlinedSelectionPending) {
+                        if (!streamlinedSelectionPending) return@LaunchedEffect
+                        delay(STREAMLINED_SELECTION_TIMEOUT_MS)
+                        streamlinedSelectionPending = false
+                        pendingStreamlinedOptionId = null
+                        fallBackToSourceList(getString(Res.string.playback_sources_timed_out))
+                    }
+
                     LaunchedEffect(
                         streamlinedSelectionPending,
                         pendingStreamlinedOptionId,
@@ -3691,6 +3710,35 @@ private fun MainAppContent(
                             awaitingUserAnswer = awaitingUserAnswer,
                         ),
                     )
+
+                    // The backstop, for the dead ends nobody has found yet.
+                    //
+                    // Three separate paths reached "overlay up, nothing left to run" in this
+                    // release alone, and each was fixed at its own call site. This catches the
+                    // shape rather than the instance: the progress overlay is showing, no
+                    // candidate is armed, nothing is resolving, and the fetch has settled - so
+                    // whatever the overlay claims to be waiting for is not coming.
+                    //
+                    // The grace period is what makes it safe. Every legitimate state here is
+                    // transient - a tier pick seeds its chain in the same frame it raises the
+                    // flag - so anything still true after it has genuinely stopped moving.
+                    LaunchedEffect(
+                        streamSurface,
+                        streamsUiState.autoPlayStream,
+                        streamsUiState.isAnyLoading,
+                        streamsUiState.requestToken,
+                        resolvingDebridStream,
+                    ) {
+                        if (streamSurface != StreamRouteSurface.ProgressOverlay) return@LaunchedEffect
+                        if (streamsUiState.autoPlayStream != null) return@LaunchedEffect
+                        if (resolvingDebridStream) return@LaunchedEffect
+                        if (
+                            streamsUiState.requestToken != expectedStreamsRequestToken ||
+                            streamsUiState.isAnyLoading
+                        ) return@LaunchedEffect
+                        delay(PLAYBACK_PROGRESS_STALL_GRACE_MS)
+                        fallBackToSourceList()
+                    }
 
                     Box(modifier = Modifier.fillMaxSize()) {
                         StreamsScreen(

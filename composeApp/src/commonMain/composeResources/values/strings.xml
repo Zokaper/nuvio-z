@@ -1131,6 +1131,7 @@
     <string name="player_source_switched">Connection dropped - switched to %1$s</string>
     <string name="playback_instant_selected">Playing %1$s</string>
     <string name="playback_quality_no_match">No safe automatic source matched. Choose a source manually.</string>
+    <string name="playback_sources_timed_out">Sources are taking too long. Choose one manually.</string>
     <string name="playback_source_failed_advancing">%1$s did not start. Trying the next source…</string>
     <string name="playback_source_failed_advancing_reason">%1$s: %2$s. Trying the next source…</string>
     <string name="playback_progress_finding">Looking for sources…</string>

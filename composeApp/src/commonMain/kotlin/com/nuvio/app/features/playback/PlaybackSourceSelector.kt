@@ -281,3 +281,30 @@ internal fun isStreamlinedSelectionReady(
     requestToken == expectedRequestToken &&
         !isAnyLoading &&
         (candidateCount > 0 || hasTerminalEmptyState || hasStreams)
+
+/**
+ * How long a tapped quality row waits for the fetch to settle before giving up.
+ *
+ * Wall-clock, and generous. [isStreamlinedSelectionReady] closes every *known* way the signal
+ * fails to arrive, but it is still a wait on a condition owned by addons and plugins the app
+ * does not control: a scraper that neither answers nor errors leaves `isAnyLoading` true
+ * forever, and the sheet sits with every row disabled and only dismiss working. That is a
+ * hang, and a hang the user cannot even name - they tapped a quality and nothing happened.
+ *
+ * Twenty seconds is past any fetch worth waiting for and well short of the point where
+ * someone force-quits. Deliberately not tuned to be tight: this is a backstop for a wait
+ * nothing else bounds, not a performance budget, and firing it early would take a slow but
+ * working addon away from a user who would have got a source.
+ */
+const val STREAMLINED_SELECTION_TIMEOUT_MS: Long = 20_000L
+
+/**
+ * How long the progress overlay may show with nothing left to run before it gives up.
+ *
+ * Short, because by the time this is reachable everything has already settled: no candidate
+ * armed, no link resolving, the fetch finished and matching. There is nothing to wait for,
+ * only a frame or two of slack for the legitimately transient case - a tier pick raises
+ * `streamlinedPlaybackStarting` and seeds its chain in the same frame, and this must not
+ * outrun it.
+ */
+const val PLAYBACK_PROGRESS_STALL_GRACE_MS: Long = 1_500L
