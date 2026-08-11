@@ -538,6 +538,10 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     if (playerSettingsUiState.streamReuseLastLinkEnabled && currentVideoId != null) {
         saveDirectStreamForReuse(stream, url, currentVideoId, activeSeasonNumber, activeEpisodeNumber)
     }
+    // The user chose this one. A link they picked themselves earns its own re-mint, where an
+    // automatic retry of the same dead source does not.
+    credentialRefreshesUsed = 0
+    credentialRefreshAttemptedSourceUrl = null
     activeSourceUrl = url
     activeSourceAudioUrl = null
     activeSourceHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)

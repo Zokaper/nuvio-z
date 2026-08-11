@@ -2637,12 +2637,20 @@ private fun MainAppContent(
                         launch.seasonNumber,
                         launch.episodeNumber,
                     ) {
-                        effectiveVideoId = launch.videoId
                         if (!shouldResolveEpisodeVideoId) {
+                            effectiveVideoId = launch.videoId
                             hasResolvedVideoId = true
                             return@LaunchedEffect
                         }
+                        // Deliberately *not* reset to `launch.videoId` first. This effect
+                        // restarts every time the route re-enters composition - which is every
+                        // return from the player - and blanking an id that is already resolved
+                        // sent it resolved -> placeholder -> resolved on each return. Anything
+                        // keyed on it was discarded twice, and `StreamsScreen` issued two full
+                        // stream loads, the first against the parent id.
+                        if (hasResolvedVideoId) return@LaunchedEffect
 
+                        effectiveVideoId = launch.videoId
                         hasResolvedVideoId = false
                         val metaType = launch.parentMetaType ?: launch.type
                         val metaId = launch.parentMetaId ?: return@LaunchedEffect
@@ -2886,15 +2894,20 @@ private fun MainAppContent(
                     // Every branch below then read "no decision": no sheet, no overlay, and the
                     // opaque hand-off surface still painting. That was the blank screen after
                     // backing out of the player.
+                    // Keyed on the launch, not on `effectiveVideoId`. That value is resolved
+                    // asynchronously and used to round-trip through a placeholder on every
+                    // return from the player, so keying on it discarded the saved decision -
+                    // which is the state that stops this route showing a blank screen - for
+                    // exactly the content that has an episode id to resolve. Series episodes:
+                    // the case being tested. `route.launchId` is what every other flag here
+                    // already uses.
                     var playbackRouteDecision by rememberSaveable(
-                        launch.videoId,
-                        effectiveVideoId,
+                        route.launchId,
                         playerSettings.playbackMode,
                         stateSaver = PlaybackRouteDecisionSaver,
                     ) { mutableStateOf<PlaybackRouteDecision?>(null) }
                     var reuseHandled by rememberSaveable(
-                        launch.videoId,
-                        effectiveVideoId,
+                        route.launchId,
                         playerSettings.playbackMode,
                     ) { mutableStateOf(false) }
                     var reuseNavigated by remember { mutableStateOf(false) }
@@ -3051,7 +3064,7 @@ private fun MainAppContent(
                         )
                     }
 
-                    var autoPlayHandled by rememberSaveable(launch.videoId, effectiveVideoId) { mutableStateOf(false) }
+                    var autoPlayHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     LaunchedEffect(
                         streamsUiState.autoPlayStream,
                         streamsUiState.requestToken,

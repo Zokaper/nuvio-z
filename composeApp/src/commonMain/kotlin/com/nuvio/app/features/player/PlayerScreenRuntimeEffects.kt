@@ -15,6 +15,8 @@ import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.skip.SkipIntroRepository
+import com.nuvio.app.features.streams.CredentialRefreshDecision
+import com.nuvio.app.features.streams.credentialRefreshDecision
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamItem
@@ -69,7 +71,15 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         lockedOverlayVisible = false
         credentialRefreshJob?.cancel()
         credentialRefreshJob = null
-        credentialRefreshAttemptedSourceUrl = null
+        // `credentialRefreshesUsed` and `credentialRefreshAttemptedSourceUrl` deliberately do
+        // **not** reset here, for the same reason the swap budget below does not: a successful
+        // refresh is itself what changes `activeSourceUrl`, so clearing the budget here handed
+        // every re-mint a fresh one. A source that died a second after starting therefore
+        // re-minted forever - new URL, `initialLoadCompleted = false` on the line below, the
+        // opening overlay again, dead again - and because the refresh swallowed each error, the
+        // player's fatal handler was never reached and the failure chain never ran.
+        //
+        // They reset where a new thing is genuinely being watched: `LaunchedEffect(activeVideoId)`.
         initialLoadCompleted = false
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
@@ -224,9 +234,14 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         networkThroughputState = NetworkThroughputMeter.initial()
     }
 
-    // A session is one thing being watched. Moving to the next episode earns a fresh swap.
+    // A session is one thing being watched. Moving to the next episode earns a fresh swap - and
+    // a fresh credential-refresh budget, for exactly the same reason. Keyed on the *video*, not
+    // on the source URL, because re-minting changes the URL and would otherwise refund the
+    // budget it just spent.
     LaunchedEffect(activeVideoId) {
         autoDownshiftState = AutoDownshiftDetector.initial()
+        credentialRefreshesUsed = 0
+        credentialRefreshAttemptedSourceUrl = null
     }
 
     LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError, PlaybackDebugSettings.hudEnabled) {
@@ -584,11 +599,24 @@ internal fun PlayerScreenRuntime.removeFailedStreamFromCache() {
 
 internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message: String?): Boolean {
     val failedUrl = activeSourceUrl
-    if (!failedUrl.hasLikelyExpiringPlaybackCredentials()) return false
-    if (credentialRefreshJob?.isActive == true) return true
-    if (credentialRefreshAttemptedSourceUrl == failedUrl) return false
+    when (
+        credentialRefreshDecision(
+            failedUrl = failedUrl,
+            refreshesUsed = credentialRefreshesUsed,
+            isRefreshInFlight = credentialRefreshJob?.isActive == true,
+            lastAttemptedUrl = credentialRefreshAttemptedSourceUrl,
+        )
+    ) {
+        CredentialRefreshDecision.AwaitInFlight -> return true
+        // Returning false hands the error to `onFatalPlaybackError`, which is where the failure
+        // chain lives. That is the fix: this used to swallow every error forever, so a dead
+        // source could never be named, stepped past, or given up on.
+        CredentialRefreshDecision.Decline -> return false
+        CredentialRefreshDecision.Refresh -> Unit
+    }
 
     val currentVideoId = activeVideoId ?: return false
+    credentialRefreshesUsed += 1
     credentialRefreshAttemptedSourceUrl = failedUrl
     removeFailedStreamFromCache()
 

@@ -210,6 +210,15 @@ internal class PlayerScreenRuntime(
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
 
+    /**
+     * Re-mints spent on the item being watched.
+     *
+     * Scoped to the item rather than to the source URL, because a re-mint *is* a new source
+     * URL - budgeting per URL gave every retry a fresh budget and the refresh could never run
+     * out. See `credentialRefreshDecision`.
+     */
+    var credentialRefreshesUsed by mutableStateOf(0)
+
     var showAudioModal by mutableStateOf(false)
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
