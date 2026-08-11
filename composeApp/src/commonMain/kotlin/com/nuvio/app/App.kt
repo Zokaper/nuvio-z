@@ -3453,8 +3453,13 @@ private fun MainAppContent(
                         val inputs = NetworkStrengthProbe.Inputs(
                             isMetered = platform.isMetered,
                             isOffline = platform.connectionType == NetworkConnectionType.OFFLINE,
-                            estimateAgeMs = NetworkQualityRepository
-                                .estimateAgeMs(qualityProbeTarget?.providerId),
+                            // Both keys, because only `plan` knows which one this probe would
+                            // end up writing to - a source with a direct URL refreshes its own
+                            // host, anything falling back to the CDN refreshes the line.
+                            sourceEstimateAgeMs = qualityProbeTarget?.providerId?.let {
+                                NetworkQualityRepository.estimateAgeMs(it)
+                            },
+                            lineEstimateAgeMs = NetworkQualityRepository.estimateAgeMs(null),
                             sourceUrl = qualityProbeTarget?.url,
                             sourceHeaders = qualityProbeTarget?.headers.orEmpty(),
                             providerId = qualityProbeTarget?.providerId,

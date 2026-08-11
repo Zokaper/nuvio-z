@@ -127,6 +127,23 @@ class NetworkQualityRepositoryTest {
     }
 
     @Test
+    fun theAgeOfOneKeyIsNotTheAgeOfAnother() {
+        // `peek` falls back from the host key to the line-wide one so the sheet always has a
+        // figure. `estimateAgeMs` deliberately does not: answering "how old is the number you
+        // would show" reported an unmeasured host as freshly measured, and it was never probed.
+        NetworkQualityRepository.recordProbeResult(30.0)
+
+        assertNotNull(NetworkQualityRepository.estimateAgeMs(null))
+        assertNull(
+            NetworkQualityRepository.estimateAgeMs("never-measured-host"),
+            "an unmeasured host has no age of its own, however fresh the line is",
+        )
+        // The sheet still shows the line-wide figure for that host - only the probe's freshness
+        // question is exact.
+        assertEquals(30.0, NetworkQualityRepository.peek("never-measured-host").estimatedMbps, 1e-9)
+    }
+
+    @Test
     fun theProbeSkipsAFreshEstimateAndNotAStaleOne() {
         assertNull(NetworkQualityRepository.estimateAgeMs())
 

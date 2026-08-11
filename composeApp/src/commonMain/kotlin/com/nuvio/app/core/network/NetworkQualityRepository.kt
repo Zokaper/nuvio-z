@@ -146,18 +146,24 @@ object NetworkQualityRepository {
     }
 
     /**
-     * How long ago the estimate that [current] would use was taken, or null if there is none.
+     * How long ago the estimate stored under **exactly this key** was taken, or null if there is
+     * none. `null` [providerId] asks about the line-wide estimate.
      *
      * The active probe asks this before spending anything: a measurement from four minutes ago
      * against the same host is worth more than a fresh 4 MB one, and re-probing every time the
      * quality sheet opens would charge the user for the same answer repeatedly.
+     *
+     * ⚠ **Deliberately not the exact-then-generic fallback [peek] uses**, and the difference is
+     * the point. Answering "how old is the number you would *show*" meant a two-minute-old
+     * line-wide estimate reported a brand-new debrid host as freshly measured, so that host was
+     * never probed and kept borrowing a figure measured somewhere else - which defeats the
+     * per-provider keying this repository is built around. A caller that wants the displayed
+     * figure's age wants [peek] and its own arithmetic.
      */
     fun estimateAgeMs(providerId: String? = null): Long? {
         restoreIfNeeded()
         val networkId = NetworkQualityPlatform.current().networkId
-        val normalizedProvider = providerId.normalizedProvider()
-        val estimate = liveEstimate(EstimateKey(networkId, normalizedProvider))
-            ?: liveEstimate(EstimateKey(networkId, null))
+        val estimate = liveEstimate(EstimateKey(networkId, providerId.normalizedProvider()))
             ?: return null
         return (nowProvider() - estimate.atEpochMs).coerceAtLeast(0L)
     }

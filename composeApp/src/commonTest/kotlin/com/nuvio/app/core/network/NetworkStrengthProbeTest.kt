@@ -24,10 +24,72 @@ class NetworkStrengthProbeTest {
 
     @Test
     fun aFreshEstimateIsBetterEvidenceThanANewProbe() {
-        assertNull(NetworkStrengthProbe.plan(inputs(estimateAgeMs = 4L * 60L * 1_000L)))
+        assertNull(NetworkStrengthProbe.plan(inputs(lineEstimateAgeMs = 4L * 60L * 1_000L)))
         // Past the window it is worth re-measuring: the user may be on a different network
         // that the platform reports under the same identity.
-        assertNotNull(NetworkStrengthProbe.plan(inputs(estimateAgeMs = 30L * 60L * 1_000L)))
+        assertNotNull(NetworkStrengthProbe.plan(inputs(lineEstimateAgeMs = 30L * 60L * 1_000L)))
+    }
+
+    @Test
+    fun aFreshLineEstimateDoesNotVouchForAnUnmeasuredHost() {
+        // The whole reason estimates are keyed per provider. A two-minute-old line-wide reading
+        // says nothing about a debrid host nobody has pulled a byte from, and treating it as
+        // fresh meant that host was never probed and borrowed a figure measured elsewhere.
+        val plan = assertNotNull(
+            NetworkStrengthProbe.plan(
+                inputs(
+                    sourceUrl = "https://cdn.torbox.example/file.mkv",
+                    providerId = "torbox",
+                    lineEstimateAgeMs = 2L * 60L * 1_000L,
+                    sourceEstimateAgeMs = null,
+                ),
+            ),
+        )
+
+        assertEquals("torbox", plan.providerId)
+    }
+
+    @Test
+    fun aFreshHostEstimateDoesSuppressItsOwnHost() {
+        assertNull(
+            NetworkStrengthProbe.plan(
+                inputs(
+                    sourceUrl = "https://cdn.torbox.example/file.mkv",
+                    providerId = "torbox",
+                    sourceEstimateAgeMs = 2L * 60L * 1_000L,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun aCdnBoundProbeIsJudgedByTheLineNotTheHost() {
+        // A CDN result is filed under no provider, so the host's entry never fills. Judging this
+        // probe by that empty entry would re-probe on every single sheet open, for ever.
+        assertNull(
+            NetworkStrengthProbe.plan(
+                inputs(
+                    sourceUrl = null,
+                    providerId = "torbox",
+                    sourceEstimateAgeMs = null,
+                    lineEstimateAgeMs = 2L * 60L * 1_000L,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun aDirectUrlWithNoProviderIsAlsoJudgedByTheLine() {
+        // Nothing to file it under, so it refreshes the line-wide entry and must be gated on it.
+        assertNull(
+            NetworkStrengthProbe.plan(
+                inputs(
+                    sourceUrl = "https://cdn.example/file.mkv",
+                    providerId = null,
+                    lineEstimateAgeMs = 2L * 60L * 1_000L,
+                ),
+            ),
+        )
     }
 
     @Test
@@ -119,7 +181,8 @@ class NetworkStrengthProbeTest {
     private fun inputs(
         isMetered: Boolean = false,
         isOffline: Boolean = false,
-        estimateAgeMs: Long? = null,
+        sourceEstimateAgeMs: Long? = null,
+        lineEstimateAgeMs: Long? = null,
         sourceUrl: String? = null,
         sourceHeaders: Map<String, String> = emptyMap(),
         providerId: String? = null,
@@ -127,7 +190,8 @@ class NetworkStrengthProbeTest {
     ) = NetworkStrengthProbe.Inputs(
         isMetered = isMetered,
         isOffline = isOffline,
-        estimateAgeMs = estimateAgeMs,
+        sourceEstimateAgeMs = sourceEstimateAgeMs,
+        lineEstimateAgeMs = lineEstimateAgeMs,
         sourceUrl = sourceUrl,
         sourceHeaders = sourceHeaders,
         providerId = providerId,
