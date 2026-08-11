@@ -103,7 +103,22 @@ object StreamsRepository {
 
         activeRequestKey = requestKey
         activeJob?.cancel()
-        _uiState.value = StreamsUiState(requestToken = requestToken)
+        // A failure chain armed for *this* request survives the reload it is about to trigger.
+        //
+        // `consumeAutoPlay` clears `activeRequestKey`, so coming back to the stream route after
+        // a play always misses the no-op guard above and lands here. Refetching the groups is
+        // right. Discarding the chain with them was not: when a source died mid-playback,
+        // `failOverAfterPlaybackStarted` re-armed the retained candidates and advanced past the
+        // dead one, *then* popped to the stream route - whose re-mount ran this and wiped what
+        // had just been re-armed. Nothing refilled it either, because Streamlined and Instant
+        // both load with `manualSelection = true` and so never reach the auto-play evaluation
+        // below. The retry the whole chain exists for could not happen.
+        //
+        // Carried across the resets on the way *to* a result, not onto a terminal empty state:
+        // an answer of "no addons" is not a screen a retained candidate should be playing over.
+        val carriedChain = carriedAutoPlayChain(_uiState.value, requestToken)
+        fun StreamsUiState.carryingChain(): StreamsUiState = withCarriedChain(carriedChain)
+        _uiState.value = StreamsUiState(requestToken = requestToken).carryingChain()
 
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
@@ -134,7 +149,7 @@ object StreamsRepository {
                 requestToken = requestToken,
                 isDirectAutoPlayFlow = true,
                 showDirectAutoPlayOverlay = true,
-            )
+            ).carryingChain()
         }
 
         val embeddedStreams = MetaDetailsRepository.findEmbeddedStreams(videoId)
@@ -234,7 +249,7 @@ object StreamsRepository {
             emptyStateReason = null,
             isDirectAutoPlayFlow = isDirectAutoPlayFlow,
             showDirectAutoPlayOverlay = isDirectAutoPlayFlow,
-        )
+        ).carryingChain()
 
         activeJob = scope.launch {
             val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
@@ -874,3 +889,36 @@ object StreamsRepository {
     }
 }
 
+
+/**
+ * The failure chain a reload is allowed to keep, or null.
+ *
+ * Hoisted out of `StreamsRepository.load` so the rule is executable. It is a two-line
+ * condition guarding a case that took a player death, a re-arm and a route re-mount to
+ * reach - the kind of thing that gets quietly re-broken by an unrelated change to the
+ * reload path, because nothing in the suite goes near it.
+ *
+ * Same request, and something still armed: a chain belongs to one piece of content, so a
+ * reload for a *different* video must never inherit candidates ranked for the last one.
+ */
+internal fun carriedAutoPlayChain(current: StreamsUiState, requestToken: String): StreamsUiState? =
+    current.takeIf { it.requestToken == requestToken && it.autoPlayStream != null }
+
+/**
+ * Puts [carried]'s chain back on a freshly reset state.
+ *
+ * The direct-auto-play flags come back with it: they are what keeps the route treating this
+ * as an automatic play rather than a list the user is browsing, and a chain restored without
+ * them is a chain nothing will run.
+ */
+internal fun StreamsUiState.withCarriedChain(carried: StreamsUiState?): StreamsUiState =
+    if (carried == null) {
+        this
+    } else {
+        copy(
+            autoPlayStream = carried.autoPlayStream,
+            autoPlayCandidates = carried.autoPlayCandidates,
+            isDirectAutoPlayFlow = true,
+            showDirectAutoPlayOverlay = true,
+        )
+    }

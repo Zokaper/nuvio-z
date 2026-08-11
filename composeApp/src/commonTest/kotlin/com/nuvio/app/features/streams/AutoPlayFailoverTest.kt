@@ -75,4 +75,55 @@ class AutoPlayFailoverTest {
         addonName = "TestAddon",
         addonId = "test.addon",
     )
+
+    @Test
+    fun `a reload for the same video keeps a re-armed chain`() {
+        // The retry path in full: playback started (so the chain was consumed), the source
+        // died, `failOverAfterPlaybackStarted` re-armed and advanced - and then the stream
+        // route re-mounted and reloaded, because `consumeAutoPlay` clears `activeRequestKey`
+        // and the reload's no-op guard therefore never matches. The reload used to wipe what
+        // had just been re-armed, and nothing refilled it: Streamlined and Instant both load
+        // with manualSelection = true, so the auto-play evaluation never runs for them.
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b")))
+        StreamsRepository.consumeAutoPlay()
+        assertTrue(StreamsRepository.failOverAfterPlaybackStarted())
+
+        val armed = StreamsRepository.uiState.value.copy(requestToken = "series::s1e1::1::1::true")
+        val carried = carriedAutoPlayChain(armed, "series::s1e1::1::1::true")
+        val reloaded = StreamsUiState(requestToken = "series::s1e1::1::1::true")
+            .withCarriedChain(carried)
+
+        assertEquals("b", reloaded.autoPlayStream?.url)
+        assertEquals(listOf("b"), reloaded.autoPlayCandidates.map { it.url })
+        // Restored without these the route stops treating it as an automatic play, and the
+        // chain sits there with nothing to run it.
+        assertTrue(reloaded.isDirectAutoPlayFlow)
+    }
+
+    @Test
+    fun `a reload for different content never inherits the chain`() {
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b")))
+        val armed = StreamsRepository.uiState.value.copy(requestToken = "series::s1e1::1::1::true")
+
+        assertNull(carriedAutoPlayChain(armed, "series::s1e2::1::2::true"))
+        assertNull(
+            StreamsUiState(requestToken = "series::s1e2::1::2::true")
+                .withCarriedChain(carriedAutoPlayChain(armed, "series::s1e2::1::2::true"))
+                .autoPlayStream,
+        )
+    }
+
+    @Test
+    fun `a reload with nothing armed carries nothing`() {
+        // The ordinary case, and the one that must not start behaving like an auto-play flow:
+        // a spent chain restored with `isDirectAutoPlayFlow` set would put the overlay back up
+        // over a list the user is browsing.
+        val spent = StreamsUiState(requestToken = "series::s1e1::1::1::true")
+        assertNull(carriedAutoPlayChain(spent, "series::s1e1::1::1::true"))
+        assertFalse(
+            spent.withCarriedChain(carriedAutoPlayChain(spent, "series::s1e1::1::1::true"))
+                .isDirectAutoPlayFlow,
+        )
+    }
+
 }
