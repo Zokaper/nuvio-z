@@ -144,6 +144,20 @@ jobs:
             exit 1
           }
 
+      # Copied from ci.yml. The inline `grep -E '^e: '` above catches a Kotlin
+      # compile error, but a *test* failure produces no `e:` lines at all, and
+      # the raw job log is long enough that reading it back through the API
+      # returns only post-job cache noise. Without this a red run says "tests
+      # failed" and nothing else.
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: debug-release-test-reports-${{ github.sha }}
+          path: composeApp/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build debug APK
         run: |
           set -o pipefail
