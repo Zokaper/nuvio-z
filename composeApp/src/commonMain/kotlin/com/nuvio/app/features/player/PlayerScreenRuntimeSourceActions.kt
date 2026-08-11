@@ -499,6 +499,20 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
         stream.streamSubtitle == activeStreamSubtitle
 }
 
+/**
+ * A source the *user* picked from the sources panel.
+ *
+ * Only this refunds the credential-refresh budget. [switchToSource] itself must not: it also
+ * serves automatic downshifts, the debug forced swap, and its own re-entrant debrid resolve, so
+ * refunding there would hand an automatic retry of a dying source a fresh budget every swap -
+ * which is the shape of the loop this budget exists to stop.
+ */
+internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
+    credentialRefreshesUsed = 0
+    credentialRefreshAttemptedSourceUrl = null
+    switchToSource(stream)
+}
+
 internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     if (
         resolveDebridForPlayer(
@@ -538,10 +552,6 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     if (playerSettingsUiState.streamReuseLastLinkEnabled && currentVideoId != null) {
         saveDirectStreamForReuse(stream, url, currentVideoId, activeSeasonNumber, activeEpisodeNumber)
     }
-    // The user chose this one. A link they picked themselves earns its own re-mint, where an
-    // automatic retry of the same dead source does not.
-    credentialRefreshesUsed = 0
-    credentialRefreshAttemptedSourceUrl = null
     activeSourceUrl = url
     activeSourceAudioUrl = null
     activeSourceHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)

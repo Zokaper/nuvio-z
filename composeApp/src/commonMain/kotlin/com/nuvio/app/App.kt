@@ -3028,9 +3028,21 @@ private fun MainAppContent(
                         }
                     }
 
-                    // Coming back from a player that died with the chain re-armed: this is a
-                    // retry, so re-show the progress overlay the hand-off had hidden. Gated on
-                    // this route being current because Instant deliberately leaves
+                    // Coming back from the player with a candidate still armed. Two very
+                    // different things look identical here, and telling them apart is the whole
+                    // point of this effect.
+                    //
+                    // A **retry** - the source died and the chain advanced - should re-show the
+                    // progress overlay the hand-off had hidden and launch the next candidate.
+                    //
+                    // A **back press** produces exactly the same state, because nothing consumes
+                    // the chain until the first frame plays. Inferring a retry from state alone
+                    // therefore relaunched the source the user had just walked out of, over and
+                    // over: they could not escape a slow debrid mint at all, and only the in-app
+                    // back button worked, because that one pops this route on its way to details.
+                    //
+                    // So the player says when it is a retry, and silence means the user left.
+                    // Gated on this route being current because Instant deliberately leaves
                     // `autoPlayStream` set while the player is open - without that check this
                     // would fire the moment playback was handed off and uncover the overlay
                     // underneath the player.
@@ -3038,6 +3050,14 @@ private fun MainAppContent(
                         if (navController.currentRoute != route) return@LaunchedEffect
                         if (!playbackHandedOff) return@LaunchedEffect
                         if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
+                        if (!StreamsRepository.consumeFailoverRetry()) {
+                            // The user came back on their own. Retire the chain rather than
+                            // leaving it armed: nothing should relaunch behind them, and an
+                            // armed chain is also what would keep the hand-off surface up
+                            // instead of uncovering the list.
+                            StreamsRepository.consumeAutoPlay()
+                            return@LaunchedEffect
+                        }
                         playbackHandedOff = false
                         autoPickAttempt += 1
                     }
@@ -4207,6 +4227,9 @@ private fun MainAppContent(
                                     } else {
                                         StreamsRepository.failOverAfterPlaybackStarted()
                                     }
+                                    // Say so, rather than leaving the stream route to guess
+                                    // from state a back press produces just as well.
+                                    if (hasNext) StreamsRepository.signalFailoverRetry()
                                     if (!hasNext) {
                                         StreamsRepository.consumeAutoPlay()
                                         NuvioToastController.show(noAutomaticSourceText)

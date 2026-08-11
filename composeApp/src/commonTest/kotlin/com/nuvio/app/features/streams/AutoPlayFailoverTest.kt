@@ -126,4 +126,42 @@ class AutoPlayFailoverTest {
         )
     }
 
+
+    @Test
+    fun `a retry is signalled, never inferred`() {
+        // The distinction this exists for: after a hand-off, "the route is current again and a
+        // candidate is still armed" is equally true when the player died and when the user
+        // pressed Back before the first frame ever played. Inferring a retry from that state
+        // relaunched the source the user had just walked out of, forever.
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b")))
+
+        // Nobody said anything: the user left.
+        assertFalse(StreamsRepository.consumeFailoverRetry())
+
+        StreamsRepository.signalFailoverRetry()
+        assertTrue(StreamsRepository.consumeFailoverRetry())
+        // One-shot. A second look must not resurrect the retry.
+        assertFalse(StreamsRepository.consumeFailoverRetry())
+    }
+
+    @Test
+    fun `a retired chain leaves no retry signal behind`() {
+        // An exhausted chain calls consumeAutoPlay, and a signal surviving that would fire
+        // against whatever plays next.
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a")))
+        StreamsRepository.signalFailoverRetry()
+        StreamsRepository.consumeAutoPlay()
+
+        assertFalse(StreamsRepository.consumeFailoverRetry())
+    }
+
+    @Test
+    fun `a fresh chain drops an unconsumed signal from the last one`() {
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("old")))
+        StreamsRepository.signalFailoverRetry()
+
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("new-a"), stream("new-b")))
+        assertFalse(StreamsRepository.consumeFailoverRetry())
+    }
+
 }

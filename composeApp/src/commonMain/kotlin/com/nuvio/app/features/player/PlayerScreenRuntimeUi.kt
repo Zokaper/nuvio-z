@@ -522,7 +522,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         activeSourceUrl = activeSourceUrl,
         activeStreamTitle = activeStreamTitle,
         onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
-        onSourceStreamSelected = { stream -> switchToSource(stream) },
+        onSourceStreamSelected = { stream -> switchToUserSelectedSource(stream) },
         onReloadSources = {
             val vid = activeVideoId
             if (vid != null) {

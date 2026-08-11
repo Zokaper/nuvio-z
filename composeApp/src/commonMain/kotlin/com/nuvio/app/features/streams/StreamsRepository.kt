@@ -777,8 +777,34 @@ object StreamsRepository {
     private var retiredAutoPlayStream: StreamItem? = null
     private var retiredAutoPlayCandidates: List<StreamItem> = emptyList()
 
+    /**
+     * Set by the player when it exits *because a source failed*, cleared by whoever acts on it.
+     *
+     * The stream route cannot tell a retry from a back press by looking at state: after a
+     * hand-off, "this route is current again and a candidate is still armed" is equally true
+     * when the player died and when the user simply pressed Back before the first frame. It
+     * used to infer a retry from exactly that, so backing out of a slow debrid mint relaunched
+     * the same source immediately and the user could not leave - the in-app back button escaped
+     * only because it pops this route on the way out.
+     *
+     * So a retry is something that is *said*, not something that is deduced.
+     */
+    private var failoverRetryPending = false
+
+    fun signalFailoverRetry() {
+        failoverRetryPending = true
+    }
+
+    /** True once, for the retry that was signalled. */
+    fun consumeFailoverRetry(): Boolean {
+        val pending = failoverRetryPending
+        failoverRetryPending = false
+        return pending
+    }
+
     fun consumeAutoPlay() {
         activeRequestKey = null
+        failoverRetryPending = false
         _uiState.update {
             retiredAutoPlayStream = it.autoPlayStream
             retiredAutoPlayCandidates = it.autoPlayCandidates
@@ -821,9 +847,11 @@ object StreamsRepository {
     fun seedAutoPlayCandidates(candidates: List<StreamItem>) {
         val limited = candidates.distinct().take(3)
         // A fresh chain retires the previous one for good, so a failure here can never fail over
-        // to a candidate ranked for different content.
+        // to a candidate ranked for different content - and with it any retry signal the last
+        // chain left unconsumed.
         retiredAutoPlayStream = null
         retiredAutoPlayCandidates = emptyList()
+        failoverRetryPending = false
         _uiState.update { current ->
             current.copy(
                 autoPlayStream = limited.firstOrNull(),
