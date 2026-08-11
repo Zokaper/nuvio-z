@@ -222,12 +222,17 @@ repositories, with identical results:
 - `PlaybackQualityOptionsTest` **45**, `StreamRouteSurfaceTest` **10**, `PlaybackModeRouterTest`
   **11** — 66 tests, zero failures.
 - `DownloadTransferTest` **22** and `PlaybackUrlCredentialsTest` **7**, zero failures, both
-  compiled with no stubs at all.
+  compiled with no stubs at all. **95 tests in total**, and the same 95 in `NuvioZDesktop`.
 - **Stubbed neighbours, never a file under test:** `SourceFacts`, `SourceFactsExtractor`,
   `StreamItem` and its behaviour-hint types, `PlaybackMode`, and the three ranking enums.
   `SourceRanking`, `PlaybackSourceSelector`, `PlaybackQualityOptions`, `StreamRouteSurface`,
   `PlaybackModeRouter` and `DownloadTransfer` are the real shipped files, unmodified.
-- The harness lives at `scratchpad/run-pure-suites.sh`; it takes a repository path.
+- **The harness is in the repository now**, at `scripts/run-pure-suites.sh`, with its neighbour
+  stubs beside it. It takes an optional repository path and work directory, fetches `kotlinc`
+  and the JUnit jars on first run, and works in both repositories. It previously lived in a
+  session-scoped scratchpad, which meant the next agent could not run it and would have fallen
+  back to "verified by reading" - the exact habit this release exists to break.
+  **Run it before trusting any change to the playback selection logic.**
 
 **Parser check** clean over every changed file in both repositories.
 
