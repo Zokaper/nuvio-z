@@ -493,10 +493,21 @@ desktop, Playstore) is `false`.
 ⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
 Every debug build after `0.4.9-beta.1` updates in place from inside the app.
 
-**Publishing a debug build:** bump `DEBUG_BUILD`, `:androidApp:assembleFullDebug`, then
-`gh release create debug-v<version> <apk> --repo Zokaper/nuvio-z --prerelease --target main`.
-The tag targets `main` because the working branch is local-only; the updater reads only the tag
-and the asset, so the target does not affect it.
+**Publishing a debug build (2026-08-11): dispatch `debug-release.yml`.** Bump `DEBUG_BUILD` in
+`Version.xcconfig`, push, then run the workflow against whatever branch you want the build cut
+from. It runs the host suite, builds `:androidApp:assembleFullDebug` and publishes
+`debug-v<version>` as a prerelease with the APK attached.
+
+It replaces the manual `gh release create` ritual, which required a machine with a working
+Gradle and so could not be done from the agent sandbox at all - every device-testing loop had to
+wait for the maintainer. `ci.yml` builds the same APK on every push but only uploads an Actions
+artifact, which an installed app cannot update from.
+
+⚠ **The tag is single-use** and the workflow refuses to run if it already exists: republishing
+one would strand installs that already took it on older code carrying a newer name. Bump
+`DEBUG_BUILD` instead. It targets the dispatched commit rather than `main`, so a working branch
+is fine. The workflow file must also exist on `main`, because that is where GitHub looks to
+decide whether `workflow_dispatch` is available at all.
 
 **Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
 different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
