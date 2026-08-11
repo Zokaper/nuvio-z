@@ -50,6 +50,13 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOfNotNull(
                 WhatsNewItem(
+                    title = "A failing source no longer loops",
+                    description = "A debrid link that died shortly after starting was retried " +
+                        "endlessly - the player reopened on the loading screen, played a second, " +
+                        "and went round again with no way out. It now retries once, then names " +
+                        "the source and moves to the next one.",
+                ),
+                WhatsNewItem(
                     title = "Coming back from the player works",
                     description = "In Streamlined and Instant, backing out of the player with the " +
                         "system Back gesture could land on a blank screen you could not read and " +
