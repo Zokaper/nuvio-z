@@ -191,6 +191,29 @@ That is exactly the saved decision item 1 added to stop the blank screen — dis
 episodes specifically. Movies were unaffected. They now key on `route.launchId`, as every other
 flag in that route already did, and the resolve effect no longer blanks an id it has resolved.
 
+### 10. Backing out of a player that had not started relaunched it
+
+Found by re-reading this branch, not by report, and the same shape as item 8: a cycle with no
+way out.
+
+The re-arm effect in `entry<StreamRoute>` decided "this is a retry" from state — route current
+again, playback handed off, a candidate still armed. ⚠ **A back press produces exactly that
+state**, because nothing consumes the chain until the first frame plays. So pressing system Back
+during a slow debrid mint relaunched the source just walked out of, forever. The in-app back
+button escaped only by accident: it pops this route on its way to details, so it never reached
+the effect. The system gesture does — the same asymmetry as item 1.
+
+A retry is now **signalled** by the player's fatal handler rather than deduced. Silence means the
+user left, so the chain is retired instead of left armed, which also lets the surface rules
+uncover the list. One-shot, and cleared by both `consumeAutoPlay` and `seedAutoPlayCandidates`.
+
+Smaller, same pass: the credential-refresh budget from item 8 was refunded inside
+`switchToSource`, which also serves automatic downshifts, the debug forced swap and its own
+re-entrant debrid resolve — so an automatic retry of a dying source would have been handed a
+fresh budget every swap, which is the loop that budget exists to stop. Only a user's own pick
+refunds it now. Unreachable today because auto-downshift is Instant-only and Instant is withheld,
+which is exactly why it would have shipped.
+
 ## Verification for 0.5.0-beta
 
 **Standalone compile-and-run of the shipped sources** (`AGENTS.md` item 2), in **both**
@@ -241,11 +264,13 @@ repositories, with identical results:
    sign out and back in — both must survive. That is the sync-key check, and editing that key set
    is what wiped the playback settings in `0.4.0-beta`.
 8. Three consecutive episodes: the resolution holds and Back works every time.
-9. **The loop, and the reason for this second pass.** Play a Streamlined episode from a debrid
+9. **Back out of a slow start.** Tap a quality, and while it is still preparing press **system
+   Back**. Expect the source list or the show — never to be thrown straight back into the player.
+10. **The loop, and the reason for this second pass.** Play a Streamlined episode from a debrid
    provider and let a source fail on its own. Expect **one** toast naming it and **one** advance
    to the next candidate — never the logo screen a second time for the same choice. If the chain
    runs out, expect the source list.
-10. **Downloads, Android:** start one and cut the connection without disconnecting (aeroplane mode
+11. **Downloads, Android:** start one and cut the connection without disconnecting (aeroplane mode
    mid-transfer). The row should fail with a named reason and retry, not sit on its percentage.
 
 Report what each step actually showed. A step that was not run is not a pass.
