@@ -221,13 +221,44 @@ fresh budget every swap, which is the loop that budget exists to stop. Only a us
 refunds it now. Unreachable today because auto-downshift is Instant-only and Instant is withheld,
 which is exactly why it would have shipped.
 
+### 11. Backing out of Streamlined landed on the source list, and took two presses
+
+**Found on the device, in the first Tier 1 pass.** Two faults in one report.
+
+The route uncovered the source list when the user came back from the player. It was the wrong
+destination *and* it did not finish the job: `consumeAutoPlay` clears `activeRequestKey`, so
+`StreamsScreen` re-fetched the moment it was uncovered, and what the user actually saw was the
+source **loading** screen. Nothing popped the route, so a second Back was needed to leave.
+
+⚠ **The destination was wrong on principle, and the codebase already said so.** The quality
+sheet's own dismiss carries the comment *"backing out of the quality sheet means 'not now', so
+it returns to details rather than uncovering the Classic source list the user chose Streamlined
+to avoid"*. The player-return path violated the rule the sheet already followed.
+
+The rule, stated once: **in Streamlined and Instant the source list appears only when the app
+could not choose — never because the user left.** Classic and an explicit manual launch came
+*from* the list, so they still return to it.
+
+- `streamRouteSurface` now answers `HandOff` for anything after a hand-off, in both directions,
+  and `entry<StreamRoute>` pops itself through to details. `isRouteCurrent` and
+  `hasArmedFailureChain` are gone from its inputs; the rule table is shorter than before.
+- ⚠ **`HandOff` is therefore a navigation in flight and never a resting state**, which the pure
+  function cannot enforce because it cannot see a navigation. Two things hold it: the route sets
+  `manualSourceListRequested` if the pop no-ops - the same guard `qualitySheetDismissRequested`
+  already carries - and the stall backstop now covers `HandOff` as well as the overlay, so
+  resting on it after the fetch settles falls back to the list within `1.5 s`.
+
+**Failure still goes to the list, with a reason.** An exhausted chain, no safely playable
+source, or a timed-out fetch is the escape hatch `PLAYBACK_MODES_PLAN.md` specifies, and the
+user is then one tap from choosing. Confirmed with the maintainer rather than assumed.
+
 ## Verification for 0.5.0-beta
 
 **Standalone compile-and-run of the shipped sources** (`AGENTS.md` item 2), in **both**
 repositories, with identical results:
 
-- `PlaybackQualityOptionsTest` **45**, `StreamRouteSurfaceTest` **10**, `PlaybackModeRouterTest`
-  **11** — 66 tests, zero failures.
+- `PlaybackQualityOptionsTest` **45**, `StreamRouteSurfaceTest` **11**, `PlaybackModeRouterTest`
+  **11** — 67 tests, zero failures.
 - `DownloadTransferTest` **22** and `PlaybackUrlCredentialsTest` **7**, zero failures, both
   compiled with no stubs at all. **95 tests in total**, and the same 95 in `NuvioZDesktop`.
 - **Stubbed neighbours, never a file under test:** `SourceFacts`, `SourceFactsExtractor`,
@@ -277,7 +308,8 @@ suites. Two things it settled, and one it did not:
 
 1. Play an episode, let it start, **press system Back out of the player** (the gesture, not the
    on-screen button — they take different paths and only the gesture reaches the defect). Expect
-   the source list or the show. Never a blank screen, never the quality sheet again.
+   **the details screen, in one press**. Never a blank screen, never the quality sheet again,
+   and never the source list — that is item 11.
 2. Same again, then tap where a source row would be on the screen you land on. Nothing should
    happen.
 3. An episode whose top source is uncached: it should name the source and move on, not stop.
@@ -290,7 +322,8 @@ suites. Two things it settled, and one it did not:
    is what wiped the playback settings in `0.4.0-beta`.
 8. Three consecutive episodes: the resolution holds and Back works every time.
 9. **Back out of a slow start.** Tap a quality, and while it is still preparing press **system
-   Back**. Expect the source list or the show — never to be thrown straight back into the player.
+   Back**. Expect the details screen in one press — never to be thrown back into the player, and
+   never a second press to escape.
 10. **The loop, and the reason for this second pass.** Play a Streamlined episode from a debrid
    provider and let a source fail on its own. Expect **one** toast naming it and **one** advance
    to the next candidate — never the logo screen a second time for the same choice. If the chain
