@@ -118,6 +118,17 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   fetches only older releases. **Add an entry per release before the version bump** -
   a docs commit after the bump fails release validation. Never gate the screen on the
   in-app updater; it has to work offline.
+- **The setup wizard writes every choice immediately, through the real repository setter**
+  (`features/setup/`). That is what lets `SetupPreviewStage` render the shipped
+  `HomeHeroSection` / `HomeContinueWatchingSection` / `HomeCatalogRowSection` / `DetailHero`
+  against real state instead of a mock. Do not add preview-only state or override parameters:
+  a second rendering path is a preview that can lie. The stage composes at a fixed logical
+  390x620 dp and scales to fit, because those composables branch their metrics on their
+  container's width.
+- `features/setup/SetupPreviewStage.kt` is **not** byte-identical across the repositories and
+  must never be `cp`'d - desktop's `HomeContinueWatchingSection` takes a required
+  `dataSourceKey`. Use **named arguments** at every call into a diverged composable; desktop's
+  `HomeHeroSection` and `DetailHero` have both gained parameters mid-list.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
   `manualSelection` > completed local download > sticky pin > reuse-last-link >
   playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
@@ -147,6 +158,9 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
   `features/playback/AutoDownshiftDetector.kt`,
   `features/playback/PlaybackProgressOverlay.kt`
+- First-launch setup wizard: `features/setup/` - `SetupWizardSteps.kt` (import-free: the
+  ordering, the preset fork and the show-once revision rule) and `SetupWizardPresets.kt` are
+  covered by `scripts/run-pure-suites.sh`; everything else there is Compose and is CI-only
 - Settings sync key clearing: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`)
 - Advanced settings gating: `features/settings/SettingsComponents.kt`
   (`LocalShowAdvancedSettings`), `features/player/AdvancedSettingsDefault.kt`
