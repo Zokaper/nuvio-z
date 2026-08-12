@@ -256,7 +256,7 @@ object HomeCatalogSettingsRepository {
         HomeCatalogSettingsSyncService.triggerPush()
     }
 
-    private fun ensureLoaded() {
+    fun ensureLoaded() {
         if (hasLoaded) return
         hasLoaded = true
 

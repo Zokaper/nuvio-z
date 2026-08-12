@@ -216,6 +216,7 @@ fun SetupWizardScreen(
             .background(tokens.colors.background),
     ) {
         val isWide = maxWidth >= 768.dp
+        val availableHeight = maxHeight
         val insets = WindowInsets.safeDrawing.asPaddingValues()
         val stageSurface = if (step.allowsSurfaceChoice) previewSurface else step.previewSurface
 
@@ -329,7 +330,7 @@ fun SetupWizardScreen(
                                 onSurfaceSelected = { surfaceName = it.name },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height((maxHeight * 0.40f).coerceIn(220.dp, 420.dp)),
+                                    .height((availableHeight * 0.40f).coerceIn(220.dp, 420.dp)),
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                         }

@@ -19,6 +19,20 @@ sandbox where Gradle cannot configure.
 
 ## Phase 2 of 0.5.0-beta: the setup wizard (2026-08-12, unreleased)
 
+### Debug build 6 compile follow-up (2026-08-12)
+
+The first `debug-release.yml` run exposed five Compose compile errors that the parser-only
+check could not catch. Added the two generated string-resource imports used by the About row,
+made `HomeCatalogSettingsRepository.ensureLoaded()` callable by the wizard's state collectors,
+and captured the outer `BoxWithConstraints` height before entering the nested layout receiver.
+The desktop mirror also restores the missing `onRunSetupAgainClick` parameter on
+`AppSettingsTabContent`.
+
+**Verified locally on mobile:** `:composeApp:testAndroidHostTest` and
+`:androidApp:assembleFullDebug`, together, exit 0 and produce the full debug APK. Desktop's
+`desktopTest` compiled the corrected shared and desktop sources and entered the test executor;
+the complete desktop result is still pending.
+
 **Branch `claude/onboarding-setup-wizard-7juovt`, cut from the phase-1 branch in both
 repositories.** Phase 1 fixed the Streamlined flow; this is the other half of a first
 impression. Until now the app's entire onboarding was one full-screen question about playback
