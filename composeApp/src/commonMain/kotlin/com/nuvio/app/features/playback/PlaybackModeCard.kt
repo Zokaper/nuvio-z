@@ -1,46 +1,40 @@
 package com.nuvio.app.features.playback
 
+// This file was `PlaybackModeSelectorScreen.kt` until 0.5.0-beta, when the standalone
+// first-launch selector it held was replaced by `features/setup/SetupWizardScreen.kt`. The
+// card survived the screen because two places still describe the modes - the wizard's playback
+// step and `PlaybackModeDialog` in `PlaybackSettingsPage` - and they must not drift.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_mode_classic
 import nuvio.composeapp.generated.resources.playback_mode_classic_download
 import nuvio.composeapp.generated.resources.playback_mode_classic_stream_1
 import nuvio.composeapp.generated.resources.playback_mode_classic_stream_2
 import nuvio.composeapp.generated.resources.playback_mode_classic_tagline
-import nuvio.composeapp.generated.resources.playback_mode_escape_hatch
 import nuvio.composeapp.generated.resources.playback_mode_instant
 import nuvio.composeapp.generated.resources.playback_mode_instant_download
 import nuvio.composeapp.generated.resources.playback_mode_instant_stream_1
@@ -48,10 +42,6 @@ import nuvio.composeapp.generated.resources.playback_mode_instant_stream_2
 import nuvio.composeapp.generated.resources.playback_mode_instant_tagline
 import nuvio.composeapp.generated.resources.playback_mode_section_downloading
 import nuvio.composeapp.generated.resources.playback_mode_section_streaming
-import nuvio.composeapp.generated.resources.playback_mode_selector_confirm
-import nuvio.composeapp.generated.resources.playback_mode_selector_recommendation
-import nuvio.composeapp.generated.resources.playback_mode_selector_subtitle
-import nuvio.composeapp.generated.resources.playback_mode_selector_title
 import nuvio.composeapp.generated.resources.playback_mode_streamlined
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_download
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_1
@@ -59,91 +49,6 @@ import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_2
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_tagline
 import nuvio.composeapp.generated.resources.playback_mode_unavailable
 import org.jetbrains.compose.resources.stringResource
-
-/**
- * The first-launch mode selector.
- *
- * Shown once to everyone, existing installs included, and **pre-selected to
- * [PlaybackMode.Default] (Classic)** so that dismissing it changes nothing about how the
- * app already behaves. Confirming records both the mode and the seen flag - see
- * [PlaybackModeRepositoryContract] on why the two are separate.
- */
-@Composable
-fun PlaybackModeSelectorScreen(
-    initialMode: PlaybackMode = PlaybackMode.Default,
-    onConfirm: (PlaybackMode) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var selected by remember { mutableStateOf(initialMode) }
-
-    BoxWithConstraints(
-        modifier = modifier.background(MaterialTheme.nuvio.colors.background),
-        contentAlignment = Alignment.Center,
-    ) {
-        val availableWidth = maxWidth
-        Column(
-            modifier = Modifier
-                .widthIn(max = 1120.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(Res.string.playback_mode_selector_title),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(Res.string.playback_mode_selector_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (availableWidth >= 900.dp) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PlaybackMode.entries.forEach { mode ->
-                        PlaybackModeCard(
-                            mode = mode,
-                            isSelected = mode == selected,
-                            onClick = { selected = mode },
-                            modifier = Modifier.weight(1f),
-                            enabled = mode.isSelectable,
-                        )
-                    }
-                }
-            } else {
-                PlaybackMode.entries.forEach { mode ->
-                    PlaybackModeCard(
-                        mode = mode,
-                        isSelected = mode == selected,
-                        onClick = { selected = mode },
-                        enabled = mode.isSelectable,
-                    )
-                }
-            }
-
-            Text(
-                text = stringResource(Res.string.playback_mode_escape_hatch),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(Res.string.playback_mode_selector_recommendation),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Button(
-                onClick = { onConfirm(selected) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(text = stringResource(Res.string.playback_mode_selector_confirm))
-            }
-        }
-    }
-}
 
 /**
  * One mode, described the way a plan-comparison card describes a tier.
@@ -327,11 +232,12 @@ private fun playbackModeDownloadLine(mode: PlaybackMode): String = when (mode) {
 }
 
 /**
- * Marker for the contract the selector depends on, kept as documentation rather than an
+ * Marker for the contract the wizard depends on, kept as documentation rather than an
  * interface because `PlayerSettingsRepository` is an object.
  *
- * Confirming must call **both** `setPlaybackMode` and `markPlaybackModeSelectorSeen`.
- * Choosing Classic is a no-op for the mode - it is the pre-selected default - so relying on
- * the mode alone to dismiss the selector would show it again on every launch.
+ * Finishing setup must call **both** `markSetupWizardCompleted` and
+ * `markPlaybackModeSelectorSeen`. Choosing Classic is a no-op for the mode - it is the
+ * default - so the mode alone can never mean "answered", which is why the flag exists at all.
+ * `SetupWizardScreen.complete()` writes both.
  */
 private interface PlaybackModeRepositoryContract

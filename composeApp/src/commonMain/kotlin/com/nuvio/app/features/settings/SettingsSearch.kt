@@ -54,6 +54,7 @@ internal sealed class SettingsSearchTarget {
     object Collections : SettingsSearchTarget()
     object SwitchProfile : SettingsSearchTarget()
     object CheckForUpdates : SettingsSearchTarget()
+    object RunSetupAgain : SettingsSearchTarget()
 }
 
 internal data class SettingsSearchEntry(
@@ -85,6 +86,7 @@ internal fun settingsSearchEntries(
     liquidGlassNativeTabBarSupported: Boolean,
     switchProfileAvailable: Boolean,
     checkForUpdatesAvailable: Boolean,
+    runSetupAgainAvailable: Boolean,
 ): List<SettingsSearchEntry> {
     val accountCategory = stringResource(SettingsCategory.Account.labelRes)
     val generalCategory = stringResource(SettingsCategory.General.labelRes)
@@ -326,6 +328,23 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.Tune,
         target = SettingsSearchTarget.Page(SettingsPage.Root),
     )
+
+    if (runSetupAgainAvailable) {
+        // Registered even though the wizard is not a settings page: search is how a user who
+        // remembers "that setup thing" gets back to it, and SettingsSearch deliberately
+        // indexes rows it cannot navigate to as a page - Downloads and Switch profile are
+        // already the same shape.
+        add(
+            key = "run-setup-again",
+            title = stringResource(Res.string.settings_run_setup_again),
+            description = stringResource(Res.string.settings_run_setup_again_description),
+            page = if (supportersContributorsPageEnabled) supportersPage else licensesPage,
+            section = stringResource(Res.string.compose_settings_root_about_section),
+            category = aboutCategory,
+            icon = Icons.Rounded.Tune,
+            target = SettingsSearchTarget.RunSetupAgain,
+        )
+    }
 
     if (checkForUpdatesAvailable) {
         add(

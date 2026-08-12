@@ -47,6 +47,18 @@ internal fun shouldShowWhatsNew(
 object CurrentReleaseNotes {
     fun sections(isDesktop: Boolean): List<WhatsNewSection> = listOf(
         WhatsNewSection(
+            category = WhatsNewCategory.NewFeatures,
+            items = listOfNotNull(
+                WhatsNewItem(
+                    title = "A setup wizard, with live previews",
+                    description = "First launch now walks you through how Nuvio picks sources and " +
+                        "how it looks, with a preview beside every choice so you can see what you " +
+                        "are picking. Start from one of three ready-made looks, then change any of " +
+                        "it - or none. Run it again any time from Settings.",
+                ),
+            ),
+        ),
+        WhatsNewSection(
             category = WhatsNewCategory.BugFixes,
             items = listOfNotNull(
                 WhatsNewItem(

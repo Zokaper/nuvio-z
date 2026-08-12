@@ -90,6 +90,7 @@ internal fun LazyListScope.settingsRootContent(
     onLicensesAttributionsClick: () -> Unit,
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onWhatsNewClick: (() -> Unit)? = null,
+    onRunSetupAgainClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onDownloadsClick: () -> Unit,
     onAccountClick: () -> Unit,
@@ -250,6 +251,16 @@ internal fun LazyListScope.settingsRootContent(
                             icon = Icons.Rounded.NewReleases,
                             isTablet = isTablet,
                             onClick = onWhatsNewClick,
+                        )
+                    }
+                    if (onRunSetupAgainClick != null) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_run_setup_again),
+                            description = stringResource(Res.string.settings_run_setup_again_description),
+                            icon = Icons.Rounded.Tune,
+                            isTablet = isTablet,
+                            onClick = onRunSetupAgainClick,
                         )
                     }
                     if (onCheckForUpdatesClick != null) {

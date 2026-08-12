@@ -89,6 +89,24 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadTransferTest \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
+# --- Group 3: the setup wizard's ordering, fork and presets ----------------------------------
+# SetupWizardSteps.kt is import-free; SetupWizardPresets.kt imports three enums only, so only
+# those enums are stubbed. The wizard itself is a Compose gate no test can reach once it is on
+# screen, which is why the whole step machine lives outside it.
+rm -rf "$WORK/out-setup"
+kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
+  "$STUBS/SetupNeighbourStubs.kt" \
+  "$STUBS/WatchProgressStub.kt" \
+  "$M/features/setup/SetupWizardSteps.kt" \
+  "$M/features/setup/SetupWizardPresets.kt" \
+  "$T/features/setup/SetupWizardStepsTest.kt" \
+  "$T/features/setup/SetupWizardPresetsTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
+  com.nuvio.app.features.setup.SetupWizardStepsTest \
+  com.nuvio.app.features.setup.SetupWizardPresetsTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
 # Deliberately not run here, and CI is the gate for both:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types
 #   AutoPlayFailoverTest        - reaches the real StreamItem and StreamsRepository

@@ -242,7 +242,9 @@ import com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS
 import com.nuvio.app.features.playback.StreamRouteSurface
 import com.nuvio.app.features.playback.StreamRouteSurfaceInputs
 import com.nuvio.app.features.playback.streamRouteSurface
-import com.nuvio.app.features.playback.PlaybackModeSelectorScreen
+import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
+import com.nuvio.app.features.setup.SetupWizardScreen
+import com.nuvio.app.features.setup.shouldShowSetupWizard
 import com.nuvio.app.features.playback.PlaybackQualityOption
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
@@ -609,6 +611,10 @@ fun App(
         // Opened from Settings rather than shown after an update: dismissible, and it must not
         // record the version as seen or the post-update showing would be skipped.
         var showWhatsNewOnDemand by remember { mutableStateOf(false) }
+        // Settings -> "Run setup again". Hoisted here for the same reason the What's New flag
+        // is: the gating showing lives in this function, and one flag for both is what keeps
+        // an on-demand run from being confused with the first-launch one.
+        var showSetupWizardOnDemand by remember { mutableStateOf(false) }
         // null while loading, empty when it could not be fetched. Either way the curated
         // sections still render - this screen has to work offline and on builds where the
         // in-app updater is disabled.
@@ -832,20 +838,29 @@ fun App(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                AppGateScreen.Main.name -> if (!gatePlayerSettings.playbackModeSelectorSeen) {
-                    PlaybackModeSelectorScreen(
-                        initialMode = gatePlayerSettings.playbackMode,
-                        onConfirm = { mode ->
-                            // Both, always: choosing Classic is a no-op for the mode, so
-                            // the seen flag is the only thing that dismisses the selector.
-                            PlayerSettingsRepository.setPlaybackMode(mode)
-                            PlayerSettingsRepository.markPlaybackModeSelectorSeen()
-                        },
+                AppGateScreen.Main.name -> if (
+                    shouldShowSetupWizard(
+                        completedRevision = gatePlayerSettings.setupWizardCompletedRevision,
+                        currentRevision = SETUP_WIZARD_REVISION,
+                    )
+                ) {
+                    // The wizard replaced the standalone playback-mode selector, which used to
+                    // stand here. Same reasoning as before: read at this one place rather than
+                    // as a sixth AppGateScreen value, because five separate transitions set the
+                    // gate to Main and wrapping the Main branch covers every one of them.
+                    SetupWizardScreen(
+                        // Nothing to do here on purpose: the wizard's own completion writes
+                        // the revision through PlayerSettingsRepository, gatePlayerSettings
+                        // collects that flow, and this branch re-evaluates to MainAppContent.
+                        // A flag here as well would be a second source of truth for the same
+                        // question, and the stored one is the one that survives a restart.
+                        onFinished = {},
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     MainAppContent(
                         onWhatsNewClick = { showWhatsNewOnDemand = true },
+                        onRunSetupAgainClick = { showSetupWizardOnDemand = true },
                         initialTab = initialTab,
                         initialRoute = initialRoute,
                         useNativeNavigation = useNativeNavigation,
@@ -891,6 +906,18 @@ fun App(
                 onContinue = { showWhatsNewOnDemand = false },
             )
         }
+
+        // Opened from Settings rather than gating the app: it covers MainAppContent instead of
+        // replacing it, and it is dismissible. Finishing still records the revision - a user
+        // who walks the whole wizard has answered it, however they got there.
+        if (showSetupWizardOnDemand && gateScreen == AppGateScreen.Main.name) {
+            SetupWizardScreen(
+                onFinished = { showSetupWizardOnDemand = false },
+                dismissible = true,
+                onDismiss = { showSetupWizardOnDemand = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -902,6 +929,7 @@ private fun MainAppContent(
     // bypass-gate path, which renders no What's New dialog - a row that opened nothing would
     // be worse than no row.
     onWhatsNewClick: (() -> Unit)? = null,
+    onRunSetupAgainClick: (() -> Unit)? = null,
     initialTab: AppScreenTab = AppScreenTab.Home,
     initialRoute: AppRoute = TabsRoute,
     useNativeNavigation: Boolean = false,
@@ -2276,6 +2304,7 @@ private fun MainAppContent(
                                             navController.navigate(LicensesAttributionsSettingsRoute(licensesSettingsTitle))
                                         },
                                         onWhatsNewClick = onWhatsNewClick,
+                                        onRunSetupAgainClick = onRunSetupAgainClick,
                                         onCheckForUpdatesClick = if (AppFeaturePolicy.inAppUpdaterEnabled) {
                                             {
                                                 appUpdaterController.checkForUpdates(
@@ -4353,6 +4382,7 @@ private fun MainAppContent(
                             navController.navigate(CollectionsRoute(collectionsTitle))
                         },
                         onWhatsNewClick = onWhatsNewClick,
+                        onRunSetupAgainClick = onRunSetupAgainClick,
                         onCheckForUpdatesClick = if (AppFeaturePolicy.inAppUpdaterEnabled) {
                             {
                                 appUpdaterController.checkForUpdates(
@@ -4914,6 +4944,7 @@ private fun AppTabHost(
     onLicensesAttributionsSettingsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onWhatsNewClick: (() -> Unit)? = null,
+    onRunSetupAgainClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsSettingsClick: () -> Unit = {},
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
@@ -4994,6 +5025,7 @@ private fun AppTabHost(
                         onLicensesAttributionsClick = onLicensesAttributionsSettingsClick,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
                         onWhatsNewClick = onWhatsNewClick,
+                        onRunSetupAgainClick = onRunSetupAgainClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsSettingsClick,
                     )

@@ -85,6 +85,13 @@ data class PlayerSettingsUiState(
     val playbackAutoDownshift: Boolean = false,
     /** False until the first-launch mode selector has been answered or dismissed. */
     val playbackModeSelectorSeen: Boolean = false,
+    /**
+     * Highest setup-wizard revision this profile has finished; 0 means never.
+     *
+     * Read through `shouldShowSetupWizard` in `features/setup/SetupWizardSteps.kt` rather
+     * than compared here - that function owns the downgrade rule.
+     */
+    val setupWizardCompletedRevision: Int = 0,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
@@ -179,6 +186,7 @@ object PlayerSettingsRepository {
     private var playbackMeteredCapHeight = 720
     private var playbackAutoDownshift = false
     private var playbackModeSelectorSeen = false
+    private var setupWizardCompletedRevision = 0
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
@@ -259,6 +267,7 @@ object PlayerSettingsRepository {
         playbackMeteredCapHeight = 720
         playbackAutoDownshift = false
         playbackModeSelectorSeen = false
+        setupWizardCompletedRevision = 0
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
         streamAutoPlaySelectedAddons = emptySet()
@@ -406,6 +415,8 @@ object PlayerSettingsRepository {
         }
         playbackModeSelectorSeen =
             PlayerSettingsStorage.loadPlaybackModeSelectorSeen() ?: false
+        setupWizardCompletedRevision =
+            PlayerSettingsStorage.loadSetupWizardCompletedRevision() ?: 0
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlayMode.MANUAL
@@ -784,6 +795,21 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.savePlaybackModeSelectorSeen(true)
     }
 
+    /**
+     * Records that the setup wizard has been completed at [revision].
+     *
+     * Only ever increases. A profile can carry a higher revision than this build knows about,
+     * because the value syncs and the user may have finished the wizard on a newer install;
+     * lowering it there would re-run a wizard they have already answered a superset of.
+     */
+    fun markSetupWizardCompleted(revision: Int) {
+        ensureLoaded()
+        if (setupWizardCompletedRevision >= revision) return
+        setupWizardCompletedRevision = revision
+        publish()
+        PlayerSettingsStorage.saveSetupWizardCompletedRevision(revision)
+    }
+
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
         ensureLoaded()
         if (streamAutoPlayMode == mode) return
@@ -1139,6 +1165,7 @@ object PlayerSettingsRepository {
             playbackMeteredCapHeight = playbackMeteredCapHeight,
             playbackAutoDownshift = playbackAutoDownshift,
             playbackModeSelectorSeen = playbackModeSelectorSeen,
+            setupWizardCompletedRevision = setupWizardCompletedRevision,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,

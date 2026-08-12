@@ -63,6 +63,7 @@ actual object PlayerSettingsStorage {
     private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
     private const val playbackAutoDownshiftKey = "playback_auto_downshift"
     private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
+    private const val setupWizardCompletedRevisionKey = "setup_wizard_completed_revision"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -141,6 +142,7 @@ actual object PlayerSettingsStorage {
         playbackMeteredCapHeightKey,
         playbackAutoDownshiftKey,
         playbackModeSelectorSeenKey,
+        setupWizardCompletedRevisionKey,
         streamAutoPlayModeKey,
         streamAutoPlaySourceKey,
         streamAutoPlaySelectedAddonsKey,
@@ -756,6 +758,15 @@ actual object PlayerSettingsStorage {
         preferences?.edit()?.putInt(ProfileScopedKey.of(playbackMeteredCapHeightKey), height)?.apply()
     }
 
+    actual fun loadSetupWizardCompletedRevision(): Int? = preferences?.let { prefs ->
+        val key = ProfileScopedKey.of(setupWizardCompletedRevisionKey)
+        if (prefs.contains(key)) prefs.getInt(key, 0) else null
+    }
+
+    actual fun saveSetupWizardCompletedRevision(revision: Int) {
+        preferences?.edit()?.putInt(ProfileScopedKey.of(setupWizardCompletedRevisionKey), revision)?.apply()
+    }
+
     actual fun loadPlaybackAutoDownshift(): Boolean? =
         preferences?.let { sharedPreferences ->
             val key = ProfileScopedKey.of(playbackAutoDownshiftKey)
@@ -1230,6 +1241,9 @@ actual object PlayerSettingsStorage {
         loadPlaybackModeSelectorSeen()?.let {
             put(playbackModeSelectorSeenKey, encodeSyncBoolean(it))
         }
+        loadSetupWizardCompletedRevision()?.let {
+            put(setupWizardCompletedRevisionKey, encodeSyncInt(it))
+        }
         loadStreamAutoPlayMode()?.let { put(streamAutoPlayModeKey, encodeSyncString(it)) }
         loadStreamAutoPlaySource()?.let { put(streamAutoPlaySourceKey, encodeSyncString(it)) }
         loadStreamAutoPlaySelectedAddons()?.let { put(streamAutoPlaySelectedAddonsKey, encodeSyncStringSet(it)) }
@@ -1321,6 +1335,8 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)
         payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
             ?.let(::savePlaybackModeSelectorSeen)
+        payload.decodeSyncInt(setupWizardCompletedRevisionKey)
+            ?.let(::saveSetupWizardCompletedRevision)
         payload.decodeSyncString(streamAutoPlayModeKey)?.let(::saveStreamAutoPlayMode)
         payload.decodeSyncString(streamAutoPlaySourceKey)?.let(::saveStreamAutoPlaySource)
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)

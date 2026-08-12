@@ -119,6 +119,19 @@ internal expect object PlayerSettingsStorage {
      */
     fun loadPlaybackModeSelectorSeen(): Boolean?
     fun savePlaybackModeSelectorSeen(seen: Boolean)
+
+    /**
+     * The highest setup-wizard revision this profile has completed.
+     *
+     * An integer rather than a boolean so a later release can add steps and ask again, and
+     * rather than the app version so a patch bump does not re-run the whole wizard. See
+     * `SETUP_WIZARD_REVISION` in `features/setup/SetupWizardSteps.kt`, which owns the rule.
+     *
+     * Null means never completed, which is both a fresh install and every profile created
+     * before `0.5.0-beta`. That is intended - neither has seen these options.
+     */
+    fun loadSetupWizardCompletedRevision(): Int?
+    fun saveSetupWizardCompletedRevision(revision: Int)
     fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean?
     fun saveStreamAutoPlayNextEpisodeEnabled(enabled: Boolean)
     fun loadStreamAutoPlayPreferBingeGroup(): Boolean?
