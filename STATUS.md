@@ -30,8 +30,9 @@ The desktop mirror also restores the missing `onRunSetupAgainClick` parameter on
 
 **Verified locally on mobile:** `:composeApp:testAndroidHostTest` and
 `:androidApp:assembleFullDebug`, together, exit 0 and produce the full debug APK. Desktop's
-`desktopTest` compiled the corrected shared and desktop sources and entered the test executor;
-the complete desktop result is still pending.
+full `:composeApp:desktopTest` suite also exits 0. GitHub `debug-release.yml` run
+`31643900767` passed its host suite and APK build, then published prerelease
+`debug-v0.4.14-beta.6` from commit `247be94b` for device testing.
 
 **Branch `claude/onboarding-setup-wizard-7juovt`, cut from the phase-1 branch in both
 repositories.** Phase 1 fixed the Streamlined flow; this is the other half of a first
