@@ -4,26 +4,27 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,10 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,54 +55,37 @@ import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeContinueWatchingSection
 import com.nuvio.app.features.home.components.HomeHeroSection
-import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 
 /**
- * What the stage is showing.
+ * Which part of the app the preview is showing, and which part of it to bring into view.
  *
- * Two live surfaces, not one per step. A step does not get its own bespoke preview: the stage
- * is a single object the user keeps looking at while it changes underneath them, which is the
- * only way "this is what your app will look like" reads as a promise rather than an
- * illustration.
+ * One value per thing the wizard can change, rather than one per screen, because the preview's
+ * job is to have the *thing being changed* on screen. A Continue Watching step spent looking
+ * at a hero banner is a preview in name only.
  */
-enum class SetupPreviewSurface {
-    /** Hero banner, Continue Watching and a catalog row - everything the card and home steps set. */
-    Home,
+enum class SetupPreviewFocus(internal val surface: Surface) {
+    /** Home, resting at the top. Used by the steps that change nothing visible. */
+    Home(Surface.Home),
 
-    /** The details screen, under whichever background treatment and episode style are current. */
-    Details,
+    /** Home, hero banner in view. */
+    HomeHero(Surface.Home),
+
+    /** Home, Continue Watching row in view. */
+    HomeContinueWatching(Surface.Home),
+
+    /** Home, catalog row in view. */
+    HomeCatalog(Surface.Home),
+
+    /** Details, hero and background treatment in view. */
+    DetailsHero(Surface.Details),
+
+    /** Details, episode list in view. */
+    DetailsEpisodes(Surface.Details),
+    ;
+
+    internal enum class Surface { Home, Details }
 }
-
-/**
- * The logical size the stage composes at, before scaling.
- *
- * ⚠ **This is the whole trick, and getting it wrong is how the preview starts lying.** Every
- * composable the stage renders sizes itself from *its container's* `maxWidth` -
- * `homeHeroLayout`, `rememberContinueWatchingLayout` and `homeSectionHorizontalPaddingForWidth`
- * all branch at 600/768/840/1024/1440 dp. Laid out at the stage's real width, a preview inside
- * a 1100 dp desktop wizard would pick *tablet* metrics, and one inside a 260 dp phone column
- * would pick phone metrics rendered at desktop scale. Neither is what the user's app will do.
- *
- * So the content always composes at one fixed logical width - a typical phone - and the whole
- * thing is scaled to fit afterwards. What the user sees is a scale model of a phone, which is
- * both honest and what a preview is expected to be.
- */
-private val StageLogicalWidth: Dp = 390.dp
-private val StageLogicalHeight: Dp = 620.dp
-
-/**
- * The hint pair that fixes the hero's height inside the stage.
- *
- * These are the same two parameters `HomeScreen` passes down from its own `BoxWithConstraints`,
- * so the preview reaches `mobileHeroHeight` by the identical path the real screen does - it
- * just hands it the logical viewport instead of the device's. 620 less 240 leaves the hero
- * 380 dp and the Continue Watching row the rest, close to a real phone's split.
- */
-private val StageBelowHeroHint: Dp = 240.dp
-
-/** Matches `homeSectionHorizontalPaddingForWidth` below 768 dp, which is what 390 dp is. */
-private val StageSectionPadding: Dp = 16.dp
 
 /**
  * The live preview the wizard is built around.
@@ -112,97 +95,100 @@ private val StageSectionPadding: Dp = 16.dp
  * there is no preview state, no override parameters and no second rendering path that could
  * drift from the app. If the stage is wrong, the app is wrong in the same way.
  *
- * ⚠ **Named arguments at every call site below, and it is not a style preference.** The four
- * composables this file calls have all diverged between the two repositories: desktop's
+ * ⚠ **It composes at the size it is actually given, and that is the point.** An earlier version
+ * pinned the content to a fixed 390x620 logical phone and scaled it, to stop a narrow
+ * side-by-side column from making `homeHeroLayout` / `rememberContinueWatchingLayout` /
+ * `homeSectionHorizontalPaddingForWidth` pick phone metrics inside a desktop window. With the
+ * preview filling the window that cannot happen: the stage *is* roughly the real viewport, so
+ * those helpers pick exactly the branch the real app picks. On a desktop window this previews
+ * the **desktop** app, at desktop metrics - which is what it should have been doing all along.
+ *
+ * ⚠ **Named arguments at every call site below, and it is not a style preference.** The
+ * composables this file calls have diverged between the two repositories: desktop's
  * `HomeHeroSection` gained a `sectionPadding` parameter in the middle of its list and its
  * `DetailHero` gained a `viewportHeight`. Named arguments make both harmless; positional ones
- * would have bound silently to the wrong slot.
+ * would bind silently to the wrong slot.
  *
- * ⚠ **This file is NOT byte-identical across the repositories, and must not be `cp`'d.**
+ * ⚠ **This file is NOT byte-identical across the repositories and must not be `cp`'d.**
  * `NuvioZDesktop`'s `HomeContinueWatchingSection` takes a *required* `dataSourceKey` that this
- * repository's copy does not have, so the desktop version carries exactly one extra argument
- * at the `HomeContinueWatchingSection` call below. Everything else must stay in step by hand.
+ * repository's copy does not have, so the desktop version carries one extra argument at that
+ * call. Everything else must stay in step by hand.
+ *
+ * @param bottomInset how much of the stage the wizard's sheet covers. Content scrolls above it
+ *   rather than under it, so the last row is reachable instead of permanently hidden.
  */
 @Composable
 fun SetupPreviewStage(
-    surface: SetupPreviewSurface,
+    focus: SetupPreviewFocus,
     catalogRowTitle: String,
     continueWatchingTitle: String,
     episodesSectionTitle: String,
+    bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val stageShape = RoundedCornerShape(18.dp)
 
-    BoxWithConstraints(modifier = modifier) {
-        val scale = minOf(
-            maxWidth / StageLogicalWidth,
-            maxHeight / StageLogicalHeight,
-        ).coerceAtMost(1f)
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(StageLogicalWidth * scale, StageLogicalHeight * scale)
-                .clip(stageShape)
-                // A gradient floor, so a stage whose artwork has not loaded - or cannot,
-                // because there is no network - reads as a dimmed screen rather than a broken
-                // one. The wizard has to survive aeroplane mode intact.
-                .background(
-                    Brush.verticalGradient(
-                        listOf(tokens.colors.surfaceElevated, tokens.colors.background),
-                    ),
-                )
-                .border(
-                    width = tokens.borders.hairline,
-                    color = tokens.colors.borderSubtle,
-                    shape = stageShape,
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // A gradient floor, so a stage whose artwork has not loaded - or cannot, because
+            // there is no network - reads as a dimmed screen rather than a broken one. The
+            // wizard has to survive aeroplane mode intact.
+            .background(
+                Brush.verticalGradient(
+                    listOf(tokens.colors.surfaceElevated, tokens.colors.background),
                 ),
-        ) {
-            Box(
-                modifier = Modifier
-                    // requiredSize, not size: this deliberately escapes the parent's
-                    // constraints so the content lays out at the logical phone size and is
-                    // then scaled, rather than being squeezed into the stage's real box.
-                    .requiredSize(StageLogicalWidth, StageLogicalHeight)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                    },
-            ) {
-                Crossfade(
-                    targetState = surface,
-                    animationSpec = tween(durationMillis = 260),
-                    label = "setup_preview_surface",
-                ) { current ->
-                    when (current) {
-                        SetupPreviewSurface.Home -> StageHome(
-                            catalogRowTitle = catalogRowTitle,
-                            continueWatchingTitle = continueWatchingTitle,
-                        )
+            ),
+    ) {
+        Crossfade(
+            targetState = focus.surface,
+            animationSpec = tween(durationMillis = 260),
+            label = "setup_preview_surface",
+        ) { surface ->
+            when (surface) {
+                SetupPreviewFocus.Surface.Home -> StageHome(
+                    focus = focus,
+                    catalogRowTitle = catalogRowTitle,
+                    continueWatchingTitle = continueWatchingTitle,
+                    bottomInset = bottomInset,
+                )
 
-                        SetupPreviewSurface.Details -> StageDetails(
-                            episodesSectionTitle = episodesSectionTitle,
-                        )
-                    }
-                }
+                SetupPreviewFocus.Surface.Details -> StageDetails(
+                    focus = focus,
+                    episodesSectionTitle = episodesSectionTitle,
+                    bottomInset = bottomInset,
+                )
             }
         }
     }
 }
 
 /**
- * Hero, Continue Watching and one catalog row - the three things the card and home steps move.
+ * Scrolls [scrollState] so the section registered under [focus] sits just below the top.
  *
- * The hero is present or absent exactly as `HomeScreen` decides it, from the same repository
- * flag, so turning it off in the wizard removes it here for the same reason it will remove it
- * from the home screen.
+ * Offsets are collected by `onGloballyPositioned` rather than assumed, because the hero's
+ * height comes from `homeHeroLayout` and changes with the window - and with whether the hero
+ * is switched on at all.
  */
 @Composable
+private fun AnchorEffect(
+    focus: SetupPreviewFocus,
+    offsets: Map<SetupPreviewFocus, Int>,
+    scrollState: ScrollState,
+) {
+    val target = offsets[focus]
+    LaunchedEffect(focus, target) {
+        val destination = target ?: return@LaunchedEffect
+        scrollState.animateScrollTo(destination.coerceAtLeast(0))
+    }
+}
+
+@Composable
 private fun StageHome(
+    focus: SetupPreviewFocus,
     catalogRowTitle: String,
     continueWatchingTitle: String,
+    bottomInset: Dp,
 ) {
     val homeSettings by remember {
         HomeCatalogSettingsRepository.ensureLoaded()
@@ -213,34 +199,43 @@ private fun StageHome(
         ContinueWatchingPreferencesRepository.uiState
     }.collectAsStateWithLifecycle()
 
+    val scrollState = rememberScrollState()
+    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Int>() }
+    AnchorEffect(focus = focus, offsets = offsets, scrollState = scrollState)
+
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (homeSettings.heroEnabled) {
-            HomeHeroSection(
-                items = SetupSampleTitle.rowItems,
-                viewportHeight = StageLogicalHeight,
-                mobileBelowSectionHeightHint = StageBelowHeroHint,
-            )
+            Box(modifier = Modifier.anchor(SetupPreviewFocus.HomeHero, offsets)) {
+                HomeHeroSection(items = SetupSampleTitle.rowItems)
+            }
         }
 
         if (continueWatching.isVisible) {
-            HomeContinueWatchingSection(
-                items = SetupSampleTitle.continueWatching,
-                style = continueWatching.style,
-                useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
-                blurNextUp = continueWatching.blurNextUp,
-                title = continueWatchingTitle,
-                sectionPadding = StageSectionPadding,
-                layout = rememberContinueWatchingLayout(StageLogicalWidth.value),
-            )
+            Box(modifier = Modifier.anchor(SetupPreviewFocus.HomeContinueWatching, offsets)) {
+                HomeContinueWatchingSection(
+                    items = SetupSampleTitle.continueWatching,
+                    style = continueWatching.style,
+                    useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
+                    blurNextUp = continueWatching.blurNextUp,
+                    title = continueWatchingTitle,
+                )
+            }
         }
 
-        HomeCatalogRowSection(
-            section = SetupSampleTitle.catalogSection(catalogRowTitle),
-            sectionPadding = StageSectionPadding,
-        )
+        Box(modifier = Modifier.anchor(SetupPreviewFocus.HomeCatalog, offsets)) {
+            HomeCatalogRowSection(section = SetupSampleTitle.catalogSection(catalogRowTitle))
+        }
+
+        // A second row, so the catalog step has something below the one it is changing and the
+        // card size choice reads as a layout rather than as one isolated shelf.
+        HomeCatalogRowSection(section = SetupSampleTitle.secondCatalogSection(catalogRowTitle))
+
+        Spacer(modifier = Modifier.height(bottomInset))
     }
 }
 
@@ -251,17 +246,19 @@ private fun StageHome(
  * this file that is not a shipped composable.** `MetaDetailsScreen` paints it as a sibling of
  * its `LazyColumn` inside a screen that owns a fetch, a scroll state, a nav controller and a
  * dominant-colour extractor - none of which a preview can supply - and that file is on
- * `AGENTS.md`'s "legitimately differs between the repositories" list, so reaching into it is
- * the one move here that could not be mirrored by copying.
+ * `AGENTS.md`'s "legitimately differs between the repositories" list.
  *
  * What *is* reproduced is reproduced exactly: the same `when` over the three modes, the same
  * 30 dp blur, the same 0.92 scrim, the same kmpalette extraction and the same 0.42 blend
- * towards the background. `DetailHero` itself - backdrop, gradient, logo with its text
- * fallback, genre line - is the shipped composable, and it is what the modes are judged
- * against. If the real screen's treatment changes, this has to change with it.
+ * towards the background. `DetailHero` itself is the shipped composable. If the real screen's
+ * treatment changes, this has to change with it.
  */
 @Composable
-private fun StageDetails(episodesSectionTitle: String) {
+private fun StageDetails(
+    focus: SetupPreviewFocus,
+    episodesSectionTitle: String,
+    bottomInset: Dp,
+) {
     val colorScheme = MaterialTheme.colorScheme
     val metaSettings by remember {
         MetaScreenSettingsRepository.ensureLoaded()
@@ -309,6 +306,10 @@ private fun StageDetails(episodesSectionTitle: String) {
         label = "setup_preview_dominant_backdrop",
     )
 
+    val scrollState = rememberScrollState()
+    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Int>() }
+    AnchorEffect(focus = focus, offsets = offsets, scrollState = scrollState)
+
     Box(modifier = Modifier.fillMaxSize()) {
         when (backgroundMode) {
             MetaScreenBackgroundMode.Normal -> Unit
@@ -336,23 +337,29 @@ private fun StageDetails(episodesSectionTitle: String) {
             )
         }
 
-        Column(modifier = Modifier.fillMaxWidth()) {
-            DetailHero(
-                meta = meta,
-                isTablet = false,
-                contentMaxWidth = StageLogicalWidth,
-                heroGradientColor = backdropColor.takeIf { dominantColorEnabled },
-                onBackdropLoaded = { painter, bitmap ->
-                    backdropPainter = painter
-                    backdropImageBitmap = bitmap
-                },
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState),
+        ) {
+            Box(modifier = Modifier.anchor(SetupPreviewFocus.DetailsHero, offsets)) {
+                DetailHero(
+                    meta = meta,
+                    isTablet = false,
+                    heroGradientColor = backdropColor.takeIf { dominantColorEnabled },
+                    onBackdropLoaded = { painter, bitmap ->
+                        backdropPainter = painter
+                        backdropImageBitmap = bitmap
+                    },
+                )
+            }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .anchor(SetupPreviewFocus.DetailsEpisodes, offsets)
                     .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 StageSectionHeader(
                     title = episodesSectionTitle,
@@ -362,11 +369,22 @@ private fun StageDetails(episodesSectionTitle: String) {
                     StageEpisodeCard(
                         episode = episode,
                         style = metaSettings.episodeCardStyle,
+                        blurred = metaSettings.blurUnwatchedEpisodes,
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(bottomInset))
         }
     }
+}
+
+/** Records this element's y offset inside the scrolling column, for [AnchorEffect]. */
+private fun Modifier.anchor(
+    focus: SetupPreviewFocus,
+    offsets: MutableMap<SetupPreviewFocus, Int>,
+): Modifier = this.onGloballyPositioned { coordinates ->
+    offsets[focus] = coordinates.positionInParent().y.toInt()
 }
 
 /**
@@ -388,7 +406,7 @@ private fun StageSectionHeader(title: String, tabbed: Boolean) {
         )
         return
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         listOf(title to true, "Cast" to false, "More" to false).forEach { (label, selected) ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
@@ -418,15 +436,21 @@ private fun StageSectionHeader(title: String, tabbed: Boolean) {
  * preview has none of. This draws the same two silhouettes - 16:9 still above the text, or a
  * thumbnail beside it - with the real artwork and the real tokens, which is what the choice is
  * actually asking the user to compare.
+ *
+ * [blurred] is `blurUnwatchedEpisodes`. Every sample episode is unwatched, so the setting
+ * applies to all of them - which is the honest demonstration of what it does to a season you
+ * have not started.
  */
 @Composable
 private fun StageEpisodeCard(
     episode: SetupSampleTitle.SampleEpisode,
     style: MetaEpisodeCardStyle,
+    blurred: Boolean,
 ) {
     val tokens = MaterialTheme.nuvio
     val label = "S${episode.seasonNumber} E${episode.episodeNumber} · ${episode.title}"
     val shape = RoundedCornerShape(10.dp)
+    val stillBlur = if (blurred) 14.dp else 0.dp
 
     when (style) {
         MetaEpisodeCardStyle.Horizontal -> Column(
@@ -437,9 +461,10 @@ private fun StageEpisodeCard(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(96.dp)
+                    .height(150.dp)
                     .clip(shape)
-                    .background(tokens.colors.skeleton),
+                    .background(tokens.colors.skeleton)
+                    .blur(stillBlur),
                 contentScale = ContentScale.Crop,
             )
             Text(
@@ -457,17 +482,18 @@ private fun StageEpisodeCard(
         }
 
         MetaEpisodeCardStyle.List -> Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
                 model = episode.stillUrl,
                 contentDescription = null,
                 modifier = Modifier
-                    .width(104.dp)
-                    .height(59.dp)
+                    .width(132.dp)
+                    .height(74.dp)
                     .clip(shape)
-                    .background(tokens.colors.skeleton),
+                    .background(tokens.colors.skeleton)
+                    .blur(stillBlur),
                 contentScale = ContentScale.Crop,
             )
             Column(

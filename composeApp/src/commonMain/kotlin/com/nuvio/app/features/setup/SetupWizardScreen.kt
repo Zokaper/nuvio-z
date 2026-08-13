@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,9 +48,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.AppTheme
@@ -81,32 +82,34 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 // String keys are imported by wildcard, which is the style HomeScreen.kt, MetaDetailsScreen.kt
-// and DetailHero.kt already use. Deliberate: this screen reads about sixty keys, and the
-// explicit-import style that PlaybackQualitySheet.kt follows is what broke compileAndroidMain
-// in 0.4.13-beta when one of them was added to strings.xml and not to the import list.
-
-/** The two windows the stage can show; only some steps let the user switch between them. */
-private val allPreviewSurfaces = listOf(SetupPreviewSurface.Home, SetupPreviewSurface.Details)
+// and DetailHero.kt already use. Deliberate: this screen reads about seventy keys.
+//
+// ⚠ That decision covers THIS file only. `SettingsRootPage.kt` imports every key explicitly,
+// and adding the "Run setup again" row there without its two imports is what failed the first
+// debug-release run of the wizard. Check the host file's style before using a key in it.
 
 /**
  * The first-launch setup wizard.
  *
  * Replaces the standalone playback-mode selector, which was the app's entire onboarding: one
- * question, answered before the user had seen anything the answer applied to. This keeps that
- * question - it is still the first thing asked, and still uses the same `PlaybackModeCard`, so
- * its copy cannot drift from the settings dialog - and puts the visual choices behind it,
- * every one of them against a live preview.
+ * question, answered before the user had seen anything the answer applied to. That question is
+ * still asked first, still through the same `PlaybackModeCard` so its copy cannot drift from
+ * the settings dialog - and every appearance choice behind it is asked against a live preview
+ * of the real app.
  *
- * ⚠ **Every choice is written the moment it is tapped**, through the same repository setter
- * the settings page uses. That is what lets [SetupPreviewStage] render the real composables
- * reading the real state instead of a parallel mock. It also means there is no undo, which
- * matches how every settings page in this app already behaves - and why the exit on the first
- * step is called "Skip for now" rather than "use defaults": nothing has been written yet, so
- * there is nothing to restore.
+ * **The preview is the screen; the wizard is a sheet on top of it.** The stage fills the
+ * window and the controls sit in a translucent panel docked to the bottom, so the thing being
+ * changed is always the largest object on screen. Each step scrolls the preview to whatever it
+ * affects - see [SetupPreviewFocus].
  *
- * @param dismissible true when opened from Settings rather than gating the app. A dismissible
- *   run gets a close affordance and [onDismiss]; a gating run has no way out but through, or
- *   through the skip on the first step.
+ * ⚠ **Every choice is written the moment it is tapped**, through the same repository setter the
+ * settings page uses. That is what lets [SetupPreviewStage] render the real composables reading
+ * the real state instead of a parallel mock. It also means there is no undo, which matches how
+ * every settings page in this app already behaves - and why the exit on the first step is
+ * "Skip for now" rather than "use defaults": nothing has been written yet, so there is nothing
+ * to restore.
+ *
+ * @param dismissible true when opened from Settings rather than gating the app.
  */
 @Composable
 fun SetupWizardScreen(
@@ -150,23 +153,13 @@ fun SetupWizardScreen(
     // Saved by name, not by ordinal: an enum reordered in a later release must not resume a
     // process-death-restored wizard on a different step than the user left it on.
     var stepName by rememberSaveable { mutableStateOf(SetupStep.Welcome.name) }
-    var pathName by rememberSaveable { mutableStateOf(SetupWizardPath.Undecided.name) }
-    var surfaceName by rememberSaveable { mutableStateOf(SetupPreviewSurface.Home.name) }
     val step = remember(stepName) {
         SetupStep.entries.firstOrNull { it.name == stepName } ?: SetupStep.Welcome
     }
-    val path = remember(pathName) {
-        SetupWizardPath.entries.firstOrNull { it.name == pathName } ?: SetupWizardPath.Undecided
-    }
-    val previewSurface = remember(surfaceName) {
-        SetupPreviewSurface.entries.firstOrNull { it.name == surfaceName } ?: SetupPreviewSurface.Home
-    }
 
-    // The optional steps are dropped rather than shown-and-skipped when they have nothing to
-    // offer. `enabled` rather than merely present: an installed-but-disabled addon is not a
-    // source, so a profile carrying only those still gets asked.
+    // `enabled`, not merely present: an installed-but-disabled addon is not a source, so a
+    // profile carrying only those still gets asked.
     val plan = SetupWizardPlan(
-        path = path,
         offerSources = addons.addons.none { it.enabled },
         offerTrakt = trakt.mode != TraktConnectionMode.CONNECTED,
     )
@@ -175,8 +168,7 @@ fun SetupWizardScreen(
     var addonBusy by remember { mutableStateOf(false) }
     // Two states rather than a message plus a boolean: the error text comes from the addon or
     // the manifest fetch and is shown verbatim, while the success line is a formatted string
-    // resource and can only be built in composition. Collapsing them would mean resolving a
-    // string resource outside it.
+    // resource and can only be built in composition.
     var addonError by remember { mutableStateOf<String?>(null) }
     var addonInstalledName by remember { mutableStateOf<String?>(null) }
 
@@ -192,22 +184,12 @@ fun SetupWizardScreen(
         onFinished()
     }
 
-    fun goTo(next: SetupStep?) {
-        if (next == null) {
-            complete()
-            return
-        }
-        stepName = next.name
-        // The stage follows the step unless the step is one that lets the user choose.
-        when (next) {
-            SetupStep.DetailsScreen -> surfaceName = SetupPreviewSurface.Details.name
-            SetupStep.Cards, SetupStep.HomeScreen -> surfaceName = SetupPreviewSurface.Home.name
-            else -> Unit
-        }
-    }
-
     fun advance() {
-        if (isFinalSetupStep(step, plan)) complete() else goTo(nextSetupStep(step, plan))
+        if (isFinalSetupStep(step, plan)) {
+            complete()
+        } else {
+            stepName = (nextSetupStep(step, plan) ?: SetupStep.Done).name
+        }
     }
 
     BoxWithConstraints(
@@ -215,18 +197,41 @@ fun SetupWizardScreen(
             .fillMaxSize()
             .background(tokens.colors.background),
     ) {
-        val isWide = maxWidth >= 768.dp
-        val availableHeight = maxHeight
+        val windowHeight = maxHeight
+        val windowWidth = maxWidth
         val insets = WindowInsets.safeDrawing.asPaddingValues()
-        val stageSurface = if (step.allowsSurfaceChoice) previewSurface else step.previewSurface
 
-        // Declared once and called from both layout branches. The wide and narrow arms differ
-        // only in where the stage sits relative to the controls; duplicating this twenty-argument
-        // call to say that was how the two arms would silently drift apart.
-        val stepBody: @Composable (Modifier) -> Unit = { bodyModifier ->
+        // The sheet takes a little under half the window and is capped, so on a tall phone it
+        // does not creep up over the preview and on a desktop window it does not become a
+        // letterbox. The preview is told the same figure so its content can scroll clear of it.
+        val sheetHeight = (windowHeight * 0.46f).coerceIn(300.dp, 460.dp)
+
+        SetupPreviewStage(
+            focus = step.previewFocus,
+            catalogRowTitle = stringResource(Res.string.setup_preview_row_title),
+            continueWatchingTitle = stringResource(Res.string.setup_preview_continue_watching),
+            episodesSectionTitle = stringResource(Res.string.setup_preview_episodes),
+            bottomInset = sheetHeight,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        SetupSheet(
+            step = step,
+            plan = plan,
+            dismissible = dismissible,
+            onDismiss = onDismiss,
+            sheetHeight = sheetHeight,
+            // Centred and capped on wide windows. One layout everywhere: the preview is the
+            // thing that should use the extra width, not the controls.
+            maxSheetWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
+            bottomInset = insets.calculateBottomPadding(),
+            onBack = { previousSetupStep(step, plan)?.let { stepName = it.name } },
+            onSkipAll = ::complete,
+            onAdvance = ::advance,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             SetupStepBody(
                 step = step,
-                modifier = bodyModifier,
                 playbackMode = playerSettings.playbackMode,
                 posterWidthDp = posterStyle.widthDp,
                 posterCornerRadiusDp = posterStyle.cornerRadiusDp,
@@ -234,19 +239,14 @@ fun SetupWizardScreen(
                 hideLabels = posterStyle.hideLabelsEnabled,
                 heroEnabled = homeSettings.heroEnabled,
                 continueWatchingStyle = continueWatching.style,
+                useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
+                blurNextUp = continueWatching.blurNextUp,
                 backgroundMode = metaSettings.backgroundMode,
                 episodeCardStyle = metaSettings.episodeCardStyle,
+                blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
                 tabLayout = metaSettings.tabLayout,
                 selectedTheme = selectedTheme,
                 amoledEnabled = amoledEnabled,
-                activePreset = matchingSetupPreset(
-                    currentSetupValues(
-                        poster = posterStyle,
-                        heroEnabled = homeSettings.heroEnabled,
-                        continueWatching = continueWatching,
-                        meta = metaSettings,
-                    ),
-                ),
                 addonUrl = addonUrl,
                 addonBusy = addonBusy,
                 addonError = addonError,
@@ -278,131 +278,144 @@ fun SetupWizardScreen(
                 onConnectTrakt = { connectTrakt(uriHandler::openUri, browserFailedMessage) },
             )
         }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = insets.calculateTopPadding(), bottom = insets.calculateBottomPadding()),
-        ) {
-            SetupHeader(
-                step = step,
-                plan = plan,
-                dismissible = dismissible,
-                onDismiss = onDismiss,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (isWide) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .widthIn(max = 1180.dp)
-                            .align(Alignment.Center)
-                            .padding(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(28.dp),
-                    ) {
-                        if (stageSurface != null) {
-                            SetupStageColumn(
-                                surface = stageSurface,
-                                allowChoice = step.allowsSurfaceChoice,
-                                onSurfaceSelected = { surfaceName = it.name },
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
-                            )
-                        }
-                        stepBody(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState()),
-                        )
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp),
-                    ) {
-                        if (stageSurface != null) {
-                            SetupStageColumn(
-                                surface = stageSurface,
-                                allowChoice = step.allowsSurfaceChoice,
-                                onSurfaceSelected = { surfaceName = it.name },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height((availableHeight * 0.40f).coerceIn(220.dp, 420.dp)),
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
-                        stepBody(
-                            Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState()),
-                        )
-                    }
-                }
-            }
-            SetupFooter(
-                step = step,
-                plan = plan,
-                onBack = { goTo(previousSetupStep(step, plan)) },
-                onSkipAll = ::complete,
-                onAdvance = ::advance,
-                onChooseQuick = {
-                    pathName = SetupWizardPath.Quick.name
-                    goTo(nextSetupStep(step, plan.copy(path = SetupWizardPath.Quick)))
-                },
-                onChooseFull = {
-                    pathName = SetupWizardPath.Full.name
-                    goTo(nextSetupStep(step, plan.copy(path = SetupWizardPath.Full)))
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-            )
-        }
     }
 }
 
-/** Which window the stage shows for a step, or null when the step has no preview. */
-private val SetupStep.previewSurface: SetupPreviewSurface?
+/**
+ * Where the preview should be looking while this step is on screen.
+ *
+ * The steps that change nothing visible rest on the home screen rather than going blank: the
+ * wizard is selling the app, and an empty stage behind "Connect Trakt" sells nothing.
+ */
+private val SetupStep.previewFocus: SetupPreviewFocus
     get() = when (this) {
-        SetupStep.Look, SetupStep.Cards, SetupStep.HomeScreen, SetupStep.Theme ->
-            SetupPreviewSurface.Home
-
-        SetupStep.DetailsScreen -> SetupPreviewSurface.Details
-
-        // Welcome, PlaybackMode, Sources, Trakt and Done change nothing the stage can show.
-        // A preview that never moves while the user works is worse than no preview: it reads
-        // as a stage that has stopped responding.
-        else -> null
+        SetupStep.Cards -> SetupPreviewFocus.HomeCatalog
+        SetupStep.HomeScreen -> SetupPreviewFocus.HomeHero
+        SetupStep.ContinueWatching -> SetupPreviewFocus.HomeContinueWatching
+        SetupStep.DetailsScreen -> SetupPreviewFocus.DetailsHero
+        SetupStep.Episodes -> SetupPreviewFocus.DetailsEpisodes
+        SetupStep.Welcome, SetupStep.PlaybackMode, SetupStep.Theme,
+        SetupStep.Sources, SetupStep.Trakt, SetupStep.Done,
+        -> SetupPreviewFocus.HomeHero
     }
 
 /**
- * Whether the user may switch the stage between Home and Details on this step.
+ * The glassy panel the controls live in.
  *
- * True only where the step's choices affect *both* windows. Look and Theme do - a preset sets
- * the details background as well as the card shape, and the palette recolours everything - so
- * pinning either of them to one window would hide half of what the choice did.
+ * ⚠ **This is translucency, not a backdrop blur, and the distinction is a real limitation
+ * rather than a shortcut.** `Modifier.blur` blurs a composable's *own* content, not what is
+ * painted behind it - `MetaDetailsScreen`'s Cinematic mode works only because it draws a
+ * second, blurred copy of the backdrop image itself. Compose Multiplatform has no
+ * backdrop-filter primitive, so a true frosted pane would mean rendering the entire stage a
+ * second time into a `GraphicsLayer` and drawing it back with a `BlurEffect` - which is also
+ * API 31+ on Android, so it would degrade on exactly the devices that need it most.
+ *
+ * So the glass here is a translucent `surfaceSheet` over a gradient that deepens towards the
+ * bottom: the artwork shows through softly at the top edge and the controls sit on solid
+ * colour. **Do not thin these alphas to taste** - they are what keeps text readable over a
+ * bright poster, and there is no blur underneath to fall back on.
  */
-private val SetupStep.allowsSurfaceChoice: Boolean
-    get() = this == SetupStep.Look || this == SetupStep.Theme
-
 @Composable
-private fun SetupHeader(
+private fun SetupSheet(
     step: SetupStep,
     plan: SetupWizardPlan,
     dismissible: Boolean,
     onDismiss: () -> Unit,
+    sheetHeight: Dp,
+    maxSheetWidth: Dp,
+    bottomInset: Dp,
+    onBack: () -> Unit,
+    onSkipAll: () -> Unit,
+    onAdvance: () -> Unit,
     modifier: Modifier = Modifier,
+    body: @Composable () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
+    Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        // A short fade above the sheet so the preview does not end on a hard line.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, tokens.colors.background.copy(alpha = 0.55f)),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .widthIn(max = maxSheetWidth)
+                .fillMaxWidth()
+                .height(sheetHeight)
+                .clip(shape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            tokens.colors.surfaceSheet.copy(alpha = 0.82f),
+                            tokens.colors.surfaceSheet.copy(alpha = 0.97f),
+                        ),
+                    ),
+                )
+                .border(
+                    width = tokens.borders.hairline,
+                    color = tokens.colors.borderSubtle,
+                    shape = shape,
+                ),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = 22.dp,
+                        end = 22.dp,
+                        top = 18.dp,
+                        bottom = 14.dp + bottomInset,
+                    ),
+            ) {
+                SetupSheetHeader(
+                    step = step,
+                    plan = plan,
+                    dismissible = dismissible,
+                    onDismiss = onDismiss,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    body()
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                SetupSheetFooter(
+                    step = step,
+                    plan = plan,
+                    onBack = onBack,
+                    onSkipAll = onSkipAll,
+                    onAdvance = onAdvance,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupSheetHeader(
+    step: SetupStep,
+    plan: SetupWizardPlan,
+    dismissible: Boolean,
+    onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val position = setupStepPosition(step, plan)
     val total = setupWizardSteps(plan).size
 
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -448,131 +461,46 @@ private fun SetupHeader(
 }
 
 @Composable
-private fun SetupStageColumn(
-    surface: SetupPreviewSurface,
-    allowChoice: Boolean,
-    onSurfaceSelected: (SetupPreviewSurface) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SetupPreviewStage(
-            surface = surface,
-            catalogRowTitle = stringResource(Res.string.setup_preview_row_title),
-            continueWatchingTitle = stringResource(Res.string.setup_preview_continue_watching),
-            episodesSectionTitle = stringResource(Res.string.setup_preview_episodes),
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
-        if (allowChoice) {
-            SetupSurfacePicker(selected = surface, onSelected = onSurfaceSelected)
-        }
-    }
-}
-
-@Composable
-private fun SetupSurfacePicker(
-    selected: SetupPreviewSurface,
-    onSelected: (SetupPreviewSurface) -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(tokens.colors.overlayHover)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        allPreviewSurfaces.forEach { candidate ->
-            val isSelected = candidate == selected
-            Text(
-                text = stringResource(
-                    when (candidate) {
-                        SetupPreviewSurface.Home -> Res.string.setup_preview_home
-                        SetupPreviewSurface.Details -> Res.string.setup_preview_details
-                    },
-                ),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isSelected) tokens.colors.onAccent else tokens.colors.textSecondary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (isSelected) tokens.colors.accent else Color.Transparent)
-                    .clickable { onSelected(candidate) }
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SetupFooter(
+private fun SetupSheetFooter(
     step: SetupStep,
     plan: SetupWizardPlan,
     onBack: () -> Unit,
     onSkipAll: () -> Unit,
     onAdvance: () -> Unit,
-    onChooseQuick: () -> Unit,
-    onChooseFull: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    val canGoBack = previousSetupStep(step, plan) != null
-
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        when (step) {
-            SetupStep.Welcome -> {
-                Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = stringResource(Res.string.setup_welcome_start))
-                }
-                TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = stringResource(Res.string.setup_welcome_skip))
-                }
+    if (step == SetupStep.Welcome) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
+                Text(text = stringResource(Res.string.setup_welcome_start))
             }
-
-            // The fork. Two buttons rather than a Next, because "this look is fine" and "show
-            // me the rest" are different intents and a preset-first flow that funnels both
-            // into the same long questionnaire is just a decorative first step.
-            SetupStep.Look -> {
-                Button(onClick = onChooseQuick, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = stringResource(Res.string.setup_look_use))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (canGoBack) {
-                        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-                            Text(text = stringResource(Res.string.setup_back))
-                        }
-                    }
-                    TextButton(onClick = onChooseFull, modifier = Modifier.weight(1f)) {
-                        Text(text = stringResource(Res.string.setup_look_customise))
-                    }
-                }
+            TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
+                Text(text = stringResource(Res.string.setup_welcome_skip))
             }
+        }
+        return
+    }
 
-            else -> Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (canGoBack) {
-                    TextButton(onClick = onBack) {
-                        Text(text = stringResource(Res.string.setup_back))
-                    }
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Button(onClick = onAdvance) {
-                    Text(
-                        text = stringResource(
-                            if (isFinalSetupStep(step, plan)) {
-                                Res.string.setup_done_finish
-                            } else {
-                                Res.string.setup_next
-                            },
-                        ),
-                    )
-                }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (previousSetupStep(step, plan) != null) {
+            TextButton(onClick = onBack) {
+                Text(text = stringResource(Res.string.setup_back))
             }
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Button(onClick = onAdvance) {
+            Text(
+                text = stringResource(
+                    if (isFinalSetupStep(step, plan)) {
+                        Res.string.setup_done_finish
+                    } else {
+                        Res.string.setup_next
+                    },
+                ),
+            )
         }
     }
 }
@@ -580,7 +508,6 @@ private fun SetupFooter(
 @Composable
 private fun SetupStepBody(
     step: SetupStep,
-    modifier: Modifier,
     playbackMode: PlaybackMode,
     posterWidthDp: Int,
     posterCornerRadiusDp: Int,
@@ -588,12 +515,14 @@ private fun SetupStepBody(
     hideLabels: Boolean,
     heroEnabled: Boolean,
     continueWatchingStyle: ContinueWatchingSectionStyle,
+    useEpisodeThumbnails: Boolean,
+    blurNextUp: Boolean,
     backgroundMode: MetaScreenBackgroundMode,
     episodeCardStyle: MetaEpisodeCardStyle,
+    blurUnwatchedEpisodes: Boolean,
     tabLayout: Boolean,
     selectedTheme: AppTheme,
     amoledEnabled: Boolean,
-    activePreset: SetupPreset?,
     addonUrl: String,
     addonBusy: Boolean,
     addonError: String?,
@@ -608,9 +537,8 @@ private fun SetupStepBody(
         targetState = step,
         transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
         label = "setup_step_body",
-        modifier = modifier,
     ) { current ->
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (current) {
                 SetupStep.Welcome -> SetupParagraph(stringResource(Res.string.setup_welcome_body))
 
@@ -626,15 +554,6 @@ private fun SetupStepBody(
                     SetupParagraph(stringResource(Res.string.playback_mode_escape_hatch))
                 }
 
-                SetupStep.Look -> SetupPreset.entries.forEach { preset ->
-                    SetupOptionCard(
-                        title = stringResource(preset.titleRes),
-                        description = stringResource(preset.descriptionRes),
-                        isSelected = preset == activePreset,
-                        onClick = { applySetupPreset(preset.values) },
-                    )
-                }
-
                 SetupStep.Cards -> {
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_cards_shape),
@@ -644,11 +563,6 @@ private fun SetupStepBody(
                         ),
                         selected = landscapeCards,
                         onSelected = PosterCardStyleRepository::setCatalogLandscapeModeEnabled,
-                    )
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_cards_labels),
-                        checked = !hideLabels,
-                        onCheckedChange = { PosterCardStyleRepository.setHideLabelsEnabled(!it) },
                     )
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_cards_size),
@@ -670,15 +584,21 @@ private fun SetupStepBody(
                         selected = posterCornerRadiusDp,
                         onSelected = PosterCardStyleRepository::setCornerRadiusDp,
                     )
+                    SetupToggleRow(
+                        title = stringResource(Res.string.setup_cards_labels),
+                        checked = !hideLabels,
+                        onCheckedChange = { PosterCardStyleRepository.setHideLabelsEnabled(!it) },
+                    )
                 }
 
-                SetupStep.HomeScreen -> {
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_home_hero),
-                        description = stringResource(Res.string.setup_home_hero_description),
-                        checked = heroEnabled,
-                        onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
-                    )
+                SetupStep.HomeScreen -> SetupToggleRow(
+                    title = stringResource(Res.string.setup_home_hero),
+                    description = stringResource(Res.string.setup_home_hero_description),
+                    checked = heroEnabled,
+                    onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
+                )
+
+                SetupStep.ContinueWatching -> {
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_home_continue),
                         options = listOf(
@@ -689,19 +609,36 @@ private fun SetupStepBody(
                         selected = continueWatchingStyle,
                         onSelected = ContinueWatchingPreferencesRepository::setStyle,
                     )
+                    SetupToggleRow(
+                        title = stringResource(Res.string.setup_cw_thumbnails),
+                        description = stringResource(Res.string.setup_cw_thumbnails_description),
+                        checked = useEpisodeThumbnails,
+                        onCheckedChange = ContinueWatchingPreferencesRepository::setUseEpisodeThumbnails,
+                    )
+                    // Only meaningful over a thumbnail; with artwork off there is nothing to
+                    // blur, and a toggle that visibly does nothing reads as broken.
+                    if (useEpisodeThumbnails) {
+                        SetupToggleRow(
+                            title = stringResource(Res.string.setup_cw_blur_next_up),
+                            description = stringResource(Res.string.setup_cw_blur_next_up_description),
+                            checked = blurNextUp,
+                            onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
+                        )
+                    }
                 }
 
-                SetupStep.DetailsScreen -> {
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_details_background),
-                        options = listOf(
-                            stringResource(Res.string.setup_details_background_normal) to MetaScreenBackgroundMode.Normal,
-                            stringResource(Res.string.setup_details_background_cinematic) to MetaScreenBackgroundMode.Cinematic,
-                            stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
-                        ),
-                        selected = backgroundMode,
-                        onSelected = MetaScreenSettingsRepository::setBackgroundMode,
-                    )
+                SetupStep.DetailsScreen -> SetupChoiceGroup(
+                    title = stringResource(Res.string.setup_details_background),
+                    options = listOf(
+                        stringResource(Res.string.setup_details_background_normal) to MetaScreenBackgroundMode.Normal,
+                        stringResource(Res.string.setup_details_background_cinematic) to MetaScreenBackgroundMode.Cinematic,
+                        stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
+                    ),
+                    selected = backgroundMode,
+                    onSelected = MetaScreenSettingsRepository::setBackgroundMode,
+                )
+
+                SetupStep.Episodes -> {
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_details_episodes),
                         options = listOf(
@@ -710,6 +647,12 @@ private fun SetupStepBody(
                         ),
                         selected = episodeCardStyle,
                         onSelected = MetaScreenSettingsRepository::setEpisodeCardStyle,
+                    )
+                    SetupToggleRow(
+                        title = stringResource(Res.string.setup_episodes_blur_unwatched),
+                        description = stringResource(Res.string.setup_episodes_blur_unwatched_description),
+                        checked = blurUnwatchedEpisodes,
+                        onCheckedChange = MetaScreenSettingsRepository::setBlurUnwatchedEpisodes,
                     )
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_details_tabs),
@@ -798,8 +741,8 @@ private fun SetupSourcesBody(
         )
     }
     // Debrid is named rather than offered. The wizard gates the app, so it has no nav
-    // controller and cannot reach the settings page - and a button that goes nowhere is
-    // worse than a sentence that says where to look.
+    // controller and cannot reach the settings page - and a button that goes nowhere is worse
+    // than a sentence that says where to look.
     SetupParagraph(stringResource(Res.string.setup_sources_debrid_hint))
 }
 
@@ -901,67 +844,13 @@ private fun SetupParagraph(text: String) {
 }
 
 /**
- * A selectable card.
+ * A labelled row of mutually exclusive chips.
  *
- * ⚠ **Not `NuvioSurfaceCard`.** That takes its colour from `colors.surface`, and the wizard's
- * background is `colors.background` with `surfaceSheet == surface` in the token set - the same
- * trap that kept `NuvioSurfaceCard` off the quality sheet. This uses the fix that sheet
- * settled on: an `overlayHover` lift plus a `borderSubtle` hairline.
+ * Not `NuvioSurfaceCard`-based: that takes its colour from `colors.surface`, and
+ * `surfaceSheet == surface` in the token set, so a card on this sheet would be invisible - the
+ * trap the quality sheet hit. These use an `overlayHover` lift instead, which is what that
+ * sheet settled on.
  */
-@Composable
-private fun SetupOptionCard(
-    title: String,
-    description: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    val shape = RoundedCornerShape(16.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(if (isSelected) tokens.colors.focusBackground else tokens.colors.overlayHover)
-            .border(
-                width = if (isSelected) 1.5.dp else tokens.borders.hairline,
-                color = if (isSelected) tokens.colors.accent else tokens.colors.borderSubtle,
-                shape = shape,
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = tokens.colors.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = tokens.colors.textSecondary,
-            )
-        }
-        if (isSelected) {
-            Box(
-                modifier = Modifier.size(22.dp).clip(CircleShape).background(tokens.colors.accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = null,
-                    tint = tokens.colors.onAccent,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-        }
-    }
-}
-
-/** A labelled row of mutually exclusive chips. */
 @Composable
 private fun <T> SetupChoiceGroup(
     title: String,
@@ -990,7 +879,7 @@ private fun <T> SetupChoiceGroup(
                         .clip(RoundedCornerShape(999.dp))
                         .background(if (isSelected) tokens.colors.accent else tokens.colors.overlayHover)
                         .clickable { onSelected(value) }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 11.dp),
                 )
             }
         }
@@ -1076,7 +965,17 @@ private fun SetupThemeGrid(
                                 .size(26.dp)
                                 .clip(CircleShape)
                                 .background(ThemeColors.getColorPalette(theme).secondary),
-                        )
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = tokens.colors.onAccent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
                         Text(
                             text = stringResource(theme.labelRes),
                             style = MaterialTheme.typography.labelMedium,
@@ -1099,10 +998,11 @@ private val SetupStep.titleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_title
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
-        SetupStep.Look -> Res.string.setup_look_title
         SetupStep.Cards -> Res.string.setup_cards_title
         SetupStep.HomeScreen -> Res.string.setup_home_title
+        SetupStep.ContinueWatching -> Res.string.setup_cw_title
         SetupStep.DetailsScreen -> Res.string.setup_details_title
+        SetupStep.Episodes -> Res.string.setup_episodes_title
         SetupStep.Theme -> Res.string.setup_theme_title
         SetupStep.Sources -> Res.string.setup_sources_title
         SetupStep.Trakt -> Res.string.setup_trakt_title
@@ -1113,26 +1013,13 @@ private val SetupStep.subtitleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_subtitle
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_subtitle
-        SetupStep.Look -> Res.string.setup_look_subtitle
         SetupStep.Cards -> Res.string.setup_cards_subtitle
         SetupStep.HomeScreen -> Res.string.setup_home_subtitle
+        SetupStep.ContinueWatching -> Res.string.setup_cw_subtitle
         SetupStep.DetailsScreen -> Res.string.setup_details_subtitle
+        SetupStep.Episodes -> Res.string.setup_episodes_subtitle
         SetupStep.Theme -> Res.string.setup_theme_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
         SetupStep.Trakt -> Res.string.setup_trakt_subtitle
         SetupStep.Done -> Res.string.setup_done_subtitle
-    }
-
-private val SetupPreset.titleRes
-    get() = when (this) {
-        SetupPreset.Simple -> Res.string.setup_preset_simple
-        SetupPreset.Cinematic -> Res.string.setup_preset_cinematic
-        SetupPreset.Compact -> Res.string.setup_preset_compact
-    }
-
-private val SetupPreset.descriptionRes
-    get() = when (this) {
-        SetupPreset.Simple -> Res.string.setup_preset_simple_description
-        SetupPreset.Cinematic -> Res.string.setup_preset_cinematic_description
-        SetupPreset.Compact -> Res.string.setup_preset_compact_description
     }

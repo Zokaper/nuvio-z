@@ -2281,16 +2281,6 @@
     <string name="setup_welcome_start">Get started</string>
     <string name="setup_welcome_skip">Skip for now</string>
 
-    <string name="setup_look_title">Pick a look</string>
-    <string name="setup_look_subtitle">Three ready-made looks. Pick the closest one — you can fine-tune it next.</string>
-    <string name="setup_look_use">Use this look</string>
-    <string name="setup_look_customise">Customise it</string>
-    <string name="setup_preset_simple">Simple</string>
-    <string name="setup_preset_simple_description">Posters with titles, plain backgrounds, no banner. Calm and familiar.</string>
-    <string name="setup_preset_cinematic">Cinematic</string>
-    <string name="setup_preset_cinematic_description">Wide artwork with show logos, a featured banner, and blurred backdrops behind the details screen.</string>
-    <string name="setup_preset_compact">Compact</string>
-    <string name="setup_preset_compact_description">Smaller posters so more fits on screen, with a colour-matched details screen.</string>
 
     <string name="setup_cards_title">How should artwork look?</string>
     <string name="setup_cards_subtitle">This is how every row of titles will be drawn.</string>
@@ -2347,11 +2337,19 @@
     <string name="setup_done_body">Look under Settings → Appearance for anything visual, and Settings → Playback for how sources are chosen. You can run this setup again from the bottom of Settings.</string>
     <string name="setup_done_finish">Start watching</string>
 
-    <string name="setup_preview_home">Home</string>
-    <string name="setup_preview_details">Details</string>
     <string name="setup_preview_row_title">Popular series</string>
     <string name="setup_preview_continue_watching">Continue watching</string>
     <string name="setup_preview_episodes">Episodes</string>
     <string name="settings_run_setup_again">Run setup again</string>
     <string name="settings_run_setup_again_description">Step through the look and playback choices from the start.</string>
+    <string name="setup_cw_title">Continue watching</string>
+    <string name="setup_cw_subtitle">The row that picks up where you left off.</string>
+    <string name="setup_cw_thumbnails">Use episode stills</string>
+    <string name="setup_cw_thumbnails_description">Show the frame from the episode rather than the show\'s own artwork.</string>
+    <string name="setup_cw_blur_next_up">Blur what\'s next</string>
+    <string name="setup_cw_blur_next_up_description">Hides the still for episodes you haven\'t started, so nothing is spoiled.</string>
+    <string name="setup_episodes_title">Episodes</string>
+    <string name="setup_episodes_subtitle">How the episode list of a series is laid out.</string>
+    <string name="setup_episodes_blur_unwatched">Blur unwatched episodes</string>
+    <string name="setup_episodes_blur_unwatched_description">Keeps stills from episodes you haven\'t seen out of view.</string>
 </resources>

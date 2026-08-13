@@ -65,9 +65,9 @@ object SetupSampleTitle {
      * The row the card and home steps preview.
      *
      * ⚠ **Six entries, and the count matters.** The row has to overflow the stage at every
-     * poster width the wizard offers, or switching from `Compact` to `Cinematic` would end
-     * with empty space rather than with more artwork, and the preview would understate the
-     * difference. Six of the widest cards overflow a 390 dp logical stage comfortably.
+     * poster width the wizard offers, or making the cards smaller would end in empty space
+     * rather than in more artwork and the preview would understate the choice. Six of the
+     * widest cards overflow a phone; on a desktop window they fill it without looking sparse.
      *
      * Every one is a well-known title with complete artwork on the host above. The names are
      * shown to the user, so they are spelled the way the shows are.
@@ -119,6 +119,18 @@ object SetupSampleTitle {
             catalogId = "setup-preview",
         ),
         items = rowItems,
+    )
+
+    /**
+     * A second row for the preview, so the card step shows a layout rather than one shelf.
+     *
+     * Same titles, rotated, and given a distinct [HomeCatalogSection.key] - `NuvioShelfSection`
+     * dedupes by key, so two rows sharing one would collapse into a single lazy item.
+     */
+    fun secondCatalogSection(title: String): HomeCatalogSection = catalogSection(title).copy(
+        key = "setup-preview-2",
+        title = "",
+        items = rowItems.reversed(),
     )
 
     /**
