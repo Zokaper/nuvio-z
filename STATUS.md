@@ -154,13 +154,29 @@ repository's copy does not have. Both copies say so at the top. **Named argument
 stage call site are what caught it** - desktop's `HomeHeroSection` also gained a
 `sectionPadding` parameter mid-list and its `DetailHero` a `viewportHeight`.
 
+**CI is green in both repositories** - `nuvio-z@049acd1` (host suite and
+`:androidApp:assembleFullDebug`) and `NuvioZDesktop@757bbd3` (`ci.yml` including the Windows
+MSI job, which is what compiles `desktopMain` and therefore the setup wizard's desktop path).
+
+⚠ **It took two runs, and the failure is the same lesson again.** The first pushed the preview
+anchor using `LayoutCoordinates.positionInParent()`, which does not resolve. Parser-checked
+clean, pure suites green, and it did not compile. The replacement takes
+`localToRoot(Offset.Zero)` for both the section and the scrolling column and subtracts - which
+is also the only pair that yields a stable content offset, because the column *is* the scroll
+content and moves under the viewport.
+
+**Published for the device run: `debug-v0.4.14-beta.7`** (versionCode 124007), cut from
+`49ba4a2`. It supersedes `debug-v0.4.14-beta.6`, which carried the preset-fork shape.
+
 **Not verified:**
 
 1. **Nothing Compose has been rendered.** The wizard, the sheet and the stage are
-   parser-checked and CI-compiled only. The `ImageComposeScene` harness documented under
-   `0.4.12-beta` cannot run here - Gradle cannot configure, and `DetailHero` reaches the
-   generated `Res` bundle so it cannot be compiled standalone either.
-2. The glassy sheet's legibility over bright artwork is a judgement only a screen can make.
+   parser-checked and CI-compiled only - compiling is not looking. The `ImageComposeScene`
+   harness documented under `0.4.12-beta` cannot run here: Gradle cannot configure, and
+   `DetailHero` reaches the generated `Res` bundle so it cannot be compiled standalone either.
+2. The glassy sheet's legibility over bright artwork is a judgement only a screen can make,
+   and there is no blur underneath it to fall back on.
+3. The metahub artwork URLs have never returned a byte here - the sandbox blocks that host.
 
 ## The setup wizard device script
 
