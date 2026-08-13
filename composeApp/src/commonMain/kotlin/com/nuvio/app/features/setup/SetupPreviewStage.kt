@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -164,22 +165,28 @@ fun SetupPreviewStage(
 }
 
 /**
- * Scrolls [scrollState] so the section registered under [focus] sits just below the top.
+ * Scrolls [scrollState] so the section registered under [focus] sits at the top of the stage.
  *
- * Offsets are collected by `onGloballyPositioned` rather than assumed, because the hero's
+ * Positions are collected by `onGloballyPositioned` rather than assumed, because the hero's
  * height comes from `homeHeroLayout` and changes with the window - and with whether the hero
  * is switched on at all.
+ *
+ * ⚠ **Both figures are root-relative and subtracted, rather than read as a position within the
+ * parent.** The scrolling `Column` *is* the content, so it moves under the viewport as the user
+ * scrolls; the difference between a section's root position and the column's own is the stable
+ * content offset, while either one alone is not.
  */
 @Composable
 private fun AnchorEffect(
     focus: SetupPreviewFocus,
-    offsets: Map<SetupPreviewFocus, Int>,
+    offsets: Map<SetupPreviewFocus, Float>,
+    contentTop: Float,
     scrollState: ScrollState,
 ) {
     val target = offsets[focus]
-    LaunchedEffect(focus, target) {
+    LaunchedEffect(focus, target, contentTop) {
         val destination = target ?: return@LaunchedEffect
-        scrollState.animateScrollTo(destination.coerceAtLeast(0))
+        scrollState.animateScrollTo((destination - contentTop).toInt().coerceAtLeast(0))
     }
 }
 
@@ -200,13 +207,20 @@ private fun StageHome(
     }.collectAsStateWithLifecycle()
 
     val scrollState = rememberScrollState()
-    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Int>() }
-    AnchorEffect(focus = focus, offsets = offsets, scrollState = scrollState)
+    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Float>() }
+    var contentTop by remember { mutableStateOf(0f) }
+    AnchorEffect(
+        focus = focus,
+        offsets = offsets,
+        contentTop = contentTop,
+        scrollState = scrollState,
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .onGloballyPositioned { contentTop = it.localToRoot(Offset.Zero).y },
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (homeSettings.heroEnabled) {
@@ -307,8 +321,14 @@ private fun StageDetails(
     )
 
     val scrollState = rememberScrollState()
-    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Int>() }
-    AnchorEffect(focus = focus, offsets = offsets, scrollState = scrollState)
+    val offsets = remember { mutableStateMapOf<SetupPreviewFocus, Float>() }
+    var contentTop by remember { mutableStateOf(0f) }
+    AnchorEffect(
+        focus = focus,
+        offsets = offsets,
+        contentTop = contentTop,
+        scrollState = scrollState,
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (backgroundMode) {
@@ -340,7 +360,8 @@ private fun StageDetails(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState),
+                .verticalScroll(scrollState)
+                .onGloballyPositioned { contentTop = it.localToRoot(Offset.Zero).y },
         ) {
             Box(modifier = Modifier.anchor(SetupPreviewFocus.DetailsHero, offsets)) {
                 DetailHero(
@@ -379,12 +400,18 @@ private fun StageDetails(
     }
 }
 
-/** Records this element's y offset inside the scrolling column, for [AnchorEffect]. */
+/**
+ * Records this element's root-relative y position for [AnchorEffect].
+ *
+ * `localToRoot(Offset.Zero)` rather than a position-in-parent helper: it is the primitive every
+ * other positioning API is built on, and the anchor only needs a figure it can subtract a
+ * sibling's from.
+ */
 private fun Modifier.anchor(
     focus: SetupPreviewFocus,
-    offsets: MutableMap<SetupPreviewFocus, Int>,
+    offsets: MutableMap<SetupPreviewFocus, Float>,
 ): Modifier = this.onGloballyPositioned { coordinates ->
-    offsets[focus] = coordinates.positionInParent().y.toInt()
+    offsets[focus] = coordinates.localToRoot(Offset.Zero).y
 }
 
 /**
