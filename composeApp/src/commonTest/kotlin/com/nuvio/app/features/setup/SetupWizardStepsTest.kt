@@ -43,11 +43,12 @@ class SetupWizardStepsTest {
 
     @Test
     fun everyEarlierRevisionMustSeeTheCurrentFlow() {
-        // The reason this constant keeps moving. Revision 1 was the preset fork; revision 2
-        // was the six-step flow behind a translucent panel. Both asked a set of questions this
-        // build no longer asks, in an arrangement it no longer uses.
+        // The reason this constant keeps moving. Revision 1 was the preset fork; revision 2 was
+        // the six-step flow behind a translucent panel; revision 3 asked for a Trakt connection
+        // that did not work. Each asked a set of questions this build no longer asks.
         assertTrue(shouldShowSetupWizard(completedRevision = 1, currentRevision = SETUP_WIZARD_REVISION))
         assertTrue(shouldShowSetupWizard(completedRevision = 2, currentRevision = SETUP_WIZARD_REVISION))
+        assertTrue(shouldShowSetupWizard(completedRevision = 3, currentRevision = SETUP_WIZARD_REVISION))
     }
 
     @Test
@@ -81,16 +82,22 @@ class SetupWizardStepsTest {
             SetupStep.Theme,
         )
         assertTrue(setupWizardSteps(SetupWizardPlan()).containsAll(appearance))
-        assertEquals(9, SetupStep.entries.size)
+        assertEquals(8, SetupStep.entries.size)
     }
 
     @Test
     fun anOptionalStepWithNothingToOfferIsDroppedNotShown() {
-        val steps = setupWizardSteps(SetupWizardPlan(offerSources = false, offerTrakt = false))
+        val steps = setupWizardSteps(SetupWizardPlan(offerSources = false))
         assertFalse(steps.contains(SetupStep.Sources))
-        assertFalse(steps.contains(SetupStep.Trakt))
         assertEquals(SetupStep.Done, steps.last())
         assertEquals(SetupStep.Theme, steps[steps.size - 2])
+    }
+
+    @Test
+    fun traktIsGoneEntirelyRatherThanDefaultedOff() {
+        // Revision 4. It offered a connection that does not work yet, and a first-run flow that
+        // asks for an account it cannot use is worse than one that does not ask.
+        assertFalse(SetupStep.entries.any { it.name == "Trakt" })
     }
 
     // --- next / previous ----------------------------------------------------------------
@@ -121,9 +128,10 @@ class SetupWizardStepsTest {
 
     @Test
     fun aSavedStepThatNoLongerExistsFallsBackToTheStart() {
-        // Reachable for real: revision 3 deleted `ContinueWatching` and `Episodes`, so a
-        // wizard restored after an app update can be holding either name. The wizard gates the
-        // app, so the only acceptable answer is a step that exists.
+        // Reachable for real: revision 3 deleted `ContinueWatching` and `Episodes` and revision
+        // 4 deleted `Trakt`, so a wizard restored after an app update can be holding any of
+        // them. The wizard gates the app, so the only acceptable answer is a step that exists.
+        assertEquals(SetupStep.Welcome, setupStepForSavedName("Trakt"))
         assertEquals(SetupStep.Welcome, setupStepForSavedName("ContinueWatching"))
         assertEquals(SetupStep.Welcome, setupStepForSavedName("Episodes"))
         assertEquals(SetupStep.Welcome, setupStepForSavedName("HomeScreen"))
@@ -145,8 +153,8 @@ class SetupWizardStepsTest {
     @Test
     fun aDroppedOptionalStepIsSteppedOver() {
         val plan = SetupWizardPlan(offerSources = false)
-        assertEquals(SetupStep.Trakt, nextSetupStep(SetupStep.Theme, plan))
-        assertEquals(SetupStep.Theme, previousSetupStep(SetupStep.Trakt, plan))
+        assertEquals(SetupStep.Done, nextSetupStep(SetupStep.Theme, plan))
+        assertEquals(SetupStep.Theme, previousSetupStep(SetupStep.Done, plan))
     }
 
     @Test
@@ -155,7 +163,7 @@ class SetupWizardStepsTest {
         // on the Sources step flips offerSources false, so the step the user is standing on
         // leaves the sequence under them.
         val plan = SetupWizardPlan(offerSources = false)
-        assertEquals(SetupStep.Trakt, nextSetupStep(SetupStep.Sources, plan))
+        assertEquals(SetupStep.Done, nextSetupStep(SetupStep.Sources, plan))
         assertEquals(SetupStep.Theme, previousSetupStep(SetupStep.Sources, plan))
     }
 
@@ -165,10 +173,10 @@ class SetupWizardStepsTest {
     fun positionsAreOneBasedAndFollowThePlan() {
         assertEquals(1, setupStepPosition(SetupStep.Welcome, SetupWizardPlan()))
         assertEquals(7, setupStepPosition(SetupStep.Sources, SetupWizardPlan()))
-        assertEquals(9, setupStepPosition(SetupStep.Done, SetupWizardPlan()))
+        assertEquals(8, setupStepPosition(SetupStep.Done, SetupWizardPlan()))
         assertEquals(
             7,
-            setupStepPosition(SetupStep.Trakt, SetupWizardPlan(offerSources = false)),
+            setupStepPosition(SetupStep.Done, SetupWizardPlan(offerSources = false)),
         )
     }
 
@@ -180,11 +188,11 @@ class SetupWizardStepsTest {
     @Test
     fun onlyTheLastStepOfTheActualSequenceCompletes() {
         assertTrue(isFinalSetupStep(SetupStep.Done, SetupWizardPlan()))
-        assertFalse(isFinalSetupStep(SetupStep.Trakt, SetupWizardPlan()))
+        assertFalse(isFinalSetupStep(SetupStep.Sources, SetupWizardPlan()))
         assertTrue(
             isFinalSetupStep(
                 SetupStep.Done,
-                SetupWizardPlan(offerSources = false, offerTrakt = false),
+                SetupWizardPlan(offerSources = false),
             ),
         )
     }
@@ -198,8 +206,6 @@ class SetupWizardStepsTest {
         val plans = listOf(
             SetupWizardPlan(),
             SetupWizardPlan(offerSources = false),
-            SetupWizardPlan(offerTrakt = false),
-            SetupWizardPlan(offerSources = false, offerTrakt = false),
         )
         plans.forEach { plan ->
             SetupStep.entries.forEach { start ->
@@ -224,7 +230,6 @@ class SetupWizardStepsTest {
         val plans = listOf(
             SetupWizardPlan(),
             SetupWizardPlan(offerSources = false),
-            SetupWizardPlan(offerSources = false, offerTrakt = false),
         )
         plans.forEach { plan ->
             SetupStep.entries.forEach { start ->

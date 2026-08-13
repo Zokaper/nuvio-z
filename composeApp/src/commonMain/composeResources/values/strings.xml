@@ -2278,12 +2278,11 @@
          "blur what's next" toggle visible, which needs an episode the viewer has not started. -->
     <string name="setup_specimen_next_up">Next episode</string>
 
-    <string name="setup_welcome_title">Welcome to Nuvio</string>
+    <string name="setup_welcome_title">Welcome to Nuvio Z</string>
     <string name="setup_welcome_subtitle">A couple of minutes now, and it will look and behave the way you want.</string>
-    <string name="setup_welcome_body">We'll start with how Nuvio picks what to play, then let you shape how it looks. You'll see a live preview of every choice, and you can change any of it later in Settings.</string>
+    <string name="setup_welcome_body">We'll start with how Nuvio Z picks what to play, then let you shape how it looks. You'll see a live preview of every choice, and you can change any of it later in Settings.</string>
     <string name="setup_welcome_start">Get started</string>
     <string name="setup_welcome_skip">Skip for now</string>
-
 
     <string name="setup_cards_title">How should artwork look?</string>
     <string name="setup_cards_subtitle">This is how every row of titles will be drawn.</string>
@@ -2295,7 +2294,7 @@
     <string name="setup_cards_corners">Corners</string>
 
     <string name="setup_home_title">Your home screen</string>
-    <string name="setup_home_subtitle">What you see first, every time you open Nuvio.</string>
+    <string name="setup_home_subtitle">What you see first, every time you open Nuvio Z.</string>
     <string name="setup_home_hero">Featured banner</string>
     <string name="setup_home_hero_description">A large rotating showcase at the top of the home screen.</string>
     <string name="setup_home_continue">Continue watching</string>
@@ -2327,19 +2326,12 @@
     <string name="setup_theme_amoled_description">Saves power on OLED screens and looks deeper in a dark room.</string>
 
     <string name="setup_sources_title">Add a source</string>
-    <string name="setup_sources_subtitle">Nuvio has nothing to show until you add one.</string>
-    <string name="setup_sources_body">Nuvio doesn't host anything itself — it plays what your own addons provide. Paste an addon manifest URL below to add your first one.</string>
+    <string name="setup_sources_subtitle">Nuvio Z has nothing to show until you add one.</string>
+    <string name="setup_sources_body">Nuvio Z doesn't host anything itself — it plays what your own addons provide. Paste an addon manifest URL below to add your first one.</string>
     <string name="setup_sources_url_placeholder">Addon manifest URL</string>
     <string name="setup_sources_install">Add addon</string>
     <string name="setup_sources_installed">Added %1$s</string>
     <string name="setup_sources_debrid_hint">Using a debrid service? Add it later in Settings → Integrations → Debrid.</string>
-
-    <string name="setup_trakt_title">Connect Trakt</string>
-    <string name="setup_trakt_subtitle">Optional, and you can do it later.</string>
-    <string name="setup_trakt_body">Trakt keeps your watch history and progress in step across every device and app you use.</string>
-    <string name="setup_trakt_connect">Connect Trakt</string>
-    <string name="setup_trakt_connected">Connected as %1$s</string>
-    <string name="setup_trakt_waiting">Waiting for you to approve Nuvio in your browser.</string>
 
     <string name="setup_done_title">You're all set</string>
     <string name="setup_done_subtitle">Everything here can be changed again whenever you like.</string>

@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -13,7 +12,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +56,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaScreenBackgroundMode
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 
 /**
@@ -92,10 +91,11 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
  * | --- | --- | --- |
  * | [SpecimenCards] | `NuvioPosterCard` catalog cards | [landscapePosterWidth], [landscapePosterHeightForWidth], [PosterAspectRatio] |
  * | [SpecimenContinueWatching] | `HomeContinueWatchingSection`'s three styles | the 18 dp blur it uses |
- * | [SpecimenDetailsBackground] | `MetaDetailsScreen`'s three treatments | the 0.92 scrim and 0.42 dominant blend |
- * | [SpecimenEpisodes] | `DetailSeriesContent`'s two card styles | the 18 dp blur it uses |
+ * | [SpecimenDetails] | `MetaDetailsScreen`'s three treatments | the **30 dp** blur, the 0.92 scrim, the 0.42 dominant blend, and that only DominantColor tints the hero |
+ * | [SpecimenEpisodes] | `DetailSeriesContent`'s two card styles | the 18 dp blur, and the `thumbnail ?: background` fallback |
  *
- * If one of those changes, change it here too.
+ * If one of those changes, change it here too. The blur radius has already drifted once - this
+ * file blurred Cinematic at 18 dp against the real screen's 30 dp for a whole release.
  */
 enum class SetupSpecimen(
     /**
@@ -111,17 +111,27 @@ enum class SetupSpecimen(
     /** A catalog row, at the chosen shape, size, corner radius and title setting. */
     Cards(preferredHeight = 280.dp),
 
-    /** The featured banner, appearing and disappearing above a row. */
-    HomeHero(preferredHeight = 300.dp),
+    /**
+     * The home screen: the featured banner and the Continue Watching row, **together and
+     * always**.
+     *
+     * Revision 3 split these and moved the band to whichever the user last touched. On a device
+     * that read as jarring - the thing you were looking at kept being replaced - so both are
+     * now permanently on screen and the controls change them in place. The banner toggle
+     * expands and collapses inside a band whose own height does not move.
+     */
+    Home(preferredHeight = 330.dp),
 
-    /** Continue Watching cards, in the chosen style. */
-    HomeContinueWatching(preferredHeight = 240.dp),
-
-    /** The three details-screen background treatments, side by side. */
-    DetailsBackground(preferredHeight = 210.dp),
-
-    /** Episode cards, in the chosen style. */
-    DetailsEpisodes(preferredHeight = 220.dp),
+    /**
+     * The details screen: a small mock of it, with the chosen background treatment applied
+     * behind the whole thing and the episode list in the chosen style.
+     *
+     * Also one object rather than two, and for a second reason beyond the jarring switch: three
+     * abstract swatches could not show what the background modes do, because the thing that
+     * most distinguishes `DominantColor` is the tint reaching into the *hero*, and the swatches
+     * had no hero.
+     */
+    Details(preferredHeight = 320.dp),
 
     /** The accent colour applied to real controls. */
     Theme(preferredHeight = 190.dp),
@@ -129,7 +139,7 @@ enum class SetupSpecimen(
     /**
      * The steps that change nothing visible. See `SetupDiagram.kt`.
      *
-     * The smallest of the seven on purpose: the playback-mode step is the tallest panel in the
+     * The smallest of the five on purpose: the playback-mode step is the tallest panel in the
      * flow - three `PlaybackModeCard`s - and in revision 2 it was cut off mid-card.
      */
     Diagram(preferredHeight = 180.dp),
@@ -164,6 +174,7 @@ private const val FadeTweenMillis = 220
 fun SetupSpecimenBand(
     specimen: SetupSpecimen,
     step: SetupStep,
+    playbackMode: PlaybackMode,
     height: Dp,
     contentPaddingTop: Dp,
     posterWidthDp: Int,
@@ -189,11 +200,15 @@ fun SetupSpecimenBand(
             // *content* is inset. Padding the whole thing instead would leave a bare strip of
             // window above it.
             .height(height + contentPaddingTop)
-            // A gradient floor so a band whose artwork has not loaded - or cannot, with no
-            // network - reads as a dimmed screen rather than a broken one.
+            // A gradient floor, so a band whose artwork has not loaded - or cannot, with no
+            // network - reads as a dimmed screen rather than a broken one. It ends on the
+            // panel's own colour rather than on `background`, which is what turns the seam
+            // below into a soft landing instead of a hard rule across the screen.
             .background(
                 Brush.verticalGradient(
-                    listOf(tokens.colors.surface, tokens.colors.background),
+                    0f to tokens.colors.background,
+                    0.55f to tokens.colors.background,
+                    1f to tokens.colors.surface,
                 ),
             )
             .padding(top = contentPaddingTop),
@@ -214,27 +229,18 @@ fun SetupSpecimenBand(
                     showTitles = showCardTitles,
                 )
 
-                SetupSpecimen.HomeHero -> SpecimenHomeHero(
+                SetupSpecimen.Home -> SpecimenHome(
                     heroEnabled = heroEnabled,
-                    posterWidthDp = posterWidthDp,
-                    cornerRadiusDp = posterCornerRadiusDp,
-                    landscape = landscapeCards,
-                )
-
-                SetupSpecimen.HomeContinueWatching -> SpecimenContinueWatching(
-                    style = continueWatchingStyle,
+                    continueWatchingStyle = continueWatchingStyle,
                     useEpisodeThumbnails = useEpisodeThumbnails,
                     blurNextUp = blurNextUp,
                     cornerRadiusDp = posterCornerRadiusDp,
                     nextUpLabel = nextUpLabel,
                 )
 
-                SetupSpecimen.DetailsBackground -> SpecimenDetailsBackground(
+                SetupSpecimen.Details -> SpecimenDetails(
                     mode = backgroundMode,
-                )
-
-                SetupSpecimen.DetailsEpisodes -> SpecimenEpisodes(
-                    style = episodeCardStyle,
+                    episodeCardStyle = episodeCardStyle,
                     blurUnwatched = blurUnwatchedEpisodes,
                     cornerRadiusDp = posterCornerRadiusDp,
                 )
@@ -243,7 +249,10 @@ fun SetupSpecimenBand(
                     cornerRadiusDp = posterCornerRadiusDp,
                 )
 
-                SetupSpecimen.Diagram -> SetupDiagram(step = step)
+                SetupSpecimen.Diagram -> SetupDiagram(
+                    step = step,
+                    playbackMode = playbackMode,
+                )
             }
         }
     }
@@ -393,17 +402,24 @@ private fun SpecimenCard(
 // --- home ----------------------------------------------------------------------------------
 
 /**
- * The featured banner, with a row beneath it.
+ * The home screen: the featured banner and the Continue Watching row, together.
  *
- * The row is present in both states on purpose: the choice is not "banner or nothing", it is
- * what the top of the home screen is, so the thing the banner displaces has to be visible.
+ * ⚠ **Both are always drawn, and that is the fix.** Revision 3 showed whichever the last-touched
+ * control affected and animated between them; on a device that read as the preview being yanked
+ * away mid-thought. Everything stays put now and the controls change it in place.
+ *
+ * The banner expands and collapses *inside* a band whose height does not change, so toggling it
+ * moves the Continue Watching row and nothing else. The row is the anchor: it has to stay on
+ * screen in both states, or the banner toggle would look like it was clearing the whole band.
  */
 @Composable
-private fun SpecimenHomeHero(
+private fun SpecimenHome(
     heroEnabled: Boolean,
-    posterWidthDp: Int,
+    continueWatchingStyle: ContinueWatchingSectionStyle,
+    useEpisodeThumbnails: Boolean,
+    blurNextUp: Boolean,
     cornerRadiusDp: Int,
-    landscape: Boolean,
+    nextUpLabel: String,
 ) {
     val tokens = MaterialTheme.nuvio
     val item = SetupSampleTitle.rowItems.first()
@@ -463,15 +479,16 @@ private fun SpecimenHomeHero(
             }
         }
 
-        // A compact row, so the band shows what the banner sits above without becoming a
-        // second copy of the Cards step. ⚠ 0.62 is set against the band height: at the largest
-        // card size this row is 128 dp, which with the 150 dp banner and the 14 dp gap comes to
-        // 292 - inside `HomeHero`'s 300 dp. Raising either without raising that clips.
-        SpecimenCards(
-            posterWidthDp = (posterWidthDp * 0.62f).toInt(),
+        // ⚠ Height budget for `SetupSpecimen.Home` (330 dp): 150 banner + 14 gap + the tallest
+        // Continue Watching style. That is Poster, at 112 wide → 166 tall, plus 8 and a
+        // two-line caption ≈ 204 - which with the banner overflows, so the banner is the part
+        // that gives: it is 150 here and the row is the anchor. Check both if either changes.
+        SpecimenContinueWatching(
+            style = continueWatchingStyle,
+            useEpisodeThumbnails = useEpisodeThumbnails,
+            blurNextUp = blurNextUp,
             cornerRadiusDp = cornerRadiusDp,
-            landscape = landscape,
-            showTitles = false,
+            nextUpLabel = nextUpLabel,
         )
     }
 }
@@ -644,72 +661,43 @@ private fun SpecimenCaption(
 // --- details -------------------------------------------------------------------------------
 
 /**
- * The three details-screen background treatments, side by side.
+ * A small details screen, with the chosen background treatment applied behind all of it.
  *
- * All three are drawn at once rather than only the chosen one, because the choice is a
- * comparison - "blurred art" and "matched colour" mean very little named and a great deal seen
- * next to each other. The selected one is lifted and outlined; selection itself stays with the
- * chips in the panel, so there is exactly one control for it.
+ * ⚠ **This replaced three abstract swatches, and the reason is worth keeping.** The maintainer
+ * looked at those and said "I am not sure what is even going on here", which was fair: the one
+ * thing that most separates `DominantColor` from `Normal` is that its tint reaches into the
+ * *hero's* bottom fade - `MetaDetailsScreen` passes `heroGradientColor` for that mode and null
+ * for the other two - and the swatches had no hero for it to reach into.
+ *
+ * ⚠ **Cinematic is genuinely subtle, and that is not a defect here.** The real screen blurs the
+ * backdrop at 30 dp and then covers it with a `background @ 0.92` scrim, so roughly 8% of the
+ * artwork survives: a faint haze, not a visible picture. The first version of this file blurred
+ * at 18 dp and overstated it badly. If Cinematic looks close to Normal, it looks like the app.
  */
 @Composable
-private fun SpecimenDetailsBackground(mode: MetaScreenBackgroundMode) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.width(16.dp))
-        MetaScreenBackgroundMode.entries.forEach { entry ->
-            SpecimenBackgroundSwatch(mode = entry, selected = entry == mode)
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-    }
-}
-
-@Composable
-private fun SpecimenBackgroundSwatch(
+private fun SpecimenDetails(
     mode: MetaScreenBackgroundMode,
-    selected: Boolean,
+    episodeCardStyle: MetaEpisodeCardStyle,
+    blurUnwatched: Boolean,
+    cornerRadiusDp: Int,
 ) {
     val tokens = MaterialTheme.nuvio
     val backdropUrl = SetupSampleTitle.backgroundUrl(SetupSampleTitle.featuredImdbId)
-    val posterUrl = SetupSampleTitle.posterUrl(SetupSampleTitle.featuredImdbId)
-
-    val borderWidth by animateDpAsState(
-        targetValue = if (selected) 2.dp else tokens.borders.hairline,
-        animationSpec = tween(FadeTweenMillis),
-        label = "specimen_swatch_border",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (selected) tokens.colors.accent else tokens.colors.borderSubtle,
-        animationSpec = tween(FadeTweenMillis),
-        label = "specimen_swatch_border_color",
-    )
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.62f,
-        animationSpec = tween(FadeTweenMillis),
-        label = "specimen_swatch_alpha",
-    )
 
     var backdropPainter by remember(backdropUrl) { mutableStateOf<Painter?>(null) }
+    val dominantEnabled = mode == MetaScreenBackgroundMode.DominantColor
     val dominant = rememberDominantBackdropColor(
         painter = backdropPainter,
-        enabled = mode == MetaScreenBackgroundMode.DominantColor,
+        enabled = dominantEnabled,
     )
 
-    Box(
-        modifier = Modifier
-            .width(124.dp)
-            .height(168.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(tokens.colors.background)
-            .border(borderWidth, borderColor, RoundedCornerShape(14.dp)),
-    ) {
-        // The background treatment itself. ⚠ The blur radius and the scrim alpha mirror
-        // `MetaDetailsScreen`'s Cinematic mode, and the 0.42 blend mirrors its DominantColor
-        // mode. Changing them there means changing them here.
+    // Mirrors `heroGradientColor = dominantBackdropColor.takeIf { dominantColorEnabled }`: the
+    // hero fade and the seam take the tint only in DominantColor.
+    val seamColor = if (dominantEnabled) dominant else tokens.colors.background
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // The background layer, behind everything - the same `when` the real screen runs below
+        // its scrolling content.
         when (mode) {
             MetaScreenBackgroundMode.Normal -> Box(
                 modifier = Modifier.fillMaxSize().background(tokens.colors.background),
@@ -720,7 +708,7 @@ private fun SpecimenBackgroundSwatch(
                     model = backdropUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().blur(18.dp),
+                    modifier = Modifier.fillMaxSize().blur(30.dp),
                 )
                 Box(
                     modifier = Modifier
@@ -729,11 +717,21 @@ private fun SpecimenBackgroundSwatch(
                 )
             }
 
-            MetaScreenBackgroundMode.DominantColor -> {
-                // Drawn, then covered. The extractor needs a painter and the only way to get
-                // one is to let Coil actually load the image, so the backdrop is laid out at
-                // full size underneath an opaque fill. `dominant` starts *at* the background
-                // colour and animates towards the extracted one, so the image is never visible.
+            MetaScreenBackgroundMode.DominantColor -> Box(
+                modifier = Modifier.fillMaxSize().background(dominant),
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // The hero. Its `onSuccess` is also what feeds the dominant-colour extractor, so
+            // this image does two jobs and has to stay laid out in all three modes.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(126.dp)
+                    .background(tokens.colors.skeleton),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
                 AsyncImage(
                     model = backdropUrl,
                     contentDescription = null,
@@ -741,54 +739,54 @@ private fun SpecimenBackgroundSwatch(
                     onSuccess = { backdropPainter = it.painter },
                     modifier = Modifier.fillMaxSize(),
                 )
-                Box(modifier = Modifier.fillMaxSize().background(dominant))
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(58.dp)
-                    .height((58 / PosterAspectRatio).dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(tokens.colors.skeleton),
-            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, seamColor)),
+                    ),
+                )
                 AsyncImage(
-                    model = posterUrl,
+                    model = SetupSampleTitle.logoUrl(SetupSampleTitle.featuredImdbId),
                     contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .padding(bottom = 10.dp)
+                        .height(28.dp)
+                        .widthIn(max = 164.dp),
                 )
             }
-            SpecimenTextLine(width = 72.dp, color = tokens.colors.textSecondary, alpha = contentAlpha)
-            SpecimenTextLine(width = 52.dp, color = tokens.colors.textMuted, alpha = contentAlpha)
-            SpecimenTextLine(width = 62.dp, color = tokens.colors.textMuted, alpha = contentAlpha)
+
+            // The seam that bridges hero into page. ⚠ The real screen uses a 132 dp band under a
+            // 420-760 dp hero; scaled to this 126 dp hero that would swallow the mock, so it is
+            // 22 dp here. Same colour rule and the same `usesBackdropBackground` gate.
+            if (mode.usesBackdropBackground) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(22.dp).background(
+                        Brush.verticalGradient(
+                            listOf(
+                                seamColor.copy(alpha = 0.98f),
+                                seamColor.copy(alpha = 0.52f),
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+                )
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            SpecimenEpisodes(
+                style = episodeCardStyle,
+                blurUnwatched = blurUnwatched,
+                cornerRadiusDp = cornerRadiusDp,
+            )
         }
     }
-}
-
-/** A stand-in for a line of text. Deliberately abstract - the swatch is about the backdrop. */
-@Composable
-private fun SpecimenTextLine(width: Dp, color: Color, alpha: Float) {
-    Box(
-        modifier = Modifier
-            .width(width)
-            .height(5.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(color.copy(alpha = 0.55f * alpha)),
-    )
 }
 
 /**
  * The details screen's matched-colour backdrop, extracted for real.
  *
- * Guessing a colour here would make the swatch lie about the option it is illustrating, so this
+ * Guessing a colour here would make the mock lie about the option it is illustrating, so this
  * runs the same kmpalette extraction and the same 0.42 blend towards the background that
  * `MetaDetailsScreen` runs. With no artwork it falls back to the plain background, which is
  * also what the real screen does.
@@ -831,7 +829,13 @@ private fun Color.blendTowards(target: Color, fraction: Float): Color {
     )
 }
 
-/** Episode cards in each of the two styles, with the unwatched blur applied. */
+/**
+ * Episode cards in each of the two styles.
+ *
+ * ⚠ Height budget inside `SetupSpecimen.Details` (320 dp): 126 hero + 22 seam leaves ~170.
+ * Horizontal runs to about 124, List to about 118 at two rows. List takes **two** episodes and
+ * Horizontal **three** for that reason - a third List row would overflow.
+ */
 @Composable
 private fun SpecimenEpisodes(
     style: MetaEpisodeCardStyle,
@@ -849,19 +853,19 @@ private fun SpecimenEpisodes(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Spacer(modifier = Modifier.width(16.dp))
             SetupSampleTitle.episodes.forEach { episode ->
                 Column(
-                    modifier = Modifier.width(212.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.width(176.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     SpecimenEpisodeStill(
+                        episode = episode,
                         blurred = blurUnwatched,
                         radius = radius,
-                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        modifier = Modifier.fillMaxWidth().height(84.dp),
                     )
                     SpecimenCaption(
                         title = "${episode.episodeNumber}. ${episode.title}",
@@ -874,18 +878,19 @@ private fun SpecimenEpisodes(
 
         MetaEpisodeCardStyle.List -> Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SetupSampleTitle.episodes.forEach { episode ->
+            SetupSampleTitle.episodes.take(2).forEach { episode ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SpecimenEpisodeStill(
+                        episode = episode,
                         blurred = blurUnwatched,
                         radius = radius,
-                        modifier = Modifier.width(112.dp).height(64.dp),
+                        modifier = Modifier.width(96.dp).height(54.dp),
                     )
                     SpecimenCaption(
                         title = "${episode.episodeNumber}. ${episode.title}",
@@ -898,22 +903,36 @@ private fun SpecimenEpisodes(
     }
 }
 
+/**
+ * One episode still, with the app's own fallback chain.
+ *
+ * `episodes.metahub.space` is a different host from the show-artwork one and **has never been
+ * reached from the sandbox**, so this cannot assume it answers. On failure it swaps to the
+ * show's backdrop, which is exactly what `DetailSeriesContent` does
+ * (`video.thumbnail ?: meta.background ?: meta.poster`) - so a dead host degrades this to the
+ * repeated-backdrop look the real app has for a series with no episode artwork, rather than to
+ * an empty box.
+ */
 @Composable
 private fun SpecimenEpisodeStill(
+    episode: SetupSampleTitle.SampleEpisode,
     blurred: Boolean,
     radius: Dp,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
+    var stillFailed by remember(episode.stillUrl) { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(radius))
             .background(tokens.colors.skeleton),
     ) {
         AsyncImage(
-            model = SetupSampleTitle.backgroundUrl(SetupSampleTitle.featuredImdbId),
+            model = if (stillFailed) episode.fallbackStillUrl else episode.stillUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            onError = { stillFailed = true },
             // 18 dp, matching `DetailSeriesContent`.
             modifier = Modifier
                 .fillMaxSize()

@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +43,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,8 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,8 +75,6 @@ import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
-import com.nuvio.app.features.trakt.TraktAuthRepository
-import com.nuvio.app.features.trakt.TraktConnectionMode
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlinx.coroutines.CoroutineScope
@@ -103,13 +104,17 @@ import org.jetbrains.compose.resources.stringResource
  * separated by a hairline. **Nothing is ever drawn behind the text**, which makes readability a
  * property of the layout rather than something to check on each theme.
  *
- * ## The specimen shows only what the step changes
+ * ## The specimen shows what the step changes, and does not move
  *
  * The other half of revision 2's problem was that the preview was a whole fake screen: a step
  * about Continue Watching spent most of its band on a hero banner, and the per-step scroll
- * anchoring that tried to fix that left rows half-clipped. Each step now names the specimen it
- * wants - see [SetupSpecimen] - and on the two merged steps the specimen **follows the control
- * the user last touched**, so no control changes nothing visible.
+ * anchoring that tried to fix that left rows half-clipped. Each step now draws one thing - see
+ * [SetupSpecimen].
+ *
+ * ⚠ Revision 3 went one step further and moved the band to whichever control the user last
+ * touched. That was worse on a device: the object being studied kept getting swapped out. The
+ * band is **fixed per step** now, and the merged steps draw everything they cover at once so
+ * the controls can change it in place instead.
  *
  * ⚠ **Every choice is written the moment it is tapped**, through the same repository setter the
  * settings page uses. There is no undo, which matches how every settings page in this app
@@ -127,7 +132,6 @@ fun SetupWizardScreen(
 ) {
     val tokens = MaterialTheme.nuvio
     val scope = rememberCoroutineScope()
-    val uriHandler = LocalUriHandler.current
 
     val playerSettings by remember {
         PlayerSettingsRepository.ensureLoaded()
@@ -152,10 +156,6 @@ fun SetupWizardScreen(
     val selectedTheme by remember { ThemeSettingsRepository.selectedTheme }.collectAsStateWithLifecycle()
     val amoledEnabled by remember { ThemeSettingsRepository.amoledEnabled }.collectAsStateWithLifecycle()
     val addons by remember { AddonRepository.uiState }.collectAsStateWithLifecycle()
-    val trakt by remember {
-        TraktAuthRepository.ensureLoaded()
-        TraktAuthRepository.uiState
-    }.collectAsStateWithLifecycle()
 
     // Saved by name, not by ordinal: an enum reordered in a later release must not resume a
     // process-death-restored wizard on a different step than the user left it on. Revision 3
@@ -164,16 +164,18 @@ fun SetupWizardScreen(
     var stepName by rememberSaveable { mutableStateOf(SetupStep.Welcome.name) }
     val step = remember(stepName) { setupStepForSavedName(stepName) }
 
-    // Which specimen the band is showing. Keyed on the step so entering one always starts on
-    // its first control group; the control handlers below move it from there.
-    var specimen by remember(step) { mutableStateOf(step.defaultSpecimen) }
+    val specimen = step.specimen
 
     // `enabled`, not merely present: an installed-but-disabled addon is not a source, so a
     // profile carrying only those still gets asked.
-    val plan = SetupWizardPlan(
-        offerSources = addons.addons.none { it.enabled },
-        offerTrakt = trakt.mode != TraktConnectionMode.CONNECTED,
-    )
+    val plan = SetupWizardPlan(offerSources = addons.addons.none { it.enabled })
+
+    // Which way the panel body should slide. Read from the step's position in the plan, so a
+    // dropped optional step cannot make Back animate forwards.
+    val position = setupStepPosition(step, plan) ?: 1
+    var lastPosition by remember { mutableStateOf(position) }
+    val goingForward = position >= lastPosition
+    LaunchedEffect(position) { lastPosition = position }
 
     var addonUrl by rememberSaveable { mutableStateOf("") }
     var addonBusy by remember { mutableStateOf(false) }
@@ -184,7 +186,6 @@ fun SetupWizardScreen(
     var addonInstalledName by remember { mutableStateOf<String?>(null) }
 
     val emptyUrlMessage = stringResource(Res.string.addons_error_enter_url)
-    val browserFailedMessage = stringResource(Res.string.settings_trakt_failed_open_browser)
     val nextUpLabel = stringResource(Res.string.setup_specimen_next_up)
 
     fun complete() {
@@ -226,6 +227,7 @@ fun SetupWizardScreen(
             SetupSpecimenBand(
                 specimen = specimen,
                 step = step,
+                playbackMode = playerSettings.playbackMode,
                 height = bandHeight,
                 contentPaddingTop = insets.calculateTopPadding(),
                 posterWidthDp = posterStyle.widthDp,
@@ -243,11 +245,14 @@ fun SetupWizardScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // The seam. A hairline alone drew a hard rule across the screen; this is the same
+            // hairline over a short gradient that lifts the panel's colour up into the bottom
+            // of the band, so the two regions stay distinct without a line through them.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(tokens.borders.hairline)
-                    .background(tokens.colors.borderSubtle),
+                    .background(tokens.colors.borderSubtle.copy(alpha = 0.6f)),
             )
 
             SetupPanel(
@@ -266,6 +271,7 @@ fun SetupWizardScreen(
             ) {
                 SetupStepBody(
                     step = step,
+                    goingForward = goingForward,
                     playbackMode = playerSettings.playbackMode,
                     posterWidthDp = posterStyle.widthDp,
                     posterCornerRadiusDp = posterStyle.cornerRadiusDp,
@@ -285,9 +291,6 @@ fun SetupWizardScreen(
                     addonBusy = addonBusy,
                     addonError = addonError,
                     addonInstalledName = addonInstalledName,
-                    traktMode = trakt.mode,
-                    traktUsername = trakt.username,
-                    onShowSpecimen = { specimen = it },
                     onAddonUrlChange = {
                         addonUrl = it
                         addonError = null
@@ -310,7 +313,6 @@ fun SetupWizardScreen(
                             },
                         )
                     },
-                    onConnectTrakt = { connectTrakt(uriHandler::openUri, browserFailedMessage) },
                 )
             }
         }
@@ -318,19 +320,23 @@ fun SetupWizardScreen(
 }
 
 /**
- * Which specimen a step opens on.
+ * What the band shows for a step.
  *
- * The merged steps open on their first control group and move from there as the user touches
- * things, which is why this is only the *default* rather than a fixed mapping.
+ * ⚠ **Fixed, and it used to be state.** Revision 3 held the current specimen in a
+ * `remember(step)` and let each control move it, so the band followed whatever the user last
+ * touched. Tested on a device that read as jarring - the object you were studying kept being
+ * swapped out from under you. Each step now draws one thing that never changes while you are on
+ * it, and the controls change that thing *in place*. There is no specimen state left to get
+ * wrong.
  */
-private val SetupStep.defaultSpecimen: SetupSpecimen
+private val SetupStep.specimen: SetupSpecimen
     get() = when (this) {
         SetupStep.Cards -> SetupSpecimen.Cards
-        SetupStep.Home -> SetupSpecimen.HomeHero
-        SetupStep.Details -> SetupSpecimen.DetailsBackground
+        SetupStep.Home -> SetupSpecimen.Home
+        SetupStep.Details -> SetupSpecimen.Details
         SetupStep.Theme -> SetupSpecimen.Theme
         SetupStep.Welcome, SetupStep.PlaybackMode,
-        SetupStep.Sources, SetupStep.Trakt, SetupStep.Done,
+        SetupStep.Sources, SetupStep.Done,
         -> SetupSpecimen.Diagram
     }
 
@@ -511,13 +517,11 @@ private fun SetupPanelFooter(
 
 /**
  * The controls for the current step.
- *
- * @param onShowSpecimen moves the band to the specimen a control affects. Every control on a
- *   merged step calls it, which is what stops any of them from appearing to do nothing.
  */
 @Composable
 private fun SetupStepBody(
     step: SetupStep,
+    goingForward: Boolean,
     playbackMode: PlaybackMode,
     posterWidthDp: Int,
     posterCornerRadiusDp: Int,
@@ -537,16 +541,24 @@ private fun SetupStepBody(
     addonBusy: Boolean,
     addonError: String?,
     addonInstalledName: String?,
-    traktMode: TraktConnectionMode,
-    traktUsername: String?,
-    onShowSpecimen: (SetupSpecimen) -> Unit,
     onAddonUrlChange: (String) -> Unit,
     onInstallAddon: () -> Unit,
-    onConnectTrakt: () -> Unit,
 ) {
     AnimatedContent(
         targetState = step,
-        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+        // Slide as well as fade, in the direction of travel, so Back visibly reverses Next.
+        // A crossfade alone read as a flicker: two sets of controls at similar positions
+        // dissolving into each other with nothing to say which way the flow went.
+        transitionSpec = {
+            val offset = if (goingForward) 1 else -1
+            (
+                fadeIn(tween(220)) +
+                    slideInHorizontally(tween(280, easing = LinearOutSlowInEasing)) { it / 6 * offset }
+                ) togetherWith (
+                fadeOut(tween(140)) +
+                    slideOutHorizontally(tween(280, easing = LinearOutSlowInEasing)) { -it / 6 * offset }
+                )
+        },
         label = "setup_step_body",
     ) { current ->
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -602,17 +614,14 @@ private fun SetupStepBody(
                     )
                 }
 
-                // Merged: the banner, then Continue Watching. Each group moves the band to the
-                // specimen it affects.
+                // Merged: the banner, then Continue Watching. The band shows both at once and
+                // every control here changes it in place.
                 SetupStep.Home -> {
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_home_hero),
                         description = stringResource(Res.string.setup_home_hero_description),
                         checked = heroEnabled,
-                        onCheckedChange = {
-                            onShowSpecimen(SetupSpecimen.HomeHero)
-                            HomeCatalogSettingsRepository.setHeroEnabled(it)
-                        },
+                        onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
                     )
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_home_continue),
@@ -622,19 +631,13 @@ private fun SetupStepBody(
                             stringResource(Res.string.setup_home_cw_poster) to ContinueWatchingSectionStyle.Poster,
                         ),
                         selected = continueWatchingStyle,
-                        onSelected = {
-                            onShowSpecimen(SetupSpecimen.HomeContinueWatching)
-                            ContinueWatchingPreferencesRepository.setStyle(it)
-                        },
+                        onSelected = ContinueWatchingPreferencesRepository::setStyle,
                     )
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_cw_thumbnails),
                         description = stringResource(Res.string.setup_cw_thumbnails_description),
                         checked = useEpisodeThumbnails,
-                        onCheckedChange = {
-                            onShowSpecimen(SetupSpecimen.HomeContinueWatching)
-                            ContinueWatchingPreferencesRepository.setUseEpisodeThumbnails(it)
-                        },
+                        onCheckedChange = ContinueWatchingPreferencesRepository::setUseEpisodeThumbnails,
                     )
                     // Only meaningful over a thumbnail; with artwork off there is nothing to
                     // blur, and a toggle that visibly does nothing reads as broken.
@@ -643,15 +646,13 @@ private fun SetupStepBody(
                             title = stringResource(Res.string.setup_cw_blur_next_up),
                             description = stringResource(Res.string.setup_cw_blur_next_up_description),
                             checked = blurNextUp,
-                            onCheckedChange = {
-                                onShowSpecimen(SetupSpecimen.HomeContinueWatching)
-                                ContinueWatchingPreferencesRepository.setBlurNextUp(it)
-                            },
+                            onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
                         )
                     }
                 }
 
-                // Merged: the background treatment, then the episode list.
+                // Merged: the background treatment, then the episode list. The band is one
+                // small details screen and all four controls act on it.
                 SetupStep.Details -> {
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_details_background),
@@ -661,10 +662,7 @@ private fun SetupStepBody(
                             stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
                         ),
                         selected = backgroundMode,
-                        onSelected = {
-                            onShowSpecimen(SetupSpecimen.DetailsBackground)
-                            MetaScreenSettingsRepository.setBackgroundMode(it)
-                        },
+                        onSelected = MetaScreenSettingsRepository::setBackgroundMode,
                     )
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_details_episodes),
@@ -673,22 +671,17 @@ private fun SetupStepBody(
                             stringResource(Res.string.setup_details_episodes_list) to MetaEpisodeCardStyle.List,
                         ),
                         selected = episodeCardStyle,
-                        onSelected = {
-                            onShowSpecimen(SetupSpecimen.DetailsEpisodes)
-                            MetaScreenSettingsRepository.setEpisodeCardStyle(it)
-                        },
+                        onSelected = MetaScreenSettingsRepository::setEpisodeCardStyle,
                     )
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_episodes_blur_unwatched),
                         description = stringResource(Res.string.setup_episodes_blur_unwatched_description),
                         checked = blurUnwatchedEpisodes,
-                        onCheckedChange = {
-                            onShowSpecimen(SetupSpecimen.DetailsEpisodes)
-                            MetaScreenSettingsRepository.setBlurUnwatchedEpisodes(it)
-                        },
+                        onCheckedChange = MetaScreenSettingsRepository::setBlurUnwatchedEpisodes,
                     )
-                    // Tabs regroup the sections below the episode list, which the specimen does
-                    // not draw. It stays on the episode cards rather than pretending otherwise.
+                    // ⚠ The one control in the wizard whose effect the band does not show:
+                    // tabs regroup the sections *below* the episode list, and the mock stops at
+                    // the episode list. Named here so nobody later mistakes it for a bug.
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_details_tabs),
                         description = stringResource(Res.string.setup_details_tabs_description),
@@ -717,12 +710,6 @@ private fun SetupStepBody(
                     installedName = addonInstalledName,
                     onAddonUrlChange = onAddonUrlChange,
                     onInstall = onInstallAddon,
-                )
-
-                SetupStep.Trakt -> SetupTraktBody(
-                    mode = traktMode,
-                    username = traktUsername,
-                    onConnect = onConnectTrakt,
                 )
 
                 SetupStep.Done -> SetupParagraph(stringResource(Res.string.setup_done_body))
@@ -781,41 +768,7 @@ private fun SetupSourcesBody(
     SetupParagraph(stringResource(Res.string.setup_sources_debrid_hint))
 }
 
-@Composable
-private fun SetupTraktBody(
-    mode: TraktConnectionMode,
-    username: String?,
-    onConnect: () -> Unit,
-) {
-    SetupParagraph(stringResource(Res.string.setup_trakt_body))
-    when (mode) {
-        TraktConnectionMode.CONNECTED -> Text(
-            text = stringResource(Res.string.setup_trakt_connected, username.orEmpty()),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.nuvio.colors.success,
-        )
-
-        TraktConnectionMode.AWAITING_APPROVAL -> {
-            Text(
-                text = stringResource(Res.string.setup_trakt_waiting),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.nuvio.colors.textSecondary,
-            )
-            Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
-                Text(text = stringResource(Res.string.setup_trakt_connect))
-            }
-        }
-
-        TraktConnectionMode.DISCONNECTED -> Button(
-            onClick = onConnect,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(text = stringResource(Res.string.setup_trakt_connect))
-        }
-    }
-}
-
-// --- the two things that can fail ---------------------------------------------------------
+// --- the one thing that can fail ----------------------------------------------------------
 
 /**
  * Installs an addon from a pasted manifest URL.
@@ -850,21 +803,6 @@ private fun installAddon(
             is AddAddonResult.Error -> onFailed(result.message)
         }
     }
-}
-
-/**
- * Starts, or resumes, the Trakt authorisation.
- *
- * `pendingAuthorizationUrl` first, exactly as `TraktSettingsPage` does: a user who tapped
- * connect, lost the browser and came back must land on the authorisation already in flight
- * rather than start a second one.
- */
-private fun connectTrakt(openUri: (String) -> Unit, browserFailedMessage: String) {
-    val authUrl = TraktAuthRepository.pendingAuthorizationUrl()
-        ?: TraktAuthRepository.onConnectRequested()
-        ?: return
-    runCatching { openUri(authUrl) }
-        .onFailure { TraktAuthRepository.onAuthLaunchFailed(it.message ?: browserFailedMessage) }
 }
 
 // --- small shared pieces -----------------------------------------------------------------
@@ -908,6 +846,11 @@ private fun <T> SetupChoiceGroup(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (isSelected) tokens.colors.onAccent else tokens.colors.textSecondary,
+                    // ⚠ `textAlign` is load-bearing. Without it the label sits hard left inside
+                    // its pill, which shipped in every build from revision 2 to revision 3
+                    // before anyone named it.
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(999.dp))
@@ -1037,7 +980,6 @@ private val SetupStep.titleRes
         SetupStep.Details -> Res.string.setup_details_title
         SetupStep.Theme -> Res.string.setup_theme_title
         SetupStep.Sources -> Res.string.setup_sources_title
-        SetupStep.Trakt -> Res.string.setup_trakt_title
         SetupStep.Done -> Res.string.setup_done_title
     }
 
@@ -1050,6 +992,5 @@ private val SetupStep.subtitleRes
         SetupStep.Details -> Res.string.setup_details_subtitle
         SetupStep.Theme -> Res.string.setup_theme_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
-        SetupStep.Trakt -> Res.string.setup_trakt_subtitle
         SetupStep.Done -> Res.string.setup_done_subtitle
     }

@@ -17,13 +17,13 @@ package com.nuvio.app.features.setup
  *
  * A revision asks exactly once per revision.
  *
- * **Revision 3** ships the focused redesign. Revision 2 previewed a whole fake home screen
- * behind a translucent panel: the panel was not readable over live artwork, and most of what
- * it previewed had nothing to do with the control being changed. The wizard now shows only the
- * component each step affects, and the panel is opaque. Anyone who completed revision 1 or 2
- * answered a flow that no longer exists, which is exactly the case this integer was chosen for.
+ * **Revision 4** drops the Trakt step, which offered a connection that does not work yet.
+ * Revisions 1 through 3 each asked a set of questions this build no longer asks: 1 hid them
+ * behind presets, 2 put them under an unreadable translucent panel, and 3 asked one that led
+ * nowhere. Anyone who completed any of them answered a flow that no longer exists, which is
+ * exactly the case this integer was chosen for.
  */
-const val SETUP_WIZARD_REVISION: Int = 3
+const val SETUP_WIZARD_REVISION: Int = 4
 
 /**
  * Whether the first-launch wizard should gate the app.
@@ -78,9 +78,6 @@ enum class SetupStep {
     /** Addons. Optional, and the only step that can fail. */
     Sources,
 
-    /** Trakt. Optional. */
-    Trakt,
-
     /** Records the revision. */
     Done,
 }
@@ -103,22 +100,23 @@ fun setupStepForSavedName(name: String?): SetupStep =
 /**
  * What the wizard is willing to ask about this time.
  *
- * The two optional steps are dropped rather than shown-and-skipped when they have nothing to
- * offer: a re-run from Settings asking a user with five addons to install their first one is
- * noise, and noise in a setup flow reads as the app not knowing what it already has.
+ * The optional step is dropped rather than shown-and-skipped when it has nothing to offer: a
+ * re-run from Settings asking a user with five addons to install their first one is noise, and
+ * noise in a setup flow reads as the app not knowing what it already has.
+ *
+ * Revision 3 had a second optional step, Trakt. It is gone rather than defaulted off, because
+ * the connection it offered is not working yet - a first-run flow that asks for an account and
+ * then cannot use it is worse than not asking.
  */
 data class SetupWizardPlan(
     /** False when the profile already has at least one enabled source. */
     val offerSources: Boolean = true,
-    /** False when Trakt is already connected. */
-    val offerTrakt: Boolean = true,
 )
 
 /** The steps this run will actually show, in order. */
 fun setupWizardSteps(plan: SetupWizardPlan): List<SetupStep> = SetupStep.entries.filter { step ->
     when (step) {
         SetupStep.Sources -> plan.offerSources
-        SetupStep.Trakt -> plan.offerTrakt
         else -> true
     }
 }

@@ -55,12 +55,36 @@ object SetupSampleTitle {
     fun logoUrl(imdbId: String): String = "$artworkHost/logo/medium/$imdbId/img"
 
     /**
+     * A **per-episode** still.
+     *
+     * ⚠ A different host from [artworkHost], and that is the whole point. `images.metahub.space`
+     * is keyed by the *show's* IMDb id, so it has no episode-level images for any title - which
+     * is why every row of the episode specimen used to show the same picture.
+     * `episodes.metahub.space` is keyed by show/season/episode and is equally keyless.
+     *
+     * ⚠ **This host has never answered here** - the sandbox blocks metahub, exactly as it does
+     * for [artworkHost]. If the stills come back identical on a device, this URL shape is wrong
+     * and the fallback below is doing its job silently. Device check.
+     *
+     * Callers fall back to [backgroundUrl] on failure, which is the same chain the real app
+     * uses (`DetailSeriesContent.kt`: `video.thumbnail ?: meta.background ?: meta.poster`). So a
+     * dead host degrades this preview to precisely what the app itself shows for a series with
+     * no episode artwork.
+     */
+    fun episodeStillUrl(imdbId: String, season: Int, episode: Int): String =
+        "$episodeStillHost/$imdbId/$season/$episode.jpg"
+
+    private const val episodeStillHost = "https://episodes.metahub.space"
+
+    /**
      * The title the details step previews.
      *
-     * A long-running sitcom is a deliberate choice: it has many seasons, so the episode list
-     * and the season picker in the details preview look like something rather than a stub.
+     * Breaking Bad rather than the sitcom that was here before: it is one of the best-covered
+     * titles on the artwork hosts, so it is the safest bet for per-episode stills actually
+     * existing - and the maintainer specifically wanted the episode list to stop looking like
+     * the same frame six times.
      */
-    const val featuredImdbId: String = "tt0108778"
+    const val featuredImdbId: String = "tt0903747"
 
     /**
      * The row the card and home steps preview.
@@ -72,10 +96,15 @@ object SetupSampleTitle {
      *
      * Every one is a well-known title with complete artwork on the host above. The names are
      * shown to the user, so they are spelled the way the shows are.
+     *
+     * ⚠ **[featuredImdbId] must be first.** The Continue Watching specimen captions its
+     * in-progress card with [continueWatchingCaption], which names a specific episode of the
+     * featured title - so the first entry has to be the show that episode belongs to, or the
+     * card claims one show is playing an episode of another.
      */
     val rowItems: List<MetaPreview> = listOf(
-        preview("tt0108778", "Friends", "1994-2004", listOf("Comedy", "Romance")),
         preview("tt0903747", "Breaking Bad", "2008-2013", listOf("Crime", "Drama", "Thriller")),
+        preview("tt0108778", "Friends", "1994-2004", listOf("Comedy", "Romance")),
         preview("tt0944947", "Game of Thrones", "2011-2019", listOf("Action", "Adventure", "Drama")),
         preview("tt1475582", "Sherlock", "2010-2017", listOf("Crime", "Drama", "Mystery")),
         preview("tt0417299", "Avatar: The Last Airbender", "2005-2008", listOf("Animation", "Action")),
@@ -109,13 +138,11 @@ object SetupSampleTitle {
         val runtime: String,
         val overview: String,
     ) {
-        /**
-         * ⚠ **The backdrop stands in for a per-episode still.** The artwork host is keyed by
-         * title, not by episode, so there is no still to fetch. Every episode therefore shows
-         * the same image - which is fine for judging the *shape* of a card, and is the only
-         * thing the episode-card-style choice is asking the user to judge.
-         */
-        val stillUrl: String get() = backgroundUrl(featuredImdbId)
+        /** The per-episode still. See [episodeStillUrl] for why this is a second host. */
+        val stillUrl: String get() = episodeStillUrl(featuredImdbId, seasonNumber, episodeNumber)
+
+        /** What to draw if [stillUrl] does not load. The show's own backdrop, as the app does. */
+        val fallbackStillUrl: String get() = backgroundUrl(featuredImdbId)
     }
 
     /** Enough episodes to show a card style as a list rather than as a single specimen. */
@@ -123,18 +150,26 @@ object SetupSampleTitle {
         SampleEpisode(
             seasonNumber = 5,
             episodeNumber = 14,
-            title = "The One Where Everybody Finds Out",
-            runtime = "22 min",
-            overview = "Phoebe discovers the secret, and decides the only fair thing is to " +
-                "make everyone else find out the hard way.",
+            title = "Ozymandias",
+            runtime = "48 min",
+            overview = "Everything Walt has built comes apart in a single afternoon in the " +
+                "desert, and there is no version of it he can talk his way out of.",
         ),
         SampleEpisode(
             seasonNumber = 5,
             episodeNumber = 15,
-            title = "The One With The Girl Who Hits Joey",
-            runtime = "22 min",
-            overview = "Ross takes up a new hobby with rather more enthusiasm than anyone " +
-                "was expecting.",
+            title = "Granite State",
+            runtime = "53 min",
+            overview = "Exile turns out to be its own kind of sentence, served in a cabin " +
+                "with nothing to do but wait.",
+        ),
+        SampleEpisode(
+            seasonNumber = 5,
+            episodeNumber = 16,
+            title = "Felina",
+            runtime = "55 min",
+            overview = "One last drive back, with a short list and no intention of leaving " +
+                "any of it unfinished.",
         ),
     )
 
@@ -145,8 +180,8 @@ object SetupSampleTitle {
      * short of the point where `WatchProgressCompletionPercentThreshold` would treat it as
      * finished.
      */
-    const val continueWatchingProgress: Float = 7f / 22f
+    const val continueWatchingProgress: Float = 22f / 48f
 
     /** The caption on the in-progress Continue Watching card. */
-    const val continueWatchingCaption: String = "S5 E14 · The One Where Everybody Finds Out"
+    const val continueWatchingCaption: String = "S5 E14 · Ozymandias"
 }
