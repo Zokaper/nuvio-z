@@ -6,7 +6,7 @@ Last updated: 2026-08-12
 | --- | --- |
 | **Active branch** | `claude/onboarding-setup-wizard-7juovt` in both repositories, cut from `claude/release-0.5.0-beta-polish-ivcjsl` (**not** from `main` / `Dev` — phase 1 is not on the default branches yet, and this edits the same `App.kt` gate). Carries **phase 2 of `0.5.0-beta`, the setup wizard**, on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Run the `SetupWizardRenderHarness` on the Windows host first** — the wizard has still never been rendered anywhere, and that gap is exactly what let revision 2's unreadable sheet reach a device. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script" for phase 2, whose first three checks are the revision-2 regressions. `debug-v0.4.14-beta.7` carries the superseded shape, so publish a fresh debug build before testing. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Run the `SetupWizardRenderHarness` on the Windows host first** — the wizard has still never been rendered anywhere, and that gap is what let revision 2's unreadable sheet and revision 3's uncentred chips reach a device. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script" for phase 2, whose first five checks are the regressions from revisions 2 and 3. Test with `debug-v0.4.14-beta.9`. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -25,9 +25,10 @@ impression. Until now the app's entire onboarding was one full-screen question a
 mode, asked before the user had seen anything it applied to - and every visual option sat
 behind five sub-pages of `Settings → Appearance` that nobody was going to find.
 
-⚠ **Two earlier shapes shipped and were wrong.** `debug-v0.4.14-beta.6` was preset-first;
-`debug-v0.4.14-beta.7` previewed a whole fake home screen behind a translucent sheet. See "What
-the first two attempts got wrong". Do not restore either.
+⚠ **Three earlier shapes shipped and were wrong.** `debug-v0.4.14-beta.6` was preset-first;
+`.7` previewed a whole fake home screen behind a translucent sheet; `.8` moved the preview to
+whichever control was last touched. See "What the earlier attempts got wrong". Do not restore
+any of them.
 
 ### The shape
 
@@ -37,18 +38,28 @@ of the layout rather than something to re-check in every theme - which is what r
 wrong, and badly: on a device the home screen read straight through the sheet, and because the
 sheet's gradient was most transparent at its top edge, the worst of it was behind the heading.
 
-**The band shows only the component the current step changes.** Nine steps: Welcome → playback
-mode → cards → home → details → theme → sources → Trakt → done. The two optional steps are
-**dropped, not shown-and-skipped**, when they have nothing to offer.
+**The band shows what the current step changes.** Eight steps: Welcome → playback mode → cards
+→ home → details → theme → sources → done. Sources is **dropped, not shown-and-skipped**, when
+the profile already has an enabled addon.
 
 Appearance is four steps grouped by surface, down from six. Two of the six carried a single
 control each - a whole screen, a whole preview and two taps to answer one toggle. Nothing now
 exceeds four controls, so **no panel scrolls on a phone**, which is what put the Cards step's
 first control group off-screen and cut the playback-mode step off mid-card in revision 2.
 
-On the two merged steps the specimen **follows the control the user last touched**
-(`onShowSpecimen`), so no control appears to do nothing. Entering a step always resets to its
-first group.
+⚠ **The band is fixed per step and does not move while you are on it.** Revision 3 held the
+current specimen in state and let each control move it, on the reasoning that every control
+should change something visible. It does achieve that, and on a device it was still worse: the
+object being studied kept getting swapped out mid-thought. The merged steps now draw everything
+they cover at once - Home is the banner *and* the Continue Watching row, Details is one small
+details screen - and the controls change that in place. There is no specimen state left.
+
+The one control whose effect the band cannot show is "Group sections into tabs", which regroups
+the sections *below* the episode list. It is commented as such at the call site.
+
+**Trakt is gone** (revision 4). It offered a connection that is not functional yet, and a
+first-run flow that asks for an account it cannot use is worse than one that does not ask.
+`TraktAuthRepository` is untouched - the settings page still owns it.
 
 ### The specimens are purpose-built, and that was a reversal
 
@@ -83,10 +94,60 @@ The apply-as-you-go mechanic is unchanged: every settings repository here is a s
 `MutableStateFlow`, and the wizard writes each choice through the real setter the moment it is
 tapped. There is no undo, which is how every settings page here already behaves.
 
-⚠ **Band heights are hand-fitted and will clip if content grows.** Each `SetupSpecimen` carries
-a `preferredHeight` sized against its content at the *largest* settings, capped at 45% of the
-window. The two tight ones are commented in place: `HomeHero` (150 dp banner + 14 + a 0.62-scale
-row = 292 inside 300) and `DiagramAppSketch` (156 inside 180).
+⚠ **Band heights are hand-fitted arithmetic and will clip if content grows.** Each
+`SetupSpecimen` carries a `preferredHeight` sized against its content at the *largest* settings,
+capped at 45% of the window. The tight ones are commented in place: `Home` (150 dp banner + 14
++ the Poster-style Continue Watching row, inside 330) and `Details` (126 hero + 22 seam +
+episodes, inside 320). **None of these sums has ever been checked against a renderer** - see
+the harness note under Verification.
+
+⚠ **The details specimen must keep matching `MetaDetailsScreen`, and it has already drifted
+once.** It blurred Cinematic at 18 dp for a whole release where the real screen uses **30 dp**
+under a `background @ 0.92` scrim, which overstated that mode badly and is part of why the
+maintainer could not tell what the background step was showing. Three things to hold: the 30 dp
+blur, the 0.92 scrim, and that **only `DominantColor` tints the hero** - `heroGradientColor` is
+passed for that mode and null for the other two, and that tint reaching into the hero is the
+single most visible difference between the three. Normal and Cinematic looking similar is
+correct; about 8% of the artwork survives that scrim in the real app too.
+
+### The product is "Nuvio Z", and the copy mostly still says "Nuvio"
+
+The Android label, applicationId, launcher icons and downloads notification all say **Nuvio Z**.
+**42 of the 43 product-name strings in `values/strings.xml` say "Nuvio"**, including the
+canonical `app_brand_name`, and every one of those has ~20 locale variants that say the same.
+
+Revision 4 renamed **the setup wizard's own copy only** - `setup_welcome_title`,
+`setup_welcome_body`, `setup_home_subtitle`, `setup_sources_subtitle`, `setup_sources_body` -
+on the maintainer's instruction, because that is what was on screen when they noticed.
+`playback_mode_selector_*` is deliberately untouched: it is shared with the settings dialog.
+
+⚠ **The rest is a known, deliberate inconsistency, not an oversight.** A full rename is 42
+English strings plus ~20 locale files, and it should be its own change rather than riding along
+inside a UI pass. Two things it must also cover:
+
+- `app_logo_wordmark.png` has "Nuvio" **baked in as pixels** and is drawn on the splash screen,
+  both auth screens and now the wizard's welcome step. Strings cannot fix it; the asset needs
+  redrawing.
+- `settings_licenses_attributions_nuvio_title` says "Nuvio Mobile", a third variant.
+- iOS `PRODUCT_NAME` in `Config.xcconfig` is still `Nuvio`, so the iOS home-screen name is wrong.
+
+### Sample artwork: two hosts, one of them unproven
+
+`images.metahub.space` is keyed by the **show's** IMDb id, so it has no per-episode images -
+which is why the episode list showed one frame repeated. `SetupSampleTitle.episodeStillUrl`
+uses the sibling host `episodes.metahub.space/<imdbId>/<season>/<episode>.jpg`, keyed by
+episode and equally keyless.
+
+⚠ **That host has never returned a byte here** - the sandbox blocks metahub, as it does the
+show-artwork host. Every still falls back to the show backdrop on error, which is the same
+chain `DetailSeriesContent` uses (`video.thumbnail ?: meta.background ?: meta.poster`), so a
+dead host degrades the specimen to precisely what the app shows for a series with no episode
+artwork. **If the stills come back identical on a device, the URL shape is wrong and the
+fallback is hiding it.** Device check.
+
+The details subject is Breaking Bad (`tt0903747`), and `rowItems` must keep it **first**: the
+Continue Watching specimen captions its in-progress card with a named episode of the featured
+title, so a different show in slot 0 would claim one series is playing another's episode.
 
 ⚠ **The illustrative diagram on the five non-visual steps is provisional.** The maintainer
 approved it with "be prepared for me to tell you to remove it". It is therefore one file,
@@ -170,10 +231,32 @@ from revision 1 and it is still true, but revision 2 shows it is not sufficient 
 **compiling is not looking.** A rendering pass is the cheapest thing that would have caught it,
 and there was none. See the harness note below.
 
+**Revision 3 (`debug-v0.4.14-beta.8`)** - "significantly better", and still four things.
+
+8. ⚠ **Making the preview follow the last-touched control was a mistake.** It was introduced to
+   guarantee no control changed nothing visible, which it did. On a device it read as the thing
+   being studied getting swapped out mid-thought. **A preview that moves is worse than a
+   preview that shows one thing less.** The merged steps now draw everything they cover at once.
+9. ⚠ **Chip labels were never centred.** `SetupChoiceGroup` gave its label `weight(1f)` and no
+   `textAlign`, so every chip in the wizard read hard left. It is visible in the *first*
+   revision-2 screenshots and went unnamed for three rounds by three sets of eyes, mine
+   included. Cheap to fix, embarrassing to have shipped, and exactly the class of thing a
+   render pass surfaces immediately.
+10. **Three abstract swatches could not explain the background modes**, because the thing that
+    most separates them is a hero tint and the swatches had no hero. Replaced by one small
+    details screen. The Cinematic blur had also drifted to 18 dp against the real 30 dp.
+11. **The episode list showed the same frame three times**, because the artwork host has no
+    per-episode images. Fixed with a second host, unverified - see "Sample artwork" above.
+
+⚠ **The pattern across 8 and 10 is worth naming.** Both were mechanisms added to *guarantee* a
+property - "every control does something visible", "you can compare all three at once" - that
+cost more in legibility than the property was worth. Neither was wrong on paper. Both needed a
+screen to judge, and neither got one before shipping.
+
 ### Verification
 
-**Pure suites via `scripts/run-pure-suites.sh`, both repositories, identical: 67 + 29 + 21 =
-117 tests, zero failures.** `SetupWizardSteps.kt` is **import-free** like
+**Pure suites via `scripts/run-pure-suites.sh`, both repositories, identical: 67 + 29 + 22 =
+118 tests, zero failures.** `SetupWizardSteps.kt` is **import-free** like
 `StreamRouteSurface.kt`, so this group needs no stubs at all.
 
 The cases worth naming are `everyStepInEveryPlanReachesTheEnd` and its mirror
@@ -183,11 +266,12 @@ cannot leave is the failure the whole file exists to prevent - and it is reachab
 because installing an addon on the Sources step removes that step from the plan under the
 user's feet.
 
-New in revision 3: `aSavedStepThatNoLongerExistsFallsBackToTheStart`. The wizard persists its
-position **by name** so that reordering the enum cannot resume someone on the wrong step - and
-revision 3 deleted `ContinueWatching` and `Episodes`, so a wizard restored across an app update
-can be holding a name that no longer resolves. `setupStepForSavedName` answers `Welcome` rather
-than throwing, because this gates the app and a crash here is one the user cannot get past.
+`aSavedStepThatNoLongerExistsFallsBackToTheStart` matters more with every revision. The wizard
+persists its position **by name** so that reordering the enum cannot resume someone on the wrong
+step - and revision 3 deleted `ContinueWatching` and `Episodes` while revision 4 deleted
+`Trakt`, so a wizard restored across an app update can be holding any of them.
+`setupStepForSavedName` answers `Welcome` rather than throwing, because this gates the app and a
+crash here is one the user cannot get past.
 
 **Parser check clean** over every changed file in both repositories - **necessary, not
 sufficient**; see point 3 above.
@@ -203,10 +287,10 @@ package references exists, and no `setup_` key is defined without a reference. T
 mechanical half of the miss that broke build 6 - the other half, the host file's import style,
 is unchanged here because no new key went into `SettingsRootPage.kt`.
 
-**CI is green in both repositories on the first push** - `nuvio-z@18de5ae` (run 31695843786:
-host suite and `:androidApp:assembleFullDebug`) and `NuvioZDesktop@fd3d4fb` (run 31695857560:
+**CI is green in both repositories on the first push** - `nuvio-z@24e8bb4` (run 31712467776:
+host suite and `:androidApp:assembleFullDebug`) and `NuvioZDesktop@7a553ab` (run 31712454251:
 `ci.yml` including the Windows MSI job, which is what compiles `desktopMain` and therefore the
-wizard's desktop path). Both previous rounds needed a second push to compile.
+wizard's desktop path). Revisions 1 and 2 each needed a second push to compile; 3 and 4 did not.
 
 **Not verified:**
 
@@ -215,63 +299,84 @@ wizard's desktop path). Both previous rounds needed a second push to compile.
    blocked - so the `ImageComposeScene` harness cannot be run from here. **This is the gap that
    let revision 2's unreadable sheet reach a device**, so it is worth closing on the machine
    that can: a ready-to-run `SetupWizardRenderHarness.kt` is provided. It renders every
-   `SetupSpecimen` at 420 dp and 1100 dp, at the smallest and largest card settings and in
-   every Continue Watching / episode / background variant, and writes PNGs to
-   `composeApp/build/setup-wizard-render/`. Unlike revision 2's stage this is now *possible*,
-   because the specimens take every setting as a parameter and touch no repository.
+   `SetupSpecimen` at 420 dp and 1100 dp, at the smallest and largest card settings, in every
+   Continue Watching / episode / background variant, in all seven palettes and in AMOLED, and
+   writes PNGs to `composeApp/build/setup-wizard-render/`. Each band is drawn inside a frame
+   120 dp taller than its declared height, so content overflowing shows as a spill rather than
+   being cropped by the scene edge. Unlike revision 2's stage this is now *possible*, because
+   the specimens take every setting as a parameter and touch no repository.
    **Delete the harness again after reading the output** - it asserts nothing.
 2. **The band heights are arithmetic, not observation.** They were fitted by hand against the
    largest settings each specimen can be asked to draw. Clipping is what the harness above is
    for, and failing that, device check 2.
 3. The metahub artwork URLs have still never returned a byte here - the sandbox blocks that
-   host.
+   host. **`episodes.metahub.space` is new in revision 4 and is the least proven thing in this
+   change**: its URL shape is inferred from the ecosystem's conventions, not observed.
+4. **The chip-centring fix is one line and has not been seen either.** It is the first thing to
+   confirm, because it is the one defect here that was visible in a screenshot from the start.
 
 ## The setup wizard device script
 
 Run after the phase-1 script.
 
-Checks 1-3 are the revision-2 regressions and come first.
+Checks 1-5 are the regressions from revisions 2 and 3 and come first.
 
-1. ⚠ **Nothing renders behind the panel text, on any step.** Start with Welcome and the
-   playback-mode step - those are the two the maintainer screenshotted. If any artwork, row
-   title or poster is visible through the panel, the layout is wrong, not the alpha.
-2. ⚠ **No step scrolls inside the panel**, at default font size on a phone. The playback-mode
-   step must show all three `PlaybackModeCard`s; the Cards step must show all four control
-   groups starting with "Card shape". Check the specimen band is not clipping its content
-   either - a card cut off at the top or bottom means a `preferredHeight` is too small.
-3. **The band tweens, it does not snap.** On the Cards step change size, corners, and
-   poster↔wide: each should animate. Toggling titles should slide them in rather than jump.
-4. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
-   logo all present. This is the check that the metahub URLs are right; if a logo is missing,
-   swap that IMDb id in `SetupSampleTitle`.
-5. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
-   no artwork. Cards should show their title on the skeleton fill, not be blank grey boxes.
-6. **The merged steps move the band.** On Home, touch the banner toggle then a Continue
-   Watching chip - the band should move between the two and back. On Details, the background
-   chips then the episode chips. Every control must change something visible except "Group
-   sections into tabs", which is documented as not drawn.
-7. **Android API 30 or below.** `Modifier.blur` is a no-op there, so "blur what's next" and
-   "blur unwatched episodes" will look inert in the band - the same as in the real app, so this
-   is expected. Confirm nothing else differs.
-8. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
-   not return on relaunch.
-9. Force-stop and relaunch after finishing → no wizard. Then **sign out and back in** → still no
-   wizard. That is the sync-key check, and editing that key set is what wiped the playback
-   settings in `0.4.0-beta`.
-10. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
+1. ⚠ **Chip labels are centred.** "Poster / Wide", "Dense / Balanced / Large", "Sharp /
+   Classic / Pill", "Card / Wide / Poster". This shipped left-aligned in three builds; it is
+   the cheapest thing here to confirm and the most embarrassing to miss again.
+2. ⚠ **Nothing renders behind the panel text, on any step.** If any artwork, row title or
+   poster is visible through the panel, the layout is wrong, not the alpha.
+3. ⚠ **The band does not move while you are on a step.** On Home, toggle the banner and then
+   change the Continue Watching style: the banner should expand and collapse *inside* a band
+   whose top and bottom edges stay put, and the Continue Watching row must remain visible in
+   both states. On Details, all four controls act on one mock. If the band swaps what it is
+   showing, revision 3's behaviour has come back.
+4. ⚠ **Episode stills differ per row.** This is the `episodes.metahub.space` check and the
+   least proven thing in the change. If all three rows show the same image, that host or the
+   URL shape is wrong and the backdrop fallback is hiding it - say so rather than assuming it
+   is fine, because the fallback makes failure look like a design choice.
+5. ⚠ **The playback-mode diagram changes with the mode.** Classic highlights nothing,
+   Streamlined highlights one release, Instant fades the list away and fills the play circle.
+   If it is static, the diagram is decoration and should be cut.
+6. **No step scrolls inside the panel**, at default font size on a phone. The playback-mode step
+   must show all three `PlaybackModeCard`s; the Cards step all four control groups starting with
+   "Card shape". Check the band is not clipping either - a card cut off at the top or bottom
+   means a `preferredHeight` is too small.
+7. **The band tweens, it does not snap.** On Cards change size, corners, and poster↔wide: each
+   should animate. Toggling titles should slide them in rather than jump.
+8. **Step transitions slide in the direction of travel**, and Back visibly reverses Next.
+9. **The details step's three backgrounds are distinguishable.** Plain and Blurred art are
+   *supposed* to look close - the real screen scrims the blur at 0.92. What must be obvious is
+   Matched colour, where the tint reaches into the hero's bottom fade.
+10. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
+    logo all present. If a logo is missing, swap that IMDb id in `SetupSampleTitle`.
+11. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
+    no artwork. Cards should show their title on the skeleton fill, not be blank grey boxes.
+12. **Android API 30 or below.** `Modifier.blur` is a no-op there, so "blur what's next" and
+    "blur unwatched episodes" look inert in the band - the same as in the real app, so this is
+    expected. Confirm nothing else differs.
+13. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
+    not return on relaunch.
+14. Force-stop and relaunch after finishing → no wizard. Then **sign out and back in** → still no
+    wizard. That is the sync-key check, and editing that key set is what wiped the playback
+    settings in `0.4.0-beta`.
+15. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
     profile's.
-11. **Upgrade from `debug-v0.4.14-beta.7`** → the wizard appears again, because the revision
-    went to 3. This is the intended behaviour, not a bug. If the device had a wizard open when
-    it updated, it must resume on Welcome rather than crash - two step names were deleted.
-12. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
+16. **Upgrade from `debug-v0.4.14-beta.8`** → the wizard appears again, because the revision went
+    to 4. Intended, not a bug. If the device had a wizard open when it updated it must resume on
+    Welcome rather than crash - `Trakt` was deleted from the enum.
+17. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
     does not gate the app.
-13. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and
-    the band's sample button/progress/chips should take the accent.
-14. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
+18. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and the
+    band's sample button, progress bar and chips should take the accent.
+19. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
     one → "Added <name>", and the Sources step is absent on a re-run.
-15. **The apostrophes render as apostrophes.** The welcome body should read "We'll" and "You'll",
-    not "We\'ll".
-16. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
+20. **Copy reads "Nuvio Z"** on Welcome, Home and Sources, and the apostrophes render as
+    apostrophes ("We'll", not "We\'ll"). ⚠ **The wordmark graphic above it still says "Nuvio"** -
+    the name is baked into `app_logo_wordmark.png` as pixels. Known and accepted; splash and
+    auth have the same mismatch. Redrawing the PNG fixes all three.
+21. **No Trakt step.**
+22. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
     centred and capped at 620 dp rather than stretching, and nothing overflows horizontally.
 
 A step that was not run is not a pass.
