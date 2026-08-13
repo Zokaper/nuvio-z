@@ -52,9 +52,10 @@ object CurrentReleaseNotes {
                 WhatsNewItem(
                     title = "A setup wizard, with a live preview",
                     description = "First launch now walks you through how Nuvio picks sources and " +
-                        "how it looks. A working preview of the app fills the screen behind each " +
-                        "question and changes as you answer, so you are choosing from what you can " +
-                        "see rather than from a list of names. Run it again any time from Settings.",
+                        "how it looks. Each question shows the part of the app it changes, right " +
+                        "above the controls, and it updates as you answer - so you are choosing " +
+                        "from what you can see rather than from a list of names. Run it again any " +
+                        "time from Settings.",
                 ),
             ),
         ),
