@@ -50,11 +50,11 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.NewFeatures,
             items = listOfNotNull(
                 WhatsNewItem(
-                    title = "A setup wizard, with live previews",
+                    title = "A setup wizard, with a live preview",
                     description = "First launch now walks you through how Nuvio picks sources and " +
-                        "how it looks, with a preview beside every choice so you can see what you " +
-                        "are picking. Start from one of three ready-made looks, then change any of " +
-                        "it - or none. Run it again any time from Settings.",
+                        "how it looks. A working preview of the app fills the screen behind each " +
+                        "question and changes as you answer, so you are choosing from what you can " +
+                        "see rather than from a list of names. Run it again any time from Settings.",
                 ),
             ),
         ),
