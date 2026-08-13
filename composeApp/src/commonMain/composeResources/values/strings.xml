@@ -2274,10 +2274,13 @@
     <string name="setup_back">Back</string>
     <string name="setup_next">Next</string>
     <string name="setup_close">Close setup</string>
+    <!-- The caption on the second Continue Watching specimen card. Its only job is to make the
+         "blur what's next" toggle visible, which needs an episode the viewer has not started. -->
+    <string name="setup_specimen_next_up">Next episode</string>
 
     <string name="setup_welcome_title">Welcome to Nuvio</string>
     <string name="setup_welcome_subtitle">A couple of minutes now, and it will look and behave the way you want.</string>
-    <string name="setup_welcome_body">We\'ll start with how Nuvio picks what to play, then let you shape how it looks. You\'ll see a live preview of every choice, and you can change any of it later in Settings.</string>
+    <string name="setup_welcome_body">We'll start with how Nuvio picks what to play, then let you shape how it looks. You'll see a live preview of every choice, and you can change any of it later in Settings.</string>
     <string name="setup_welcome_start">Get started</string>
     <string name="setup_welcome_skip">Skip for now</string>
 
@@ -2299,6 +2302,10 @@
     <string name="setup_home_cw_card">Card</string>
     <string name="setup_home_cw_wide">Wide</string>
     <string name="setup_home_cw_poster">Poster</string>
+    <string name="setup_cw_thumbnails">Use episode stills</string>
+    <string name="setup_cw_thumbnails_description">Show the frame from the episode rather than the show's own artwork.</string>
+    <string name="setup_cw_blur_next_up">Blur what's next</string>
+    <string name="setup_cw_blur_next_up_description">Hides the still for episodes you haven't started, so nothing is spoiled.</string>
 
     <string name="setup_details_title">The details screen</string>
     <string name="setup_details_subtitle">What you see when you open a film or a series.</string>
@@ -2309,6 +2316,8 @@
     <string name="setup_details_episodes">Episodes</string>
     <string name="setup_details_episodes_horizontal">Large</string>
     <string name="setup_details_episodes_list">Compact</string>
+    <string name="setup_episodes_blur_unwatched">Blur unwatched episodes</string>
+    <string name="setup_episodes_blur_unwatched_description">Keeps stills from episodes you haven't seen out of view.</string>
     <string name="setup_details_tabs">Group sections into tabs</string>
     <string name="setup_details_tabs_description">Cast, trailers and details share a row of tabs instead of stacking down the page.</string>
 
@@ -2319,7 +2328,7 @@
 
     <string name="setup_sources_title">Add a source</string>
     <string name="setup_sources_subtitle">Nuvio has nothing to show until you add one.</string>
-    <string name="setup_sources_body">Nuvio doesn\'t host anything itself — it plays what your own addons provide. Paste an addon manifest URL below to add your first one.</string>
+    <string name="setup_sources_body">Nuvio doesn't host anything itself — it plays what your own addons provide. Paste an addon manifest URL below to add your first one.</string>
     <string name="setup_sources_url_placeholder">Addon manifest URL</string>
     <string name="setup_sources_install">Add addon</string>
     <string name="setup_sources_installed">Added %1$s</string>
@@ -2332,24 +2341,11 @@
     <string name="setup_trakt_connected">Connected as %1$s</string>
     <string name="setup_trakt_waiting">Waiting for you to approve Nuvio in your browser.</string>
 
-    <string name="setup_done_title">You\'re all set</string>
+    <string name="setup_done_title">You're all set</string>
     <string name="setup_done_subtitle">Everything here can be changed again whenever you like.</string>
     <string name="setup_done_body">Look under Settings → Appearance for anything visual, and Settings → Playback for how sources are chosen. You can run this setup again from the bottom of Settings.</string>
     <string name="setup_done_finish">Start watching</string>
 
-    <string name="setup_preview_row_title">Popular series</string>
-    <string name="setup_preview_continue_watching">Continue watching</string>
-    <string name="setup_preview_episodes">Episodes</string>
     <string name="settings_run_setup_again">Run setup again</string>
     <string name="settings_run_setup_again_description">Step through the look and playback choices from the start.</string>
-    <string name="setup_cw_title">Continue watching</string>
-    <string name="setup_cw_subtitle">The row that picks up where you left off.</string>
-    <string name="setup_cw_thumbnails">Use episode stills</string>
-    <string name="setup_cw_thumbnails_description">Show the frame from the episode rather than the show\'s own artwork.</string>
-    <string name="setup_cw_blur_next_up">Blur what\'s next</string>
-    <string name="setup_cw_blur_next_up_description">Hides the still for episodes you haven\'t started, so nothing is spoiled.</string>
-    <string name="setup_episodes_title">Episodes</string>
-    <string name="setup_episodes_subtitle">How the episode list of a series is laid out.</string>
-    <string name="setup_episodes_blur_unwatched">Blur unwatched episodes</string>
-    <string name="setup_episodes_blur_unwatched_description">Keeps stills from episodes you haven\'t seen out of view.</string>
 </resources>

@@ -33,21 +33,33 @@ class SetupWizardStepsTest {
 
     @Test
     fun completingTheCurrentRevisionStopsIt() {
-        assertFalse(shouldShowSetupWizard(completedRevision = 2, currentRevision = 2))
+        assertFalse(
+            shouldShowSetupWizard(
+                completedRevision = SETUP_WIZARD_REVISION,
+                currentRevision = SETUP_WIZARD_REVISION,
+            ),
+        )
     }
 
     @Test
-    fun revisionOneMustSeeTheRedesign() {
-        // The reason this constant is at 2. Anyone who finished the preset-fork wizard
-        // answered a flow that no longer exists and never saw most of these options.
+    fun everyEarlierRevisionMustSeeTheCurrentFlow() {
+        // The reason this constant keeps moving. Revision 1 was the preset fork; revision 2
+        // was the six-step flow behind a translucent panel. Both asked a set of questions this
+        // build no longer asks, in an arrangement it no longer uses.
         assertTrue(shouldShowSetupWizard(completedRevision = 1, currentRevision = SETUP_WIZARD_REVISION))
+        assertTrue(shouldShowSetupWizard(completedRevision = 2, currentRevision = SETUP_WIZARD_REVISION))
     }
 
     @Test
     fun aDowngradeMustNotReAsk() {
         // Storage is synced, so a profile can carry a revision from a newer build than the one
         // reading it. That user has answered a superset of what this build would ask.
-        assertFalse(shouldShowSetupWizard(completedRevision = 3, currentRevision = 2))
+        assertFalse(
+            shouldShowSetupWizard(
+                completedRevision = SETUP_WIZARD_REVISION + 1,
+                currentRevision = SETUP_WIZARD_REVISION,
+            ),
+        )
     }
 
     // --- the sequence -------------------------------------------------------------------
@@ -58,19 +70,18 @@ class SetupWizardStepsTest {
     }
 
     @Test
-    fun oneTopicPerStepAndNoFork() {
-        // Pins the shape of the redesign: appearance is asked as six separate steps rather
-        // than hidden behind a preset. If these collapse again, the preview stops being the
-        // thing the user is looking at while they choose.
+    fun appearanceIsAskedAsFourStepsGroupedBySurface() {
+        // Pins the shape of revision 3. Four steps, not six and not one: grouped by the surface
+        // the settings belong to, so no step carries a single control and none carries enough
+        // to need scrolling on a phone.
         val appearance = listOf(
             SetupStep.Cards,
-            SetupStep.HomeScreen,
-            SetupStep.ContinueWatching,
-            SetupStep.DetailsScreen,
-            SetupStep.Episodes,
+            SetupStep.Home,
+            SetupStep.Details,
             SetupStep.Theme,
         )
         assertTrue(setupWizardSteps(SetupWizardPlan()).containsAll(appearance))
+        assertEquals(9, SetupStep.entries.size)
     }
 
     @Test
@@ -88,19 +99,37 @@ class SetupWizardStepsTest {
     fun theAppearanceStepsRunInOrder() {
         val plan = SetupWizardPlan()
         assertEquals(SetupStep.Cards, nextSetupStep(SetupStep.PlaybackMode, plan))
-        assertEquals(SetupStep.HomeScreen, nextSetupStep(SetupStep.Cards, plan))
-        assertEquals(SetupStep.ContinueWatching, nextSetupStep(SetupStep.HomeScreen, plan))
-        assertEquals(SetupStep.DetailsScreen, nextSetupStep(SetupStep.ContinueWatching, plan))
-        assertEquals(SetupStep.Episodes, nextSetupStep(SetupStep.DetailsScreen, plan))
-        assertEquals(SetupStep.Theme, nextSetupStep(SetupStep.Episodes, plan))
+        assertEquals(SetupStep.Home, nextSetupStep(SetupStep.Cards, plan))
+        assertEquals(SetupStep.Details, nextSetupStep(SetupStep.Home, plan))
+        assertEquals(SetupStep.Theme, nextSetupStep(SetupStep.Details, plan))
     }
 
     @Test
     fun backWalksTheSameOrderInReverse() {
         val plan = SetupWizardPlan()
-        assertEquals(SetupStep.Episodes, previousSetupStep(SetupStep.Theme, plan))
-        assertEquals(SetupStep.DetailsScreen, previousSetupStep(SetupStep.Episodes, plan))
+        assertEquals(SetupStep.Details, previousSetupStep(SetupStep.Theme, plan))
+        assertEquals(SetupStep.Home, previousSetupStep(SetupStep.Details, plan))
         assertEquals(SetupStep.PlaybackMode, previousSetupStep(SetupStep.Cards, plan))
+    }
+
+    // --- resuming a saved position ------------------------------------------------------
+
+    @Test
+    fun aSavedStepResumesWhereItWasLeft() {
+        assertEquals(SetupStep.Details, setupStepForSavedName("Details"))
+    }
+
+    @Test
+    fun aSavedStepThatNoLongerExistsFallsBackToTheStart() {
+        // Reachable for real: revision 3 deleted `ContinueWatching` and `Episodes`, so a
+        // wizard restored after an app update can be holding either name. The wizard gates the
+        // app, so the only acceptable answer is a step that exists.
+        assertEquals(SetupStep.Welcome, setupStepForSavedName("ContinueWatching"))
+        assertEquals(SetupStep.Welcome, setupStepForSavedName("Episodes"))
+        assertEquals(SetupStep.Welcome, setupStepForSavedName("HomeScreen"))
+        assertEquals(SetupStep.Welcome, setupStepForSavedName("DetailsScreen"))
+        assertEquals(SetupStep.Welcome, setupStepForSavedName(null))
+        assertEquals(SetupStep.Welcome, setupStepForSavedName(""))
     }
 
     @Test
@@ -135,9 +164,10 @@ class SetupWizardStepsTest {
     @Test
     fun positionsAreOneBasedAndFollowThePlan() {
         assertEquals(1, setupStepPosition(SetupStep.Welcome, SetupWizardPlan()))
-        assertEquals(9, setupStepPosition(SetupStep.Sources, SetupWizardPlan()))
+        assertEquals(7, setupStepPosition(SetupStep.Sources, SetupWizardPlan()))
+        assertEquals(9, setupStepPosition(SetupStep.Done, SetupWizardPlan()))
         assertEquals(
-            9,
+            7,
             setupStepPosition(SetupStep.Trakt, SetupWizardPlan(offerSources = false)),
         )
     }

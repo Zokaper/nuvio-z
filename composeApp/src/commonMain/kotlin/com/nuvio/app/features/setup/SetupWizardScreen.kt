@@ -1,6 +1,8 @@
 package com.nuvio.app.features.setup
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,13 +18,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -48,8 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -82,7 +82,7 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 // String keys are imported by wildcard, which is the style HomeScreen.kt, MetaDetailsScreen.kt
-// and DetailHero.kt already use. Deliberate: this screen reads about seventy keys.
+// and DetailHero.kt already use. Deliberate: this screen reads about sixty keys.
 //
 // ⚠ That decision covers THIS file only. `SettingsRootPage.kt` imports every key explicitly,
 // and adding the "Run setup again" row there without its two imports is what failed the first
@@ -91,23 +91,30 @@ import org.jetbrains.compose.resources.stringResource
 /**
  * The first-launch setup wizard.
  *
- * Replaces the standalone playback-mode selector, which was the app's entire onboarding: one
- * question, answered before the user had seen anything the answer applied to. That question is
- * still asked first, still through the same `PlaybackModeCard` so its copy cannot drift from
- * the settings dialog - and every appearance choice behind it is asked against a live preview
- * of the real app.
+ * ## Two opaque regions, and the reason it is not one
  *
- * **The preview is the screen; the wizard is a sheet on top of it.** The stage fills the
- * window and the controls sit in a translucent panel docked to the bottom, so the thing being
- * changed is always the largest object on screen. Each step scrolls the preview to whatever it
- * affects - see [SetupPreviewFocus].
+ * Revision 2 put the controls in a translucent sheet floating over a full-bleed preview of the
+ * real home screen. On a device the home screen read straight through the panel - "Continue
+ * watching", episode titles and poster art behind the heading - and it was not a matter of
+ * tuning the alpha: the gradient made the top of the sheet the most transparent part, which is
+ * exactly where the heading sits.
+ *
+ * So there is no overlap here at all. A [SetupSpecimenBand] on top, an opaque panel below,
+ * separated by a hairline. **Nothing is ever drawn behind the text**, which makes readability a
+ * property of the layout rather than something to check on each theme.
+ *
+ * ## The specimen shows only what the step changes
+ *
+ * The other half of revision 2's problem was that the preview was a whole fake screen: a step
+ * about Continue Watching spent most of its band on a hero banner, and the per-step scroll
+ * anchoring that tried to fix that left rows half-clipped. Each step now names the specimen it
+ * wants - see [SetupSpecimen] - and on the two merged steps the specimen **follows the control
+ * the user last touched**, so no control changes nothing visible.
  *
  * ⚠ **Every choice is written the moment it is tapped**, through the same repository setter the
- * settings page uses. That is what lets [SetupPreviewStage] render the real composables reading
- * the real state instead of a parallel mock. It also means there is no undo, which matches how
- * every settings page in this app already behaves - and why the exit on the first step is
- * "Skip for now" rather than "use defaults": nothing has been written yet, so there is nothing
- * to restore.
+ * settings page uses. There is no undo, which matches how every settings page in this app
+ * already behaves - and why the exit on the first step is "Skip for now" rather than "use
+ * defaults": nothing has been written yet, so there is nothing to restore.
  *
  * @param dismissible true when opened from Settings rather than gating the app.
  */
@@ -151,11 +158,15 @@ fun SetupWizardScreen(
     }.collectAsStateWithLifecycle()
 
     // Saved by name, not by ordinal: an enum reordered in a later release must not resume a
-    // process-death-restored wizard on a different step than the user left it on.
+    // process-death-restored wizard on a different step than the user left it on. Revision 3
+    // deleted two constants, so `setupStepForSavedName` also has to survive a name that no
+    // longer resolves - it gates the app, and a crash here is one the user cannot get past.
     var stepName by rememberSaveable { mutableStateOf(SetupStep.Welcome.name) }
-    val step = remember(stepName) {
-        SetupStep.entries.firstOrNull { it.name == stepName } ?: SetupStep.Welcome
-    }
+    val step = remember(stepName) { setupStepForSavedName(stepName) }
+
+    // Which specimen the band is showing. Keyed on the step so entering one always starts on
+    // its first control group; the control handlers below move it from there.
+    var specimen by remember(step) { mutableStateOf(step.defaultSpecimen) }
 
     // `enabled`, not merely present: an installed-but-disabled addon is not a source, so a
     // profile carrying only those still gets asked.
@@ -174,6 +185,7 @@ fun SetupWizardScreen(
 
     val emptyUrlMessage = stringResource(Res.string.addons_error_enter_url)
     val browserFailedMessage = stringResource(Res.string.settings_trakt_failed_open_browser)
+    val nextUpLabel = stringResource(Res.string.setup_specimen_next_up)
 
     fun complete() {
         // Both, always. `playback_mode_selector_seen` is no longer read by any gate, but it is
@@ -201,42 +213,25 @@ fun SetupWizardScreen(
         val windowWidth = maxWidth
         val insets = WindowInsets.safeDrawing.asPaddingValues()
 
-        // The sheet takes a little under half the window and is capped, so on a tall phone it
-        // does not creep up over the preview and on a desktop window it does not become a
-        // letterbox. The preview is told the same figure so its content can scroll clear of it.
-        val sheetHeight = (windowHeight * 0.46f).coerceIn(300.dp, 460.dp)
-
-        SetupPreviewStage(
-            focus = step.previewFocus,
-            catalogRowTitle = stringResource(Res.string.setup_preview_row_title),
-            continueWatchingTitle = stringResource(Res.string.setup_preview_continue_watching),
-            episodesSectionTitle = stringResource(Res.string.setup_preview_episodes),
-            bottomInset = sheetHeight,
-            modifier = Modifier.fillMaxSize(),
+        // Each specimen asks for the height it needs, capped so that a short phone always
+        // leaves the panel the larger share. The cap is why the playback-mode step - three
+        // `PlaybackModeCard`s, the tallest panel in the flow - fits without scrolling.
+        val bandHeight by animateDpAsState(
+            targetValue = specimen.preferredHeight.coerceAtMost(windowHeight * 0.45f),
+            animationSpec = tween(340, easing = LinearOutSlowInEasing),
+            label = "setup_band_height",
         )
 
-        SetupSheet(
-            step = step,
-            plan = plan,
-            dismissible = dismissible,
-            onDismiss = onDismiss,
-            sheetHeight = sheetHeight,
-            // Centred and capped on wide windows. One layout everywhere: the preview is the
-            // thing that should use the extra width, not the controls.
-            maxSheetWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
-            bottomInset = insets.calculateBottomPadding(),
-            onBack = { previousSetupStep(step, plan)?.let { stepName = it.name } },
-            onSkipAll = ::complete,
-            onAdvance = ::advance,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            SetupStepBody(
+        Column(modifier = Modifier.fillMaxSize()) {
+            SetupSpecimenBand(
+                specimen = specimen,
                 step = step,
-                playbackMode = playerSettings.playbackMode,
+                height = bandHeight,
+                contentPaddingTop = insets.calculateTopPadding(),
                 posterWidthDp = posterStyle.widthDp,
                 posterCornerRadiusDp = posterStyle.cornerRadiusDp,
                 landscapeCards = posterStyle.catalogLandscapeModeEnabled,
-                hideLabels = posterStyle.hideLabelsEnabled,
+                showCardTitles = !posterStyle.hideLabelsEnabled,
                 heroEnabled = homeSettings.heroEnabled,
                 continueWatchingStyle = continueWatching.style,
                 useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
@@ -244,85 +239,117 @@ fun SetupWizardScreen(
                 backgroundMode = metaSettings.backgroundMode,
                 episodeCardStyle = metaSettings.episodeCardStyle,
                 blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
-                tabLayout = metaSettings.tabLayout,
-                selectedTheme = selectedTheme,
-                amoledEnabled = amoledEnabled,
-                addonUrl = addonUrl,
-                addonBusy = addonBusy,
-                addonError = addonError,
-                addonInstalledName = addonInstalledName,
-                traktMode = trakt.mode,
-                traktUsername = trakt.username,
-                onAddonUrlChange = {
-                    addonUrl = it
-                    addonError = null
-                    addonInstalledName = null
-                },
-                onInstallAddon = {
-                    installAddon(
-                        scope = scope,
-                        rawUrl = addonUrl,
-                        emptyUrlMessage = emptyUrlMessage,
-                        setBusy = { addonBusy = it },
-                        onInstalled = { name ->
-                            addonUrl = ""
-                            addonError = null
-                            addonInstalledName = name
-                        },
-                        onFailed = { message ->
-                            addonInstalledName = null
-                            addonError = message
-                        },
-                    )
-                },
-                onConnectTrakt = { connectTrakt(uriHandler::openUri, browserFailedMessage) },
+                nextUpLabel = nextUpLabel,
+                modifier = Modifier.fillMaxWidth(),
             )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(tokens.borders.hairline)
+                    .background(tokens.colors.borderSubtle),
+            )
+
+            SetupPanel(
+                step = step,
+                plan = plan,
+                dismissible = dismissible,
+                onDismiss = onDismiss,
+                // Centred and capped on wide windows. The band is what should use the extra
+                // width, not a line of body text stretched across a desktop monitor.
+                maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
+                bottomInset = insets.calculateBottomPadding(),
+                onBack = { previousSetupStep(step, plan)?.let { stepName = it.name } },
+                onSkipAll = ::complete,
+                onAdvance = ::advance,
+                modifier = Modifier.weight(1f),
+            ) {
+                SetupStepBody(
+                    step = step,
+                    playbackMode = playerSettings.playbackMode,
+                    posterWidthDp = posterStyle.widthDp,
+                    posterCornerRadiusDp = posterStyle.cornerRadiusDp,
+                    landscapeCards = posterStyle.catalogLandscapeModeEnabled,
+                    hideLabels = posterStyle.hideLabelsEnabled,
+                    heroEnabled = homeSettings.heroEnabled,
+                    continueWatchingStyle = continueWatching.style,
+                    useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
+                    blurNextUp = continueWatching.blurNextUp,
+                    backgroundMode = metaSettings.backgroundMode,
+                    episodeCardStyle = metaSettings.episodeCardStyle,
+                    blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
+                    tabLayout = metaSettings.tabLayout,
+                    selectedTheme = selectedTheme,
+                    amoledEnabled = amoledEnabled,
+                    addonUrl = addonUrl,
+                    addonBusy = addonBusy,
+                    addonError = addonError,
+                    addonInstalledName = addonInstalledName,
+                    traktMode = trakt.mode,
+                    traktUsername = trakt.username,
+                    onShowSpecimen = { specimen = it },
+                    onAddonUrlChange = {
+                        addonUrl = it
+                        addonError = null
+                        addonInstalledName = null
+                    },
+                    onInstallAddon = {
+                        installAddon(
+                            scope = scope,
+                            rawUrl = addonUrl,
+                            emptyUrlMessage = emptyUrlMessage,
+                            setBusy = { addonBusy = it },
+                            onInstalled = { name ->
+                                addonUrl = ""
+                                addonError = null
+                                addonInstalledName = name
+                            },
+                            onFailed = { message ->
+                                addonInstalledName = null
+                                addonError = message
+                            },
+                        )
+                    },
+                    onConnectTrakt = { connectTrakt(uriHandler::openUri, browserFailedMessage) },
+                )
+            }
         }
     }
 }
 
 /**
- * Where the preview should be looking while this step is on screen.
+ * Which specimen a step opens on.
  *
- * The steps that change nothing visible rest on the home screen rather than going blank: the
- * wizard is selling the app, and an empty stage behind "Connect Trakt" sells nothing.
+ * The merged steps open on their first control group and move from there as the user touches
+ * things, which is why this is only the *default* rather than a fixed mapping.
  */
-private val SetupStep.previewFocus: SetupPreviewFocus
+private val SetupStep.defaultSpecimen: SetupSpecimen
     get() = when (this) {
-        SetupStep.Cards -> SetupPreviewFocus.HomeCatalog
-        SetupStep.HomeScreen -> SetupPreviewFocus.HomeHero
-        SetupStep.ContinueWatching -> SetupPreviewFocus.HomeContinueWatching
-        SetupStep.DetailsScreen -> SetupPreviewFocus.DetailsHero
-        SetupStep.Episodes -> SetupPreviewFocus.DetailsEpisodes
-        SetupStep.Welcome, SetupStep.PlaybackMode, SetupStep.Theme,
+        SetupStep.Cards -> SetupSpecimen.Cards
+        SetupStep.Home -> SetupSpecimen.HomeHero
+        SetupStep.Details -> SetupSpecimen.DetailsBackground
+        SetupStep.Theme -> SetupSpecimen.Theme
+        SetupStep.Welcome, SetupStep.PlaybackMode,
         SetupStep.Sources, SetupStep.Trakt, SetupStep.Done,
-        -> SetupPreviewFocus.HomeHero
+        -> SetupSpecimen.Diagram
     }
 
 /**
- * The glassy panel the controls live in.
+ * The opaque panel the controls live in.
  *
- * ⚠ **This is translucency, not a backdrop blur, and the distinction is a real limitation
- * rather than a shortcut.** `Modifier.blur` blurs a composable's *own* content, not what is
- * painted behind it - `MetaDetailsScreen`'s Cinematic mode works only because it draws a
- * second, blurred copy of the backdrop image itself. Compose Multiplatform has no
- * backdrop-filter primitive, so a true frosted pane would mean rendering the entire stage a
- * second time into a `GraphicsLayer` and drawing it back with a `BlurEffect` - which is also
- * API 31+ on Android, so it would degrade on exactly the devices that need it most.
- *
- * So the glass here is a translucent `surfaceSheet` over a gradient that deepens towards the
- * bottom: the artwork shows through softly at the top edge and the controls sit on solid
- * colour. **Do not thin these alphas to taste** - they are what keeps text readable over a
- * bright poster, and there is no blur underneath to fall back on.
+ * Plain `colors.surface` and nothing else. ⚠ Note that `surfaceSheet`, `surfaceElevated` and
+ * `surface` are all the same colour in this token set - only `surfaceCard` differs - so the
+ * separation from the band above comes from the hairline and from the band's own darker
+ * gradient floor, **not** from stacking two surfaces. A card-on-surface here would be invisible,
+ * which is the trap the quality sheet already hit.
  */
 @Composable
-private fun SetupSheet(
+private fun SetupPanel(
     step: SetupStep,
     plan: SetupWizardPlan,
     dismissible: Boolean,
     onDismiss: () -> Unit,
-    sheetHeight: Dp,
-    maxSheetWidth: Dp,
+    maxPanelWidth: Dp,
     bottomInset: Dp,
     onBack: () -> Unit,
     onSkipAll: () -> Unit,
@@ -331,80 +358,57 @@ private fun SetupSheet(
     body: @Composable () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
-    Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        // A short fade above the sheet so the preview does not end on a hard line.
-        Box(
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(tokens.colors.surface),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Column(
             modifier = Modifier
+                .widthIn(max = maxPanelWidth)
                 .fillMaxWidth()
-                .height(56.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, tokens.colors.background.copy(alpha = 0.55f)),
-                    ),
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .widthIn(max = maxSheetWidth)
-                .fillMaxWidth()
-                .height(sheetHeight)
-                .clip(shape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            tokens.colors.surfaceSheet.copy(alpha = 0.82f),
-                            tokens.colors.surfaceSheet.copy(alpha = 0.97f),
-                        ),
-                    ),
-                )
-                .border(
-                    width = tokens.borders.hairline,
-                    color = tokens.colors.borderSubtle,
-                    shape = shape,
+                .fillMaxHeight()
+                .padding(
+                    start = 22.dp,
+                    end = 22.dp,
+                    top = 18.dp,
+                    bottom = 14.dp + bottomInset,
                 ),
         ) {
-            Column(
+            SetupPanelHeader(
+                step = step,
+                plan = plan,
+                dismissible = dismissible,
+                onDismiss = onDismiss,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // Scrolls only as a safety net - for a large font scale or a very short window.
+            // The band caps itself so that in ordinary use nothing here needs scrolling, which
+            // is what went wrong in revision 2.
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        start = 22.dp,
-                        end = 22.dp,
-                        top = 18.dp,
-                        bottom = 14.dp + bottomInset,
-                    ),
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
             ) {
-                SetupSheetHeader(
-                    step = step,
-                    plan = plan,
-                    dismissible = dismissible,
-                    onDismiss = onDismiss,
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    body()
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                SetupSheetFooter(
-                    step = step,
-                    plan = plan,
-                    onBack = onBack,
-                    onSkipAll = onSkipAll,
-                    onAdvance = onAdvance,
-                )
+                body()
             }
+            Spacer(modifier = Modifier.height(12.dp))
+            SetupPanelFooter(
+                step = step,
+                plan = plan,
+                onBack = onBack,
+                onSkipAll = onSkipAll,
+                onAdvance = onAdvance,
+            )
         }
     }
 }
 
 @Composable
-private fun SetupSheetHeader(
+private fun SetupPanelHeader(
     step: SetupStep,
     plan: SetupWizardPlan,
     dismissible: Boolean,
@@ -461,7 +465,7 @@ private fun SetupSheetHeader(
 }
 
 @Composable
-private fun SetupSheetFooter(
+private fun SetupPanelFooter(
     step: SetupStep,
     plan: SetupWizardPlan,
     onBack: () -> Unit,
@@ -505,6 +509,12 @@ private fun SetupSheetFooter(
     }
 }
 
+/**
+ * The controls for the current step.
+ *
+ * @param onShowSpecimen moves the band to the specimen a control affects. Every control on a
+ *   merged step calls it, which is what stops any of them from appearing to do nothing.
+ */
 @Composable
 private fun SetupStepBody(
     step: SetupStep,
@@ -529,6 +539,7 @@ private fun SetupStepBody(
     addonInstalledName: String?,
     traktMode: TraktConnectionMode,
     traktUsername: String?,
+    onShowSpecimen: (SetupSpecimen) -> Unit,
     onAddonUrlChange: (String) -> Unit,
     onInstallAddon: () -> Unit,
     onConnectTrakt: () -> Unit,
@@ -591,14 +602,18 @@ private fun SetupStepBody(
                     )
                 }
 
-                SetupStep.HomeScreen -> SetupToggleRow(
-                    title = stringResource(Res.string.setup_home_hero),
-                    description = stringResource(Res.string.setup_home_hero_description),
-                    checked = heroEnabled,
-                    onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
-                )
-
-                SetupStep.ContinueWatching -> {
+                // Merged: the banner, then Continue Watching. Each group moves the band to the
+                // specimen it affects.
+                SetupStep.Home -> {
+                    SetupToggleRow(
+                        title = stringResource(Res.string.setup_home_hero),
+                        description = stringResource(Res.string.setup_home_hero_description),
+                        checked = heroEnabled,
+                        onCheckedChange = {
+                            onShowSpecimen(SetupSpecimen.HomeHero)
+                            HomeCatalogSettingsRepository.setHeroEnabled(it)
+                        },
+                    )
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_home_continue),
                         options = listOf(
@@ -607,13 +622,19 @@ private fun SetupStepBody(
                             stringResource(Res.string.setup_home_cw_poster) to ContinueWatchingSectionStyle.Poster,
                         ),
                         selected = continueWatchingStyle,
-                        onSelected = ContinueWatchingPreferencesRepository::setStyle,
+                        onSelected = {
+                            onShowSpecimen(SetupSpecimen.HomeContinueWatching)
+                            ContinueWatchingPreferencesRepository.setStyle(it)
+                        },
                     )
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_cw_thumbnails),
                         description = stringResource(Res.string.setup_cw_thumbnails_description),
                         checked = useEpisodeThumbnails,
-                        onCheckedChange = ContinueWatchingPreferencesRepository::setUseEpisodeThumbnails,
+                        onCheckedChange = {
+                            onShowSpecimen(SetupSpecimen.HomeContinueWatching)
+                            ContinueWatchingPreferencesRepository.setUseEpisodeThumbnails(it)
+                        },
                     )
                     // Only meaningful over a thumbnail; with artwork off there is nothing to
                     // blur, and a toggle that visibly does nothing reads as broken.
@@ -622,23 +643,29 @@ private fun SetupStepBody(
                             title = stringResource(Res.string.setup_cw_blur_next_up),
                             description = stringResource(Res.string.setup_cw_blur_next_up_description),
                             checked = blurNextUp,
-                            onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
+                            onCheckedChange = {
+                                onShowSpecimen(SetupSpecimen.HomeContinueWatching)
+                                ContinueWatchingPreferencesRepository.setBlurNextUp(it)
+                            },
                         )
                     }
                 }
 
-                SetupStep.DetailsScreen -> SetupChoiceGroup(
-                    title = stringResource(Res.string.setup_details_background),
-                    options = listOf(
-                        stringResource(Res.string.setup_details_background_normal) to MetaScreenBackgroundMode.Normal,
-                        stringResource(Res.string.setup_details_background_cinematic) to MetaScreenBackgroundMode.Cinematic,
-                        stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
-                    ),
-                    selected = backgroundMode,
-                    onSelected = MetaScreenSettingsRepository::setBackgroundMode,
-                )
-
-                SetupStep.Episodes -> {
+                // Merged: the background treatment, then the episode list.
+                SetupStep.Details -> {
+                    SetupChoiceGroup(
+                        title = stringResource(Res.string.setup_details_background),
+                        options = listOf(
+                            stringResource(Res.string.setup_details_background_normal) to MetaScreenBackgroundMode.Normal,
+                            stringResource(Res.string.setup_details_background_cinematic) to MetaScreenBackgroundMode.Cinematic,
+                            stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
+                        ),
+                        selected = backgroundMode,
+                        onSelected = {
+                            onShowSpecimen(SetupSpecimen.DetailsBackground)
+                            MetaScreenSettingsRepository.setBackgroundMode(it)
+                        },
+                    )
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_details_episodes),
                         options = listOf(
@@ -646,14 +673,22 @@ private fun SetupStepBody(
                             stringResource(Res.string.setup_details_episodes_list) to MetaEpisodeCardStyle.List,
                         ),
                         selected = episodeCardStyle,
-                        onSelected = MetaScreenSettingsRepository::setEpisodeCardStyle,
+                        onSelected = {
+                            onShowSpecimen(SetupSpecimen.DetailsEpisodes)
+                            MetaScreenSettingsRepository.setEpisodeCardStyle(it)
+                        },
                     )
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_episodes_blur_unwatched),
                         description = stringResource(Res.string.setup_episodes_blur_unwatched_description),
                         checked = blurUnwatchedEpisodes,
-                        onCheckedChange = MetaScreenSettingsRepository::setBlurUnwatchedEpisodes,
+                        onCheckedChange = {
+                            onShowSpecimen(SetupSpecimen.DetailsEpisodes)
+                            MetaScreenSettingsRepository.setBlurUnwatchedEpisodes(it)
+                        },
                     )
+                    // Tabs regroup the sections below the episode list, which the specimen does
+                    // not draw. It stays on the episode cards rather than pretending otherwise.
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_details_tabs),
                         description = stringResource(Res.string.setup_details_tabs_description),
@@ -846,10 +881,9 @@ private fun SetupParagraph(text: String) {
 /**
  * A labelled row of mutually exclusive chips.
  *
- * Not `NuvioSurfaceCard`-based: that takes its colour from `colors.surface`, and
- * `surfaceSheet == surface` in the token set, so a card on this sheet would be invisible - the
- * trap the quality sheet hit. These use an `overlayHover` lift instead, which is what that
- * sheet settled on.
+ * Not `NuvioSurfaceCard`-based: that takes its colour from `colors.surface`, which is exactly
+ * what the panel is painted with, so a card here would be invisible - the trap the quality
+ * sheet hit. These use an `overlayHover` lift instead, which is what that sheet settled on.
  */
 @Composable
 private fun <T> SetupChoiceGroup(
@@ -931,8 +965,8 @@ private fun SetupToggleRow(
  * The seven palettes as colour swatches.
  *
  * The swatch is the palette's own accent read straight from [ThemeColors], so it cannot drift
- * from what tapping it produces - and tapping it recolours the whole wizard, including the
- * stage, because the wizard lives inside the app's real `NuvioTheme`.
+ * from what tapping it produces - and tapping it recolours the whole wizard, band included,
+ * because the wizard lives inside the app's real `NuvioTheme`.
  */
 @Composable
 private fun SetupThemeGrid(
@@ -999,10 +1033,8 @@ private val SetupStep.titleRes
         SetupStep.Welcome -> Res.string.setup_welcome_title
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
         SetupStep.Cards -> Res.string.setup_cards_title
-        SetupStep.HomeScreen -> Res.string.setup_home_title
-        SetupStep.ContinueWatching -> Res.string.setup_cw_title
-        SetupStep.DetailsScreen -> Res.string.setup_details_title
-        SetupStep.Episodes -> Res.string.setup_episodes_title
+        SetupStep.Home -> Res.string.setup_home_title
+        SetupStep.Details -> Res.string.setup_details_title
         SetupStep.Theme -> Res.string.setup_theme_title
         SetupStep.Sources -> Res.string.setup_sources_title
         SetupStep.Trakt -> Res.string.setup_trakt_title
@@ -1014,10 +1046,8 @@ private val SetupStep.subtitleRes
         SetupStep.Welcome -> Res.string.setup_welcome_subtitle
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_subtitle
         SetupStep.Cards -> Res.string.setup_cards_subtitle
-        SetupStep.HomeScreen -> Res.string.setup_home_subtitle
-        SetupStep.ContinueWatching -> Res.string.setup_cw_subtitle
-        SetupStep.DetailsScreen -> Res.string.setup_details_subtitle
-        SetupStep.Episodes -> Res.string.setup_episodes_subtitle
+        SetupStep.Home -> Res.string.setup_home_subtitle
+        SetupStep.Details -> Res.string.setup_details_subtitle
         SetupStep.Theme -> Res.string.setup_theme_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
         SetupStep.Trakt -> Res.string.setup_trakt_subtitle

@@ -1,13 +1,9 @@
 package com.nuvio.app.features.setup
 
-import com.nuvio.app.features.catalog.CatalogTarget
-import com.nuvio.app.features.details.MetaDetails
-import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
-import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 
 /**
- * The example content the wizard's preview stage renders.
+ * The example content the wizard's specimens render.
  *
  * ## Why the artwork is fetched rather than bundled
  *
@@ -29,10 +25,15 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingItem
  * the image loader changes to support this.
  *
  * ⚠ **Artwork is decoration and the wizard must not depend on it.** With no network every
- * option still has to be legible and distinguishable: `NuvioPosterCard` draws a titled
- * placeholder for a failed image, and `SetupPreviewStage` paints a token gradient behind the
- * stage so a missing backdrop reads as intentional. Test this with aeroplane mode, not by
- * hoping.
+ * option still has to be legible and distinguishable: every specimen draws the title's name
+ * behind its artwork so a failed load leaves a labelled card rather than a grey box, and
+ * `SetupSpecimenBand` paints a token gradient floor so a missing backdrop reads as intentional.
+ * Test this with aeroplane mode, not by hoping.
+ *
+ * ⚠ **Everything here is plain data over `MetaPreview` and `String`.** It deliberately no longer
+ * builds a `HomeCatalogSection` or a `MetaDetails`: revision 2's stage needed those to feed the
+ * real row and hero composables, and those types are among the ones that diverge between the
+ * two repositories. The specimens draw from primitives, so this file can stay identical in both.
  */
 object SetupSampleTitle {
 
@@ -100,62 +101,7 @@ object SetupSampleTitle {
         genres = genres,
     )
 
-    /**
-     * [rowItems] wrapped as a catalog row for `HomeCatalogRowSection`.
-     *
-     * [title] is passed in already resolved rather than read from `Res.string` here, because
-     * this object is plain data and stays out of composition - the same reason it holds no
-     * `StringResource`. `onViewAllClick` is deliberately left null at the call site so the
-     * preview grows no affordance that does nothing.
-     */
-    fun catalogSection(title: String): HomeCatalogSection = HomeCatalogSection(
-        key = "setup-preview",
-        title = title,
-        subtitle = "",
-        addonName = "",
-        target = CatalogTarget.Addon(
-            manifestUrl = "",
-            contentType = "series",
-            catalogId = "setup-preview",
-        ),
-        items = rowItems,
-    )
-
-    /**
-     * A second row for the preview, so the card step shows a layout rather than one shelf.
-     *
-     * Same titles, rotated, and given a distinct [HomeCatalogSection.key] - `NuvioShelfSection`
-     * dedupes by key, so two rows sharing one would collapse into a single lazy item.
-     */
-    fun secondCatalogSection(title: String): HomeCatalogSection = catalogSection(title).copy(
-        key = "setup-preview-2",
-        title = "",
-        items = rowItems.reversed(),
-    )
-
-    /**
-     * The subject of the details-screen preview.
-     *
-     * Only the fields `DetailHero` reads are filled - `name`, `poster`, `background`, `logo`,
-     * `genres`, `releaseInfo` - plus enough for the surrounding chrome. Everything else stays
-     * at its default so the preview cannot start depending on data a real fetch would supply.
-     */
-    val featured: MetaDetails = MetaDetails(
-        id = featuredImdbId,
-        type = "series",
-        name = "Friends",
-        poster = posterUrl(featuredImdbId),
-        background = backgroundUrl(featuredImdbId),
-        logo = logoUrl(featuredImdbId),
-        description = "Six twenty-somethings living in Manhattan navigate careers, romance " +
-            "and each other, one coffee house booth at a time.",
-        releaseInfo = "1994-2004",
-        imdbRating = "8.9",
-        runtime = "22 min",
-        genres = listOf("Comedy", "Romance"),
-    )
-
-    /** One episode row in the details preview. */
+    /** One episode row in the details specimen. */
     data class SampleEpisode(
         val seasonNumber: Int,
         val episodeNumber: Int,
@@ -193,29 +139,14 @@ object SetupSampleTitle {
     )
 
     /**
-     * One in-progress episode for the Continue Watching preview.
+     * How far through the in-progress Continue Watching card is.
      *
-     * Roughly a third watched: far enough along that the progress bar is unmistakably a
-     * progress bar, short of the point where `WatchProgressCompletionPercentThreshold` would
-     * treat it as finished.
+     * Roughly a third: far enough along that the progress bar is unmistakably a progress bar,
+     * short of the point where `WatchProgressCompletionPercentThreshold` would treat it as
+     * finished.
      */
-    val continueWatching: List<ContinueWatchingItem> = listOf(
-        ContinueWatchingItem(
-            parentMetaId = featuredImdbId,
-            parentMetaType = "series",
-            videoId = "$featuredImdbId:5:14",
-            title = "Friends",
-            subtitle = "S5 E14 · The One Where Everybody Finds Out",
-            imageUrl = backgroundUrl(featuredImdbId),
-            logo = logoUrl(featuredImdbId),
-            poster = posterUrl(featuredImdbId),
-            background = backgroundUrl(featuredImdbId),
-            seasonNumber = 5,
-            episodeNumber = 14,
-            episodeTitle = "The One Where Everybody Finds Out",
-            resumePositionMs = 7 * 60 * 1000L,
-            durationMs = 22 * 60 * 1000L,
-            progressFraction = 7f / 22f,
-        ),
-    )
+    const val continueWatchingProgress: Float = 7f / 22f
+
+    /** The caption on the in-progress Continue Watching card. */
+    const val continueWatchingCaption: String = "S5 E14 · The One Where Everybody Finds Out"
 }

@@ -17,12 +17,13 @@ package com.nuvio.app.features.setup
  *
  * A revision asks exactly once per revision.
  *
- * **Revision 2** ships the redesign: the preset fork is gone, every appearance choice is asked
- * directly, and the preview moved behind the controls. Anyone who completed revision 1
- * answered a flow that no longer exists and never saw most of these options, which is exactly
- * the case this integer was chosen for.
+ * **Revision 3** ships the focused redesign. Revision 2 previewed a whole fake home screen
+ * behind a translucent panel: the panel was not readable over live artwork, and most of what
+ * it previewed had nothing to do with the control being changed. The wizard now shows only the
+ * component each step affects, and the panel is opaque. Anyone who completed revision 1 or 2
+ * answered a flow that no longer exists, which is exactly the case this integer was chosen for.
  */
-const val SETUP_WIZARD_REVISION: Int = 2
+const val SETUP_WIZARD_REVISION: Int = 3
 
 /**
  * Whether the first-launch wizard should gate the app.
@@ -38,10 +39,13 @@ fun shouldShowSetupWizard(
 /**
  * Every screen the wizard can show, in the order they are declared.
  *
- * **One topic per step, and no fork.** Revision 1 opened with three named looks and then
- * branched, which meant most people never reached the individual options at all - the preset
- * was doing the choosing, and the live preview it was built around only got looked at once.
- * Each step now asks about one thing, so the sheet stays short and the preview stays large.
+ * **One surface per step.** Revision 1 asked one question behind three named presets, which
+ * meant most people never reached the individual options. Revision 2 over-corrected into six
+ * separate appearance steps, two of which carried a single control each - a whole screen, a
+ * whole preview and two taps to answer one toggle.
+ *
+ * Revision 3 groups by the *surface* the settings belong to, so each step is four controls at
+ * most and every control changes something the specimen above it can show.
  */
 enum class SetupStep {
     /** Name the thing and offer a way out. Sets nothing. */
@@ -56,17 +60,17 @@ enum class SetupStep {
     /** Poster or wide, size, corners, titles underneath. */
     Cards,
 
-    /** The featured banner. */
-    HomeScreen,
+    /**
+     * The home screen: the featured banner, and Continue Watching's card style, episode
+     * thumbnails and next-up blurring.
+     */
+    Home,
 
-    /** Continue Watching: card style, episode thumbnails, blurring what is next up. */
-    ContinueWatching,
-
-    /** The details screen's background treatment. */
-    DetailsScreen,
-
-    /** Episode card style, blurring unwatched episodes, tabbed sections. */
-    Episodes,
+    /**
+     * The details screen: its background treatment, and the episode list's card style,
+     * unwatched blurring and tabbed sections.
+     */
+    Details,
 
     /** Accent palette and AMOLED. */
     Theme,
@@ -80,6 +84,21 @@ enum class SetupStep {
     /** Records the revision. */
     Done,
 }
+
+/**
+ * The step a saved [name] should resume on.
+ *
+ * The wizard persists its position **by name** rather than by ordinal, so that reordering the
+ * enum in a later release cannot resume a process-death-restored wizard on a different step
+ * than the user left it on. The cost of that choice is this function: revision 3 deleted
+ * `ContinueWatching` and `Episodes`, so a wizard restored across an app update can be holding
+ * a name that no longer resolves.
+ *
+ * Falling back to [SetupStep.Welcome] rather than throwing is the whole point - the wizard
+ * gates the app, and a crash here is a crash the user cannot get past.
+ */
+fun setupStepForSavedName(name: String?): SetupStep =
+    SetupStep.entries.firstOrNull { it.name == name } ?: SetupStep.Welcome
 
 /**
  * What the wizard is willing to ask about this time.
