@@ -6,7 +6,7 @@ Last updated: 2026-08-14
 | --- | --- |
 | **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 5 of the setup wizard** on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Publish a debug build** (`DEBUG_BUILD` → 10, dispatch `debug-release.yml`) — none of revision 5 has been rendered. **Run the `SetupWizardRenderHarness` on the Windows host first**; the wizard has still never been rendered anywhere, and that gap is what let revisions 2, 3 and 4 reach a device broken. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first five checks are the four revision-4 faults. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Run the `SetupWizardRenderHarness` on the Windows host first** — the wizard has still never been rendered anywhere, and that gap is what let revisions 2, 3 and 4 reach a device broken. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first five checks are the four revision-4 faults. Test with **`debug-v0.4.14-beta.10`**, published and green. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -170,6 +170,19 @@ both changed test files and `run-pure-suites.sh`. ⚠ Four were hand-ported beca
 legitimately differ: `MetaScreenSettingsRepository.kt` (desktop carries
 `desktopHeroOwnedMetaSectionKeys` and a different `MetaScreenBackgroundMode` default), `App.kt`,
 and the `PlayerSettingsStorage` actuals - three of them in `nuvio-z`, four in `NuvioZDesktop`.
+
+**CI is green in `nuvio-z`** — `debug-release.yml` run `31782422013` at `7874f5cc`, first attempt:
+the Android host suite passes and `:androidApp:assembleFullDebug` builds. That is the **first
+time any of revision 5 has been compiled**; everything before it was the parser check plus the
+pure suites. Revisions 1 and 2 each needed a second push to compile, 3, 4 and 5 did not.
+⚠ **It says nothing about `desktopMain`** — `NuvioZDesktop`'s Windows MSI job is what compiles
+that, and it runs on every push to that repository.
+
+**Published for the revision-5 device run: `debug-v0.4.14-beta.10`** (versionCode 124010,
+`versionName 0.4.14-beta.10`, `com.nuvio.app.z.debug`), cut from `7874f5cc`. It supersedes
+`debug-v0.4.14-beta.9`, which carried revision 4. The backend secret decoded, so sign-in and
+Trakt work — which matters here, because **device check 1 needs a signed-in account** to
+exercise the settings pull that was re-gating the app.
 
 **Not verified:**
 
@@ -1093,6 +1106,10 @@ desktop, Playstore) is `false`.
 
 ⚠ **The signing key changed, so the currently installed debug app must be uninstalled once.**
 Every debug build after `0.4.9-beta.1` updates in place from inside the app.
+
+**Latest debug build: `debug-v0.4.14-beta.10`** (versionCode 124010), cut from the revision-5
+wizard branch — see that section. The note below is kept for the reasoning about why the
+marketing version stays put while the debug counter moves.
 
 **Published for the 0.5.0-beta device run: `debug-v0.4.14-beta.4`** (versionCode 124004), cut
 from `claude/release-0.5.0-beta-polish-ivcjsl` at `3178ae9`. The installed debug app is
