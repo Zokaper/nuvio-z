@@ -262,9 +262,53 @@ object MetaScreenSettingsRepository {
         persist()
     }
 
+    /**
+     * Whether any section is assigned to a tab group.
+     *
+     * ⚠ **On a fresh profile the answer is no, and that is why the tab toggle used to do
+     * nothing.** `normalizePreferences` seeds every section with `tabGroup = null`, and
+     * `ConfiguredMetaSections` draws a `TabbedSectionGroup` only for a non-null group with more
+     * than one member - so `tabLayout = true` rendered identically to `tabLayout = false` until
+     * the user went and grouped sections by hand. The wizard's own copy promises otherwise
+     * ("Cast, trailers and details share a row of tabs instead of stacking down the page"), and
+     * the first-run setup flow is the last place that should be offering a switch that does not
+     * move.
+     */
+    private fun hasAnyTabGroup(): Boolean = preferences.values.any { it.tabGroup != null }
+
+    /**
+     * What [setTabLayout] groups together when the user has never grouped anything themselves.
+     *
+     * Cast, trailers and details, in one group - which is exactly the three the wizard names,
+     * and three is the per-group maximum [setTabGroup] enforces. All three pass `canBeTabbed`.
+     */
+    private val defaultTabGroupSections: List<MetaScreenSectionKey> = listOf(
+        MetaScreenSectionKey.CAST,
+        MetaScreenSectionKey.TRAILERS,
+        MetaScreenSectionKey.DETAILS,
+    )
+
+    private const val DEFAULT_TAB_GROUP_ID: Int = 1
+
     fun setTabLayout(enabled: Boolean) {
         ensureLoaded()
         tabLayout = enabled
+        // Seed a grouping the first time tabs are switched on, so the toggle has a visible
+        // effect. ⚠ Only when nothing is grouped yet: a user who has arranged their own tabs
+        // must never have that arrangement replaced by toggling the switch off and on again.
+        // Switching tabs *off* deliberately leaves the grouping in place for the same reason.
+        if (enabled && !hasAnyTabGroup()) {
+            defaultTabGroupSections
+                .filter { it.canBeTabbed }
+                .forEach { key ->
+                    // Written straight into the map rather than through `updatePreference`,
+                    // which publishes and persists per call - and `publish()` resolves eleven
+                    // section titles through `runBlocking { getString(...) }` each time. One
+                    // publish at the end of this function covers all three.
+                    val current = preferences[key] ?: return@forEach
+                    preferences[key] = current.copy(tabGroup = DEFAULT_TAB_GROUP_ID)
+                }
+        }
         publish()
         persist()
     }

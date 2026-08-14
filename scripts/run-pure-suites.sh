@@ -46,11 +46,18 @@ fi
   https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 [ -f hamcrest.jar ] || curl -sSL -o hamcrest.jar \
   https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+# Group 4 only. SyncPreferenceJson.kt reads JsonObject, but declares nothing @Serializable, so
+# the serialization *compiler plugin* is not needed here - just the runtime jars.
+[ -f serialization-core.jar ] || curl -sSL -o serialization-core.jar \
+  https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-serialization-core-jvm/1.9.0/kotlinx-serialization-core-jvm-1.9.0.jar
+[ -f serialization-json.jar ] || curl -sSL -o serialization-json.jar \
+  https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-serialization-json-jvm/1.9.0/kotlinx-serialization-json-jvm-1.9.0.jar
 
 export PATH="$WORK/kotlinc/bin:$PATH"
 KTJ="$WORK/kotlinc/lib/kotlin-test-junit.jar:$WORK/kotlinc/lib/kotlin-test.jar"
 CP_BUILD="$WORK/junit.jar:$WORK/hamcrest.jar:$KTJ"
 CP_RUN="$CP_BUILD:$WORK/kotlinc/lib/kotlin-stdlib.jar"
+CP_JSON="$WORK/serialization-core.jar:$WORK/serialization-json.jar"
 
 M="$REPO/composeApp/src/commonMain/kotlin/com/nuvio/app"
 T="$REPO/composeApp/src/commonTest/kotlin/com/nuvio/app"
@@ -89,18 +96,35 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadTransferTest \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
-# --- Group 3: the setup wizard's ordering and its show-once rule -----------------------------
-# SetupWizardSteps.kt is import-free, so this group needs no stubs at all. The wizard itself is
-# a Compose gate no test can reach once it is on screen, which is why the step machine lives
-# outside it.
+# --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
+# Both files are import-free, so this group needs no stubs at all. The wizard itself is a Compose
+# gate no test can reach once it is on screen, which is why the step machine and the playback-mode
+# storyboard both live outside it.
 rm -rf "$WORK/out-setup"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
   "$M/features/setup/SetupWizardSteps.kt" \
+  "$M/features/setup/SetupModeStoryboard.kt" \
   "$T/features/setup/SetupWizardStepsTest.kt" \
+  "$T/features/setup/SetupModeStoryboardTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
-  com.nuvio.app.features.setup.SetupWizardStepsTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.setup.SetupWizardStepsTest \
+  com.nuvio.app.features.setup.SetupModeStoryboardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 4: the two rules that decide what a settings sync may overwrite -------------------
+# SyncPreferenceJson.kt is shared by every settings store on every platform, so a fault in it is
+# a fault in all of them at once - which is exactly what happened twice: `syncKeysToClear` exists
+# because a pull wiped the playback settings, and `mergeMonotonicSyncInt` because a pull dragged
+# the setup wizard's revision backwards and re-gated the app on every launch.
+rm -rf "$WORK/out-sync"
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -d "$WORK/out-sync" \
+  "$M/core/sync/SyncPreferenceJson.kt" \
+  "$T/core/sync/SyncKeysToClearTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-sync:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
+  com.nuvio.app.core.sync.SyncKeysToClearTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # Deliberately not run here, and CI is the gate for both:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types

@@ -17,13 +17,23 @@ package com.nuvio.app.features.setup
  *
  * A revision asks exactly once per revision.
  *
- * **Revision 4** drops the Trakt step, which offered a connection that does not work yet.
- * Revisions 1 through 3 each asked a set of questions this build no longer asks: 1 hid them
- * behind presets, 2 put them under an unreadable translucent panel, and 3 asked one that led
- * nowhere. Anyone who completed any of them answered a flow that no longer exists, which is
- * exactly the case this integer was chosen for.
+ * **Revision 5** rebuilds three of the eight steps: Welcome shows the app instead of a logo,
+ * the playback-mode step animates what each mode actually does, and the Details step's tab
+ * toggle now changes something - it silently did nothing at all in revision 4, in the real
+ * details screen as well as in the preview.
+ *
+ * Revisions 1 through 4 each asked a set of questions this build no longer asks: 1 hid them
+ * behind presets, 2 put them under an unreadable translucent panel, 3 asked one that led
+ * nowhere, and 4 asked one that changed nothing. Anyone who completed any of them answered a
+ * flow that no longer exists, which is exactly the case this integer was chosen for.
+ *
+ * ⚠ **Bumping this shows the wizard once more on the first launch of a build that carries the
+ * bump, and that is not the same thing as the wizard failing to stay dismissed.** The two were
+ * confused once already, while `replaceFromSyncPayload` was genuinely re-gating the app on every
+ * launch - see `mergeMonotonicSyncInt` in `core/sync/SyncPreferenceJson.kt`. When testing this,
+ * the launch that proves anything is the **second** one.
  */
-const val SETUP_WIZARD_REVISION: Int = 4
+const val SETUP_WIZARD_REVISION: Int = 5
 
 /**
  * Whether the first-launch wizard should gate the app.

@@ -5,6 +5,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SyncKeysToClearTest {
@@ -145,5 +146,51 @@ class SyncKeysToClearTest {
         assertEquals("STREAMLINED", deviceB["playback_mode"])
         assertEquals("false", deviceB["show_loading_overlay"])
         assertEquals("keep-me", deviceB["future_setting"])
+    }
+
+    // --- mergeMonotonicSyncInt -------------------------------------------------------------
+    //
+    // The same rule one step further on. `syncKeysToClear` stops the remote destroying a key it
+    // has never heard of; this stops it dragging a key it *has* heard of backwards. The wizard
+    // revision is the only monotonic sync key today, and it is where this was found.
+
+    @Test
+    fun aStaleRemoteRevisionCannotLowerTheLocalOne() {
+        // The whole defect: a remote blob pushed by an older build carries revision 3, the local
+        // profile has finished revision 4, and every startup pull wrote 3 back - so the wizard
+        // that gates the app reappeared on every single launch.
+        assertEquals(4, mergeMonotonicSyncInt(local = 4, remote = 3))
+    }
+
+    @Test
+    fun aNewerRemoteRevisionStillWins() {
+        // A profile really can arrive from a newer install. Refusing it would re-ask a user a
+        // superset of what they have already answered.
+        assertEquals(5, mergeMonotonicSyncInt(local = 4, remote = 5))
+    }
+
+    @Test
+    fun equalRevisionsAreLeftAlone() {
+        assertEquals(4, mergeMonotonicSyncInt(local = 4, remote = 4))
+    }
+
+    @Test
+    fun aRemoteThatHasNeverHeardOfTheKeyKeepsTheLocalValue() {
+        // Reachable together with syncKeysToClear: the payload omits the key, so nothing is
+        // cleared and nothing is decoded. The local value has to survive that untouched.
+        assertEquals(4, mergeMonotonicSyncInt(local = 4, remote = null))
+    }
+
+    @Test
+    fun aFreshDeviceTakesTheRemoteValue() {
+        assertEquals(3, mergeMonotonicSyncInt(local = null, remote = 3))
+    }
+
+    @Test
+    fun neitherSideHavingAValueWritesNothingAtAll() {
+        // Null rather than 0, so the caller skips the write entirely. Writing 0 would turn "never
+        // asked" into "answered revision 0", which reads the same today and would not if the
+        // rule ever gained a floor.
+        assertNull(mergeMonotonicSyncInt(local = null, remote = null))
     }
 }

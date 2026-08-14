@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
@@ -194,6 +195,17 @@ fun SetupWizardScreen(
         // it false would re-prompt anyone who downgrades to 0.4.x.
         PlayerSettingsRepository.markPlaybackModeSelectorSeen()
         PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+
+        // ⚠ Push immediately rather than leaving it to the observer, because while the wizard is
+        // gating the app the observer has *just* been started and `combine(...).drop(1)` throws
+        // away the first signature - which is the one carrying the revision that was written a
+        // line above. Nothing else changes a setting right after setup, so the remote went on
+        // answering with the old revision indefinitely and the pull re-gated the app with it.
+        // `exportSettingsBlob` exports the whole blob, so this carries every choice the wizard
+        // made too. Failure is fine: it retries on the next local change, and the local value is
+        // now protected from the stale remote by `mergeMonotonicSyncInt`.
+        scope.launch { ProfileSettingsSync.pushCurrentProfileToRemote() }
+
         onFinished()
     }
 
@@ -215,10 +227,15 @@ fun SetupWizardScreen(
         val insets = WindowInsets.safeDrawing.asPaddingValues()
 
         // Each specimen asks for the height it needs, capped so that a short phone always
-        // leaves the panel the larger share. The cap is why the playback-mode step - three
-        // `PlaybackModeCard`s, the tallest panel in the flow - fits without scrolling.
+        // leaves the panel the larger share.
+        //
+        // ⚠ The cap only bites on the three specimens that ask for more than half the window -
+        // Cards, Home and Details - so raising it to 0.5f for the Details step's new sections
+        // strip does **not** touch the playback-mode step, which asks for 200 dp. That step has
+        // the tallest panel in the flow (three `PlaybackModeCard`s) and revision 2 cut it off
+        // mid-card; keep `SetupSpecimen.Diagram.preferredHeight` small rather than trusting this.
         val bandHeight by animateDpAsState(
-            targetValue = specimen.preferredHeight.coerceAtMost(windowHeight * 0.45f),
+            targetValue = specimen.preferredHeight.coerceAtMost(windowHeight * 0.5f),
             animationSpec = tween(340, easing = LinearOutSlowInEasing),
             label = "setup_band_height",
         )
@@ -241,6 +258,7 @@ fun SetupWizardScreen(
                 backgroundMode = metaSettings.backgroundMode,
                 episodeCardStyle = metaSettings.episodeCardStyle,
                 blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
+                tabLayout = metaSettings.tabLayout,
                 nextUpLabel = nextUpLabel,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -331,13 +349,15 @@ fun SetupWizardScreen(
  */
 private val SetupStep.specimen: SetupSpecimen
     get() = when (this) {
+        // ⚠ Welcome shows the app, not a logo. Revision 4 drew `app_logo_wordmark` over an accent
+        // wash, which read as a splash screen bolted onto a settings flow - and the asset has
+        // "Nuvio" baked in as pixels above copy that says "Nuvio Z".
+        SetupStep.Welcome -> SetupSpecimen.Welcome
         SetupStep.Cards -> SetupSpecimen.Cards
         SetupStep.Home -> SetupSpecimen.Home
         SetupStep.Details -> SetupSpecimen.Details
         SetupStep.Theme -> SetupSpecimen.Theme
-        SetupStep.Welcome, SetupStep.PlaybackMode,
-        SetupStep.Sources, SetupStep.Done,
-        -> SetupSpecimen.Diagram
+        SetupStep.PlaybackMode, SetupStep.Sources, SetupStep.Done -> SetupSpecimen.Diagram
     }
 
 /**
@@ -679,9 +699,12 @@ private fun SetupStepBody(
                         checked = blurUnwatchedEpisodes,
                         onCheckedChange = MetaScreenSettingsRepository::setBlurUnwatchedEpisodes,
                     )
-                    // ⚠ The one control in the wizard whose effect the band does not show:
-                    // tabs regroup the sections *below* the episode list, and the mock stops at
-                    // the episode list. Named here so nobody later mistakes it for a bug.
+                    // ⚠ This did nothing at all until revision 5, and not only in the preview:
+                    // every section's `tabGroup` defaults to null and `ConfiguredMetaSections`
+                    // only draws a tab row for a group with more than one member, so on a fresh
+                    // profile `tabLayout = true` rendered identically to false in the real
+                    // details screen too. `setTabLayout` now seeds a default grouping - see
+                    // `MetaScreenSettingsRepository.defaultTabGroupSections`.
                     SetupToggleRow(
                         title = stringResource(Res.string.setup_details_tabs),
                         description = stringResource(Res.string.setup_details_tabs_description),

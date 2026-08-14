@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
@@ -58,6 +59,14 @@ import com.nuvio.app.features.details.MetaScreenBackgroundMode
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
+// Three keys, imported explicitly. ⚠ `SetupWizardScreen.kt` reads about sixty and uses a
+// wildcard; that decision covers that file only, and this one had no resource imports at all
+// before the details sections strip needed section titles. Check the host file's style.
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.meta_section_details_title
+import nuvio.composeapp.generated.resources.settings_meta_cast
+import nuvio.composeapp.generated.resources.settings_meta_trailers
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The band above the wizard's controls, and everything it can draw.
@@ -93,6 +102,8 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
  * | [SpecimenContinueWatching] | `HomeContinueWatchingSection`'s three styles | the 18 dp blur it uses |
  * | [SpecimenDetails] | `MetaDetailsScreen`'s three treatments | the **30 dp** blur, the 0.92 scrim, the 0.42 dominant blend, and that only DominantColor tints the hero |
  * | [SpecimenEpisodes] | `DetailSeriesContent`'s two card styles | the 18 dp blur, and the `thumbnail ?: background` fallback |
+ * | [SpecimenDetailSections] | `TabbedSectionGroup`'s heading row | the `|` separator, and the 0.55 / 0.45 alphas |
+ * | [SpecimenWelcome] | the home screen as a whole | nothing - it is the one specimen at its own scale |
  *
  * If one of those changes, change it here too. The blur radius has already drifted once - this
  * file blurred Cinematic at 18 dp against the real screen's 30 dp for a whole release.
@@ -108,6 +119,25 @@ enum class SetupSpecimen(
      */
     internal val preferredHeight: Dp,
 ) {
+    /**
+     * The whole home screen in miniature: banner, Continue Watching, a catalog row.
+     *
+     * ⚠ **The Welcome step used to draw the app's logo, and this replaced it.** A wordmark over
+     * an accent wash read as a splash screen bolted onto a settings flow, and the asset has
+     * "Nuvio" baked into it as pixels above copy that says "Nuvio Z". A still of the app answers
+     * the only question the first screen is really being asked - *what is this?* - and it also
+     * sets up the three steps that follow, which each take one row of it apart.
+     *
+     * ⚠ **The one specimen drawn at its own scale rather than at the app's real metrics**, and
+     * the only one whose step changes nothing. Three real rows stacked at real sizes come to
+     * roughly 470 dp - they would not fit any band a phone can give, and half a catalog row cut
+     * off at the seam reads as a broken layout rather than as a screen continuing below the
+     * fold. So the sizes here are fixed and chosen to show the whole composition at once. Card
+     * shape and corner radius are still honoured, because they cost nothing and keep a re-run
+     * from Settings consistent with the Cards step two screens later.
+     */
+    Welcome(preferredHeight = 344.dp),
+
     /** A catalog row, at the chosen shape, size, corner radius and title setting. */
     Cards(preferredHeight = 280.dp),
 
@@ -124,14 +154,20 @@ enum class SetupSpecimen(
 
     /**
      * The details screen: a small mock of it, with the chosen background treatment applied
-     * behind the whole thing and the episode list in the chosen style.
+     * behind the whole thing, the episode list in the chosen style, and the sections below it
+     * either stacked or grouped into one tab row.
      *
      * Also one object rather than two, and for a second reason beyond the jarring switch: three
      * abstract swatches could not show what the background modes do, because the thing that
      * most distinguishes `DominantColor` is the tint reaching into the *hero*, and the swatches
      * had no hero.
+     *
+     * ⚠ **The tallest specimen, because it is the only one that has to reach past its own main
+     * subject.** The tab toggle regroups the sections *below* the episode list, so a mock that
+     * stopped at the episode list could not show it - which is exactly what revision 4 did, and
+     * the toggle read as broken. Budget in [SpecimenDetails].
      */
-    Details(preferredHeight = 320.dp),
+    Details(preferredHeight = 380.dp),
 
     /** The accent colour applied to real controls. */
     Theme(preferredHeight = 190.dp),
@@ -139,10 +175,12 @@ enum class SetupSpecimen(
     /**
      * The steps that change nothing visible. See `SetupDiagram.kt`.
      *
-     * The smallest of the five on purpose: the playback-mode step is the tallest panel in the
-     * flow - three `PlaybackModeCard`s - and in revision 2 it was cut off mid-card.
+     * The smallest of the six on purpose: the playback-mode step is the tallest panel in the
+     * flow - three `PlaybackModeCard`s - and in revision 2 it was cut off mid-card. 200 rather
+     * than revision 4's 180 because the storyboard's release list is five rows tall; check the
+     * playback-mode panel still fits without scrolling before raising it again.
      */
-    Diagram(preferredHeight = 180.dp),
+    Diagram(preferredHeight = 200.dp),
 }
 
 /**
@@ -188,6 +226,7 @@ fun SetupSpecimenBand(
     backgroundMode: MetaScreenBackgroundMode,
     episodeCardStyle: MetaEpisodeCardStyle,
     blurUnwatchedEpisodes: Boolean,
+    tabLayout: Boolean,
     nextUpLabel: String,
     modifier: Modifier = Modifier,
 ) {
@@ -222,6 +261,11 @@ fun SetupSpecimenBand(
             label = "setup_specimen",
         ) { current ->
             when (current) {
+                SetupSpecimen.Welcome -> SpecimenWelcome(
+                    landscapeCards = landscapeCards,
+                    cornerRadiusDp = posterCornerRadiusDp,
+                )
+
                 SetupSpecimen.Cards -> SpecimenCards(
                     posterWidthDp = posterWidthDp,
                     cornerRadiusDp = posterCornerRadiusDp,
@@ -242,6 +286,7 @@ fun SetupSpecimenBand(
                     mode = backgroundMode,
                     episodeCardStyle = episodeCardStyle,
                     blurUnwatched = blurUnwatchedEpisodes,
+                    tabLayout = tabLayout,
                     cornerRadiusDp = posterCornerRadiusDp,
                 )
 
@@ -399,6 +444,202 @@ private fun SpecimenCard(
     }
 }
 
+// --- welcome ---------------------------------------------------------------------------------
+
+/**
+ * A still of the home screen: banner, Continue Watching, a catalog row.
+ *
+ * ⚠ **This replaced the app's wordmark, and the reason is not only that the logo looked out of
+ * place.** The first screen of a setup flow is answering *what is this?*, and a logo answers it
+ * with the one thing the user has already read on the panel below. A still of the app answers it
+ * with the app - and it doubles as an establishing shot for the three steps that follow, each of
+ * which takes one row of this picture apart.
+ *
+ * ⚠ **Fixed sizes, unlike every other specimen in this file**, because this one has to hold three
+ * rows at once. At the app's real metrics they stack to roughly 470 dp and no phone can give a
+ * band that tall - see [SetupSpecimen.Welcome]. Card shape and corner radius are still honoured.
+ *
+ * Nothing here animates and nothing on this step changes it. Top-aligned and clipped rather than
+ * centred, so that a band capped short on a small phone cuts the bottom row off the way a screen
+ * continues below the fold, instead of shaving both ends.
+ */
+@Composable
+private fun SpecimenWelcome(
+    landscapeCards: Boolean,
+    cornerRadiusDp: Int,
+) {
+    val radius = cornerRadiusDp.dp
+    val featured = SetupSampleTitle.rowItems.first()
+
+    // Height budget (344 dp): 100 hero + 12 + 74 Continue Watching + 12 + 136 catalog ≈ 334.
+    // The catalog row is the part that gives if any of these change - it is the one whose
+    // bottom edge the band's floor is nearest.
+    Column(
+        modifier = Modifier.fillMaxSize().clipToBounds(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SpecimenHeroBanner(item = featured, height = 100.dp, logoHeight = 26.dp)
+
+        // Two wide cards, the style the real section ships with, so this row reads as Continue
+        // Watching rather than as a second catalog row.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(modifier = Modifier.width(16.dp))
+            SpecimenWelcomeContinueCard(
+                item = featured,
+                radius = radius,
+                caption = SetupSampleTitle.continueWatchingCaption,
+                progress = SetupSampleTitle.continueWatchingProgress,
+            )
+            SpecimenWelcomeContinueCard(
+                item = SetupSampleTitle.rowItems[1],
+                radius = radius,
+                caption = SetupSampleTitle.rowItems[1].releaseInfo.orEmpty(),
+                progress = 0.62f,
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Spacer(modifier = Modifier.width(16.dp))
+            SetupSampleTitle.rowItems.forEach { item ->
+                val cardWidth = if (landscapeCards) 150.dp else 92.dp
+                val cardHeight = if (landscapeCards) 84.dp else (92 / PosterAspectRatio).dp
+                Box(
+                    modifier = Modifier
+                        .width(cardWidth)
+                        .height(cardHeight)
+                        .clip(RoundedCornerShape(radius))
+                        .background(MaterialTheme.nuvio.colors.skeleton),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Behind the artwork, so a card with no network is still a named card.
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.nuvio.colors.textMuted,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                    AsyncImage(
+                        model = if (landscapeCards) item.banner else item.poster,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun SpecimenWelcomeContinueCard(
+    item: MetaPreview,
+    radius: Dp,
+    caption: String,
+    progress: Float,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.width(252.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(120.dp)
+                .height(68.dp)
+                .clip(RoundedCornerShape(radius))
+                .background(tokens.colors.skeleton),
+        ) {
+            AsyncImage(
+                model = item.banner,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            NuvioProgressBar(
+                progress = progress,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+            )
+        }
+        SpecimenCaption(title = item.name, caption = caption, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * The featured banner, shared by the Welcome still and the Home step.
+ *
+ * One composable rather than two because the two steps are showing the *same* component, and a
+ * user who sees a different banner treatment on the welcome screen and on the step that toggles
+ * it has been shown two different apps.
+ */
+@Composable
+private fun SpecimenHeroBanner(
+    item: MetaPreview,
+    height: Dp,
+    logoHeight: Dp,
+) {
+    val tokens = MaterialTheme.nuvio
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(tokens.colors.skeleton),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        AsyncImage(
+            model = item.banner,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, tokens.colors.background),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier.padding(bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            AsyncImage(
+                model = item.logo,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.height(logoHeight).widthIn(max = 190.dp),
+            )
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.labelMedium,
+                color = tokens.colors.textSecondary,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
 // --- home ----------------------------------------------------------------------------------
 
 /**
@@ -421,7 +662,6 @@ private fun SpecimenHome(
     cornerRadiusDp: Int,
     nextUpLabel: String,
 ) {
-    val tokens = MaterialTheme.nuvio
     val item = SetupSampleTitle.rowItems.first()
 
     Column(
@@ -436,47 +676,7 @@ private fun SpecimenHome(
             enter = fadeIn(tween(FadeTweenMillis)) + expandVertically(tween(ShapeTweenMillis)),
             exit = fadeOut(tween(FadeTweenMillis / 2)) + shrinkVertically(tween(ShapeTweenMillis)),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp)
-                    .background(tokens.colors.skeleton),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
-                AsyncImage(
-                    model = item.banner,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, tokens.colors.background),
-                            ),
-                        ),
-                )
-                Column(
-                    modifier = Modifier.padding(bottom = 14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AsyncImage(
-                        model = item.logo,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.height(34.dp).widthIn(max = 190.dp),
-                    )
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = tokens.colors.textSecondary,
-                        maxLines = 1,
-                    )
-                }
-            }
+            SpecimenHeroBanner(item = item, height = 150.dp, logoHeight = 34.dp)
         }
 
         // ⚠ Height budget for `SetupSpecimen.Home` (330 dp): 150 banner + 14 gap + the tallest
@@ -679,6 +879,7 @@ private fun SpecimenDetails(
     mode: MetaScreenBackgroundMode,
     episodeCardStyle: MetaEpisodeCardStyle,
     blurUnwatched: Boolean,
+    tabLayout: Boolean,
     cornerRadiusDp: Int,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -728,7 +929,7 @@ private fun SpecimenDetails(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(126.dp)
+                    .height(110.dp)
                     .background(tokens.colors.skeleton),
                 contentAlignment = Alignment.BottomCenter,
             ) {
@@ -756,11 +957,11 @@ private fun SpecimenDetails(
             }
 
             // The seam that bridges hero into page. ⚠ The real screen uses a 132 dp band under a
-            // 420-760 dp hero; scaled to this 126 dp hero that would swallow the mock, so it is
-            // 22 dp here. Same colour rule and the same `usesBackdropBackground` gate.
+            // 420-760 dp hero; scaled to this 110 dp hero that would swallow the mock, so it is
+            // 18 dp here. Same colour rule and the same `usesBackdropBackground` gate.
             if (mode.usesBackdropBackground) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(22.dp).background(
+                    modifier = Modifier.fillMaxWidth().height(18.dp).background(
                         Brush.verticalGradient(
                             listOf(
                                 seamColor.copy(alpha = 0.98f),
@@ -771,7 +972,7 @@ private fun SpecimenDetails(
                     ),
                 )
             } else {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             SpecimenEpisodes(
@@ -779,6 +980,125 @@ private fun SpecimenDetails(
                 blurUnwatched = blurUnwatched,
                 cornerRadiusDp = cornerRadiusDp,
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            SpecimenDetailSections(tabLayout = tabLayout, cornerRadiusDp = cornerRadiusDp)
+        }
+    }
+}
+
+/**
+ * The sections under the episode list, stacked or grouped into one tab row.
+ *
+ * ⚠ **This exists because the toggle above it did nothing at all.** Revision 4's mock stopped at
+ * the episode list, and the file said so - "the one control in the wizard whose effect the band
+ * does not show". That turned out to understate it: every section's `tabGroup` defaults to null,
+ * and `ConfiguredMetaSections` draws a `TabbedSectionGroup` only for a group with more than one
+ * member, so `tabLayout = true` rendered identically to false **in the real details screen too**.
+ * `MetaScreenSettingsRepository.setTabLayout` now seeds a default grouping, and this draws it.
+ *
+ * ⚠ Mirrors `TabbedSectionGroup` in `MetaDetailsScreen.kt`: the headings sit in one row
+ * separated by `|`, the active one at full opacity, the inactive ones at **0.55**, the separator
+ * at **0.45**. Off, each heading is its own `DetailSectionTitle` over its own rail. If that
+ * treatment changes, change it here.
+ *
+ * The rail is deliberately abstract - blocks, not cast portraits. The three sections it stands for
+ * hold different things (faces, trailer stills, a table of text), so any one of them drawn
+ * literally would misdescribe the other two, and the point being made is about *grouping*.
+ */
+@Composable
+private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
+    val tokens = MaterialTheme.nuvio
+    val radius by animateDpAsState(
+        targetValue = cornerRadiusDp.dp,
+        animationSpec = tween(FadeTweenMillis, easing = LinearOutSlowInEasing),
+        label = "specimen_sections_radius",
+    )
+    val titles = listOf(
+        stringResource(Res.string.settings_meta_cast),
+        stringResource(Res.string.settings_meta_trailers),
+        stringResource(Res.string.meta_section_details_title),
+    )
+
+    @Composable
+    fun Rail() {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Spacer(modifier = Modifier.width(16.dp))
+            repeat(5) {
+                Box(
+                    modifier = Modifier
+                        .width(46.dp)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(radius))
+                        .background(tokens.colors.skeleton),
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+    }
+
+    AnimatedContent(
+        targetState = tabLayout,
+        transitionSpec = {
+            fadeIn(tween(FadeTweenMillis)) togetherWith fadeOut(tween(FadeTweenMillis / 2))
+        },
+        label = "specimen_detail_sections",
+    ) { tabbed ->
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (tabbed) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    titles.forEachIndexed { index, title ->
+                        if (index > 0) {
+                            Text(
+                                text = "|",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = tokens.colors.textPrimary.copy(alpha = 0.45f),
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (index == 0) {
+                                tokens.colors.textPrimary
+                            } else {
+                                tokens.colors.textPrimary.copy(alpha = 0.55f)
+                            },
+                            maxLines = 1,
+                        )
+                    }
+                }
+                Rail()
+            } else {
+                // Only two of the three, and only one rail: stacked, they run down the page well
+                // past the bottom of the band, and showing two headings is enough to read as
+                // "these are separate sections". The tabbed state is the one that has to be
+                // complete, because it is the one making the claim.
+                titles.take(2).forEachIndexed { index, title ->
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tokens.colors.textPrimary,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                    if (index == 0) Rail()
+                }
+            }
         }
     }
 }
@@ -832,9 +1152,12 @@ private fun Color.blendTowards(target: Color, fraction: Float): Color {
 /**
  * Episode cards in each of the two styles.
  *
- * ⚠ Height budget inside `SetupSpecimen.Details` (320 dp): 126 hero + 22 seam leaves ~170.
- * Horizontal runs to about 124, List to about 118 at two rows. List takes **two** episodes and
- * Horizontal **three** for that reason - a third List row would overflow.
+ * ⚠ Height budget inside `SetupSpecimen.Details` (380 dp): 110 hero + 18 seam + 14 gap + about
+ * 76 for [SpecimenDetailSections] leaves ~160. Horizontal runs to about 124, List to about 118
+ * at two rows. List takes **two** episodes and Horizontal **three** for that reason - a third
+ * List row would overflow. The hero and the seam both shrank when the sections strip was added;
+ * they are the parts that give, because the strip and the episode list are what the step's
+ * controls act on.
  */
 @Composable
 private fun SpecimenEpisodes(

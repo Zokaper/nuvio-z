@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import android.content.Context
 import android.content.SharedPreferences
 import com.nuvio.app.core.sync.syncKeysToClear
+import com.nuvio.app.core.sync.mergeMonotonicSyncInt
 import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncFloat
 import com.nuvio.app.core.sync.decodeSyncInt
@@ -1279,6 +1280,13 @@ actual object PlayerSettingsStorage {
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
+        // ⚠ Read before the clear below, because the clear is what makes this unrecoverable.
+        // The wizard revision may only ever increase and `markSetupWizardCompleted` enforces
+        // that - but a sync writes through this store directly and bypasses it, so a remote
+        // blob from an older build re-gated the app with the first-launch wizard on every
+        // single launch. See `mergeMonotonicSyncInt`.
+        val localSetupWizardRevision = loadSetupWizardCompletedRevision()
+
         // Clear only what the payload actually carries. Wiping every sync key first would
         // destroy any setting added since the remote blob was last written - the remote is
         // authoritative for keys it knows about, not for keys it has never heard of. That
@@ -1335,8 +1343,10 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)
         payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
             ?.let(::savePlaybackModeSelectorSeen)
-        payload.decodeSyncInt(setupWizardCompletedRevisionKey)
-            ?.let(::saveSetupWizardCompletedRevision)
+        mergeMonotonicSyncInt(
+            local = localSetupWizardRevision,
+            remote = payload.decodeSyncInt(setupWizardCompletedRevisionKey),
+        )?.let(::saveSetupWizardCompletedRevision)
         payload.decodeSyncString(streamAutoPlayModeKey)?.let(::saveStreamAutoPlayMode)
         payload.decodeSyncString(streamAutoPlaySourceKey)?.let(::saveStreamAutoPlaySource)
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)

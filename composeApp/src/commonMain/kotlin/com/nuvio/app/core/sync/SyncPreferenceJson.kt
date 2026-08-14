@@ -102,3 +102,30 @@ internal fun JsonObject.decodeSyncStringSet(key: String): Set<String>? =
  */
 internal fun syncKeysToClear(syncKeys: List<String>, payload: JsonObject): List<String> =
     syncKeys.filter(payload::containsKey)
+
+/**
+ * The value to store for a sync key that may only ever increase.
+ *
+ * ⚠ **A `replaceFromSyncPayload` bypasses every guard the repository puts on a setter**, because
+ * it writes through the store directly. `setup_wizard_completed_revision` is monotonic -
+ * `PlayerSettingsRepository.markSetupWizardCompleted` refuses to lower it - and the sync path
+ * lowered it anyway: the remote blob was written by an older build, so every startup pull cleared
+ * the key and wrote the older number back, `onProfileChanged()` republished it, and the
+ * first-launch wizard reappeared. On every launch, permanently, because a wizard that gates the
+ * app never gets far enough to push the corrected value.
+ *
+ * The rule is the same one [syncKeysToClear] encodes, one step further on: **the remote is
+ * authoritative for what it knows, never for what it has not caught up with.** Taking the larger
+ * of the two costs nothing when the remote is ahead - a profile really can arrive from a newer
+ * install - and is the only thing that stops it dragging a device backwards.
+ *
+ * Lives here rather than in each `PlayerSettingsStorage` actual so the rule cannot drift between
+ * platforms; there are three actuals in this repository and four in `NuvioZDesktop`.
+ *
+ * Answers null only when neither side has a value, so the caller writes nothing at all.
+ */
+internal fun mergeMonotonicSyncInt(local: Int?, remote: Int?): Int? = when {
+    local == null -> remote
+    remote == null -> local
+    else -> maxOf(local, remote)
+}

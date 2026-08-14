@@ -644,6 +644,17 @@ fun App(
             }
         }
 
+        // ⚠ Here rather than inside `MainAppContent`, because the setup wizard replaces
+        // `MainAppContent` while it is gating the app - so every choice the wizard wrote went
+        // unobserved, and the observer's own `combine(...).drop(1)` then discarded the first
+        // signature it saw once the wizard finished. That is the signature carrying the
+        // completed revision, so the remote never learned it and the next startup pull re-gated
+        // the app with the old one. Settings written while the wizard is up are settings.
+        // `startObserving` is idempotent, so this and any other call site are safe together.
+        if (ownsAppRuntime) {
+            remember { ProfileSettingsSync.startObserving() }
+        }
+
         LaunchedEffect(useNativeNavigation, ownsAppRuntime) {
             if (!useNativeNavigation || !ownsAppRuntime) return@LaunchedEffect
             NativeAppGateRequests.profileSelection.collect {
@@ -967,9 +978,8 @@ private fun MainAppContent(
             remember {
                 CollectionSyncService.startObserving()
             }
-            remember {
-                ProfileSettingsSync.startObserving()
-            }
+            // `ProfileSettingsSync.startObserving()` used to be here. It now runs at the gate,
+            // above the setup wizard - see the comment there. It is idempotent either way.
         }
         val hapticFeedback = LocalHapticFeedback.current
         val focusManager = LocalFocusManager.current
