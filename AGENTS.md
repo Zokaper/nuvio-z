@@ -101,6 +101,16 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   first deletes anything added since the remote blob was last written - it wiped the
   playback settings in `0.4.0-beta` and would have wiped stored debrid API keys the
   next time a provider was added.
+- ⚠ **Anything drawn OVER the app rather than in place of it must consume pointer input**, with
+  `nuvioConsumePointerEvents()` in `core/ui/Components.kt`. A `background()` does not: without it
+  every tap that misses a control lands on whatever is underneath, and the user cannot see what
+  they hit. **This has shipped twice** - the stream route's hand-off surface left an invisible
+  source list fully tappable in `0.5.0-beta`, and the setup wizard's "Run setup again" was
+  opening links on the settings page behind it in revision 6. Both were found on a device,
+  because nothing else can find them. A `Dialog` is immune by construction; a full-screen
+  sibling `Box` is not. The related `nuvioBlockPointerEvents()` makes a subtree inert instead
+  (Initial pass), which is what a crossfade's outgoing half needs - it stays laid out and
+  hit-testable for the whole animation.
 - **A `replaceFromSyncPayload` bypasses every guard a repository puts on a setter**, because it
   writes through the store directly. A value the repository refuses to lower must be merged
   through `mergeMonotonicSyncInt` in the same file - reading the local value **before** the
