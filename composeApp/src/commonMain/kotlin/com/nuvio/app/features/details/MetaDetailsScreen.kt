@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,6 +86,7 @@ import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
 import com.nuvio.app.core.ui.PosterZoomOverlayAction
 import com.nuvio.app.core.ui.TraktListPickerDialog
+import com.nuvio.app.core.ui.nuvioBlockPointerEvents
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import dev.chrisbanes.haze.hazeSource
@@ -2333,7 +2335,12 @@ private fun TabbedSectionGroup(
 ) {
     if (tabs.isEmpty()) return
 
-    var selectedIndex by remember { mutableIntStateOf(0) }
+    // ⚠ `rememberSaveable`, not `remember`. This group is one item inside a `LazyColumn`, so
+    // scrolling it off screen disposes it and a plain `remember` silently snapped the selection
+    // back to the first tab on the way back - which reads as "the tabs do not work" rather than
+    // as state being lost. Keyed by the tabs themselves so a title whose sections changed does
+    // not restore a selection that no longer means the same thing.
+    var selectedIndex by rememberSaveable(tabs.map { it.first }) { mutableIntStateOf(0) }
     val clampedIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
     if (clampedIndex != selectedIndex) selectedIndex = clampedIndex
 
@@ -2375,19 +2382,43 @@ private fun TabbedSectionGroup(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                            ) { selectedIndex = index },
+                            ) { selectedIndex = index }
+                            // ⚠ The touch target, and it has to be inside the `clickable` to
+                            // count. Without it the tappable area is the glyph box - about 26 dp
+                            // tall against Android's 48 dp guidance - because foundation's
+                            // `clickable` does not apply `minimumInteractiveComponentSize` the
+                            // way a Material component would. A tap a few dp high or low did
+                            // nothing, which is most of "the tabs don't work".
+                            .padding(vertical = 10.dp),
                     )
                 }
             }
         }
 
-        // Content with crossfade
+        // Content with crossfade.
+        //
+        // ⚠ **The outgoing half stays laid out and hit-testable for the whole 200 ms**, because a
+        // `Crossfade` animates alpha and nothing else. That put an invisible copy of the previous
+        // section over the new one every time a tab was tapped - and one of these sections is
+        // Trailers, whose cards open a URL the addon supplies verbatim
+        // (`HeroTrailerSelector.youtubePlaybackUrl` passes any `http`-prefixed `key` straight
+        // through). An invisible thing that opens an arbitrary third-party link on touch is the
+        // same defect as the two this pass already fixed, so the fading half is made inert.
+        val activeTab = tabs[selectedIndex].first
         Crossfade(
-            targetState = tabs[selectedIndex].first,
+            targetState = activeTab,
             animationSpec = tween(durationMillis = 200),
             label = "tabbedSectionCrossfade",
-        ) { activeKey ->
-            content(activeKey)
+        ) { crossfadeKey ->
+            Box(
+                modifier = if (crossfadeKey == activeTab) {
+                    Modifier
+                } else {
+                    Modifier.nuvioBlockPointerEvents()
+                },
+            ) {
+                content(crossfadeKey)
+            }
         }
     }
 }

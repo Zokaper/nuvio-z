@@ -2,6 +2,7 @@ package com.nuvio.app.features.setup
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -12,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -863,6 +866,15 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
     val castTitle = stringResource(Res.string.settings_meta_cast)
     val trailersTitle = stringResource(Res.string.settings_meta_trailers)
     val detailsTitle = stringResource(Res.string.meta_section_details_title)
+    val titles = listOf(castTitle, trailersTitle, detailsTitle)
+
+    // ⚠ **The only interactive control in any specimen band, and the exception is deliberate.**
+    // Everything else here is a picture that the panel's controls change; touching a band does
+    // nothing anywhere else in the wizard. The maintainer asked for these to work, and the reason
+    // holds: a tab row that cannot be tapped is not showing you what tabs are, it is showing you
+    // a screenshot of one. It also lets the step reach the other two rails, which the stacked
+    // arrangement below can only show two of.
+    var selectedTab by remember { mutableStateOf(0) }
 
     AnimatedContent(
         targetState = tabLayout,
@@ -882,7 +894,7 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    listOf(castTitle, trailersTitle, detailsTitle).forEachIndexed { index, title ->
+                    titles.forEachIndexed { index, title ->
                         if (index > 0) {
                             Text(
                                 text = "|",
@@ -895,24 +907,75 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
                             text = title,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (index == 0) {
+                            color = if (index == selectedTab) {
                                 tokens.colors.textPrimary
                             } else {
                                 tokens.colors.textPrimary.copy(alpha = 0.55f)
                             },
                             maxLines = 1,
+                            // No ripple, matching `TabbedSectionGroup`, which uses
+                            // `indication = null` for the same row in the real screen.
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { selectedTab = index },
                         )
                     }
                 }
-                SpecimenCastRail()
+                Crossfade(targetState = selectedTab, label = "specimen_tab_content") { tab ->
+                    when (tab) {
+                        1 -> SpecimenTrailerRail(radius = radius)
+                        2 -> SpecimenDetailFacts()
+                        else -> SpecimenCastRail()
+                    }
+                }
             } else {
                 // ⚠ **A rail under every heading.** Revision 5 drew one only under the first, so
                 // "Trailers" was a heading over nothing and "Details" was not drawn at all -
                 // which read as two sections failing to load rather than as two sections.
+                //
+                // Two of the three, not all three: stacked, they run well past the bottom of the
+                // band, and two headings each with content is enough to read as "these are
+                // separate sections down the page". The tabbed state is the one that has to be
+                // complete, because it is the one making a claim.
                 SpecimenSectionHeading(castTitle)
                 SpecimenCastRail()
                 SpecimenSectionHeading(trailersTitle)
                 SpecimenTrailerRail(radius = radius)
+            }
+        }
+    }
+}
+
+/**
+ * The Details section: a short label/value list, which is what that section is.
+ *
+ * Exists because the tab row names it. A tab that switched to nothing would be the same defect as
+ * revision 5's heading over an empty rail, one indirection further along.
+ */
+@Composable
+private fun SpecimenDetailFacts() {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        SetupSampleTitle.detailFacts.forEach { (label, value) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                    maxLines = 1,
+                    modifier = Modifier.width(74.dp),
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

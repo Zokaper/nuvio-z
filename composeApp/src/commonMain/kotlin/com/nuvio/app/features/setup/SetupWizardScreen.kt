@@ -54,7 +54,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -68,6 +70,7 @@ import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.ThemeColors
 import com.nuvio.app.core.ui.labelRes
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.addons.AddAddonResult
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
@@ -225,7 +228,28 @@ fun SetupWizardScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(tokens.colors.background),
+            .background(tokens.colors.background)
+            // ⚠ **A background does not consume pointer input, and this screen is drawn OVER the
+            // app.** `Settings → Run setup again` renders this on top of `MainAppContent` rather
+            // than in place of it (`App.kt`, and its comment there says so), so before this line
+            // every tap that missed one of the wizard's own controls - the whole preview band,
+            // the paragraphs, the gaps - landed on the settings screen behind it. It was
+            // reported as "pressing the tabs takes me to the nuvio mobile vanilla repo, also
+            // this random website": those were the user's installed addons, and the tab row
+            // happened to sit where an addon row sits.
+            //
+            // ⚠ **This is the second time this defect has shipped.** `0.5.0-beta` item 1 was the
+            // same thing on the stream route - "the surface consumed no pointer input, so the
+            // invisible source list underneath was fully tappable". `nuvioConsumePointerEvents`
+            // is the fix written then, and it consumes on `PointerEventPass.Final`, so this
+            // screen's own controls still receive events first and only unhandled ones are
+            // swallowed.
+            //
+            // The gate path never showed it because there `MainAppContent` is not composed at
+            // all. Only the dismissible re-run is affected, which is why it took a re-run to
+            // find. The other on-demand overlay, `WhatsNewScreen`, is a `Dialog` and is immune
+            // by construction - this one is a plain full-screen sibling and is not.
+            .nuvioConsumePointerEvents(),
     ) {
         val windowHeight = maxHeight
         val windowWidth = maxWidth
@@ -401,9 +425,21 @@ private fun SetupWelcomeSurface(
 ) {
     val tokens = MaterialTheme.nuvio
     val hazeState = rememberHazeState()
+    val density = LocalDensity.current
+
+    // ⚠ **The still has to know how much of it is actually visible**, which is the window minus
+    // this panel. Revision 6 gave it the whole window, so `HomeHeroSection` sized a hero for a
+    // viewport the user could only see half of and the banner swallowed the entire visible band -
+    // reported as "the featured thing covers the whole thing".
+    //
+    // Seeded with an estimate rather than zero, because the panel is measured a frame late and a
+    // hero resizing on the very first screen of the app is worse than being slightly wrong for
+    // one frame. The estimate is close: this panel is a heading, two paragraphs and two buttons.
+    var panelHeight by remember { mutableStateOf(WelcomePanelHeightEstimate) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         SetupHomeStill(
+            visibleHeightBelowTop = panelHeight,
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(state = hazeState),
@@ -413,6 +449,7 @@ private fun SetupWelcomeSurface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .onSizeChanged { panelHeight = with(density) { it.height.toDp() } }
                 .hazeEffect(state = hazeState) { blurRadius = WelcomeBlurRadius }
                 .background(
                     Brush.verticalGradient(
@@ -457,6 +494,15 @@ private fun SetupWelcomeSurface(
 
 /** Matches the streams tablet panel rather than the nav pill: this pane is much larger. */
 private val WelcomeBlurRadius = 40.dp
+
+/**
+ * What the panel is assumed to be tall until it has measured itself.
+ *
+ * Only ever wrong for one frame, and only by however much the real panel differs - which at a
+ * default font scale is very little. It exists so the still does not lay out a full-window hero
+ * on the first frame and then visibly shrink it on the second.
+ */
+private val WelcomePanelHeightEstimate = 340.dp
 
 // The three tint stops. Read the warning on `SetupWelcomeSurface` before changing any of them:
 // they are tuned for a device where `hazeEffect` does nothing at all.

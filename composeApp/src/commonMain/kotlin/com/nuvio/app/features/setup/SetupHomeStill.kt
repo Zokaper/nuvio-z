@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -22,12 +24,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioNavigationBar
+import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeContinueWatchingSection
+import com.nuvio.app.features.home.components.continueWatchingHeroViewportReserveHeight
+import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
 import com.nuvio.app.features.home.components.HomeHeroSection
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import nuvio.composeapp.generated.resources.Res
@@ -78,8 +84,15 @@ import org.jetbrains.compose.resources.stringResource
  * the gradient floor, which is the state to check in aeroplane mode.
  */
 @Composable
-fun SetupHomeStill(modifier: Modifier = Modifier) {
+fun SetupHomeStill(
+    visibleHeightBelowTop: Dp,
+    modifier: Modifier = Modifier,
+) {
     val tokens = MaterialTheme.nuvio
+    val posterStyle by remember {
+        PosterCardStyleRepository.ensureLoaded()
+        PosterCardStyleRepository.uiState
+    }.collectAsStateWithLifecycle()
     val continueWatching by remember {
         ContinueWatchingPreferencesRepository.ensureLoaded()
         ContinueWatchingPreferencesRepository.uiState
@@ -101,18 +114,39 @@ fun SetupHomeStill(modifier: Modifier = Modifier) {
                 ),
             ),
     ) {
-        val viewport = maxHeight
+        // ⚠ **The visible viewport, not the window.** The panel covers the bottom of this screen,
+        // and `mobileHeroHeight` takes 82% of whatever `viewportHeight` it is given: passing the
+        // window height sized a hero for space the user cannot see, and the banner filled the
+        // entire visible band. Revision 6 did exactly that.
+        val visibleViewport = (maxHeight - visibleHeightBelowTop).coerceAtLeast(MinVisibleViewport)
+
+        // ⚠ **The app's own arithmetic for "leave room for the row underneath".** `HomeScreen`
+        // computes its hint the same way and passes it to the same parameter; without it the
+        // hero has nothing to cap against. Reusing the helper rather than picking a number is
+        // what keeps the still honest when the Continue Watching style changes its height.
+        val continueWatchingReserve = continueWatchingHeroViewportReserveHeight(
+            style = continueWatching.style,
+            layout = rememberContinueWatchingLayout(maxWidth.value),
+            basePosterWidthDp = posterStyle.widthDp,
+        )
 
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // Laid out in the band above the panel. The Box behind this stays full-bleed so
+                // the panel's blur still has something to sample.
+                .padding(bottom = visibleHeightBelowTop)
+                // The "scroll down a bit" this needed: with the hero capped, a nudge upward puts
+                // the catalog row under Continue Watching into view rather than leaving it at
+                // the seam. Small, because the hero's logo and buttons are the part that says
+                // "this is the app" and cropping them defeats the point.
+                .offset(y = -StillScrollOffset),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // `viewportHeight` is what `homeHeroLayout` branches on, so passing the real window
-            // height is what makes this a still of *this* device's home screen rather than of a
-            // phone-shaped guess on a desktop window.
             HomeHeroSection(
                 items = SetupSampleTitle.rowItems,
-                viewportHeight = viewport,
+                viewportHeight = visibleViewport,
+                mobileBelowSectionHeightHint = continueWatchingReserve,
             )
 
             HomeContinueWatchingSection(
@@ -141,9 +175,26 @@ fun SetupHomeStill(modifier: Modifier = Modifier) {
             )
         }
 
-        SetupStillNavigationBar(modifier = Modifier.align(Alignment.BottomCenter))
+        SetupStillNavigationBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                // Sits just above the panel rather than at the window's bottom edge, where it
+                // would be hidden behind it entirely.
+                .padding(bottom = visibleHeightBelowTop),
+        )
     }
 }
+
+/**
+ * How far the still is nudged up so the row under Continue Watching comes into view.
+ *
+ * ⚠ Deliberately small. The hero's logo is the part that makes this read as the app, and cropping
+ * it to show one more row trades the thing being shown for the thing being listed.
+ */
+private val StillScrollOffset = 28.dp
+
+/** A floor, so a mis-measured panel can never collapse the still to nothing. */
+private val MinVisibleViewport = 260.dp
 
 /**
  * The floating nav pill, drawn for looks only.

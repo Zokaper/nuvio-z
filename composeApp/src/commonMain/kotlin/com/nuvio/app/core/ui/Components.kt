@@ -101,11 +101,44 @@ fun NuvioScreen(
     )
 }
 
+/**
+ * Swallows any pointer event this subtree's own children did not handle.
+ *
+ * `Final` pass, so children still get their events first - which is what makes this safe to put
+ * on the root of a full-screen surface whose own controls must keep working.
+ *
+ * ⚠ **Put this on anything drawn over the app rather than in place of it.** A `background()` does
+ * not consume input, so without it every tap that misses a control lands on whatever is
+ * underneath. That has now shipped twice: the stream route's hand-off surface left an invisible
+ * source list fully tappable in `0.5.0-beta`, and the setup wizard's re-run - which covers
+ * `MainAppContent` - was opening links on the settings page behind it in revision 6.
+ */
 internal fun Modifier.nuvioConsumePointerEvents(): Modifier =
     pointerInput(Unit) {
         awaitPointerEventScope {
             while (true) {
                 awaitPointerEvent(PointerEventPass.Final).changes.forEach { change ->
+                    change.consume()
+                }
+            }
+        }
+    }
+
+/**
+ * Stops this subtree receiving pointer events at all.
+ *
+ * ⚠ **`Initial` pass, and that is the whole difference from [nuvioConsumePointerEvents].** This
+ * one consumes *before* children see the event, so it makes a subtree inert rather than merely
+ * catching what fell through it. Use it for content that is still composed and laid out but must
+ * not be touchable - a crossfade's outgoing half being the case it was written for, where an
+ * invisible copy of the previous content sits over the new content for the length of the
+ * animation.
+ */
+internal fun Modifier.nuvioBlockPointerEvents(): Modifier =
+    pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent(PointerEventPass.Initial).changes.forEach { change ->
                     change.consume()
                 }
             }

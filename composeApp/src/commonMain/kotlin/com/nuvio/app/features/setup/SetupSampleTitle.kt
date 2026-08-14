@@ -216,6 +216,20 @@ object SetupSampleTitle {
     )
 
     /**
+     * The Details tab's label/value list.
+     *
+     * Plain pairs rather than a `MetaDetails`: the specimen only needs to look like a facts list,
+     * and building the real type here would drag in a class that diverges between the
+     * repositories - which is the trap `SetupHomeStill.kt` is quarantined for.
+     */
+    val detailFacts: List<Pair<String, String>> = listOf(
+        "Released" to "2008-2013",
+        "Runtime" to "48 min",
+        "Rating" to "9.5",
+        "Genres" to "Crime · Drama · Thriller",
+    )
+
+    /**
      * First and last initial, or the first two characters of a single-word name.
      *
      * ⚠ Mirrors the private `initials()` in `features/details/components/DetailCastSection.kt`.
