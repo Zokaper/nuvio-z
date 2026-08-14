@@ -152,18 +152,36 @@ sufficient**.
 **Eight files confirmed byte-identical** across the repositories; `SetupHomeStill.kt` is the
 deliberate exception at three hunks.
 
+**CI is green in both repositories, first attempt each:**
+
+- `nuvio-z` `debug-release.yml` run `31785524190` at `ee283cd9` - host suite and
+  `:androidApp:assembleFullDebug`. Published as **`debug-v0.4.14-beta.11`** (versionCode 124011).
+- `NuvioZDesktop` `ci.yml` run `31785506352` at `62fbcac7` - **both** jobs. The Windows MSI job
+  compiles `desktopMain`, which is the only thing that proves the hand-ported `SetupHomeStill.kt`
+  passes `dataSourceKey` correctly.
+
+⚠ **And `SetupWizardRenderHarness > renderEveryWizardSurface` PASSED in that desktop run.** That
+is a first: **the wizard's Compose code had never executed anywhere before this**. Every scene -
+the frosted Welcome step composing `SetupHomeStill` and the real home sections through Haze, eight
+band variants at two widths, every storyboard frame of all three modes - composed and rendered
+without throwing. A runtime crash on any step would now be caught by CI rather than by a device.
+
 **Not verified:**
 
-1. **The PNGs have not been looked at from here** - Gradle still cannot configure in the sandbox,
-   so the harness has been parser-checked and never run. It is the first thing to do on the
-   Windows host.
-2. ⚠ **The frost has never been seen at all**, and it is the highest-risk thing in this pass:
-   revision 2 failed on exactly this and the API 30 case has no blur behind it.
+1. ⚠ **Nobody has looked at the PNGs.** The harness *ran* in CI, but "Upload test reports" is
+   `if: failure()`, so the images stay in the runner's workspace and are discarded. Run it on the
+   Windows host to actually see them - or make CI upload
+   `composeApp/build/setup-wizard-render/` as an artifact, which would let the output be read
+   without a working Gradle at all. **Rendering without throwing is not the same as looking**, and
+   every fault in this wizard's history was a looking fault.
+2. ⚠ **The frost has never been seen**, and it is the highest-risk thing in this pass: revision 2
+   failed on exactly this, and the API 30 case has no blur behind it at all.
 3. **The band heights are still arithmetic.** `Details` at 400 dp is close to the `windowHeight *
    0.5f` cap on a phone, so the trailers rail is the part that clips first. Deliberate, and what
    the harness's 120 dp taller frames are for.
-4. **`SetupHomeStill` calls into composables that diverge between the repositories** for the first
-   time in this wizard's history. Only the Windows MSI job compiles the desktop copy.
+4. **Artwork has still never loaded here.** The harness renders with no network, so every poster
+   and backdrop in those PNGs is a placeholder fill - which makes them a good aeroplane-mode check
+   and a poor artwork one.
 
 ## Revision 5 of the setup wizard (2026-08-14, unreleased)
 
