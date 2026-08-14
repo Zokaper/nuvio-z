@@ -6,7 +6,7 @@ Last updated: 2026-08-14
 | --- | --- |
 | **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 5 of the setup wizard** on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Run the `SetupWizardRenderHarness` on the Windows host first** — the wizard has still never been rendered anywhere, and that gap is what let revisions 2, 3 and 4 reach a device broken. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first five checks are the four revision-4 faults. Test with **`debug-v0.4.14-beta.10`**, published and green. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Run `:composeApp:desktopTest --tests "*SetupWizardRenderHarness"` in `NuvioZDesktop` and look at the PNGs** — the harness is now committed rather than promised, and the frosted Welcome panel is the thing to judge first. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first six checks are the revision-5 faults. Test with **`debug-v0.4.14-beta.11`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -16,6 +16,154 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## Revision 6 of the setup wizard (2026-08-14, unreleased)
+
+**Same branch.** Revision 5 fixed the gate and got the wizard onto a screen, which is what let the
+next four faults be seen at all. Three were reported; the fourth is visible in the screenshots and
+is a device-script check that was already failing.
+
+⚠ Two findings reshaped this pass before any of it was written, and both contradict something
+this file previously assumed:
+
+1. **The app already has real backdrop blur.** `dev.chrisbanes.haze:haze:1.7.2` is a **commonMain**
+   dependency in both repositories and ships in four places - the floating nav bar, the poster and
+   episode zoom overlays, and the streams tablet side panel. Revision 2's "a frosted pane would
+   mean rendering the stage into a `GraphicsLayer`… which is API 31+ and would degrade on exactly
+   the devices that need it most" was reasoning about `Modifier.blur`, and it skipped the library
+   already in the build. `core/ui/NavigationBar.kt:143-156` is the pattern.
+2. **The real home composables render standalone, and it was already proved here.** The deleted
+   `SetupPreviewStage.kt` (at `18de5ae^`) called them from a plain `Column` with no nav controller
+   and no network. The whole call surface is three composables and four required arguments.
+
+### 1. Welcome shows the app, under a frost
+
+Revision 5 replaced the wordmark with a hand-drawn miniature - hero, one Continue Watching row,
+one poster row - and the verdict was that it *"just doesn't look like the actual home"*. It did
+not: no top chrome, no section headings, no tab bar, and a 344 dp band above a short panel that
+left a large dead gap.
+
+**New `features/setup/SetupHomeStill.kt`** draws the real `HomeHeroSection`,
+`HomeContinueWatchingSection` and two `HomeCatalogRowSection`s, full-bleed, with a real
+`NuvioNavigationBar` at the bottom. Row titles come free - each section calls `NuvioShelfSection`
+internally. The wizard's panel floats over it behind a `hazeEffect`.
+
+⚠ **`SetupHomeStill.kt` is the one setup file that is NOT byte-identical and must never be
+`cp`'d.** Desktop's `HomeContinueWatchingSection` takes a **required** `dataSourceKey:
+WatchProgressSource` in third position, from `features.tracking` rather than `features.trakt`. The
+two copies differ by exactly three hunks and both say so at the top. Named arguments at every call
+site are what makes that portable - desktop's `HomeHeroSection` also inserts `sectionPadding`
+mid-list and `NuvioShelfSection` reorders `rowModifier`.
+
+⚠ **Why this is not revision 2 returning**, since that is the obvious objection. Revision 2 put a
+**translucent** panel over a **live** preview on **every** step. All three words differ here: a
+real blur, over a **still**, on the one step that carries **no controls**. Steps 2-8 keep the
+two-opaque-regions layout, and that is not a compromise - they have four control labels to read
+while the preview changes underneath them, which is precisely the case that failed.
+
+⚠ **The tint carries legibility on its own.** `minSdk` is 24 and Haze cannot reach `RenderEffect`
+below API 31, so on a large part of the range this is a scrim and nothing else. The three stops
+(0.94 / 0.88 / 0.82) are tuned for the **no-blur** case. **Do not thin them after looking at an
+Android 14 device**, and note the harness renders without a blur too, so its PNGs are close to the
+worst case.
+
+⚠ **The tint is strongest at the top**, which inverts revision 2's specific mistake: its gradient
+was most transparent at the top edge, which is where the heading sits.
+
+`SetupSpecimen.Welcome` and its `SpecimenWelcome` are deleted. Do not add one back.
+
+### 2. The animation loop no longer jumps
+
+*"A tad janky"*, and the screenshot shows exactly why: the picked `4K` chip sits about 12 dp left
+of the two below it.
+
+- ⚠ **The cause is a reserved-width problem, not an animation one.** Only the highlighted row
+  carried the pointer, so only that row was wider, and the column centred each row on its own
+  width. There is now a **fixed 26 dp gutter on every row** and the pointer is positioned over it.
+- **One pointer whose offset animates**, instead of one drawn inside whichever row was
+  highlighted. Revision 5's vanished from one row and reappeared on the next, which reads as a
+  cut. Reading the list *is* Classic's cost; a teleport shows that cost as an instant.
+- **Stages slide as well as fade.** Cross-dissolving two things at the same position was most of
+  the janky feel - for a quarter of a second the title card and the release list were both
+  half-drawn on top of each other.
+- **Classic's rows carry text now**, on the maintainer's explicit go-ahead:
+  `2160p · HDR · 18.4 GB` and two more. "You read the releases and pick one" cannot be drawn as
+  five blank bars. Same rule as the quality tokens - resolutions, source tags and sizes are
+  locale-independent, so they stay Kotlin constants with nothing to translate.
+
+### 3. Cast and Trailers draw content
+
+*"Nothing loads for cast/trailers"* - and it was two faults, both in `SpecimenDetailSections`:
+
+- ⚠ **The tiles were `skeleton`-filled.** That token is `Color.White.copy(alpha = 0.06f)`, which
+  composites to about `#1B1B1B` over the standard background and **`#0F0F0F` on AMOLED**. The real
+  sections use `surfaceVariant` (`#222222`). Six sites in `SetupSpecimen.kt` used `skeleton` for
+  artwork placeholders and all six are now `surfaceCard` - so every card in the wizard, not only
+  these rails, had an invisible placeholder on an AMOLED theme.
+- **A rail was drawn only under the first heading**, so "Trailers" was a heading over nothing.
+  Every heading has one now.
+
+Cast is circular `surfaceVariant` avatars carrying **initials** - which is exactly what
+`DetailCastSection` draws when `person.photo == null`, so the specimen shows the app's own
+no-photo state rather than inventing a placeholder. There is no artwork host keyed by person that
+a first launch could reach. Trailers are 16:9 thumbnails carrying real backdrops, mirroring
+`TrailerCard`'s aspect and its `Color.Black @ 0.2f` scrim.
+
+### 4. The playback-mode panel was clipped
+
+Not reported, but plain in the screenshot: the Instant card is cut mid-subtitle and its "Not
+available in this version" line is gone. **Device-script check 10 already forbids this** - that
+step must show all three `PlaybackModeCard`s without scrolling - and it has now failed in two
+successive revisions.
+
+`SetupSpecimen.Diagram.preferredHeight` goes 200 → **150 dp**, and the storyboard is budgeted to
+fit that rather than the other way round. The tallest stage is the three chips at
+`3 x 30 + 2 x 6 = 102`.
+
+⚠ **`SetupSpecimenBand` now clips.** Every `preferredHeight` is arithmetic fitted by hand and then
+capped against the window, so a specimen can be handed less room than it budgeted for - and
+without the clip that overflow painted straight over the panel's text rather than stopping at the
+seam. `Details` also went 380 → 400 dp with a smaller hero and seam to pay for the sections strip.
+
+### Verification
+
+**Pure suites, both repositories, identical: 67 + 29 + 49 + 17 = 162 tests, zero failures**, up
+from 157. The five new cases pin the sequence rather than the drawing:
+`classicsPointerVisitsEveryRowInOrderAndSkipsNone` is the one that matters - the pointer's offset
+is animated between consecutive frames, so a skipped row is a visible jump, and revision 5 went
+`0 → 2`.
+
+⚠ **`SetupWizardRenderHarness` is now committed**, at
+`NuvioZDesktop/composeApp/src/desktopTest/.../SetupWizardRenderHarness.kt`. This file has claimed
+for three revisions that a harness was "provided"; **it was in neither repository** and lived in a
+session scratchpad, so neither the next agent nor the maintainer could run it - the exact failure
+that moved `scripts/run-pure-suites.sh` into the repo. Every defect this wizard has shipped was
+something only looking could catch, and **nothing in either repository executed a line of its
+Compose code** until now. It renders the frosted Welcome step at two widths in two palettes with
+and without AMOLED, eight band variants at two widths, and every storyboard frame of every mode -
+advancing the loop through `ImageComposeScene`'s virtual clock rather than a frame-override
+parameter, because a second way into the drawing is a preview that can lie about the first. It
+asserts each scene renders without throwing and writes PNGs to
+`composeApp/build/setup-wizard-render/`.
+
+**Parser check clean** over every changed file in both repositories - **necessary, never
+sufficient**.
+
+**Eight files confirmed byte-identical** across the repositories; `SetupHomeStill.kt` is the
+deliberate exception at three hunks.
+
+**Not verified:**
+
+1. **The PNGs have not been looked at from here** - Gradle still cannot configure in the sandbox,
+   so the harness has been parser-checked and never run. It is the first thing to do on the
+   Windows host.
+2. ⚠ **The frost has never been seen at all**, and it is the highest-risk thing in this pass:
+   revision 2 failed on exactly this and the API 30 case has no blur behind it.
+3. **The band heights are still arithmetic.** `Details` at 400 dp is close to the `windowHeight *
+   0.5f` cap on a phone, so the trailers rail is the part that clips first. Deliberate, and what
+   the harness's 120 dp taller frames are for.
+4. **`SetupHomeStill` calls into composables that diverge between the repositories** for the first
+   time in this wizard's history. Only the Windows MSI job compiles the desktop copy.
 
 ## Revision 5 of the setup wizard (2026-08-14, unreleased)
 
@@ -499,81 +647,92 @@ wizard's desktop path). Revisions 1 and 2 each needed a second push to compile; 
 
 Run after the phase-1 script.
 
-Checks 1-5 are the four revision-4 faults and come first. Checks 6-10 are the regressions from
-revisions 2 and 3, which must not come back with them.
+Checks 1-6 are the revision-5 faults and come first. Checks 7-11 are the revision-4 faults, which
+revision 6 rewrote three of and must not have broken. The rest are the revision 2 and 3
+regressions, which must not come back with either.
 
-1. ⚠ **Finish the wizard, force-stop, relaunch → no wizard. Relaunch a third time → still no
-   wizard.** Then **sign out and back in** → still no wizard. This is the fault that made the
-   flow unusable, and it needs more than one relaunch because the pull that used to re-gate the
-   app runs at startup. ⚠ **The very first launch of this build WILL show the wizard** - the
-   revision went to 5. That is expected; the second launch onwards is the check.
-2. ⚠ **Welcome shows a still of the home screen** - banner, a Continue Watching row, a row of
-   posters - and **no logo anywhere**. Confirm what the bottom edge cuts off looks deliberate
-   rather than broken.
-3. ⚠ **The playback-mode step animates, loops, and differs per mode.** Classic must stop on a
-   list of releases with a finger walking down it; Streamlined must show three quality chips,
-   take a tap on one, and then settle **with no finger on the result**; Instant must go
-   straight to play. Tapping a card must restart that mode's loop from the beginning. If
-   Streamlined and Classic look the same, the one thing this animation exists to say has failed.
-4. ⚠ **The details step's tab toggle changes the band**, and the section headings below the
+1. ⚠ **Welcome reads as the real home screen.** Hero, section headings, a Continue Watching row,
+   catalog rows, and the floating nav bar at the bottom - not a miniature. Then the harder half:
+   **is the panel's text legible over it?** Check the heading specifically; that is where
+   revision 2's sheet failed.
+2. ⚠ **The same, on an Android 12-or-older device.** `Modifier.blur` and Haze's `RenderEffect`
+   path both need API 31, so below that the frosted panel is a plain scrim. **This is the check
+   that matters** - if it only reads well on a modern phone, the alphas are too thin.
+3. ⚠ **The playback-mode loop is smooth and nothing shifts sideways.** Watch the quality chips as
+   the pointer lands on one: the chip must not move. Classic must show three lines of release
+   text with a finger walking **every** row in order, and Streamlined must settle on a release
+   **with no finger on it**. If Streamlined and Classic look the same, the one thing this
+   animation exists to say has failed.
+4. ⚠ **All three `PlaybackModeCard`s are fully visible without scrolling the panel**, including
+   Instant's "Not available in this version" line. This has now been clipped in two successive
+   revisions.
+5. ⚠ **Cast and Trailers show content on the details step** - avatars with initials and names,
+   and trailer thumbnails with artwork - both tabbed and stacked, and **on an AMOLED theme**,
+   which is where the old placeholders were literally invisible.
+6. ⚠ **Finish the wizard, force-stop, relaunch → no wizard. Relaunch a third time → still no
+   wizard.** Then **sign out and back in** → still no wizard. This is the revision-5 gate fix and
+   it needs more than one relaunch because the pull that used to re-gate the app runs at startup.
+   ⚠ **The very first launch of this build WILL show the wizard** - the revision went to 6. That
+   is expected; the second launch onwards is the check.
+7. ⚠ **The details step's tab toggle changes the band**, and the section headings below the
    episode list become one `Cast | Trailers | Details` row.
-5. ⚠ **Then open a real film or series and confirm the same thing happened there.** This is the
-   half that was silently broken before - the switch moved and the page did not. Check a title
-   that actually has cast, trailers and details; with only one of the three present the app
-   correctly draws no tab row.
-6. ⚠ **Chip labels are centred.** "Poster / Wide", "Dense / Balanced / Large", "Sharp /
+8. ⚠ **Then open a real film or series and confirm the same thing happened there.** This is the
+   half that was silently broken before revision 5 - the switch moved and the page did not. Check
+   a title that actually has cast, trailers and details; with only one of the three present the
+   app correctly draws no tab row.
+9. ⚠ **Chip labels are centred.** "Poster / Wide", "Dense / Balanced / Large", "Sharp /
    Classic / Pill", "Card / Wide / Poster". This shipped left-aligned in three builds; it is
    the cheapest thing here to confirm and the most embarrassing to miss again.
-7. ⚠ **Nothing renders behind the panel text, on any step.** If any artwork, row title or
+10. ⚠ **Nothing renders behind the panel text, on any step.** If any artwork, row title or
    poster is visible through the panel, the layout is wrong, not the alpha.
-8. ⚠ **The band does not move while you are on a step.** On Home, toggle the banner and then
+11. ⚠ **The band does not move while you are on a step.** On Home, toggle the banner and then
    change the Continue Watching style: the banner should expand and collapse *inside* a band
    whose top and bottom edges stay put, and the Continue Watching row must remain visible in
    both states. On Details, all four controls act on one mock. If the band swaps what it is
    showing, revision 3's behaviour has come back.
-9. ⚠ **Episode stills differ per row.** This is the `episodes.metahub.space` check and the
+12. ⚠ **Episode stills differ per row.** This is the `episodes.metahub.space` check and the
    least proven thing in the change. If all three rows show the same image, that host or the
    URL shape is wrong and the backdrop fallback is hiding it - say so rather than assuming it
    is fine, because the fallback makes failure look like a design choice.
-10. **No step scrolls inside the panel**, at default font size on a phone. The playback-mode step
+13. **No step scrolls inside the panel**, at default font size on a phone. The playback-mode step
    must show all three `PlaybackModeCard`s; the Cards step all four control groups starting with
    "Card shape". Check the band is not clipping either - a card cut off at the top or bottom
    means a `preferredHeight` is too small.
-11. **The band tweens, it does not snap.** On Cards change size, corners, and poster↔wide: each
+14. **The band tweens, it does not snap.** On Cards change size, corners, and poster↔wide: each
    should animate. Toggling titles should slide them in rather than jump.
-12. **Step transitions slide in the direction of travel**, and Back visibly reverses Next.
-13. **The details step's three backgrounds are distinguishable.** Plain and Blurred art are
+15. **Step transitions slide in the direction of travel**, and Back visibly reverses Next.
+16. **The details step's three backgrounds are distinguishable.** Plain and Blurred art are
    *supposed* to look close - the real screen scrims the blur at 0.92. What must be obvious is
    Matched colour, where the tint reaches into the hero's bottom fade.
-14. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
+17. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
     logo all present. If a logo is missing, swap that IMDb id in `SetupSampleTitle`.
-15. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
+18. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
     no artwork. Cards should show their title on the skeleton fill, not be blank grey boxes.
-16. **Android API 30 or below.** `Modifier.blur` is a no-op there, so "blur what's next" and
-    "blur unwatched episodes" look inert in the band - the same as in the real app, so this is
-    expected. Confirm nothing else differs.
-17. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
-    not return on relaunch.
-18. Covered by check 1, which is the same test done properly. Left numbered so the rest of this
+19. **Android API 30 or below**, beyond the frost in check 2. `Modifier.blur` is a no-op there, so
+    "blur what's next" and "blur unwatched episodes" look inert in the band - the same as in the
+    real app, so this is expected. Confirm nothing else differs.
+20. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
+    not return on relaunch. ⚠ It is on the frosted panel now, not in the old footer.
+21. Covered by check 6, which is the same test done properly. Left numbered so the rest of this
     list keeps its numbering across revisions.
-19. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
+22. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
     profile's.
-20. **Upgrade from `debug-v0.4.14-beta.9`** → the wizard appears again, because the revision went
-    to 5. Intended, not a bug, and not the same thing as check 1. If the device had a wizard open
+23. **Upgrade from `debug-v0.4.14-beta.10`** → the wizard appears again, because the revision went
+    to 6. Intended, not a bug, and not the same thing as check 6. If the device had a wizard open
     when it updated it must resume on Welcome rather than crash - `Trakt` was deleted from the
     enum in revision 4.
-21. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
+24. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
     does not gate the app.
-22. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and the
+25. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and the
     band's sample button, progress bar and chips should take the accent.
-23. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
+26. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
     one → "Added <name>", and the Sources step is absent on a re-run.
-24. **Copy reads "Nuvio Z"** on Welcome, Home and Sources, and the apostrophes render as
-    apostrophes ("We'll", not "We\'ll"). The wizard no longer draws `app_logo_wordmark.png`, so
-    the "Nuvio" / "Nuvio Z" mismatch is gone from this flow - ⚠ but it is **still on the splash
-    and both auth screens**, which draw that same PNG. Redrawing it fixes both.
-25. **No Trakt step.**
-26. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
+27. **Copy reads "Nuvio Z"** on Welcome, Home and Sources, and the apostrophes render as
+    apostrophes ("We'll", not "We\'ll"). The wizard has not drawn `app_logo_wordmark.png` since
+    revision 6, so the "Nuvio" / "Nuvio Z" mismatch is gone from this flow - ⚠ but it is **still
+    on the splash and both auth screens**, which draw that same PNG. Redrawing it fixes both.
+28. **No Trakt step.**
+29. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
     centred and capped at 620 dp rather than stretching, and nothing overflows horizontally.
 
 A step that was not run is not a pass.
