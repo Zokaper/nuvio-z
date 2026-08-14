@@ -101,6 +101,13 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   first deletes anything added since the remote blob was last written - it wiped the
   playback settings in `0.4.0-beta` and would have wiped stored debrid API keys the
   next time a provider was added.
+- **A `replaceFromSyncPayload` bypasses every guard a repository puts on a setter**, because it
+  writes through the store directly. A value the repository refuses to lower must be merged
+  through `mergeMonotonicSyncInt` in the same file - reading the local value **before** the
+  clear - or a stale remote blob drags it backwards on every pull. That is what re-gated the app
+  with the first-launch setup wizard on every single launch, and it can never self-correct: the
+  gated screen is the one that would have pushed the newer value. Any monotonic sync key added
+  later needs the same treatment, in **every** actual (three here, four in `NuvioZDesktop`).
 - Instant and Streamlined must never leave the user reading the source list while the
   app is still deciding. `PlaybackProgressOverlay` **covers** `StreamsScreen` rather
   than replacing it - that screen owns the fetch the overlay reports on - and every
@@ -158,10 +165,14 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
   `features/playback/AutoDownshiftDetector.kt`,
   `features/playback/PlaybackProgressOverlay.kt`
-- First-launch setup wizard: `features/setup/` - `SetupWizardSteps.kt` (import-free: the
-  ordering, the preset fork and the show-once revision rule) and `SetupWizardPresets.kt` are
-  covered by `scripts/run-pure-suites.sh`; everything else there is Compose and is CI-only
-- Settings sync key clearing: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`)
+- First-launch setup wizard: `features/setup/` - `SetupWizardSteps.kt` (the ordering and the
+  show-once revision rule) and `SetupModeStoryboard.kt` (what each playback mode's animation
+  claims) are **import-free** and covered by `scripts/run-pure-suites.sh`; everything else there
+  is Compose and is CI-only. Keep both import-free - the wizard is a Compose gate no test in
+  either repository can reach once it is on screen, so anything decided outside them is decided
+  nowhere a test can see.
+- Settings sync rules: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`,
+  `mergeMonotonicSyncInt`), covered by the pure suites
 - Advanced settings gating: `features/settings/SettingsComponents.kt`
   (`LocalShowAdvancedSettings`), `features/player/AdvancedSettingsDefault.kt`
 - What's New and release notes: `features/whatsnew/`,
