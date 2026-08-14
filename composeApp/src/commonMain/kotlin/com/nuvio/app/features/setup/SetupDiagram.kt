@@ -1,6 +1,7 @@
 package com.nuvio.app.features.setup
 
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,8 +37,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
@@ -61,14 +65,16 @@ import kotlinx.coroutines.delay
  * ⚠ **Welcome no longer draws here.** Revision 4 gave it `app_logo_wordmark` over an accent
  * wash; it read as a splash screen bolted onto a settings flow, and the asset has "Nuvio" baked
  * in as pixels above copy that says "Nuvio Z". Welcome now shows the app itself - see
- * `SetupSpecimen.Welcome`. That took the last resource read out of this file.
+ * `SetupHomeStill.kt`. That took the last resource read out of this file.
  *
  * Restrictions that keep the "cheap to delete" promise:
  *
- * 1. **Almost wordless, and now entirely string-resource-free.** The only text anywhere is the
- *    three resolution tokens in [setupStoryboardQualityTokens], which are locale-independent -
- *    so there is nothing here to translate and nothing stranded when it goes. The panel
- *    underneath does the explaining.
+ * 1. **Entirely string-resource-free.** The only text anywhere is
+ *    [setupStoryboardQualityTokens] and [setupStoryboardReleases] - resolutions, source tags and
+ *    sizes, all locale-independent - so there is nothing here to translate and nothing stranded
+ *    when it goes. ⚠ Revision 5 tried to keep this wordless and the Classic sequence could not
+ *    carry its own meaning: "you read the releases" drawn as five blank bars says nothing. The
+ *    panel underneath still does the explaining; the drawing no longer has to do it alone.
  * 2. **No `Canvas` and no path work.** Rounded rectangles, circles, three icons already used
  *    elsewhere in the app.
  * 3. **Animation only where it answers a question.** The playback-mode drawing loops because the
@@ -140,18 +146,24 @@ private fun DiagramModeStoryboard(mode: PlaybackMode) {
     }
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier.width(StoryboardStageWidth),
             contentAlignment = Alignment.Center,
         ) {
-            // Every stage is laid out at once and faded between, rather than swapped, so the
-            // list does not jump the arrow and the play circle sideways as it grows.
-            StoryboardTitle(visible = frame.stage == SetupStoryboardStage.Title)
-            StoryboardSources(frame = frame)
-            StoryboardQuality(frame = frame)
+            // Every stage is laid out at once and transitioned between, rather than swapped, so
+            // the list growing never shoves the arrow and the play circle sideways.
+            StoryboardStage(visible = frame.stage == SetupStoryboardStage.Title) {
+                StoryboardTitle()
+            }
+            StoryboardStage(visible = frame.visibleRows > 0) {
+                StoryboardSources(frame = frame)
+            }
+            StoryboardStage(visible = frame.chipsVisible) {
+                StoryboardQuality(frame = frame)
+            }
         }
         DiagramArrow(Icons.AutoMirrored.Rounded.KeyboardArrowRight)
         DiagramCircle(
@@ -161,119 +173,199 @@ private fun DiagramModeStoryboard(mode: PlaybackMode) {
     }
 }
 
-/** Wide enough for the widest stage (the release list) so nothing reflows between frames. */
-private val StoryboardStageWidth = 132.dp
+// --- the storyboard's metrics --------------------------------------------------------------
+//
+// ⚠ Budgeted against `SetupSpecimen.Diagram.preferredHeight`, which is 150 dp because the
+// playback-mode step has the tallest panel in the flow and revision 5 clipped its third card.
+// The tallest stage is the chips: 3 x 30 + 2 x 6 = 102. Check that sum before growing any of
+// these, and the panel on a real phone before growing the band instead.
 
-/** The title being opened. One wide block over two short ones - a card with a caption. */
+/** Wide enough for the widest stage plus its gutter, so nothing reflows between frames. */
+private val StoryboardStageWidth = 174.dp
+private val StoryboardListWidth = 140.dp
+private val StoryboardRowHeight = 22.dp
+private val StoryboardChipHeight = 30.dp
+private val StoryboardRowGap = 6.dp
+
+/** Reserved on every row whether or not a pointer is in it. See [StoryboardPointerGutter]. */
+private val StoryboardGutterWidth = 26.dp
+
+/** Long enough to read as movement rather than a cut, short enough not to lag the holds. */
+private const val StageTweenMillis = 300
+
+/** How far a stage travels as it fades. Pixels, because it is applied in a `graphicsLayer`. */
+private const val StageSlidePx = 26f
+
+/**
+ * One stage of the loop, faded **and slid** in and out.
+ *
+ * ⚠ **The slide is the fix for "janky".** Revision 5 cross-dissolved the stages at the same
+ * position, so for a quarter of a second the title card and the release list were both half-drawn
+ * on top of each other and neither read as anything. A few dp of travel separates them, and
+ * `graphicsLayer` keeps it out of the layout pass so nothing around it reflows.
+ */
 @Composable
-private fun StoryboardTitle(visible: Boolean) {
-    val alpha by animateFloatAsState(
+private fun StoryboardStage(visible: Boolean, content: @Composable () -> Unit) {
+    val progress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(DiagramTweenMillis),
-        label = "storyboard_title_alpha",
+        animationSpec = tween(StageTweenMillis, easing = LinearOutSlowInEasing),
+        label = "storyboard_stage",
     )
+    if (progress <= 0.01f) return
+    Box(
+        modifier = Modifier.graphicsLayer {
+            alpha = progress
+            translationY = (1f - progress) * StageSlidePx
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+/** The title being opened. One wide block over a short one - a card with a caption. */
+@Composable
+private fun StoryboardTitle() {
     Column(
-        modifier = Modifier.alpha(alpha),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        DiagramBlock(width = 104.dp, height = 46.dp)
-        DiagramBlock(width = 70.dp, height = 8.dp, alpha = 0.5f)
+        DiagramBlock(width = 96.dp, height = 42.dp)
+        DiagramBlock(width = 64.dp, height = 7.dp, alpha = 0.5f)
     }
 }
 
 /**
- * The source list, and the pointer travelling down it.
+ * The source list: every release, as text, with one pointer travelling down it.
  *
- * Only Classic ever reaches this stage with rows visible - Streamlined's own release pick is
- * drawn by [StoryboardQuality]'s collapsed state, because it never shows the list at all.
+ * ⚠ **The pointer is a single object whose offset animates**, not one drawn per row. Revision 5
+ * drew it inside whichever row was highlighted, so it vanished from one row and reappeared on the
+ * next - which reads as a cut, not as reading. It also meant only the highlighted row carried the
+ * pointer's width, and the column centred each row on its own width, so **the picked row visibly
+ * jumped sideways**. That was the misalignment in the screenshot. The gutter below is reserved on
+ * every row and the pointer is positioned over it.
  */
 @Composable
 private fun StoryboardSources(frame: SetupStoryboardFrame) {
     val tokens = MaterialTheme.nuvio
-    val visible = frame.visibleRows > 0
-    val alpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(DiagramTweenMillis),
-        label = "storyboard_sources_alpha",
+    val pointerOffset by animateDpAsState(
+        targetValue = (StoryboardRowHeight + StoryboardRowGap) * (frame.highlightedRow ?: 0),
+        animationSpec = tween(StageTweenMillis, easing = LinearOutSlowInEasing),
+        label = "storyboard_pointer_y",
     )
 
-    Column(
-        modifier = Modifier.alpha(alpha),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        repeat(SETUP_STORYBOARD_SOURCE_ROWS) { index ->
-            val chosen = index == frame.highlightedRow && visible
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                DiagramBlock(
-                    width = 104.dp,
-                    height = 14.dp,
-                    color = if (chosen) tokens.colors.accent else tokens.colors.textMuted,
-                    alpha = if (chosen) 1f else 0.55f,
-                )
-                if (chosen && frame.pointerVisible) {
-                    DiagramPointer(tapping = frame.tapping)
+    Row {
+        Column(verticalArrangement = Arrangement.spacedBy(StoryboardRowGap)) {
+            setupStoryboardReleases.forEachIndexed { index, release ->
+                val chosen = index == frame.highlightedRow
+                Box(
+                    modifier = Modifier
+                        .width(StoryboardListWidth)
+                        .height(StoryboardRowHeight)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (chosen) {
+                                tokens.colors.accent.copy(alpha = 0.22f)
+                            } else {
+                                tokens.colors.textMuted.copy(alpha = 0.10f)
+                            },
+                        )
+                        .border(
+                            width = tokens.borders.hairline,
+                            color = if (chosen) {
+                                tokens.colors.accent.copy(alpha = 0.7f)
+                            } else {
+                                tokens.colors.textMuted.copy(alpha = 0.25f)
+                            },
+                            shape = RoundedCornerShape(5.dp),
+                        )
+                        .padding(horizontal = 6.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = release,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chosen) tokens.colors.textPrimary else tokens.colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                    )
                 }
             }
         }
+        StoryboardPointerGutter(frame = frame, offsetY = pointerOffset)
     }
 }
 
 /**
  * Streamlined's quality question, and the release it settles on afterwards.
  *
- * Both live here because they are the same object changing: three chips collapse into the one
- * release Nuvio picked. Drawing the pick as a fresh list would say the user was shown a list.
+ * Both live here because they are the same object changing: the chips stay up and the unchosen
+ * ones fade, rather than a fresh list appearing. Drawing the pick as a new list would say the
+ * user had been shown a list, which is the one thing this mode does not do.
  */
 @Composable
 private fun StoryboardQuality(frame: SetupStoryboardFrame) {
     val tokens = MaterialTheme.nuvio
     val askingQuality = frame.stage == SetupStoryboardStage.Quality
-    val alpha by animateFloatAsState(
-        targetValue = if (frame.chipsVisible) 1f else 0f,
-        animationSpec = tween(DiagramTweenMillis),
-        label = "storyboard_quality_alpha",
+    val pointerOffset by animateDpAsState(
+        targetValue = (StoryboardChipHeight + StoryboardRowGap) * (frame.highlightedRow ?: 0),
+        animationSpec = tween(StageTweenMillis, easing = LinearOutSlowInEasing),
+        label = "storyboard_chip_pointer_y",
     )
 
-    Column(
-        modifier = Modifier.alpha(alpha),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        setupStoryboardQualityTokens.forEachIndexed { index, token ->
-            val picked = index == frame.highlightedRow
-            // Once the quality is picked, the chips that were not chosen fade out and the
-            // remaining one drops to a release row - Nuvio answering, with nothing to tap.
-            val rowAlpha by animateFloatAsState(
-                targetValue = when {
-                    askingQuality -> 1f
-                    picked -> 1f
-                    else -> 0f
-                },
-                animationSpec = tween(DiagramTweenMillis),
-                label = "storyboard_chip_alpha",
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = token,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (picked) tokens.colors.onAccent else tokens.colors.textSecondary,
+    Row {
+        Column(verticalArrangement = Arrangement.spacedBy(StoryboardRowGap)) {
+            setupStoryboardQualityTokens.forEachIndexed { index, token ->
+                val picked = index == frame.highlightedRow
+                // Once the quality is picked the unchosen chips fade out and the picked one stays,
+                // which is Nuvio answering - with nothing left to tap.
+                val rowAlpha by animateFloatAsState(
+                    targetValue = if (askingQuality || picked) 1f else 0f,
+                    animationSpec = tween(StageTweenMillis, easing = LinearOutSlowInEasing),
+                    label = "storyboard_chip_alpha",
+                )
+                Box(
                     modifier = Modifier
                         .alpha(rowAlpha)
-                        .width(80.dp)
+                        .width(StoryboardListWidth)
+                        .height(StoryboardChipHeight)
                         .clip(RoundedCornerShape(999.dp))
                         .background(
                             if (picked) tokens.colors.accent else tokens.colors.overlayHover,
-                        )
-                        .padding(vertical = 5.dp),
-                )
-                // ⚠ Only while the quality is being asked for. The auto-pick frame is the one
-                // that says Nuvio decided, and a finger on it would say the opposite.
-                if (picked && frame.pointerVisible) {
-                    DiagramPointer(tapping = frame.tapping)
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = token,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (picked) tokens.colors.onAccent else tokens.colors.textSecondary,
+                        maxLines = 1,
+                    )
                 }
             }
+        }
+        StoryboardPointerGutter(frame = frame, offsetY = pointerOffset)
+    }
+}
+
+/**
+ * The reserved column the pointer moves in.
+ *
+ * ⚠ **Always present, always the same width, whether or not a pointer is in it.** Revision 5 put
+ * the pointer inside the highlighted row, so that row alone was wider than its neighbours and the
+ * centring column shifted it - which is the misaligned `4K` chip in the screenshot.
+ */
+@Composable
+private fun StoryboardPointerGutter(frame: SetupStoryboardFrame, offsetY: Dp) {
+    Box(modifier = Modifier.width(StoryboardGutterWidth)) {
+        if (frame.pointerVisible) {
+            DiagramPointer(
+                tapping = frame.tapping,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = offsetY),
+            )
         }
     }
 }
@@ -372,7 +464,7 @@ private fun DiagramCircle(
  * be describing the wrong gesture on the platform most of these users are on.
  */
 @Composable
-private fun DiagramPointer(tapping: Boolean) {
+private fun DiagramPointer(tapping: Boolean, modifier: Modifier = Modifier) {
     val tokens = MaterialTheme.nuvio
     val ringScale by animateFloatAsState(
         targetValue = if (tapping) 1.9f else 1f,
@@ -386,7 +478,7 @@ private fun DiagramPointer(tapping: Boolean) {
     )
 
     Box(
-        modifier = Modifier.padding(start = 6.dp).size(18.dp),
+        modifier = modifier.size(StoryboardRowHeight),
         contentAlignment = Alignment.Center,
     ) {
         Box(

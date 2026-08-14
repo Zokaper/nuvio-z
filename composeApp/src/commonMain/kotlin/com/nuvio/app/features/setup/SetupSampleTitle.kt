@@ -1,6 +1,9 @@
 package com.nuvio.app.features.setup
 
+import com.nuvio.app.features.catalog.CatalogTarget
+import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 
 /**
  * The example content the wizard's specimens render.
@@ -30,10 +33,16 @@ import com.nuvio.app.features.home.MetaPreview
  * `SetupSpecimenBand` paints a token gradient floor so a missing backdrop reads as intentional.
  * Test this with aeroplane mode, not by hoping.
  *
- * ⚠ **Everything here is plain data over `MetaPreview` and `String`.** It deliberately no longer
- * builds a `HomeCatalogSection` or a `MetaDetails`: revision 2's stage needed those to feed the
- * real row and hero composables, and those types are among the ones that diverge between the
- * two repositories. The specimens draw from primitives, so this file can stay identical in both.
+ * ⚠ **Most of this is plain data over `MetaPreview` and `String`**, because the step specimens draw
+ * from primitives and take every setting as a parameter. The three builders at the bottom are the
+ * exception: revision 6's Welcome step shows a **real** still of the home screen, so it needs the
+ * types the shipped `HomeHeroSection` / `HomeContinueWatchingSection` / `HomeCatalogRowSection`
+ * actually take.
+ *
+ * ⚠ **Those three types do not diverge between the repositories** - `HomeCatalogSection`,
+ * `CatalogTarget` and `ContinueWatchingItem` are the same declarations in the same packages in
+ * both - so this file stays byte-identical. `SetupHomeStill.kt`, which *calls* the composables,
+ * is the one that cannot; see its header.
  */
 object SetupSampleTitle {
 
@@ -184,4 +193,142 @@ object SetupSampleTitle {
 
     /** The caption on the in-progress Continue Watching card. */
     const val continueWatchingCaption: String = "S5 E14 · Ozymandias"
+
+    /**
+     * Names for the details specimen's cast row.
+     *
+     * ⚠ **Names only, because there is no artwork to fetch.** `images.metahub.space` is keyed by
+     * title, not by person, so a first launch has no way to reach a headshot at all - which is
+     * exactly the state `DetailCastSection` already handles by drawing [initials] in a
+     * `surfaceVariant` circle. The specimen shows the app's own no-photo state rather than
+     * inventing a placeholder, so it cannot be wrong about it.
+     *
+     * These are the credited leads of [featuredImdbId]. Real names rather than "Cast 1", because
+     * the row is showing what a cast row looks like and a row of placeholders does not.
+     */
+    val castNames: List<String> = listOf(
+        "Bryan Cranston",
+        "Aaron Paul",
+        "Anna Gunn",
+        "Dean Norris",
+        "Betsy Brandt",
+        "Bob Odenkirk",
+    )
+
+    /**
+     * First and last initial, or the first two characters of a single-word name.
+     *
+     * ⚠ Mirrors the private `initials()` in `features/details/components/DetailCastSection.kt`.
+     * If that changes, change this - the whole point of the cast specimen is that it draws the
+     * same thing the real section draws when it has no photo.
+     */
+    fun initials(name: String): String {
+        val parts = name.trim().split(" ").filter { it.isNotBlank() }
+        return when {
+            parts.isEmpty() -> ""
+            parts.size == 1 -> parts.first().take(2).uppercase()
+            else -> "${parts.first().first()}${parts.last().first()}".uppercase()
+        }
+    }
+
+    // --- what the Welcome still feeds the real home composables ----------------------------
+    //
+    // Everything above is drawn by the step specimens, which take primitives. Everything below
+    // exists only for `SetupHomeStill`, which calls the shipped home sections and therefore has
+    // to hand them the types they declare.
+
+    /**
+     * [rowItems] wrapped as a catalog row for `HomeCatalogRowSection`.
+     *
+     * [title] arrives already resolved rather than being read from `Res.string` here, because
+     * this object is plain data and stays out of composition - the same reason it holds no
+     * `StringResource`. The still passes no `onViewAllClick`, so it grows no affordance that
+     * does nothing.
+     */
+    fun catalogSection(title: String): HomeCatalogSection = HomeCatalogSection(
+        key = "setup-home-still",
+        title = title,
+        subtitle = "",
+        addonName = "",
+        target = CatalogTarget.Addon(
+            manifestUrl = "",
+            contentType = "series",
+            catalogId = "setup-home-still",
+        ),
+        items = rowItems,
+    )
+
+    /**
+     * A second row, so the still reads as a home screen rather than as one shelf.
+     *
+     * ⚠ Its [HomeCatalogSection.key] must differ. `NuvioShelfSection` dedupes by key, so two rows
+     * sharing one collapse into a single item.
+     */
+    fun secondCatalogSection(title: String): HomeCatalogSection = catalogSection(title).copy(
+        key = "setup-home-still-2",
+        title = "",
+        items = rowItems.reversed(),
+    )
+
+    /**
+     * Two Continue Watching entries for the still: one in progress, one queued up next.
+     *
+     * Two rather than one because a single card leaves the row looking like a mistake at the
+     * width the real section lays out at, and because the second one being **unstarted** is what
+     * makes the row read as a queue rather than as a second catalog shelf.
+     */
+    val continueWatching: List<ContinueWatchingItem> = listOf(
+        continueWatchingItem(
+            item = rowItems[0],
+            season = 5,
+            episode = 14,
+            episodeTitle = "Ozymandias",
+            runtimeMinutes = 48,
+            watchedMinutes = 22,
+        ),
+        continueWatchingItem(
+            item = rowItems[1],
+            season = 3,
+            episode = 9,
+            episodeTitle = "The One With The Football",
+            runtimeMinutes = 22,
+            watchedMinutes = 0,
+            isNextUp = true,
+        ),
+    )
+
+    /**
+     * ⚠ **`episodeThumbnail` is the field the section actually reads**, not `imageUrl`.
+     * `continueWatchingArtworkUrl` puts `imageUrl` last in every one of its four branches, so an
+     * item that carried the still there would show the show's own artwork whatever the "use
+     * episode stills" toggle said - and the toggle would look broken on the very row it governs.
+     * `poster` and `background` are filled too, because that toggle's *off* state reads them.
+     */
+    private fun continueWatchingItem(
+        item: MetaPreview,
+        season: Int,
+        episode: Int,
+        episodeTitle: String,
+        runtimeMinutes: Int,
+        watchedMinutes: Int,
+        isNextUp: Boolean = false,
+    ): ContinueWatchingItem = ContinueWatchingItem(
+        parentMetaId = item.id,
+        parentMetaType = "series",
+        videoId = "${item.id}:$season:$episode",
+        title = item.name,
+        subtitle = "S$season E$episode · $episodeTitle",
+        imageUrl = item.banner,
+        logo = item.logo,
+        poster = item.poster,
+        background = item.banner,
+        seasonNumber = season,
+        episodeNumber = episode,
+        episodeTitle = episodeTitle,
+        episodeThumbnail = episodeStillUrl(item.id, season, episode),
+        isNextUp = isNextUp,
+        resumePositionMs = watchedMinutes * 60 * 1000L,
+        durationMs = runtimeMinutes * 60 * 1000L,
+        progressFraction = watchedMinutes.toFloat() / runtimeMinutes.toFloat(),
+    )
 }

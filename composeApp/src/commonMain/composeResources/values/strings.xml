@@ -2277,6 +2277,7 @@
     <!-- The caption on the second Continue Watching specimen card. Its only job is to make the
          "blur what's next" toggle visible, which needs an episode the viewer has not started. -->
     <string name="setup_specimen_next_up">Next episode</string>
+    <string name="setup_still_catalog_row">Popular Series</string>
 
     <string name="setup_welcome_title">Welcome to Nuvio Z</string>
     <string name="setup_welcome_subtitle">A couple of minutes now, and it will look and behave the way you want.</string>

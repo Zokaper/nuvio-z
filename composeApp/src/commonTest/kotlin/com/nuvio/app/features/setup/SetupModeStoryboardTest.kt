@@ -200,8 +200,54 @@ class SetupModeStoryboardTest {
     // --- the quality tokens ----------------------------------------------------------------
 
     @Test
-    fun theQualityTokensAreTheOnlyTextAndThereAreThreeOfThem() {
+    fun theQualityTokensAreThreeResolutions() {
         assertEquals(listOf("4K", "1080p", "720p"), setupStoryboardQualityTokens)
+    }
+
+    // --- the release strings ---------------------------------------------------------------
+
+    @Test
+    fun thereIsOneReleaseStringPerRowClassicDraws() {
+        // The drawing iterates the strings and positions the pointer off the row count. If these
+        // ever disagree, the pointer lands beside a row that is not there.
+        assertEquals(setupStoryboardReleases.size, SETUP_STORYBOARD_SOURCE_ROWS)
+    }
+
+    @Test
+    fun everyReleaseStringIsNonBlankAndShortEnoughToFitOneLine() {
+        // The row is 140 dp wide at labelSmall and clips rather than wrapping, so a long string
+        // silently loses its tail - which is the size, the part that makes the rows differ.
+        setupStoryboardReleases.forEach { release ->
+            assertTrue(release.isNotBlank())
+            assertTrue(release.length <= 24)
+        }
+    }
+
+    @Test
+    fun theReleaseStringsDifferFromEachOther() {
+        // Three identical-looking rows would say the choice does not matter, which is the
+        // opposite of what Classic is for.
+        assertEquals(setupStoryboardReleases.size, setupStoryboardReleases.toSet().size)
+    }
+
+    @Test
+    fun classicsPointerVisitsEveryRowInOrderAndSkipsNone() {
+        // ⚠ The point of the sequence. The pointer's offset is animated between consecutive
+        // frames, so a skipped row is a visible jump - and a jump is what "reading the list"
+        // must not look like. Revision 5 went 0 -> 2 and that is exactly how it read.
+        val visited = classic
+            .filter { it.stage == SetupStoryboardStage.Sources && it.pointerVisible }
+            .mapNotNull { it.highlightedRow }
+        assertEquals(setupStoryboardReleases.indices.toList(), visited)
+    }
+
+    @Test
+    fun classicTapsTheRowItsPointerFinishedOn() {
+        val lastVisited = classic
+            .last { it.stage == SetupStoryboardStage.Sources && it.pointerVisible }
+            .highlightedRow
+        val tapped = classic.first { it.stage == SetupStoryboardStage.Chosen }.highlightedRow
+        assertEquals(lastVisited, tapped)
     }
 
     @Test

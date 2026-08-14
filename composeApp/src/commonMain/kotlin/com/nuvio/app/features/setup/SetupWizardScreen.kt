@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -78,6 +80,9 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -230,15 +235,39 @@ fun SetupWizardScreen(
         // leaves the panel the larger share.
         //
         // ⚠ The cap only bites on the three specimens that ask for more than half the window -
-        // Cards, Home and Details - so raising it to 0.5f for the Details step's new sections
-        // strip does **not** touch the playback-mode step, which asks for 200 dp. That step has
-        // the tallest panel in the flow (three `PlaybackModeCard`s) and revision 2 cut it off
-        // mid-card; keep `SetupSpecimen.Diagram.preferredHeight` small rather than trusting this.
+        // Cards, Home and Details. The playback-mode step asks for 150 dp and is nowhere near
+        // it: that step has the tallest panel in the flow (three `PlaybackModeCard`s), revision
+        // 2 cut it off mid-card and revision 5 cut it off again at 200 dp. Keep
+        // `SetupSpecimen.Diagram.preferredHeight` small rather than trusting this cap.
         val bandHeight by animateDpAsState(
             targetValue = specimen.preferredHeight.coerceAtMost(windowHeight * 0.5f),
             animationSpec = tween(340, easing = LinearOutSlowInEasing),
             label = "setup_band_height",
         )
+
+        // ⚠ **Welcome is the one step laid out as an overlay rather than as two stacked
+        // regions**, and the exception is deliberate rather than a slide back towards revision 2.
+        //
+        // Revision 2 floated a translucent panel over a *live* preview on every step, and it came
+        // back from a device unreadable: the home screen showed straight through it while the
+        // user was trying to read four control labels. The rule that fixed it - nothing is ever
+        // drawn behind text - still governs steps 2-8, which is why they keep the split layout.
+        //
+        // Welcome is different in the two ways that matter. It carries **no controls**, so there
+        // is nothing to read but one heading and two sentences; and it is answering "what is
+        // this?", where showing the app *behind* the answer is the answer. It also gets a real
+        // blur rather than revision 2's plain translucency - see `SetupWelcomeSurface`.
+        if (step == SetupStep.Welcome) {
+            SetupWelcomeSurface(
+                insets = insets,
+                maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
+                onAdvance = ::advance,
+                onSkipAll = ::complete,
+                dismissible = dismissible,
+                onDismiss = onDismiss,
+            )
+            return@BoxWithConstraints
+        }
 
         Column(modifier = Modifier.fillMaxSize()) {
             SetupSpecimenBand(
@@ -283,7 +312,6 @@ fun SetupWizardScreen(
                 maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
                 bottomInset = insets.calculateBottomPadding(),
                 onBack = { previousSetupStep(step, plan)?.let { stepName = it.name } },
-                onSkipAll = ::complete,
                 onAdvance = ::advance,
                 modifier = Modifier.weight(1f),
             ) {
@@ -338,6 +366,105 @@ fun SetupWizardScreen(
 }
 
 /**
+ * The Welcome step: a real still of the home screen under a frosted panel.
+ *
+ * ## Why this is not revision 2 coming back
+ *
+ * Revision 2 put a **translucent** panel over a **live** preview on **every** step. All three
+ * words matter, and all three are different here:
+ *
+ * - **Real blur, not translucency.** `hazeEffect` is the same backdrop blur the floating nav bar
+ *   and the streams tablet panel already ship. Revision 2 had no blur available to it and used a
+ *   gradient alpha instead, which is why the home screen read straight through it.
+ * - **A still, not a live preview.** Nothing behind this panel moves or changes; there is no
+ *   artwork sliding under a heading mid-sentence.
+ * - **One step, not eight.** Steps 2-8 have four controls each to read while the preview changes
+ *   underneath them, and they keep the two-opaque-regions layout that made them legible.
+ *
+ * ⚠ **The tint alone has to carry legibility.** `minSdk` is 24 and Haze cannot reach
+ * `RenderEffect` below API 31, so on a large part of the range this is a scrim and nothing else -
+ * exactly the conditions revision 2 failed under. The alphas below are chosen for the **no-blur**
+ * case; the blur is refinement. Do not thin them after looking at an Android 14 device.
+ *
+ * ⚠ **The tint is strongest at the top, and that is the inversion of revision 2's mistake.** Its
+ * sheet faded a gradient *towards* transparency at the top edge, which is precisely where the
+ * heading sits. Here the heading gets the most cover and the fade runs the other way.
+ */
+@Composable
+private fun SetupWelcomeSurface(
+    insets: PaddingValues,
+    maxPanelWidth: Dp,
+    onAdvance: () -> Unit,
+    onSkipAll: () -> Unit,
+    dismissible: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val hazeState = rememberHazeState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        SetupHomeStill(
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(state = hazeState),
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .hazeEffect(state = hazeState) { blurRadius = WelcomeBlurRadius }
+                .background(
+                    Brush.verticalGradient(
+                        0f to tokens.colors.background.copy(alpha = WelcomeTintTop),
+                        0.55f to tokens.colors.background.copy(alpha = WelcomeTintMid),
+                        1f to tokens.colors.background.copy(alpha = WelcomeTintBottom),
+                    ),
+                ),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = maxPanelWidth)
+                    .fillMaxWidth()
+                    .padding(
+                        start = 22.dp,
+                        end = 22.dp,
+                        top = 26.dp,
+                        bottom = 14.dp + insets.calculateBottomPadding(),
+                    ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                SetupPanelHeader(
+                    step = SetupStep.Welcome,
+                    plan = SetupWizardPlan(),
+                    dismissible = dismissible,
+                    onDismiss = onDismiss,
+                )
+                SetupParagraph(stringResource(Res.string.setup_welcome_body))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
+                        Text(text = stringResource(Res.string.setup_welcome_start))
+                    }
+                    TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
+                        Text(text = stringResource(Res.string.setup_welcome_skip))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Matches the streams tablet panel rather than the nav pill: this pane is much larger. */
+private val WelcomeBlurRadius = 40.dp
+
+// The three tint stops. Read the warning on `SetupWelcomeSurface` before changing any of them:
+// they are tuned for a device where `hazeEffect` does nothing at all.
+private const val WelcomeTintTop = 0.94f
+private const val WelcomeTintMid = 0.88f
+private const val WelcomeTintBottom = 0.82f
+
+/**
  * What the band shows for a step.
  *
  * ⚠ **Fixed, and it used to be state.** Revision 3 held the current specimen in a
@@ -349,10 +476,10 @@ fun SetupWizardScreen(
  */
 private val SetupStep.specimen: SetupSpecimen
     get() = when (this) {
-        // ⚠ Welcome shows the app, not a logo. Revision 4 drew `app_logo_wordmark` over an accent
-        // wash, which read as a splash screen bolted onto a settings flow - and the asset has
-        // "Nuvio" baked in as pixels above copy that says "Nuvio Z".
-        SetupStep.Welcome -> SetupSpecimen.Welcome
+        // ⚠ Never read. Welcome returns early from `SetupWizardScreen` into
+        // `SetupWelcomeSurface`, which draws a full-bleed `SetupHomeStill` instead of a band.
+        // Enumerated rather than defaulted so that adding a step stays a compile error here.
+        SetupStep.Welcome -> SetupSpecimen.Diagram
         SetupStep.Cards -> SetupSpecimen.Cards
         SetupStep.Home -> SetupSpecimen.Home
         SetupStep.Details -> SetupSpecimen.Details
@@ -378,7 +505,6 @@ private fun SetupPanel(
     maxPanelWidth: Dp,
     bottomInset: Dp,
     onBack: () -> Unit,
-    onSkipAll: () -> Unit,
     onAdvance: () -> Unit,
     modifier: Modifier = Modifier,
     body: @Composable () -> Unit,
@@ -426,7 +552,6 @@ private fun SetupPanel(
                 step = step,
                 plan = plan,
                 onBack = onBack,
-                onSkipAll = onSkipAll,
                 onAdvance = onAdvance,
             )
         }
@@ -495,21 +620,9 @@ private fun SetupPanelFooter(
     step: SetupStep,
     plan: SetupWizardPlan,
     onBack: () -> Unit,
-    onSkipAll: () -> Unit,
     onAdvance: () -> Unit,
 ) {
-    if (step == SetupStep.Welcome) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
-                Text(text = stringResource(Res.string.setup_welcome_start))
-            }
-            TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
-                Text(text = stringResource(Res.string.setup_welcome_skip))
-            }
-        }
-        return
-    }
-
+    // Welcome's own two buttons live in `SetupWelcomeSurface`; it never reaches this panel.
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -583,7 +696,10 @@ private fun SetupStepBody(
     ) { current ->
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (current) {
-                SetupStep.Welcome -> SetupParagraph(stringResource(Res.string.setup_welcome_body))
+                // Unreachable - Welcome is drawn by `SetupWelcomeSurface`, which owns its own
+                // copy. Enumerated so that adding a step is a compile error rather than a blank
+                // panel.
+                SetupStep.Welcome -> Unit
 
                 SetupStep.PlaybackMode -> {
                     PlaybackMode.entries.forEach { mode ->

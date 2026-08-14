@@ -73,14 +73,36 @@ data class SetupStoryboardFrame(
  *
  * ⚠ **Not string resources, deliberately.** `4K`, `1080p` and `720p` are locale-independent
  * format names that the app already renders verbatim on the real quality sheet - there is
- * nothing here to translate, and nothing stranded when this provisional drawing is deleted. That
- * keeps the "almost wordless" restriction `SetupDiagram.kt` documents intact: these three tokens
- * are the only text in the whole diagram, and the panel underneath does the explaining.
+ * nothing here to translate, and nothing stranded when this provisional drawing is deleted. The
+ * same rule covers [setupStoryboardReleases]; between them they are all the text in the diagram,
+ * and the panel underneath does the explaining.
  */
 val setupStoryboardQualityTokens: List<String> = listOf("4K", "1080p", "720p")
 
-/** How many release rows Classic's source list draws. Enough to read as a wall, few enough to fit. */
-const val SETUP_STORYBOARD_SOURCE_ROWS: Int = 5
+/**
+ * The releases Classic's source list shows.
+ *
+ * ⚠ **Text, and Kotlin constants rather than string resources** - same rule as
+ * [setupStoryboardQualityTokens], for the same reason. Resolutions, source tags and file sizes are
+ * locale-independent and the app already renders them verbatim on the real source list, so there
+ * is nothing here to translate and nothing stranded when this provisional drawing is deleted.
+ *
+ * ⚠ **Revision 5 drew these as five blank grey bars and it did not work.** "You read the releases
+ * and pick one" is the whole of what separates Classic from Streamlined, and a bar cannot be read.
+ * The strings are deliberately *similar* to each other - that near-sameness, four lines of it, is
+ * what the mode actually asks of the user.
+ *
+ * Three, not five: the band is 150 dp and the playback-mode step has the tallest panel in the
+ * flow. See `SetupSpecimen.Diagram`.
+ */
+val setupStoryboardReleases: List<String> = listOf(
+    "2160p · HDR · 18.4 GB",
+    "1080p · WEB-DL · 4.2 GB",
+    "1080p · BluRay · 8.1 GB",
+)
+
+/** How many release rows Classic's source list draws. */
+val SETUP_STORYBOARD_SOURCE_ROWS: Int = setupStoryboardReleases.size
 
 /**
  * The frames for [modeName], in order, looping back to the first once the last has been held.
@@ -106,33 +128,43 @@ private val classicFrames: List<SetupStoryboardFrame> = listOf(
     SetupStoryboardFrame(SetupStoryboardStage.Title, holdMillis = 900),
     SetupStoryboardFrame(
         SetupStoryboardStage.Title,
-        holdMillis = 420,
+        holdMillis = 460,
         pointerVisible = true,
         tapping = true,
     ),
     SetupStoryboardFrame(
         SetupStoryboardStage.Sources,
-        holdMillis = 900,
+        holdMillis = 820,
         visibleRows = SETUP_STORYBOARD_SOURCE_ROWS,
     ),
-    // The pointer walking down the list is the mode's actual cost, drawn.
+    // ⚠ The pointer walks every row in order, and the drawing animates its offset between these
+    // frames rather than redrawing it somewhere else. Reading the list *is* the mode's cost, and
+    // a pointer that teleported down it - which is what revision 5 did - showed the cost as an
+    // instant. Skipping a row here would reintroduce that.
     SetupStoryboardFrame(
         SetupStoryboardStage.Sources,
-        holdMillis = 620,
+        holdMillis = 560,
         pointerVisible = true,
         highlightedRow = 0,
         visibleRows = SETUP_STORYBOARD_SOURCE_ROWS,
     ),
     SetupStoryboardFrame(
         SetupStoryboardStage.Sources,
-        holdMillis = 620,
+        holdMillis = 560,
+        pointerVisible = true,
+        highlightedRow = 1,
+        visibleRows = SETUP_STORYBOARD_SOURCE_ROWS,
+    ),
+    SetupStoryboardFrame(
+        SetupStoryboardStage.Sources,
+        holdMillis = 560,
         pointerVisible = true,
         highlightedRow = 2,
         visibleRows = SETUP_STORYBOARD_SOURCE_ROWS,
     ),
     SetupStoryboardFrame(
         SetupStoryboardStage.Chosen,
-        holdMillis = 520,
+        holdMillis = 560,
         pointerVisible = true,
         tapping = true,
         highlightedRow = 2,
