@@ -113,6 +113,11 @@ API-30 legibility check and not a fair view of the frosted case.
 
 ### Verification
 
+**CI green on both repositories** at `79013f12` / `f7c5cb88`. ⚠ The **Windows MSI job passed**,
+which is the only thing that proves the new `expect` got its `desktopMain` actual. Desktop tests
+passed, so the render harness composed the rewritten still without throwing. `Debug release`
+published **`debug-v0.4.14-beta.13`**.
+
 **Pure suites unchanged at 67 + 29 + 49 + 17 = 162**, both repositories.
 
 **Parser check clean** over all six changed/added files in each repository. **Six setup files
@@ -126,8 +131,11 @@ why every argument at every call site is named.
 
 **Not verified:**
 
-1. ⚠ **Nobody has still looked at the harness PNGs** - but from the next CI run they are a
-   downloadable artifact rather than something only Gradle ever saw.
+1. ⚠ **Nobody has still looked at the harness PNGs.** They are now a real artifact -
+   `setup-wizard-renders`, 16 MB, on the `NuvioZDesktop` CI run for the commit - but ⚠ **the agent
+   sandbox cannot fetch them**: the proxy returns 403 on `api.github.com`, so artifact download is
+   a maintainer action and a `git clone` is not a substitute. Download it from the run page. This
+   is the fifth pass in which the harness has been green and unseen.
 2. **The device check:** the still reads as a screenshot - nothing floating, nothing squeezed, the
    poster row cut by the panel edge rather than shrunk above it - and the panel is visibly frosted
    rather than solid.
