@@ -424,6 +424,13 @@ every one of them has caught a real fault:
      | grep -Ei "error:.*(expecting|unexpected|syntax)"
    ```
 
+   ⚠ **A single-file parse resolves no references, so it cannot see a name that
+   is gone.** A rewrite that deletes a private composable and leaves its call
+   site behind passes this cleanly - that has happened. After rewriting or
+   heavily editing a file, `grep` for each helper it calls and each argument
+   name at every call site into another file; the parser check is *necessary,
+   never sufficient*, and this is the specific gap.
+
 2. **Standalone compile-and-run of pure-logic files.** `DownloadBatches.kt`,
    `DownloadQueuePlanner.kt`, `DownloadTransfer.kt` and `DownloadPresence.kt`
    have few enough dependencies to compile outside Gradle together with their

@@ -4,9 +4,9 @@ Last updated: 2026-08-14
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 5 of the setup wizard** on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
+| **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 6 of the setup wizard** plus three unversioned fix passes on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Run `:composeApp:desktopTest --tests "*SetupWizardRenderHarness"` in `NuvioZDesktop` and look at the PNGs** — the harness is committed and green, but nobody has opened its output, and the Welcome hero defect below would have been plain in it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the revision-6 faults. Test with **`debug-v0.4.14-beta.12`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Download the `setup-wizard-renders` artifact from the `NuvioZDesktop` CI run and look at the PNGs** — the harness has been green for four passes while nobody opened its output, and every Welcome defect since would have been plain in it; CI now uploads it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the outstanding faults. Test with **`debug-v0.4.14-beta.13`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -16,6 +16,126 @@ This table is the first thing to update in any session, and it is kept current o
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## The Welcome still is a screenshot now, not a layout fitted to a hole (2026-08-14, unreleased)
+
+**Same branch, and `SETUP_WIZARD_REVISION` deliberately stays at 6** - the eight questions are
+unchanged, so there is nothing to re-ask. Reach it with **Settings → Run setup again**.
+
+Reported as *"almost perfect, this is just way too messy - I want it to effectively be a
+screenshot of the thing with the wizard overlayed, frosted kinda"*.
+
+### ⚠ One root cause, three symptoms
+
+The previous pass fixed "the hero swallows the frame" by **fitting the still into the space the
+panel left**, and every complaint that came back is a consequence of that:
+
+- The nav pill **floated mid-screen over Continue Watching**, because it was padded up by the
+  visible height so it would clear the panel. `App.kt` draws the real one pinned to the window's
+  bottom edge as a later sibling with `align(Alignment.BottomCenter)`.
+- The hero had **proportions the app never draws**: `viewportHeight` was the visible band, then
+  capped again by `continueWatchingHeroViewportReserveHeight`, and `mobileHeroHeight` takes 82% of
+  whatever it is handed.
+- The poster row was **a squeezed sliver**, because the column was padded to stop above the panel.
+
+**The rule now, and it is the whole design of the file:** everything is laid out at the app's real
+metrics inside the app's own scroll container, and the sheet simply covers the bottom of it.
+Nothing is resized, repositioned or padded to fit. `SetupHomeStill` lost its
+`visibleHeightBelowTop` parameter entirely; the panel no longer measures itself with
+`onSizeChanged`, so the frame-late 340 dp estimate is gone too.
+
+### What it is built out of
+
+`SetupHomeStill` is now **`NuvioScreen`** - the app's own container - called exactly as
+`HomeScreen` calls it with a hero on: `horizontalPadding = 0.dp`, `topPadding = 0.dp`. Same
+`listGap`, same content padding, so fidelity stops being something to hand-maintain.
+
+⚠ **The scroll is a seeded `LazyListState`, not a `Modifier.offset`, and that is not cosmetic.**
+`HomeHeroSection` derives its parallax (`translationY = offset * 0.3f`) and background scale from
+`listState.firstVisibleItemScrollOffset`. Offset on a plain `Column`, the backdrop sits in its
+*unscrolled* position - part of why the old still read as not-the-app. The list gets
+`LazyListState(0, scrollPx)` and the hero section gets the same state, so the parallax is the
+app's own. `scrollPx` is derived from `homeHeroLayout(...).heroHeight` minus a 250 dp tail rather
+than guessed, so it holds on every window size: it frames on the hero's content block - logo,
+metadata line, button - with Continue Watching under it.
+
+Three smaller fidelity fixes fell out of reading `HomeScreen` properly:
+
+- Rows are **24 dp apart**, not 16: `Arrangement.spacedBy(12.dp)` from the container **plus** a
+  per-item `padding(bottom = 12.dp)`. The still had the container gap only.
+- Sections take `sectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth)` (16 dp on a
+  phone), which the still never passed.
+- ⚠ `HomeContinueWatchingSection` **only honours `sectionPadding` when `layout` comes with it** -
+  pass one alone and it silently drops into its own `BoxWithConstraints` and re-derives both. The
+  argument reads as load-bearing while doing nothing. Both are passed now.
+
+**One hero item, not the row.** The hero is an auto-advancing pager, and a still that rotates is
+not a still; it also meant the screenshot landed on whichever title's backdrop happened to be
+missing from the artwork host, which is what produced a hero that was simply black. The cost is
+the pager dots, which only draw for more than one item.
+
+**The whole still is inert** (`nuvioBlockPointerEvents()`, `Initial` pass). A real `LazyColumn` is
+draggable, and a screenshot that scrolls out from under your thumb while you read the panel is a
+new kind of mess.
+
+⚠ **The nav bar composable was dropped and restored.** The rewrite deleted
+`SetupStillNavigationBar` along with the fitting code and the call site kept compiling in the
+parser check, because a single-file parse resolves no references. Caught by grepping for the
+definition, not by the check - the parser check is *necessary, never sufficient*, and this is a
+concrete example of what it cannot see.
+
+### The panel is frosted rather than solid
+
+New **`internal expect fun isBackdropBlurSupported()`** in `core/ui/BackdropBlur.kt`, with
+`SDK_INT >= 31` on Android and `true` on iOS and desktop. Same idiom as
+`isLiquidGlassNativeTabBarSupported()`.
+
+⚠ **Thinning the tint globally would have re-shipped revision 2's unreadable sheet to every device
+below Android 12**, where Haze cannot reach `RenderEffect` and the "frost" is a plain scrim. So the
+alphas are conditional: blur available → **0.68 / 0.60 / 0.54**, genuinely translucent, which a
+40 dp blur makes safe by destroying the high-frequency detail that makes text hard to read over a
+picture. No blur → **0.94 / 0.88 / 0.82**, the previous scrim, unchanged. `NuvioNavigationBar`
+already does the same thing one step cruder (`alpha = if (hazeState != null) 0.55f else 0.82f`).
+
+⚠ **A new `expect` needs an actual in every compiled source set.** `nuvio-z` has a `desktopMain`
+directory with three stale files in it but **no `jvm(` target** - only `NuvioZDesktop` declares
+`jvm("desktop")`, so the desktop actual lives there alone and the **Windows MSI job is what proves
+it exists**.
+
+### CI now uploads the render harness PNGs
+
+`SetupWizardRenderHarness` can only assert that things render without throwing, so the images are
+the actual check - and every Welcome defect that came back from a device was plain in them while
+the harness passed green. `ci.yml`'s desktop job now uploads
+`composeApp/build/setup-wizard-render/` as `setup-wizard-renders` on **`always()`**, so a failed
+assertion still yields the picture. ⚠ It renders **without a blur**, so those images are the
+API-30 legibility check and not a fair view of the frosted case.
+
+### Verification
+
+**Pure suites unchanged at 67 + 29 + 49 + 17 = 162**, both repositories.
+
+**Parser check clean** over all six changed/added files in each repository. **Six setup files
+byte-identical** (`SetupWizardScreen.kt`, `SetupSpecimen.kt`, `SetupSampleTitle.kt`,
+`SetupDiagram.kt`, `SetupModeStoryboard.kt`, plus the three `BackdropBlur` files);
+`SetupHomeStill.kt` still differs by exactly its three documented hunks. Every composable the still
+calls was checked against **both** repositories' signatures before the port - `NuvioScreen` is
+identical in both despite `Components.kt` being divergent, and desktop's `HomeHeroSection` inserts
+`sectionPadding` mid-list while `homeHeroLayout` gains a trailing `preferDesktopLayout`, which is
+why every argument at every call site is named.
+
+**Not verified:**
+
+1. ⚠ **Nobody has still looked at the harness PNGs** - but from the next CI run they are a
+   downloadable artifact rather than something only Gradle ever saw.
+2. **The device check:** the still reads as a screenshot - nothing floating, nothing squeezed, the
+   poster row cut by the panel edge rather than shrunk above it - and the panel is visibly frosted
+   rather than solid.
+3. ⚠ **With no network the hero is flat black**, because `HomeHeroSection`'s backdrop `AsyncImage`
+   carries no `placeholder`, `error` or `fallback` - unlike the logo right below it. That is what
+   the real home screen looks like with no network, and making the wizard nicer than the app is
+   the failure this file exists to avoid, so it is left alone. Worth seeing once in aeroplane mode.
+4. The fall-through fix from the section below is **still unseen on a device**.
 
 ## The wizard was letting taps through to the app behind it (2026-08-14, unreleased)
 
@@ -50,6 +170,10 @@ composed at all - only the dismissible re-run is affected. And the other on-dema
 compare against.
 
 ### The Welcome still was all hero
+
+⚠ **Superseded** - see "The Welcome still is a screenshot now" above. The fix described here
+(measuring the visible height and fitting the layout into it) is the thing that came back as
+*"way too messy"*, and all of it has been removed.
 
 `SetupHomeStill` passed `viewportHeight = maxHeight` - the whole window - and no
 `mobileBelowSectionHeightHint` at all. `mobileHeroHeight` takes `MOBILE_HERO_VIEWPORT_RATIO =
@@ -753,9 +877,22 @@ wizard's desktop path). Revisions 1 and 2 each needed a second push to compile; 
 
 Run after the phase-1 script.
 
-Checks 1-6 are the revision-5 faults and come first. Checks 7-11 are the revision-4 faults, which
-revision 6 rewrote three of and must not have broken. The rest are the revision 2 and 3
-regressions, which must not come back with either.
+Checks 0a-0c are the newest faults - the still that read as messy - and come first. Checks 1-6 are
+the revision-5 faults. Checks 7-11 are the revision-4 faults, which revision 6 rewrote three of and
+must not have broken. The rest are the revision 2 and 3 regressions, which must not come back with
+any of them.
+
+0a. ⚠ **Welcome reads as a screenshot with a sheet over it, not a diagram of one.** Three
+   specifics, because these are what came back: **nothing floats** - the nav bar is either pinned
+   to the very bottom edge or hidden behind the panel, never sitting mid-screen over a row;
+   **nothing is squeezed** - the poster row is cut off by the panel's edge at full size rather
+   than shrunk to fit above it; and the hero is a **normal hero**, framed on its logo and metadata
+   line, not a banner filling the frame or a stub.
+0b. ⚠ **The panel is frosted, not solid** - colour and shape from the still come through it while
+   the text stays readable. Then check 3 below on an old device, which is the other half of this
+   and the one that constrains it.
+0c. ⚠ **Drag the still.** It must not scroll, bounce or move at all. It is a real `LazyColumn`
+   underneath.
 
 1. ⚠ **Settings → Run setup again, then tap the preview band, the paragraphs and every gap, on
    every step.** Nothing behind the wizard may react. Open **Settings → Licenses & attributions**

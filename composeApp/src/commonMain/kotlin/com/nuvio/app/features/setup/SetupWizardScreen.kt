@@ -54,9 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -69,6 +67,7 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.ThemeColors
 import com.nuvio.app.core.ui.labelRes
+import com.nuvio.app.core.ui.isBackdropBlurSupported
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.addons.AddAddonResult
@@ -425,21 +424,19 @@ private fun SetupWelcomeSurface(
 ) {
     val tokens = MaterialTheme.nuvio
     val hazeState = rememberHazeState()
-    val density = LocalDensity.current
 
-    // ⚠ **The still has to know how much of it is actually visible**, which is the window minus
-    // this panel. Revision 6 gave it the whole window, so `HomeHeroSection` sized a hero for a
-    // viewport the user could only see half of and the banner swallowed the entire visible band -
-    // reported as "the featured thing covers the whole thing".
-    //
-    // Seeded with an estimate rather than zero, because the panel is measured a frame late and a
-    // hero resizing on the very first screen of the app is worse than being slightly wrong for
-    // one frame. The estimate is close: this panel is a heading, two paragraphs and two buttons.
-    var panelHeight by remember { mutableStateOf(WelcomePanelHeightEstimate) }
+    // ⚠ **Which set of alphas, and it is not a preference.** With a real blur behind it the panel
+    // can be genuinely translucent and still read. Without one - `minSdk` is 24 and
+    // `RenderEffect` is API 31+ - the same alphas are revision 2's sheet, which came back from a
+    // device unreadable with the home screen showing through the heading. See
+    // `isBackdropBlurSupported`.
+    val blurred = remember { isBackdropBlurSupported() }
+    val tintTop = if (blurred) FrostedTintTop else ScrimTintTop
+    val tintMid = if (blurred) FrostedTintMid else ScrimTintMid
+    val tintBottom = if (blurred) FrostedTintBottom else ScrimTintBottom
 
     Box(modifier = Modifier.fillMaxSize()) {
         SetupHomeStill(
-            visibleHeightBelowTop = panelHeight,
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(state = hazeState),
@@ -449,13 +446,12 @@ private fun SetupWelcomeSurface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { panelHeight = with(density) { it.height.toDp() } }
                 .hazeEffect(state = hazeState) { blurRadius = WelcomeBlurRadius }
                 .background(
                     Brush.verticalGradient(
-                        0f to tokens.colors.background.copy(alpha = WelcomeTintTop),
-                        0.55f to tokens.colors.background.copy(alpha = WelcomeTintMid),
-                        1f to tokens.colors.background.copy(alpha = WelcomeTintBottom),
+                        0f to tokens.colors.background.copy(alpha = tintTop),
+                        0.55f to tokens.colors.background.copy(alpha = tintMid),
+                        1f to tokens.colors.background.copy(alpha = tintBottom),
                     ),
                 ),
             contentAlignment = Alignment.TopCenter,
@@ -495,20 +491,23 @@ private fun SetupWelcomeSurface(
 /** Matches the streams tablet panel rather than the nav pill: this pane is much larger. */
 private val WelcomeBlurRadius = 40.dp
 
-/**
- * What the panel is assumed to be tall until it has measured itself.
- *
- * Only ever wrong for one frame, and only by however much the real panel differs - which at a
- * default font scale is very little. It exists so the still does not lay out a full-window hero
- * on the first frame and then visibly shrink it on the second.
- */
-private val WelcomePanelHeightEstimate = 340.dp
 
-// The three tint stops. Read the warning on `SetupWelcomeSurface` before changing any of them:
-// they are tuned for a device where `hazeEffect` does nothing at all.
-private const val WelcomeTintTop = 0.94f
-private const val WelcomeTintMid = 0.88f
-private const val WelcomeTintBottom = 0.82f
+// The tint, in two sets.
+//
+// **Frosted** - what a device with a working blur gets. Light enough that the still's colour and
+// shapes come through as frosted glass, which is the whole point of drawing a real home screen
+// behind it. Safe only because a 40 dp blur has destroyed the high-frequency detail that makes
+// text hard to read over a picture.
+private const val FrostedTintTop = 0.68f
+private const val FrostedTintMid = 0.60f
+private const val FrostedTintBottom = 0.54f
+
+// **Scrim** - what a device below API 31 gets, where `hazeEffect` does nothing and this is the
+// only thing between the heading and a poster. ⚠ Do not thin these to match the frosted set
+// after looking at a modern phone; that is exactly the mistake revision 2 shipped.
+private const val ScrimTintTop = 0.94f
+private const val ScrimTintMid = 0.88f
+private const val ScrimTintBottom = 0.82f
 
 /**
  * What the band shows for a step.
