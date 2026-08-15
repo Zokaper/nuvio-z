@@ -295,7 +295,18 @@ still be checked locally.
 | --- | --- | --- | --- |
 | both | `ci.yml` | every push | nuvio-z: Android host tests + debug APK. Desktop: desktop tests. |
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
+| `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes a debug APK as a `debug-v*` prerelease. |
 | `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
+| `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
+
+Both debug workflows refuse to run if their tag already exists. Bump the counter
+instead - `DEBUG_BUILD` in `iosApp/Configuration/Version.xcconfig` for mobile, and
+in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
+
+⚠ **Publish debug builds *before* a release bump, never after.** `Validate release
+state` rejects any file changed between the bump and the release commit except the
+release workflows and the two release scripts, and the debug counter is not on that
+list. This is the same trap as a `STATUS.md` commit after the bump.
 
 `desktop-release.yml` with `mode=build-only`, `target=windows` compiles `desktopMain`.
 Run it before any desktop release - but it is **not** the only thing that does:
@@ -338,13 +349,25 @@ refuses to run if the state is wrong.
 
 | Repository | Version file | Keys |
 | --- | --- | --- |
-| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` |
+| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DEBUG_BUILD` |
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopVersion.properties` | `VERSION_NAME`, `VERSION_CODE` |
+| `NuvioZDesktop` | `composeApp/Configuration/DesktopDebugVersion.properties` | `DEBUG_BUILD` |
+
+⚠ **The desktop debug counter is in its own file, and the mobile one is not.** That
+asymmetry is deliberate. `release-metadata.sh` finds a bump by walking the commits
+that touch the *version file* and reading the version key at each one - it does not
+require the value to have changed. So a commit that only moves the counter is read
+as a bump, and release notes are generated across `previous_bump..current_bump`.
+On desktop a separate file makes that impossible. **On mobile it is a live trap:**
+bumping `DEBUG_BUILD` in `Version.xcconfig` between two releases will truncate the
+next release's notes to the commits after that debug build. Not yet fixed there;
+moving the key to its own file is the same one-line change.
 
 `NuvioZDesktop` also carries `iosApp/Configuration/Version.xcconfig` as the
 *base/mobile* version; the desktop release does **not** read it. Use
 `./scripts/set-version.sh --desktop <version> --desktop-code <code>` there rather
-than editing by hand (`--show` prints both).
+than editing by hand (`--show` prints both, plus the debug channel's next tag).
+`--desktop-debug <n>` moves the debug counter.
 
 Steps:
 

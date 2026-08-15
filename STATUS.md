@@ -8,10 +8,129 @@ Last updated: 2026-08-14
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
 | **Next** | **Download the `setup-wizard-renders` artifact from the `NuvioZDesktop` CI run and look at the PNGs** — the harness has been green for four passes while nobody opened its output, and every Welcome defect since would have been plain in it; CI now uploads it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the outstanding faults. Test with **`debug-v0.4.14-beta.13`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
+| **Desktop debug line** | New, on this branch: **`NuvioZDesktop` now has a debug update channel** matching mobile's - a separate "Nuvio Z Debug" install fed by `debug-v*` prereleases, published with `desktop-debug-release.yml`. Nothing compiled locally; the Windows MSI job is the gate. See "The desktop debug line" below. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
 `AGENTS.md`. If it names a branch, the newest work is on that branch, not here.
+
+## The desktop debug line (2026-08-15, unreleased)
+
+**`NuvioZDesktop` only; nothing in `nuvio-z` changed but these docs.** The desktop app now has
+the equivalent of the mobile debug channel: a separate **Nuvio Z Debug** application that
+installs beside the release app and updates itself from `debug-v*` prereleases in
+`Zokaper/NuvioZDesktop`. Dispatch **`desktop-debug-release.yml`** to publish one.
+
+### It is a different application, not a differently-configured one
+
+Everything that decides identity is switched by one Gradle flag,
+`-Pnuvio.desktop.debugChannel=true`, which is **off everywhere else** - `ci.yml` and
+`desktop-release.yml` are untouched and still build the release app:
+
+| | Release | Debug |
+| --- | --- | --- |
+| Package / display name | `Nuvio Z` | `Nuvio Z Debug` |
+| Windows MSI upgrade UUID | `7b1f2c94-…` | `3e6c8d15-…` |
+| macOS bundle ID | `com.nuvio.media.z.desktop` | `…z.desktop.debug` |
+| App data directory | `%APPDATA%\Nuvio Z` | `%APPDATA%\Nuvio Z Debug` |
+| Version name | `0.4.14-beta` | `0.4.14-beta.<DEBUG_BUILD>` |
+| Diagnostics HUD + file log | off | on by default |
+
+⚠ **The upgrade UUID is the load-bearing one.** Sharing it would make every debug MSI
+*replace* the release install rather than sit beside it - the desktop equivalent of shipping
+the debug APK under `com.nuvio.app.z`.
+
+⚠ **The data directory is separate, so the debug app starts empty.** That is deliberate and
+matches mobile, where the separate application ID gives the same result: a build published to
+test a fix must not be able to corrupt the state of the app it is being compared against. Note
+it only isolates *local* state - sign in on both and the Supabase settings blob is shared, which
+is the path `mergeMonotonicSyncInt` exists for.
+
+### Three things that could not be copied from mobile
+
+1. ⚠ **The channel is keyed on the tag prefix, not the prerelease flag.** Mobile can use
+   `prerelease` because its stable updater already discarded prereleases. Desktop's
+   `includePrereleases` was **`true`**, so a `debug-v*` prerelease would have been offered to
+   every release install the moment it was published. `includePrereleases` is now true only for
+   a debug build, *and* the release path rejects a `debug-` tag outright - either alone would
+   do, and both are cheap.
+2. ⚠ **`debugChannel` is a new field on `AppUpdateReleaseSource`, deliberately not derived from
+   `AppUpdaterPlatform.isDebugBuild`.** That flag means "this binary is debuggable", which is
+   true of the Android debug APK built from `NuvioZDesktop` - and that APK belongs on the
+   ordinary release line. Keying the channel off it would have pointed that build at a feed
+   whose only assets are Windows MSIs, failing with "update asset missing".
+3. ⚠ **Windows decides an upgrade from the MSI `ProductVersion`, which jpackage limits to three
+   numeric components.** The debug counter cannot ride in the `-beta.3` suffix the way it does
+   in the version *name*, so the MSI version is `1.<VERSION_CODE>.<DEBUG_BUILD>`. `VERSION_CODE`
+   only ever increases, so that is monotonic across the whole debug line even while the
+   marketing version stands still - which is the case the counter exists for. **Without this
+   every debug MSI would carry the same ProductVersion and Windows would reinstall rather than
+   upgrade.**
+
+### The counter lives in its own file, and mobile's does not
+
+`composeApp/Configuration/DesktopDebugVersion.properties` holds `DEBUG_BUILD` alone.
+
+⚠ **This is a fixed bug, not a style choice.** `release-metadata.sh` finds a bump by walking
+commits that touch the *version file* and reading the version key at each - it does not require
+the value to have changed. A commit that only moved the counter is therefore read as a bump, and
+release notes are generated across `previous_bump..current_bump`. ⚠ **Mobile has this trap
+today:** bumping `DEBUG_BUILD` in `Version.xcconfig` between two releases will truncate the next
+release's notes. Moving that key to its own file is the same change and has not been made.
+
+Also: **publish debug builds before a release bump, never after.** `Validate release state`
+rejects anything changed between the bump and the release commit except the release workflows
+and two scripts, and the debug counter is not on that list.
+
+⚠ **The workflow file must reach `Dev` before it can be dispatched at all**, exactly as the
+mobile one must be on `main`: that is where GitHub looks to decide whether `workflow_dispatch`
+exists. It targets the dispatched commit, so once it is on `Dev` a debug build can be cut from
+any working branch. ⚠ Pushing it also needs a token carrying the **`workflow` scope** -
+`gh auth refresh -h github.com -s workflow` - which the repo-scoped default does not have.
+
+### Verification
+
+**Parser check clean** over all five changed/added Kotlin files. ⚠ The first run of it was a
+**false pass** - `kotlinc` was not on `PATH`, the `grep` matched nothing, and every file
+reported OK. The harness was re-run against a deliberate syntax error until it failed, then
+re-run for real. Worth remembering: an empty grep is indistinguishable from a clean parse.
+
+**Cross-file greps**, because a single-file parse resolves no references: every renamed build
+symbol counted at its call sites (`desktopBaseVersionName` is the rename, 5 uses, all after its
+declaration), and all four `AppUpdateReleaseSource(` construction sites confirmed to use named
+arguments, so the added field's default reaches them.
+
+**The workflow YAML parses** (`js-yaml`, alongside `ci.yml` and `desktop-release.yml` as
+controls), and its version-resolution shell block was **run locally** against the real files:
+`debug-v0.4.14-beta.1`, ProductVersion `1.38.1`, artifact
+`Nuvio-Z-Debug-Windows-x64-0.4.14-beta.1.msi`. `set-version.sh` passes `bash -n`, and
+`--desktop-debug 4 --dry-run` writes nothing.
+
+**The version derivation was compiled and run as a copy**, which proves the arithmetic rather
+than the build script: the release path still yields `Nuvio-Z-Windows-x64-0.4.14-beta.msi` and
+ProductVersion `1.4.14` - byte-identical to what `desktop-release.yml` already greps for, which
+is the check that matters, since a debug channel that quietly renamed the release artifact would
+break the release workflow. The debug ProductVersion sequence `1.38.1 → 1.38.2 → 1.38.12 →
+1.39.1` was asserted strictly increasing.
+
+**Not verified:**
+
+1. ⚠ **Nothing has been compiled.** No Android SDK and no JBR on this machine, so Gradle cannot
+   configure here either - the build-script changes are the least-covered part and **the Windows
+   MSI job is the gate**. A Gradle Kotlin DSL error is exactly what the parser check cannot see,
+   since it never reads `build.gradle.kts`.
+2. ⚠ **`DebugChannelVersionTest` has never run.** It reaches `VersionUtils` inside
+   `AppUpdater.kt`, which imports Compose resources, so it cannot join the pure suites. CI runs
+   it via `:composeApp:desktopTest`. **Extracting `VersionUtils` into an import-free file would
+   fix that permanently** and matches what was already done for `StreamRouteSurface.kt` and
+   `SyncPreferenceJson.kt` - not done here to keep this change to one subject.
+3. **Nobody has installed the debug MSI.** The checks are: it appears as "Nuvio Z Debug" beside
+   the release app, both launch, and their settings do not move together. Then publish a second
+   one and confirm the first offers it.
+4. **The release app must be shown to ignore the debug channel** - the half that cannot be
+   proved by installing the debug build alone.
+5. macOS and Linux are untested and unpublished; the workflow builds Windows only, matching
+   `desktop-release.yml`'s existing `target: windows` constraint.
 
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
@@ -1547,10 +1666,14 @@ one would strand installs that already took it on older code carrying a newer na
 is fine. The workflow file must also exist on `main`, because that is where GitHub looks to
 decide whether `workflow_dispatch` is available at all.
 
-**Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
-different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
-`Zokaper/NuvioZDesktop` release line with `includePrereleases` already `true`, so this channel
-split does not apply there.
+⚠ **This paragraph used to say the channel was deliberately not mirrored to `NuvioZDesktop`.
+That is no longer true** — see "The desktop debug line" at the top of this file. The reasoning
+recorded here was also half wrong and is worth keeping for that: `includePrereleases` being
+already `true` on desktop was described as making the split unnecessary, when it was in fact
+the thing that made a naive mirror *dangerous*. The desktop release line publishes plain
+releases, so a `debug-v*` prerelease added to that repository would have been offered to every
+release install immediately. The desktop channel is keyed on the tag prefix rather than the
+prerelease flag for exactly that reason.
 
 **Verified:** Android **706 tests, zero failures** (six new `DebugChannelVersionTest` cases).
 APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed
