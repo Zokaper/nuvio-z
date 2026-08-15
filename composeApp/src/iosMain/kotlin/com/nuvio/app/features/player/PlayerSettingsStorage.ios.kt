@@ -58,7 +58,6 @@ actual object PlayerSettingsStorage {
     private const val playbackCodecPreferenceKey = "playback_codec_preference"
     private const val playbackDynamicRangePolicyKey = "playback_dynamic_range_policy"
     private const val showAdvancedSettingsKey = "settings_show_advanced"
-    private const val playbackQualityTiersKey = "playback_quality_tiers"
     private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
     private const val playbackAutoDownshiftKey = "playback_auto_downshift"
     private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
@@ -137,7 +136,6 @@ actual object PlayerSettingsStorage {
         playbackCodecPreferenceKey,
         playbackDynamicRangePolicyKey,
         showAdvancedSettingsKey,
-        playbackQualityTiersKey,
         playbackMeteredCapHeightKey,
         playbackAutoDownshiftKey,
         playbackModeSelectorSeenKey,
@@ -649,13 +647,6 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(showAdvancedSettingsKey))
     }
 
-    actual fun loadPlaybackQualityTiers(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(playbackQualityTiersKey))
-
-    actual fun savePlaybackQualityTiers(payload: String) {
-        NSUserDefaults.standardUserDefaults.setObject(payload, forKey = ProfileScopedKey.of(playbackQualityTiersKey))
-    }
-
     actual fun loadPlaybackMeteredCapHeight(): Int? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(playbackMeteredCapHeightKey)
@@ -1070,7 +1061,6 @@ actual object PlayerSettingsStorage {
         loadPlaybackAllowTorrentAutopick()?.let {
             put(playbackAllowTorrentAutopickKey, encodeSyncBoolean(it))
         }
-        loadPlaybackQualityTiers()?.let { put(playbackQualityTiersKey, encodeSyncString(it)) }
         loadPlaybackMeteredCapHeight()?.let { put(playbackMeteredCapHeightKey, encodeSyncInt(it)) }
         loadPlaybackAutoDownshift()?.let { put(playbackAutoDownshiftKey, encodeSyncBoolean(it)) }
         loadPlaybackModeSelectorSeen()?.let {
@@ -1163,7 +1153,6 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(playbackDynamicRangePolicyKey)
             ?.let(::savePlaybackDynamicRangePolicy)
         payload.decodeSyncBoolean(showAdvancedSettingsKey)?.let(::saveShowAdvancedSettings)
-        payload.decodeSyncString(playbackQualityTiersKey)?.let(::savePlaybackQualityTiers)
         payload.decodeSyncInt(playbackMeteredCapHeightKey)?.let(::savePlaybackMeteredCapHeight)
         payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)
         payload.decodeSyncBoolean(playbackModeSelectorSeenKey)

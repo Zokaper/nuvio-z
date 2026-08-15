@@ -12,7 +12,7 @@ import kotlin.math.sqrt
 /**
  * The quality choices for one title, derived from the sources that actually exist for it.
  *
- * This is the inversion of the old preset model. A [PlaybackQualityTier] was a budget
+ * This is the inversion of the old preset model. A quality *tier* was a budget
  * the catalogue was filtered to fit, so the sheet could offer "4K" for a title nobody has
  * ever released in 4K, and quote a bandwidth figure belonging to the preset rather than to
  * any file the user would receive. Here the catalogue comes first: sources are bucketed by
