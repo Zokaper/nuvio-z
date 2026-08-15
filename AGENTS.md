@@ -147,9 +147,28 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `dataSourceKey`. Use **named arguments** at every call into a diverged composable; desktop's
   `HomeHeroSection` and `DetailHero` have both gained parameters mid-list.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
-  `manualSelection` > completed local download > sticky pin > reuse-last-link >
-  playback mode. `streamAutoPlayMode` applies to Classic only - two pickers
-  scoring the same candidates must never both run.
+  `manualSelection` > completed local download > reuse-last-link > playback mode.
+  `streamAutoPlayMode` applies to Classic only - two pickers scoring the same
+  candidates must never both run. A **sticky pin** rule sat between the download and
+  reuse-last-link until `0.5.0-beta`; it was withdrawn because the pin could only be
+  created from the long-press escape hatch and, once created, silently stopped the
+  quality sheet appearing with nothing in the UI to say why or to clear it.
+  `StickySourcePin` and `StickySourcePinTest` are kept for a surfaced version -
+  re-adding it means re-adding a row to `PlaybackModeRouterTest`, not just a branch.
+- **Streamlined's next episode must behave like its first.** The stream route's failure
+  chain lives in `StreamsRepository` and is armed through
+  `PlayerLaunch.autoPickedWithFailureChain`; neither reaches an auto-played next
+  episode, because that path calls `switchToEpisodeStream` and swaps source *inside* the
+  running player with no relaunch. Its chain is `PlayerScreenRuntime.nextEpisodeFallbacks`,
+  consumed by `tryNextEpisodeFallback()` before either fatal-error path gives up. Never
+  route it through `seedAutoPlayCandidates` - that store is owned by `StreamRoute`, which
+  is not on the back stack in this flow.
+- The quality band the user picks in Streamlined's sheet is remembered for the sitting
+  (`BingeGroupCacheRepository.sessionQualityHeight`, keyed by `parentMetaId`) and applied
+  by `PlaybackQualityOptions.stickyAffordable`. It is a **tie-break, never a ceiling or a
+  floor**: it is dropped the moment the estimate stops carrying it, and it never invents a
+  row the episode has no release for. Do not persist it - a stored value outlives the
+  decision that produced it.
 
 ## Important Areas
 
@@ -169,12 +188,20 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/details/MetaDetailsScreen.kt`
 - Stream/AIO models:
   `features/streams/StreamModels.kt`, `StreamParser.kt`
-- Playback modes (Classic/Streamlined/Instant) - see `PLAYBACK_MODES_PLAN.md`:
+- Playback modes - see `PLAYBACK_MODES_PLAN.md`:
   `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
-  `PlaybackModeRepository.kt`, `PlaybackSourceSelector.kt`,
+  `PlaybackSourceSelector.kt`, `PlaybackQualityOptions.kt`, `StreamRouteSurface.kt`,
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
   `features/playback/AutoDownshiftDetector.kt`,
-  `features/playback/PlaybackProgressOverlay.kt`
+  `features/playback/PlaybackProgressOverlay.kt`.
+  ⚠ **Only Classic and Streamlined ship.** `PlaybackMode.isSelectable` is the *only*
+  availability test, and `coerceSelectable` maps a stored `INSTANT` to `STREAMLINED` at
+  read time, so no profile can be on Instant at runtime. Its route paths were removed in
+  `0.5.0-beta`; `PlaybackRouteDecision.AutoPick`, `AutoDownshiftDetector` and
+  `NetworkQualityRepository` are kept as its re-entry point, and `NetworkStrengthProbe`
+  still draws the quality sheet's connection meters. The disabled Instant card stays
+  visible in the wizard and settings by decision, not oversight.
+  There is no `PlaybackModeRepository.kt` - the mode lives in `PlayerSettingsRepository`.
 - First-launch setup wizard: `features/setup/` - `SetupWizardSteps.kt` (the ordering and the
   show-once revision rule) and `SetupModeStoryboard.kt` (what each playback mode's animation
   claims) are **import-free** and covered by `scripts/run-pure-suites.sh`; everything else there

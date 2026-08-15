@@ -1,6 +1,45 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-14
+Last updated: 2026-08-16
+
+## Playback-mode UX pass (2026-08-16, unreleased, in both repositories)
+
+A UX review of the three playback modes found the code correct and the product confused:
+Instant is withdrawn (`PlaybackMode.isSelectable`) yet roughly a third of
+`entry<StreamRoute>` existed only to serve it, and four independent bail-out mechanisms had
+grown for what the plan describes as one pure decision. Six changes landed together, and
+**three of them are behaviour changes that have not been on a device**:
+
+| | What changed | Risk |
+| --- | --- | --- |
+| Instant paths deleted | The selection effect, metered dialog, "playing X" toast, `instantSelectionHandled`/`meteredChoice`, `StreamRouteSurfaceInputs.isAutoPickRoute` | none - unreachable code |
+| `PlaybackQualityTier` removed | Type, `playback_quality_tiers`, all four actuals, sync entries | low - nothing read it for a decision |
+| Bail-outs collapsed | `giveUpToSourceList` + `leaveToDetails` replace `fallBackToSourceList`, `qualitySheetDismissRequested` and a duplicated pop-then-uncover guard | low - `StreamRouteSurfaceTest` unchanged and green |
+| **Sticky pin dropped** | `PlayStickyPin` router arm, its dialog and all its state. `StickySourcePin` + tests kept | **behaviour change** |
+| **Next-episode parity** | Streamlined's next episode now prefers the band chosen in the sheet and carries a 3-source failure chain (`nextEpisodeFallbacks`) instead of dropping to a manual list | **behaviour change** |
+| **Reuse-last-link is explained** | Streamlined raises "Resuming your last source · Change" instead of silently skipping its sheet | **behaviour change** |
+| Binge rows nested | Hidden while "Auto-play next episode" is off | cosmetic |
+
+**Verified:** `scripts/run-pure-suites.sh` green in **both** repositories - 159 tests each
+(64 selection/quality/route, 29 standalone, 49 setup, 17 sync), zero failures - and every
+edited Compose file parser-checks clean in both.
+
+⚠ **Not verified, and this is the gap:** there is **no Android SDK and no Android Studio JBR
+on this machine**, so `:composeApp:testAndroidHostTest` and `:composeApp:desktopTest` did
+**not** run. CI is the only compiler for `App.kt`, the player runtime and the settings page,
+and the only check of the four `PlayerSettingsStorage` actuals after the tier-key removal.
+Nothing has been smoke-tested on a device or an installed desktop app.
+
+**Device script for this pass** - the three behaviour changes, in order of risk:
+
+1. Streamlined, series: play episode 1, pick a band that is *not* the top one. Let episode 2
+   auto-play. It must open at the same band with no quality sheet.
+2. Same, then kill the source mid-binge (disable the addon). It must name the source and
+   advance, not open the episode panel. Exhaust three and it may then open the panel.
+3. Streamlined with reuse-last-link on: re-watch a finished episode. The toast must appear
+   and "Change" must open the player's source panel.
+4. Confirm no season-pin prompt appears anywhere, and that the long-press escape hatch still
+   reaches the source list.
 
 | | |
 | --- | --- |
