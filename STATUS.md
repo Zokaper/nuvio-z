@@ -4,18 +4,357 @@ Last updated: 2026-08-14
 
 | | |
 | --- | --- |
-| **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 5 of the setup wizard** on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
+| **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 6 of the setup wizard** plus three unversioned fix passes on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Run `:composeApp:desktopTest --tests "*SetupWizardRenderHarness"` in `NuvioZDesktop` and look at the PNGs** — the harness is now committed rather than promised, and the frosted Welcome panel is the thing to judge first. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first six checks are the revision-5 faults. Test with **`debug-v0.4.14-beta.11`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Download the `setup-wizard-renders` artifact from the `NuvioZDesktop` CI run and look at the PNGs** — the harness has been green for four passes while nobody opened its output, and every Welcome defect since would have been plain in it; CI now uploads it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the outstanding faults. Test with **`debug-v0.4.14-beta.13`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
+| **Desktop debug line** | New, on this branch: **`NuvioZDesktop` now has a debug update channel** matching mobile's - a separate "Nuvio Z Debug" install fed by `debug-v*` prereleases, published with `desktop-debug-release.yml`. Nothing compiled locally; the Windows MSI job is the gate. See "The desktop debug line" below. |
 
 This table is the first thing to update in any session, and it is kept current on
 `main` as well as on the working branch - see "Keeping `main` current" in
 `AGENTS.md`. If it names a branch, the newest work is on that branch, not here.
 
+## The desktop debug line (2026-08-15, unreleased)
+
+**`NuvioZDesktop` only; nothing in `nuvio-z` changed but these docs.** The desktop app now has
+the equivalent of the mobile debug channel: a separate **Nuvio Z Debug** application that
+installs beside the release app and updates itself from `debug-v*` prereleases in
+`Zokaper/NuvioZDesktop`. Dispatch **`desktop-debug-release.yml`** to publish one.
+
+### It is a different application, not a differently-configured one
+
+Everything that decides identity is switched by one Gradle flag,
+`-Pnuvio.desktop.debugChannel=true`, which is **off everywhere else** - `ci.yml` and
+`desktop-release.yml` are untouched and still build the release app:
+
+| | Release | Debug |
+| --- | --- | --- |
+| Package / display name | `Nuvio Z` | `Nuvio Z Debug` |
+| Windows MSI upgrade UUID | `7b1f2c94-…` | `3e6c8d15-…` |
+| macOS bundle ID | `com.nuvio.media.z.desktop` | `…z.desktop.debug` |
+| App data directory | `%APPDATA%\Nuvio Z` | `%APPDATA%\Nuvio Z Debug` |
+| Version name | `0.4.14-beta` | `0.4.14-beta.<DEBUG_BUILD>` |
+| Diagnostics HUD + file log | off | on by default |
+
+⚠ **The upgrade UUID is the load-bearing one.** Sharing it would make every debug MSI
+*replace* the release install rather than sit beside it - the desktop equivalent of shipping
+the debug APK under `com.nuvio.app.z`.
+
+⚠ **The data directory is separate, so the debug app starts empty.** That is deliberate and
+matches mobile, where the separate application ID gives the same result: a build published to
+test a fix must not be able to corrupt the state of the app it is being compared against. Note
+it only isolates *local* state - sign in on both and the Supabase settings blob is shared, which
+is the path `mergeMonotonicSyncInt` exists for.
+
+### Three things that could not be copied from mobile
+
+1. ⚠ **The channel is keyed on the tag prefix, not the prerelease flag.** Mobile can use
+   `prerelease` because its stable updater already discarded prereleases. Desktop's
+   `includePrereleases` was **`true`**, so a `debug-v*` prerelease would have been offered to
+   every release install the moment it was published. `includePrereleases` is now true only for
+   a debug build, *and* the release path rejects a `debug-` tag outright - either alone would
+   do, and both are cheap.
+2. ⚠ **`debugChannel` is a new field on `AppUpdateReleaseSource`, deliberately not derived from
+   `AppUpdaterPlatform.isDebugBuild`.** That flag means "this binary is debuggable", which is
+   true of the Android debug APK built from `NuvioZDesktop` - and that APK belongs on the
+   ordinary release line. Keying the channel off it would have pointed that build at a feed
+   whose only assets are Windows MSIs, failing with "update asset missing".
+3. ⚠ **Windows decides an upgrade from the MSI `ProductVersion`, which jpackage limits to three
+   numeric components.** The debug counter cannot ride in the `-beta.3` suffix the way it does
+   in the version *name*, so the MSI version is `1.<VERSION_CODE>.<DEBUG_BUILD>`. `VERSION_CODE`
+   only ever increases, so that is monotonic across the whole debug line even while the
+   marketing version stands still - which is the case the counter exists for. **Without this
+   every debug MSI would carry the same ProductVersion and Windows would reinstall rather than
+   upgrade.**
+
+### The counter lives in its own file, and mobile's does not
+
+`composeApp/Configuration/DesktopDebugVersion.properties` holds `DEBUG_BUILD` alone.
+
+⚠ **This is a fixed bug, not a style choice.** `release-metadata.sh` finds a bump by walking
+commits that touch the *version file* and reading the version key at each - it does not require
+the value to have changed. A commit that only moved the counter is therefore read as a bump, and
+release notes are generated across `previous_bump..current_bump`. ⚠ **Mobile has this trap
+today:** bumping `DEBUG_BUILD` in `Version.xcconfig` between two releases will truncate the next
+release's notes. Moving that key to its own file is the same change and has not been made.
+
+Also: **publish debug builds before a release bump, never after.** `Validate release state`
+rejects anything changed between the bump and the release commit except the release workflows
+and two scripts, and the debug counter is not on that list.
+
+⚠ **The workflow file must reach `Dev` before it can be dispatched at all**, exactly as the
+mobile one must be on `main`: that is where GitHub looks to decide whether `workflow_dispatch`
+exists. It targets the dispatched commit, so once it is on `Dev` a debug build can be cut from
+any working branch. ⚠ Pushing it also needs a token carrying the **`workflow` scope** -
+`gh auth refresh -h github.com -s workflow` - which the repo-scoped default does not have.
+
+### Verification
+
+**Parser check clean** over all five changed/added Kotlin files. ⚠ The first run of it was a
+**false pass** - `kotlinc` was not on `PATH`, the `grep` matched nothing, and every file
+reported OK. The harness was re-run against a deliberate syntax error until it failed, then
+re-run for real. Worth remembering: an empty grep is indistinguishable from a clean parse.
+
+**Cross-file greps**, because a single-file parse resolves no references: every renamed build
+symbol counted at its call sites (`desktopBaseVersionName` is the rename, 5 uses, all after its
+declaration), and all four `AppUpdateReleaseSource(` construction sites confirmed to use named
+arguments, so the added field's default reaches them.
+
+**The workflow YAML parses** (`js-yaml`, alongside `ci.yml` and `desktop-release.yml` as
+controls), and its version-resolution shell block was **run locally** against the real files:
+`debug-v0.4.14-beta.1`, ProductVersion `1.38.1`, artifact
+`Nuvio-Z-Debug-Windows-x64-0.4.14-beta.1.msi`. `set-version.sh` passes `bash -n`, and
+`--desktop-debug 4 --dry-run` writes nothing.
+
+**The version derivation was compiled and run as a copy**, which proves the arithmetic rather
+than the build script: the release path still yields `Nuvio-Z-Windows-x64-0.4.14-beta.msi` and
+ProductVersion `1.4.14` - byte-identical to what `desktop-release.yml` already greps for, which
+is the check that matters, since a debug channel that quietly renamed the release artifact would
+break the release workflow. The debug ProductVersion sequence `1.38.1 → 1.38.2 → 1.38.12 →
+1.39.1` was asserted strictly increasing.
+
+**Not verified:**
+
+1. ⚠ **Nothing has been compiled.** No Android SDK and no JBR on this machine, so Gradle cannot
+   configure here either - the build-script changes are the least-covered part and **the Windows
+   MSI job is the gate**. A Gradle Kotlin DSL error is exactly what the parser check cannot see,
+   since it never reads `build.gradle.kts`.
+2. ⚠ **`DebugChannelVersionTest` has never run.** It reaches `VersionUtils` inside
+   `AppUpdater.kt`, which imports Compose resources, so it cannot join the pure suites. CI runs
+   it via `:composeApp:desktopTest`. **Extracting `VersionUtils` into an import-free file would
+   fix that permanently** and matches what was already done for `StreamRouteSurface.kt` and
+   `SyncPreferenceJson.kt` - not done here to keep this change to one subject.
+3. **Nobody has installed the debug MSI.** The checks are: it appears as "Nuvio Z Debug" beside
+   the release app, both launch, and their settings do not move together. Then publish a second
+   one and confirm the first offers it.
+4. **The release app must be shown to ignore the debug channel** - the half that cannot be
+   proved by installing the debug build alone.
+5. macOS and Linux are untested and unpublished; the workflow builds Windows only, matching
+   `desktop-release.yml`'s existing `target: windows` constraint.
+
 **Read `AGENTS.md` first.** It carries the two-repository mirroring rules, the
 full release procedure, which secrets exist and where, and how to verify code in a
 sandbox where Gradle cannot configure.
+
+## The Welcome still is a screenshot now, not a layout fitted to a hole (2026-08-14, unreleased)
+
+**Same branch, and `SETUP_WIZARD_REVISION` deliberately stays at 6** - the eight questions are
+unchanged, so there is nothing to re-ask. Reach it with **Settings → Run setup again**.
+
+Reported as *"almost perfect, this is just way too messy - I want it to effectively be a
+screenshot of the thing with the wizard overlayed, frosted kinda"*.
+
+### ⚠ One root cause, three symptoms
+
+The previous pass fixed "the hero swallows the frame" by **fitting the still into the space the
+panel left**, and every complaint that came back is a consequence of that:
+
+- The nav pill **floated mid-screen over Continue Watching**, because it was padded up by the
+  visible height so it would clear the panel. `App.kt` draws the real one pinned to the window's
+  bottom edge as a later sibling with `align(Alignment.BottomCenter)`.
+- The hero had **proportions the app never draws**: `viewportHeight` was the visible band, then
+  capped again by `continueWatchingHeroViewportReserveHeight`, and `mobileHeroHeight` takes 82% of
+  whatever it is handed.
+- The poster row was **a squeezed sliver**, because the column was padded to stop above the panel.
+
+**The rule now, and it is the whole design of the file:** everything is laid out at the app's real
+metrics inside the app's own scroll container, and the sheet simply covers the bottom of it.
+Nothing is resized, repositioned or padded to fit. `SetupHomeStill` lost its
+`visibleHeightBelowTop` parameter entirely; the panel no longer measures itself with
+`onSizeChanged`, so the frame-late 340 dp estimate is gone too.
+
+### What it is built out of
+
+`SetupHomeStill` is now **`NuvioScreen`** - the app's own container - called exactly as
+`HomeScreen` calls it with a hero on: `horizontalPadding = 0.dp`, `topPadding = 0.dp`. Same
+`listGap`, same content padding, so fidelity stops being something to hand-maintain.
+
+⚠ **The scroll is a seeded `LazyListState`, not a `Modifier.offset`, and that is not cosmetic.**
+`HomeHeroSection` derives its parallax (`translationY = offset * 0.3f`) and background scale from
+`listState.firstVisibleItemScrollOffset`. Offset on a plain `Column`, the backdrop sits in its
+*unscrolled* position - part of why the old still read as not-the-app. The list gets
+`LazyListState(0, scrollPx)` and the hero section gets the same state, so the parallax is the
+app's own. `scrollPx` is derived from `homeHeroLayout(...).heroHeight` minus a 250 dp tail rather
+than guessed, so it holds on every window size: it frames on the hero's content block - logo,
+metadata line, button - with Continue Watching under it.
+
+Three smaller fidelity fixes fell out of reading `HomeScreen` properly:
+
+- Rows are **24 dp apart**, not 16: `Arrangement.spacedBy(12.dp)` from the container **plus** a
+  per-item `padding(bottom = 12.dp)`. The still had the container gap only.
+- Sections take `sectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth)` (16 dp on a
+  phone), which the still never passed.
+- ⚠ `HomeContinueWatchingSection` **only honours `sectionPadding` when `layout` comes with it** -
+  pass one alone and it silently drops into its own `BoxWithConstraints` and re-derives both. The
+  argument reads as load-bearing while doing nothing. Both are passed now.
+
+**One hero item, not the row.** The hero is an auto-advancing pager, and a still that rotates is
+not a still; it also meant the screenshot landed on whichever title's backdrop happened to be
+missing from the artwork host, which is what produced a hero that was simply black. The cost is
+the pager dots, which only draw for more than one item.
+
+**The whole still is inert** (`nuvioBlockPointerEvents()`, `Initial` pass). A real `LazyColumn` is
+draggable, and a screenshot that scrolls out from under your thumb while you read the panel is a
+new kind of mess.
+
+⚠ **The nav bar composable was dropped and restored.** The rewrite deleted
+`SetupStillNavigationBar` along with the fitting code and the call site kept compiling in the
+parser check, because a single-file parse resolves no references. Caught by grepping for the
+definition, not by the check - the parser check is *necessary, never sufficient*, and this is a
+concrete example of what it cannot see.
+
+### The panel is frosted rather than solid
+
+New **`internal expect fun isBackdropBlurSupported()`** in `core/ui/BackdropBlur.kt`, with
+`SDK_INT >= 31` on Android and `true` on iOS and desktop. Same idiom as
+`isLiquidGlassNativeTabBarSupported()`.
+
+⚠ **Thinning the tint globally would have re-shipped revision 2's unreadable sheet to every device
+below Android 12**, where Haze cannot reach `RenderEffect` and the "frost" is a plain scrim. So the
+alphas are conditional: blur available → **0.68 / 0.60 / 0.54**, genuinely translucent, which a
+40 dp blur makes safe by destroying the high-frequency detail that makes text hard to read over a
+picture. No blur → **0.94 / 0.88 / 0.82**, the previous scrim, unchanged. `NuvioNavigationBar`
+already does the same thing one step cruder (`alpha = if (hazeState != null) 0.55f else 0.82f`).
+
+⚠ **A new `expect` needs an actual in every compiled source set.** `nuvio-z` has a `desktopMain`
+directory with three stale files in it but **no `jvm(` target** - only `NuvioZDesktop` declares
+`jvm("desktop")`, so the desktop actual lives there alone and the **Windows MSI job is what proves
+it exists**.
+
+### CI now uploads the render harness PNGs
+
+`SetupWizardRenderHarness` can only assert that things render without throwing, so the images are
+the actual check - and every Welcome defect that came back from a device was plain in them while
+the harness passed green. `ci.yml`'s desktop job now uploads
+`composeApp/build/setup-wizard-render/` as `setup-wizard-renders` on **`always()`**, so a failed
+assertion still yields the picture. ⚠ It renders **without a blur**, so those images are the
+API-30 legibility check and not a fair view of the frosted case.
+
+### Verification
+
+**CI green on both repositories** at `79013f12` / `f7c5cb88`. ⚠ The **Windows MSI job passed**,
+which is the only thing that proves the new `expect` got its `desktopMain` actual. Desktop tests
+passed, so the render harness composed the rewritten still without throwing. `Debug release`
+published **`debug-v0.4.14-beta.13`**.
+
+**Pure suites unchanged at 67 + 29 + 49 + 17 = 162**, both repositories.
+
+**Parser check clean** over all six changed/added files in each repository. **Six setup files
+byte-identical** (`SetupWizardScreen.kt`, `SetupSpecimen.kt`, `SetupSampleTitle.kt`,
+`SetupDiagram.kt`, `SetupModeStoryboard.kt`, plus the three `BackdropBlur` files);
+`SetupHomeStill.kt` still differs by exactly its three documented hunks. Every composable the still
+calls was checked against **both** repositories' signatures before the port - `NuvioScreen` is
+identical in both despite `Components.kt` being divergent, and desktop's `HomeHeroSection` inserts
+`sectionPadding` mid-list while `homeHeroLayout` gains a trailing `preferDesktopLayout`, which is
+why every argument at every call site is named.
+
+**Not verified:**
+
+1. ⚠ **Nobody has still looked at the harness PNGs.** They are now a real artifact -
+   `setup-wizard-renders`, 16 MB, on the `NuvioZDesktop` CI run for the commit - but ⚠ **the agent
+   sandbox cannot fetch them**: the proxy returns 403 on `api.github.com`, so artifact download is
+   a maintainer action and a `git clone` is not a substitute. Download it from the run page. This
+   is the fifth pass in which the harness has been green and unseen.
+2. **The device check:** the still reads as a screenshot - nothing floating, nothing squeezed, the
+   poster row cut by the panel edge rather than shrunk above it - and the panel is visibly frosted
+   rather than solid.
+3. ⚠ **With no network the hero is flat black**, because `HomeHeroSection`'s backdrop `AsyncImage`
+   carries no `placeholder`, `error` or `fallback` - unlike the logo right below it. That is what
+   the real home screen looks like with no network, and making the wizard nicer than the app is
+   the failure this file exists to avoid, so it is left alone. Worth seeing once in aeroplane mode.
+4. The fall-through fix from the section below is **still unseen on a device**.
+
+## The wizard was letting taps through to the app behind it (2026-08-14, unreleased)
+
+**Same branch, and `SETUP_WIZARD_REVISION` deliberately stays at 6** - the flow asks exactly the
+same eight questions, so there is nothing to re-ask. Reach it with **Settings → Run setup again**,
+which is also the path that was broken.
+
+### ⚠ The headline was not a wizard bug at all
+
+Reported as *"pressing the tabs takes me to the nuvio mobile vanilla repo? also for some reason
+this random website"*. Those are `https://github.com/NuvioMedia/NuvioMobile` and
+`https://www.premiumize.me` - **two rows of Settings → Licenses & attributions**
+(`LicensesAttributionsPage.kt:45,49`). The wizard opened neither, and the details screen cannot:
+the entire `features/details/` tree contains exactly one `openUri` call and it is on a trailer
+card.
+
+`Settings → Run setup again` draws `SetupWizardScreen` **over** `MainAppContent` rather than in
+place of it - `App.kt` says so in its own comment - and the screen's root was
+`fillMaxSize().background(...)`. **A `background()` does not consume pointer input.** Every tap
+that missed one of the wizard's own controls went through to the settings page underneath, and
+the preview's tab row happened to sit over those two links.
+
+⚠ **This is the second time this exact defect has shipped**, which is why it is now a rule in
+`AGENTS.md` rather than a comment. `0.5.0-beta` item 1 was the same thing on the stream route:
+*"the surface consumed no pointer input, so the invisible source list underneath was fully
+tappable"*. The fix written then - `nuvioConsumePointerEvents()` - is what this uses; it consumes
+on `PointerEventPass.Final`, so the wizard's own controls still receive events first.
+
+Two things kept it hidden. The **gate** path never shows it, because there `MainAppContent` is not
+composed at all - only the dismissible re-run is affected. And the other on-demand overlay,
+`WhatsNewScreen`, is a `Dialog` and is immune by construction, so there was no second example to
+compare against.
+
+### The Welcome still was all hero
+
+⚠ **Superseded** - see "The Welcome still is a screenshot now" above. The fix described here
+(measuring the visible height and fitting the layout into it) is the thing that came back as
+*"way too messy"*, and all of it has been removed.
+
+`SetupHomeStill` passed `viewportHeight = maxHeight` - the whole window - and no
+`mobileBelowSectionHeightHint` at all. `mobileHeroHeight` takes `MOBILE_HERO_VIEWPORT_RATIO =
+0.82f` of whatever it is given, so on an 800 dp window that is a **656 dp banner inside a ~440 dp
+visible band**: the still showed nothing but hero.
+
+It now takes the height **visible above the panel**, which the panel measures with
+`onSizeChanged` and reports, and caps the hero with
+`continueWatchingHeroViewportReserveHeight(...)` - the same helper `HomeScreen` uses for the same
+parameter, rather than a number picked here. Plus a 28 dp nudge upward, which is the "scroll down
+a bit" that was asked for.
+
+⚠ The panel height is a frame late, so it is seeded with a 340 dp estimate rather than zero. Being
+slightly wrong for one frame beats a hero visibly resizing on the very first screen of the app.
+
+### The tabs
+
+**In the preview**, they now work: tapping Cast / Trailers / Details switches the rail, and there
+is a Details rail for the first time - a tab that switched to nothing would be revision 5's empty
+heading one indirection further along. ⚠ This is the **only interactive control in any specimen
+band**; every other band is a picture the panel's controls change.
+
+**In the real details screen the wiring was always correct**, so the reported symptom was the
+fall-through and not this. Three real defects were found next to it and fixed anyway:
+
+- The tap target was the bare glyph box, about **26 dp** against Android's 48 dp guidance -
+  foundation's `clickable` does not apply `minimumInteractiveComponentSize` the way a Material
+  component would. A tap a few dp high or low did nothing, which is most of "the tabs don't work".
+- `remember` rather than `rememberSaveable`, so scrolling the group out of the lazy viewport
+  disposed it and the selection snapped back to the first tab.
+- ⚠ **`Crossfade` leaves the outgoing section laid out and hit-testable for the full 200 ms**,
+  because it animates alpha and nothing else. One of these three sections is Trailers, whose cards
+  open a URL the addon supplies **verbatim** (`HeroTrailerSelector.youtubePlaybackUrl` passes any
+  `http`-prefixed `key` straight through). An invisible thing that opens an arbitrary third-party
+  link on touch is the same defect as the headline, so the fading half is made inert with the new
+  `nuvioBlockPointerEvents()` - `Initial` pass, so children never see the event at all.
+
+### Verification
+
+**Pure suites unchanged at 67 + 29 + 49 + 17 = 162**, both repositories - none of this is
+reachable from a pure file, which is the point.
+
+**Parser check clean.** **Five setup files byte-identical**; `SetupHomeStill.kt` still differs by
+exactly its three documented hunks. ⚠ `Components.kt` and `MetaDetailsScreen.kt` were already
+divergent between the repositories and were hand-ported.
+
+**Not verified:**
+
+1. ⚠ **The fall-through fix has not been seen.** The check is: Settings → Run setup again, then
+   tap the preview band, the paragraphs and the gaps on every step, and confirm nothing behind
+   reacts. Open Licenses & attributions first if you want the original repro.
+2. **Nobody has still looked at the harness PNGs.** The Welcome hero defect would have been plain
+   in `welcome-420x900.png`. Rendering without throwing is not looking.
+3. The preview's tabs and the real screen's tap target are both layout judgements a device makes.
 
 ## Revision 6 of the setup wizard (2026-08-14, unreleased)
 
@@ -665,92 +1004,109 @@ wizard's desktop path). Revisions 1 and 2 each needed a second push to compile; 
 
 Run after the phase-1 script.
 
-Checks 1-6 are the revision-5 faults and come first. Checks 7-11 are the revision-4 faults, which
-revision 6 rewrote three of and must not have broken. The rest are the revision 2 and 3
-regressions, which must not come back with either.
+Checks 0a-0c are the newest faults - the still that read as messy - and come first. Checks 1-6 are
+the revision-5 faults. Checks 7-11 are the revision-4 faults, which revision 6 rewrote three of and
+must not have broken. The rest are the revision 2 and 3 regressions, which must not come back with
+any of them.
 
-1. ⚠ **Welcome reads as the real home screen.** Hero, section headings, a Continue Watching row,
-   catalog rows, and the floating nav bar at the bottom - not a miniature. Then the harder half:
-   **is the panel's text legible over it?** Check the heading specifically; that is where
-   revision 2's sheet failed.
-2. ⚠ **The same, on an Android 12-or-older device.** `Modifier.blur` and Haze's `RenderEffect`
+0a. ⚠ **Welcome reads as a screenshot with a sheet over it, not a diagram of one.** Three
+   specifics, because these are what came back: **nothing floats** - the nav bar is either pinned
+   to the very bottom edge or hidden behind the panel, never sitting mid-screen over a row;
+   **nothing is squeezed** - the poster row is cut off by the panel's edge at full size rather
+   than shrunk to fit above it; and the hero is a **normal hero**, framed on its logo and metadata
+   line, not a banner filling the frame or a stub.
+0b. ⚠ **The panel is frosted, not solid** - colour and shape from the still come through it while
+   the text stays readable. Then check 3 below on an old device, which is the other half of this
+   and the one that constrains it.
+0c. ⚠ **Drag the still.** It must not scroll, bounce or move at all. It is a real `LazyColumn`
+   underneath.
+
+1. ⚠ **Settings → Run setup again, then tap the preview band, the paragraphs and every gap, on
+   every step.** Nothing behind the wizard may react. Open **Settings → Licenses & attributions**
+   first for the original repro - that page is where the GitHub and premiumize.me links that got
+   opened actually live. This check did not exist before and is the one that was missing.
+2. ⚠ **Welcome reads as the real home screen** - hero, section headings, a Continue Watching row,
+   catalog rows, the floating nav bar - **and the rows are visible**, not just the banner. Then
+   the harder half: **is the panel's text legible over it?** Check the heading specifically; that
+   is where revision 2's sheet failed.
+3. ⚠ **The same, on an Android 12-or-older device.** `Modifier.blur` and Haze's `RenderEffect`
    path both need API 31, so below that the frosted panel is a plain scrim. **This is the check
    that matters** - if it only reads well on a modern phone, the alphas are too thin.
-3. ⚠ **The playback-mode loop is smooth and nothing shifts sideways.** Watch the quality chips as
+4. ⚠ **The playback-mode loop is smooth and nothing shifts sideways.** Watch the quality chips as
    the pointer lands on one: the chip must not move. Classic must show three lines of release
    text with a finger walking **every** row in order, and Streamlined must settle on a release
    **with no finger on it**. If Streamlined and Classic look the same, the one thing this
    animation exists to say has failed.
-4. ⚠ **All three `PlaybackModeCard`s are fully visible without scrolling the panel**, including
+5. ⚠ **All three `PlaybackModeCard`s are fully visible without scrolling the panel**, including
    Instant's "Not available in this version" line. This has now been clipped in two successive
    revisions.
-5. ⚠ **Cast and Trailers show content on the details step** - avatars with initials and names,
+6. ⚠ **Cast and Trailers show content on the details step** - avatars with initials and names,
    and trailer thumbnails with artwork - both tabbed and stacked, and **on an AMOLED theme**,
    which is where the old placeholders were literally invisible.
-6. ⚠ **Finish the wizard, force-stop, relaunch → no wizard. Relaunch a third time → still no
+7. ⚠ **Finish the wizard, force-stop, relaunch → no wizard. Relaunch a third time → still no
    wizard.** Then **sign out and back in** → still no wizard. This is the revision-5 gate fix and
    it needs more than one relaunch because the pull that used to re-gate the app runs at startup.
    ⚠ **The very first launch of this build WILL show the wizard** - the revision went to 6. That
    is expected; the second launch onwards is the check.
-7. ⚠ **The details step's tab toggle changes the band**, and the section headings below the
+8. ⚠ **The details step's tab toggle changes the band**, and the section headings below the
    episode list become one `Cast | Trailers | Details` row.
-8. ⚠ **Then open a real film or series and confirm the same thing happened there.** This is the
+9. ⚠ **Then open a real film or series and confirm the same thing happened there.** This is the
    half that was silently broken before revision 5 - the switch moved and the page did not. Check
    a title that actually has cast, trailers and details; with only one of the three present the
    app correctly draws no tab row.
-9. ⚠ **Chip labels are centred.** "Poster / Wide", "Dense / Balanced / Large", "Sharp /
+10. ⚠ **Chip labels are centred.** "Poster / Wide", "Dense / Balanced / Large", "Sharp /
    Classic / Pill", "Card / Wide / Poster". This shipped left-aligned in three builds; it is
    the cheapest thing here to confirm and the most embarrassing to miss again.
-10. ⚠ **Nothing renders behind the panel text, on any step.** If any artwork, row title or
+11. ⚠ **Nothing renders behind the panel text, on any step.** If any artwork, row title or
    poster is visible through the panel, the layout is wrong, not the alpha.
-11. ⚠ **The band does not move while you are on a step.** On Home, toggle the banner and then
+12. ⚠ **The band does not move while you are on a step.** On Home, toggle the banner and then
    change the Continue Watching style: the banner should expand and collapse *inside* a band
    whose top and bottom edges stay put, and the Continue Watching row must remain visible in
    both states. On Details, all four controls act on one mock. If the band swaps what it is
    showing, revision 3's behaviour has come back.
-12. ⚠ **Episode stills differ per row.** This is the `episodes.metahub.space` check and the
+13. ⚠ **Episode stills differ per row.** This is the `episodes.metahub.space` check and the
    least proven thing in the change. If all three rows show the same image, that host or the
    URL shape is wrong and the backdrop fallback is hiding it - say so rather than assuming it
    is fine, because the fallback makes failure look like a design choice.
-13. **No step scrolls inside the panel**, at default font size on a phone. The playback-mode step
+14. **No step scrolls inside the panel**, at default font size on a phone. The playback-mode step
    must show all three `PlaybackModeCard`s; the Cards step all four control groups starting with
    "Card shape". Check the band is not clipping either - a card cut off at the top or bottom
    means a `preferredHeight` is too small.
-14. **The band tweens, it does not snap.** On Cards change size, corners, and poster↔wide: each
+15. **The band tweens, it does not snap.** On Cards change size, corners, and poster↔wide: each
    should animate. Toggling titles should slide them in rather than jump.
-15. **Step transitions slide in the direction of travel**, and Back visibly reverses Next.
-16. **The details step's three backgrounds are distinguishable.** Plain and Blurred art are
+16. **Step transitions slide in the direction of travel**, and Back visibly reverses Next.
+17. **The details step's three backgrounds are distinguishable.** Plain and Blurred art are
    *supposed* to look close - the real screen scrims the blur at 0.92. What must be obvious is
    Matched colour, where the tint reaches into the hero's bottom fade.
-17. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
+18. **Fresh profile → the wizard appears and the sample artwork loads.** Poster, backdrop and
     logo all present. If a logo is missing, swap that IMDb id in `SetupSampleTitle`.
-18. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
+19. **Aeroplane mode, fresh profile.** Every step readable and every option distinguishable with
     no artwork. Cards should show their title on the skeleton fill, not be blank grey boxes.
-19. **Android API 30 or below**, beyond the frost in check 2. `Modifier.blur` is a no-op there, so
+20. **Android API 30 or below**, beyond the frost in check 3. `Modifier.blur` is a no-op there, so
     "blur what's next" and "blur unwatched episodes" look inert in the band - the same as in the
     real app, so this is expected. Confirm nothing else differs.
-20. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
+21. **Skip for now** on the welcome step → the app is exactly as it is today, and the wizard does
     not return on relaunch. ⚠ It is on the frosted panel now, not in the old footer.
-21. Covered by check 6, which is the same test done properly. Left numbered so the rest of this
+22. Covered by check 7, which is the same test done properly. Left numbered so the rest of this
     list keeps its numbering across revisions.
-22. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
+23. **Second profile** → the wizard runs again for it, and its choices do not disturb the first
     profile's.
-23. **Upgrade from `debug-v0.4.14-beta.10`** → the wizard appears again, because the revision went
+24. **Upgrade from `debug-v0.4.14-beta.10`** → the wizard appears again, because the revision went
     to 6. Intended, not a bug, and not the same thing as check 6. If the device had a wizard open
     when it updated it must resume on Welcome rather than crash - `Trakt` was deleted from the
     enum in revision 4.
-24. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
+25. Settings → About → **Run setup again** → opens dismissible, escapable in one Back press,
     does not gate the app.
-25. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and the
+26. **Theme step:** all seven palettes and AMOLED. Band and panel must both stay legible, and the
     band's sample button, progress bar and chips should take the accent.
-26. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
+27. **Sources step with a deliberately bad URL** → a named error, still skippable. Then a good
     one → "Added <name>", and the Sources step is absent on a re-run.
-27. **Copy reads "Nuvio Z"** on Welcome, Home and Sources, and the apostrophes render as
+28. **Copy reads "Nuvio Z"** on Welcome, Home and Sources, and the apostrophes render as
     apostrophes ("We'll", not "We\'ll"). The wizard has not drawn `app_logo_wordmark.png` since
     revision 6, so the "Nuvio" / "Nuvio Z" mismatch is gone from this flow - ⚠ but it is **still
     on the splash and both auth screens**, which draw that same PNG. Redrawing it fixes both.
-28. **No Trakt step.**
-29. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
+29. **No Trakt step.**
+30. **Desktop, resized wide and narrow:** the band stays full-bleed at both, the panel stays
     centred and capped at 620 dp rather than stretching, and nothing overflows horizontally.
 
 A step that was not run is not a pass.
@@ -1310,10 +1666,14 @@ one would strand installs that already took it on older code carrying a newer na
 is fine. The workflow file must also exist on `main`, because that is where GitHub looks to
 decide whether `workflow_dispatch` is available at all.
 
-**Not mirrored to `NuvioZDesktop`** — a deliberate divergence, not an oversight. Its updater is a
-different architecture (`AppUpdaterPlatform.releaseSource`) and its Android build points at the
-`Zokaper/NuvioZDesktop` release line with `includePrereleases` already `true`, so this channel
-split does not apply there.
+⚠ **This paragraph used to say the channel was deliberately not mirrored to `NuvioZDesktop`.
+That is no longer true** — see "The desktop debug line" at the top of this file. The reasoning
+recorded here was also half wrong and is worth keeping for that: `includePrereleases` being
+already `true` on desktop was described as making the split unnecessary, when it was in fact
+the thing that made a naive mirror *dangerous*. The desktop release line publishes plain
+releases, so a `debug-v*` prerelease added to that repository would have been offered to every
+release install immediately. The desktop channel is keyed on the tag prefix rather than the
+prerelease flag for exactly that reason.
 
 **Verified:** Android **706 tests, zero failures** (six new `DebugChannelVersionTest` cases).
 APK inspected: `com.nuvio.app.z.debug`, `versionCode 119001`, `versionName 0.4.9-beta.1`, signed

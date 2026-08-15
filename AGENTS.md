@@ -101,6 +101,16 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   first deletes anything added since the remote blob was last written - it wiped the
   playback settings in `0.4.0-beta` and would have wiped stored debrid API keys the
   next time a provider was added.
+- ⚠ **Anything drawn OVER the app rather than in place of it must consume pointer input**, with
+  `nuvioConsumePointerEvents()` in `core/ui/Components.kt`. A `background()` does not: without it
+  every tap that misses a control lands on whatever is underneath, and the user cannot see what
+  they hit. **This has shipped twice** - the stream route's hand-off surface left an invisible
+  source list fully tappable in `0.5.0-beta`, and the setup wizard's "Run setup again" was
+  opening links on the settings page behind it in revision 6. Both were found on a device,
+  because nothing else can find them. A `Dialog` is immune by construction; a full-screen
+  sibling `Box` is not. The related `nuvioBlockPointerEvents()` makes a subtree inert instead
+  (Initial pass), which is what a crossfade's outgoing half needs - it stays laid out and
+  hit-testable for the whole animation.
 - **A `replaceFromSyncPayload` bypasses every guard a repository puts on a setter**, because it
   writes through the store directly. A value the repository refuses to lower must be merged
   through `mergeMonotonicSyncInt` in the same file - reading the local value **before** the
@@ -285,7 +295,18 @@ still be checked locally.
 | --- | --- | --- | --- |
 | both | `ci.yml` | every push | nuvio-z: Android host tests + debug APK. Desktop: desktop tests. |
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
+| `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes a debug APK as a `debug-v*` prerelease. |
 | `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
+| `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
+
+Both debug workflows refuse to run if their tag already exists. Bump the counter
+instead - `DEBUG_BUILD` in `iosApp/Configuration/Version.xcconfig` for mobile, and
+in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
+
+⚠ **Publish debug builds *before* a release bump, never after.** `Validate release
+state` rejects any file changed between the bump and the release commit except the
+release workflows and the two release scripts, and the debug counter is not on that
+list. This is the same trap as a `STATUS.md` commit after the bump.
 
 `desktop-release.yml` with `mode=build-only`, `target=windows` compiles `desktopMain`.
 Run it before any desktop release - but it is **not** the only thing that does:
@@ -328,13 +349,25 @@ refuses to run if the state is wrong.
 
 | Repository | Version file | Keys |
 | --- | --- | --- |
-| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` |
+| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DEBUG_BUILD` |
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopVersion.properties` | `VERSION_NAME`, `VERSION_CODE` |
+| `NuvioZDesktop` | `composeApp/Configuration/DesktopDebugVersion.properties` | `DEBUG_BUILD` |
+
+⚠ **The desktop debug counter is in its own file, and the mobile one is not.** That
+asymmetry is deliberate. `release-metadata.sh` finds a bump by walking the commits
+that touch the *version file* and reading the version key at each one - it does not
+require the value to have changed. So a commit that only moves the counter is read
+as a bump, and release notes are generated across `previous_bump..current_bump`.
+On desktop a separate file makes that impossible. **On mobile it is a live trap:**
+bumping `DEBUG_BUILD` in `Version.xcconfig` between two releases will truncate the
+next release's notes to the commits after that debug build. Not yet fixed there;
+moving the key to its own file is the same one-line change.
 
 `NuvioZDesktop` also carries `iosApp/Configuration/Version.xcconfig` as the
 *base/mobile* version; the desktop release does **not** read it. Use
 `./scripts/set-version.sh --desktop <version> --desktop-code <code>` there rather
-than editing by hand (`--show` prints both).
+than editing by hand (`--show` prints both, plus the debug channel's next tag).
+`--desktop-debug <n>` moves the debug counter.
 
 Steps:
 
@@ -413,6 +446,13 @@ every one of them has caught a real fault:
    kotlinc -nowarn -d /tmp/out <file>.kt 2>&1 \
      | grep -Ei "error:.*(expecting|unexpected|syntax)"
    ```
+
+   ⚠ **A single-file parse resolves no references, so it cannot see a name that
+   is gone.** A rewrite that deletes a private composable and leaves its call
+   site behind passes this cleanly - that has happened. After rewriting or
+   heavily editing a file, `grep` for each helper it calls and each argument
+   name at every call site into another file; the parser check is *necessary,
+   never sufficient*, and this is the specific gap.
 
 2. **Standalone compile-and-run of pure-logic files.** `DownloadBatches.kt`,
    `DownloadQueuePlanner.kt`, `DownloadTransfer.kt` and `DownloadPresence.kt`
