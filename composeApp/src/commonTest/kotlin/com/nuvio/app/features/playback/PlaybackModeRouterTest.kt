@@ -10,14 +10,12 @@ class PlaybackModeRouterTest {
         mode: PlaybackMode = PlaybackMode.CLASSIC,
         manualSelection: Boolean = false,
         hasCompletedLocalDownload: Boolean = false,
-        hasMatchingStickyPin: Boolean = false,
         reuseLastLinkEnabled: Boolean = false,
         hasValidCachedLink: Boolean = false,
     ) = PlaybackRouteInputs(
         mode = mode,
         manualSelection = manualSelection,
         hasCompletedLocalDownload = hasCompletedLocalDownload,
-        hasMatchingStickyPin = hasMatchingStickyPin,
         reuseLastLinkEnabled = reuseLastLinkEnabled,
         hasValidCachedLink = hasValidCachedLink,
     )
@@ -48,7 +46,6 @@ class PlaybackModeRouterTest {
                     mode = mode,
                     manualSelection = true,
                     hasCompletedLocalDownload = true,
-                    hasMatchingStickyPin = true,
                     reuseLastLinkEnabled = true,
                     hasValidCachedLink = true,
                 ),
@@ -67,7 +64,6 @@ class PlaybackModeRouterTest {
                 inputs(
                     mode = mode,
                     hasCompletedLocalDownload = true,
-                    hasMatchingStickyPin = true,
                     reuseLastLinkEnabled = true,
                     hasValidCachedLink = true,
                 ),
@@ -80,36 +76,33 @@ class PlaybackModeRouterTest {
     }
 
     /**
-     * The regression this whole precedence table exists for.
+     * Reuse-last-link answers before the mode, in every mode.
      *
-     * Reuse-last-link fires before auto-play in the live route, so without the pin sitting
-     * above it a Streamlined user who has reuse enabled would never reach the quality
-     * sheet or their pinned release for any episode they had already watched once.
+     * A sticky-pin rule used to sit between them so that a release the user pinned for a
+     * season beat a cached link. It was withdrawn in `0.5.0-beta` - it could only be created
+     * from the long-press escape hatch, and once created it silently stopped the quality
+     * sheet appearing with nothing in the UI to say why. So a Streamlined user with reuse
+     * enabled now reaches the cached link rather than the sheet for any episode they have
+     * already watched, and the route says so out loud instead of skipping it silently.
+     *
+     * Pinned here so that re-adding the pin is a deliberate change to this table rather than
+     * something that quietly reorders it.
      */
     @Test
-    fun stickyPinBeatsReuseLastLinkInStreamlined() {
-        val decision = PlaybackModeRouter.decide(
-            inputs(
-                mode = PlaybackMode.STREAMLINED,
-                hasMatchingStickyPin = true,
-                reuseLastLinkEnabled = true,
-                hasValidCachedLink = true,
-            ),
-        )
-        assertTrue(decision is PlaybackRouteDecision.PlayStickyPin, "got $decision")
-    }
-
-    @Test
-    fun reuseLastLinkStillServesTheUnpinnedStreamlinedCase() {
-        val decision = PlaybackModeRouter.decide(
-            inputs(
-                mode = PlaybackMode.STREAMLINED,
-                hasMatchingStickyPin = false,
-                reuseLastLinkEnabled = true,
-                hasValidCachedLink = true,
-            ),
-        )
-        assertTrue(decision is PlaybackRouteDecision.ReuseLastLink, "got $decision")
+    fun reuseLastLinkBeatsTheModeEverywhere() {
+        PlaybackMode.entries.forEach { mode ->
+            val decision = PlaybackModeRouter.decide(
+                inputs(
+                    mode = mode,
+                    reuseLastLinkEnabled = true,
+                    hasValidCachedLink = true,
+                ),
+            )
+            assertTrue(
+                decision is PlaybackRouteDecision.ReuseLastLink,
+                "reuse-last-link must win in $mode, got $decision",
+            )
+        }
     }
 
     @Test
@@ -124,24 +117,39 @@ class PlaybackModeRouterTest {
                 inputs(mode = PlaybackMode.INSTANT, hasValidCachedLink = true),
             ) is PlaybackRouteDecision.AutoPick,
         )
+        assertTrue(
+            PlaybackModeRouter.decide(
+                inputs(mode = PlaybackMode.STREAMLINED, reuseLastLinkEnabled = true),
+            ) is PlaybackRouteDecision.ShowQualitySheet,
+        )
     }
 
-    /** Classic never auto-picks, so a pin must not divert it away from the source list. */
+    /**
+     * Every branch survives a save/restore round trip.
+     *
+     * The decision outlives its composition - a mode with a failure chain keeps `StreamRoute`
+     * on the back stack while the player is open - and an unknown key answers null rather
+     * than guessing, so a branch dropped from [PlaybackRouteDecision.fromKey] would silently
+     * change which selection mechanism runs on the way back.
+     */
     @Test
-    fun classicIgnoresStickyPins() {
-        val decision = PlaybackModeRouter.decide(
-            inputs(mode = PlaybackMode.CLASSIC, hasMatchingStickyPin = true),
+    fun everyDecisionSurvivesAKeyRoundTrip() {
+        val decisions = listOf(
+            PlaybackRouteDecision.ShowSourceList("r"),
+            PlaybackRouteDecision.PlayLocalDownload("r"),
+            PlaybackRouteDecision.ReuseLastLink("r"),
+            PlaybackRouteDecision.ShowQualitySheet("r"),
+            PlaybackRouteDecision.AutoPick("r"),
         )
-        assertTrue(decision is PlaybackRouteDecision.ShowSourceList, "got $decision")
-    }
-
-    /** Instant answers to the connection, not to a release pinned three episodes ago. */
-    @Test
-    fun instantIgnoresStickyPins() {
-        val decision = PlaybackModeRouter.decide(
-            inputs(mode = PlaybackMode.INSTANT, hasMatchingStickyPin = true),
-        )
-        assertTrue(decision is PlaybackRouteDecision.AutoPick, "got $decision")
+        decisions.forEach { decision ->
+            assertEquals(
+                decision,
+                PlaybackRouteDecision.fromKey(decision.key, decision.reason),
+                "${decision.key} did not survive the round trip",
+            )
+        }
+        assertEquals(null, PlaybackRouteDecision.fromKey("sticky_pin", "r"))
+        assertEquals(null, PlaybackRouteDecision.fromKey(null, "r"))
     }
 
     @Test

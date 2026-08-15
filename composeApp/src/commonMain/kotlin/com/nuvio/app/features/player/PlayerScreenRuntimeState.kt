@@ -17,6 +17,7 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.trakt.TraktScrobbleItem
 import com.nuvio.app.features.watched.WatchedUiState
@@ -206,6 +207,23 @@ internal class PlayerScreenRuntime(
     var nextEpisodeAutoPlaySourceName by mutableStateOf<String?>(null)
     var nextEpisodeAutoPlayCountdown by mutableStateOf<Int?>(null)
     var nextEpisodeAutoPlayJob by mutableStateOf<Job?>(null)
+
+    /**
+     * The ranked sources behind the one the next episode is playing, best first.
+     *
+     * The stream route's failure chain lives in `StreamsRepository` and is armed through
+     * `PlayerLaunch.autoPickedWithFailureChain`. Neither reaches an auto-played next episode:
+     * that path calls `switchToEpisodeStream` and swaps source inside the running player,
+     * without a relaunch. So the chain for it is held here, beside the other `active*` state
+     * it belongs to, and consumed by the fatal-error handler.
+     *
+     * Deliberately **not** routed through `StreamsRepository.seedAutoPlayCandidates`: that
+     * store is owned by `StreamRoute`, which is not on the back stack in this flow, and two
+     * owners on one chain is how a retry ends up relaunching the wrong video.
+     *
+     * Cleared whenever a new selection starts and whenever it is spent.
+     */
+    var nextEpisodeFallbacks by mutableStateOf<List<StreamItem>>(emptyList())
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)

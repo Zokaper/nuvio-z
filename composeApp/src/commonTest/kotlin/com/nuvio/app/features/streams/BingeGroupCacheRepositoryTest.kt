@@ -1,6 +1,5 @@
 package com.nuvio.app.features.streams
 
-import com.nuvio.app.features.playback.StickySourcePin
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,33 +10,34 @@ class BingeGroupCacheRepositoryTest {
     fun tearDown() = BingeGroupCacheRepository.clearSessionPins()
 
     @Test
-    fun aStickyPinLastsForTheSessionAndNoLonger() {
-        // A pin skips the quality sheet outright. Persisting one silently turns Streamlined
-        // into Instant for that season, on that device, with nothing in the UI to undo it.
-        val id = BingeGroupCacheRepository.stickyContentId("tt0475784", 2)
-        BingeGroupCacheRepository.saveSessionPin(id, StickySourcePin(releaseGroup = "NTb"))
+    fun theChosenQualityLastsForTheSessionAndNoLonger() {
+        // Persisting it would silently outlive the decision that produced it: the user picked
+        // a band once, in one sitting, against one connection.
+        BingeGroupCacheRepository.saveSessionQualityHeight("tt0475784", 1080)
 
-        assertEquals("NTb", BingeGroupCacheRepository.sessionPin(id)?.releaseGroup)
+        assertEquals(1080, BingeGroupCacheRepository.sessionQualityHeight("tt0475784"))
 
         BingeGroupCacheRepository.clearSessionPins()
-        assertNull(BingeGroupCacheRepository.sessionPin(id))
+        assertNull(BingeGroupCacheRepository.sessionQualityHeight("tt0475784"))
     }
 
     @Test
-    fun anEmptyPinIsNotStored() {
-        val id = BingeGroupCacheRepository.stickyContentId("tt0475784", 1)
-        BingeGroupCacheRepository.saveSessionPin(id, StickySourcePin(releaseGroup = "NTb"))
-        BingeGroupCacheRepository.saveSessionPin(id, StickySourcePin())
+    fun aMeaninglessHeightIsNotStored() {
+        BingeGroupCacheRepository.saveSessionQualityHeight("tt0475784", 1080)
+        BingeGroupCacheRepository.saveSessionQualityHeight("tt0475784", 0)
+        BingeGroupCacheRepository.saveSessionQualityHeight("", 720)
 
-        assertNull(BingeGroupCacheRepository.sessionPin(id))
+        // The bad writes are refused rather than clearing the good one.
+        assertEquals(1080, BingeGroupCacheRepository.sessionQualityHeight("tt0475784"))
+        assertNull(BingeGroupCacheRepository.sessionQualityHeight(""))
     }
 
     @Test
-    fun pinsAreScopedToTheSeason() {
-        val season1 = BingeGroupCacheRepository.stickyContentId("tt0475784", 1)
-        val season2 = BingeGroupCacheRepository.stickyContentId("tt0475784", 2)
-        BingeGroupCacheRepository.saveSessionPin(season1, StickySourcePin(releaseGroup = "NTb"))
+    fun theChosenQualityIsScopedToTheShow() {
+        // Keyed by parentMetaId, not by season: the churn it answers is episode-to-episode
+        // within one show, and a season boundary is not a reason to forget the choice.
+        BingeGroupCacheRepository.saveSessionQualityHeight("tt0475784", 1080)
 
-        assertNull(BingeGroupCacheRepository.sessionPin(season2))
+        assertNull(BingeGroupCacheRepository.sessionQualityHeight("tt0903747"))
     }
 }

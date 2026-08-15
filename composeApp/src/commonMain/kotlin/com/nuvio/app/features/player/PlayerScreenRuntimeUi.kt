@@ -196,16 +196,29 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                         return@PlatformPlayerSurface
                     }
-                    errorMessage = message
                     if (message != null) {
-                        controlsVisible = !playerControlsLocked
                         removeFailedStreamFromCache()
                         // Diagnostics must retain the failure screen so the tester can read the
                         // real player error instead of being silently returned to details.
                         if (!(isDebugBuild && PlaybackDebugSettings.hudEnabled)) {
+                            // An auto-played next episode advances to its next ranked source
+                            // rather than showing the user an error mid-binge. The error is
+                            // deliberately not painted first: the swap is meant to be the only
+                            // thing they notice.
+                            if (tryNextEpisodeFallback()) {
+                                errorMessage = null
+                                return@PlatformPlayerSurface
+                            }
+                            errorMessage = message
+                            controlsVisible = !playerControlsLocked
                             args.onFatalPlaybackError?.invoke()
+                            return@PlatformPlayerSurface
                         }
+                        errorMessage = message
+                        controlsVisible = !playerControlsLocked
+                        return@PlatformPlayerSurface
                     }
+                    errorMessage = message
                 },
             )
         }

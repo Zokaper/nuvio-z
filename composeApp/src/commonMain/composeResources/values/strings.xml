@@ -1139,6 +1139,8 @@
     <string name="playback_progress_resolving">Preparing the link</string>
     <string name="playback_progress_starting">Starting playback</string>
     <string name="playback_progress_attempt">Attempt %1$d of %2$d</string>
+    <string name="playback_reused_last_link">Resuming your last source</string>
+    <string name="playback_reused_last_link_change">Change</string>
     <string name="playback_uncached_title">Nothing is cached</string>
     <string name="playback_uncached_description">This source needs to be prepared by your debrid provider before it can play.</string>
     <string name="playback_uncached_start">Start caching</string>

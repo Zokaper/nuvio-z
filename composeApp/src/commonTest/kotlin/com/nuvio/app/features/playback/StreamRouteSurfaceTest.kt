@@ -19,7 +19,6 @@ class StreamRouteSurfaceTest {
         hasNavigatedAway: Boolean = false,
         isQualitySheetRoute: Boolean = false,
         qualitySheetDismissed: Boolean = false,
-        isAutoPickRoute: Boolean = false,
         isStreamlinedPlaybackStarting: Boolean = false,
         awaitingUserAnswer: Boolean = false,
     ) = StreamRouteSurfaceInputs(
@@ -29,7 +28,6 @@ class StreamRouteSurfaceTest {
         hasNavigatedAway = hasNavigatedAway,
         isQualitySheetRoute = isQualitySheetRoute,
         qualitySheetDismissed = qualitySheetDismissed,
-        isAutoPickRoute = isAutoPickRoute,
         isStreamlinedPlaybackStarting = isStreamlinedPlaybackStarting,
         awaitingUserAnswer = awaitingUserAnswer,
     )
@@ -38,7 +36,7 @@ class StreamRouteSurfaceTest {
     fun classicNeverCoversItsList() {
         assertEquals(
             StreamRouteSurface.SourceList,
-            streamRouteSurface(inputs(isClassic = true, isAutoPickRoute = true)),
+            streamRouteSurface(inputs(isClassic = true, isStreamlinedPlaybackStarting = true)),
         )
     }
 
@@ -65,14 +63,6 @@ class StreamRouteSurfaceTest {
     }
 
     @Test
-    fun instantCoversTheListFromTheFirstFrame() {
-        assertEquals(
-            StreamRouteSurface.ProgressOverlay,
-            streamRouteSurface(inputs(isAutoPickRoute = true)),
-        )
-    }
-
-    @Test
     fun everyBailOutUncoversTheList() {
         // Each of these exists because the app gave up on choosing for the user. Leaving
         // anything over the list they now have to read would be worse than never covering it.
@@ -80,7 +70,6 @@ class StreamRouteSurfaceTest {
             StreamRouteSurface.SourceList,
             streamRouteSurface(
                 inputs(
-                    isAutoPickRoute = true,
                     isStreamlinedPlaybackStarting = true,
                     manualSourceListRequested = true,
                 ),
@@ -88,7 +77,7 @@ class StreamRouteSurfaceTest {
         )
         assertEquals(
             StreamRouteSurface.SourceList,
-            streamRouteSurface(inputs(isAutoPickRoute = true, awaitingUserAnswer = true)),
+            streamRouteSurface(inputs(isStreamlinedPlaybackStarting = true, awaitingUserAnswer = true)),
         )
         assertEquals(
             StreamRouteSurface.SourceList,

@@ -65,7 +65,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -122,6 +121,7 @@ import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.platformExitApp
 import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.NuvioToastAction
+import com.nuvio.app.features.player.PlayerSourcePanelRequest
 import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
@@ -136,6 +136,7 @@ import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.isLiquidGlassNativeTabBarSupported
 import com.nuvio.app.core.ui.localizedContinueWatchingSubtitle
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.auth.AuthScreen
 import com.nuvio.app.features.addons.AddAddonResult
 import com.nuvio.app.features.addons.AddonRepository
@@ -255,8 +256,6 @@ import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.qualityLabel
-import com.nuvio.app.features.playback.StickySourcePin
-import com.nuvio.app.core.network.MeteredPlaybackChoice
 import com.nuvio.app.core.network.NetworkConnectionType
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkStrengthProbe
@@ -344,12 +343,6 @@ private data class PendingP2pStreamOpen(
     val forceExternal: Boolean,
     val forceInternal: Boolean,
     val isAutoPlay: Boolean,
-)
-
-private data class PendingStickyStreamOpen(
-    val stream: StreamItem,
-    val resumePositionMs: Long?,
-    val resumeProgressFraction: Float?,
 )
 
 private data class CatalogLaunch(
@@ -2584,34 +2577,16 @@ private fun MainAppContent(
                     val streamRouteScope = rememberCoroutineScope()
                     var resolvingDebridStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var pendingP2pStreamOpen by remember { mutableStateOf<PendingP2pStreamOpen?>(null) }
-                    var pendingStickyStreamOpen by remember { mutableStateOf<PendingStickyStreamOpen?>(null) }
                     var pendingUncachedStream by remember { mutableStateOf<StreamItem?>(null) }
                     var qualitySheetDismissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     var streamlinedSelectionPending by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Ids are resolution+variant, so they survive the refetch this round-trips through.
                     var pendingStreamlinedOptionId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    // Backing out of the quality sheet means "not now", so it returns to details
-                    // rather than uncovering the Classic source list the user chose Streamlined
-                    // to avoid - behind a bottom sheet a stray swipe would otherwise land there.
-                    //
-                    // `onBack` can silently do nothing: rememberGuardedPopBackStack pops only
-                    // while this route is current and returns Unit, so the caller cannot tell.
-                    // With `qualitySheetDismissed` set and `manualSourceListRequested` false the
-                    // opaque hand-off Box keeps painting over StreamsScreen, which would leave a
-                    // blank screen with no affordance - the same fault onPlaybackFailureExit
-                    // exists to prevent. Declared out here, beside the flags: this effect must
+                    // Set by the one exit that leaves rather than uncovering - see
+                    // `leaveToDetails`. Saved beside the other flags because that exit must
                     // outlive the sheet, which leaves composition the moment `onDismiss` runs.
-                    var qualitySheetDismissRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    LaunchedEffect(qualitySheetDismissRequested) {
-                        if (!qualitySheetDismissRequested) return@LaunchedEffect
-                        withFrameNanos { }
-                        if (navController.currentRoute == route) {
-                            // The pop no-oped. Uncovering the source list is what every other
-                            // dead end in this route does, and it leaves the user able to act.
-                            manualSourceListRequested = true
-                        }
-                    }
+                    var exitRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
 
                     /**
@@ -2623,15 +2598,42 @@ private fun MainAppContent(
                      * left the opaque hand-off surface - or the progress overlay - up over a
                      * screen the user could neither read nor leave. There is one way out now,
                      * and it always says something.
+                     *
+                     * [reason] null means "say the generic thing"; blank means say nothing,
+                     * which is what the explicit user actions want - they already know why.
                      */
-                    fun fallBackToSourceList(reason: String? = null) {
+                    fun giveUpToSourceList(reason: String? = null) {
                         qualitySheetDismissed = true
                         manualSourceListRequested = true
-                        (reason?.takeIf { it.isNotBlank() } ?: noAutomaticSourceMessage)
-                            .let(NuvioToastController::show)
+                        val message = reason ?: noAutomaticSourceMessage
+                        if (message.isNotBlank()) NuvioToastController.show(message)
                     }
 
-                    var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    /**
+                     * Leaves for the details screen, and uncovers the list if that pop no-ops.
+                     *
+                     * The second half is the load-bearing one. `onBack` can silently do nothing -
+                     * `rememberGuardedPopBackStack` pops only while this route is current and
+                     * returns Unit, so the caller cannot tell - and with the route still up and
+                     * nothing uncovered, the opaque hand-off Box keeps painting over
+                     * `StreamsScreen`: a blank screen with no affordance. Backing out of the
+                     * quality sheet and backing out of the player both needed this guard and both
+                     * grew their own copy; this is the one copy.
+                     */
+                    fun leaveToDetails() {
+                        exitRequested = true
+                        onBack()
+                    }
+                    LaunchedEffect(exitRequested) {
+                        if (!exitRequested) return@LaunchedEffect
+                        withFrameNanos { }
+                        if (navController.currentRoute == route) {
+                            // The pop no-oped. Uncovering is a poor outcome, but an opaque
+                            // nothing is a worse one, and it leaves the user able to act.
+                            giveUpToSourceList(reason = "")
+                        }
+                    }
+
                     // Streamlined covers the source list with the quality sheet until a tier is
                     // picked; from that point until playback starts the progress overlay owns the
                     // screen, so the list is never what the user is left looking at.
@@ -2644,9 +2646,6 @@ private fun MainAppContent(
                     // chain survives, so without this, backing out of the player lands on an
                     // opaque overlay with nothing to interact with.
                     var playbackHandedOff by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    var meteredChoice by remember(route.launchId) {
-                        mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
-                    }
                     val shouldResolveEpisodeVideoId =
                         launch.parentMetaId != null &&
                             launch.seasonNumber != null &&
@@ -2811,13 +2810,13 @@ private fun MainAppContent(
                         // with no candidate left to take it down.
                         if (stream.p2pInfoHash == null) {
                             if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
-                                fallBackToSourceList()
+                                giveUpToSourceList()
                             }
                             return
                         }
                         if (!P2pSettingsRepository.isVisible) {
                             if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
-                                fallBackToSourceList()
+                                giveUpToSourceList()
                             }
                             return
                         }
@@ -2890,42 +2889,7 @@ private fun MainAppContent(
                     val playbackQualityOptions = remember(playbackCandidates, playbackSelectionContext) {
                         PlaybackQualityOptions.build(playbackCandidates, playbackSelectionContext)
                     }
-                    val stickyContentId = remember(launch.parentMetaId, launch.seasonNumber) {
-                        val seriesId = launch.parentMetaId
-                        val season = launch.seasonNumber
-                        if (seriesId != null && season != null) {
-                            BingeGroupCacheRepository.stickyContentId(seriesId, season)
-                        } else {
-                            null
-                        }
-                    }
-                    val stickyPin = remember(stickyContentId) {
-                        stickyContentId?.let(BingeGroupCacheRepository::sessionPin)
-                    }
-                    val matchingStickyCandidate = remember(stickyPin, playbackCandidates) {
-                        stickyPin?.let { pin ->
-                            playbackCandidates.filter { it.stream.hasPlayableSource }.maxByOrNull { candidate ->
-                                pin.matchStrength(
-                                    candidateReleaseGroup = candidate.facts.releaseGroup,
-                                    candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
-                                    candidateAddonId = candidate.stream.addonId,
-                                    candidateProviderId = candidate.facts.providerId,
-                                    candidateResolutionHeight = candidate.facts.resolution?.height,
-                                ) ?: Int.MIN_VALUE
-                            }?.takeIf { candidate ->
-                                pin.matchStrength(
-                                    candidateReleaseGroup = candidate.facts.releaseGroup,
-                                    candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
-                                    candidateAddonId = candidate.stream.addonId,
-                                    candidateProviderId = candidate.facts.providerId,
-                                    candidateResolutionHeight = candidate.facts.resolution?.height,
-                                ) != null
-                            }
-                        }
-                    }
-
                     // Reuse Last Link: auto-play from cache if enabled (only on first entry).
-                    // A stored Streamlined pin must wait for candidates so it can outrank reuse.
                     // Saved, not remembered. A mode with a failure chain keeps this route on the
                     // back stack while the player is open, and NavDisplay composes only the top
                     // entry - so a plain `remember` came back null while `reuseHandled` (which
@@ -2957,17 +2921,13 @@ private fun MainAppContent(
                         playerSettings.streamReuseLastLinkEnabled,
                         playerSettings.streamReuseLastLinkCacheHours,
                         launch.manualSelection,
-                        stickyPin,
-                        matchingStickyCandidate,
-                        streamsUiState.requestToken,
-                        streamsUiState.isAnyLoading,
                     ) {
                         if (!hasResolvedVideoId) return@LaunchedEffect
                         if (reuseHandled) return@LaunchedEffect
-                        if (
-                            playerSettings.playbackMode == PlaybackMode.STREAMLINED && stickyPin != null &&
-                            (streamsUiState.requestToken != expectedStreamsRequestToken || streamsUiState.isAnyLoading)
-                        ) return@LaunchedEffect
+                        // No longer waits on the fetch. That gate existed only so a stored
+                        // Streamlined pin could be matched against real candidates before it
+                        // outranked reuse-last-link; with the pin gone the decision depends on
+                        // nothing the addons return, so it settles on the first frame again.
                         reuseHandled = true
                         val cacheKey = StreamLinkCacheRepository.contentKey(
                             type = launch.type,
@@ -2988,13 +2948,28 @@ private fun MainAppContent(
                                 manualSelection = launch.manualSelection,
                                 // Completed downloads are consumed before StreamRoute is created.
                                 hasCompletedLocalDownload = false,
-                                hasMatchingStickyPin = matchingStickyCandidate != null,
                                 reuseLastLinkEnabled = playerSettings.streamReuseLastLinkEnabled,
                                 hasValidCachedLink = cached != null,
                             ),
                         )
                         playbackRouteDecision = decision
                         if (decision is PlaybackRouteDecision.ReuseLastLink && cached != null) {
+                            // Streamlined promised a quality sheet and is about to skip it,
+                            // because a cached link for this exact episode outranks the mode
+                            // (precedence rule 4). Silently reusing it is the single biggest
+                            // reason Streamlined reads as non-deterministic: same show, same
+                            // tap, no sheet, no explanation. Say what happened and offer the
+                            // way out, which is the player's own Change source panel.
+                            //
+                            // Classic is deliberately excluded: nothing was skipped there -
+                            // the user never expected a sheet - so the toast would be noise.
+                            if (playerSettings.playbackMode == PlaybackMode.STREAMLINED) {
+                                NuvioToastController.show(
+                                    message = getString(Res.string.playback_reused_last_link),
+                                    actionLabel = getString(Res.string.playback_reused_last_link_change),
+                                    action = NuvioToastAction.ChangePlaybackSource,
+                                )
+                            }
                             if (cached.url.isBlank() && !cached.infoHash.isNullOrBlank()) {
                                 val cachedStream = StreamItem(
                                     name = cached.streamName,
@@ -3102,21 +3077,15 @@ private fun MainAppContent(
                                 // list is where backing out belongs.
                                 return@LaunchedEffect
                             }
-                            // Streamlined and Instant did not, and must not end up there:
-                            // this route is the mechanism, not a destination the user asked
-                            // for. Uncovering the list here also re-fetched it, because
-                            // `consumeAutoPlay` clears the request key - so one Back landed on
-                            // a "source loading" screen and it took a second to actually
-                            // leave. Carry the gesture through to the details screen instead,
-                            // which is what backing out of the quality sheet already does.
-                            onBack()
-                            withFrameNanos { }
-                            if (navController.currentRoute == route) {
-                                // The pop no-oped. Uncovering is a poor outcome here but an
-                                // opaque nothing is a worse one, and this is the same guard
-                                // `qualitySheetDismissRequested` carries for the same reason.
-                                manualSourceListRequested = true
-                            }
+                            // Streamlined did not, and must not end up there: this route is
+                            // the mechanism, not a destination the user asked for. Uncovering
+                            // the list here also re-fetched it, because `consumeAutoPlay`
+                            // clears the request key - so one Back landed on a "source
+                            // loading" screen and it took a second to actually leave. Carry
+                            // the gesture through to the details screen instead, which is what
+                            // backing out of the quality sheet already does - and through the
+                            // same exit, so the no-op guard exists once.
+                            leaveToDetails()
                             return@LaunchedEffect
                         }
                         playbackHandedOff = false
@@ -3160,19 +3129,15 @@ private fun MainAppContent(
                         if (launch.manualSelection) return@LaunchedEffect
                         val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
                             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
-                        val isInstantAutoPlay = playerSettings.playbackMode == PlaybackMode.INSTANT &&
-                            playbackRouteDecision is PlaybackRouteDecision.AutoPick
-                        // Streamlined runs through the same chain from the moment a tier is
-                        // chosen. Before that `streamlinedPlaybackStarting` is false and nothing
-                        // has been seeded, so the sheet is still the user's to answer.
-                        val isStreamlinedAutoPlay =
+                        // Streamlined runs the chain from the moment a tier is chosen. Before
+                        // that `streamlinedPlaybackStarting` is false and nothing has been
+                        // seeded, so the sheet is still the user's to answer.
+                        //
+                        // One flag, asked once: "is there a next candidate to fall to?".
+                        // Answering that in two ways is how the chain ends up half-wired.
+                        val hasFailureChain =
                             playerSettings.playbackMode == PlaybackMode.STREAMLINED &&
                                 streamlinedPlaybackStarting
-                        // Everything below that used to read `isInstantAutoPlay` was really
-                        // asking "is there a next candidate to fall to?". Streamlined now has
-                        // one, and answering that question in two different ways is how the
-                        // chain ends up half-wired.
-                        val hasFailureChain = isInstantAutoPlay || isStreamlinedAutoPlay
                         if (!isClassicAutoPlay && !hasFailureChain) return@LaunchedEffect
                         if (reuseNavigated) return@LaunchedEffect
                         if (autoPlayHandled && !hasFailureChain) return@LaunchedEffect
@@ -3204,7 +3169,7 @@ private fun MainAppContent(
                                         // this the progress overlay keeps covering the source
                                         // list with "Starting playback" for a playback that is
                                         // never going to start - a hang wearing a spinner.
-                                        fallBackToSourceList(resolved.toastMessage())
+                                        giveUpToSourceList(resolved.toastMessage())
                                     }
                                     if (!hasNextCandidate && resolved == DirectDebridPlayableResult.Stale) {
                                         StreamsRepository.reload(
@@ -3221,33 +3186,6 @@ private fun MainAppContent(
                             }
                         } else {
                             selectedStream
-                        }
-                        if (isInstantAutoPlay) {
-                            // Record what is actually about to play, not what was first chosen -
-                            // the failure chain above may have advanced past a dead candidate to
-                            // a different resolution, and both the pin and the toast have to
-                            // describe the source the user ends up watching.
-                            val openedFacts = playbackCandidates
-                                .firstOrNull { it.stream === selectedStream }?.facts
-                            openedFacts?.resolution?.height?.let { height ->
-                                BingeGroupCacheRepository.saveSessionInstantHeight(
-                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                    height = height,
-                                )
-                            }
-                            // Instant otherwise gives no indication of what it decided, which is
-                            // most of why a defensible pick reads as a random one.
-                            val detail = listOfNotNull(
-                                openedFacts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
-                                openedFacts?.releaseQuality?.takeIf { it.isNotBlank() },
-                                (openedFacts?.providerName ?: openedFacts?.debridService)
-                                    ?.takeIf { it.isNotBlank() },
-                            ).joinToString(" · ")
-                            if (detail.isNotBlank()) {
-                                NuvioToastController.show(
-                                    getString(Res.string.playback_instant_selected, detail),
-                                )
-                            }
                         }
                         val sourceUrl = stream.playableDirectUrl
                         if (sourceUrl == null && stream.needsLocalDebridResolve && stream.p2pInfoHash != null) {
@@ -3272,7 +3210,7 @@ private fun MainAppContent(
                             } else if (hasFailureChain) {
                                 // Same reasoning as the resolve-failure arm: an exhausted chain
                                 // must uncover the list rather than leave the overlay up.
-                                fallBackToSourceList()
+                                giveUpToSourceList()
                             }
                             return@LaunchedEffect
                         }
@@ -3491,46 +3429,6 @@ private fun MainAppContent(
                         )
                     }
 
-                    var stickyPinHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    LaunchedEffect(playbackRouteDecision, matchingStickyCandidate, stickyPinHandled) {
-                        if (playbackRouteDecision !is PlaybackRouteDecision.PlayStickyPin) return@LaunchedEffect
-                        val candidate = matchingStickyCandidate ?: return@LaunchedEffect
-                        if (stickyPinHandled) return@LaunchedEffect
-                        stickyPinHandled = true
-                        openSelectedStream(
-                            stream = candidate.stream,
-                            resolvedResumePositionMs = launch.resumePositionMs,
-                            resolvedResumeProgressFraction = launch.resumeProgressFraction,
-                            forceExternal = false,
-                            forceInternal = false,
-                        )
-                    }
-
-                    fun openManualStreamOrOfferPin(
-                        stream: StreamItem,
-                        resolvedResumePositionMs: Long?,
-                        resolvedResumeProgressFraction: Float?,
-                    ) {
-                        val shouldOfferPin = playerSettings.playbackMode == PlaybackMode.STREAMLINED &&
-                            stickyContentId != null && (launch.manualSelection || manualSourceListRequested)
-                        if (shouldOfferPin) {
-                            pendingStickyStreamOpen = PendingStickyStreamOpen(
-                                stream = stream,
-                                resumePositionMs = resolvedResumePositionMs,
-                                resumeProgressFraction = resolvedResumeProgressFraction,
-                            )
-                        } else {
-                            openSelectedStream(
-                                stream = stream,
-                                resolvedResumePositionMs = resolvedResumePositionMs,
-                                resolvedResumeProgressFraction = resolvedResumeProgressFraction,
-                                forceExternal = false,
-                                forceInternal = false,
-                            )
-                        }
-                    }
-
-
                     /**
                      * Arms the passive network measurement with what this source really costs.
                      *
@@ -3559,6 +3457,18 @@ private fun MainAppContent(
                                 qualitySheetDismissed = true
                                 streamlinedPlaybackStarting = true
                                 armNetworkObservation(result.stream)
+                                // Remember the band for the sitting, so the next episode plays
+                                // what the user just chose rather than re-deriving a resolution
+                                // from a bandwidth estimate that ratchets while they watch.
+                                // Written from the *option*, not from the source that opens:
+                                // the failure chain may advance past the winner, but it stays
+                                // inside the row, and the row is what was chosen.
+                                option.resolution?.height?.let { height ->
+                                    BingeGroupCacheRepository.saveSessionQualityHeight(
+                                        parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                        height = height,
+                                    )
+                                }
                                 // `select` has already ranked the whole row and handed back
                                 // everything behind the winner. Throwing those away is what made
                                 // one "not cached" answer the end of the road in Streamlined,
@@ -3573,7 +3483,7 @@ private fun MainAppContent(
                             is PlaybackSelectionResult.AskUncached -> {
                                 pendingUncachedStream = result.stream
                             }
-                            is PlaybackSelectionResult.NeedsManual -> fallBackToSourceList(result.reason)
+                            is PlaybackSelectionResult.NeedsManual -> giveUpToSourceList(result.reason)
                         }
                     }
 
@@ -3666,7 +3576,7 @@ private fun MainAppContent(
                         delay(STREAMLINED_SELECTION_TIMEOUT_MS)
                         streamlinedSelectionPending = false
                         pendingStreamlinedOptionId = null
-                        fallBackToSourceList(getString(Res.string.playback_sources_timed_out))
+                        giveUpToSourceList(getString(Res.string.playback_sources_timed_out))
                     }
 
                     LaunchedEffect(
@@ -3700,84 +3610,10 @@ private fun MainAppContent(
                         // stranding a user who has already chosen.
                             ?: playbackQualityOptions.firstOrNull()
                         if (option == null) {
-                            fallBackToSourceList()
+                            giveUpToSourceList()
                             return@LaunchedEffect
                         }
                         completeStreamlinedOptionSelection(option)
-                    }
-
-                    LaunchedEffect(
-                        playbackRouteDecision,
-                        playbackCandidates,
-                        streamsUiState.requestToken,
-                        streamsUiState.isAnyLoading,
-                        meteredChoice,
-                        instantSelectionHandled,
-                    ) {
-                        if (playbackRouteDecision !is PlaybackRouteDecision.AutoPick) return@LaunchedEffect
-                        if (instantSelectionHandled || reuseNavigated) return@LaunchedEffect
-                        if (streamsUiState.requestToken != expectedStreamsRequestToken || streamsUiState.isAnyLoading) {
-                            return@LaunchedEffect
-                        }
-                        val network = NetworkQualityRepository.current()
-                        if (network.isMetered && meteredChoice == null) return@LaunchedEffect
-
-                        // The metered cap is a resolution ceiling, applied to the derived rows
-                        // exactly as it used to be applied to the preset list.
-                        val maxHeight = playerSettings.playbackMeteredCapHeight
-                            .takeIf { network.isMetered && meteredChoice == MeteredPlaybackChoice.CAPPED }
-                        // Keep giving this show the resolution it got last episode, so long as
-                        // the estimate still carries it and the cap still allows it.
-                        val instantStickyId = launch.parentMetaId ?: effectiveVideoId
-                        val pinnedHeight = BingeGroupCacheRepository
-                            .sessionInstantHeight(instantStickyId)
-                        fun pickFor(estimateMbps: Double) = PlaybackQualityOptions.stickyAffordable(
-                            options = playbackQualityOptions,
-                            pinnedHeight = pinnedHeight,
-                            estimatedMbps = estimateMbps,
-                            maxHeight = maxHeight,
-                        )
-
-                        val option = pickFor(network.estimatedMbps)
-                        val first = option?.let {
-                            PlaybackSourceSelector.select(option = it, context = playbackSelectionContext)
-                        } ?: PlaybackSelectionResult.NeedsManual(noAutomaticSourceMessage)
-                        // On debrid the throughput belongs to the host, not to the line: a fast
-                        // connection through a slow provider must not read as "4K is fine".
-                        val selection = if (first is PlaybackSelectionResult.Play && !network.isMetered) {
-                            val facts = playbackCandidates
-                                .firstOrNull { it.stream === first.stream }?.facts
-                            val provider = facts?.debridService ?: facts?.providerId
-                            val providerEstimate = NetworkQualityRepository.current(provider).estimatedMbps
-                            val providerOption = pickFor(providerEstimate)
-                            if (providerOption != null && providerOption.id != option?.id) {
-                                PlaybackSourceSelector.select(
-                                    option = providerOption,
-                                    context = playbackSelectionContext,
-                                )
-                            } else {
-                                first
-                            }
-                        } else {
-                            first
-                        }
-                        instantSelectionHandled = true
-                        when (selection) {
-                            is PlaybackSelectionResult.Play -> {
-                                // The pin and the "playing X" toast are deliberately NOT written
-                                // here. This is the source Instant *chose*; the failure chain
-                                // below can still advance past it to a different resolution, and
-                                // pinning an intent that never played would reintroduce exactly
-                                // the churn this is meant to remove. Both happen at the open.
-                                armNetworkObservation(selection.stream)
-                                StreamsRepository.seedAutoPlayCandidates(
-                                    listOf(selection.stream) + selection.fallbacks,
-                                )
-                            }
-                            is PlaybackSelectionResult.AskUncached -> fallBackToSourceList()
-                            is PlaybackSelectionResult.NeedsManual ->
-                                fallBackToSourceList(selection.reason)
-                        }
                     }
 
                     // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
@@ -3791,9 +3627,7 @@ private fun MainAppContent(
                     // while the app is still deciding. The overlay covers it - it cannot replace
                     // it, because StreamsScreen owns the fetch this is reporting on.
                     val awaitingUserAnswer = pendingUncachedStream != null ||
-                        pendingStickyStreamOpen != null ||
-                        pendingP2pStreamOpen != null ||
-                        (NetworkQualityRepository.current().isMetered && meteredChoice == null)
+                        pendingP2pStreamOpen != null
                     val streamSurface = streamRouteSurface(
                         StreamRouteSurfaceInputs(
                             isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
@@ -3803,7 +3637,6 @@ private fun MainAppContent(
                             isQualitySheetRoute =
                                 playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
                             qualitySheetDismissed = qualitySheetDismissed,
-                            isAutoPickRoute = playbackRouteDecision is PlaybackRouteDecision.AutoPick,
                             isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
                             awaitingUserAnswer = awaitingUserAnswer,
                         ),
@@ -3842,7 +3675,7 @@ private fun MainAppContent(
                             streamsUiState.isAnyLoading
                         ) return@LaunchedEffect
                         delay(PLAYBACK_PROGRESS_STALL_GRACE_MS)
-                        fallBackToSourceList()
+                        giveUpToSourceList()
                     }
 
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -3866,10 +3699,12 @@ private fun MainAppContent(
                             downloadOnSelect = launch.downloadIntent,
                             showRepositoryAutoPlayOverlay = playerSettings.playbackMode == PlaybackMode.CLASSIC,
                             onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
-                                openManualStreamOrOfferPin(
+                                openSelectedStream(
                                     stream = stream,
                                     resolvedResumePositionMs = resolvedResumePositionMs,
                                     resolvedResumeProgressFraction = resolvedResumeProgressFraction,
+                                    forceExternal = false,
+                                    forceInternal = false,
                                 )
                             },
                             onStreamActionOpen = { stream, openExternally, resolvedResumePositionMs, resolvedResumeProgressFraction ->
@@ -3898,13 +3733,7 @@ private fun MainAppContent(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .background(MaterialTheme.nuvio.colors.background)
-                                    .pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                            while (true) {
-                                                awaitPointerEvent().changes.forEach { it.consume() }
-                                            }
-                                        }
-                                    },
+                                    .nuvioConsumePointerEvents(),
                             )
                         }
                         if (streamSurface == StreamRouteSurface.QualitySheet) {
@@ -3936,11 +3765,14 @@ private fun MainAppContent(
                                     manualSourceListRequested = true
                                 },
                                 onDismiss = {
+                                    // Backing out of the sheet means "not now", so it returns to
+                                    // details rather than uncovering the Classic source list the
+                                    // user chose Streamlined to avoid - behind a bottom sheet a
+                                    // stray swipe would otherwise land there.
                                     streamlinedSelectionPending = false
                                     pendingStreamlinedOptionId = null
                                     qualitySheetDismissed = true
-                                    qualitySheetDismissRequested = true
-                                    onBack()
+                                    leaveToDetails()
                                 },
                             )
                         }
@@ -3968,89 +3800,6 @@ private fun MainAppContent(
                                 },
                             )
                         }
-                        if (
-                            playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
-                            NetworkQualityRepository.current().isMetered &&
-                            meteredChoice == null
-                        ) {
-                            AlertDialog(
-                                onDismissRequest = {
-                                    NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
-                                    meteredChoice = MeteredPlaybackChoice.CAPPED
-                                },
-                                title = { Text(stringResource(Res.string.playback_metered_title)) },
-                                text = { Text(stringResource(Res.string.playback_metered_description)) },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.CAPPED)
-                                        meteredChoice = MeteredPlaybackChoice.CAPPED
-                                    }) { Text(stringResource(Res.string.playback_metered_capped)) }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = {
-                                        NetworkQualityRepository.rememberMeteredChoice(MeteredPlaybackChoice.FULL_QUALITY)
-                                        meteredChoice = MeteredPlaybackChoice.FULL_QUALITY
-                                    }) { Text(stringResource(Res.string.playback_metered_full)) }
-                                },
-                            )
-                        }
-                        pendingStickyStreamOpen?.let { pending ->
-                            AlertDialog(
-                                onDismissRequest = {
-                                    pendingStickyStreamOpen = null
-                                    openSelectedStream(
-                                        pending.stream,
-                                        pending.resumePositionMs,
-                                        pending.resumeProgressFraction,
-                                        forceExternal = false,
-                                        forceInternal = false,
-                                    )
-                                },
-                                title = { Text(stringResource(Res.string.playback_sticky_title)) },
-                                text = { Text(stringResource(Res.string.playback_sticky_description)) },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            val facts = SourceFactsExtractor.extract(pending.stream)
-                                            stickyContentId?.let { contentId ->
-                                                BingeGroupCacheRepository.saveSessionPin(
-                                                    contentId,
-                                                    StickySourcePin(
-                                                        releaseGroup = facts.releaseGroup,
-                                                        bingeGroup = pending.stream.behaviorHints.bingeGroup,
-                                                        addonId = pending.stream.addonId,
-                                                        providerId = facts.providerId,
-                                                        resolutionHeight = facts.resolution?.height,
-                                                    ),
-                                                )
-                                            }
-                                            pendingStickyStreamOpen = null
-                                            openSelectedStream(
-                                                pending.stream,
-                                                pending.resumePositionMs,
-                                                pending.resumeProgressFraction,
-                                                forceExternal = false,
-                                                forceInternal = false,
-                                            )
-                                        },
-                                    ) { Text(stringResource(Res.string.playback_sticky_use)) }
-                                },
-                                dismissButton = {
-                                    TextButton(
-                                        onClick = {
-                                            pendingStickyStreamOpen = null
-                                            openSelectedStream(
-                                                pending.stream,
-                                                pending.resumePositionMs,
-                                                pending.resumeProgressFraction,
-                                                forceExternal = false,
-                                                forceInternal = false,
-                                            )
-                                        },
-                                    ) { Text(stringResource(Res.string.playback_sticky_once)) }
-                                },
-                            )
-                        }
                         pendingP2pStreamOpen?.let { pending ->
                             P2pConsentDialog(
                                 onEnableP2p = {
@@ -4073,7 +3822,7 @@ private fun MainAppContent(
                                         // on "Starting playback" for a playback that had just
                                         // been called off.
                                         StreamsRepository.consumeAutoPlay()
-                                        fallBackToSourceList()
+                                        giveUpToSourceList()
                                     }
                                     pendingP2pStreamOpen = null
                                 },
@@ -4085,7 +3834,7 @@ private fun MainAppContent(
                                     PlaybackProgressInputs(
                                         isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
                                             streamsUiState.isAnyLoading,
-                                        hasChosenSource = instantSelectionHandled || streamlinedPlaybackStarting,
+                                        hasChosenSource = streamlinedPlaybackStarting,
                                         isResolvingLink = resolvingDebridStream,
                                         attempt = autoPickAttempt,
                                     ),
@@ -4888,6 +4637,9 @@ private fun MainAppContent(
                 onAction = { action ->
                     when (action) {
                         NuvioToastAction.OpenDownloads -> openDownloadsTab()
+                        // The player owns its source panel and this host sits above it, so
+                        // the request is handed over rather than navigated to.
+                        NuvioToastAction.ChangePlaybackSource -> PlayerSourcePanelRequest.request()
                     }
                 },
             )

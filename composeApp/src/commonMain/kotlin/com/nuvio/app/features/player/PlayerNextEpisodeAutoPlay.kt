@@ -9,6 +9,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.playback.PlaybackMode
+import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
@@ -41,6 +42,14 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     onDownloadedEpisodeSelected: (DownloadItem, MetaVideo) -> Unit,
     onEpisodeStreamSelected: (StreamItem, MetaVideo) -> Unit,
     onManualSelectionRequired: (MetaVideo) -> Unit,
+    /**
+     * The ranked remainder behind the chosen source, for the in-player failure chain.
+     *
+     * The next episode switches source *inside* the running player rather than relaunching
+     * through `PlayerLaunch`, so `autoPickedWithFailureChain` - which is how the stream route
+     * arms its chain - cannot reach here. The player holds these instead.
+     */
+    onFallbacksChanged: (List<StreamItem>) -> Unit,
     onSearchingChanged: (Boolean) -> Unit,
     onSourceNameChanged: (String?) -> Unit,
     onCountdownChanged: (Int?) -> Unit,
@@ -150,6 +159,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
 
         fun tryModeSourceSelection(streams: List<StreamItem>): StreamItem? {
             if (settings.playbackMode == PlaybackMode.CLASSIC) return null
+            // Cleared on every attempt: a stale chain from the previous episode would send
+            // a failure here to a source for the wrong video.
+            onFallbacksChanged(emptyList())
             // The episode's own runtime, so a derived option's bitrate is honest here too.
             // This context used to omit it and always assumed the 45-minute fallback.
             val selectionContext = PlaybackSelectionContext(
@@ -170,47 +182,31 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                     addonOrder = index,
                 )
             }
-            if (settings.playbackMode == PlaybackMode.STREAMLINED) {
-                val season = nextVideo.season
-                val pin = season?.let {
-                    BingeGroupCacheRepository.sessionPin(
-                        BingeGroupCacheRepository.stickyContentId(parentMetaId, it),
-                    )
-                }
-                val pinned = pin?.let { sticky ->
-                    candidates.maxByOrNull { candidate ->
-                        sticky.matchStrength(
-                            candidateReleaseGroup = candidate.facts.releaseGroup,
-                            candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
-                            candidateAddonId = candidate.stream.addonId,
-                            candidateProviderId = candidate.facts.providerId,
-                            candidateResolutionHeight = candidate.facts.resolution?.height,
-                        ) ?: Int.MIN_VALUE
-                    }?.takeIf { candidate ->
-                        sticky.matchStrength(
-                            candidateReleaseGroup = candidate.facts.releaseGroup,
-                            candidateBingeGroup = candidate.stream.behaviorHints.bingeGroup,
-                            candidateAddonId = candidate.stream.addonId,
-                            candidateProviderId = candidate.facts.providerId,
-                            candidateResolutionHeight = candidate.facts.resolution?.height,
-                        ) != null
-                    }
-                }
-                if (pinned != null) {
-                    val pinnedResult = PlaybackSourceSelector.select(listOf(pinned), selectionContext)
-                    if (pinnedResult is PlaybackSelectionResult.Play) return pinnedResult.stream
-                }
-            }
-            // The same derived options the sheet would show, picked the way Instant picks
-            // them. Streamlined used to hardcode the 1080p preset here and Instant resolved
-            // its own tier, which meant two pickers scoring one candidate set.
+            // The same derived options the quality sheet would show, picked the way the sheet
+            // itself would pick within a row - one selector over one candidate set.
             val options = PlaybackQualityOptions.build(candidates, selectionContext)
-            val option = PlaybackQualityOptions.highestAffordable(
+            // Prefer the band the user actually chose in the sheet for this show, so episode
+            // two is not re-derived from a bandwidth estimate that has moved since episode
+            // one. `stickyAffordable` is a tie-break, not a ceiling: it drops the preference
+            // the moment the estimate stops carrying it, and never invents a row this
+            // episode has no release for.
+            val chosenHeight = BingeGroupCacheRepository.sessionQualityHeight(parentMetaId)
+            val option = PlaybackQualityOptions.stickyAffordable(
                 options = options,
+                pinnedHeight = chosenHeight,
                 estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
             ) ?: return null
             return when (val result = PlaybackSourceSelector.select(option, selectionContext)) {
-                is PlaybackSelectionResult.Play -> result.stream
+                is PlaybackSelectionResult.Play -> {
+                    // The rest of the ranked row, so a source that dies mid-binge advances
+                    // instead of dropping the user into a manual list. Capped at the same
+                    // budget the stream route's chain runs to, so the two cannot disagree
+                    // about how many tries the user gets.
+                    onFallbacksChanged(result.fallbacks.take(PlaybackProgress.MAX_ATTEMPTS - 1))
+                    result.stream
+                }
+                // AskUncached lands here too: never start a "preparing" placeholder
+                // unattended, and there is no one watching to answer a dialog mid-binge.
                 else -> null
             }
         }

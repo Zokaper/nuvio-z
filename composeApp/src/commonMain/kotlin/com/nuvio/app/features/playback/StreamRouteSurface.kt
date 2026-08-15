@@ -55,8 +55,14 @@ data class StreamRouteSurfaceInputs(
     /** The route decision is `ShowQualitySheet`. */
     val isQualitySheetRoute: Boolean,
     val qualitySheetDismissed: Boolean,
-    /** The route decision is `AutoPick`. */
-    val isAutoPickRoute: Boolean,
+    /**
+     * A tier has been chosen and the automatic path is running.
+     *
+     * There used to be a second input beside this one, `isAutoPickRoute`, for Instant's
+     * sheet-less start. Instant is withdrawn and its route paths are gone, so the overlay has
+     * exactly one owner again - and two flags meaning "the automatic path is working" is how
+     * one of them ends up not being cleared.
+     */
     val isStreamlinedPlaybackStarting: Boolean,
     /** A dialog is up and needs an answer before anything else can happen. */
     val awaitingUserAnswer: Boolean,
@@ -95,8 +101,7 @@ fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = w
 
     inputs.awaitingUserAnswer -> StreamRouteSurface.SourceList
 
-    inputs.isAutoPickRoute || inputs.isStreamlinedPlaybackStarting ->
-        StreamRouteSurface.ProgressOverlay
+    inputs.isStreamlinedPlaybackStarting -> StreamRouteSurface.ProgressOverlay
 
     else -> StreamRouteSurface.HandOff
 }

@@ -5,6 +5,11 @@ import com.nuvio.app.core.debug.isDebugBuild
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamRequest
@@ -36,6 +41,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         if (currentFeedback != null) {
             renderedGestureFeedback = currentFeedback
         }
+    }
+
+    // "Change" on the reused-link toast. Raised outside the player - the route that reused
+    // the link pops itself on the way here - so it arrives as a request rather than a call.
+    // Skips the value present on the first composition: that one is history, not a request,
+    // and acting on it would open the panel every time the player is entered.
+    val sourcePanelRequest by PlayerSourcePanelRequest.requests.collectAsStateWithLifecycle()
+    var lastHandledSourcePanelRequest by remember { mutableStateOf(sourcePanelRequest) }
+    LaunchedEffect(sourcePanelRequest) {
+        if (sourcePanelRequest == lastHandledSourcePanelRequest) return@LaunchedEffect
+        lastHandledSourcePanelRequest = sourcePanelRequest
+        openSourcesPanel()
     }
 
     LaunchedEffect(parentMetaType, parentMetaId) {
@@ -244,15 +261,26 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         credentialRefreshAttemptedSourceUrl = null
     }
 
-    LaunchedEffect(activeSourceUrl, args.onFatalPlaybackError, PlaybackDebugSettings.hudEnabled) {
-        val onFatalPlaybackError = args.onFatalPlaybackError ?: return@LaunchedEffect
-        // Instant normally abandons a source that has not started within eight seconds. While
+    LaunchedEffect(
+        activeSourceUrl,
+        args.onFatalPlaybackError,
+        // An auto-played next episode carries its chain here rather than through
+        // `PlayerLaunch`, so the budget has to be armed for it too - see
+        // `nextEpisodeFallbacks`. Keying on it gives every source in the chain its own
+        // eight seconds instead of sharing the first one's.
+        nextEpisodeFallbacks,
+        PlaybackDebugSettings.hudEnabled,
+    ) {
+        val hasChain = args.onFatalPlaybackError != null || nextEpisodeFallbacks.isNotEmpty()
+        if (!hasChain) return@LaunchedEffect
+        // An auto-picked source that has not started within eight seconds is abandoned. While
         // diagnosing startup/buffering, that hides the useful state (and can reject a healthy
         // large source that is merely slow to prepare), so leave the player open for inspection.
         if (isDebugBuild && PlaybackDebugSettings.hudEnabled) return@LaunchedEffect
         delay(8_000L)
         if (!playbackSnapshot.isPlaying && playbackSnapshot.positionMs <= 0L) {
-            onFatalPlaybackError()
+            if (tryNextEpisodeFallback()) return@LaunchedEffect
+            args.onFatalPlaybackError?.invoke()
         }
     }
 

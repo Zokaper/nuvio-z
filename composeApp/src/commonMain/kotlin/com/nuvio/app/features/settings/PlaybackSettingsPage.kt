@@ -1208,23 +1208,32 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayNextEpisodeEnabled,
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_prefer_binge_group),
-                    description = stringResource(Res.string.settings_playback_prefer_binge_group_description),
-                    checked = autoPlayPlayerSettings.streamAutoPlayPreferBingeGroup,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayPreferBingeGroup,
-                )
-                if (autoPlayPlayerSettings.streamAutoPlayPreferBingeGroup) {
+                // Both rows only shape what the *next episode* picks, so they say nothing
+                // while nothing auto-plays. They shipped enabled and on by default under a
+                // master switch that is off by default, which advertised a feature that was
+                // not running - and is why "prefer binge group" appeared to do nothing.
+                //
+                // Nested rather than hidden: hiding them would take them off the page a
+                // settings search had just landed the user on.
+                if (autoPlayPlayerSettings.streamAutoPlayNextEpisodeEnabled) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_reuse_binge_group),
-                        description = stringResource(Res.string.settings_playback_reuse_binge_group_description),
-                        checked = autoPlayPlayerSettings.streamAutoPlayReuseBingeGroup,
+                        title = stringResource(Res.string.settings_playback_prefer_binge_group),
+                        description = stringResource(Res.string.settings_playback_prefer_binge_group_description),
+                        checked = autoPlayPlayerSettings.streamAutoPlayPreferBingeGroup,
                         isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayReuseBingeGroup,
+                        onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayPreferBingeGroup,
                     )
+                    if (autoPlayPlayerSettings.streamAutoPlayPreferBingeGroup) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_playback_reuse_binge_group),
+                            description = stringResource(Res.string.settings_playback_reuse_binge_group_description),
+                            checked = autoPlayPlayerSettings.streamAutoPlayReuseBingeGroup,
+                            isTablet = isTablet,
+                            onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayReuseBingeGroup,
+                        )
+                    }
                 }
                 SettingsGroupDivider(isTablet = isTablet)
                 var showThresholdModeDialog by remember { mutableStateOf(false) }

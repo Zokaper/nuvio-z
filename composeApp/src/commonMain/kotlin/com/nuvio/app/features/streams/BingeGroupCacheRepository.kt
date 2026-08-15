@@ -7,49 +7,36 @@ object BingeGroupCacheRepository {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * Streamlined's sticky pins, deliberately **not** persisted.
+     * The quality band the user chose in Streamlined's sheet, for this sitting only.
      *
-     * A pin skips the quality sheet outright, so a stored one silently turns Streamlined into
-     * Instant for that season - for as long as the pin exists, on that device, with nothing in
-     * the UI to clear it and no way to tell why the sheet stopped appearing. "Use this release
-     * for the rest of the season" is a reasonable thing to mean for the rest of a sitting; it
-     * is not a reasonable thing to mean forever.
+     * The complaint it answers: two taps that look identical to the user - same show, next
+     * episode - landed on different resolutions, because the next episode was picked by
+     * bandwidth estimate while the first was picked by hand, and the estimate ratchets upward
+     * as you watch. Someone who deliberately chose "1080p Low" got whatever the line could
+     * carry from episode two onward.
      *
-     * Keyed by [stickyContentId], which is a different key space from the binge-group cache
-     * below - that one is keyed by `parentMetaId`, is genuinely a long-lived preference, and
-     * keeps its storage untouched.
+     * A **resolution height, not a release**. Deliberately weaker than the sticky pin this
+     * replaced: it is a tie-break towards stability applied by
+     * `PlaybackQualityOptions.stickyAffordable`, never a ceiling and never a floor, so it can
+     * never make the sheet stop appearing or hold a quality the connection cannot carry.
+     *
+     * Session-scoped and keyed by `parentMetaId`, because the churn is episode-to-episode
+     * within one show and within one sitting. A stored value would silently outlive the
+     * decision that produced it. That is a different key space from the binge-group cache
+     * below, which is keyed the same way but is genuinely a long-lived preference and keeps
+     * its storage untouched.
      */
-    private val sessionPins = mutableMapOf<String, StickySourcePin>()
+    private val sessionQualityHeights = mutableMapOf<String, Int>()
 
-    fun saveSessionPin(contentId: String, pin: StickySourcePin) {
-        if (pin.isEmpty) sessionPins.remove(contentId) else sessionPins[contentId] = pin
-    }
-
-    fun sessionPin(contentId: String): StickySourcePin? = sessionPins[contentId]
-
-    /**
-     * Instant's remembered resolution for a series, for this sitting only.
-     *
-     * Deliberately **not** a [StickySourcePin]: a pin carrying only a resolution reads as
-     * [StickySourcePin.isEmpty], so it would be dropped on save, and a non-empty one would
-     * make Streamlined skip its quality sheet. This is a weaker, separate idea - "keep giving
-     * me the resolution you gave me last episode" - and it must not leak into that path.
-     *
-     * Keyed by `parentMetaId`, because the complaint it answers is episode-to-episode churn
-     * within one show, not within one season.
-     */
-    private val sessionInstantHeights = mutableMapOf<String, Int>()
-
-    fun saveSessionInstantHeight(parentMetaId: String, height: Int) {
+    fun saveSessionQualityHeight(parentMetaId: String, height: Int) {
         if (parentMetaId.isBlank() || height <= 0) return
-        sessionInstantHeights[parentMetaId] = height
+        sessionQualityHeights[parentMetaId] = height
     }
 
-    fun sessionInstantHeight(parentMetaId: String): Int? = sessionInstantHeights[parentMetaId]
+    fun sessionQualityHeight(parentMetaId: String): Int? = sessionQualityHeights[parentMetaId]
 
     fun clearSessionPins() {
-        sessionPins.clear()
-        sessionInstantHeights.clear()
+        sessionQualityHeights.clear()
     }
 
     fun save(contentId: String, bingeGroup: String) {
@@ -67,9 +54,6 @@ object BingeGroupCacheRepository {
             .getOrElse { StickySourcePin(bingeGroup = stored.trim()) }
             .takeUnless(StickySourcePin::isEmpty)
     }
-
-    fun stickyContentId(seriesId: String, seasonNumber: Int): String =
-        "$seriesId|season:$seasonNumber"
 
     fun remove(contentId: String) {
         BingeGroupCacheStorage.remove(hashedKey(contentId))

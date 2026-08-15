@@ -34,12 +34,6 @@ sealed class PlaybackRouteDecision {
         companion object { const val KEY = "local_download" }
     }
 
-    /** A pinned release matched; play it and skip the quality sheet. */
-    data class PlayStickyPin(override val reason: String) : PlaybackRouteDecision() {
-        override val key: String get() = KEY
-        companion object { const val KEY = "sticky_pin" }
-    }
-
     /** A cached link for this exact video is still valid; reuse it. */
     data class ReuseLastLink(override val reason: String) : PlaybackRouteDecision() {
         override val key: String get() = KEY
@@ -79,7 +73,6 @@ sealed class PlaybackRouteDecision {
         fun fromKey(key: String?, reason: String): PlaybackRouteDecision? = when (key) {
             ShowSourceList.KEY -> ShowSourceList(reason)
             PlayLocalDownload.KEY -> PlayLocalDownload(reason)
-            PlayStickyPin.KEY -> PlayStickyPin(reason)
             ReuseLastLink.KEY -> ReuseLastLink(reason)
             ShowQualitySheet.KEY -> ShowQualitySheet(reason)
             AutoPick.KEY -> AutoPick(reason)
@@ -100,8 +93,6 @@ data class PlaybackRouteInputs(
     /** `StreamLaunch.manualSelection` - the long-press / right-click / "Select source" path. */
     val manualSelection: Boolean,
     val hasCompletedLocalDownload: Boolean,
-    /** A pin exists for this series+season *and* at least one candidate matches it. */
-    val hasMatchingStickyPin: Boolean,
     val reuseLastLinkEnabled: Boolean,
     val hasValidCachedLink: Boolean,
 )
@@ -117,10 +108,18 @@ data class PlaybackRouteInputs(
  *  - the reuse-last-link effect is itself gated on `!launch.manualSelection` and fires
  *    *before* auto-play evaluation.
  *
- * So the order is `manualSelection` > local download > sticky pin > reuse-last-link > mode.
- * The sticky pin is inserted above reuse-last-link on purpose: without that, a Streamlined
- * user with reuse-last-link on would never see the quality sheet, because the reuse branch
- * would answer first for every episode they had already watched.
+ * So the order is `manualSelection` > local download > reuse-last-link > mode.
+ *
+ * A sticky-pin rule used to sit above reuse-last-link, so that a release the user pinned for
+ * a season beat a cached link. It was withdrawn in `0.5.0-beta`: the pin could only be
+ * created from the long-press escape hatch, so the ordinary Streamlined flow never made one,
+ * and once made it silently stopped the quality sheet appearing for that season with nothing
+ * in the UI to say why or to clear it. [StickySourcePin] is kept for when it is surfaced
+ * properly - this is a product deferral, not a rejection of the idea.
+ *
+ * Reuse-last-link therefore now answers first for an episode the user has already watched,
+ * and Streamlined says so rather than skipping its sheet silently - see the toast raised
+ * beside [ReuseLastLink] in `entry<StreamRoute>`.
  *
  * `streamAutoPlayMode` (MANUAL / FIRST_STREAM / REGEX_MATCH) is **not** an input here. It
  * stays a Classic-only setting; letting it run alongside [PlaybackSourceSelector] would put
@@ -134,11 +133,6 @@ object PlaybackModeRouter {
 
         inputs.hasCompletedLocalDownload ->
             PlaybackRouteDecision.PlayLocalDownload("a completed download exists on this device")
-
-        // Only Streamlined pins. Classic never auto-picks, and Instant answers to the
-        // connection rather than to a release the user liked three episodes ago.
-        inputs.mode == PlaybackMode.STREAMLINED && inputs.hasMatchingStickyPin ->
-            PlaybackRouteDecision.PlayStickyPin("a pinned release matched this episode")
 
         inputs.reuseLastLinkEnabled && inputs.hasValidCachedLink ->
             PlaybackRouteDecision.ReuseLastLink("a cached link for this video is still valid")

@@ -23,6 +23,7 @@ import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.playback_source_failed_advancing
 import nuvio.composeapp.generated.resources.player_source_switched
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
@@ -669,6 +670,7 @@ internal fun PlayerScreenRuntime.playNextEpisode() {
         currentStreamBingeGroup = currentStreamBingeGroup,
         onDownloadedEpisodeSelected = { item, episode -> switchToDownloadedEpisode(item, episode) },
         onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
+        onFallbacksChanged = { nextEpisodeFallbacks = it },
         onManualSelectionRequired = { nextVideo ->
             episodeStreamsPanelState = EpisodeStreamsPanelState(
                 showStreams = true,
@@ -717,6 +719,7 @@ internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
         currentStreamBingeGroup = currentStreamBingeGroup,
         onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
         onEpisodeStreamSelected = { stream, video -> switchToEpisodeStream(stream, video) },
+        onFallbacksChanged = { nextEpisodeFallbacks = it },
         onManualSelectionRequired = { video ->
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = video)
             showEpisodesPanel = true
@@ -726,6 +729,43 @@ internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
         onCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
         onNextEpisodeCardVisibleChanged = { showNextEpisodeCard = it },
     )
+}
+
+/**
+ * Advances an auto-played next episode to the next ranked source, if there is one.
+ *
+ * Returns false when the chain is empty or spent, which is the caller's cue to fall through
+ * to whatever it did before this existed - `onFatalPlaybackError` for the stream route's own
+ * chain, or the episode panel.
+ *
+ * The episode is resolved from `activeVideoId` rather than carried alongside the chain:
+ * `switchToEpisodeStream` has already set the `active*` fields to the episode these fallbacks
+ * belong to, so a second copy of that fact could only ever disagree with it. If it cannot be
+ * resolved the chain is dropped, because switching to a source without knowing which episode
+ * it is for is how a retry plays the wrong video.
+ */
+internal fun PlayerScreenRuntime.tryNextEpisodeFallback(): Boolean {
+    val next = nextEpisodeFallbacks.firstOrNull() ?: return false
+    val episode = playerMetaVideos.firstOrNull { it.id == activeVideoId }
+    if (episode == null) {
+        nextEpisodeFallbacks = emptyList()
+        return false
+    }
+    nextEpisodeFallbacks = nextEpisodeFallbacks.drop(1)
+    // Named, because a silent swap mid-binge is indistinguishable from a stutter - the same
+    // reasoning as `announceSourceFailure` on the stream route.
+    val failed = activeStreamTitle.takeIf { it.isNotBlank() }
+    scope.launch {
+        NuvioToastController.show(
+            if (failed == null) {
+                getString(Res.string.playback_source_failed_advancing, next.streamLabel)
+            } else {
+                getString(Res.string.playback_source_failed_advancing, failed)
+            },
+        )
+    }
+    switchToEpisodeStream(next, episode)
+    return true
 }
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {
