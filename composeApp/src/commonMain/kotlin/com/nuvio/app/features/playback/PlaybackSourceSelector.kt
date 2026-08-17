@@ -2,11 +2,8 @@ package com.nuvio.app.features.playback
 
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
-import com.nuvio.app.features.downloads.SizePreference
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
-import com.nuvio.app.features.downloads.SourceRanking
-import com.nuvio.app.features.downloads.SourceRankingPreferences
 import com.nuvio.app.features.streams.StreamItem
 
 data class PlaybackSourceCandidate(

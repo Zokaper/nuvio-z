@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -39,6 +40,51 @@ class StreamlinedFailureChainTest {
         // The whole point: a resolve failure on the winner has somewhere to go.
         assertTrue(StreamsRepository.skipAutoPlayStream(play.stream))
         assertEquals(play.fallbacks.first(), StreamsRepository.uiState.value.autoPlayStream)
+    }
+
+    @Test
+    fun `a seeded chain never outruns the attempt counter the user is shown`() {
+        // The overlay prints "Attempt N of MAX_ATTEMPTS" and used to coerce that display,
+        // because the route seeded the *whole* ranked row. A deep bucket therefore ground
+        // through every candidate while the number sat pinned at its maximum - a progress
+        // figure that stops moving reads as a hang, and the escape it implies never arrives.
+        val row = row(
+            cached("https://cdn.example/a.mkv"),
+            cached("https://cdn.example/b.mkv"),
+            cached("https://cdn.example/c.mkv"),
+            cached("https://cdn.example/d.mkv"),
+            cached("https://cdn.example/e.mkv"),
+        )
+        val play = assertIs<PlaybackSelectionResult.Play>(PlaybackSourceSelector.select(row, CONTEXT))
+        // The selector still hands back everything; the budget is the route's to apply.
+        assertTrue(play.fallbacks.size > PLAYBACK_MAX_ATTEMPTS - 1)
+
+        val chain = playbackChain(play.stream, play.fallbacks)
+        assertEquals(PLAYBACK_MAX_ATTEMPTS, chain.size)
+        assertEquals(play.stream, chain.first())
+
+        StreamsRepository.seedAutoPlayCandidates(chain)
+        // Walk it to the end: exactly MAX_ATTEMPTS - 1 advances, then the chain is spent and
+        // `App.kt` uncovers the source list rather than advancing to a candidate the counter
+        // has no room left to name.
+        repeat(PLAYBACK_MAX_ATTEMPTS - 1) { step ->
+            val current = StreamsRepository.uiState.value.autoPlayStream
+            assertNotNull(current, "chain ended early at step $step")
+            assertTrue(StreamsRepository.skipAutoPlayStream(current), "chain ended early at step $step")
+        }
+        val last = StreamsRepository.uiState.value.autoPlayStream
+        assertNotNull(last)
+        assertFalse(StreamsRepository.skipAutoPlayStream(last))
+        assertNull(StreamsRepository.uiState.value.autoPlayStream)
+    }
+
+    @Test
+    fun `a chain shorter than the budget is left alone`() {
+        // The cap is a ceiling, never a floor: a row with one fallback must still seed two.
+        val row = row(cached("https://cdn.example/a.mkv"), cached("https://cdn.example/b.mkv"))
+        val play = assertIs<PlaybackSelectionResult.Play>(PlaybackSourceSelector.select(row, CONTEXT))
+
+        assertEquals(listOf(play.stream) + play.fallbacks, playbackChain(play.stream, play.fallbacks))
     }
 
     @Test

@@ -6,6 +6,60 @@ package com.nuvio.app.features.playback
 // decide them lived inside a Compose route entry that no test can reach.
 
 /**
+ * How many sources an automatic path may try before it hands the screen back.
+ *
+ * Lives here rather than beside the overlay that prints it because the overlay is a Compose
+ * file, and a budget nothing can execute is a budget that drifts from the code spending it -
+ * which is exactly what happened. `entry<StreamRoute>` seeded the *whole* ranked row while the
+ * overlay coerced its display to this number, so a deep bucket ground through nine candidates
+ * showing "Attempt 3 of 3": a progress figure that stops moving, which reads as a hang.
+ *
+ * `PlaybackProgress.MAX_ATTEMPTS` is this value; both names exist so the overlay can keep
+ * talking about itself, and there is still only one number.
+ */
+const val PLAYBACK_MAX_ATTEMPTS: Int = 3
+
+/**
+ * The chain an automatic path walks: the winner, then as many fallbacks as the budget allows.
+ *
+ * Generic because this file may not import [com.nuvio.app.features.streams.StreamItem] - see
+ * the note at the top - and because the rule is about counting, not about streams.
+ *
+ * Capping at the seed rather than at the walk is deliberate: `StreamsRepository` answers
+ * "is there a next candidate?" and every bail-out in the route is written against that answer.
+ * A budget enforced anywhere else would need a second way to say "spent", and two of those is
+ * how one of them ends up not being checked.
+ */
+fun <T> playbackChain(winner: T, fallbacks: List<T>): List<T> =
+    listOf(winner) + fallbacks.take(PLAYBACK_MAX_ATTEMPTS - 1)
+
+/**
+ * Whether the progress overlay should offer a way out yet.
+ *
+ * The overlay covers `StreamsScreen` completely and consumes pointer input, so until this
+ * answers true the only exit is Back - which abandons the play rather than dropping to the
+ * source list. That was survivable while the automatic path was fast and became a trap the
+ * moment a debrid mint went slow: the user tapped a quality, got a spinner, and had no way to
+ * say "just show me the list" without losing the tap.
+ *
+ * Not shown from the first frame, because the happy path resolves in well under a second and
+ * an escape hatch offered before anything has gone wrong invites the user to leave a flow that
+ * was about to work. Either signal opens it: a failure has been seen ([attempt] above 1), or
+ * enough wall-clock has passed that the wait itself is the problem.
+ */
+fun shouldOfferManualEscape(attempt: Int, elapsedMs: Long): Boolean =
+    attempt > 1 || elapsedMs >= MANUAL_ESCAPE_DELAY_MS
+
+/**
+ * How long a silent automatic start may run before it offers the source list.
+ *
+ * Five seconds is past the point where a working debrid mint has answered and well short of
+ * [STREAMLINED_SELECTION_TIMEOUT_MS], which is the backstop for a wait nothing else bounds.
+ * This is not that: it adds a choice, it never takes the wait away.
+ */
+const val MANUAL_ESCAPE_DELAY_MS: Long = 5_000L
+
+/**
  * What `entry<StreamRoute>` puts in front of the user.
  *
  * That route stacks four things over one `StreamsScreen` - the opaque hand-off surface, the
@@ -56,6 +110,19 @@ data class StreamRouteSurfaceInputs(
     val isQualitySheetRoute: Boolean,
     val qualitySheetDismissed: Boolean,
     /**
+     * A band chosen earlier in this sitting is going to answer the sheet's question.
+     *
+     * Set while the route is still waiting for the fetch to settle, so the sheet is never drawn
+     * on a play that is not going to ask anything. Without it the user watched a skeleton grid
+     * appear and vanish on every episode - a question flashed and withdrawn, which is worse
+     * than either asking or not.
+     *
+     * Cleared by the route the moment `PlaybackQualityOptions.rememberedOption` answers null:
+     * this episode has no release in that band, so the question is live again and the sheet is
+     * the honest answer.
+     */
+    val hasRememberedBand: Boolean = false,
+    /**
      * A tier has been chosen and the automatic path is running.
      *
      * There used to be a second input beside this one, `isAutoPickRoute`, for Instant's
@@ -84,17 +151,25 @@ data class StreamRouteSurfaceInputs(
  *    immediately re-fetched and the "source loading" screen sat there until a second Back.
  *    **The route must not rest here** - `entry<StreamRoute>` pops itself to details, and falls
  *    back to `manualSourceListRequested` if that pop no-ops.
- * 3. The sheet, while it is still the user's to answer.
- * 4. **A question uncovers the list too**, so dismissing the dialog leaves something usable
+ * 3. **A remembered band answers the sheet's question**, so the overlay owns the screen instead
+ *    and the sheet is never drawn on a play that is not going to ask. Above the sheet rather
+ *    than below it because the sheet's own condition is still true here - the route is
+ *    `ShowQualitySheet` and nothing has been dismissed - and drawing it for the frames before
+ *    the auto-selection lands is a question flashed and withdrawn.
+ * 4. The sheet, while it is still the user's to answer.
+ * 5. **A question uncovers the list too**, so dismissing the dialog leaves something usable
  *    behind it rather than the opaque surface.
- * 5. The overlay, while the automatic path can still finish.
- * 6. Hand-off, before a decision exists. The only legitimate blank frame there is.
+ * 6. The overlay, while the automatic path can still finish.
+ * 7. Hand-off, before a decision exists. The only legitimate blank frame there is.
  */
 fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = when {
     inputs.isClassic || inputs.isManualLaunch || inputs.manualSourceListRequested ->
         StreamRouteSurface.SourceList
 
     inputs.hasNavigatedAway -> StreamRouteSurface.HandOff
+
+    inputs.isQualitySheetRoute && inputs.hasRememberedBand && !inputs.qualitySheetDismissed ->
+        StreamRouteSurface.ProgressOverlay
 
     inputs.isQualitySheetRoute && !inputs.qualitySheetDismissed ->
         StreamRouteSurface.QualitySheet

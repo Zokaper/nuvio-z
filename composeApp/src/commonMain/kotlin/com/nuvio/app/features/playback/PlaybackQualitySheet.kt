@@ -634,6 +634,28 @@ private fun ResolutionBadge(text: String) {
 }
 
 /**
+ * A band named in full - `1080p High`, `4K`, `Best available` - for callers with no badge.
+ *
+ * The sheet itself never needs this: it puts the resolution in a badge and the band word in the
+ * row, and repeating either would be saying one thing twice. Anything *outside* the sheet has
+ * neither, and has to name the whole choice - the toast that announces a skipped sheet is the
+ * case this exists for, and it has to use the user's own words for the row they picked or the
+ * announcement names something they will not recognise.
+ *
+ * Built from [variantLabel] rather than beside it, so the sheet and everything quoting it
+ * cannot drift.
+ */
+@Composable
+fun playbackQualityOptionLabel(option: PlaybackQualityOption): String {
+    if (option.variant == PlaybackQualityOption.Variant.BEST) {
+        return stringResource(Res.string.playback_quality_best)
+    }
+    val resolution = option.resolutionLabel
+    val variant = variantLabel(option)
+    return listOf(resolution, variant).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+/**
  * The row's band word, given that the resolution is already in the badge above it.
  *
  * "4K" belongs in the badge; "High" is a comparison with the rows around it. A resolution

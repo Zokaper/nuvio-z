@@ -8,7 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -16,12 +22,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.nuvio
+import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_attempt
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_progress_finding
 import nuvio.composeapp.generated.resources.playback_progress_resolving
+import nuvio.composeapp.generated.resources.playback_progress_source_failed
+import nuvio.composeapp.generated.resources.playback_progress_source_failed_reason
 import nuvio.composeapp.generated.resources.playback_progress_starting
+import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.streams_finding_source
 import org.jetbrains.compose.resources.stringResource
 
@@ -67,10 +77,15 @@ data class PlaybackProgressInputs(
 object PlaybackProgress {
 
     /**
-     * The retry budget Instant's failure chain runs to, mirrored from the plan so the overlay
-     * and the chain cannot disagree about how many tries the user is being told about.
+     * The retry budget the failure chain runs to, so the overlay and the chain cannot disagree
+     * about how many tries the user is being told about.
+     *
+     * Defined in `StreamRouteSurface.kt` and aliased here. That file has no imports and is the
+     * one thing `scripts/run-pure-suites.sh` can actually execute, so the budget and the
+     * function that spends it ([playbackChain]) are covered by a test that runs without Gradle -
+     * which is how the drift this fixes would have been caught.
      */
-    const val MAX_ATTEMPTS: Int = 3
+    const val MAX_ATTEMPTS: Int = PLAYBACK_MAX_ATTEMPTS
 
     /**
      * Resolving is checked first because it is the only step with a real, observable wait: a
@@ -93,11 +108,30 @@ object PlaybackProgress {
 }
 
 /**
+ * The source an automatic path has just given up on, for the overlay to name.
+ *
+ * [label] comes from `PlaybackSourceSelector.describe` - `1080p · WEB-DL · TorBox` - falling
+ * back to the stream's own label when nothing is known about it. [reason] is the provider's
+ * words when it gave any, and null when it simply failed.
+ */
+data class PlaybackProgressFailure(
+    val label: String,
+    val reason: String? = null,
+)
+
+/**
  * The full-bleed progress surface.
  *
  * It **covers** `StreamsScreen` rather than replacing it, because `StreamsScreen` owns the
  * fetch (`LaunchedEffect { StreamsRepository.load(...) }`). Composing it away would cancel the
  * very load this overlay is reporting on.
+ *
+ * **It is also the only thing on screen**, and it consumes pointer input, so anything the user
+ * needs to be able to do while an automatic start is running has to be here. That is why
+ * [onChooseManually] exists: failures used to be reported by toast over this surface while the
+ * only exit was Back, which abandoned the play rather than dropping to the source list. One
+ * surface now says what went wrong and offers the way out, and it appears on
+ * [shouldOfferManualEscape]'s terms rather than from the first frame.
  */
 @Composable
 fun PlaybackProgressOverlay(
@@ -105,7 +139,20 @@ fun PlaybackProgressOverlay(
     modifier: Modifier = Modifier,
     attempt: Int = 1,
     maxAttempts: Int = PlaybackProgress.MAX_ATTEMPTS,
+    failure: PlaybackProgressFailure? = null,
+    onChooseManually: (() -> Unit)? = null,
 ) {
+    // Wall-clock since this surface appeared, so a start that is merely slow eventually offers
+    // the same way out a failed one does. Reset whenever the overlay is recomposed into place
+    // rather than kept across launches - a stale elapsed time would put the escape hatch up on
+    // the first frame of the next play.
+    var isPastEscapeDelay by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(MANUAL_ESCAPE_DELAY_MS)
+        isPastEscapeDelay = true
+    }
+    val elapsedMs = if (isPastEscapeDelay) MANUAL_ESCAPE_DELAY_MS else 0L
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -133,8 +180,10 @@ fun PlaybackProgressOverlay(
             )
             if (attempt > 1) {
                 Text(
-                    // Coerced because the seeded candidate list is not itself capped at
-                    // MAX_ATTEMPTS - "Attempt 5 of 3" is otherwise reachable.
+                    // Belt and braces. `entry<StreamRoute>` now seeds at most [MAX_ATTEMPTS]
+                    // candidates, so the chain cannot outrun this on its own - but the counter
+                    // is also bumped by the player-retry path, which advances independently of
+                    // the seed. Coercing keeps "Attempt 5 of 3" unreachable either way.
                     text = stringResource(
                         Res.string.playback_progress_attempt,
                         attempt.coerceAtMost(maxAttempts),
@@ -144,6 +193,31 @@ fun PlaybackProgressOverlay(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+            }
+            // Named, not toasted. A toast over this surface restated the attempt line above it
+            // and could stack once per dead candidate; worse, it outlived the overlay, so the
+            // last thing a user saw after a successful third attempt was a complaint about the
+            // second. Here it is scoped to the wait it belongs to.
+            failure?.let { failed ->
+                Text(
+                    text = if (failed.reason.isNullOrBlank()) {
+                        stringResource(Res.string.playback_progress_source_failed, failed.label)
+                    } else {
+                        stringResource(
+                            Res.string.playback_progress_source_failed_reason,
+                            failed.label,
+                            failed.reason,
+                        )
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (onChooseManually != null && shouldOfferManualEscape(attempt, elapsedMs)) {
+                TextButton(onClick = onChooseManually) {
+                    Text(stringResource(Res.string.playback_quality_manual))
+                }
             }
         }
     }

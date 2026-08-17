@@ -1105,7 +1105,7 @@
     <string name="playback_mode_classic_download">One episode or movie opens the source list; a whole season uses your preset</string>
     <string name="playback_mode_streamlined_tagline">Quality without the wall of releases</string>
     <string name="playback_mode_streamlined_stream_1">Pick a quality, Nuvio picks the release</string>
-    <string name="playback_mode_streamlined_stream_2">Pin a release to reuse it for the rest of a season</string>
+    <string name="playback_mode_streamlined_stream_2">Remembers the quality you picked for the rest of the show</string>
     <string name="playback_mode_streamlined_download">Always asks which preset to use</string>
     <string name="playback_mode_instant_tagline">Press play, it plays</string>
     <string name="playback_mode_instant_stream_1">Quality and source chosen from your connection</string>
@@ -1113,6 +1113,7 @@
     <string name="playback_mode_instant_download">Starts straight away with the preset matching your connection</string>
     <string name="playback_mode_escape_hatch">In every mode, long-press an episode to pick the source yourself for one play.</string>
     <string name="playback_mode_unavailable">Not available in this version</string>
+    <string name="settings_playback_classic_only">Classic picks sources from the list, so this does not apply.</string>
     <string name="playback_quality_title">Choose playback quality</string>
     <string name="playback_quality_description">Nuvio will choose the best matching source.</string>
     <string name="playback_quality_loading">Finding available sources…</string>
@@ -1134,11 +1135,15 @@
     <string name="playback_sources_timed_out">Sources are taking too long. Choose one manually.</string>
     <string name="playback_source_failed_advancing">%1$s did not start. Trying the next source…</string>
     <string name="playback_source_failed_advancing_reason">%1$s: %2$s. Trying the next source…</string>
+    <string name="playback_source_failed_advancing_unnamed">That source did not start. Trying the next source…</string>
     <string name="playback_progress_finding">Looking for sources…</string>
     <string name="playback_progress_choosing">Choosing the best source</string>
     <string name="playback_progress_resolving">Preparing the link</string>
     <string name="playback_progress_starting">Starting playback</string>
     <string name="playback_progress_attempt">Attempt %1$d of %2$d</string>
+    <string name="playback_progress_source_failed">%1$s did not start</string>
+    <string name="playback_progress_source_failed_reason">%1$s: %2$s</string>
+    <string name="playback_band_remembered">Playing %1$s</string>
     <string name="playback_reused_last_link">Resuming your last source</string>
     <string name="playback_reused_last_link_change">Change</string>
     <string name="playback_uncached_title">Nothing is cached</string>

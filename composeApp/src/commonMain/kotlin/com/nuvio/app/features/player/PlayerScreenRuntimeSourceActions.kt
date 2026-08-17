@@ -511,6 +511,10 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
 internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
     credentialRefreshesUsed = 0
     credentialRefreshAttemptedSourceUrl = null
+    // An explicit pick retires the automatic chain. Without this the eight-second watchdog
+    // still fires against the chosen source, and a large remux that is merely slow to prepare
+    // gets swapped out for a source the user did not ask for.
+    nextEpisodeFallbacks = emptyList()
     switchToSource(stream)
 }
 
@@ -692,7 +696,12 @@ internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
         selectDownloadedEpisodeForPlayback(
             parentMetaId = parentMetaId,
             episode = episode,
-            onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
+            onDownloadedEpisodeSelected = { item, video ->
+                // The chain was ranked for whatever was playing before this pick; carrying it
+                // into a different episode is how a stalled file retries the wrong video.
+                nextEpisodeFallbacks = emptyList()
+                switchToDownloadedEpisode(item, video)
+            },
         )
     ) return
 
@@ -754,11 +763,15 @@ internal fun PlayerScreenRuntime.tryNextEpisodeFallback(): Boolean {
     nextEpisodeFallbacks = nextEpisodeFallbacks.drop(1)
     // Named, because a silent swap mid-binge is indistinguishable from a stutter - the same
     // reasoning as `announceSourceFailure` on the stream route.
+    // Only ever the source that died - naming `next` here told the user the source about to
+    // play had already failed. Downloaded and P2P sources can leave the title blank, so the
+    // provider name stands in before giving up on naming it at all.
     val failed = activeStreamTitle.takeIf { it.isNotBlank() }
+        ?: activeProviderName.takeIf { it.isNotBlank() }
     scope.launch {
         NuvioToastController.show(
             if (failed == null) {
-                getString(Res.string.playback_source_failed_advancing, next.streamLabel)
+                getString(Res.string.playback_source_failed_advancing_unnamed)
             } else {
                 getString(Res.string.playback_source_failed_advancing, failed)
             },

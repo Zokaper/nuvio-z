@@ -236,10 +236,13 @@ import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackProgress
+import com.nuvio.app.features.playback.PlaybackProgressFailure
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressOverlay
 import com.nuvio.app.features.playback.PLAYBACK_PROGRESS_STALL_GRACE_MS
 import com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS
+import com.nuvio.app.features.playback.playbackChain
+import com.nuvio.app.features.playback.playbackQualityOptionLabel
 import com.nuvio.app.features.playback.StreamRouteSurface
 import com.nuvio.app.features.playback.StreamRouteSurfaceInputs
 import com.nuvio.app.features.playback.streamRouteSurface
@@ -2583,6 +2586,21 @@ private fun MainAppContent(
                     // Ids are resolution+variant, so they survive the refetch this round-trips through.
                     var pendingStreamlinedOptionId by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
                     var manualSourceListRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // The band chosen earlier in this sitting for this show, read once. Read
+                    // once because the route *clears* it on "Change", and a value that moved
+                    // underneath the effects below would let one frame see a band and the next
+                    // not - which decides whether a sheet is shown.
+                    val rememberedBandId = remember(route.launchId) {
+                        BingeGroupCacheRepository.sessionQualityBandId(
+                            launch.parentMetaId ?: launch.videoId,
+                        )
+                    }
+                    // Set when this episode has no release in the remembered band. The question
+                    // is live again, so the sheet must appear - see
+                    // `PlaybackQualityOptions.rememberedOption`, which answers null rather than
+                    // substituting a band the user never picked.
+                    var rememberedBandMissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    var rememberedBandHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Set by the one exit that leaves rather than uncovering - see
                     // `leaveToDetails`. Saved beside the other flags because that exit must
                     // outlive the sheet, which leaves composition the moment `onDismiss` runs.
@@ -2641,6 +2659,19 @@ private fun MainAppContent(
                     // 1-based, and only ever advanced by the auto-pick failure chain. The overlay
                     // shows it so a silent retry does not read as a hang.
                     var autoPickAttempt by rememberSaveable(route.launchId) { mutableStateOf(1) }
+                    // The source the chain last gave up on, rendered by the progress overlay.
+                    // Not `rememberSaveable`: it describes the wait currently on screen, and a
+                    // failure restored after the route left composition would name a source the
+                    // user is no longer waiting on.
+                    var autoPickFailure by remember(route.launchId) {
+                        mutableStateOf<PlaybackProgressFailure?>(null)
+                    }
+                    // The stream handed to the player, kept so a player-requested retry can say
+                    // what it is retrying *from*. That path bumped `autoPickAttempt` silently -
+                    // the one failure route of three that reported nothing at all, and the one
+                    // covering the most visible failure there is: a source that opens, plays a
+                    // second and dies.
+                    var lastHandedOffStream by remember(route.launchId) { mutableStateOf<StreamItem?>(null) }
                     // Set at *every* exit to playback, not just the reuse-last-link one.
                     // Instant deliberately leaves StreamRoute on the back stack so the failure
                     // chain survives, so without this, backing out of the player lands on an
@@ -2889,6 +2920,15 @@ private fun MainAppContent(
                     val playbackQualityOptions = remember(playbackCandidates, playbackSelectionContext) {
                         PlaybackQualityOptions.build(playbackCandidates, playbackSelectionContext)
                     }
+                    // Resolved here because the band names are `stringResource`s and the effect
+                    // that announces a skipped sheet is not composable. Built from the same
+                    // function the sheet's own rows use, so the toast quotes the user's words
+                    // for the row they picked rather than a second description of it.
+                    val playbackQualityOptionLabels: Map<String, String> = buildMap {
+                        playbackQualityOptions.forEach { option ->
+                            put(option.id, playbackQualityOptionLabel(option))
+                        }
+                    }
                     // Reuse Last Link: auto-play from cache if enabled (only on first entry).
                     // Saved, not remembered. A mode with a failure chain keeps this route on the
                     // back stack while the player is open, and NavDisplay composes only the top
@@ -3042,6 +3082,33 @@ private fun MainAppContent(
                         }
                     }
 
+                    /**
+                     * Records which source just failed and why, on the way to the next one.
+                     *
+                     * Streamlined steps past a dead candidate silently otherwise, which is
+                     * indistinguishable from the app hanging - and when the chain then runs
+                     * out, the only thing left on screen is whatever the last provider said,
+                     * out of context. Naming the source turns "unknown error" into something
+                     * the user can act on, or at least recognise.
+                     *
+                     * **Recorded, not toasted.** This used to raise one toast per dead
+                     * candidate over a progress overlay already counting attempts - two answers
+                     * to one question, stacking on a deep chain, and outliving the wait they
+                     * described: after a successful third attempt the last thing on screen was
+                     * a complaint about the second. [PlaybackProgressOverlay] renders it
+                     * instead, so it lives and dies with the wait. The terminal case still
+                     * toasts, through `giveUpToSourceList`, because by then the overlay is gone.
+                     *
+                     * Declared above the retry effect below, which calls it: Kotlin resolves
+                     * local functions positionally, lambda or not.
+                     */
+                    fun noteSourceFailure(stream: StreamItem, reason: String?) {
+                        val label = PlaybackSourceSelector.describe(
+                            playbackCandidates.firstOrNull { it.stream === stream }?.facts,
+                        ).takeIf { it.isNotBlank() } ?: stream.streamLabel
+                        autoPickFailure = PlaybackProgressFailure(label = label, reason = reason)
+                    }
+
                     // Coming back from the player with a candidate still armed. Two very
                     // different things look identical here, and telling them apart is the whole
                     // point of this effect.
@@ -3090,28 +3157,11 @@ private fun MainAppContent(
                         }
                         playbackHandedOff = false
                         autoPickAttempt += 1
-                    }
-
-                    /**
-                     * Says which source just failed and why, on the way to the next one.
-                     *
-                     * Instant and Streamlined both step past a dead candidate silently today,
-                     * which is indistinguishable from the app hanging - and when the chain then
-                     * runs out, the only thing left on screen is whatever the last provider
-                     * said, out of context. Naming the source turns "unknown error" into
-                     * something the user can act on, or at least recognise.
-                     */
-                    suspend fun announceSourceFailure(stream: StreamItem, reason: String?) {
-                        val label = PlaybackSourceSelector.describe(
-                            playbackCandidates.firstOrNull { it.stream === stream }?.facts,
-                        ).takeIf { it.isNotBlank() } ?: stream.streamLabel
-                        NuvioToastController.show(
-                            if (reason.isNullOrBlank()) {
-                                getString(Res.string.playback_source_failed_advancing, label)
-                            } else {
-                                getString(Res.string.playback_source_failed_advancing_reason, label, reason)
-                            },
-                        )
+                        // The third failure route, and the only one that used to say nothing.
+                        // The source opened, played, and died - the most visible failure there
+                        // is - and the overlay came back showing a bumped counter with no
+                        // account of what had just happened.
+                        lastHandedOffStream?.let { noteSourceFailure(stream = it, reason = null) }
                     }
 
                     var autoPlayHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
@@ -3159,7 +3209,7 @@ private fun MainAppContent(
                                         // Silently stepping to the next source is how "not
                                         // cached" turned into a spinner nobody could explain.
                                         // Name the source and the reason on the way past.
-                                        announceSourceFailure(
+                                        noteSourceFailure(
                                             stream = selectedStream,
                                             reason = resolved.toastMessage(),
                                         )
@@ -3205,7 +3255,7 @@ private fun MainAppContent(
                             if (StreamsRepository.skipAutoPlayStream(selectedStream)) {
                                 if (hasFailureChain) {
                                     autoPickAttempt += 1
-                                    announceSourceFailure(stream = selectedStream, reason = null)
+                                    noteSourceFailure(stream = selectedStream, reason = null)
                                 }
                             } else if (hasFailureChain) {
                                 // Same reasoning as the resolve-failure arm: an exhausted chain
@@ -3266,6 +3316,13 @@ private fun MainAppContent(
                             initialProgressFraction = launch.resumeProgressFraction,
                             autoPickedWithFailureChain = hasFailureChain,
                         )
+                        // Remembered before the hand-off, because a retry comes back with the
+                        // chain already advanced and no way to name what it advanced *from*.
+                        lastHandedOffStream = stream
+                        // The wait this described is over. Leaving it set would carry a
+                        // complaint about the previous candidate into the overlay of the one
+                        // that is now working.
+                        autoPickFailure = null
                         if (playerSettings.externalPlayerEnabled) {
                             playbackHandedOff = true
                             openExternalPlayback(playerLaunch)
@@ -3463,12 +3520,20 @@ private fun MainAppContent(
                                 // Written from the *option*, not from the source that opens:
                                 // the failure chain may advance past the winner, but it stays
                                 // inside the row, and the row is what was chosen.
-                                option.resolution?.height?.let { height ->
-                                    BingeGroupCacheRepository.saveSessionQualityHeight(
-                                        parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                        height = height,
-                                    )
-                                }
+                                //
+                                // Stored twice, for two readers with different jobs: the height
+                                // steers the in-player next episode as a tie-break, the id lets
+                                // *this* route skip the sheet outright. See
+                                // `BingeGroupCacheRepository.sessionQualityBandIds`.
+                                // Unconditional: "Best available" carries no resolution, so
+                                // gating this on one meant the top row was never remembered and
+                                // the sheet reappeared every episode. The height is written when
+                                // there is one; the id always is.
+                                BingeGroupCacheRepository.saveSessionQualityBand(
+                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                    height = option.resolution?.height,
+                                    optionId = option.id,
+                                )
                                 // `select` has already ranked the whole row and handed back
                                 // everything behind the winner. Throwing those away is what made
                                 // one "not cached" answer the end of the road in Streamlined,
@@ -3476,8 +3541,16 @@ private fun MainAppContent(
                                 // Seeding rather than opening also puts the auto-play effect in
                                 // charge, so resolve failures, P2P, reuse-last-link and the
                                 // attempt counter all behave identically in both modes.
+                                //
+                                // Capped by `playbackChain`, because the overlay tells the user
+                                // "Attempt 2 of 3" and that has to be true. The whole row was
+                                // being seeded here, so a deep bucket ground through nine
+                                // candidates while the counter sat coerced at its maximum - a
+                                // progress figure that stops moving is a hang wearing a number.
+                                // `PlayerNextEpisodeAutoPlay` already took the same budget and
+                                // its comment claimed the two paths agreed; now they do.
                                 StreamsRepository.seedAutoPlayCandidates(
-                                    listOf(result.stream) + result.fallbacks,
+                                    playbackChain(result.stream, result.fallbacks),
                                 )
                             }
                             is PlaybackSelectionResult.AskUncached -> {
@@ -3509,6 +3582,10 @@ private fun MainAppContent(
                     }
 
                     fun selectStreamlinedOption(option: PlaybackQualityOption) {
+                        // An explicit tap retires any arming left over from a previous play:
+                        // the user is answering the sheet, so a later "Change source" is about
+                        // this choice, not about one they made two episodes ago.
+                        BingeGroupCacheRepository.disarmBandChange()
                         pendingStreamlinedOptionId = option.id
                         streamlinedSelectionPending = true
                     }
@@ -3616,6 +3693,82 @@ private fun MainAppContent(
                         completeStreamlinedOptionSelection(option)
                     }
 
+                    /**
+                     * Answers the sheet's question with the band the user already chose.
+                     *
+                     * Streamlined remembered a band from the moment it shipped, but only the
+                     * *in-player* next episode read it. So bingeing from the player skipped the
+                     * sheet and bingeing from the details screen did not - same show, same
+                     * sitting, same choice already made, and the app asked again depending on
+                     * which door you came through. There is no user-visible difference between
+                     * those two taps, so there must be no behavioural one.
+                     *
+                     * Waits on the same settle signal a manual tap does, because a band matched
+                     * against a half-filled catalogue is matched against the wrong catalogue.
+                     * `rememberedBandHandled` makes it once-only: the effect's own keys change
+                     * as the fetch lands, and re-entering after `completeStreamlinedOptionSelection`
+                     * would seed a second chain over the first.
+                     */
+                    LaunchedEffect(
+                        playbackRouteDecision,
+                        rememberedBandId,
+                        rememberedBandHandled,
+                        playbackQualityOptions,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                        streamsUiState.emptyStateReason,
+                    ) {
+                        if (rememberedBandId == null || rememberedBandHandled) return@LaunchedEffect
+                        if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) return@LaunchedEffect
+                        // The user has already taken over - an explicit tap, a dismissal or a
+                        // bail-out all outrank a remembered preference.
+                        if (qualitySheetDismissed || manualSourceListRequested) return@LaunchedEffect
+                        if (streamlinedSelectionPending) return@LaunchedEffect
+                        if (
+                            !com.nuvio.app.features.playback.isStreamlinedSelectionReady(
+                                requestToken = streamsUiState.requestToken,
+                                expectedRequestToken = expectedStreamsRequestToken,
+                                isAnyLoading = streamsUiState.isAnyLoading,
+                                candidateCount = playbackCandidates.size,
+                                hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
+                                hasStreams = streamsUiState.groups.any { it.streams.isNotEmpty() },
+                            )
+                        ) return@LaunchedEffect
+
+                        rememberedBandHandled = true
+                        val option = PlaybackQualityOptions.rememberedOption(
+                            options = playbackQualityOptions,
+                            bandId = rememberedBandId,
+                        )
+                        if (option == null) {
+                            // No release at that band for this episode. Ask rather than
+                            // substitute: the sheet is skipped, so a substitution would be one
+                            // the user never sees and cannot disagree with.
+                            rememberedBandMissed = true
+                            return@LaunchedEffect
+                        }
+                        // Said out loud, with the way back. Skipping a question the user was
+                        // promised is exactly the silent-behaviour fault that made
+                        // reuse-last-link read as non-deterministic, and it is answered the same
+                        // way: name what happened, and offer the player's own Change source.
+                        NuvioToastController.show(
+                            message = getString(
+                                Res.string.playback_band_remembered,
+                                playbackQualityOptionLabels[option.id] ?: option.resolutionLabel,
+                            ),
+                            actionLabel = getString(Res.string.playback_reused_last_link_change),
+                            action = NuvioToastAction.ChangePlaybackSource,
+                        )
+                        // Pressing Change is the user saying this pick was wrong, so the next
+                        // episode has to ask again. The toast action is a typed enum with one
+                        // central handler and no content identity, so the identity is armed here
+                        // as data and consumed there.
+                        BingeGroupCacheRepository.armBandChange(
+                            launch.parentMetaId ?: effectiveVideoId,
+                        )
+                        completeStreamlinedOptionSelection(option)
+                    }
+
                     // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
                     LaunchedEffect(reuseNavigated) {
                         if (reuseNavigated) {
@@ -3637,10 +3790,24 @@ private fun MainAppContent(
                             isQualitySheetRoute =
                                 playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
                             qualitySheetDismissed = qualitySheetDismissed,
+                            // Only while it can still answer. Once the band has been missed the
+                            // sheet is the honest surface again, and the flag must stop
+                            // suppressing it.
+                            hasRememberedBand = rememberedBandId != null && !rememberedBandMissed,
                             isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
                             awaitingUserAnswer = awaitingUserAnswer,
                         ),
                     )
+
+                    // An arming only outlives its own show if the user ignored the toast, and at
+                    // that point it is no longer about anything they are looking at. Retiring it
+                    // as the next show opens is what keeps `consumeArmedBandChange` the no-op
+                    // its call site claims it is for every unrelated Change.
+                    LaunchedEffect(launch.parentMetaId ?: effectiveVideoId) {
+                        BingeGroupCacheRepository.disarmBandChangeIfNot(
+                            launch.parentMetaId ?: effectiveVideoId,
+                        )
+                    }
 
                     // The backstop, for the dead ends nobody has found yet.
                     //
@@ -3659,6 +3826,10 @@ private fun MainAppContent(
                         streamsUiState.isAnyLoading,
                         streamsUiState.requestToken,
                         resolvingDebridStream,
+                        // Keyed, not just read: a dialog raised *during* the grace period has to
+                        // restart the effect, or the backstop it was meant to suppress has
+                        // already been scheduled and still fires underneath it.
+                        awaitingUserAnswer,
                     ) {
                         // Both covered surfaces, not just the overlay. `HandOff` is supposed
                         // to be a navigation in flight and nothing else, so resting on it once
@@ -3670,6 +3841,13 @@ private fun MainAppContent(
                         ) return@LaunchedEffect
                         if (streamsUiState.autoPlayStream != null) return@LaunchedEffect
                         if (resolvingDebridStream) return@LaunchedEffect
+                        // A question on screen is not a dead end. Under a remembered band the
+                        // surface stays on ProgressOverlay while `AskUncached` waits (rule 3
+                        // outranks rule 5), so without this the backstop tears the dialog down
+                        // mid-question and toasts "no matching source" at someone who is being
+                        // asked to choose. The non-remembered path resolves to QualitySheet and
+                        // was already skipped by the surface check above.
+                        if (awaitingUserAnswer) return@LaunchedEffect
                         if (
                             streamsUiState.requestToken != expectedStreamsRequestToken ||
                             streamsUiState.isAnyLoading
@@ -3840,6 +4018,11 @@ private fun MainAppContent(
                                     ),
                                 ),
                                 attempt = autoPickAttempt,
+                                failure = autoPickFailure,
+                                // The blank reason is the point: `giveUpToSourceList` toasts
+                                // whatever it is given, and the user who just pressed this
+                                // button already knows why they are looking at the list.
+                                onChooseManually = { giveUpToSourceList(reason = "") },
                             )
                         } else if (resolvingDebridStream) {
                             // Classic and every manual path keep the lighter scrim: the source
@@ -4639,7 +4822,14 @@ private fun MainAppContent(
                         NuvioToastAction.OpenDownloads -> openDownloadsTab()
                         // The player owns its source panel and this host sits above it, so
                         // the request is handed over rather than navigated to.
-                        NuvioToastAction.ChangePlaybackSource -> PlayerSourcePanelRequest.request()
+                        NuvioToastAction.ChangePlaybackSource -> {
+                            // If this Change belongs to a play that skipped the quality sheet,
+                            // pressing it also retires the band - otherwise the affordance
+                            // undoes one episode and the next one skips the sheet again. A
+                            // no-op for every other Change, including reuse-last-link's.
+                            BingeGroupCacheRepository.consumeArmedBandChange()
+                            PlayerSourcePanelRequest.request()
+                        }
                     }
                 },
             )

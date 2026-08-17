@@ -67,6 +67,10 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         videoId = nextVideo.id,
     )
     if (downloadedNextEpisode != null) {
+        // Same invariant as tryModeSourceSelection below: the chain belongs to the episode it
+        // was ranked for. Clearing before the switch means a stalled local file falls back to
+        // the source list rather than to the previous episode's streams.
+        onFallbacksChanged(emptyList())
         onDownloadedEpisodeSelected(downloadedNextEpisode, nextVideo)
         return null
     }

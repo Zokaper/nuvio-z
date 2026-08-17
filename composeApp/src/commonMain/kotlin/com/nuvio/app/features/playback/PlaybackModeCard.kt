@@ -203,6 +203,28 @@ private fun playbackModeTagline(mode: PlaybackMode): String = when (mode) {
     PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_tagline)
 }
 
+/**
+ * Must stay in step with what each mode actually does on the playback path, the same way
+ * [playbackModeDownloadLine] tracks [PlaybackModeDownloadRouter.decide].
+ *
+ * That contract used to cover only the download line, and the streaming lines drifted for a
+ * whole release because of it: Streamlined's second bullet went on offering *"Pin a release to
+ * reuse it for the rest of a season"* after the sticky pin was withdrawn in `0.5.0-beta`
+ * (see [PlaybackModeRouter], which explains why). A user could read that bullet, choose the
+ * mode for it, and never find the feature. Copy that contradicts the router is worse than no
+ * copy at all - in both directions.
+ *
+ * What each line maps to today:
+ *  - **Classic** - `PlaybackRouteDecision.ShowSourceList`, plus `streamAutoPlayMode`, which
+ *    stays a Classic-only setting.
+ *  - **Streamlined** 1 - `ShowQualitySheet` into [PlaybackSourceSelector];
+ *    2 - the remembered band, `BingeGroupCacheRepository.sessionQualityBandId`, which skips
+ *    the sheet for the rest of the sitting. If that skip is ever removed, this line goes with
+ *    it.
+ *  - **Instant** - unreachable while [PlaybackMode.isSelectable] withholds it. Kept accurate
+ *    rather than deleted, because the card is still drawn (greyed, with a reason) and the mode
+ *    is a deferral, not a rejection.
+ */
 @Composable
 private fun playbackModeStreamingLines(mode: PlaybackMode): List<String> = when (mode) {
     PlaybackMode.CLASSIC -> listOf(

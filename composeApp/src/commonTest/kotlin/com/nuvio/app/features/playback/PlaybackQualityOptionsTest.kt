@@ -388,6 +388,69 @@ class PlaybackQualityOptionsTest {
     }
 
     @Test
+    fun aRememberedBandIsMatchedExactly() {
+        val options = build(
+            candidate("4k", VideoResolution.UHD_2160, gigabytes = 20.0),
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            runtimeMinutes = 60,
+        )
+
+        assertEquals(
+            "1080_single",
+            PlaybackQualityOptions.rememberedOption(options, bandId = "1080_single")?.id,
+        )
+    }
+
+    @Test
+    fun aRememberedBandThisEpisodeLacksAsksRatherThanSubstituting() {
+        // The divergence from `stickyAffordable`, and the reason this function exists. That one
+        // is a tie-break for the in-player next episode, where nobody is there to answer a sheet
+        // and any reasonable source beats stopping - so it falls back. This one decides whether
+        // to *skip a question*, and a fallback would be silent substitution: the sheet never
+        // appears, so there is nothing on screen for the user to disagree with. Null means ask.
+        val options = build(
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            candidate("720", VideoResolution.HD_720, gigabytes = 2.0),
+            runtimeMinutes = 60,
+        )
+
+        assertNull(PlaybackQualityOptions.rememberedOption(options, bandId = "2160_single"))
+        // Same inputs, the other function: it substitutes, on purpose.
+        assertNotNull(
+            PlaybackQualityOptions.stickyAffordable(options, pinnedHeight = 2160, estimatedMbps = 500.0),
+        )
+    }
+
+    @Test
+    fun aRememberedBandDistinguishesTheVariantNotJustTheResolution() {
+        // Someone who chose "1080p Low" to stay inside a data cap has not chosen "1080p High".
+        // Matching on height alone would hand them the row they were avoiding, silently.
+        val options = build(
+            candidate("1080-big", VideoResolution.FULL_HD_1080, gigabytes = 12.0),
+            candidate("1080-small", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
+            runtimeMinutes = 60,
+        )
+        val low = options.first { it.variant == PlaybackQualityOption.Variant.LOW }
+        val high = options.first { it.variant == PlaybackQualityOption.Variant.HIGH }
+        assertTrue(low.id != high.id)
+
+        assertEquals(low.id, PlaybackQualityOptions.rememberedOption(options, bandId = low.id)?.id)
+        assertEquals(high.id, PlaybackQualityOptions.rememberedOption(options, bandId = high.id)?.id)
+    }
+
+    @Test
+    fun noRememberedBandMeansNoAnswer() {
+        val options = build(
+            candidate("1080", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            runtimeMinutes = 60,
+        )
+
+        assertNull(PlaybackQualityOptions.rememberedOption(options, bandId = null))
+        assertNull(PlaybackQualityOptions.rememberedOption(options, bandId = "  "))
+        assertNull(PlaybackQualityOptions.rememberedOption(emptyList(), bandId = "1080_single"))
+    }
+
+    @Test
     fun anUnmeasuredConnectionGetsNoFit() {
         // No estimate means the sheet has nothing to compare against, and a meter drawn from
         // nothing implies a measurement that was never taken. A zero is the same case: it is

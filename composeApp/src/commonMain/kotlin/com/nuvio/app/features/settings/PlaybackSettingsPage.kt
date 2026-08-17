@@ -382,11 +382,22 @@ private fun PlaybackSettingsSection(
                     onClick = { showPlaybackModeDialog = true },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                // These three feed the automatic picker, so Classic - where the user picks the
+                // source themselves - has nothing to apply them to. Greying them is right;
+                // greying them *silently* is what `PlaybackModeCard` calls "the thing users
+                // report as broken", and the auto-downshift row below has always said why.
+                // Now all four do.
+                val isClassicMode = autoPlayPlayerSettings.playbackMode == PlaybackMode.CLASSIC
+                val classicOnlyReason = stringResource(Res.string.settings_playback_classic_only)
+                fun withClassicReason(description: String): String =
+                    if (isClassicMode) description + "\n" + classicOnlyReason else description
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_allow_torrent_autopick),
-                    description = stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+                    description = withClassicReason(
+                        stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+                    ),
                     checked = autoPlayPlayerSettings.playbackAllowTorrentAutopick,
-                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    enabled = !isClassicMode,
                     isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
@@ -398,10 +409,12 @@ private fun PlaybackSettingsSection(
                 // most people and the by-resolution default already picks HDR where it helps.
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_codec_preference),
-                    description = playbackCodecPreferenceLabel(
-                        autoPlayPlayerSettings.playbackCodecPreference,
+                    description = withClassicReason(
+                        playbackCodecPreferenceLabel(
+                            autoPlayPlayerSettings.playbackCodecPreference,
+                        ),
                     ),
-                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    enabled = !isClassicMode,
                     isAdvanced = true,
                     isTablet = isTablet,
                     onClick = { showPlaybackCodecDialog = true },
@@ -409,10 +422,12 @@ private fun PlaybackSettingsSection(
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_dynamic_range),
-                    description = playbackDynamicRangeLabel(
-                        autoPlayPlayerSettings.playbackDynamicRangePolicy,
+                    description = withClassicReason(
+                        playbackDynamicRangeLabel(
+                            autoPlayPlayerSettings.playbackDynamicRangePolicy,
+                        ),
                     ),
-                    enabled = autoPlayPlayerSettings.playbackMode != PlaybackMode.CLASSIC,
+                    enabled = !isClassicMode,
                     isAdvanced = true,
                     isTablet = isTablet,
                     onClick = { showPlaybackDynamicRangeDialog = true },

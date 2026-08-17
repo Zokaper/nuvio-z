@@ -230,6 +230,33 @@ object PlaybackQualityOptions {
     }
 
     /**
+     * The option the user already chose for this show, or **null**.
+     *
+     * For `entry<StreamRoute>`, which uses it to skip the quality sheet entirely for the rest of
+     * a sitting. That is a different job from [stickyAffordable]'s and needs the opposite
+     * failure mode, which is the whole reason this exists rather than reusing it:
+     *
+     *  - [stickyAffordable] is a **tie-break** for the in-player next episode. When the band is
+     *    unavailable it falls back to [highestAffordable], because nobody is there to answer a
+     *    sheet mid-binge and any reasonable source beats stopping the binge.
+     *  - This is a **decision to skip a question**. A fallback here would be silent
+     *    substitution: the sheet does not appear, so there is nothing on screen for the user to
+     *    disagree with, and an episode with no release in their band would play something they
+     *    never picked while the app acted as though they had. Null means *ask*.
+     *
+     * Matched on [PlaybackQualityOption.id], so the variant counts too - someone who chose
+     * "1080p Low" to stay inside a data cap has not chosen "1080p High". Best available is
+     * matchable like any other row; it is a deliberate choice with a stable id.
+     */
+    fun rememberedOption(
+        options: List<PlaybackQualityOption>,
+        bandId: String?,
+    ): PlaybackQualityOption? {
+        if (bandId.isNullOrBlank()) return null
+        return options.firstOrNull { it.id == bandId }
+    }
+
+    /**
      * Where one option sits against the connection estimate.
      *
      * Null whenever either figure is unknown - Best available carries no `requiredMbps`, and a
