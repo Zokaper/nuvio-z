@@ -24,6 +24,7 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_source_failed_advancing
+import nuvio.composeapp.generated.resources.playback_source_failed_advancing_unnamed
 import nuvio.composeapp.generated.resources.player_source_switched
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
