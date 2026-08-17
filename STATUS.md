@@ -1,6 +1,130 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-16
+Last updated: 2026-08-17
+
+## Playback review pass (2026-08-17, unreleased, both repositories)
+
+A `/code-review high` over `features/playback`, `features/player` and desktop's
+`desktopMain/player` returned seven findings, all fixed here. One was a build break; three were
+the same root cause in the next-episode failure chain.
+
+| | What changed | Risk |
+| --- | --- | --- |
+| **Desktop build restored** | `b71378c1` deleted the two `loadNvidiaRtxSuperResolutionEnabled` / `save…` lines from the `expect object` in `PlayerSettingsStorage.kt` while leaving both commonMain callers and **all three actuals**. commonMain had an unresolved reference and every platform had an orphan actual - the module compiled on no target. Restored the `expect` pair; signatures checked against all three actuals. **Desktop-only: `nuvio-z` has no NVIDIA references at all** | none - restores a deleted declaration |
+| **Chain cleared on the downloaded-episode paths** | `launchPlayerNextEpisodeAutoPlay` returned at the downloaded branch *before* the clear inside `tryModeSourceSelection`, and `playEpisodeFromPicker`'s `selectDownloadedEpisodeForPlayback` had the identical hole. A stalled local file (or the 8 s watchdog) then took the **previous** episode's stream while progress was written against the new one. The comment claiming this was prevented predates the branch that skipped it | low - clears state earlier |
+| **Explicit pick retires the chain** | `switchToUserSelectedSource` exists to distinguish user picks from automatic ones but left `nextEpisodeFallbacks` armed, so the watchdog swapped a hand-picked remux out for an auto-ranked source 8 s in, while it was still buffering | low - removes an automatic override |
+| **Failure toast names the source that died** | The `activeStreamTitle.isBlank()` branch filled the placeholder with `next.streamLabel` - the source about to *play* - telling the user it had already failed. Falls back to `activeProviderName`, then to the new `playback_source_failed_advancing_unnamed` | none - copy |
+| **"Best available" is remembered** | `saveSessionQualityBand` was gated on `option.resolution?.height`, which is null for `Variant.BEST` **by construction** - so the most-tapped row was the one row never stored, and the sheet reappeared every episode against the shipped copy's promise. `height` is now `Int?`; the id is written unconditionally. `rememberedOption` matches by id alone, so the skip now works for it | low - the sheet skips where the copy said it would |
+| **Backstop yields to a live question** | `giveUpToSourceList()` checked `ProgressOverlay`/`HandOff` but not `awaitingUserAnswer`. Under a remembered band `AskUncached` leaves the surface on `ProgressOverlay` (rule 3 outranks rule 5), so the backstop tore down the "Nothing is cached" dialog mid-question and toasted "no matching source". Added the guard **and the effect key** - a dialog raised during the grace period must restart the effect | low - one more way the backstop declines to fire |
+| **Armed band-change cannot leak across shows** | `armBandChange` is documented as "disarmed by whatever happens next", but an *ignored* toast survived indefinitely; a later Change on a different show - including reuse-last-link's, which raises the same typed action - cleared the first show's band. New `disarmBandChangeIfNot(parentMetaId)` runs as each play opens | low - narrows an existing clear |
+
+Also removed three imports (`SizePreference`, `SourceRanking`, `SourceRankingPreferences`) left
+unused in `PlaybackSourceSelector.kt` after `rank` was deleted.
+
+**Verified:** `scripts/run-pure-suites.sh` green in **both** repositories - **167 tests each**
+(72 selection/quality/route, 29 standalone, 49 setup, 17 sync), zero failures. Every edited file
+parser-checks clean in both repos. Every changed reference was grepped at each call site, per the
+gap named in "Verifying without Gradle": the sole production `saveSessionQualityBand` caller uses
+named arguments and the six test callers pass `Int`, which still binds to `Int?`;
+`disarmBandChangeIfNot` and the new string are defined and used in both repos; `awaitingUserAnswer`
+is declared above the backstop in both.
+
+⚠ **Not verified.** Still **no Android SDK and no Android Studio JBR on this machine**, so no
+Gradle suite ran and `desktopMain` was not compiled.
+
+- **The `expect`/`actual` fix is the one that most needs a real build.** `desktopTest` locally, or
+  `desktop-release.yml mode=build-only`, is the first thing that will confirm it - exactly the
+  case AGENTS.md says only a real build catches.
+- `App.kt` and the player runtime are **parser-checked only** - no type checking, no Compose
+  compiler, no resource resolution. The two new `LaunchedEffect`s and the new string are in that
+  set.
+- No regression test was added for the three chain-clearing fixes; they live in the player
+  runtime, which no suite in either repository can reach. Device script below.
+- Nothing is smoke-tested on a device or an installed desktop app.
+
+**Device script for this pass:**
+
+1. Streamlined, series with episode 2 downloaded: auto-play episode 1, let it roll into 2. The
+   local file must play; if it stalls, the fallback must be a source list, never episode 1's stream.
+2. Mid-binge, open sources and pick the largest remux. It must be given more than 8 s to buffer and
+   must not be swapped out automatically.
+3. Pick "Best available" on episode 1. Episode 2 must play straight away, announcing the band.
+4. With a remembered band, force an uncached answer: the "Nothing is cached" dialog must stay up
+   until answered, with no "no matching source" toast underneath it.
+5. Skip a sheet on show A, ignore the toast, open show B and press Change on *its* toast. Show A
+   must still skip its sheet next episode.
+
+## Playback-mode UX correctness pass (2026-08-16, unreleased, both repositories)
+
+A second read of the shipped mode surfaces - after the pass below - found seven places where
+what the UI *says* and what it *does* had drifted apart. None were engine faults; all were
+visible to a user.
+
+| | What changed | Risk |
+| --- | --- | --- |
+| **Card copy corrected** | Streamlined's second bullet advertised *"Pin a release to reuse it for the rest of a season"* - withdrawn in `0.5.0-beta`. Now describes the remembered band. `PlaybackModeCard`'s "must match the router" contract extended from the download line to the streaming lines, which is how it drifted | none - copy |
+| **Failure chain capped** | `entry<StreamRoute>` seeded the *whole* ranked row while the overlay coerced "Attempt N of 3", so a deep bucket ground through nine candidates with the counter pinned. `playbackChain` now applies the budget, in `StreamRouteSurface.kt` where the pure suite runs it | low - fewer retries than before, never more |
+| **Remembered band reaches the details screen** | **behaviour change** - see below |
+| **Overlay has a way out** | "Choose source manually" appears after the first failure or 5 s (`shouldOfferManualEscape`). Before this, Back was the only exit and it abandoned the play | low - additive |
+| **Failures named, not toasted** | One toast per dead candidate over an overlay already counting attempts; the third failure route (player-requested retry) reported nothing at all. The overlay now names the source, all three routes report, and the terminal give-up still toasts | low |
+| **Greyed settings say why** | Torrent autopick, codec preference and dynamic range disable on Classic; only auto-downshift explained itself. All four now do | none - copy |
+| **Escape-hatch copy per platform** | `playback_mode_escape_hatch` says "long-press" in `nuvio-z` and "right-click" in `NuvioZDesktop`. **Deliberately divergent - do not `diff -q` this key.** Confirmed against `secondaryClick` in `DetailSeriesContent.kt` / `DetailActionButtons.kt`. TV wording is still a gap; there is no TV detection in the codebase | none - copy |
+
+**The behaviour change, in full.** Streamlined stored the chosen band from the day it shipped,
+but only `PlayerNextEpisodeAutoPlay` read it - so bingeing *from the player* skipped the quality
+sheet and bingeing *from the details screen* did not. Same show, same sitting, same choice
+already made, and the app asked again depending on which door you came through.
+
+Now the stream route reads it too and plays straight away, announcing
+*"Playing 1080p High · Change"*. Three things make that safe rather than silent:
+
+- The band is stored **twice on purpose**, and the two readers need opposite failure modes.
+  `sessionQualityHeight` still feeds the in-player next episode through `stickyAffordable`,
+  which *substitutes* when the band is unavailable - nobody is there to answer a sheet mid-binge.
+  The new `sessionQualityBandId` feeds the route through `rememberedOption`, which returns
+  **null** instead, because there the sheet is being *skipped* and a substitution would be one
+  the user never sees. `PlaybackQualityOptionsTest` pins both halves against each other.
+- The id carries the **variant**, not just the resolution: someone who picked "1080p Low" to
+  stay inside a data cap has not picked "1080p High".
+- "Change" retires the band, so the next episode asks again. The toast action is a typed enum
+  with one central handler and no content identity, so the show travels as data
+  (`armBandChange` / `consumeArmedBandChange`), armed only by a play that actually skipped a
+  sheet.
+
+**Verified:** `scripts/run-pure-suites.sh` green in **both** repositories - **167 tests each**
+(72 selection/quality/route, 29 standalone, 49 setup, 17 sync), zero failures, up from 159. The
+8 new cases that run there are in `StreamRouteSurfaceTest` and `PlaybackQualityOptionsTest`.
+Every edited Kotlin file parser-checks clean in both repos.
+
+⚠ **Not verified.** There is still **no Android SDK and no Android Studio JBR on this machine**,
+so no Gradle suite ran. That means:
+
+- **7 new tests never executed** - 2 in `StreamlinedFailureChainTest` (the chain cap) and 5 in
+  `BingeGroupCacheRepositoryTest` (band storage, `clearSessionQualityBand`, arm/consume/disarm).
+  They need `StreamsRepository` and the real `StreamItem`, so the pure suite cannot reach them.
+  **CI is the first thing that will run them.**
+- `App.kt`, `PlaybackSettingsPage.kt`, `PlaybackProgressOverlay.kt` and `PlaybackQualitySheet.kt`
+  are **parser-checked only** - no type checking, no Compose compiler, no resource resolution.
+- Nothing is smoke-tested on a device or an installed desktop app.
+
+**Device script for this pass:**
+
+1. Streamlined, series: play episode 1, pick a band. Back out to details, tap episode 2. It must
+   play straight away with the "Playing … · Change" toast and **no sheet**.
+2. Press "Change" on that toast - the player's source panel opens. Back out, tap episode 3: the
+   sheet must return.
+3. Pick a band on a show whose next episode has no release at that resolution. The sheet must
+   appear rather than something else playing silently.
+4. Kill the chosen source mid-start (disable the addon). The overlay must **name** the dead
+   source, the counter must stop at 3, and "Choose source manually" must appear.
+5. Settings → Playback → Player on Classic: all four greyed rows say why.
+6. Desktop setup wizard: the escape-hatch line says right-click.
+
+**Out of scope, and next.** The **next-episode stack is untouched and is suspected broken on
+desktop** - `PlayerNextEpisodeAutoPlay`, `NextEpisodeCard`, `PlayerNextEpisodeRules`,
+`PlayerScreenRuntime*`, the episode selector and the newer play button overlap there across
+~21 files. Change 3 was deliberately shaped to leave `sessionQualityHeight` and its single
+reader alone so this pass could not disturb it. That is the next round.
 
 ## Playback-mode UX pass (2026-08-16, unreleased, in both repositories)
 
@@ -45,7 +169,7 @@ Nothing has been smoke-tested on a device or an installed desktop app.
 | --- | --- |
 | **Active branch** | `claude/setup-wizard-final-pass-wy7csp` in both repositories, cut from `claude/onboarding-setup-wizard-7juovt` (**not** from `main` / `Dev`). Carries **revision 6 of the setup wizard** plus three unversioned fix passes on top of phase 2, which sits on top of the phase-1 polish pass. **Not yet released and the version is deliberately not bumped.** |
 | **Released** | `0.4.14-beta` on both. Superseded once phase 1 and phase 2 ship together as `0.5.0-beta`. |
-| **Next** | **Download the `setup-wizard-renders` artifact from the `NuvioZDesktop` CI run and look at the PNGs** — the harness has been green for four passes while nobody opened its output, and every Welcome defect since would have been plain in it; CI now uploads it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the outstanding faults. Test with **`debug-v0.4.14-beta.13`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
+| **Next** | **Push, so CI runs the 7 new tests this machine cannot** (`StreamlinedFailureChainTest`, `BingeGroupCacheRepositoryTest`) and type-checks the four Compose files the UX-correctness pass edited. Then **the next-episode stack**, which is the outstanding suspected fault - see that pass's section. Then: **download the `setup-wizard-renders` artifact from the `NuvioZDesktop` CI run and look at the PNGs** — the harness has been green for four passes while nobody opened its output, and every Welcome defect since would have been plain in it; CI now uploads it. Then **run both device scripts** — "The 0.5.0-beta device script" for phase 1 and "The setup wizard device script", whose first checks are the outstanding faults. Test with **`debug-v0.4.14-beta.13`**. Then merge to `main` / `Dev`, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 | **Desktop debug line** | New, on this branch: **`NuvioZDesktop` now has a debug update channel** matching mobile's - a separate "Nuvio Z Debug" install fed by `debug-v*` prereleases, published with `desktop-debug-release.yml`. Nothing compiled locally; the Windows MSI job is the gate. See "The desktop debug line" below. |
 
