@@ -258,6 +258,92 @@ class SourceFactsExtractorTest {
         assertNull(titleWords.releaseGroup)
     }
 
+    /** The release from the report: two dynamic ranges and four audio codecs in one file. */
+    private val spiderManRemux =
+        "Spider-Man.No.Way.Home.2021.Eng.Fre.Ger.Ita.Por.Rus.Spa.Cze.Hun.Pol.Slo.Tha.Tur.Hin." +
+            "Tam.Tel.2160p.BluRay.Remux.HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF.mkv"
+
+    @Test
+    fun hdrAndDolbyVisionAreBothKept() {
+        val facts = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = spiderManRemux)),
+        )
+
+        assertTrue("DOLBY_VISION" in facts.dynamicRange)
+        assertTrue("HDR" in facts.dynamicRange)
+    }
+
+    @Test
+    fun everyAudioCodecTheReleaseNamesIsKept() {
+        val facts = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = spiderManRemux)),
+        )
+
+        assertTrue("ATMOS" in facts.audioCodecs)
+        assertTrue("DTS_HD_MA" in facts.audioCodecs)
+        // Immersive *and* lossless, which is the pair the ranking has to be able to see at once.
+        assertEquals(
+            6,
+            SourceRanking.audioScore(facts, AudioPreference.PREFER_LOSSLESS),
+        )
+        assertEquals(
+            6,
+            SourceRanking.audioScore(facts, AudioPreference.PREFER_IMMERSIVE),
+        )
+    }
+
+    /**
+     * ⚠ The defect this pair guards: an addon that reports half of what the release name says.
+     *
+     * These are *sets*, so a structured field naming one member does not contradict a filename
+     * naming another - it under-reports it. Taking the first source that answered lost the rest,
+     * and with only `Atmos` seen, "Require lossless" demoted a DTS-HD MA remux by 100.
+     */
+    @Test
+    fun structuredFieldsAndTheReleaseNameCombineRatherThanShadow() {
+        val facts = SourceFactsExtractor.extract(
+            stream(
+                behaviorHints = StreamBehaviorHints(filename = spiderManRemux),
+                clientResolve = StreamClientResolve(
+                    stream = StreamClientResolveStream(
+                        raw = StreamClientResolveRaw(
+                            parsed = StreamClientResolveParsed(
+                                hdr = listOf("DV"),
+                                audio = listOf("Atmos"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue("DOLBY_VISION" in facts.dynamicRange)
+        assertTrue("HDR" in facts.dynamicRange, "the HDR in the release name must survive")
+        assertTrue("ATMOS" in facts.audioCodecs)
+        assertTrue("DTS_HD_MA" in facts.audioCodecs, "the lossless track in the name must survive")
+        assertEquals(
+            6,
+            SourceRanking.audioScore(facts, AudioPreference.REQUIRE_LOSSLESS),
+            "a lossless release must not be refused for having no lossless track",
+        )
+    }
+
+    @Test
+    fun channelsComeFromTheReleaseNameWhenNoStructuredFieldCarriesThem() {
+        val facts = SourceFactsExtractor.extract(
+            stream(
+                behaviorHints = StreamBehaviorHints(
+                    filename = "Show.S01E01.2160p.WEB-DL.DDP5.1.Atmos.HDR10Plus-GRP.mkv",
+                ),
+            ),
+        )
+
+        assertEquals(6, facts.audioChannels)
+        // And the HDR10+ that used to read as SDR.
+        assertTrue("HDR10_PLUS" in facts.dynamicRange)
+        assertTrue(SourceRanking.claimsHdr(facts))
+    }
+
     private fun stream(
         name: String? = null,
         description: String? = null,

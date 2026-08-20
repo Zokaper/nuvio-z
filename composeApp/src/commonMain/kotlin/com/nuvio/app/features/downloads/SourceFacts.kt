@@ -162,6 +162,18 @@ object SourceFactsExtractor {
             stream.behaviorHints.filename,
         ).map(String::trim).filter(String::isNotEmpty)
 
+        /**
+         * Every scrap of prose this stream carries, as one body of evidence.
+         *
+         * Read only by the set-valued facts - dynamic range, audio codecs, channels - which
+         * combine their sources rather than taking the first that answers. The single-valued
+         * facts below still walk the provenance ladder, because for those a structured field
+         * really does beat a filename.
+         */
+        val releaseText = (
+            filenames + listOfNotNull(stream.name, stream.description, plugin?.quality)
+            ).joinToString(" ")
+
         val filenameFacts = filenames.firstOrNull()?.let(::parseTextFacts)
         val pluginFacts = parseTextFacts(
             listOfNotNull(plugin?.quality, plugin?.language).joinToString(" "),
@@ -217,25 +229,39 @@ object SourceFactsExtractor {
                 ?: pluginFacts.codec
                 ?: filenameFacts?.codec
                 ?: fallbackFacts.codec,
-            dynamicRange = normalizeDynamicRange(nuvioParsed?.hdr.orEmpty())
-                .ifEmpty { normalizeDynamicRange(aio?.parsedFile?.hdr.orEmpty()) }
-                .ifEmpty { pluginFacts.dynamicRange }
-                .ifEmpty { filenameFacts?.dynamicRange.orEmpty() }
-                .ifEmpty { fallbackFacts.dynamicRange },
+            // ⚠ **Not a provenance ladder, and deliberately not** - these three are *sets*, and
+            // a release routinely states half of one in a structured field and the other half
+            // in its name. `HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF` is one file carrying two dynamic
+            // ranges and four audio codecs; an addon that sends `hdr: ["DV"]` and
+            // `audio: ["Atmos"]` has not contradicted the name, it has under-reported it.
+            //
+            // First-non-empty lost whichever half came second, and the cost was not cosmetic:
+            // with only `Atmos` seen, "Prefer lossless" scored a DTS-HD MA remux 3 instead of 6
+            // and "Require lossless" demoted it by 100 - a lossless release refused for having
+            // no lossless track. This is the same argument [SourceFacts.isMultiLanguage] makes
+            // one field below, and it is why the badge row the user can see was right while the
+            // picker was wrong about the same file: `DebridStreamPresentation` has always read
+            // the structured fields and the release text as one body of evidence.
+            dynamicRange = normalizeDynamicRange(
+                structuredValues = nuvioParsed?.hdr.orEmpty() + aio?.parsedFile?.hdr.orEmpty(),
+                text = releaseText,
+            ),
             // `nuvioParsed.channels` has been decoded off the wire since StreamParser was
             // written and read by nothing; the picker had no audio source of truth at all, which
             // is how a 95 GB HDR remux with a lossy track outranked a lossless one for a user
             // who had asked for lossless.
-            audioCodecs = normalizeAudioCodecs(nuvioParsed?.audio.orEmpty())
-                .ifEmpty { normalizeAudioCodecs(aio?.parsedFile?.audio.orEmpty()) }
-                .ifEmpty { pluginFacts.audioCodecs }
-                .ifEmpty { filenameFacts?.audioCodecs.orEmpty() }
-                .ifEmpty { fallbackFacts.audioCodecs },
-            // AIO carries no channel field, so the ladder is one rung shorter here than above.
-            audioChannels = normalizeAudioChannels(nuvioParsed?.channels.orEmpty())
-                ?: pluginFacts.audioChannels
-                ?: filenameFacts?.audioChannels
-                ?: fallbackFacts.audioChannels,
+            audioCodecs = ReleaseTags.audioCodecs(
+                structuredValues = nuvioParsed?.audio.orEmpty() + aio?.parsedFile?.audio.orEmpty(),
+                text = releaseText,
+            ).mapTo(mutableSetOf()) { it.name },
+            // AIO carries no channel field; the release name usually does, as `DDP5.1` or
+            // `TrueHD.7.1`, and the highest layout claimed is the one to keep.
+            audioChannels = ReleaseTags.channelCount(
+                ReleaseTags.audioChannels(
+                    structuredValues = nuvioParsed?.channels.orEmpty(),
+                    text = releaseText,
+                ),
+            ),
             languages = normalizeLanguages(nuvioParsed)
                 .ifEmpty { normalizeLanguages(aio?.parsedFile) }
                 .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
@@ -448,25 +474,20 @@ object SourceFactsExtractor {
     }
 
     /**
-     * Structured `hdr` fields, which are tagged values rather than prose.
+     * The dynamic ranges the structured `hdr` fields and the release text between them claim.
      *
-     * Anything the shared table does not recognise is kept uppercased rather than dropped: an
-     * addon that invents a name has still told the user something, and a value nothing scores
-     * is harmless where a lost one is not.
+     * Tagged values are matched exactly and prose is matched token-bounded, which is why both
+     * go in together rather than one being tried after the other.
      */
-    private fun normalizeDynamicRange(values: List<String>): Set<String> {
-        if (values.isEmpty()) return emptySet()
-        val recognized = ReleaseTags.dynamicRanges(structuredValues = values).map { it.name }.toSet()
-        return recognized.ifEmpty {
-            values.map { it.trim().uppercase() }.filter(String::isNotEmpty).toSet()
-        }
+    private fun normalizeDynamicRange(structuredValues: List<String>, text: String): Set<String> {
+        val recognized = ReleaseTags.dynamicRanges(structuredValues, text)
+            .mapTo(mutableSetOf()) { it.name }
+        if (recognized.isNotEmpty()) return recognized
+        // Anything the shared table does not recognise is kept uppercased rather than dropped:
+        // an addon that invents a name has still told the user something, and a value nothing
+        // scores is harmless where a lost one is not.
+        return structuredValues.map { it.trim().uppercase() }.filter(String::isNotEmpty).toSet()
     }
-
-    private fun normalizeAudioCodecs(values: List<String>): Set<String> =
-        ReleaseTags.audioCodecs(structuredValues = values).mapTo(mutableSetOf()) { it.name }
-
-    private fun normalizeAudioChannels(values: List<String>): Int? =
-        ReleaseTags.channelCount(ReleaseTags.audioChannels(structuredValues = values))
 
     private fun normalizeLanguages(parsed: StreamClientResolveParsed?): Set<String> =
         parsed?.let { normalizeLanguageValues(it.languages + it.audio) }.orEmpty()
