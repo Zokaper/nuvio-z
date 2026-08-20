@@ -82,6 +82,30 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   HLS, DASH, magnets and torrent files stay manual for downloads; playback may
   auto-pick HLS/DASH, and torrent sources only behind the user's
   `playback_allow_torrent_autopick` toggle.
+- **There is one release-tag vocabulary, `core/media/ReleaseTags.kt`, and it is import-free.**
+  The app used to carry two parsers that disagreed about the same file: the debrid presentation
+  layer drew the badges and read `hdr10+`, `hdr10plus` and `dovi` correctly, while `SourceFacts`
+  fed the auto-picker and got all three wrong - an HDR10+ remux ranked as SDR, *below* a plain
+  HDR release, under a preference asking for HDR. `SourceFacts` also parsed no audio at all.
+  Both now delegate here, so what the badge says and what the picker believes cannot diverge.
+  Import-free for the same reason as `core/language/LanguageCodes.kt`: `SourceFacts.kt` and
+  `SourceRanking.kt` have to compile outside Gradle for group 1 of `run-pure-suites.sh`.
+  ⚠ **Match short tokens with boundaries and long ones without.** `"cam" in "Camelot"` scored a
+  Blu-ray as a cam rip; requiring a boundary in front of `remux` would lose every `UHDRemux`.
+  Channel layouts are bounded by **digits only** - `DDP5.1` and `AAC2.0` glue the layout to the
+  codec, and a letter boundary threw away most of the catalogue.
+- **Dynamic range, audio, codec and release quality are one additive `mediaScore`**, not four
+  lexicographic keys. As a chain, the first key that discriminated decided the pick and nothing
+  below it could speak, so "lossless **and** HDR10" was decided entirely by the HDR key. Two
+  asymmetries in it are deliberate: unstated audio scores **mid** while unstated dynamic range
+  scores as SDR (release names carry HDR reliably and audio only sometimes, and scoring silence
+  at the floor would demote most WEB-DLs for a user who asked for lossless), and `REQUIRE_*`
+  **demotes by -100 rather than excluding**, so the source stays in the failure chain - the same
+  rule as the language gate being "a partition, never a filter". Downloads still *exclude* on an
+  unmet requirement; only the comparator is shared.
+  ⚠ **`SourceFacts.dynamicRange` can now contain `SDR` as a positive claim, so
+  `isNotEmpty()` no longer means "has HDR".** Use `SourceRanking.claimsHdr`; the emptiness test
+  it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`.
 - A player property read on more than one engine must mean the same thing on each. mpv's
   `demuxer-cache-time` is an **absolute** stream timestamp, not a duration ahead of the
   position; iOS shipped it as a duration and its buffer readout grew with playback until
@@ -324,10 +348,30 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   ⚠ **The default name template renames anything with a known service.** Whether a stream is
   renamed is decided per stream, not per group - widen `isPresentableStream` and every plain addon
   row would read "1080p Cloud Instant".
+- Release-tag vocabulary: `core/media/ReleaseTags.kt` (**import-free**, group 1 of
+  `scripts/run-pure-suites.sh`), read by `features/downloads/SourceFacts.kt` and by
+  `features/debrid/DebridStreamPresentation.kt`.
 - Settings sync rules: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`,
   `mergeMonotonicSyncInt`), covered by the pure suites
 - Advanced settings gating: `features/settings/SettingsComponents.kt`
   (`LocalShowAdvancedSettings`), `features/player/AdvancedSettingsDefault.kt`
+- Settings page layout: `PlaybackSettingsPage.kt` (Player, Source Preferences, Audio, Skip
+  Segments, Next Episode), `SubtitlesSettingsPage.kt`, and `AdvancedSettingsPage.kt`, which
+  received Decoder, the iOS output sections, P2P, Stream Selection and Stream Auto-Play in
+  `0.5.0-beta`. Three rules for anything moved between them:
+  - **The moved rows read their state in place**, through `PlayerSettingsRepository.uiState`,
+    rather than being threaded down. `SettingsScreen.kt` differs by 602 lines between the
+    repositories, so a value parameter is a hand-port on both sides for every row.
+  - **`SettingsSearch.kt` must be repointed in the same change.** A row indexed against its old
+    page is the silent failure here: search still finds it and then navigates somewhere that
+    does not contain it. Rows carry `sectionOverride` / `pageOverride` for groups that ended up
+    split across two pages.
+  - **The Advanced nav row is no longer `isAdvanced`.** Playback Engine lives on that page now
+    and it is the main lever for fixing broken playback; gating it behind "Show advanced
+    settings" would hide it from exactly the users who need it. The per-row gates inside the
+    page stay.
+  - Row *placement* is not covered by any test in either repository - `AdvancedSettingsDefault`
+    keys on stored values, not on where a row is drawn - so a move is only verified on screen.
 - What's New and release notes: `features/whatsnew/`,
   `features/updater/AppUpdater.kt` (`fetchRecentReleaseNotes`)
 
