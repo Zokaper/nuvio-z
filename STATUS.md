@@ -10,7 +10,30 @@ Last updated: 2026-08-20
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
 | Verified | Android host **915**, desktop **1128**, pure suites **222** - all zero failures |
 | **Not** verified | nothing in the Streamlined refinement or the gauge fix has been seen on a device or an installed desktop app; iOS is not compiled |
-| Debug channel | desktop `DEBUG_BUILD=8` (`debug-v0.4.14-beta.8`); beta.7 shipped a CDN 403 that made every probe record nothing. Mobile's counter deliberately **not** moved - a `Version.xcconfig` commit between releases truncates the next release's notes |
+| Debug channel | desktop `debug-v0.4.14-beta.8`, mobile `debug-v0.4.14-beta.16`. Mobile's `DEBUG_BUILD` now lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## Mobile's debug counter moved to its own file (2026-08-20, unreleased, `nuvio-z` only)
+
+Prompted by wanting a mobile debug build for the gauge fix, which `AGENTS.md` flagged as a live
+trap. `DEBUG_BUILD` now lives in `iosApp/Configuration/DebugVersion.xcconfig`, matching what
+`NuvioZDesktop` has always done. Readers repointed: `androidApp/build.gradle.kts`,
+`composeApp/build.gradle.kts` (twice - the value and the generated `AppVersionConfig` comment) and
+`.github/workflows/debug-release.yml`, whose `read_value` now takes the file as its first argument.
+
+⚠ **This stops the trap recurring. It does not repair `0.5.0-beta`'s notes, and an earlier note in
+this file implying otherwise was wrong.** The mechanism, checked against the script rather than
+assumed: `release-metadata.sh` takes the newest `Version.xcconfig` commit whose `MARKETING_VERSION`
+*differs* from the newest one as `previous_bump`. While the version has not moved, debug commits are
+skipped and invisible - which is why the range looks fine today. The release bump changes it, every
+prior `0.4.14-beta` commit then differs, and **the newest of them wins**. That is `d83894f8`
+(`chore: debug build 15`), so `0.5.0-beta`'s generated body starts there and omits `5058a313`, the
+whole Streamlined pass, which sits immediately before it. Nothing short of rewriting history undoes
+that. Curate `0.5.0-beta`'s notes by hand and check the range before publishing.
+
+Verified: `:composeApp:generateRuntimeConfigs` emits `DEBUG_BUILD = 16` and
+`DEBUG_VERSION_NAME = "0.4.14-beta.16"`; `:androidApp:tasks` configures; the workflow's version
+resolution was run as a shell dry-run and produced `debug-v0.4.14-beta.16`. Android host 915, 0
+failures. The workflow itself is CI-only.
 
 ## The gauge fix's own follow-up: a 403 nobody could see (2026-08-20, unreleased, both repositories)
 
