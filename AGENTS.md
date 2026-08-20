@@ -106,6 +106,18 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   ⚠ **`SourceFacts.dynamicRange` can now contain `SDR` as a positive claim, so
   `isNotEmpty()` no longer means "has HDR".** Use `SourceRanking.claimsHdr`; the emptiness test
   it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`.
+- **`dynamicRange`, `audioCodecs` and `audioChannels` combine their sources; they do not walk
+  the provenance ladder.** They are sets, and one file routinely states half of one in a
+  structured field and the other half in its name - `HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF` is two
+  dynamic ranges and four audio codecs. An addon sending `hdr: ["DV"]` and `audio: ["Atmos"]`
+  has not contradicted that name, it has under-reported it, so first-non-empty silently dropped
+  the rest: with only `Atmos` seen, *Prefer lossless* scored a DTS-HD MA remux 3 instead of 6
+  and *Require lossless* demoted it by 100 - a lossless release refused for having no lossless
+  track. This is the same argument `isMultiLanguage` makes, and it is why the debrid badge row
+  was right about a file the picker was wrong about: `DebridStreamPresentation` has always read
+  the structured fields and the release text as one body of evidence. The single-valued facts -
+  `codec`, `releaseQuality`, `resolution` - still walk the ladder, because for those a
+  structured field really does beat a filename.
 - A player property read on more than one engine must mean the same thing on each. mpv's
   `demuxer-cache-time` is an **absolute** stream timestamp, not a duration ahead of the
   position; iOS shipped it as a duration and its buffer readout grew with playback until

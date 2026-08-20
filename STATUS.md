@@ -8,9 +8,9 @@ Last updated: 2026-08-21
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
 | Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, and the settings reorganisation + audio/HDR-aware source preferences below. **Not pushed, not tagged** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **933**, desktop **1146**, pure suites **235** - all zero failures |
+| Verified | Android host **937**, desktop **1150**, pure suites **235** - all zero failures |
 | **Not** verified | **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.9`, mobile `debug-v0.4.14-beta.17` - both published 2026-08-21 and both carrying the settings reorganisation. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Debug channel | desktop `debug-v0.4.14-beta.10`, mobile `debug-v0.4.14-beta.18` - both published 2026-08-21, carrying the settings reorganisation and the tag-combining fix. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
 ## Settings reorganisation, and an auto-picker that knows what Atmos is (2026-08-21, unreleased, both repositories)
 
@@ -84,6 +84,29 @@ Four defects died with it:
 ladder. `nuvioParsed.channels` had been decoded off the wire since `StreamParser` was written and
 read by nothing.
 
+### 2b. The follow-up: half a release's tags were being thrown away
+
+**Reported straight after the first debug build, against a stream whose badge row read
+`HDR | DV` and `Atmos | DTS-HD MA`:** are releases carrying *both* recognised?
+
+Within one piece of evidence, yes - `HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF` parses to
+`{DOLBY_VISION, HDR}` and `{ATMOS, DTS_HD_MA, DTS_HD, DTS}`. **Across pieces of evidence, no**,
+and that was a real defect. `extract` walked a first-non-empty provenance ladder for these three
+facts, so an addon reporting `hdr: ["DV"]` and `audio: ["Atmos"]` shadowed the release name
+entirely: the `HDR` and the `DTS-HD MA` in it were never read. With only `Atmos` seen, *Prefer
+lossless* scored that remux 3 instead of 6 and *Require lossless* demoted it by 100 - **a
+lossless release refused for having no lossless track.**
+
+A ladder is the wrong shape for a set. A structured field naming one member does not contradict
+a filename naming another, it under-reports it, which is the argument `isMultiLanguage` already
+made one field below in the same file. `dynamicRange`, `audioCodecs` and `audioChannels` now take
+the structured fields and the release text as one body of evidence, exactly as
+`DebridStreamPresentation` always has - which is why the badge the user could see was right about
+a file the picker was wrong about. The single-valued facts still walk the ladder.
+
+Four new `SourceFactsExtractorTest` cases, built on the reported filename, including the
+under-reporting addon and the `DDP5.1` layout that only the release name carries.
+
 ### 3. The four middle ranking keys became one score
 
 `SourceRanking`'s chain was `resolution → language → HDR(bool) → codec(bool) → releaseQuality →
@@ -126,9 +149,10 @@ desktop scrollbar stays pinned to the container rather than to the clamped conte
 
 ### Verified, and what is not
 
-Android host **933 tests across 109 classes**, desktop **1146 across 141**, pure suites **235**
+Android host **937 tests across 109 classes**, desktop **1150 across 141**, pure suites **235**
 each, all zero failures, errors or skips. The desktop run compiled `desktopMain`. New:
-`ReleaseTagsTest` (the four parse fixes as named cases) and five `SourceRankingTest` cases,
+`ReleaseTagsTest` (the four parse fixes as named cases), five `SourceRankingTest` cases and
+four `SourceFactsExtractorTest` cases,
 including the reported Spider-Man ordering, which fails before this change.
 `DebridStreamPresentationTest` and `PresetDownloadsTest` both pass **unmodified**, which is the
 regression guard for the extraction and for downloads being untouched.
