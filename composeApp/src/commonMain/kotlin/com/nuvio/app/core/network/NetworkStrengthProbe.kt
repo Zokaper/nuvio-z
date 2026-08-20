@@ -1,9 +1,11 @@
 package com.nuvio.app.core.network
 
+import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpMeasureThroughput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -56,11 +58,13 @@ object NetworkStrengthProbe {
     /**
      * The ceiling on a metered connection.
      *
-     * Half the budget. 16 MiB is 134 Mb, so the reading is still honest to roughly 270 Mb/s -
-     * past anything a metered link sustains - while the allowance spent stays a fraction of the
-     * video it is about to choose. Skipping metered links entirely was the earlier answer and was
-     * worse: mobile data is the connection whose speed varies most, so it became the one case
-     * decided purely by a preset.
+     * Half the budget. 16 MiB is 134 Mb, so the reading is honest to roughly 270 Mb/s - past
+     * anything a metered link sustains - while the allowance spent stays a fraction of the video
+     * it is about to choose. Metered is also the only case that stops early, so in practice it
+     * usually spends far less than this: see [plan].
+     *
+     * Skipping metered links entirely was the earlier answer and was worse: mobile data is the
+     * connection whose speed varies most, so it became the one case decided purely by a preset.
      */
     const val METERED_MAX_BYTES = 16L * 1024L * 1024L
 
@@ -108,18 +112,33 @@ object NetworkStrengthProbe {
     const val FRESH_ESTIMATE_MS = 10L * 60L * 1_000L
 
     /**
+     * The largest `?bytes=` the neutral endpoint will serve.
+     *
+     * Measured, not assumed: 96,000,000 answers 200 and 100,000,000 answers **403**, so the
+     * ceiling sits just under 1e8. The first fix for the under-reading asked for 128 MB on the
+     * theory that a body far larger than the budget could only help, and got a 403 on every
+     * probe - which `httpMeasureThroughput` reports as a zero-byte sample, so the probe recorded
+     * nothing at all and the stale estimate survived exactly as it had before. Silent, and
+     * indistinguishable from the original fault.
+     */
+    const val CDN_ENDPOINT_MAX_BYTES = 100_000_000L
+
+    /**
      * Neutral fallback. Records against no provider - it describes the line and nothing else.
      *
-     * ⚠ **The body this serves must stay strictly larger than [MAX_BYTES].** `?bytes=` fixes the
-     * resource size, and a resource smaller than the budget silently *becomes* the budget: the
-     * `Range` header is then unsatisfiable in full, the transfer ends early, and no amount of
-     * raising [MAX_BYTES] changes anything. This endpoint asked for 4 MiB while the budget said
-     * 8 MiB, which is why every reading on every platform was a 4 MiB pull - about 585 ms on a
-     * 72 Mb/s line, too short to hold a window, so the mean was recorded and the connection read
-     * 56 Mb/s while streaming 81. Nothing here is free-running: `Range` bounds what is received,
-     * and closing the stream at the ceiling ends the transfer, so a large figure costs nothing.
+     * ⚠ **Two bounds, and breaking either one is silent.** The body must be larger than
+     * [MAX_BYTES] and smaller than [CDN_ENDPOINT_MAX_BYTES]; 64 MiB is double the budget with
+     * room to spare below the cap. Under the budget, `?bytes=` *becomes* the budget and raising
+     * [MAX_BYTES] changes nothing - that is how a 4 MiB body under an 8 MiB cap made every
+     * reading a 585 ms pull too short to hold a window, reading 56 Mb/s on a line carrying 211.
+     * Over the cap, the endpoint 403s and nothing is recorded at all. Both failures look
+     * identical from the outside: a figure that will not update.
+     *
+     * Note the endpoint **ignores `Range`** - it returns 200 with the whole body - so the size
+     * here is the only thing bounding what the server starts sending. The reader still stops at
+     * [MAX_BYTES] and closes the stream, so the extra is never pulled.
      */
-    const val CDN_FALLBACK_URL = "https://speed.cloudflare.com/__down?bytes=134217728"
+    const val CDN_FALLBACK_URL = "https://speed.cloudflare.com/__down?bytes=67108864"
 
     /**
      * Floors for the **mean**, which is the fallback figure and the only one that needs guarding.
@@ -151,8 +170,9 @@ object NetworkStrengthProbe {
      * "your connection: 8 Mb/s" for a line carrying 200.
      *
      * 200 Mb/s is comfortably past the most expensive thing in any catalogue - a ~120 Mb/s remux
-     * needs ~160 with headroom - so an exit here can never depress a figure any decision depends
-     * on, while still cutting the budget on a line fast enough not to need measuring precisely.
+     * needs ~160 with headroom - so an exit here can never depress a figure any *decision* depends
+     * on. It can still depress the figure the user is **shown**, which is why it is metered-only:
+     * see [plan].
      */
     private const val EARLY_EXIT_FLOOR_MBPS = 200.0
 
@@ -207,6 +227,8 @@ object NetworkStrengthProbe {
         val isForced: Boolean,
     )
 
+    private val logger = Logger.withTag("NetworkStrengthProbe")
+
     private val _isProbing = MutableStateFlow(false)
 
     /**
@@ -223,17 +245,30 @@ object NetworkStrengthProbe {
     fun plan(inputs: Inputs): Plan? {
         if (inputs.isOffline) return null
 
-        // Always set, and never below the floor. Leaving it null when no option quoted a cost
-        // meant Best available - the only option on the sheet without one - disabled the exit
-        // entirely, which combined with `requiredMbps` reading `firstOrNull()` is why it has
-        // never fired.
-        val stopAbove = maxOf(
-            inputs.requiredMbps
-                ?.takeIf { it.isFinite() && it > 0.0 }
-                ?.let { it * EARLY_EXIT_MARGIN }
-                ?: 0.0,
-            EARLY_EXIT_FLOOR_MBPS,
-        )
+        // **Metered only, and that is the whole rule.** The exit is a thrift measure - it exists
+        // so proving a fast line is fast need not spend the user's allowance - and thrift is
+        // only worth a worse number where the bytes cost something.
+        //
+        // On an unmetered line it was worse than useless. The rate a probe stops at is the rate
+        // it records, so an exit at 200 Mb/s writes ~200 for a line doing 380, and the user is
+        // shown a figure capped by the measurement rather than by the connection. That is the
+        // same complaint this whole path exists to answer, arriving from the other direction -
+        // and it buys about half a second on a budget that already costs under a second there.
+        //
+        // Never below the floor even when it does apply: scaling it to whatever is on screen
+        // would let a title whose most expensive release is a 5 Mb/s encode stop the probe at
+        // 7.5 and write "your connection: 8 Mb/s".
+        val stopAbove = if (inputs.isMetered) {
+            maxOf(
+                inputs.requiredMbps
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?.let { it * EARLY_EXIT_MARGIN }
+                    ?: 0.0,
+                EARLY_EXIT_FLOOR_MBPS,
+            )
+        } else {
+            null
+        }
         val sourceUrl = inputs.sourceUrl?.trim()?.takeIf(::isProbeableUrl)
 
         // **The freshness question is about the key this probe would write, not the one the
@@ -294,18 +329,29 @@ object NetworkStrengthProbe {
      * Runs [inputs]' plan, if there is one, and records the result.
      *
      * Returns the measured Mbps, or null when nothing was measured - no plan, a failed request,
-     * or a sample too small to mean anything. A failure is deliberately silent: the estimate
-     * simply stays where it was, and the caller keeps whatever confidence it already had.
+     * or a sample too small to mean anything. The estimate simply stays where it was, and the
+     * caller keeps whatever confidence it already had.
      *
-     * Only one probe runs at a time. A second caller is refused rather than queued, because by
-     * the time the first finishes its answer is the one the second wanted.
+     * **When this returns, a measurement has settled.** That is the contract callers gate a UI
+     * on, and it is why a second caller now *waits* for an in-flight probe instead of being
+     * refused. Refusing returned null immediately, which is indistinguishable from "measured and
+     * found nothing" - so a quality sheet withholding its figure until the probe finished got a
+     * false "finished" a millisecond after the user asked, and committed to the stale number
+     * while the real measurement was still running.
+     *
+     * A failure is no longer silent. Not being able to measure is a normal outcome, but it looks
+     * exactly like the fault this whole path exists to fix - a figure that will not update - so
+     * it has to be findable in a log rather than inferred from an estimate that did not move.
      */
     suspend fun probe(inputs: Inputs): Double? {
+        // Wait rather than refuse, then re-plan: whatever the first probe recorded may have made
+        // this one unnecessary, and `plan` is the only thing that gets to decide that.
+        if (_isProbing.value) _isProbing.first { !it }
         val plan = plan(inputs) ?: return null
         if (_isProbing.value) return null
         _isProbing.value = true
         try {
-            val sample = runCatching {
+            val outcome = runCatching {
                 withTimeoutOrNull(PROBE_DEADLINE_MS) {
                     httpMeasureThroughput(
                         url = plan.url,
@@ -315,7 +361,22 @@ object NetworkStrengthProbe {
                         stopAboveMbps = plan.stopAboveMbps,
                     )
                 }
-            }.getOrNull() ?: return null
+            }
+            val sample = outcome.getOrNull()
+            if (sample == null) {
+                logger.w {
+                    "probe: no sample from ${plan.url} " +
+                        "(${outcome.exceptionOrNull()?.message ?: "timed out after ${PROBE_DEADLINE_MS}ms"})"
+                }
+                return null
+            }
+            if (sample.status !in 200..299 || sample.bytes <= 0L) {
+                // The 403 case. `CDN_FALLBACK_URL` asking for more than the endpoint would serve
+                // produced exactly this on every probe, and it recorded nothing - which from
+                // outside is the same symptom as measuring badly.
+                logger.w { "probe: ${plan.url} answered ${sample.status} with ${sample.bytes} bytes" }
+                return null
+            }
 
             // **The floors guard the mean, never the window.** A closed window already spanned
             // its minimum duration and carried its minimum bytes, so re-testing it against a
@@ -323,6 +384,9 @@ object NetworkStrengthProbe {
             // on the fastest lines, which is where the window matters most.
             val hasWindow = sample.peakWindowMbps != null
             if (!hasWindow && (sample.bytes < MIN_SAMPLE_BYTES || sample.transferMs < MIN_SAMPLE_MS)) {
+                logger.w {
+                    "probe: sample too small - ${sample.bytes} bytes in ${sample.transferMs}ms, no window"
+                }
                 return null
             }
             // The windowed rate, falling back to the mean only when the transfer was too short
@@ -330,6 +394,11 @@ object NetworkStrengthProbe {
             // more the faster the line is - see `ThroughputWindow`, and the 56-vs-81 Mb/s case
             // that is the whole reason this changed.
             val mbps = sample.bestEffortMbps ?: return null
+            logger.i {
+                "probe: ${mbps.toInt()} Mb/s from ${plan.url} " +
+                    "(${sample.bytes} bytes in ${sample.transferMs}ms, ttfb ${sample.ttfbMs}ms, " +
+                    "window=${sample.peakWindowMbps?.toInt() ?: "none"}, forced=${plan.isForced})"
+            }
             NetworkQualityRepository.recordProbeResult(
                 mbps = mbps,
                 providerId = plan.providerId,

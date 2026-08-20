@@ -3698,19 +3698,18 @@ private fun MainAppContent(
                             return@LaunchedEffect
                         }
                         if (qualitySheetDismissed) return@LaunchedEffect
-                        // **Two gates, and this effect re-runs often enough that both matter.**
-                        // `qualityProbeTarget` is rebuilt every time an addon answers.
+                        // This effect re-runs often - `qualityProbeTarget` is rebuilt every
+                        // time an addon answers - and once this sheet has committed to a figure
+                        // it never goes back to "Checking": a later provider-scoped probe is a
+                        // refinement, and the sheet's own latch absorbs it. Only a re-test
+                        // re-opens the question.
                         //
-                        // Once this sheet has committed to a figure it never goes back to
-                        // "Checking": a later provider-scoped probe is a refinement, and the
-                        // sheet's own latch absorbs it. Only a re-test re-opens the question.
+                        // There is deliberately **no `isProbing` guard here.** `probe` waits for
+                        // an in-flight measurement rather than refusing, so re-entering is safe
+                        // and every caller settles when a real answer exists. Skipping the
+                        // launch instead would strand the sheet: nothing else would ever write
+                        // this ask's nonce, and it would sit on "Checking" for good.
                         if (connectionSettled) return@LaunchedEffect
-                        // And a probe already in flight will settle the sheet when it lands.
-                        // Re-entering would hit `probe`'s single-flight guard, get null back
-                        // *immediately*, and settle the sheet while the real measurement was
-                        // still running - showing a figure that is about to change, which is
-                        // the exact thing this gate exists to prevent.
-                        if (NetworkStrengthProbe.isProbing.value) return@LaunchedEffect
                         val platform = NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
                         val inputs = NetworkStrengthProbe.Inputs(
                             isMetered = platform.isMetered,

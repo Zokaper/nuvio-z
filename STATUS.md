@@ -8,9 +8,69 @@ Last updated: 2026-08-20
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
 | Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, and the connection-gauge fix below. **Not pushed, not tagged** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **916**, desktop **1129**, pure suites **222** - all zero failures |
+| Verified | Android host **915**, desktop **1128**, pure suites **222** - all zero failures |
 | **Not** verified | nothing in the Streamlined refinement or the gauge fix has been seen on a device or an installed desktop app; iOS is not compiled |
-| Debug channel | desktop `DEBUG_BUILD=7` published for the gauge fix (`debug-v0.4.14-beta.7`). Mobile's counter deliberately **not** moved - a `Version.xcconfig` commit between releases truncates the next release's notes |
+| Debug channel | desktop `DEBUG_BUILD=8` (`debug-v0.4.14-beta.8`); beta.7 shipped a CDN 403 that made every probe record nothing. Mobile's counter deliberately **not** moved - a `Version.xcconfig` commit between releases truncates the next release's notes |
+
+## The gauge fix's own follow-up: a 403 nobody could see (2026-08-20, unreleased, both repositories)
+
+**Reported after installing `debug-v0.4.14-beta.7`:** no automatic probe on open (still 56), one
+re-test tap still 56, a second tap finally 211 Mb/s.
+
+Diagnosed from the same file, which is why it was quick:
+
+```
+{"networkId":"desktop:2fa9bc","mbps":211.335168,"samples":15,...}
+```
+
+`samples` went **14 → 15**. Exactly one probe recorded across all three attempts, so the two 56s
+were the stale figure being shown, not fresh bad measurements. Reproduced with curl:
+
+```
+bytes=67108864  -> 200
+bytes=96000000  -> 200
+bytes=100000000 -> 403      <- the cap
+bytes=134217728 -> 403      <- what the fix asked for
+```
+
+**The fix's own `CDN_FALLBACK_URL` was over the endpoint's limit.** The invariant written down was
+"the body must exceed the budget"; the endpoint also has a *ceiling*, which was never checked, and
+128 MB is over it. `httpMeasureThroughput` reports a non-2xx as a zero-byte sample, so every CDN
+probe recorded nothing - the same outward symptom as the original bug, by the opposite mechanism.
+The 211 came from the one attempt that had a direct source URL by then and measured that host
+instead. `CDN_FALLBACK_URL` is now 64 MiB: double the budget, well under the cap, both bounds
+pinned by `CDN_ENDPOINT_MAX_BYTES` and a test.
+
+Two structural faults behind it, both of which made a broken probe indistinguishable from a
+working one:
+
+- **`probe` failed silently.** Deliberately, and it was wrong: "cannot measure" and "measured
+  badly" produce the same thing on screen - a figure that will not update - so the difference has
+  to exist somewhere findable. It now logs the status, the byte count and the reason at `w`, and
+  logs a successful reading with its window and TTFB at `i`.
+- **The single-flight guard returned null instantly**, and callers gate a UI on `probe` returning.
+  An immediate null reads as "measured, found nothing", so the sheet would commit to the stale
+  figure a millisecond after a re-test while the real measurement was still running - the second
+  tap succeeding where the first did not is exactly that shape. `probe` now **waits** for an
+  in-flight measurement and re-plans, so its contract is "when this returns, a measurement has
+  settled". `App.kt`'s matching `isProbing` guard is gone: with the wait in place it was
+  redundant, and it could strand the sheet on "Checking" because nothing else would write that
+  ask's nonce.
+
+### The early exit is metered-only now
+
+The same report exposed it. The reading that did land was **211 Mb/s** on a line curl measures at
+239-377, because the exit fired the moment a window cleared `EARLY_EXIT_FLOOR_MBPS` (200) and
+**the rate a probe stops at is the rate it records**. The floor was reasoned about correctly for
+*decisions* - nothing in any catalogue needs more than ~160, so no pick changes - and that is the
+wrong test, because the figure is also the one the user is shown. A number capped by the
+measurement rather than by the connection is the complaint this whole path exists to answer,
+arriving from the other direction for the third time.
+
+The exit is a thrift measure, so it now applies only where bytes cost something. On an unmetered
+line the probe spends its whole budget, which is under a second at 300 Mb/s. On metered it still
+stops early and is still floored, so a title whose most expensive release is a 5 Mb/s encode
+cannot stop the probe at 7.5 and write "your connection: 8 Mb/s".
 
 ## The connection gauge, actually fixed (2026-08-20, unreleased, both repositories)
 
@@ -107,9 +167,9 @@ keeps a stalled transfer from being recorded anywhere.
 
 ### Verified
 
-- **Android host suite: 916 tests, 0 failures** (`ANDROID_HOME="A:\AndroidSDK"`, empty
+- **Android host suite: 915 tests, 0 failures** (`ANDROID_HOME="A:\AndroidSDK"`, empty
   `local.properties` placeholder, deleted afterwards). Up from 907.
-- **Desktop suite in `NuvioZDesktop`: 1129 tests, 0 failures**, up from 1120. This is the only
+- **Desktop suite in `NuvioZDesktop`: 1128 tests, 0 failures**, up from 1120. This is the only
   thing that compiles `desktopMain`, and therefore the only check on the ported reader.
 - **`scripts/run-pure-suites.sh` in both repositories: 222 tests**, up from 218. The four new
   `ThroughputWindowTest` cases run the shipped arithmetic outside Gradle, including a replay of

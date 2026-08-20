@@ -153,47 +153,42 @@ class NetworkStrengthProbeTest {
     }
 
     @Test
-    fun theEarlyExitNeverStopsBelowWhatEveryDecisionNeedsToKnow() {
-        // ⚠ **The rate a probe stops at is the rate it records**, and that figure is persisted
-        // and read back by `resolutionForEstimate` and by the next sheet for ten minutes. Scaling
-        // the exit to whatever happens to be on screen looked like a saving and was a trap: a
-        // title whose most expensive release is a 5 Mb/s 720p encode would stop the probe at 7.5
-        // and write "your connection: 8 Mb/s" for a line carrying 200.
+    fun anUnmeteredProbeSpendsItsWholeBudgetSoTheFigureIsTheLineNotTheStop() {
+        // ⚠ **The rate a probe stops at is the rate it records.** An early exit at 200 Mb/s
+        // therefore writes ~200 for a line doing 380, and the user is shown a figure capped by
+        // the measurement rather than by their connection - the same complaint this path exists
+        // to answer, arriving from the other direction. Reported once already, at 211 against a
+        // line curl measured at 239-377.
+        assertNull(
+            assertNotNull(
+                NetworkStrengthProbe.plan(
+                    inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 160.0),
+                ),
+            ).stopAboveMbps,
+        )
+    }
+
+    @Test
+    fun aMeteredProbeStopsEarlyButNeverBelowWhatEveryDecisionNeedsToKnow() {
+        // Thrift is worth a worse number only where the bytes cost something. Even then the stop
+        // is floored: scaling it to whatever is on screen would let a title whose most expensive
+        // release is a 5 Mb/s encode stop the probe at 7.5 and write "your connection: 8 Mb/s"
+        // for a line carrying 200.
         val cheap = assertNotNull(
             NetworkStrengthProbe.plan(
-                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 5.0),
+                inputs(isMetered = true, sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 5.0),
             ),
         )
-
         assertEquals(200.0, assertNotNull(cheap.stopAboveMbps), 1e-9)
-    }
 
-    @Test
-    fun anUnusuallyExpensiveSheetRaisesTheEarlyExitAboveTheFloor() {
-        // The margin is over the requirement, not over the file's bitrate, so it already includes
-        // the headroom. A 160 Mb/s remux has to be provably affordable, which needs a reading
-        // above the floor.
-        val plan = assertNotNull(
+        // The margin is over the requirement, not the file's bitrate, so it already includes the
+        // headroom. A 160 Mb/s remux has to be provably affordable, which needs a higher stop.
+        val expensive = assertNotNull(
             NetworkStrengthProbe.plan(
-                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 160.0),
+                inputs(isMetered = true, sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 160.0),
             ),
         )
-
-        assertEquals(240.0, assertNotNull(plan.stopAboveMbps), 1e-9)
-    }
-
-    @Test
-    fun anOptionWithNoCostStillGetsAnEarlyExit() {
-        // Best available quotes no bucket cost. Leaving the exit null for it disabled the exit on
-        // the one option the sheet always shows first - which, with `App.kt` reading
-        // `firstOrNull()?.requiredMbps`, is why it never fired in the shipped app at all.
-        val plan = assertNotNull(
-            NetworkStrengthProbe.plan(
-                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = null),
-            ),
-        )
-
-        assertEquals(200.0, assertNotNull(plan.stopAboveMbps), 1e-9)
+        assertEquals(240.0, assertNotNull(expensive.stopAboveMbps), 1e-9)
     }
 
     @Test
@@ -215,11 +210,18 @@ class NetworkStrengthProbeTest {
     }
 
     @Test
-    fun theNeutralEndpointServesMoreThanTheBudget() {
-        // `?bytes=` fixes the resource size, so a body smaller than the budget silently *becomes*
-        // the budget and raising MAX_BYTES changes nothing. That is exactly what happened: a
-        // 4 MiB body under an 8 MiB budget meant every reading on every platform was a 4 MiB
-        // pull, which is 585 ms at 72 Mb/s - too short to hold a window.
+    fun theNeutralEndpointIsAskedForABodyItWillActuallyServeAndThatOutlastsTheBudget() {
+        // ⚠ **Two bounds, and each has already been broken once - silently, and with the same
+        // symptom both times: a figure that will not update.**
+        //
+        // Too small: `?bytes=` fixes the resource size, so a body under the budget *becomes* the
+        // budget and raising MAX_BYTES changes nothing. A 4 MiB body under an 8 MiB budget made
+        // every reading a 585 ms pull, too short to hold a window, reading 56 Mb/s on a line
+        // carrying 211.
+        //
+        // Too large: the endpoint 403s. Asking for 128 MB - on the theory that more headroom
+        // could only help - meant `httpMeasureThroughput` reported a zero-byte sample and the
+        // probe recorded nothing at all, on every single attempt.
         val served = NetworkStrengthProbe.CDN_FALLBACK_URL
             .substringAfter("bytes=")
             .toLong()
@@ -227,6 +229,11 @@ class NetworkStrengthProbeTest {
         assertTrue(
             served > NetworkStrengthProbe.MAX_BYTES,
             "the endpoint serves $served bytes, at or under the ${NetworkStrengthProbe.MAX_BYTES} budget",
+        )
+        assertTrue(
+            served < NetworkStrengthProbe.CDN_ENDPOINT_MAX_BYTES,
+            "the endpoint refuses $served bytes - measured: 96,000,000 answers 200 and " +
+                "100,000,000 answers 403",
         )
     }
 
