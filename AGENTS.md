@@ -202,10 +202,23 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
      one 750 ms window above ~89 Mb/s, which is why the window silently never closed for exactly
      the users it was written for. Check both stops when moving either: at 32 MiB / 2.5 s the
      byte cap binds above ~107 Mb/s and the clock binds below it.
-  3. **The neutral endpoint's body must be strictly larger than the budget.** `?bytes=` fixes the
-     resource size, and a resource smaller than the budget silently *becomes* the budget -
-     `CDN_FALLBACK_URL` asked for 4 MiB under an 8 MiB cap, so every reading on every platform was
-     a 4 MiB pull no matter what `MAX_BYTES` said.
+  3. **The neutral endpoint's body must be larger than the budget *and* smaller than what the
+     endpoint will serve.** Both bounds have been broken, one release apart, with the same
+     outward symptom each time - a figure that will not update. Under the budget, `?bytes=`
+     silently *becomes* the budget: 4 MiB under an 8 MiB cap made every reading a 4 MiB pull no
+     matter what `MAX_BYTES` said. Over the endpoint's ceiling, it 403s and nothing is recorded
+     at all: `speed.cloudflare.com/__down` serves 96,000,000 and refuses 100,000,000, and a fix
+     that asked for 128 MB "for headroom" recorded nothing on every probe. `CDN_ENDPOINT_MAX_BYTES`
+     and `theNeutralEndpointIsAskedForABodyItWillActuallyServe...` pin both ends. **Curl the
+     endpoint before changing the number** - neither bound is visible from the code.
+  4. **A probe that cannot measure has to say so in a log.** "Cannot measure" and "measured badly"
+     look identical on screen, so a silent failure is unfalsifiable from the outside; both faults
+     above survived a release because of it.
+  5. **`probe` waits for an in-flight measurement, it does not refuse.** Callers gate a UI on it
+     returning, and an immediate null reads as "measured, found nothing" - which committed the
+     quality sheet to the stale figure a millisecond after a re-test while the real measurement
+     was still running. Its contract is "when this returns, a measurement has settled"; do not add
+     a caller-side `isProbing` guard back, it strands the sheet on "Checking".
   A window is bounded by **bytes as well as time** for the same reason: 750 ms was chosen so one
   late packet could not inflate the figure, which is a statement about bytes, not duration.
   ⚠ **The probe's sample floors guard the mean, never the window.** A closed window already met
