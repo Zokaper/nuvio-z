@@ -181,6 +181,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 qualityCeilingMbps = settings.playbackQualityCeilingMbps.takeIf { it > 0 }?.toDouble(),
                 codecPreference = settings.playbackCodecPreference,
                 dynamicRangePolicy = settings.playbackDynamicRangePolicy,
+                audioPreference = settings.playbackAudioPreference,
             )
             val candidates = streams.mapIndexed { index, stream ->
                 PlaybackSourceCandidate(

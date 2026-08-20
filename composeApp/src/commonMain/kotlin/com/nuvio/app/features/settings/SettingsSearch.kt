@@ -1,5 +1,12 @@
 package com.nuvio.app.features.settings
 
+import nuvio.composeapp.generated.resources.compose_settings_page_subtitles
+import nuvio.composeapp.generated.resources.settings_subtitles_section_languages
+import nuvio.composeapp.generated.resources.settings_subtitles_section_rendering
+import nuvio.composeapp.generated.resources.settings_playback_section_source_preferences
+import nuvio.composeapp.generated.resources.settings_playback_section_audio
+import nuvio.composeapp.generated.resources.settings_playback_audio_preference
+import nuvio.composeapp.generated.resources.settings_playback_audio_preference_description
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
@@ -521,6 +528,12 @@ internal fun settingsSearchEntries(
     )
 
     val playbackPlayer = stringResource(Res.string.settings_playback_section_player)
+    val playbackSourcePreferences =
+        stringResource(Res.string.settings_playback_section_source_preferences)
+    val playbackAudio = stringResource(Res.string.settings_playback_section_audio)
+    val subtitlesPage = stringResource(Res.string.compose_settings_page_subtitles)
+    val subtitlesLanguages = stringResource(Res.string.settings_subtitles_section_languages)
+    val subtitlesRendering = stringResource(Res.string.settings_subtitles_section_rendering)
     val playbackSubtitleAudio = stringResource(Res.string.settings_playback_section_subtitle_audio)
     val playbackStreamSelection = stringResource(Res.string.settings_playback_section_stream_selection)
     val playbackStreamAutoPlay = stringResource(Res.string.settings_playback_section_stream_auto_play)
@@ -571,6 +584,12 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.PlayArrow,
         rows = listOfNotNull(
             PlaybackSearchRow(
+                "audio-preference",
+                stringResource(Res.string.settings_playback_audio_preference),
+                stringResource(Res.string.settings_playback_audio_preference_description),
+                sectionOverride = playbackSourcePreferences,
+            ),
+            PlaybackSearchRow(
                 "playback-mode",
                 stringResource(Res.string.settings_playback_mode),
                 stringResource(Res.string.settings_playback_mode_description),
@@ -579,31 +598,37 @@ internal fun settingsSearchEntries(
                 "playback-torrent-autopick",
                 stringResource(Res.string.settings_playback_allow_torrent_autopick),
                 stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "playback-codec-preference",
                 stringResource(Res.string.settings_playback_codec_preference),
                 stringResource(Res.string.settings_playback_codec_preference_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "playback-dynamic-range",
                 stringResource(Res.string.settings_playback_dynamic_range),
                 stringResource(Res.string.settings_playback_dynamic_range_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "playback-language-strictness",
                 stringResource(Res.string.settings_playback_language_strictness),
                 stringResource(Res.string.settings_playback_language_strictness_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "playback-quality-ceiling",
                 stringResource(Res.string.settings_playback_quality_ceiling),
                 stringResource(Res.string.settings_playback_quality_ceiling_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "playback-auto-downshift",
                 stringResource(Res.string.settings_playback_auto_downshift),
                 stringResource(Res.string.settings_playback_auto_downshift_description),
+                sectionOverride = playbackSourcePreferences,
             ),
             PlaybackSearchRow(
                 "loading-overlay",
@@ -635,18 +660,31 @@ internal fun settingsSearchEntries(
     addPlaybackRows(
         addRow = ::addRow,
         pageLabel = playbackPage,
-        section = playbackSubtitleAudio,
+        section = playbackAudio,
         icon = Icons.Rounded.PlayArrow,
         rows = listOf(
             PlaybackSearchRow("preferred-audio", stringResource(Res.string.settings_playback_preferred_audio_language)),
             PlaybackSearchRow("secondary-audio", stringResource(Res.string.settings_playback_secondary_audio_language)),
-            PlaybackSearchRow("preferred-subtitles", stringResource(Res.string.settings_playback_preferred_subtitle_language)),
-            PlaybackSearchRow("secondary-subtitles", stringResource(Res.string.settings_playback_secondary_subtitle_language)),
+            PlaybackSearchRow(
+                "preferred-subtitles",
+                stringResource(Res.string.settings_playback_preferred_subtitle_language),
+                sectionOverride = subtitlesLanguages,
+                pageOverride = SettingsPage.Subtitles,
+                pageLabelOverride = subtitlesPage,
+            ),
+            PlaybackSearchRow(
+                "secondary-subtitles",
+                stringResource(Res.string.settings_playback_secondary_subtitle_language),
+                sectionOverride = subtitlesLanguages,
+                pageOverride = SettingsPage.Subtitles,
+                pageLabelOverride = subtitlesPage,
+            ),
         ),
     )
     addPlaybackRows(
         addRow = ::addRow,
-        pageLabel = playbackPage,
+        pageLabel = advancedPage,
+        page = SettingsPage.Advanced,
         section = playbackStreamSelection,
         icon = Icons.Rounded.PlayArrow,
         rows = listOf(
@@ -660,7 +698,8 @@ internal fun settingsSearchEntries(
     )
     addPlaybackRows(
         addRow = ::addRow,
-        pageLabel = playbackPage,
+        pageLabel = advancedPage,
+        page = SettingsPage.Advanced,
         section = playbackStreamAutoPlay,
         icon = Icons.Rounded.PlayArrow,
         rows = buildList {
@@ -675,7 +714,8 @@ internal fun settingsSearchEntries(
     if (!isIos) {
         addPlaybackRows(
             addRow = ::addRow,
-            pageLabel = playbackPage,
+            pageLabel = advancedPage,
+            page = SettingsPage.Advanced,
             section = playbackDecoder,
             icon = Icons.Rounded.PlayArrow,
             rows = listOf(
@@ -686,8 +726,9 @@ internal fun settingsSearchEntries(
         )
         addPlaybackRows(
             addRow = ::addRow,
-            pageLabel = playbackPage,
-            section = playbackSubtitleRendering,
+            pageLabel = subtitlesPage,
+            page = SettingsPage.Subtitles,
+            section = subtitlesRendering,
             icon = Icons.Rounded.PlayArrow,
             rows = listOf(
                 PlaybackSearchRow("libass", stringResource(Res.string.settings_playback_enable_libass), stringResource(Res.string.settings_playback_enable_libass_description)),
@@ -972,6 +1013,15 @@ private data class PlaybackSearchRow(
     val title: String,
     val description: String = "",
     val sectionOverride: String? = null,
+    /**
+     * The page this row actually lives on, when it is not the group's page.
+     *
+     * Playback's Player group and its Audio group each ended up split across two pages by the
+     * settings reorganisation, and a row indexed against the wrong page is the failure mode
+     * this whole index has: the search still finds it, then navigates somewhere it is not.
+     */
+    val pageOverride: SettingsPage? = null,
+    val pageLabelOverride: String? = null,
 )
 
 private fun addPlaybackRows(
@@ -989,15 +1039,16 @@ private fun addPlaybackRows(
     section: String,
     icon: ImageVector,
     rows: List<PlaybackSearchRow>,
+    page: SettingsPage = SettingsPage.Playback,
 ) {
     rows.forEach { row ->
         addRow(
-            SettingsPage.Playback,
+            row.pageOverride ?: page,
             "playback-${row.key}",
             row.title,
             row.description,
-            pageLabel,
-            section,
+            row.pageLabelOverride ?: pageLabel,
+            row.sectionOverride ?: section,
             "",
             icon,
         )

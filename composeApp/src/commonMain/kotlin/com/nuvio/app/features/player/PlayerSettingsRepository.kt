@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
+import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.playback.LanguageStrictness
@@ -74,6 +75,14 @@ data class PlayerSettingsUiState(
      */
     val playbackCodecPreference: CodecPreference = CodecPreference.ANY,
     val playbackDynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
+    /**
+     * What the automatic picker should want out of a release's audio track.
+     *
+     * There was no source of truth for audio at all until this: `SourceFacts` parsed none,
+     * so a 95 GB HDR remux carrying a lossy track beat a lossless release outright for a
+     * user who wanted both. Channels feed the same score without a knob of their own.
+     */
+    val playbackAudioPreference: AudioPreference = AudioPreference.ANY,
     /**
      * How hard Streamlined tries to honour [preferredAudioLanguage] when picking a source.
      *
@@ -195,6 +204,7 @@ object PlayerSettingsRepository {
     private var playbackAllowTorrentAutopick = false
     private var playbackCodecPreference = CodecPreference.ANY
     private var playbackDynamicRangePolicy = DynamicRangePolicy.ANY
+    private var playbackAudioPreference = AudioPreference.ANY
     private var playbackLanguageStrictness = LanguageStrictness.REQUIRE
     private var playbackQualityCeilingMbps = 0
     private var showAdvancedSettings = false
@@ -277,6 +287,7 @@ object PlayerSettingsRepository {
         playbackAllowTorrentAutopick = false
         playbackCodecPreference = CodecPreference.ANY
         playbackDynamicRangePolicy = DynamicRangePolicy.ANY
+        playbackAudioPreference = AudioPreference.ANY
         playbackLanguageStrictness = LanguageStrictness.REQUIRE
         playbackQualityCeilingMbps = 0
         showAdvancedSettings = false
@@ -399,6 +410,9 @@ object PlayerSettingsRepository {
         playbackDynamicRangePolicy = PlayerSettingsStorage.loadPlaybackDynamicRangePolicy()
             ?.let { stored -> DynamicRangePolicy.entries.firstOrNull { it.name == stored } }
             ?: DynamicRangePolicy.ANY
+        playbackAudioPreference = PlayerSettingsStorage.loadPlaybackAudioPreference()
+            ?.let { stored -> AudioPreference.entries.firstOrNull { it.name == stored } }
+            ?: AudioPreference.ANY
         playbackLanguageStrictness = PlayerSettingsStorage.loadPlaybackLanguageStrictness()
             ?.let { stored -> LanguageStrictness.entries.firstOrNull { it.name == stored } }
             ?: LanguageStrictness.REQUIRE
@@ -761,6 +775,14 @@ object PlayerSettingsRepository {
         playbackDynamicRangePolicy = policy
         publish()
         PlayerSettingsStorage.savePlaybackDynamicRangePolicy(policy.name)
+    }
+
+    fun setPlaybackAudioPreference(preference: AudioPreference) {
+        ensureLoaded()
+        if (playbackAudioPreference == preference) return
+        playbackAudioPreference = preference
+        publish()
+        PlayerSettingsStorage.savePlaybackAudioPreference(preference.name)
     }
 
     fun setPlaybackLanguageStrictness(strictness: LanguageStrictness) {
@@ -1180,6 +1202,7 @@ object PlayerSettingsRepository {
             playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
             playbackCodecPreference = playbackCodecPreference,
             playbackDynamicRangePolicy = playbackDynamicRangePolicy,
+            playbackAudioPreference = playbackAudioPreference,
             playbackLanguageStrictness = playbackLanguageStrictness,
             playbackQualityCeilingMbps = playbackQualityCeilingMbps,
             showAdvancedSettings = showAdvancedSettings,

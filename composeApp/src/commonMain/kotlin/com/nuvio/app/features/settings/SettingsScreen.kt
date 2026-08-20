@@ -95,6 +95,14 @@ private val SettingsSearchRevealThreshold = 28.dp
 private const val SettingsSearchRevealAnimationMillis = 240L
 private const val SettingsSearchRevealHapticDelayMillis = 90L
 
+/**
+ * The tablet/desktop settings pane clamps its content rather than letting it span the window:
+ * on a 2560 px monitor an unclamped card ran to ~2,200 px. The gutter never falls below the
+ * original 40 dp padding, so nothing touches the edge on a narrow window.
+ */
+private val SettingsTabletContentMaxWidth = 960.dp
+private val SettingsTabletMinimumGutter = 40.dp
+
 private fun SettingsPage.isEnabledByPolicy(): Boolean =
     when (this) {
         SettingsPage.SupportersContributors -> AppFeaturePolicy.supportersContributorsPageEnabled
@@ -728,6 +736,7 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                 )
                 SettingsPage.Playback -> playbackSettingsContent(
+                    onSubtitlesClick = { onPageChange(SettingsPage.Subtitles) },
                     isTablet = false,
                     showLoadingOverlay = showLoadingOverlay,
                     holdToSpeedEnabled = holdToSpeedEnabled,
@@ -748,6 +757,9 @@ private fun MobileSettingsScreen(
                     tunnelingEnabled = tunnelingEnabled,
                     useLibass = useLibass,
                     libassRenderType = libassRenderType,
+                )
+                SettingsPage.Subtitles -> subtitlesSettingsContent(
+                    isTablet = false,
                 )
                 SettingsPage.Streams -> streamsSettingsContent(
                     isTablet = false,
@@ -1068,15 +1080,20 @@ private fun TabletSettingsScreen(
                     listState.animateScrollToItem(0)
                 }
             }
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val horizontalGutter = max(
+                SettingsTabletMinimumGutter,
+                (maxWidth - SettingsTabletContentMaxWidth) / 2,
+            )
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(rootSearchRevealConnection),
                 contentPadding = PaddingValues(
-                    start = 40.dp,
+                    start = horizontalGutter,
                     top = topOffset,
-                    end = 40.dp,
+                    end = horizontalGutter,
                     bottom = 40.dp + bottomOverlayPadding,
                 ),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -1150,6 +1167,7 @@ private fun TabletSettingsScreen(
                         isTablet = true,
                     )
                     SettingsPage.Playback -> playbackSettingsContent(
+                        onSubtitlesClick = { openInlinePage(SettingsPage.Subtitles) },
                         isTablet = true,
                         showLoadingOverlay = showLoadingOverlay,
                         holdToSpeedEnabled = holdToSpeedEnabled,
@@ -1170,6 +1188,9 @@ private fun TabletSettingsScreen(
                         tunnelingEnabled = tunnelingEnabled,
                         useLibass = useLibass,
                         libassRenderType = libassRenderType,
+                    )
+                    SettingsPage.Subtitles -> subtitlesSettingsContent(
+                        isTablet = true,
                     )
                     SettingsPage.Streams -> streamsSettingsContent(
                         isTablet = true,
@@ -1262,6 +1283,7 @@ private fun TabletSettingsScreen(
                         onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                     )
                 }
+            }
             }
         }
     }

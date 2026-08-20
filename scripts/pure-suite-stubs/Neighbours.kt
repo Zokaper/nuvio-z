@@ -30,6 +30,8 @@ data class SourceFacts(
     val durationSeconds: Long? = null,
     val codec: String? = null,
     val dynamicRange: Set<String> = emptySet(),
+    val audioCodecs: Set<String> = emptySet(),
+    val audioChannels: Int? = null,
     val languages: Set<String> = emptySet(),
     val isMultiLanguage: Boolean = false,
     val subtitleLanguages: Set<String> = emptySet(),

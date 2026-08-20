@@ -1,5 +1,9 @@
 package com.nuvio.app.features.debrid
 
+import com.nuvio.app.core.media.ReleaseAudioChannel
+import com.nuvio.app.core.media.ReleaseAudioCodec
+import com.nuvio.app.core.media.ReleaseDynamicRange
+import com.nuvio.app.core.media.ReleaseTags
 import com.nuvio.app.features.streams.AddonStreamGroup
 import com.nuvio.app.features.streams.StreamDebridCacheState
 import com.nuvio.app.features.streams.StreamItem
@@ -331,21 +335,28 @@ internal object DebridStreamMetadata {
         }
     }
 
+    // The dynamic-range, audio-codec and channel tables moved to the import-free
+    // `core/media/ReleaseTags.kt` so that `SourceFacts` - and through it the auto-picker - reads
+    // the same release name the same way this does. These three functions map the shared result
+    // onto the display enums; the labels and their order are unchanged, which is what
+    // `DebridStreamPresentationTest` passing unmodified proves.
     private fun streamVisualTags(parsedHdr: List<String>, searchText: String): List<DebridStreamVisualTag> {
         val text = (parsedHdr + searchText).joinToString(" ").lowercase()
         val tags = mutableListOf<DebridStreamVisualTag>()
-        val hasDv = parsedHdr.any { it.isDolbyVisionToken() } ||
-            Regex("(^|[^a-z0-9])(dv|dovi|dolby[ ._-]?vision)([^a-z0-9]|\$)").containsMatchIn(searchText)
-        val hasHdr = parsedHdr.any { it.isHdrToken() } ||
-            Regex("(^|[^a-z0-9])(hdr|hdr10|hdr10plus|hdr10\\+|hlg)([^a-z0-9]|\$)").containsMatchIn(searchText)
+        val ranges = ReleaseTags.dynamicRanges(parsedHdr, searchText)
+        val hasDv = ReleaseDynamicRange.DOLBY_VISION in ranges
+        val hasHdr = ReleaseTags.claimsHdrFamily(ranges)
+        val hasHdr10Plus = ReleaseDynamicRange.HDR10_PLUS in ranges
         if (hasDv && hasHdr) tags += DebridStreamVisualTag.HDR_DV
         if (hasDv && !hasHdr) tags += DebridStreamVisualTag.DV_ONLY
         if (hasHdr && !hasDv) tags += DebridStreamVisualTag.HDR_ONLY
-        if (text.contains("hdr10+") || text.contains("hdr10plus")) tags += DebridStreamVisualTag.HDR10_PLUS
-        if (text.contains("hdr10")) tags += DebridStreamVisualTag.HDR10
+        if (hasHdr10Plus) tags += DebridStreamVisualTag.HDR10_PLUS
+        // HDR10+ is still an HDR10 signal for the badge row, even though the shared vocabulary
+        // keeps the two members exclusive so the picker cannot read one as the other.
+        if (hasHdr10Plus || ReleaseDynamicRange.HDR10 in ranges) tags += DebridStreamVisualTag.HDR10
         if (hasDv) tags += DebridStreamVisualTag.DV
         if (hasHdr) tags += DebridStreamVisualTag.HDR
-        if (text.hasToken("hlg")) tags += DebridStreamVisualTag.HLG
+        if (ReleaseDynamicRange.HLG in ranges) tags += DebridStreamVisualTag.HLG
         if (text.contains("10bit") || text.contains("10 bit")) tags += DebridStreamVisualTag.TEN_BIT
         if (text.hasToken("3d")) tags += DebridStreamVisualTag.THREE_D
         if (text.hasToken("imax")) tags += DebridStreamVisualTag.IMAX
@@ -357,30 +368,34 @@ internal object DebridStreamMetadata {
     }
 
     private fun streamAudioTags(parsedAudio: List<String>, searchText: String): List<DebridStreamAudioTag> {
-        val text = (parsedAudio + searchText).joinToString(" ").lowercase()
-        val tags = mutableListOf<DebridStreamAudioTag>()
-        if (text.hasToken("atmos")) tags += DebridStreamAudioTag.ATMOS
-        if (text.contains("dd+") || text.contains("ddp") || text.contains("dolby digital plus")) tags += DebridStreamAudioTag.DD_PLUS
-        if (text.hasToken("dd") || text.contains("ac3") || text.contains("dolby digital")) tags += DebridStreamAudioTag.DD
-        if (text.contains("dts:x") || text.contains("dtsx")) tags += DebridStreamAudioTag.DTS_X
-        if (text.contains("dts-hd ma") || text.contains("dtshd ma")) tags += DebridStreamAudioTag.DTS_HD_MA
-        if (text.contains("dts-hd") || text.contains("dtshd")) tags += DebridStreamAudioTag.DTS_HD
-        if (text.contains("dts-es") || text.contains("dtses")) tags += DebridStreamAudioTag.DTS_ES
-        if (text.hasToken("dts")) tags += DebridStreamAudioTag.DTS
-        if (text.contains("truehd") || text.contains("true hd")) tags += DebridStreamAudioTag.TRUEHD
-        if (text.hasToken("opus")) tags += DebridStreamAudioTag.OPUS
-        if (text.hasToken("flac")) tags += DebridStreamAudioTag.FLAC
-        if (text.hasToken("aac")) tags += DebridStreamAudioTag.AAC
+        val codecs = ReleaseTags.audioCodecs(parsedAudio, searchText)
+        // Kept as an explicit ordered walk rather than a map over the shared enum: this order is
+        // the badge order the user sees, and it is not the shared enum's ranking order.
+        val tags = listOfNotNull(
+            DebridStreamAudioTag.ATMOS.takeIf { ReleaseAudioCodec.ATMOS in codecs },
+            DebridStreamAudioTag.DD_PLUS.takeIf { ReleaseAudioCodec.DD_PLUS in codecs },
+            DebridStreamAudioTag.DD.takeIf { ReleaseAudioCodec.DD in codecs },
+            DebridStreamAudioTag.DTS_X.takeIf { ReleaseAudioCodec.DTS_X in codecs },
+            DebridStreamAudioTag.DTS_HD_MA.takeIf { ReleaseAudioCodec.DTS_HD_MA in codecs },
+            DebridStreamAudioTag.DTS_HD.takeIf { ReleaseAudioCodec.DTS_HD in codecs },
+            DebridStreamAudioTag.DTS_ES.takeIf { ReleaseAudioCodec.DTS_ES in codecs },
+            DebridStreamAudioTag.DTS.takeIf { ReleaseAudioCodec.DTS in codecs },
+            DebridStreamAudioTag.TRUEHD.takeIf { ReleaseAudioCodec.TRUEHD in codecs },
+            DebridStreamAudioTag.OPUS.takeIf { ReleaseAudioCodec.OPUS in codecs },
+            DebridStreamAudioTag.FLAC.takeIf { ReleaseAudioCodec.FLAC in codecs },
+            DebridStreamAudioTag.AAC.takeIf { ReleaseAudioCodec.AAC in codecs },
+        )
         return tags.distinct().ifEmpty { listOf(DebridStreamAudioTag.UNKNOWN) }
     }
 
     private fun streamAudioChannels(parsedChannels: List<String>, searchText: String): List<DebridStreamAudioChannel> {
-        val text = (parsedChannels + searchText).joinToString(" ").lowercase()
-        val channels = mutableListOf<DebridStreamAudioChannel>()
-        if (text.hasToken("7.1")) channels += DebridStreamAudioChannel.CH_7_1
-        if (text.hasToken("6.1")) channels += DebridStreamAudioChannel.CH_6_1
-        if (text.hasToken("5.1") || text.hasToken("6ch")) channels += DebridStreamAudioChannel.CH_5_1
-        if (text.hasToken("2.0")) channels += DebridStreamAudioChannel.CH_2_0
+        val layouts = ReleaseTags.audioChannels(parsedChannels, searchText)
+        val channels = listOfNotNull(
+            DebridStreamAudioChannel.CH_7_1.takeIf { ReleaseAudioChannel.CH_7_1 in layouts },
+            DebridStreamAudioChannel.CH_6_1.takeIf { ReleaseAudioChannel.CH_6_1 in layouts },
+            DebridStreamAudioChannel.CH_5_1.takeIf { ReleaseAudioChannel.CH_5_1 in layouts },
+            DebridStreamAudioChannel.CH_2_0.takeIf { ReleaseAudioChannel.CH_2_0 in layouts },
+        )
         return channels.distinct().ifEmpty { listOf(DebridStreamAudioChannel.UNKNOWN) }
     }
 
@@ -423,20 +438,6 @@ internal object DebridStreamMetadata {
 
     private fun String.hasToken(token: String): Boolean =
         Regex("(^|[^a-z0-9])${Regex.escape(token.lowercase())}([^a-z0-9]|\$)").containsMatchIn(lowercase())
-
-    private fun String.isDolbyVisionToken(): Boolean {
-        val normalized = lowercase().replace(Regex("[^a-z0-9]"), "")
-        return normalized == "dv" || normalized == "dovi" || normalized == "dolbyvision"
-    }
-
-    private fun String.isHdrToken(): Boolean {
-        val normalized = lowercase().replace(Regex("[^a-z0-9+]"), "")
-        return normalized == "hdr" ||
-            normalized == "hdr10" ||
-            normalized == "hdr10+" ||
-            normalized == "hdr10plus" ||
-            normalized == "hlg"
-    }
 
     private fun streamSize(stream: StreamItem): Long? =
         stream.clientResolve?.stream?.raw?.size

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.playback
 
+import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.SourceFacts
@@ -38,6 +39,13 @@ data class PlaybackSelectionContext(
     val preferredAudioLanguage: String? = null,
     val codecPreference: CodecPreference = CodecPreference.ANY,
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
+    /**
+     * What the user wants out of the audio track.
+     *
+     * Unlike [dynamicRangePolicy] this has **no resolution-shaped default**: there is nothing
+     * about a 4K row that implies a lossless track, so `ANY` here means what it says.
+     */
+    val audioPreference: AudioPreference = AudioPreference.ANY,
     /**
      * The most the user is willing to spend on one stream, in megabits per second, or null.
      *
@@ -244,6 +252,9 @@ object PlaybackSourceSelector {
         val ranges = facts?.dynamicRange.orEmpty()
         return when {
             "DOLBY_VISION" in ranges -> "DV"
+            // HDR10+ is its own member now, and exclusive with HDR10 - without this row an
+            // HDR10+ release would draw no dynamic-range word at all.
+            "HDR10_PLUS" in ranges -> "HDR10+"
             "HDR10" in ranges -> "HDR10"
             "HDR" in ranges -> "HDR"
             "HLG" in ranges -> "HLG"

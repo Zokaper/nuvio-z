@@ -2,6 +2,7 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.language.normalizeLanguageCode
 import com.nuvio.app.core.language.releaseLanguagesIn
+import com.nuvio.app.core.media.ReleaseTags
 import com.nuvio.app.features.streams.AioParsedFile
 import com.nuvio.app.features.streams.StreamClientResolveParsed
 import com.nuvio.app.features.streams.StreamItem
@@ -50,7 +51,26 @@ data class SourceFacts(
     /** Exact byte reports from structured fields, Stremio hints, or HTTP verification. */
     val hardReportedSizes: List<Long> = emptyList(),
     val codec: String? = null,
+    /**
+     * [com.nuvio.app.core.media.ReleaseDynamicRange] names - `DOLBY_VISION`, `HDR10_PLUS`,
+     * `HDR10`, `HDR`, `HLG`, `SDR` - or empty when the release claims none.
+     *
+     * `HDR10_PLUS` and `HDR10` are exclusive: a release tagged `hdr10+` carries the first only.
+     * Reading `hdr10+` as plain `HDR10` is the defect this member set exists to end.
+     */
     val dynamicRange: Set<String> = emptySet(),
+    /**
+     * [com.nuvio.app.core.media.ReleaseAudioCodec] names - `ATMOS`, `TRUEHD`, `DTS_HD_MA`,
+     * `DTS_X`, `FLAC`, `DD_PLUS`, ... - or empty when the release names no audio format.
+     *
+     * **Empty means unstated, never lossy**, and the ranking scores it mid rather than at the
+     * floor. Release names carry HDR reliably and audio format only sometimes, so treating
+     * silence as "no lossless track" would demote most WEB-DLs for a user who asked for one -
+     * a refusal wearing a preference's name.
+     */
+    val audioCodecs: Set<String> = emptySet(),
+    /** Highest channel count claimed - 8 for 7.1, 6 for 5.1, 2 for 2.0 - or null if unstated. */
+    val audioChannels: Int? = null,
     /**
      * Normalized audio language codes - `en`, `pt-BR`, `es-419` - or empty when the release
      * names none.
@@ -202,6 +222,20 @@ object SourceFactsExtractor {
                 .ifEmpty { pluginFacts.dynamicRange }
                 .ifEmpty { filenameFacts?.dynamicRange.orEmpty() }
                 .ifEmpty { fallbackFacts.dynamicRange },
+            // `nuvioParsed.channels` has been decoded off the wire since StreamParser was
+            // written and read by nothing; the picker had no audio source of truth at all, which
+            // is how a 95 GB HDR remux with a lossy track outranked a lossless one for a user
+            // who had asked for lossless.
+            audioCodecs = normalizeAudioCodecs(nuvioParsed?.audio.orEmpty())
+                .ifEmpty { normalizeAudioCodecs(aio?.parsedFile?.audio.orEmpty()) }
+                .ifEmpty { pluginFacts.audioCodecs }
+                .ifEmpty { filenameFacts?.audioCodecs.orEmpty() }
+                .ifEmpty { fallbackFacts.audioCodecs },
+            // AIO carries no channel field, so the ladder is one rung shorter here than above.
+            audioChannels = normalizeAudioChannels(nuvioParsed?.channels.orEmpty())
+                ?: pluginFacts.audioChannels
+                ?: filenameFacts?.audioChannels
+                ?: fallbackFacts.audioChannels,
             languages = normalizeLanguages(nuvioParsed)
                 .ifEmpty { normalizeLanguages(aio?.parsedFile) }
                 .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
@@ -273,12 +307,15 @@ object SourceFactsExtractor {
         val sizeBytes: Long? = null,
         val codec: String? = null,
         val dynamicRange: Set<String> = emptySet(),
+        val audioCodecs: Set<String> = emptySet(),
+        val audioChannels: Int? = null,
         val languages: Set<String> = emptySet(),
         val releaseQuality: String? = null,
     ) {
         val hasAnyFact: Boolean
             get() = resolution != null || sizeBytes != null || codec != null ||
-                dynamicRange.isNotEmpty() || languages.isNotEmpty() || releaseQuality != null
+                dynamicRange.isNotEmpty() || audioCodecs.isNotEmpty() || audioChannels != null ||
+                languages.isNotEmpty() || releaseQuality != null
     }
 
     private fun parseTextFacts(value: String): TextFacts? {
@@ -297,12 +334,13 @@ object SourceFactsExtractor {
             }
             (amount * multiplier).roundToLong().takeIf { bytes -> bytes > 0L }
         }
-        val ranges = buildSet {
-            if ("dolby vision" in lower || Regex("""\bdv\b""").containsMatchIn(lower)) add("DOLBY_VISION")
-            if (Regex("""\bhdr10\+?\b""").containsMatchIn(lower)) add("HDR10")
-            else if (Regex("""\bhdr\b""").containsMatchIn(lower)) add("HDR")
-            if (Regex("""\bhlg\b""").containsMatchIn(lower)) add("HLG")
-        }
+        // Three parse bugs died with the table this replaced, all of them silent: `\bhdr10\+?\b`
+        // backtracked and labelled `hdr10+` as plain `HDR10`; `hdr10plus` matched nothing at all,
+        // so an HDR10+ release read as SDR and ranked *below* a plain HDR one; and `dovi` was not
+        // recognised. The badges the user could see had all three right the whole time.
+        val ranges = ReleaseTags.dynamicRanges(text = value).mapTo(mutableSetOf()) { it.name }
+        val audioCodecs = ReleaseTags.audioCodecs(text = value).mapTo(mutableSetOf()) { it.name }
+        val audioChannels = ReleaseTags.channelCount(ReleaseTags.audioChannels(text = value))
         // The seven-language table this replaced knew en/ar/es/fr/de/ja/ko and nothing else, so
         // a Hindi, Italian or Russian release declared no language at all - and a preference
         // cannot reject what it cannot see. It also had no `MULTi` and no flag emoji, which
@@ -313,8 +351,11 @@ object SourceFactsExtractor {
             sizeBytes = sizeBytes,
             codec = normalizeCodec(value),
             dynamicRange = ranges,
+            audioCodecs = audioCodecs,
+            audioChannels = audioChannels,
             languages = languages,
-            releaseQuality = QUALITY_TOKENS.firstOrNull { it in lower }?.uppercase(),
+            // Token-bounded, because a substring scan called every WEB-DL of *Camelot* a cam rip.
+            releaseQuality = ReleaseTags.releaseQuality(lower),
         ).takeIf(TextFacts::hasAnyFact)
     }
 
@@ -406,12 +447,26 @@ object SourceFactsExtractor {
         }
     }
 
-    private fun normalizeDynamicRange(values: List<String>): Set<String> =
-        values.flatMap { value ->
-            parseTextFacts(value)?.dynamicRange.orEmpty().ifEmpty {
-                listOf(value.trim().uppercase()).filter(String::isNotEmpty)
-            }
-        }.toSet()
+    /**
+     * Structured `hdr` fields, which are tagged values rather than prose.
+     *
+     * Anything the shared table does not recognise is kept uppercased rather than dropped: an
+     * addon that invents a name has still told the user something, and a value nothing scores
+     * is harmless where a lost one is not.
+     */
+    private fun normalizeDynamicRange(values: List<String>): Set<String> {
+        if (values.isEmpty()) return emptySet()
+        val recognized = ReleaseTags.dynamicRanges(structuredValues = values).map { it.name }.toSet()
+        return recognized.ifEmpty {
+            values.map { it.trim().uppercase() }.filter(String::isNotEmpty).toSet()
+        }
+    }
+
+    private fun normalizeAudioCodecs(values: List<String>): Set<String> =
+        ReleaseTags.audioCodecs(structuredValues = values).mapTo(mutableSetOf()) { it.name }
+
+    private fun normalizeAudioChannels(values: List<String>): Int? =
+        ReleaseTags.channelCount(ReleaseTags.audioChannels(structuredValues = values))
 
     private fun normalizeLanguages(parsed: StreamClientResolveParsed?): Set<String> =
         parsed?.let { normalizeLanguageValues(it.languages + it.audio) }.orEmpty()
@@ -434,9 +489,6 @@ object SourceFactsExtractor {
     private fun Long.positive(): Long? = takeIf { it > 0L }
     private fun String.normalized(): String? = trim().takeIf(String::isNotEmpty)
 
-    private val QUALITY_TOKENS = listOf(
-        "remux", "bluray", "blu-ray", "web-dl", "webrip", "hdtv", "dvdrip", "cam",
-    )
     private val RELEASE_GROUP_FALSE_POSITIVES = setOf(
         "WEB", "WEB-DL", "WEBRIP", "BLURAY", "HDTV", "REMUX", "PROPER", "REPACK",
     )

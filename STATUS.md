@@ -1,16 +1,152 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 | | |
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, and the connection-gauge fix below. **Not pushed, not tagged** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, and the settings reorganisation + audio/HDR-aware source preferences below. **Not pushed, not tagged** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **915**, desktop **1128**, pure suites **222** - all zero failures |
-| **Not** verified | nothing in the Streamlined refinement or the gauge fix has been seen on a device or an installed desktop app; iOS is not compiled |
+| Verified | Android host **933**, desktop **1146**, pure suites **235** - all zero failures |
+| **Not** verified | **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
 | Debug channel | desktop `debug-v0.4.14-beta.8`, mobile `debug-v0.4.14-beta.16`. Mobile's `DEBUG_BUILD` now lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## Settings reorganisation, and an auto-picker that knows what Atmos is (2026-08-21, unreleased, both repositories)
+
+Three problems reported together after using the shipped `0.5.0-beta` build.
+
+### 1. The Playback page was a dumping ground
+
+3,903 lines carrying **11 sections**, with the decoder options - engine choice, renderer, hardware
+decoding, decoder priority, DV7 fallback, tunneling - sitting next to "Content Warnings", while
+the Advanced page had four rows. On Stream Auto-Play, in the user's own words: *"i dont even know
+what autoplay is honestly for classic."* It is a Classic-only section that was shown to everyone.
+
+Playback now has five sections - Player, **Source Preferences** (new), **Audio** (new), Skip
+Segments, Next Episode - plus a nav row to a **Subtitles page** of its own. Decoder, the two iOS
+output sections, P2P, Stream Selection and Stream Auto-Play moved to Advanced. Nothing was
+deleted and every row kept its storage key, so there is no migration and
+`AdvancedSettingsDefault.hasTunedAnAdvancedSetting` is untouched - it keys on stored values, not
+on where a row is drawn.
+
+Three things worth not re-deriving:
+
+- **The moved rows read their state in place** through `PlayerSettingsRepository.uiState`, the
+  pattern `advancedSettingsContent` and `SettingsRootPage` already used. Threading them as value
+  parameters would have meant ~20 more params through `MobileSettingsScreen` *and*
+  `TabletSettingsScreen` and both call sites, by hand, in both repositories -
+  `SettingsScreen.kt` differs by 602 lines.
+- **The Advanced nav row is no longer `isAdvanced`.** Playback Engine lives there now and it is
+  the main lever for fixing broken playback; hiding it behind "Show advanced settings" would
+  hide it from exactly the users who need it. That reasoning was already written two lines above
+  the switch itself. Per-row gates inside the page are unchanged.
+- **The dialogs did not move, only the rows did.** Every settings dialog in this package is still
+  declared in `PlaybackSettingsPage.kt`; the ones a moved row opens are now `internal` rather
+  than `private`. Moving fifteen dialog composables across files would have been churn with no
+  user-visible effect and more ways to get it wrong.
+
+`SettingsSearch.kt` was repointed in the same change. **This is the step that fails silently** - a
+row indexed against its old page is still *found* and then navigates somewhere that does not
+contain it. Two groups ended up split across two pages, so rows carry `sectionOverride` and a new
+`pageOverride` (`sectionOverride` had been declared in that file and read by nothing).
+
+### 2. Streamlined ignored audio entirely and read HDR wrong
+
+Reproduced against the exact filenames in the report by running `SourceFactsExtractor` verbatim:
+
+| Screenshot row | What the badge said | What `SourceFacts` saw |
+| --- | --- | --- |
+| MediaFusion 95 GB IMAX | `HDR \| DV \| IMAX` | `{DOLBY_VISION, HDR}` |
+| Comet 76 GB FGT | `Atmos \| DTS-HD MA \| TrueHD 7.1` | `{}` - **read as SDR** |
+| any `HDR10Plus` release | `HDR10+` | `{}` - **read as SDR** |
+
+**The app had two release-name parsers that disagreed about the same file, and the picker was on
+the poorer one.** `features/debrid/DebridStreamPresentation.kt` drew the badges and had `hdr10+`,
+`hdr10plus` and `dovi` right the whole time. Both now delegate to a new, import-free
+`core/media/ReleaseTags.kt`; `DebridStreamPresentationTest` passes unmodified, which is what
+proves the labels did not move.
+
+Four defects died with it:
+
+- **`\bhdr10\+?\b` backtracked.** `\b` after `+` never matches, so the engine fell back to bare
+  `hdr10` and every HDR10+ release was labelled HDR10.
+- **`hdr10plus` matched nothing at all**, so such a release read as SDR and was ranked *below* a
+  plain HDR one under `PREFER_HDR` - actively demoted by the preference asking for it.
+- **`dovi` was not recognised.**
+- **`releaseQuality` used substring matching**, so `"cam"` hit inside *Camelot*. It is
+  token-bounded now for the short tokens only: demanding a boundary in front of `remux` would
+  lose every `UHDRemux`, which is the opposite error. Channel layouts are bounded by **digits**
+  rather than letters, because `DDP5.1` and `AAC2.0` glue the layout onto the codec and a letter
+  boundary threw away most of the catalogue.
+
+`SourceFacts` gained `audioCodecs` and `audioChannels`, fed through the existing provenance
+ladder. `nuvioParsed.channels` had been decoded off the wire since `StreamParser` was written and
+read by nothing.
+
+### 3. The four middle ranking keys became one score
+
+`SourceRanking`'s chain was `resolution → language → HDR(bool) → codec(bool) → releaseQuality →
+cached → direct → size`. As a chain, the first key that discriminated decided the pick outright,
+so "lossless audio **plus** HDR10" was settled entirely by the HDR key - and since audio was not
+parsed, "lossless" never entered the comparison at all. That is exactly the report: *"if I wanted
+lossless audio plus HDR10, the current preferences might serve me that 88gb one which has no
+lossless audio."*
+
+The four collapse into an additive `mediaScore`. Resolution and language stay hard leading keys.
+`REQUIRE_HDR` and `REQUIRE_DOLBY_VISION` finally mean something in playback - they were selectable
+in Playback settings and fell to `else -> true`, honoured only by downloads.
+
+Two asymmetries that look like inconsistencies and are not, both covered by tests:
+
+- **Unstated audio scores mid; unstated dynamic range scores as SDR.** Release names carry HDR
+  reliably and audio format only sometimes. Scoring silence at the floor would demote most
+  WEB-DLs for a user who asked for lossless, which is a refusal wearing a preference's name.
+- **`REQUIRE_*` demotes by -100 rather than excluding**, so the source stays in the failure
+  chain. Same rule as the language gate being "a partition, never a filter". Downloads still
+  exclude; only the comparator is shared.
+
+⚠ **`SourceFacts.dynamicRange` can now hold `SDR` as a positive claim**, so
+`dynamicRange.isNotEmpty()` has stopped meaning "has HDR". `PresetSourceSelector.matchesRequirements`
+was the one site relying on it and would have accepted an SDR-tagged release for `REQUIRE_HDR`; it
+uses `SourceRanking.claimsHdr` now.
+
+One new setting, `playback_audio_preference` (Automatic / Prefer surround / Prefer lossless /
+Prefer immersive / Require lossless), in Playback → Source Preferences. All five actuals, plus
+`syncKeys`, plus **both** `PlaybackSelectionContext` build sites - `App.kt` and
+`PlayerNextEpisodeAutoPlay.kt` - because missing the second one would have made the in-player next
+episode silently ignore it.
+
+### 4. Settings had no width limit on a wide monitor
+
+`TabletSettingsScreen`'s content `LazyColumn` was `fillMaxSize()` with 40 dp padding, so on a
+2560 px window the cards spanned ~2,200 px. Clamped to **960 dp, centred**, expressed as a gutter
+that never falls below the original 40 dp so nothing touches the edge on a narrow window. The
+desktop scrollbar stays pinned to the container rather than to the clamped content.
+
+### Verified, and what is not
+
+Android host **933 tests across 109 classes**, desktop **1146 across 141**, pure suites **235**
+each, all zero failures, errors or skips. The desktop run compiled `desktopMain`. New:
+`ReleaseTagsTest` (the four parse fixes as named cases) and five `SourceRankingTest` cases,
+including the reported Spider-Man ordering, which fails before this change.
+`DebridStreamPresentationTest` and `PresetDownloadsTest` both pass **unmodified**, which is the
+regression guard for the extraction and for downloads being untouched.
+
+**Nothing here has been seen on a screen, and no test in either repository can see one.** Compose
+is CI-and-device-only, and row placement is exactly what no unit test covers. What needs a human:
+
+- Windows desktop: sidebar → Advanced reaches Decoder with "Show advanced settings" **off**;
+  content is clamped and centred at 1080p, 1440p and 2160p; the scrollbar stays at the window
+  edge.
+- Settings search for "decoder priority", "libass", "torrent profile", "regex", "preferred
+  audio" - each must land on its **new** page with the right breadcrumb.
+- Android: the Subtitles page opens and returns, and subtitle style changes still apply in the
+  player.
+- Streamlined on a real 4K title with Prefer lossless set: the quality sheet's caption must name
+  the release that actually opens.
+
+iOS is not compiled - there is no macOS host here.
 
 ## Mobile's debug counter moved to its own file (2026-08-20, unreleased, `nuvio-z` only)
 

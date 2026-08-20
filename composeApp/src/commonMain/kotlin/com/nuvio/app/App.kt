@@ -2967,6 +2967,7 @@ private fun MainAppContent(
                                 .takeIf { it > 0 }?.toDouble(),
                             codecPreference = playerSettings.playbackCodecPreference,
                             dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
+                            audioPreference = playerSettings.playbackAudioPreference,
                         )
                     }
                     // The quality choices for *this* title, derived from what the addons actually

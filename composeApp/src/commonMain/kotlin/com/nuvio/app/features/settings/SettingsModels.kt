@@ -28,6 +28,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_plugins
 import nuvio.composeapp.generated.resources.compose_settings_page_poster_customization
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.compose_settings_page_streams
+import nuvio.composeapp.generated.resources.compose_settings_page_subtitles
 import nuvio.composeapp.generated.resources.compose_settings_page_supporters_contributors
 import nuvio.composeapp.generated.resources.compose_settings_page_tmdb_enrichment
 import nuvio.composeapp.generated.resources.compose_settings_page_trakt
@@ -73,6 +74,16 @@ internal enum class SettingsPage(
         titleRes = Res.string.compose_settings_page_playback,
         category = SettingsCategory.General,
         parentPage = Root,
+    ),
+    // A child of Playback, so the back arrow and the breadcrumb both lead where the user
+    // came from.
+    //
+    // Never rename an existing constant in this enum - saved navigation state and the "Debrid"
+    // literal in `App.kt` are matched by name.
+    Subtitles(
+        titleRes = Res.string.compose_settings_page_subtitles,
+        category = SettingsCategory.General,
+        parentPage = Playback,
     ),
     Appearance(
         titleRes = Res.string.compose_settings_page_appearance,

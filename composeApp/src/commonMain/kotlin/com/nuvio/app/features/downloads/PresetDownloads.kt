@@ -305,10 +305,13 @@ object PresetSourceSelector {
             facts.codec != preset.codecPreference.name
         ) return false
 
-        val hasHdr = facts.dynamicRange.isNotEmpty()
+        // ⚠ `dynamicRange.isNotEmpty()` no longer answers this. The set carries `SDR` as a
+        // positive claim now, so a release that says it is SDR would have satisfied REQUIRE_HDR.
+        // Downloads still **exclude** on an unmet requirement where playback demotes - the two
+        // pickers share the comparator, not the gates.
         return when (preset.dynamicRangePolicy) {
-            DynamicRangePolicy.REQUIRE_HDR -> hasHdr
-            DynamicRangePolicy.REQUIRE_DOLBY_VISION -> "DOLBY_VISION" in facts.dynamicRange
+            DynamicRangePolicy.REQUIRE_HDR -> SourceRanking.claimsHdr(facts)
+            DynamicRangePolicy.REQUIRE_DOLBY_VISION -> SourceRanking.claimsDolbyVision(facts)
             else -> true
         }
     }

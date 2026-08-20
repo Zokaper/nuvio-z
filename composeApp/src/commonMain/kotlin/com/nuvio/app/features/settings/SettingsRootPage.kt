@@ -317,7 +317,6 @@ internal fun LazyListScope.settingsRootContent(
                         title = stringResource(Res.string.compose_settings_page_advanced),
                         description = stringResource(Res.string.compose_settings_root_advanced_description),
                         icon = Icons.Rounded.Tune,
-                        isAdvanced = true,
                         isTablet = isTablet,
                         onClick = onAdvancedClick,
                     )

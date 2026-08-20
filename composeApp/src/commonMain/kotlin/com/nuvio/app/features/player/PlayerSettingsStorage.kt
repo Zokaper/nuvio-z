@@ -102,6 +102,8 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackCodecPreference(preference: String)
     fun loadPlaybackDynamicRangePolicy(): String?
     fun savePlaybackDynamicRangePolicy(policy: String)
+    fun loadPlaybackAudioPreference(): String?
+    fun savePlaybackAudioPreference(preference: String)
     fun loadPlaybackLanguageStrictness(): String?
     fun savePlaybackLanguageStrictness(strictness: String)
 

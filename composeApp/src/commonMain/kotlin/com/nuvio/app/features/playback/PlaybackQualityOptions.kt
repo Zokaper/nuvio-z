@@ -1,5 +1,6 @@
 package com.nuvio.app.features.playback
 
+import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.SizePreference
@@ -582,6 +583,7 @@ object PlaybackQualityOptions {
             secondaryAudioLanguage = context.secondaryAudioLanguage
                 ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
             codecPreference = context.codecPreference,
+            audioPreference = context.audioPreference,
             dynamicRangePolicy = context.dynamicRangePolicy.takeIf {
                 it != DynamicRangePolicy.ANY
             } ?: when (resolution) {

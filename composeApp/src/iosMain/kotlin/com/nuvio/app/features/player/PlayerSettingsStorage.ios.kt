@@ -57,6 +57,7 @@ actual object PlayerSettingsStorage {
     private const val playbackAllowTorrentAutopickKey = "playback_allow_torrent_autopick"
     private const val playbackCodecPreferenceKey = "playback_codec_preference"
     private const val playbackDynamicRangePolicyKey = "playback_dynamic_range_policy"
+    private const val playbackAudioPreferenceKey = "playback_audio_preference"
     private const val playbackLanguageStrictnessKey = "playback_language_strictness"
     private const val playbackQualityCeilingMbpsKey = "playback_quality_ceiling_mbps"
     private const val showAdvancedSettingsKey = "settings_show_advanced"
@@ -137,6 +138,7 @@ actual object PlayerSettingsStorage {
         playbackAllowTorrentAutopickKey,
         playbackCodecPreferenceKey,
         playbackDynamicRangePolicyKey,
+        playbackAudioPreferenceKey,
         playbackLanguageStrictnessKey,
         playbackQualityCeilingMbpsKey,
         showAdvancedSettingsKey,
@@ -637,6 +639,18 @@ actual object PlayerSettingsStorage {
         )
     }
 
+    actual fun loadPlaybackAudioPreference(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(
+            ProfileScopedKey.of(playbackAudioPreferenceKey),
+        )
+
+    actual fun savePlaybackAudioPreference(preference: String) {
+        NSUserDefaults.standardUserDefaults.setObject(
+            preference,
+            forKey = ProfileScopedKey.of(playbackAudioPreferenceKey),
+        )
+    }
+
     actual fun loadPlaybackLanguageStrictness(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(
             ProfileScopedKey.of(playbackLanguageStrictnessKey),
@@ -1087,6 +1101,9 @@ actual object PlayerSettingsStorage {
         loadPlaybackDynamicRangePolicy()?.let {
             put(playbackDynamicRangePolicyKey, encodeSyncString(it))
         }
+        loadPlaybackAudioPreference()?.let {
+            put(playbackAudioPreferenceKey, encodeSyncString(it))
+        }
         loadPlaybackLanguageStrictness()?.let {
             put(playbackLanguageStrictnessKey, encodeSyncString(it))
         }
@@ -1190,6 +1207,8 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(playbackQualityCeilingMbpsKey)?.let(::savePlaybackQualityCeilingMbps)
         payload.decodeSyncString(playbackDynamicRangePolicyKey)
             ?.let(::savePlaybackDynamicRangePolicy)
+        payload.decodeSyncString(playbackAudioPreferenceKey)
+            ?.let(::savePlaybackAudioPreference)
         payload.decodeSyncBoolean(showAdvancedSettingsKey)?.let(::saveShowAdvancedSettings)
         payload.decodeSyncInt(playbackMeteredCapHeightKey)?.let(::savePlaybackMeteredCapHeight)
         payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)

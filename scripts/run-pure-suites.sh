@@ -80,12 +80,14 @@ rm -rf "$WORK/out-selection"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-selection" \
   "$STUBS"/*.kt \
   "$M/core/language/LanguageCodes.kt" \
+  "$M/core/media/ReleaseTags.kt" \
   "$M/features/downloads/SourceRanking.kt" \
   "$M/features/playback/PlaybackSourceSelector.kt" \
   "$M/features/playback/PlaybackQualityOptions.kt" \
   "$M/features/playback/StreamRouteSurface.kt" \
   "$M/features/playback/PlaybackModeRouter.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
+  "$T/core/media/ReleaseTagsTest.kt" \
   "$T/features/playback/PlaybackQualityOptionsTest.kt" \
   "$T/features/playback/StreamRouteSurfaceTest.kt" \
   "$T/features/playback/PlaybackModeRouterTest.kt" \
@@ -93,6 +95,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-selection" \
 
 java -cp "$WORK/out-selection:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.core.language.LanguageCodesTest \
+  com.nuvio.app.core.media.ReleaseTagsTest \
   com.nuvio.app.features.playback.PlaybackQualityOptionsTest \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
   com.nuvio.app.features.playback.PlaybackModeRouterTest 2>&1 | grep -v "Picked up JAVA_TOOL"
@@ -154,6 +157,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" \
   -Xplugin="$WORK/serialization-plugin.jar" \
   -d "$WORK/out-debrid" \
   "$STUBS"/debrid/*.kt \
+  "$M/core/media/ReleaseTags.kt" \
   "$M/features/streams/StreamModels.kt" \
   "$M/features/debrid/DebridProvider.kt" \
   "$M/features/debrid/DebridSettings.kt" \

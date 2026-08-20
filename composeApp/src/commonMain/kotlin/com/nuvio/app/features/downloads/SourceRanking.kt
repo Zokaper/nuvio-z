@@ -1,7 +1,18 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.language.languageMatchesPreference
+import com.nuvio.app.core.media.ReleaseAudioCodec
+import com.nuvio.app.core.media.ReleaseDynamicRange
+import com.nuvio.app.core.media.ReleaseTags
 import kotlin.math.abs
+
+/**
+ * What the user wants out of a release's audio track.
+ *
+ * One knob, deliberately: channels feed the score without a second setting, because "5.1 or
+ * better" is a consequence of wanting surround, not an independent question.
+ */
+enum class AudioPreference { ANY, PREFER_SURROUND, PREFER_LOSSLESS, PREFER_IMMERSIVE, REQUIRE_LOSSLESS }
 
 /** Ranking knobs shared by download and playback selection after their protocol gates. */
 data class SourceRankingPreferences(
@@ -10,6 +21,7 @@ data class SourceRankingPreferences(
     val secondaryAudioLanguage: String? = null,
     val codecPreference: CodecPreference = CodecPreference.ANY,
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
+    val audioPreference: AudioPreference = AudioPreference.ANY,
     val sizePreference: SizePreference = SizePreference.LARGEST_UNDER_CAP,
 )
 
@@ -38,16 +50,7 @@ object SourceRanking {
         }.thenByDescending {
             languageScore(factsOf(it), preferences)
         }.thenByDescending {
-            when (preferences.dynamicRangePolicy) {
-                DynamicRangePolicy.AVOID_HDR -> factsOf(it).dynamicRange.isEmpty()
-                DynamicRangePolicy.PREFER_HDR -> factsOf(it).dynamicRange.isNotEmpty()
-                else -> true
-            }
-        }.thenByDescending {
-            preferences.codecPreference == CodecPreference.ANY ||
-                factsOf(it).codec == preferences.codecPreference.name
-        }.thenByDescending {
-            releaseQualityScore(factsOf(it).releaseQuality)
+            mediaScore(factsOf(it), preferences)
         }.thenByDescending {
             // Cached status settles quality ties; it must never cost a resolution tier.
             factsOf(it).isDebridReady == true
@@ -133,6 +136,131 @@ object SourceRanking {
      */
     fun isLanguageWatchable(facts: SourceFacts, preferences: SourceRankingPreferences): Boolean =
         languageScore(facts, preferences) > NAMES_OTHER_ONLY
+
+    /**
+     * How well a release satisfies everything the user asked for *about the file itself* -
+     * dynamic range, audio format, channel layout, video codec and release quality - as one
+     * additive score. Higher is better.
+     *
+     * **These four used to be four consecutive lexicographic keys, and that is the bug.** HDR was
+     * a boolean sitting above codec, which sat above release quality, so the first key that
+     * discriminated decided the pick outright and nothing below it could speak. A user asking for
+     * lossless audio *and* HDR10 got whichever release won the HDR key - and since audio was not
+     * parsed at all, "lossless" never entered the comparison. Adding the components means a
+     * release that satisfies both beats one that satisfies either, which is what the request
+     * meant.
+     *
+     * Two asymmetries that look like inconsistencies and are not:
+     *
+     *  - **Unstated audio scores mid; unstated dynamic range scores as SDR.** HDR is reliably
+     *    tagged in release names and audio format frequently is not. Scoring silence at the floor
+     *    would demote most WEB-DLs for a user who asked for lossless - the same argument
+     *    [UNDECLARED] already makes for languages.
+     *  - **`REQUIRE_*` demotes by [UNSATISFIED_REQUIREMENT] rather than excluding.** A hard
+     *    demotion keeps the source in the failure chain, exactly as the language gate is
+     *    "a partition, never a filter": deleting them would leave a title whose every release
+     *    fails the requirement with nothing to play.
+     */
+    fun mediaScore(facts: SourceFacts, preferences: SourceRankingPreferences): Int =
+        dynamicRangeScore(facts, preferences.dynamicRangePolicy) +
+            audioScore(facts, preferences.audioPreference) +
+            channelScore(facts, preferences.audioPreference) +
+            codecScore(facts, preferences.codecPreference) +
+            releaseQualityScore(facts.releaseQuality)
+
+    /**
+     * Whether the release claims any HDR-family range or Dolby Vision.
+     *
+     * ⚠ Not `dynamicRange.isNotEmpty()`. The set can now carry `SDR` as a positive claim, so the
+     * emptiness test that used to stand in for this would read a release tagged `SDR` as HDR.
+     */
+    fun claimsHdr(facts: SourceFacts): Boolean =
+        facts.dynamicRange.any { it != ReleaseDynamicRange.SDR.name }
+
+    fun claimsDolbyVision(facts: SourceFacts): Boolean =
+        ReleaseDynamicRange.DOLBY_VISION.name in facts.dynamicRange
+
+    fun dynamicRangeScore(facts: SourceFacts, policy: DynamicRangePolicy): Int {
+        val best = facts.dynamicRange.mapNotNull(ReleaseTags::dynamicRangeNamed).toSet()
+            .let(ReleaseTags::bestDynamicRange)
+        return when (policy) {
+            // ANY scores every candidate the same, so the component falls out of the comparison
+            // rather than imposing an order nobody asked for.
+            DynamicRangePolicy.ANY -> 0
+            DynamicRangePolicy.PREFER_HDR -> when (best) {
+                ReleaseDynamicRange.DOLBY_VISION, ReleaseDynamicRange.HDR10_PLUS -> 6
+                ReleaseDynamicRange.HDR10 -> 5
+                ReleaseDynamicRange.HDR -> 4
+                ReleaseDynamicRange.HLG -> 3
+                else -> 0
+            }
+            DynamicRangePolicy.AVOID_HDR -> if (claimsHdr(facts)) 0 else 6
+            DynamicRangePolicy.REQUIRE_HDR ->
+                if (claimsHdr(facts)) 6 else UNSATISFIED_REQUIREMENT
+            DynamicRangePolicy.REQUIRE_DOLBY_VISION ->
+                if (claimsDolbyVision(facts)) 6 else UNSATISFIED_REQUIREMENT
+        }
+    }
+
+    fun audioScore(facts: SourceFacts, preference: AudioPreference): Int {
+        if (preference == AudioPreference.ANY) return 0
+        val codecs = facts.audioCodecs.mapNotNull(ReleaseTags::audioCodecNamed).toSet()
+        val statedNothing = codecs.isEmpty() && facts.audioChannels == null
+        return when (preference) {
+            AudioPreference.ANY -> 0
+            AudioPreference.PREFER_LOSSLESS -> when {
+                codecs.any(ReleaseAudioCodec::isLossless) -> 6
+                // Atmos with no lossless carrier named, and DD+, are both a step above plain
+                // lossy without being what was asked for.
+                ReleaseAudioCodec.ATMOS in codecs || ReleaseAudioCodec.DD_PLUS in codecs -> 3
+                statedNothing -> UNSTATED
+                else -> 0
+            }
+            AudioPreference.PREFER_IMMERSIVE -> when {
+                codecs.any(ReleaseAudioCodec::isImmersive) -> 6
+                statedNothing -> UNSTATED
+                else -> 0
+            }
+            AudioPreference.PREFER_SURROUND -> when {
+                (facts.audioChannels ?: 0) >= SURROUND_CHANNELS -> 6
+                statedNothing -> UNSTATED
+                else -> 0
+            }
+            // A requirement nothing satisfies orders every candidate identically, which is the
+            // intended outcome: it demotes, it does not empty the list.
+            AudioPreference.REQUIRE_LOSSLESS ->
+                if (codecs.any(ReleaseAudioCodec::isLossless)) 6 else UNSATISFIED_REQUIREMENT
+        }
+    }
+
+    /** Channels are a tie-break inside an audio preference, never a preference of their own. */
+    fun channelScore(facts: SourceFacts, preference: AudioPreference): Int {
+        if (preference == AudioPreference.ANY) return 0
+        val channels = facts.audioChannels ?: return 0
+        return when {
+            channels >= 7 -> 2
+            channels >= 6 -> 1
+            else -> 0
+        }
+    }
+
+    fun codecScore(facts: SourceFacts, preference: CodecPreference): Int = when {
+        preference == CodecPreference.ANY -> 0
+        facts.codec == preference.name -> 2
+        else -> 0
+    }
+
+    /** Audio the release did not name. Mid, not floor - see [mediaScore]. */
+    const val UNSTATED = 2
+
+    /** 5.1 and up. Below this the release is stereo, whatever it calls it. */
+    const val SURROUND_CHANNELS = 6
+
+    /**
+     * What an unmet `REQUIRE_*` costs. Large enough that nothing outranks it back, small enough
+     * that the candidate keeps its place in the ordering below everything that qualifies.
+     */
+    const val UNSATISFIED_REQUIREMENT = -100
 
     fun releaseQualityScore(value: String?): Int {
         val normalized = value?.uppercase().orEmpty()
