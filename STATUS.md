@@ -10,7 +10,7 @@ Last updated: 2026-08-21
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
 | Verified | Android host **937**, desktop **1150**, pure suites **235** - all zero failures |
 | **Not** verified | **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.9`, mobile `debug-v0.4.14-beta.17` - both published 2026-08-21 and both carrying the settings reorganisation. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Debug channel | desktop `debug-v0.4.14-beta.10`, mobile `debug-v0.4.14-beta.18` - both published 2026-08-21, carrying the settings reorganisation and the tag-combining fix. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
 ## Settings reorganisation, and an auto-picker that knows what Atmos is (2026-08-21, unreleased, both repositories)
 
