@@ -47,7 +47,11 @@ val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PRO
 // ever be offered. Version name gains a fourth component; version code is derived so it always
 // rises with the release line it was cut from. Debug is a separate applicationId, so this
 // numbering cannot collide with the release line.
-val debugAppBuildNumber = readXcconfigValue(appVersionConfigFile, "DEBUG_BUILD")
+// Its own file, and it must stay that way: any commit touching Version.xcconfig is read as a
+// release bump by scripts/release-metadata.sh, so a debug build cut between two releases used
+// to truncate the next release's notes. See the note in DebugVersion.xcconfig.
+val appDebugVersionConfigFile = rootProject.file("iosApp/Configuration/DebugVersion.xcconfig")
+val debugAppBuildNumber = readXcconfigValue(appDebugVersionConfigFile, "DEBUG_BUILD")
     ?.toIntOrNull()
     ?: 1
 val debugAppVersionName = "$releaseAppVersionName.$debugAppBuildNumber"

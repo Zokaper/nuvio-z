@@ -1,6 +1,6 @@
 CURRENT_PROJECT_VERSION=124
 MARKETING_VERSION=0.4.14-beta
-# Debug-only build counter. Bump this for every debug APK published to the debug update
-# channel; it is what makes the installed debug app see a newer one. Ignored by release
-# builds and by Xcode.
-DEBUG_BUILD=15
+# The debug-channel counter lives in DebugVersion.xcconfig, and must never move back here.
+# Any commit touching THIS file is read as a release bump by scripts/release-metadata.sh, so a
+# debug build published between two releases truncated the next release's notes to whatever
+# came after it. See the note in that file.

@@ -1,0 +1,22 @@
+# Debug-channel build counter for the mobile app.
+#
+# Bump this for every debug APK published to the debug update channel. It is what makes an
+# installed debug build see a newer one: the marketing version stays put while a debug line
+# runs, so without this counter every debug APK cut from one release version looks identical
+# to the installed one and no update is offered.
+#
+# It produces a fourth version component (0.4.14-beta.16) and the tag debug-v0.4.14-beta.16.
+# Ignored by release builds and by Xcode.
+#
+# DELIBERATELY NOT IN Version.xcconfig, and this file exists only because it was there once.
+# scripts/release-metadata.sh finds a release bump by walking the commits that touch the
+# *version file* and reading MARKETING_VERSION at each one - it does not require the value to
+# have changed. A commit that only moved the debug counter was therefore read as the previous
+# bump, and release notes are generated across previous_bump..current_bump, so every debug
+# build published between two releases silently truncated the next release's notes to the
+# commits after it. It had already happened: with the counter at 15, 0.5.0-beta's notes began
+# at "chore: debug build 15" and omitted the entire Streamlined pass before it.
+#
+# NuvioZDesktop has kept its counter in DesktopDebugVersion.properties from the start for
+# exactly this reason. A separate file cannot spring the trap.
+DEBUG_BUILD=16

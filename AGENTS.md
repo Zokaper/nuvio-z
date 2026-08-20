@@ -455,7 +455,7 @@ still be checked locally.
 | `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
 
 Both debug workflows refuse to run if their tag already exists. Bump the counter
-instead - `DEBUG_BUILD` in `iosApp/Configuration/Version.xcconfig` for mobile, and
+instead - `DEBUG_BUILD` in `iosApp/Configuration/DebugVersion.xcconfig` for mobile, and
 in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
 
 ⚠ **Publish debug builds *before* a release bump, never after.** `Validate release
@@ -504,19 +504,27 @@ refuses to run if the state is wrong.
 
 | Repository | Version file | Keys |
 | --- | --- | --- |
-| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DEBUG_BUILD` |
+| `nuvio-z` | `iosApp/Configuration/Version.xcconfig` | `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` |
+| `nuvio-z` | `iosApp/Configuration/DebugVersion.xcconfig` | `DEBUG_BUILD` |
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopVersion.properties` | `VERSION_NAME`, `VERSION_CODE` |
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopDebugVersion.properties` | `DEBUG_BUILD` |
 
-⚠ **The desktop debug counter is in its own file, and the mobile one is not.** That
-asymmetry is deliberate. `release-metadata.sh` finds a bump by walking the commits
-that touch the *version file* and reading the version key at each one - it does not
-require the value to have changed. So a commit that only moves the counter is read
-as a bump, and release notes are generated across `previous_bump..current_bump`.
-On desktop a separate file makes that impossible. **On mobile it is a live trap:**
-bumping `DEBUG_BUILD` in `Version.xcconfig` between two releases will truncate the
-next release's notes to the commits after that debug build. Not yet fixed there;
-moving the key to its own file is the same one-line change.
+⚠ **Both debug counters live in their own file, and neither may move back.**
+`release-metadata.sh` walks the commits that touch the *version file* newest-first and
+takes the first one whose `MARKETING_VERSION` **differs** from the newest as
+`previous_bump`. Same-version commits are skipped, so a debug commit is invisible while
+the version has not moved - and then the release bump changes it, every prior
+`0.4.14-beta` commit differs, and the newest of them wins. Notes run
+`previous_bump..current_bump`, so **the newest debug commit becomes the start of the
+next release's notes**.
+
+Mobile only got its own file on 2026-08-20 (`iosApp/Configuration/DebugVersion.xcconfig`),
+and moving it does **not** repair what already happened: `chore: debug build 15` is the
+newest `Version.xcconfig` touch before `0.5.0-beta`, so that release's generated body
+starts there and omits everything before it, including `5058a313` - the whole Streamlined
+pass. Only rewriting history could undo it. **Curate `0.5.0-beta`'s notes by hand** and
+check the generated range before publishing; `CurrentReleaseNotes` is curated anyway,
+which is what makes this survivable rather than fatal.
 
 `NuvioZDesktop` also carries `iosApp/Configuration/Version.xcconfig` as the
 *base/mobile* version; the desktop release does **not** read it. Use

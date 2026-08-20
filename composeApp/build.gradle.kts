@@ -161,7 +161,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val VERSION_NAME = "${appVersionName.get()}"
                 |    const val VERSION_CODE = ${appVersionCode.get()}
                 |
-                |    /** Debug-channel build counter; see DEBUG_BUILD in Version.xcconfig. */
+                |    /** Debug-channel build counter; see DEBUG_BUILD in DebugVersion.xcconfig. */
                 |    const val DEBUG_BUILD = ${debugBuildNumber.get()}
                 |
                 |    /**
@@ -229,7 +229,12 @@ val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PRO
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
 // Optional, and defaulted rather than required: a checkout that predates the debug update
 // channel must still configure.
-val releaseAppDebugBuildNumber = readXcconfigValue(appVersionConfigFile, "DEBUG_BUILD")
+//
+// Its own file, and it must stay that way: any commit touching Version.xcconfig is read as a
+// release bump by scripts/release-metadata.sh, so a debug build cut between two releases used
+// to truncate the next release's notes. See the note in DebugVersion.xcconfig.
+val appDebugVersionConfigFile = rootProject.file("iosApp/Configuration/DebugVersion.xcconfig")
+val releaseAppDebugBuildNumber = readXcconfigValue(appDebugVersionConfigFile, "DEBUG_BUILD")
     ?.toIntOrNull()
     ?: 1
 val iosDistribution = (

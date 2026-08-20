@@ -43,12 +43,16 @@ jobs:
         run: |
           set -euo pipefail
           config=iosApp/Configuration/Version.xcconfig
+          # Its own file, and it must stay that way: any commit touching Version.xcconfig is
+          # read as a release bump by scripts/release-metadata.sh, so a debug build cut between
+          # two releases used to truncate the next release's notes. See the note in that file.
+          debug_config=iosApp/Configuration/DebugVersion.xcconfig
           read_value() {
-            sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p" "${config}" | head -1
+            sed -nE "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p" "$1" | head -1
           }
-          marketing="$(read_value MARKETING_VERSION)"
-          debug_build="$(read_value DEBUG_BUILD)"
-          project="$(read_value CURRENT_PROJECT_VERSION)"
+          marketing="$(read_value "${config}" MARKETING_VERSION)"
+          debug_build="$(read_value "${debug_config}" DEBUG_BUILD)"
+          project="$(read_value "${config}" CURRENT_PROJECT_VERSION)"
           if [[ -z "${marketing}" || -z "${debug_build}" || -z "${project}" ]]; then
             echo "::error::Could not read MARKETING_VERSION / DEBUG_BUILD / CURRENT_PROJECT_VERSION"
             exit 1
@@ -66,7 +70,7 @@ jobs:
           # one would leave installs that already took it stranded on older code
           # with a newer name. Bump DEBUG_BUILD instead.
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "::error::${tag} already exists. Bump DEBUG_BUILD in ${config} and dispatch again."
+            echo "::error::${tag} already exists. Bump DEBUG_BUILD in ${debug_config} and dispatch again."
             exit 1
           fi
 
