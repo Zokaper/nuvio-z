@@ -14,7 +14,9 @@ import kotlin.test.assertTrue
 class PlaybackQualityOptionsTest {
 
     @Test
-    fun offersHighAndLowPerResolutionPlusBestAvailable() {
+    fun offersBandsPerResolutionPlusBestAvailable() {
+        // At the 60-minute default: 133 / 26.7 Mbps at 4K, 20 / 6.7 at 1080p, 4.4 at 720p.
+        // Each lands in the band its *bitrate* names, not in a third of this title's spread.
         val options = build(
             candidate("4k-remux", VideoResolution.UHD_2160, gigabytes = 60.0),
             candidate("4k-web", VideoResolution.UHD_2160, gigabytes = 12.0),
@@ -24,16 +26,43 @@ class PlaybackQualityOptionsTest {
         )
 
         assertEquals(
-            listOf("best", "2160_high", "2160_low", "1080_high", "1080_low", "720_single"),
+            listOf("best", "2160_max", "2160_high", "1080_max", "1080_mid", "720_single"),
             options.map { it.id },
         )
     }
 
     @Test
-    fun aWideSpreadOffersAMiddleToAimAt() {
-        // 2 / 4 / 9 GB an hour is 4.4 / 8.9 / 20 Mbps - a spread of 4.5, wide enough that
-        // "High or Low" makes the user choose between two things neither of which is what
-        // they want.
+    fun theSameFileGetsTheSameBandWhateverElseTheTitleOffers() {
+        // The complaint absolute bands exist for, stated as a test. A 20 Mbps 4K release is a
+        // mid-weight file whether it is the largest thing this title has or the smallest, and
+        // under the relative split it was whichever of those the catalogue made it: the top
+        // band beside a 6.7 Mbps encode, the bottom band beside a 66 Mbps remux. Same file,
+        // same connection, opposite words - which is why nobody could aim at a band.
+        fun subject() = candidate("subject", VideoResolution.UHD_2160, gigabytes = 9.0)
+        fun bandOfSubject(vararg others: PlaybackSourceCandidate) =
+            build(subject(), *others)
+                .filter { it.resolution != null }
+                .single { row -> row.candidates.any { it.stream.name == "subject" && row.candidates.first() === it } }
+                .variant
+
+        assertEquals(
+            PlaybackQualityOption.Variant.MID,
+            bandOfSubject(candidate("small", VideoResolution.UHD_2160, gigabytes = 3.0)),
+        )
+        assertEquals(
+            PlaybackQualityOption.Variant.MID,
+            bandOfSubject(
+                candidate("remux", VideoResolution.UHD_2160, gigabytes = 30.0),
+                candidate("heavy", VideoResolution.UHD_2160, gigabytes = 14.0),
+            ),
+        )
+    }
+
+    @Test
+    fun aWideSpreadFillsSeveralBands() {
+        // 2 / 4 / 9 GB an hour is 4.4 / 8.9 / 20 Mbps at 1080p, which crosses both the 8 and
+        // the 16 boundary - three real bands, each naming a class of file rather than a third
+        // of this title's spread.
         val options = build(
             candidate("big", VideoResolution.FULL_HD_1080, gigabytes = 9.0),
             candidate("middling", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
@@ -41,7 +70,7 @@ class PlaybackQualityOptionsTest {
         )
 
         assertEquals(
-            listOf("best", "1080_high", "1080_mid", "1080_low"),
+            listOf("best", "1080_max", "1080_high", "1080_mid"),
             options.map { it.id },
         )
         assertEquals("big", options[1].candidates.first().stream.name)
@@ -50,47 +79,132 @@ class PlaybackQualityOptionsTest {
     }
 
     @Test
-    fun aSpreadTooNarrowForThreeStillOffersTwo() {
-        // 4 / 7 GB is a spread of 1.75: past `SPLIT_RATIO` but short of the 2.25 that earns a
-        // third band. A middle here would be a distinction the user cannot act on.
+    fun twoSourcesInsideOneBandAreOneRow() {
+        // 4 / 7 GB an hour is 8.9 / 15.6 Mbps - both a good 1080p Blu-ray encode, both inside
+        // the same band. The relative split called these "High" and "Low"; that was a label
+        // manufactured from a 1.75x gap, and on the next title the same two words meant a
+        // 4x one. One row, and the dearer source leads it.
         val options = build(
             candidate("big", VideoResolution.FULL_HD_1080, gigabytes = 7.0),
             candidate("lean", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
         )
 
-        assertEquals(listOf("best", "1080_high", "1080_low"), options.map { it.id })
+        assertEquals(listOf("best", "1080_single"), options.map { it.id })
+        assertEquals("big", options[1].candidates.first().stream.name)
+        assertTrue(options[1].candidates.any { it.stream.name == "lean" })
     }
 
     @Test
-    fun aThreeWaySplitAlwaysHasBothEnds() {
-        // The invariant the collapse guard exists for: the cheapest source always falls below
-        // the lower boundary and the dearest always reaches the upper one, so only Mid can
-        // come out empty. A lone row labelled "Mid" - a comparison with nothing to compare
-        // against - is unreachable, and must stay that way if the boundaries ever move.
+    fun aBandedBucketNeverProducesExactlyOneRow() {
+        // The invariant the collapse guard exists for, and absolute boundaries make it
+        // load-bearing where the relative ones made it a formality. The old split derived its
+        // boundaries from the bucket's own extremes, so the top and bottom bands were occupied
+        // by construction. Fixed boundaries have no such guarantee - everything here lands in
+        // Max - and a lone row reading "1080p Max" would be a comparison with nothing to
+        // compare against.
         val options = build(
             candidate("top", VideoResolution.FULL_HD_1080, gigabytes = 20.0),
             candidate("also-top", VideoResolution.FULL_HD_1080, gigabytes = 19.0),
-            candidate("bottom", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
         )
-        val variants = options.filter { it.resolution != null }.map { it.variant }
+        val banded = options.filter { it.resolution != null }
 
-        assertTrue(PlaybackQualityOption.Variant.HIGH in variants)
-        assertTrue(PlaybackQualityOption.Variant.LOW in variants)
+        assertEquals(1, banded.size)
+        assertEquals(PlaybackQualityOption.Variant.SINGLE, banded.single().variant)
     }
 
     @Test
     fun sourcesWithNoCredibleSizeStillRideTheCheapestRow() {
-        // Unchanged by the third band: a source that reports no size cannot justify a dearer
-        // row, so it rides the bottom one rather than inventing a place for itself.
+        // A source that reports no size has no figure to be banded by, so it joins the
+        // cheapest band that exists rather than inventing a place for itself. Treating its
+        // absent bitrate as 0.0 would mint a "Low" row whose only occupant is a file nobody
+        // knows the size of, quoting a nominal figure for it.
         val options = build(
             candidate("big", VideoResolution.FULL_HD_1080, gigabytes = 9.0),
             candidate("middling", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
             candidate("lean", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
             candidate("sizeless", VideoResolution.FULL_HD_1080, gigabytes = null),
         )
-        val low = options.single { it.variant == PlaybackQualityOption.Variant.LOW }
+        val cheapest = options.last()
 
-        assertTrue(low.candidates.any { it.stream.name == "sizeless" })
+        assertEquals(PlaybackQualityOption.Variant.MID, cheapest.variant)
+        assertTrue(cheapest.candidates.any { it.stream.name == "sizeless" })
+        // And nowhere else - it must not head a row of its own.
+        assertTrue(options.none { it.variant == PlaybackQualityOption.Variant.LOW })
+    }
+
+    @Test
+    fun anUnmeasuredConnectionDrawsAMeterButNeverAVerdict() {
+        // `defaultMbps` returns 50 for any Wi-Fi and nothing had measured it, yet the sheet
+        // scored "May be more than your connection carries" against that guess - a red line
+        // under half the catalogue on the strength of a link type.
+        val fit = PlaybackQualityOptions.connectionFit(
+            requiredMbps = 80.0,
+            estimatedMbps = 50.0,
+            isEstimateMeasured = false,
+        )
+
+        assertNotNull(fit)
+        assertFalse(fit.isOverConnection)
+        // The meter is still drawn - a rough baseline is useful to compare rows against.
+        assertEquals(1.6, fit.loadFraction, 0.001)
+    }
+
+    @Test
+    fun aRowThatOnlyJustExceedsTheEstimateIsNotFlagged() {
+        // `requiredMbps` already carries a third of headroom over the file's own bitrate, and
+        // the estimate under it is a lower bound - nothing feeding it can observe more
+        // throughput than it asked for. Warning the instant the two crossed flagged rows that
+        // play perfectly well, which is what taught the user to ignore the warning.
+        val justOver = PlaybackQualityOptions.connectionFit(requiredMbps = 52.0, estimatedMbps = 50.0)
+        val clearlyOver = PlaybackQualityOptions.connectionFit(requiredMbps = 90.0, estimatedMbps = 50.0)
+
+        assertFalse(assertNotNull(justOver).isOverConnection)
+        assertTrue(assertNotNull(clearlyOver).isOverConnection)
+    }
+
+    @Test
+    fun aQualityCeilingRemovesWhatItRefusesFromEveryRowIncludingBest() {
+        // Best available is the card most people tap and the one whose source can be the most
+        // expensive in the catalogue. A ceiling it walked past would not be a ceiling.
+        val options = PlaybackQualityOptions.build(
+            listOf(
+                candidate("remux", VideoResolution.UHD_2160, gigabytes = 30.0),
+                candidate("web", VideoResolution.UHD_2160, gigabytes = 9.0),
+            ),
+            PlaybackSelectionContext(runtimeMinutes = 60, isEpisode = false, qualityCeilingMbps = 40.0),
+        )
+
+        assertTrue(options.all { row -> row.candidates.none { it.stream.name == "remux" } })
+        assertEquals("web", options.first().candidates.first().stream.name)
+    }
+
+    @Test
+    fun aQualityCeilingNothingFitsUnderIsIgnoredRatherThanEmptyingTheSheet() {
+        // A preference must never become a dead end. If this title has nothing under the
+        // ceiling, the honest answer is the catalogue as it is - not an empty sheet and a trip
+        // to the source list, which is the outcome the whole mode exists to avoid.
+        val options = PlaybackQualityOptions.build(
+            listOf(candidate("only-remux", VideoResolution.UHD_2160, gigabytes = 30.0)),
+            PlaybackSelectionContext(runtimeMinutes = 60, isEpisode = false, qualityCeilingMbps = 5.0),
+        )
+
+        assertEquals("only-remux", options.first().candidates.single().stream.name)
+    }
+
+    @Test
+    fun aQualityCeilingNeverJudgesASourceThatReportedNoSize() {
+        // There is no figure to judge it by, and refusing what cannot be measured would quietly
+        // empty a catalogue on the addons that report least.
+        val options = PlaybackQualityOptions.build(
+            listOf(
+                candidate("sizeless", VideoResolution.FULL_HD_1080, gigabytes = null),
+                candidate("big", VideoResolution.FULL_HD_1080, gigabytes = 12.0),
+            ),
+            PlaybackSelectionContext(runtimeMinutes = 60, isEpisode = false, qualityCeilingMbps = 10.0),
+        )
+
+        assertTrue(options.any { row -> row.candidates.any { it.stream.name == "sizeless" } })
+        assertTrue(options.all { row -> row.candidates.none { it.stream.name == "big" } })
     }
 
     @Test
@@ -238,8 +352,8 @@ class PlaybackQualityOptionsTest {
         )
 
         // 60 GB/h needs 178 Mbps, 9 GB/h needs 27, 3 GB/h needs 9.
-        assertEquals("1080_high", PlaybackQualityOptions.highestAffordable(options, 40.0)?.id)
-        assertEquals("1080_low", PlaybackQualityOptions.highestAffordable(options, 12.0)?.id)
+        assertEquals("1080_max", PlaybackQualityOptions.highestAffordable(options, 40.0)?.id)
+        assertEquals("1080_mid", PlaybackQualityOptions.highestAffordable(options, 12.0)?.id)
         assertEquals("2160_single", PlaybackQualityOptions.highestAffordable(options, 500.0)?.id)
     }
 
@@ -283,10 +397,11 @@ class PlaybackQualityOptionsTest {
             candidate("4k-remux", VideoResolution.UHD_2160, gigabytes = 60.0),
             candidate("4k-web", VideoResolution.UHD_2160, gigabytes = 12.0),
         )
-        val low = options.single { it.variant == PlaybackQualityOption.Variant.LOW }
+        // 133 and 26.7 Mbps at 4K, so Max and High.
+        val cheaper = options.single { it.variant == PlaybackQualityOption.Variant.HIGH }
 
-        assertEquals(2, low.candidates.size)
-        assertEquals("4k-web", low.candidates.first().stream.name)
+        assertEquals(2, cheaper.candidates.size)
+        assertEquals("4k-web", cheaper.candidates.first().stream.name)
     }
 
     @Test
@@ -423,15 +538,15 @@ class PlaybackQualityOptionsTest {
 
     @Test
     fun aRememberedBandDistinguishesTheVariantNotJustTheResolution() {
-        // Someone who chose "1080p Low" to stay inside a data cap has not chosen "1080p High".
+        // Someone who chose "1080p Mid" to stay inside a data cap has not chosen "1080p Max".
         // Matching on height alone would hand them the row they were avoiding, silently.
         val options = build(
             candidate("1080-big", VideoResolution.FULL_HD_1080, gigabytes = 12.0),
             candidate("1080-small", VideoResolution.FULL_HD_1080, gigabytes = 2.0),
             runtimeMinutes = 60,
         )
-        val low = options.first { it.variant == PlaybackQualityOption.Variant.LOW }
-        val high = options.first { it.variant == PlaybackQualityOption.Variant.HIGH }
+        val low = options.first { it.variant == PlaybackQualityOption.Variant.MID }
+        val high = options.first { it.variant == PlaybackQualityOption.Variant.MAX }
         assertTrue(low.id != high.id)
 
         assertEquals(low.id, PlaybackQualityOptions.rememberedOption(options, bandId = low.id)?.id)
@@ -530,8 +645,8 @@ class PlaybackQualityOptionsTest {
         assertEquals(
             listOf(
                 listOf("best"),
-                listOf("2160_high", "2160_low"),
-                listOf("1080_high", "1080_mid", "1080_low"),
+                listOf("2160_max", "2160_high"),
+                listOf("1080_max", "1080_high", "1080_mid"),
                 listOf("720_single"),
             ),
             groups.map { group -> group.options.map { it.id } },

@@ -37,13 +37,15 @@ object NetworkStrengthProbe {
     /**
      * The transfer budget.
      *
-     * 4 MiB over 2.5 s tops out around 13 Mbps of *guaranteed* resolution, and well beyond that
-     * in practice because a fast line hits the byte cap long before the time cap - a 100 Mbps
-     * connection delivers the whole 4 MiB in a third of a second. The earlier sketch of ~1.5 MB
-     * could not tell 20 Mbps from 100, which is precisely the distinction 4K depends on.
+     * Raised from 4 MiB / 2.5 s once the rate became a *windowed* one. The old pair was sized
+     * for a mean, where more bytes only diluted the ramp; a window has to actually fit inside
+     * the transfer, and a fast line hits the byte cap long before the time cap - 4 MiB at
+     * 200 Mbps is 0.17 s, which is not one 750 ms window, let alone one past the ramp. 8 MiB
+     * buys the post-slow-start stretch the measurement is taken from, and still costs a
+     * fraction of the first seconds of the video it is about to choose.
      */
-    const val MAX_BYTES = 4L * 1024L * 1024L
-    const val MAX_TRANSFER_MS = 2_500L
+    const val MAX_BYTES = 8L * 1024L * 1024L
+    const val MAX_TRANSFER_MS = 3_500L
 
     /**
      * How recent an estimate has to be for the probe to skip entirely.
@@ -190,7 +192,11 @@ object NetworkStrengthProbe {
             }.getOrNull() ?: return null
 
             if (sample.bytes < MIN_SAMPLE_BYTES || sample.transferMs < MIN_SAMPLE_MS) return null
-            val mbps = sample.mbps ?: return null
+            // The windowed rate, falling back to the mean only when the transfer was too short
+            // to hold a window. The mean includes TCP slow start and therefore under-reads by
+            // more the faster the line is - see `ThroughputWindow`, and the 57-vs-81 Mb/s case
+            // that is the whole reason this changed.
+            val mbps = sample.bestEffortMbps ?: return null
             NetworkQualityRepository.recordProbeResult(mbps, plan.providerId)
             return mbps
         } finally {

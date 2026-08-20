@@ -8,27 +8,27 @@ object DebridStreamPresentation {
     private val formatter = DebridStreamFormatter()
 
     fun apply(groups: List<AddonStreamGroup>, settings: DebridSettings): List<AddonStreamGroup> {
-        if (!settings.canResolvePlayableLinks) return groups
+        if (!settings.appliesStreamPresentation) return groups
         return groups.map { group ->
             val visibleStreams = group.streams
                 .filterNot { stream -> stream.isInactiveResolverStream(settings) }
                 .filterNot { stream -> stream.isUncachedDebridStream }
-            val debridStreams = visibleStreams.filter { stream -> stream.isManagedDebridStream }
-            if (debridStreams.isEmpty()) return@map group.copy(streams = visibleStreams)
+            // isPresentableStream reads settings and walks streamData, so partition rather than
+            // filter twice.
+            val (presentableStreams, passthroughStreams) = visibleStreams
+                .partition { stream -> stream.isPresentableStream(settings) }
+            if (presentableStreams.isEmpty()) return@map group.copy(streams = visibleStreams)
 
-            val shouldFormatStreams = settings.hasCustomStreamFormatting ||
-                debridStreams.any { stream -> stream.badges.isNotEmpty() }
-            val presentedDebridStreams = applyPreferences(debridStreams, settings)
+            val presentedStreams = applyPreferences(presentableStreams, settings)
                 .map { stream ->
-                    if (shouldFormatStreams) {
+                    if (stream.shouldFormat(settings)) {
                         formatter.format(stream, settings)
                     } else {
                         stream
                     }
                 }
-            val passthroughStreams = visibleStreams.filterNot { stream -> stream.isManagedDebridStream }
 
-            group.copy(streams = presentedDebridStreams + passthroughStreams)
+            group.copy(streams = presentedStreams + passthroughStreams)
         }
     }
 
@@ -48,6 +48,31 @@ object DebridStreamPresentation {
         return applyLimits(orderedStreams, preferences)
             .map { it.first }
     }
+
+    /** Which streams the filter/sort/format pipeline is allowed to touch, per the chosen scope. */
+    internal fun StreamItem.isPresentableStream(settings: DebridSettings): Boolean =
+        when (settings.streamPreferenceScope) {
+            DebridStreamPreferenceScope.RESOLVER_ONLY -> isManagedDebridStream
+            DebridStreamPreferenceScope.DEBRID -> isManagedDebridStream || hasExternalDebridEvidence
+            DebridStreamPreferenceScope.ALL_ADDON_STREAMS ->
+                isManagedDebridStream || (isInstalledAddonStream && playableDirectUrl != null)
+        }
+
+    /** An addon that ran debrid itself and said so - AIOStreams' `streamData` is the case. */
+    internal val StreamItem.hasExternalDebridEvidence: Boolean
+        get() = isInstalledAddonStream &&
+            playableDirectUrl != null &&
+            streamData?.let { it.debridService != null || it.debridCached != null } == true
+
+    /**
+     * Renaming is opt-in per stream, not per group. The default name template renders
+     * "Cloud Instant" for anything without a service id, so a plain addon result keeps its own
+     * name until either the template is customised or the service is known.
+     */
+    private fun StreamItem.shouldFormat(settings: DebridSettings): Boolean =
+        settings.hasCustomStreamFormatting ||
+            DebridStreamFormatter.serviceId(this) != null ||
+            badges.isNotEmpty()
 
     internal val StreamItem.isManagedDebridStream: Boolean
         get() {
@@ -233,16 +258,22 @@ internal object DebridStreamMetadata {
 
     fun facts(stream: StreamItem, preferences: DebridStreamPreferences): DebridStreamFacts {
         val parsed = stream.clientResolve?.stream?.raw?.parsed
+        // Addon-side debrid supplies the same facts under a different shape. Every fallback sits
+        // *after* the resolver's own value, so nothing changes for a resolver-resolved stream.
+        val aio = stream.streamData?.parsedFile
         val searchText = streamSearchText(stream)
-        val resolution = streamResolution(parsed?.resolution, parsed?.quality, searchText)
-        val quality = streamQuality(parsed?.quality, searchText)
-        val visualTags = streamVisualTags(parsed?.hdr.orEmpty(), searchText)
-        val audioTags = streamAudioTags(parsed?.audio.orEmpty(), searchText)
+        val resolution = streamResolution(parsed?.resolution, aio?.resolution, parsed?.quality, aio?.quality, searchText)
+        val quality = streamQuality(parsed?.quality ?: aio?.quality, searchText)
+        val visualTags = streamVisualTags(parsed?.hdr.orEmpty().ifEmpty { aio?.hdr.orEmpty() }, searchText)
+        val audioTags = streamAudioTags(parsed?.audio.orEmpty().ifEmpty { aio?.audio.orEmpty() }, searchText)
+        // No AIO source for channels or release group - both are recovered from searchText, which
+        // the AIO filename and title widen below.
         val audioChannels = streamAudioChannels(parsed?.channels.orEmpty(), searchText)
-        val encode = streamEncode(parsed?.codec, searchText)
-        val languages = parsed?.languages.orEmpty().mapNotNull { languageFor(it) }.ifEmpty {
-            DebridStreamLanguage.entries.filter { searchText.hasToken(it.code) }
-        }
+        val encode = streamEncode(parsed?.codec ?: aio?.codec, searchText)
+        val languages = parsed?.languages.orEmpty()
+            .ifEmpty { aio?.languages.orEmpty() }
+            .mapNotNull { languageFor(it) }
+            .ifEmpty { DebridStreamLanguage.entries.filter { searchText.hasToken(it.code) } }
         val releaseGroup = parsed?.group?.takeIf { it.isNotBlank() } ?: releaseGroupFromText(searchText)
         return DebridStreamFacts(
             resolution = resolution,
@@ -410,18 +441,24 @@ internal object DebridStreamMetadata {
     private fun streamSize(stream: StreamItem): Long? =
         stream.clientResolve?.stream?.raw?.size
             ?: stream.behaviorHints.videoSize
+            ?: stream.streamData?.size
+            ?: stream.streamData?.parsedFile?.size
             ?: stream.debridCacheStatus?.cachedSize
 
     private fun streamSearchText(stream: StreamItem): String {
         val resolve = stream.clientResolve
         val raw = resolve?.stream?.raw
         val parsed = raw?.parsed
+        val aio = stream.streamData?.parsedFile
+        // Strict superset of the resolver-only text: adding the AIO filename and parsed fields is
+        // what lets audio-channel and release-group detection work with no structured source.
         return listOfNotNull(
             stream.name,
             stream.title,
             stream.description,
             stream.behaviorHints.filename,
             stream.debridCacheStatus?.cachedName,
+            stream.streamData?.filename,
             resolve?.torrentName,
             resolve?.filename,
             raw?.torrentName,
@@ -431,6 +468,12 @@ internal object DebridStreamMetadata {
             parsed?.codec,
             parsed?.hdr?.joinToString(" "),
             parsed?.audio?.joinToString(" "),
+            aio?.title,
+            aio?.resolution,
+            aio?.quality,
+            aio?.codec,
+            aio?.hdr?.joinToString(" "),
+            aio?.audio?.joinToString(" "),
         ).joinToString(" ").lowercase()
     }
 }

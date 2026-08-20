@@ -1,6 +1,7 @@
 package com.nuvio.app.features.debrid
 
-import com.nuvio.app.features.debrid.DebridStreamPresentation.isManagedDebridStream
+import com.nuvio.app.features.debrid.DebridStreamPresentation.isPresentableStream
+import com.nuvio.app.features.streams.AioParsedFile
 import com.nuvio.app.features.streams.StreamClientResolve
 import com.nuvio.app.features.streams.StreamClientResolveParsed
 import com.nuvio.app.features.streams.StreamDebridCacheState
@@ -14,7 +15,7 @@ class DebridStreamFormatter(
         stream: StreamItem,
         settings: DebridSettings,
     ): StreamItem {
-        if (!stream.isManagedDebridStream) return stream
+        if (!stream.isPresentableStream(settings)) return stream
         val matchedBadges = stream.badges
         val values = buildValues(stream, settings, matchedBadges)
         val formattedName = engine.render(settings.streamNameTemplate, values)
@@ -44,6 +45,10 @@ class DebridStreamFormatter(
         val resolve = stream.clientResolve
         val raw = resolve?.stream?.raw
         val parsed = raw?.parsed
+        // Addon-side debrid (AIOStreams) carries the same facts in a different shape. Read it
+        // only after the resolver's own values, so a resolver user sees no change.
+        val aio = stream.streamData
+        val aioParsed = aio?.parsedFile
         val facts = DebridStreamMetadata.facts(
             stream = stream,
             preferences = DebridStreamMetadata.effectivePreferences(settings),
@@ -59,7 +64,7 @@ class DebridStreamFormatter(
         val matchedBadgeNames = matchedBadges.map { it.name }
 
         return linkedMapOf(
-            "stream.title" to (parsed?.parsedTitle ?: resolve?.title ?: stream.title),
+            "stream.title" to (parsed?.parsedTitle ?: aioParsed?.title ?: resolve?.title ?: stream.title),
             "stream.year" to parsed?.year,
             "stream.season" to season,
             "stream.episode" to episode,
@@ -74,17 +79,17 @@ class DebridStreamFormatter(
             "stream.visualTags" to visualTags,
             "stream.audioTags" to audioTags,
             "stream.audioChannels" to audioChannels,
-            "stream.languages" to languageValues(parsed, facts),
-            "stream.languageEmojis" to languageValues(parsed, facts).map { languageEmoji(it) },
+            "stream.languages" to languageValues(parsed, aioParsed, facts),
+            "stream.languageEmojis" to languageValues(parsed, aioParsed, facts).map { languageEmoji(it) },
             "stream.size" to facts.size?.let(::DebridTemplateBytes),
             "stream.folderSize" to raw?.folderSize?.let(::DebridTemplateBytes),
             "stream.encode" to facts.encode.labelUnlessUnknown(),
-            "stream.indexer" to (raw?.indexer ?: raw?.tracker ?: stream.sourceName),
+            "stream.indexer" to (raw?.indexer ?: raw?.tracker ?: aio?.addon?.name ?: stream.sourceName),
             "stream.network" to (parsed?.network ?: raw?.network),
             "stream.releaseGroup" to facts.releaseGroup.takeIf { it.isNotBlank() },
             "stream.duration" to parsed?.duration,
             "stream.edition" to edition,
-            "stream.filename" to (raw?.filename ?: resolve?.filename ?: stream.behaviorHints.filename ?: stream.debridCacheStatus?.cachedName),
+            "stream.filename" to (raw?.filename ?: resolve?.filename ?: stream.behaviorHints.filename ?: stream.debridCacheStatus?.cachedName ?: aio?.filename),
             "stream.regexMatched" to matchedBadgeNames,
             "stream.rseMatched" to matchedBadgeNames,
             "stream.type" to streamType(stream, resolve),
@@ -95,21 +100,19 @@ class DebridStreamFormatter(
         )
     }
 
-    private fun serviceId(stream: StreamItem): String? =
-        stream.debridCacheStatus?.providerId ?: stream.clientResolve?.service
-
     private fun serviceCached(stream: StreamItem, resolve: StreamClientResolve?): Boolean? =
         when (stream.debridCacheStatus?.state) {
             StreamDebridCacheState.CACHED -> true
             StreamDebridCacheState.NOT_CACHED -> false
             StreamDebridCacheState.CHECKING,
             StreamDebridCacheState.UNKNOWN,
-            null -> resolve?.isCached
+            null -> resolve?.isCached ?: stream.streamData?.debridCached
         }
 
     private fun streamType(stream: StreamItem, resolve: StreamClientResolve?): String =
         when {
             stream.debridCacheStatus != null -> "Debrid"
+            stream.streamData?.debridService != null -> "Debrid"
             resolve?.type.equals("debrid", ignoreCase = true) -> "Debrid"
             resolve?.type.equals("torrent", ignoreCase = true) -> "p2p"
             else -> resolve?.type.orEmpty()
@@ -147,8 +150,14 @@ class DebridStreamFormatter(
 
     private fun Int.twoDigits(): String = toString().padStart(2, '0')
 
-    private fun languageValues(parsed: StreamClientResolveParsed?, facts: DebridStreamFacts): List<String> =
-        parsed?.languages.orEmpty().ifEmpty { facts.languages.map { it.code } }
+    private fun languageValues(
+        parsed: StreamClientResolveParsed?,
+        aioParsed: AioParsedFile?,
+        facts: DebridStreamFacts,
+    ): List<String> =
+        parsed?.languages.orEmpty()
+            .ifEmpty { aioParsed?.languages.orEmpty() }
+            .ifEmpty { facts.languages.map { it.code } }
 
     private fun languageEmoji(language: String): String =
         when (language.lowercase()) {
@@ -178,4 +187,16 @@ class DebridStreamFormatter(
 
     private fun DebridStreamEncode.labelUnlessUnknown(): String? =
         label.takeUnless { this == DebridStreamEncode.UNKNOWN }
+
+    companion object {
+        /**
+         * The debrid service behind a stream, whether Nuvio resolved it or the addon did.
+         * `internal` because the presentation layer decides whether to rename a stream by asking
+         * whether the default template has a service to render.
+         */
+        internal fun serviceId(stream: StreamItem): String? =
+            stream.debridCacheStatus?.providerId
+                ?: stream.clientResolve?.service
+                ?: stream.streamData?.debridService
+    }
 }

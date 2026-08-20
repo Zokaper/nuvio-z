@@ -4,6 +4,8 @@ import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
+import com.nuvio.app.features.downloads.SourceRanking
+import com.nuvio.app.features.downloads.SourceRankingPreferences
 import com.nuvio.app.features.streams.StreamItem
 
 data class PlaybackSourceCandidate(
@@ -36,7 +38,53 @@ data class PlaybackSelectionContext(
     val preferredAudioLanguage: String? = null,
     val codecPreference: CodecPreference = CodecPreference.ANY,
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
-)
+    /**
+     * The most the user is willing to spend on one stream, in megabits per second, or null.
+     *
+     * Off by default and deliberately so: the absolute bands already make every row mean the
+     * same thing on every title, which is the fix for "High is too big". This is for the
+     * separate want behind that complaint - never being *offered* a remux at all - and it is
+     * a refusal, not a preference, so nothing should be refused unless it was asked for.
+     *
+     * Applied by [PlaybackQualityOptions.build] before bucketing, so it shapes Best available
+     * as well as the banded rows.
+     */
+    val qualityCeilingMbps: Double? = null,
+    val secondaryAudioLanguage: String? = null,
+    val languageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
+) {
+    internal val rankingPreferences: SourceRankingPreferences
+        get() = SourceRankingPreferences(
+            preferredAudioLanguage = preferredAudioLanguage,
+            secondaryAudioLanguage = secondaryAudioLanguage,
+        )
+}
+
+/**
+ * How hard the automatic picker tries to honour the user's audio language.
+ *
+ * The default is [REQUIRE], which is unusual for a preference and deliberate here: the reported
+ * failure is being handed a source with no English audio *or* subtitles, and a soft preference is
+ * what produced it. `SourceRanking` has always carried language as a tie-break under resolution,
+ * and a tie-break loses to the first source that is one step sharper.
+ */
+enum class LanguageStrictness {
+    /** Language is not considered at all. */
+    OFF,
+
+    /** Ranked on, never excluded. */
+    PREFER,
+
+    /**
+     * A source that names its languages, does not name yours, and carries no subtitles you can
+     * read is moved behind every source that does.
+     *
+     * **Behind, not deleted.** It stays in the failure chain, so if every watchable source is
+     * dead the app still has somewhere to go rather than dropping to the source list - see
+     * [PlaybackSourceSelector.select].
+     */
+    REQUIRE,
+}
 
 sealed interface PlaybackSelectionResult {
     data class Play(
@@ -74,9 +122,9 @@ object PlaybackSourceSelector {
         candidates: List<PlaybackSourceCandidate>,
         context: PlaybackSelectionContext,
     ): PlaybackSelectionResult {
-        val eligible = candidates.filter { candidate ->
-            isPlaybackProtocolEligible(candidate, context.allowTorrentSources)
-        }
+        val eligible = candidates
+            .filter { candidate -> isPlaybackProtocolEligible(candidate, context.allowTorrentSources) }
+            .let { byLanguage(it, context) }
         val playable = eligible.filterNot(::isUncachedDebrid)
         playable.firstOrNull()?.let { selected ->
             return PlaybackSelectionResult.Play(
@@ -107,7 +155,34 @@ object PlaybackSourceSelector {
         context: PlaybackSelectionContext,
     ): PlaybackSourceCandidate? = option.candidates
         .filter { isPlaybackProtocolEligible(it, context.allowTorrentSources) }
+        .let { byLanguage(it, context) }
         .let { eligible -> eligible.firstOrNull { !isUncachedDebrid(it) } ?: eligible.firstOrNull() }
+
+    /**
+     * Reorders so anything the user cannot watch sits behind everything they can.
+     *
+     * **A partition, never a filter**, and that is the whole design. Deleting the unwatchable
+     * candidates would be simpler and would reintroduce the dead end this mode exists to avoid:
+     * a title whose every release is tagged for another market would produce no playable source
+     * at all, the chain would have nothing to run, and the user would land on the source list
+     * with a toast - having asked for a quality and been given a wall of release names. Moving
+     * them to the back costs nothing when a watchable source works and saves the play when none
+     * does.
+     *
+     * A stable partition, so the ranking inside each half is exactly the one the caller built.
+     */
+    private fun byLanguage(
+        candidates: List<PlaybackSourceCandidate>,
+        context: PlaybackSelectionContext,
+    ): List<PlaybackSourceCandidate> {
+        if (context.languageStrictness != LanguageStrictness.REQUIRE) return candidates
+        if (context.preferredAudioLanguage.isNullOrBlank()) return candidates
+        val preferences = context.rankingPreferences
+        val (watchable, rest) = candidates.partition {
+            SourceRanking.isLanguageWatchable(it.facts, preferences)
+        }
+        return if (watchable.isEmpty()) candidates else watchable + rest
+    }
 
     /**
      * A short human description of a source: `1080p · WEB-DL · TorBox`.

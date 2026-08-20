@@ -89,7 +89,7 @@ internal fun PlayerStreamList(
                         stream = stream,
                         enabled = stream.isSelectableForPlayback(debridSettings.canResolvePlayableLinks),
                         appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks &&
-                            !debridSettings.hasCustomStreamFormatting,
+                            !debridSettings.appliesStreamPresentation,
                         showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
                         showAddonLogo = streamBadgeSettings.showAddonLogo,
                         badgePlacement = streamBadgeSettings.badgePlacement,

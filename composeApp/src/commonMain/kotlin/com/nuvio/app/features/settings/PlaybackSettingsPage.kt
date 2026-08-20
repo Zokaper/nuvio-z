@@ -72,6 +72,7 @@ import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
+import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.playback.playbackModeName
@@ -322,6 +323,8 @@ private fun PlaybackSettingsSection(
     var showPlaybackModeDialog by remember { mutableStateOf(false) }
     var showPlaybackCodecDialog by remember { mutableStateOf(false) }
     var showPlaybackDynamicRangeDialog by remember { mutableStateOf(false) }
+    var showPlaybackLanguageStrictnessDialog by remember { mutableStateOf(false) }
+    var showPlaybackQualityCeilingDialog by remember { mutableStateOf(false) }
     var showExternalPlayerDialog by remember { mutableStateOf(false) }
     var showExternalPlayerAppDialog by remember { mutableStateOf(false) }
     var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
@@ -403,21 +406,35 @@ private fun PlaybackSettingsSection(
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
-                // Both of these existed only on download presets until 0.5.0-beta, so setting
-                // one got it honoured for episodes you downloaded and ignored for every
-                // episode you watched. Advanced, because "Automatic" is the right answer for
-                // most people and the by-resolution default already picks HDR where it helps.
+                // ⚠ **None of the four rows below is `isAdvanced` any more, and that is the
+                // fix.** Codec and dynamic range were both hidden behind "Show advanced
+                // settings", so a user asking where to set an HDR or Dolby Vision preference
+                // was looking at a page that genuinely did not have one. A preference the app
+                // acts on for every automatic pick cannot be a preference the user has to
+                // already know about to find - "Automatic is right for most people" is an
+                // argument for a good default, not for concealment.
                 SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_codec_preference),
+                    title = stringResource(Res.string.settings_playback_language_strictness),
                     description = withClassicReason(
-                        playbackCodecPreferenceLabel(
-                            autoPlayPlayerSettings.playbackCodecPreference,
+                        playbackLanguageStrictnessLabel(
+                            autoPlayPlayerSettings.playbackLanguageStrictness,
                         ),
                     ),
                     enabled = !isClassicMode,
-                    isAdvanced = true,
                     isTablet = isTablet,
-                    onClick = { showPlaybackCodecDialog = true },
+                    onClick = { showPlaybackLanguageStrictnessDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_quality_ceiling),
+                    description = withClassicReason(
+                        playbackQualityCeilingLabel(
+                            autoPlayPlayerSettings.playbackQualityCeilingMbps,
+                        ),
+                    ),
+                    enabled = !isClassicMode,
+                    isTablet = isTablet,
+                    onClick = { showPlaybackQualityCeilingDialog = true },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
@@ -428,9 +445,20 @@ private fun PlaybackSettingsSection(
                         ),
                     ),
                     enabled = !isClassicMode,
-                    isAdvanced = true,
                     isTablet = isTablet,
                     onClick = { showPlaybackDynamicRangeDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_codec_preference),
+                    description = withClassicReason(
+                        playbackCodecPreferenceLabel(
+                            autoPlayPlayerSettings.playbackCodecPreference,
+                        ),
+                    ),
+                    enabled = !isClassicMode,
+                    isTablet = isTablet,
+                    onClick = { showPlaybackCodecDialog = true },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Automatic source swapping only ever ran in Instant, so withdrawing Instant
@@ -1585,6 +1613,39 @@ private fun PlaybackSettingsSection(
                 showPlaybackDynamicRangeDialog = false
             },
             onDismiss = { showPlaybackDynamicRangeDialog = false },
+        )
+    }
+
+    if (showPlaybackLanguageStrictnessDialog) {
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_playback_language_strictness),
+            options = LanguageStrictness.entries,
+            selected = autoPlayPlayerSettings.playbackLanguageStrictness,
+            label = { playbackLanguageStrictnessLabel(it) },
+            onSelect = {
+                PlayerSettingsRepository.setPlaybackLanguageStrictness(it)
+                showPlaybackLanguageStrictnessDialog = false
+            },
+            onDismiss = { showPlaybackLanguageStrictnessDialog = false },
+        )
+    }
+
+    if (showPlaybackQualityCeilingDialog) {
+        // Fixed steps rather than a slider. The figure is a bitrate, which nobody has an
+        // intuition for, so the labels name the kind of release each step admits - the same
+        // reasoning the quality bands themselves are built on.
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_playback_quality_ceiling),
+            options = PLAYBACK_QUALITY_CEILING_STEPS,
+            selected = PLAYBACK_QUALITY_CEILING_STEPS.minByOrNull { step ->
+                kotlin.math.abs(step - autoPlayPlayerSettings.playbackQualityCeilingMbps)
+            } ?: 0,
+            label = { playbackQualityCeilingLabel(it) },
+            onSelect = {
+                PlayerSettingsRepository.setPlaybackQualityCeilingMbps(it)
+                showPlaybackQualityCeilingDialog = false
+            },
+            onDismiss = { showPlaybackQualityCeilingDialog = false },
         )
     }
 
@@ -3816,4 +3877,27 @@ private fun playbackDynamicRangeLabel(policy: DynamicRangePolicy): String = when
     DynamicRangePolicy.REQUIRE_HDR -> stringResource(Res.string.settings_playback_dynamic_range_require)
     DynamicRangePolicy.REQUIRE_DOLBY_VISION ->
         stringResource(Res.string.settings_playback_dynamic_range_require_dv)
+}
+
+@Composable
+private fun playbackLanguageStrictnessLabel(strictness: LanguageStrictness): String =
+    when (strictness) {
+        LanguageStrictness.OFF -> stringResource(Res.string.settings_playback_language_off)
+        LanguageStrictness.PREFER -> stringResource(Res.string.settings_playback_language_prefer)
+        LanguageStrictness.REQUIRE -> stringResource(Res.string.settings_playback_language_require)
+    }
+
+/**
+ * The ceiling's steps, named by what each admits rather than by its bitrate.
+ *
+ * Nobody has an intuition for "25 Mb/s", and the setting is only useful if the user can predict
+ * what it will remove - so each step is described by the kind of release it stops at, which is
+ * the same vocabulary the quality bands use.
+ */
+private val PLAYBACK_QUALITY_CEILING_STEPS = listOf(0, 10, 20, 35, 60)
+
+@Composable
+private fun playbackQualityCeilingLabel(mbps: Int): String = when {
+    mbps <= 0 -> stringResource(Res.string.settings_playback_quality_ceiling_off)
+    else -> stringResource(Res.string.settings_playback_quality_ceiling_value, mbps)
 }

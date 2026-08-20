@@ -201,6 +201,11 @@ object NetworkQualityRepository {
         restoreIfNeeded()
         val key = EstimateKey(NetworkQualityPlatform.current().networkId, providerId.normalizedProvider())
         val old = liveEstimate(key)
+        // A probe deliberately saturates the line, so unlike the playback signals it can observe
+        // more than it was asked for and may legitimately move the estimate in either direction.
+        // What made it untrustworthy was the arithmetic, not the direction: it recorded the mean
+        // over a short transfer, which is mostly TCP slow start. That is fixed at the source in
+        // `ThroughputWindow`, so the blend below stands.
         val blended = if (old == null || !old.isThisSession) {
             mbps
         } else {

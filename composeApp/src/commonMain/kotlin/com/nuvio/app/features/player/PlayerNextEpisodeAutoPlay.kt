@@ -176,6 +176,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 // at the stream route would mean a user's codec or HDR choice held until the
                 // next episode auto-played and then quietly stopped.
                 preferredAudioLanguage = settings.rankableAudioLanguage,
+                secondaryAudioLanguage = settings.rankableSecondaryAudioLanguage,
+                languageStrictness = settings.playbackLanguageStrictness,
+                qualityCeilingMbps = settings.playbackQualityCeilingMbps.takeIf { it > 0 }?.toDouble(),
                 codecPreference = settings.playbackCodecPreference,
                 dynamicRangePolicy = settings.playbackDynamicRangePolicy,
             )

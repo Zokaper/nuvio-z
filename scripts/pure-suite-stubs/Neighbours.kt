@@ -31,6 +31,8 @@ data class SourceFacts(
     val codec: String? = null,
     val dynamicRange: Set<String> = emptySet(),
     val languages: Set<String> = emptySet(),
+    val isMultiLanguage: Boolean = false,
+    val subtitleLanguages: Set<String> = emptySet(),
     val releaseQuality: String? = null,
     val releaseGroup: String? = null,
     val seeders: Int? = null,

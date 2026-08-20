@@ -351,6 +351,175 @@ class PlaybackSourceSelectorTest {
         candidates = candidates.toList(),
     )
 
+    // --- The language gate ------------------------------------------------------------------
+
+    @Test
+    fun aSourceInAnotherLanguageIsNotWhatPlays() {
+        // The reported failure: Streamlined auto-playing a release with no English audio or
+        // subtitles. Language has always been in `SourceRanking`, but as a tie-break under
+        // resolution - so any source one step sharper on any other key won regardless.
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("hindi-only", languages = setOf("hi")),
+                languageCandidate("untagged", languages = emptySet()),
+            ),
+            ENGLISH,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("untagged", result.stream.name)
+    }
+
+    @Test
+    fun aRejectedLanguageStaysInTheFailureChain() {
+        // Moved to the back, never deleted. If the watchable source is dead the chain still has
+        // somewhere to go - deleting it would trade an unwatchable stream for no stream at all,
+        // which is the dead end this mode exists to avoid.
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("hindi-only", languages = setOf("hi")),
+                languageCandidate("untagged", languages = emptySet()),
+            ),
+            ENGLISH,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals(listOf("hindi-only"), result.fallbacks.map { it.name })
+    }
+
+    @Test
+    fun aTitleWithNothingInYourLanguageStillPlaysSomething() {
+        // Every release is tagged for another market. Excluding them all would leave the chain
+        // empty and drop the user onto the source list holding a toast - having asked for a
+        // quality and been handed a wall of release names.
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("hindi", languages = setOf("hi")),
+                languageCandidate("tamil", languages = setOf("ta")),
+            ),
+            ENGLISH,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("hindi", result.stream.name)
+    }
+
+    @Test
+    fun aMultiAudioReleaseIsNeverRejected() {
+        // `MULTi` is the single most common language marker in the wild and it is not a
+        // language. Reading it as one - or, as before, not reading it at all - would throw away
+        // the best sources on exactly the titles most likely to carry the user's track.
+        val result = PlaybackSourceSelector.select(
+            listOf(languageCandidate("multi", languages = setOf("fr"), isMulti = true)),
+            ENGLISH,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("multi", result.stream.name)
+    }
+
+    @Test
+    fun wrongAudioWithReadableSubtitlesIsStillWatchable() {
+        // The complaint is "no English audio **or** subs". A release with the wrong audio and
+        // English subtitles is watchable, so it must not be treated as unwatchable - but it
+        // still ranks below one that needs no subtitles.
+        val subtitled = languageCandidate("subbed", languages = setOf("ja"), subtitles = setOf("en"))
+        val neither = languageCandidate("neither", languages = setOf("ja"))
+
+        val result = PlaybackSourceSelector.select(listOf(neither, subtitled), ENGLISH)
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("subbed", result.stream.name)
+    }
+
+    @Test
+    fun preferRanksOnLanguageWithoutEverRefusingASource() {
+        // "Ranked on, never excluded" has to mean something weaker than REQUIRE, or the two
+        // settings are one setting. Under PREFER the language key stays inside the shared
+        // comparator - one step under resolution - and does not become a leading key, so a
+        // wrong-language source that is better on every other axis can still win. Promoting it
+        // would let a right-language *uncached* source beat a wrong-language cached one, which
+        // is a refusal wearing a preference's name.
+        val prefer = ENGLISH.copy(languageStrictness = LanguageStrictness.PREFER)
+
+        val result = PlaybackSourceSelector.select(
+            listOf(languageCandidate("hindi-only", languages = setOf("hi"))),
+            prefer,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("hindi-only", result.stream.name)
+    }
+
+    @Test
+    fun languageIsIgnoredEntirelyWhenTheUserTurnsItOff() {
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("hindi-only", languages = setOf("hi")),
+                languageCandidate("untagged", languages = emptySet()),
+            ),
+            ENGLISH.copy(languageStrictness = LanguageStrictness.OFF),
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("hindi-only", result.stream.name)
+    }
+
+    @Test
+    fun theSecondaryLanguageIsFinallyRead() {
+        // Stored since the player's track selection shipped and never consulted by ranking.
+        val preferences = SourceRankingPreferences(
+            preferredAudioLanguage = "en",
+            secondaryAudioLanguage = "fr",
+        )
+
+        assertEquals(
+            SourceRanking.NAMES_SECONDARY,
+            SourceRanking.languageScore(SourceFacts(languages = setOf("fr")), preferences),
+        )
+        assertEquals(
+            SourceRanking.NAMES_OTHER_ONLY,
+            SourceRanking.languageScore(SourceFacts(languages = setOf("hi")), preferences),
+        )
+    }
+
+    @Test
+    fun anUntaggedReleaseOutranksOneTaggedForYourSecondLanguage() {
+        // Most English releases name no language at all, because English is the unmarked case.
+        // Ranking "says nothing" below "says your fallback" would systematically hand a user
+        // their second choice on every title that has both.
+        val preferences = SourceRankingPreferences(
+            preferredAudioLanguage = "en",
+            secondaryAudioLanguage = "fr",
+        )
+
+        assertTrue(
+            SourceRanking.languageScore(SourceFacts(), preferences) >
+                SourceRanking.languageScore(SourceFacts(languages = setOf("fr")), preferences),
+        )
+    }
+
+    private fun languageCandidate(
+        name: String,
+        languages: Set<String>,
+        isMulti: Boolean = false,
+        subtitles: Set<String> = emptySet(),
+    ) = PlaybackSourceCandidate(
+        stream = StreamItem(
+            name = name,
+            url = "https://cdn.example/$name.mkv",
+            addonName = "Addon",
+            addonId = "addon",
+        ),
+        facts = SourceFacts(
+            resolution = VideoResolution.FULL_HD_1080,
+            sizeBytes = 2_000_000_000,
+            languages = languages,
+            isMultiLanguage = isMulti,
+            subtitleLanguages = subtitles,
+        ),
+    )
+
     private fun candidate(
         url: String?,
         resolution: VideoResolution,
@@ -379,5 +548,6 @@ class PlaybackSourceSelectorTest {
     private companion object {
         const val HASH = "0123456789012345678901234567890123456789"
         val CONTEXT = PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true)
+        val ENGLISH = CONTEXT.copy(preferredAudioLanguage = "en")
     }
 }

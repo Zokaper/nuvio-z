@@ -591,6 +591,16 @@ internal fun settingsSearchEntries(
                 stringResource(Res.string.settings_playback_dynamic_range_description),
             ),
             PlaybackSearchRow(
+                "playback-language-strictness",
+                stringResource(Res.string.settings_playback_language_strictness),
+                stringResource(Res.string.settings_playback_language_strictness_description),
+            ),
+            PlaybackSearchRow(
+                "playback-quality-ceiling",
+                stringResource(Res.string.settings_playback_quality_ceiling),
+                stringResource(Res.string.settings_playback_quality_ceiling_description),
+            ),
+            PlaybackSearchRow(
                 "playback-auto-downshift",
                 stringResource(Res.string.settings_playback_auto_downshift),
                 stringResource(Res.string.settings_playback_auto_downshift_description),

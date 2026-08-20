@@ -34,6 +34,7 @@ object DebridSettingsRepository {
     private var streamPreferences = DebridStreamPreferences()
     private var streamNameTemplate = DebridStreamFormatterDefaults.NAME_TEMPLATE
     private var streamDescriptionTemplate = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE
+    private var streamPreferenceScope = DebridStreamPreferenceScope.ALL_ADDON_STREAMS
 
     fun ensureLoaded() {
         if (hasLoaded) return
@@ -109,6 +110,14 @@ object DebridSettingsRepository {
         preferredResolverProviderId = next
         publish()
         DebridSettingsStorage.savePreferredResolverProviderId(next)
+    }
+
+    fun setStreamPreferenceScope(value: DebridStreamPreferenceScope) {
+        ensureLoaded()
+        if (streamPreferenceScope == value) return
+        streamPreferenceScope = value
+        publish()
+        DebridSettingsStorage.saveStreamPreferenceScope(value.name)
     }
 
     fun setInstantPlaybackPreparationLimit(value: Int) {
@@ -340,6 +349,9 @@ object DebridSettingsRepository {
                 ?: DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE,
             DebridTemplateKind.DESCRIPTION,
         )
+        streamPreferenceScope = normalizeDebridStreamPreferenceScope(
+            DebridSettingsStorage.loadStreamPreferenceScope(),
+        )
         publish()
     }
 
@@ -359,6 +371,7 @@ object DebridSettingsRepository {
             streamPreferences = streamPreferences,
             streamNameTemplate = streamNameTemplate,
             streamDescriptionTemplate = streamDescriptionTemplate,
+            streamPreferenceScope = streamPreferenceScope,
         )
     }
 

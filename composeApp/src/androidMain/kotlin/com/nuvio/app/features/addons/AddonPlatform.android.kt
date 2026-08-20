@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.nuvio.app.core.diagnostics.SentryNetworkBreadcrumbInterceptor
 import com.nuvio.app.core.network.IPv4FirstDns
+import com.nuvio.app.core.network.ThroughputWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -342,6 +343,7 @@ private fun measureBodyThroughput(
     var firstByteNs = 0L
     var measuredBytes = 0L
     var lastNs = 0L
+    val window = ThroughputWindow()
     stream.use {
         while (measuredBytes < maxBytes) {
             val read = it.read(buffer)
@@ -355,12 +357,12 @@ private fun measureBodyThroughput(
             }
             measuredBytes += read
             val transferMs = (lastNs - firstByteNs) / 1_000_000L
+            window.record(elapsedMs = transferMs, cumulativeBytes = measuredBytes)
             if (transferMs >= maxMillis) break
-            if (stopAboveMbps != null && transferMs > 0L &&
-                measuredBytes.toDouble() * 8.0 / transferMs.toDouble() / 1_000.0 > stopAboveMbps
-            ) {
-                break
-            }
+            // Judged on the windowed rate, not the cumulative mean. The mean carries TCP slow
+            // start, so it lags the real rate and this exit fired late on a fast line - which is
+            // the one case it exists to shorten - and on a slow line it could not fire at all.
+            if (stopAboveMbps != null && (window.peakMbps ?: 0.0) > stopAboveMbps) break
         }
     }
     return ThroughputSample(
@@ -368,6 +370,7 @@ private fun measureBodyThroughput(
         bytes = measuredBytes,
         transferMs = if (firstByteNs == 0L) 0L else (lastNs - firstByteNs) / 1_000_000L,
         ttfbMs = if (firstByteNs == 0L) 0L else (firstByteNs - startNs) / 1_000_000L,
+        peakWindowMbps = window.peakMbps,
     )
 }
 

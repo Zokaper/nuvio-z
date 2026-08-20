@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.language.normalizeLanguageCode
+import com.nuvio.app.core.language.releaseLanguagesIn
 import com.nuvio.app.features.streams.AioParsedFile
 import com.nuvio.app.features.streams.StreamClientResolveParsed
 import com.nuvio.app.features.streams.StreamItem
@@ -49,7 +51,24 @@ data class SourceFacts(
     val hardReportedSizes: List<Long> = emptyList(),
     val codec: String? = null,
     val dynamicRange: Set<String> = emptySet(),
+    /**
+     * Normalized audio language codes - `en`, `pt-BR`, `es-419` - or empty when the release
+     * names none.
+     *
+     * **Empty is not "no English".** Most English releases say nothing about language at all,
+     * which is why this can only ever be read as a positive claim: a source that names Hindi
+     * and not English has told you something, and a source that names nothing has not.
+     */
     val languages: Set<String> = emptySet(),
+    /**
+     * The release advertises several audio tracks without naming them - `MULTi`, `DUAL`.
+     *
+     * Separate from [languages] because it is not a language, and load-bearing for the same
+     * reason: it is what lets a strict preference keep the releases most likely to satisfy it.
+     */
+    val isMultiLanguage: Boolean = false,
+    /** Normalized subtitle language codes, from the stream's own subtitle list. */
+    val subtitleLanguages: Set<String> = emptySet(),
     val releaseQuality: String? = null,
     val releaseGroup: String? = null,
     val seeders: Int? = null,
@@ -188,6 +207,28 @@ object SourceFactsExtractor {
                 .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
                 .ifEmpty { filenameFacts?.languages.orEmpty() }
                 .ifEmpty { fallbackFacts.languages },
+            // ⚠ **Not part of the ladder above, and deliberately so.** A structured field can
+            // name three languages while the release name is the only place `MULTi` appears,
+            // and vice versa. Falling through on first hit would drop whichever came second,
+            // and the marker is what makes a strict language preference survivable - it is the
+            // difference between "this release is not for you" and "this release carries
+            // several tracks and probably yours".
+            isMultiLanguage = nuvioParsed?.audio.orEmpty().size > 1 ||
+                aio?.parsedFile?.audio.orEmpty().size > 1 ||
+                aio?.parsedFile?.languages.orEmpty().size > 1 ||
+                nuvioParsed?.languages.orEmpty().size > 1 ||
+                filenames.any { releaseLanguagesIn(it).isMulti } ||
+                releaseLanguagesIn(
+                    listOfNotNull(stream.name, stream.description, plugin?.language)
+                        .joinToString(" "),
+                ).isMulti,
+            // Subtitles are the other half of "no English audio or subs". A release with the
+            // wrong audio but the right subtitle track is not the same as one with neither,
+            // and ranking them together threw away the watchable one.
+            subtitleLanguages = stream.externalSubtitles
+                .mapNotNull { normalizeLanguageCode(it.language) }
+                .toSet()
+                .ifEmpty { normalizeLanguageValues(nuvioParsed?.languages.orEmpty()) },
             releaseQuality = nuvioParsed?.quality?.normalized()
                 ?: aio?.parsedFile?.quality?.normalized()
                 ?: pluginFacts.releaseQuality
@@ -262,13 +303,11 @@ object SourceFactsExtractor {
             else if (Regex("""\bhdr\b""").containsMatchIn(lower)) add("HDR")
             if (Regex("""\bhlg\b""").containsMatchIn(lower)) add("HLG")
         }
-        val languages = buildSet {
-            LANGUAGE_TOKENS.forEach { (token, normalized) ->
-                if (Regex("""(?:^|[ ._\-\[\]()])${Regex.escape(token)}(?:$|[ ._\-\[\]()])""")
-                        .containsMatchIn(lower)
-                ) add(normalized)
-            }
-        }
+        // The seven-language table this replaced knew en/ar/es/fr/de/ja/ko and nothing else, so
+        // a Hindi, Italian or Russian release declared no language at all - and a preference
+        // cannot reject what it cannot see. It also had no `MULTi` and no flag emoji, which
+        // between them label most of what the big addons return.
+        val languages = releaseLanguagesIn(value).codes
         return TextFacts(
             resolution = parseResolution(value),
             sizeBytes = sizeBytes,
@@ -380,11 +419,17 @@ object SourceFactsExtractor {
     private fun normalizeLanguages(parsed: AioParsedFile?): Set<String> =
         parsed?.let { normalizeLanguageValues(it.languages + it.audio) }.orEmpty()
 
+    /**
+     * Structured values, which are tagged fields rather than prose.
+     *
+     * Short codes are accepted here and refused by `releaseLanguagesIn` for the same reason:
+     * `"it"` in a `languages` array means Italian, and `IT` in a filename means the Stephen
+     * King film. This used to `uppercase()` anything it did not recognise, so an addon sending
+     * `["Latino"]` produced `"LATINO"` - a value no preference could ever equal, on a source
+     * that had told the app exactly what it was.
+     */
     private fun normalizeLanguageValues(values: List<String>): Set<String> =
-        values.mapNotNull { raw ->
-            val lower = raw.trim().lowercase()
-            LANGUAGE_TOKENS[lower] ?: lower.takeIf(String::isNotEmpty)?.uppercase()
-        }.toSet()
+        values.mapNotNull { raw -> normalizeLanguageCode(raw) }.toSet()
 
     private fun Long.positive(): Long? = takeIf { it > 0L }
     private fun String.normalized(): String? = trim().takeIf(String::isNotEmpty)
@@ -394,15 +439,6 @@ object SourceFactsExtractor {
     )
     private val RELEASE_GROUP_FALSE_POSITIVES = setOf(
         "WEB", "WEB-DL", "WEBRIP", "BLURAY", "HDTV", "REMUX", "PROPER", "REPACK",
-    )
-    private val LANGUAGE_TOKENS = mapOf(
-        "en" to "EN", "eng" to "EN", "english" to "EN",
-        "ar" to "AR", "ara" to "AR", "arabic" to "AR",
-        "es" to "ES", "spa" to "ES", "spanish" to "ES",
-        "fr" to "FR", "fre" to "FR", "fra" to "FR", "french" to "FR",
-        "de" to "DE", "ger" to "DE", "deu" to "DE", "german" to "DE",
-        "ja" to "JA", "jpn" to "JA", "japanese" to "JA",
-        "ko" to "KO", "kor" to "KO", "korean" to "KO",
     )
 }
 

@@ -57,6 +57,8 @@ actual object PlayerSettingsStorage {
     private const val playbackAllowTorrentAutopickKey = "playback_allow_torrent_autopick"
     private const val playbackCodecPreferenceKey = "playback_codec_preference"
     private const val playbackDynamicRangePolicyKey = "playback_dynamic_range_policy"
+    private const val playbackLanguageStrictnessKey = "playback_language_strictness"
+    private const val playbackQualityCeilingMbpsKey = "playback_quality_ceiling_mbps"
     private const val showAdvancedSettingsKey = "settings_show_advanced"
     private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
     private const val playbackAutoDownshiftKey = "playback_auto_downshift"
@@ -135,6 +137,8 @@ actual object PlayerSettingsStorage {
         playbackAllowTorrentAutopickKey,
         playbackCodecPreferenceKey,
         playbackDynamicRangePolicyKey,
+        playbackLanguageStrictnessKey,
+        playbackQualityCeilingMbpsKey,
         showAdvancedSettingsKey,
         playbackMeteredCapHeightKey,
         playbackAutoDownshiftKey,
@@ -633,6 +637,31 @@ actual object PlayerSettingsStorage {
         )
     }
 
+    actual fun loadPlaybackLanguageStrictness(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(
+            ProfileScopedKey.of(playbackLanguageStrictnessKey),
+        )
+
+    actual fun savePlaybackLanguageStrictness(strictness: String) {
+        NSUserDefaults.standardUserDefaults.setObject(
+            strictness,
+            forKey = ProfileScopedKey.of(playbackLanguageStrictnessKey),
+        )
+    }
+
+    actual fun loadPlaybackQualityCeilingMbps(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackQualityCeilingMbpsKey)
+        return if (defaults.objectForKey(key) != null) defaults.integerForKey(key).toInt() else null
+    }
+
+    actual fun savePlaybackQualityCeilingMbps(mbps: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(
+            mbps.toLong(),
+            forKey = ProfileScopedKey.of(playbackQualityCeilingMbpsKey),
+        )
+    }
+
     actual fun savePlaybackAllowTorrentAutopick(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(playbackAllowTorrentAutopickKey))
     }
@@ -1058,6 +1087,12 @@ actual object PlayerSettingsStorage {
         loadPlaybackDynamicRangePolicy()?.let {
             put(playbackDynamicRangePolicyKey, encodeSyncString(it))
         }
+        loadPlaybackLanguageStrictness()?.let {
+            put(playbackLanguageStrictnessKey, encodeSyncString(it))
+        }
+        loadPlaybackQualityCeilingMbps()?.let {
+            put(playbackQualityCeilingMbpsKey, encodeSyncInt(it))
+        }
         loadPlaybackAllowTorrentAutopick()?.let {
             put(playbackAllowTorrentAutopickKey, encodeSyncBoolean(it))
         }
@@ -1150,6 +1185,9 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(playbackAllowTorrentAutopickKey)
             ?.let(::savePlaybackAllowTorrentAutopick)
         payload.decodeSyncString(playbackCodecPreferenceKey)?.let(::savePlaybackCodecPreference)
+        payload.decodeSyncString(playbackLanguageStrictnessKey)
+            ?.let(::savePlaybackLanguageStrictness)
+        payload.decodeSyncInt(playbackQualityCeilingMbpsKey)?.let(::savePlaybackQualityCeilingMbps)
         payload.decodeSyncString(playbackDynamicRangePolicyKey)
             ?.let(::savePlaybackDynamicRangePolicy)
         payload.decodeSyncBoolean(showAdvancedSettingsKey)?.let(::saveShowAdvancedSettings)

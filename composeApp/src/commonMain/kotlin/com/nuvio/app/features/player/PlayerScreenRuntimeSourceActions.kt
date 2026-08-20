@@ -520,6 +520,11 @@ internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) 
 }
 
 internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
+    // A real source change, so the next URL change is not a re-mint however it got here. Belt
+    // and braces - the flag is set immediately before the assignment it excuses - but the cost of
+    // it being wrong is a swap that silently keeps the previous source's subtitles and never
+    // shows its opening overlay, which would read as the swap not having happened.
+    isCredentialRefreshHandoff = false
     if (
         resolveDebridForPlayer(
             stream = stream,

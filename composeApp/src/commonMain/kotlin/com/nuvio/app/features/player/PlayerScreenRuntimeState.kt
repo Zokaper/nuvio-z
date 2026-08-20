@@ -229,6 +229,22 @@ internal class PlayerScreenRuntime(
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
 
     /**
+     * The next `activeSourceUrl` change is a re-mint of the source already playing, not a new one.
+     *
+     * **What this fixes: the player appearing to load twice.** `LaunchedEffect(activeSourceUrl)`
+     * resets `initialLoadCompleted` to false on every URL change, which is what puts the opening
+     * overlay back up - correct for a *different* source, wrong for the same file behind a fresh
+     * signature. `hasLikelyExpiringPlaybackCredentials` matches nearly every debrid URL, so any
+     * transient error during startup spends the one permitted refresh and the user watches the
+     * load complete, restart, and complete again before playback begins.
+     *
+     * Consumed and cleared by that effect, so it can only ever excuse the one change it was set
+     * for. It is deliberately not a URL comparison: a re-mint returns a freshly signed URL every
+     * time, which is the same reason `credentialRefreshDecision` stopped comparing them.
+     */
+    var isCredentialRefreshHandoff by mutableStateOf(false)
+
+    /**
      * Re-mints spent on the item being watched.
      *
      * Scoped to the item rather than to the source URL, because a re-mint *is* a new source

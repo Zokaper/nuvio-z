@@ -1,6 +1,9 @@
 package com.nuvio.app.features.debrid
 
 import com.nuvio.app.features.streams.AddonStreamGroup
+import com.nuvio.app.features.streams.AioAddonIdentity
+import com.nuvio.app.features.streams.AioParsedFile
+import com.nuvio.app.features.streams.AioStreamData
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamClientResolve
 import com.nuvio.app.features.streams.StreamClientResolveParsed
@@ -229,6 +232,7 @@ class DebridStreamPresentationTest {
             settings = DebridSettings(
                 enabled = true,
                 providerApiKeys = mapOf(DebridProviders.TORBOX_ID to "key"),
+                streamPreferenceScope = DebridStreamPreferenceScope.RESOLVER_ONLY,
                 streamMaxResults = 2,
                 streamSortMode = DebridStreamSortMode.QUALITY_DESC,
                 streamMinimumQuality = DebridStreamMinimumQuality.P1080,
@@ -290,11 +294,226 @@ class DebridStreamPresentationTest {
             settings = DebridSettings(
                 enabled = false,
                 providerApiKeys = mapOf(DebridProviders.TORBOX_ID to "key"),
+                streamPreferenceScope = DebridStreamPreferenceScope.RESOLVER_ONLY,
             ),
         ).single().streams
 
         assertEquals(listOf("Uncached"), presented.map { it.name })
     }
+
+    @Test
+    fun `filters and sorts addon-side debrid results with no resolver connected`() {
+        val group = AddonStreamGroup(
+            addonName = "AIOStreams",
+            addonId = "addon:aiostreams",
+            streams = listOf(
+                aioStream(name = "720p row", filename = "Show.S01E01.720p.WEB-DL.H264-GRP.mkv", size = 1_500_000_000),
+                aioStream(name = "1080p row", filename = "Show.S01E01.1080p.WEB-DL.H265-GRP.mkv", size = 4_000_000_000),
+                aioStream(name = "2160p row", filename = "Show.S01E01.2160p.WEB-DL.H265-GRP.mkv", size = 18_000_000_000),
+            ),
+        )
+
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(group),
+            settings = DebridSettings(
+                enabled = false,
+                providerApiKeys = emptyMap(),
+                streamSortMode = DebridStreamSortMode.QUALITY_DESC,
+                streamMinimumQuality = DebridStreamMinimumQuality.P1080,
+            ),
+        ).single().streams
+
+        assertEquals(listOf("2160p AD Instant", "1080p AD Instant"), presented.map { it.name })
+    }
+
+    @Test
+    fun `renders the addon-reported service short name`() {
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(
+                    addonName = "AIOStreams",
+                    addonId = "addon:aiostreams",
+                    streams = listOf(
+                        aioStream(filename = "Show.S01E01.2160p.WEB-DL.H265-GRP.mkv", size = 18_000_000_000),
+                    ),
+                ),
+            ),
+            settings = DebridSettings(enabled = false, providerApiKeys = emptyMap()),
+        ).single().streams.single()
+
+        assertEquals("2160p AD Instant", presented.name)
+    }
+
+    @Test
+    fun `sources size resolution and filename from addon stream data`() {
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(
+                    addonName = "AIOStreams",
+                    addonId = "addon:aiostreams",
+                    streams = listOf(
+                        aioStream(filename = "Show.S01E01.2160p.WEB-DL.H265-GRP.mkv", size = 17_179_869_184),
+                    ),
+                ),
+            ),
+            settings = DebridSettings(
+                enabled = false,
+                providerApiKeys = emptyMap(),
+                streamNameTemplate = "{stream.resolution} {stream.quality} {stream.encode} {stream.size::bytes}",
+                streamDescriptionTemplate = "{stream.filename}\n{stream.indexer}\n{service.cached::istrue[\"Ready\"||\"Not Ready\"]}",
+            ),
+        ).single().streams.single()
+
+        assertEquals("2160p WEB-DL HEVC 16 GB", presented.name)
+        val description = presented.description.orEmpty()
+        assertContains(description, "Show.S01E01.2160p.WEB-DL.H265-GRP.mkv")
+        assertContains(description, "Torrentio")
+        assertContains(description, "Ready")
+    }
+
+    @Test
+    fun `plain addon results keep their own name under the default templates`() {
+        // The default name template renders "Cloud Instant" for anything without a service, so
+        // widening the scope must not rename ordinary addon rows.
+        val plain = StreamItem(
+            name = "Some addon result",
+            url = "https://example.test/video.m3u8",
+            addonName = "Addon",
+            addonId = "addon:test",
+        )
+
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(addonName = "Addon", addonId = "addon:test", streams = listOf(plain)),
+            ),
+            settings = DebridSettings(enabled = false, providerApiKeys = emptyMap()),
+        ).single().streams
+
+        assertEquals(listOf("Some addon result"), presented.map { it.name })
+    }
+
+    @Test
+    fun `plain addon results are formatted once a template is customized`() {
+        val plain = StreamItem(
+            name = "Some addon result",
+            url = "https://example.test/video.mkv",
+            addonName = "Addon",
+            addonId = "addon:test",
+            behaviorHints = StreamBehaviorHints(filename = "Movie.2026.1080p.WEB-DL.H265-GRP.mkv"),
+        )
+
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(addonName = "Addon", addonId = "addon:test", streams = listOf(plain)),
+            ),
+            settings = DebridSettings(
+                enabled = false,
+                providerApiKeys = emptyMap(),
+                streamNameTemplate = "{stream.resolution} {stream.encode}",
+            ),
+        ).single().streams
+
+        assertEquals(listOf("1080p HEVC"), presented.map { it.name })
+    }
+
+    @Test
+    fun `unresolved magnets are left alone under the widest scope`() {
+        val magnet = StreamItem(
+            name = "Magnet row",
+            url = "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+            addonName = "Addon",
+            addonId = "addon:test",
+        )
+
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(addonName = "Addon", addonId = "addon:test", streams = listOf(magnet)),
+            ),
+            settings = DebridSettings(
+                enabled = false,
+                providerApiKeys = emptyMap(),
+                streamMinimumQuality = DebridStreamMinimumQuality.P1080,
+            ),
+        ).single().streams
+
+        assertEquals(listOf("Magnet row"), presented.map { it.name })
+    }
+
+    @Test
+    fun `resolver-only scope reproduces the old gate`() {
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(
+                    addonName = "AIOStreams",
+                    addonId = "addon:aiostreams",
+                    streams = listOf(
+                        aioStream(name = "Untouched", filename = "Show.S01E01.720p.WEB-DL.H264-GRP.mkv", size = 1_500_000_000),
+                    ),
+                ),
+            ),
+            settings = DebridSettings(
+                enabled = false,
+                providerApiKeys = emptyMap(),
+                streamPreferenceScope = DebridStreamPreferenceScope.RESOLVER_ONLY,
+                streamMinimumQuality = DebridStreamMinimumQuality.P1080,
+            ),
+        ).single().streams
+
+        assertEquals(listOf("Untouched"), presented.map { it.name })
+    }
+
+    @Test
+    fun `running without a resolver does not start hiding results`() {
+        // The inactive-resolver filter needs an active provider to compare against, so it must
+        // stay inert now that the pipeline runs for a user who has none. (The uncached-torrent
+        // filter needs a debridCacheStatus, which only the resolver-gated availability service
+        // ever writes.)
+        val aio = aioStream(name = "AIO", filename = "Show.S01E01.1080p.WEB-DL.H265-GRP.mkv", size = 4_000_000_000)
+        val otherProvider = premiumizeDirectStream(
+            name = "Premiumize row",
+            filename = "Show.S01E01.2160p.WEB-DL.H265-GRP.mkv",
+            size = 20_000_000_000,
+        )
+
+        val presented = DebridStreamPresentation.apply(
+            groups = listOf(
+                AddonStreamGroup(addonName = "Addon", addonId = "addon:test", streams = listOf(aio, otherProvider)),
+            ),
+            settings = DebridSettings(enabled = false, providerApiKeys = emptyMap()),
+        ).single().streams
+
+        assertEquals(2, presented.size)
+        assertContains(presented.map { it.name.orEmpty() }, "2160p PM Instant")
+    }
+
+    private fun aioStream(
+        name: String = "AIO result",
+        filename: String,
+        size: Long,
+        service: String = "alldebrid",
+        cached: Boolean = true,
+    ): StreamItem =
+        StreamItem(
+            name = name,
+            url = "https://aio.test/$filename",
+            addonName = "AIOStreams",
+            addonId = "addon:aiostreams",
+            streamData = AioStreamData(
+                addon = AioAddonIdentity(id = "torrentio", name = "Torrentio"),
+                parsedFile = AioParsedFile(
+                    resolution = filename.substringAfter("E01.").substringBefore('.'),
+                    quality = "WEB-DL",
+                    codec = if ("H265" in filename) "HEVC" else "AVC",
+                    languages = listOf("English"),
+                    title = "Show",
+                    size = size,
+                ),
+                size = size,
+                filename = filename,
+                debridService = service,
+                debridCached = cached,
+            ),
+        )
 
     private fun localTorboxStream(
         name: String = "Torrent",

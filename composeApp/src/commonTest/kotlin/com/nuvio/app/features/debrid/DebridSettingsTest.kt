@@ -63,4 +63,46 @@ class DebridSettingsTest {
         assertTrue(settings.canUseCloudLibrary)
         assertFalse(settings.canResolvePlayableLinks)
     }
+
+    @Test
+    fun `stream presentation applies without a resolver unless the scope says otherwise`() {
+        val noProvider = DebridSettings(enabled = false, providerApiKeys = emptyMap())
+
+        assertEquals(DebridStreamPreferenceScope.ALL_ADDON_STREAMS, noProvider.streamPreferenceScope)
+        assertFalse(noProvider.canResolvePlayableLinks)
+        assertTrue(noProvider.appliesStreamPresentation)
+        assertTrue(
+            noProvider.copy(streamPreferenceScope = DebridStreamPreferenceScope.DEBRID)
+                .appliesStreamPresentation,
+        )
+        assertFalse(
+            noProvider.copy(streamPreferenceScope = DebridStreamPreferenceScope.RESOLVER_ONLY)
+                .appliesStreamPresentation,
+        )
+    }
+
+    @Test
+    fun `custom stream formatting means the user edited a template`() {
+        val defaults = DebridSettings()
+
+        assertFalse(defaults.hasCustomStreamFormatting)
+        assertTrue(defaults.copy(streamNameTemplate = "{stream.resolution}").hasCustomStreamFormatting)
+        assertTrue(defaults.copy(streamDescriptionTemplate = "{stream.filename}").hasCustomStreamFormatting)
+    }
+
+    @Test
+    fun `unknown stored scopes fall back to the default`() {
+        assertEquals(
+            DebridStreamPreferenceScope.ALL_ADDON_STREAMS,
+            normalizeDebridStreamPreferenceScope(null),
+        )
+        assertEquals(
+            DebridStreamPreferenceScope.ALL_ADDON_STREAMS,
+            normalizeDebridStreamPreferenceScope("SOMETHING_ELSE"),
+        )
+        assertEquals(
+            DebridStreamPreferenceScope.RESOLVER_ONLY,
+            normalizeDebridStreamPreferenceScope("RESOLVER_ONLY"),
+        )
+    }
 }

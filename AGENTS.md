@@ -163,6 +163,54 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   consumed by `tryNextEpisodeFallback()` before either fatal-error path gives up. Never
   route it through `seedAutoPlayCandidates` - that store is owned by `StreamRoute`, which
   is not on the back stack in this flow.
+- **Streamlined's quality bands are absolute, not relative** (`bandBoundariesMbps` in
+  `PlaybackQualityOptions.kt`). They were the bucket's own bitrate spread cut into thirds until
+  `0.5.0-beta`, which made every label a statement about one title's catalogue and about nothing
+  else - "4K High" was an 88 GB remux on one title and a 14 GB WEB-DL on the next. Two consequences
+  for anyone moving the boundaries: the **collapse guard is load-bearing now** (fixed boundaries do
+  not guarantee the extreme bands are occupied, so a bucket can land entirely in one and must
+  produce a single unlabelled row), and a source with no credible size must be banded **out** and
+  appended to the cheapest occupied band, never treated as 0.0 - that mints a "Low" row quoting a
+  nominal bitrate for a file nobody knows the size of.
+- **`SourceFacts.languages` holds normalized codes (`en`, `pt-BR`), never uppercase two-letter.**
+  Compare with `languageMatchesPreference`, never with `in`. The tables live in the import-free
+  `core/language/LanguageCodes.kt` so `SourceFacts.kt` can still be compiled outside Gradle;
+  `features/player/PlayerLanguagePreferences.kt` delegates to them and keeps the localized labels,
+  which reach the generated resource bundle. ⚠ **`releaseLanguagesIn` refuses bare two-letter
+  codes on purpose** - `IT.Chapter.Two`, `De.Palma` and any group with `LA` in it all look like
+  language tags to that scan. Structured fields go to `normalizeLanguageCode` instead, which does
+  accept them, because there the value means what it says.
+- **The language gate is a partition, never a filter** (`PlaybackSourceSelector.byLanguage`). An
+  unwatchable source moves behind every watchable one and stays in the failure chain; deleting it
+  would leave a title whose every release is tagged for another market with nothing to play, which
+  is the dead end the mode exists to avoid. Only `NAMES_OTHER_ONLY` fails the gate - wrong audio
+  *and* no readable subtitles - because the complaint it answers is "no English audio **or** subs".
+- **Throughput is measured over a window, never as a mean** (`core/network/ThroughputWindow.kt`).
+  A ranged GET's mean carries TCP slow start, and it under-reads *more* the faster the line is,
+  because a fast line hits the byte cap while still climbing - a connection shown as 57 Mb/s was
+  streaming 81. Excluding TTFB removes the handshake, not the ramp. Any new `httpMeasureThroughput`
+  actual must feed `ThroughputWindow` and report `peakWindowMbps`, and the byte budget must stay
+  large enough to *hold* a window past the ramp.
+  ⚠ **`NetworkThroughputMeter` is not demand-limited and must keep its blend.** It emits only a new
+  maximum or a window in which the buffer drained, and a draining buffer is direct evidence the
+  line is the bottleneck. Making `recordMeasuredThroughput` monotonic looks obviously right and
+  would discard the one signal that can disprove an over-generous estimate.
+- **The over-connection warning requires a measurement and a margin**
+  (`PlaybackQualityOptions.connectionFit`). It used to be scored against `defaultMbps`' 50 Mbps
+  Wi-Fi guess, so a connection nobody had measured still put a red line under half the catalogue.
+  Meters may draw on an unmeasured figure; the verdict has to be earned. The sheet also **latches
+  one figure for its own lifetime** - the probe lands a second or two after it opens, and a number
+  that changes while being read is worse than one that arrives late.
+- **A credential re-mint is a continuation, not a new item.**
+  `PlayerScreenRuntimeState.isCredentialRefreshHandoff` suppresses `initialLoadCompleted = false`
+  (and the subtitle/source-list clears) for the one `activeSourceUrl` change a re-mint causes.
+  Without it the opening overlay runs twice on any debrid start that hits a transient error, which
+  is most of them: `hasLikelyExpiringPlaybackCredentials` matches nearly every debrid URL.
+- **Never auto-apply a source-list filter that empties the list.** `StreamsScreen`'s preferred-addon
+  filter gated on the addon having a *group*, and a group exists for every addon that is asked -
+  so filtering to one that answered with nothing drew "No streams found" over a full catalogue.
+  Any filter applied automatically must check `streams.isNotEmpty()`, and any empty state that a
+  filter caused must offer the way back out of it.
 - The quality band the user picks in Streamlined's sheet is remembered for the sitting
   (`BingeGroupCacheRepository.sessionQualityHeight`, keyed by `parentMetaId`) and applied
   by `PlaybackQualityOptions.stickyAffordable`. It is a **tie-break, never a ceiling or a
@@ -188,12 +236,20 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/details/MetaDetailsScreen.kt`
 - Stream/AIO models:
   `features/streams/StreamModels.kt`, `StreamParser.kt`
+- Language normalization, shared by source selection and player track selection:
+  `core/language/LanguageCodes.kt` (**import-free**, covered by group 1 of
+  `scripts/run-pure-suites.sh`), with `features/player/PlayerLanguagePreferences.kt` delegating to
+  it and keeping the localized labels.
+- Connection measurement: `core/network/ThroughputWindow.kt` (**import-free**, group 2),
+  `NetworkStrengthProbe.kt`, `NetworkQualityRepository.kt`, `NetworkThroughputMeter.kt`, and the
+  `httpMeasureThroughput` actuals in `features/addons/AddonPlatform.*.kt`.
 - Playback modes - see `PLAYBACK_MODES_PLAN.md`:
   `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
   `PlaybackSourceSelector.kt`, `PlaybackQualityOptions.kt`, `StreamRouteSurface.kt`,
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
   `features/playback/AutoDownshiftDetector.kt`,
-  `features/playback/PlaybackProgressOverlay.kt`.
+  `features/playback/PlaybackProgressOverlay.kt`,
+  `features/playback/PlaybackPreferencesDialog.kt`.
   ⚠ **Only Classic and Streamlined ship.** `PlaybackMode.isSelectable` is the *only*
   availability test, and `coerceSelectable` maps a stored `INSTANT` to `STREAMLINED` at
   read time, so no profile can be on Instant at runtime. Its route paths were removed in
@@ -208,6 +264,22 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   is Compose and is CI-only. Keep both import-free - the wizard is a Compose gate no test in
   either repository can reach once it is on screen, so anything decided outside them is decided
   nowhere a test can see.
+- Debrid stream presentation: `features/debrid/DebridStreamPresentation.kt`,
+  `DebridStreamFormatter.kt`, `DebridSettings.kt`, `DebridProvider.kt`, covered by group 5 of
+  `scripts/run-pure-suites.sh`.
+  ⚠ **The filter/sort/cap/template pipeline no longer implies a connected account.** Its gate is
+  `DebridSettings.appliesStreamPresentation` (from `streamPreferenceScope`), *not*
+  `canResolvePlayableLinks` - a user whose debrid runs inside the addon has no provider of their
+  own and their preferences must still apply. Keep `canResolvePlayableLinks` for anything that
+  actually calls a provider: `DirectDebridResolver`, `DirectDebridStreamPreparer`,
+  `LocalDebridAvailabilityService`, `PlayerNextEpisodeAutoPlay`, the `isSelectableForPlayback`
+  sites and the Link preparation settings section.
+  ⚠ **Services an addon names are not registered providers.** `DebridProviders.registered` feeds
+  `all()` → `syncKeys()` in all five storage actuals; adding AllDebrid and friends there would
+  write dead API-key entries on every platform. They live in the display-only alias map.
+  ⚠ **The default name template renames anything with a known service.** Whether a stream is
+  renamed is decided per stream, not per group - widen `isPresentableStream` and every plain addon
+  row would read "1080p Cloud Instant".
 - Settings sync rules: `core/sync/SyncPreferenceJson.kt` (`syncKeysToClear`,
   `mergeMonotonicSyncInt`), covered by the pure suites
 - Advanced settings gating: `features/settings/SettingsComponents.kt`
@@ -239,6 +311,18 @@ ANDROID_HOME="C:\\Users\\<user>\\AppData\\Local\\Android\\Sdk" \
 **That compiles `desktopMain`**, so on the real machine `desktop-release.yml
 mode=build-only` is no longer the only way to catch a missing desktop `actual` - it is
 just the only way in CI. Run `desktopTest` locally after touching any `expect`.
+
+**The paths above are not the only ones that work, and neither variable is mandatory.** As of
+2026-08-18 this machine has no Android Studio JBR: a JDK 21 on `PATH` serves, and the SDK is at
+`A:\AndroidSDK`, so `ANDROID_HOME="A:\\AndroidSDK"` alone runs both suites. Check what is actually
+installed before concluding there is no SDK - two sessions recorded "no Android SDK on this machine"
+while one was present under a different root.
+
+⚠ **`nuvio-z` may have no `local.properties` at all.** `:composeApp:generateRuntimeConfigs` declares
+it as a task *input*, so configuration fails with *"An input file was expected to be present but it
+doesn't exist"* - which reads like a missing SDK and is not one. `composeApp/build.gradle.kts:52`
+already handles the file being absent at execution time, so an **empty placeholder file** is enough
+to run the suites; delete it afterwards and never put invented values in it.
 
 Set both per-invocation rather than writing `sdk.dir` into `local.properties` - that
 file is ignored, carries the Supabase configuration, and must not be edited casually.

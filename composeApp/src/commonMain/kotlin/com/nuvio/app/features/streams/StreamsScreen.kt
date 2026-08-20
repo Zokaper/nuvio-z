@@ -46,6 +46,7 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -215,7 +216,19 @@ fun StreamsScreen(
     LaunchedEffect(uiState.groups, storedProgress?.providerAddonId, preferredFilterApplied) {
         if (preferredFilterApplied) return@LaunchedEffect
         val preferredAddonId = storedProgress?.providerAddonId ?: return@LaunchedEffect
-        if (uiState.groups.any { it.addonId == preferredAddonId }) {
+        // ⚠ **The addon having a *group* is not the same as it having sources.** A group is
+        // created for every addon that is asked, whether or not it answers with anything, so
+        // this used to filter the list down to an addon that returned nothing for this episode:
+        // `filteredGroups` held one empty group, `hasAnyStreams` was false, and the screen drew
+        // "No streams found" over a complete catalogue from every other addon.
+        //
+        // Streamlined is what made it visible. `giveUpToSourceList` drops the user straight onto
+        // this screen when automatic selection fails, so the two faults compound - they pick a
+        // quality, are told no source matched, and land on what looks like an empty library.
+        //
+        // Keyed on `uiState.groups`, so this still applies the moment the preferred addon does
+        // answer; it just never applies on the strength of an empty answer.
+        if (uiState.groups.any { it.addonId == preferredAddonId && it.streams.isNotEmpty() }) {
             StreamsRepository.selectFilter(preferredAddonId)
             preferredFilterApplied = true
         }
@@ -309,7 +322,7 @@ fun StreamsScreen(
                 episodeTitle = episodeTitle,
                 uiState = uiState,
                 debridEnabled = debridSettings.canResolvePlayableLinks,
-                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.hasCustomStreamFormatting,
+                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
                 onStreamSelected = { stream, positionMs, progressFraction ->
@@ -333,7 +346,7 @@ fun StreamsScreen(
                 episodeTitle = episodeTitle,
                 uiState = uiState,
                 debridEnabled = debridSettings.canResolvePlayableLinks,
-                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.hasCustomStreamFormatting,
+                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
                 onStreamSelected = { stream, positionMs, progressFraction ->
@@ -932,7 +945,17 @@ internal fun StreamList(
 
             !hasAnyStreams && !uiState.isAnyLoading -> {
                 item {
-                    EmptyStateBlock(reason = uiState.emptyStateReason)
+                    EmptyStateBlock(
+                        reason = uiState.emptyStateReason,
+                        // Only when the filter is what emptied it. `uiState.hasAnyStreams` reads
+                        // the unfiltered groups, so this is precisely "there is something to go
+                        // back to" and never an action that would change nothing.
+                        onShowAllSources = if (uiState.selectedFilter != null && uiState.hasAnyStreams) {
+                            { StreamsRepository.selectFilter(null) }
+                        } else {
+                            null
+                        },
+                    )
                 }
             }
 
@@ -1327,6 +1350,15 @@ private fun LoadingStateBlock(modifier: Modifier = Modifier) {
 private fun EmptyStateBlock(
     reason: StreamsEmptyStateReason?,
     modifier: Modifier = Modifier,
+    /**
+     * Set when the list is empty **only because a filter is on** and other addons do have
+     * sources.
+     *
+     * An empty state that is hiding a full catalogue must offer the way back to it. Without
+     * this the screen is a dead end wearing an explanation: "No streams found" is true of what
+     * is on screen and false of what the app is holding, and nothing on the page says which.
+     */
+    onShowAllSources: (() -> Unit)? = null,
 ) {
     val title: String
     val message: String
@@ -1381,6 +1413,11 @@ private fun EmptyStateBlock(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
         )
+        if (onShowAllSources != null) {
+            TextButton(onClick = onShowAllSources) {
+                Text(stringResource(Res.string.streams_show_all_sources))
+            }
+        }
     }
 }
 

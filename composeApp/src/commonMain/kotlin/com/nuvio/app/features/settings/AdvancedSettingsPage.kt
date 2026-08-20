@@ -26,11 +26,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.debug.SelfTestHooks
+import com.nuvio.app.core.debug.isDebugBuild
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
@@ -79,11 +83,19 @@ internal fun LazyListScope.advancedSettingsContent(
             }
         }
     }
-    if (SentrySettingsRepository.isSupported) {
+    // The self-test row shares the Diagnostics heading rather than raising a second one, so the
+    // section has to survive Sentry being unsupported on a platform - otherwise the button
+    // disappears with it.
+    val selfTestAvailable = isDebugBuild && SelfTestHooks.launch != null
+    if (SentrySettingsRepository.isSupported || selfTestAvailable) {
         item {
-            val sentryEnabledFlow = remember {
-                SentrySettingsRepository.ensureLoaded()
-                SentrySettingsRepository.enabled
+            val sentryEnabledFlow: StateFlow<Boolean> = remember {
+                if (SentrySettingsRepository.isSupported) {
+                    SentrySettingsRepository.ensureLoaded()
+                    SentrySettingsRepository.enabled
+                } else {
+                    MutableStateFlow(false)
+                }
             }
             val sentryEnabled by sentryEnabledFlow.collectAsStateWithLifecycle()
             var showSentryDialog by rememberSaveable { mutableStateOf(false) }
@@ -93,13 +105,29 @@ internal fun LazyListScope.advancedSettingsContent(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_advanced_sentry_reports),
-                        description = stringResource(Res.string.settings_advanced_sentry_reports_subtitle),
-                        checked = sentryEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = { showSentryDialog = true },
-                    )
+                    if (SentrySettingsRepository.isSupported) {
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_advanced_sentry_reports),
+                            description = stringResource(Res.string.settings_advanced_sentry_reports_subtitle),
+                            checked = sentryEnabled,
+                            isTablet = isTablet,
+                            onCheckedChange = { showSentryDialog = true },
+                        )
+                    }
+                    if (selfTestAvailable) {
+                        if (SentrySettingsRepository.isSupported) {
+                            SettingsGroupDivider(isTablet = isTablet)
+                        }
+                        // Literal strings, not resources: this row never reaches a shipped build,
+                        // and the debug HUD toggle in `PlaybackSettingsPage` sets the precedent.
+                        SettingsNavigationRow(
+                            title = "Run self-test",
+                            description = "Exercises addons, debrid, playback, downloads and sync " +
+                                "against real services, then writes a report and screenshots.",
+                            isTablet = isTablet,
+                            onClick = { SelfTestHooks.launch?.invoke() },
+                        )
+                    }
                 }
             }
 

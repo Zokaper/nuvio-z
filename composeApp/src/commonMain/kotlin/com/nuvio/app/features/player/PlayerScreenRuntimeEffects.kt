@@ -77,6 +77,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     }
 
     LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeSourceResponseHeaders) {
+        // A re-mint of the source already playing is a *continuation*, not a new item. Consumed
+        // here so it can only excuse the one change it was set for.
+        val isContinuation = isCredentialRefreshHandoff
+        isCredentialRefreshHandoff = false
         errorMessage = null
         playerController = null
         playerControllerSourceUrl = null
@@ -97,7 +101,13 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // player's fatal handler was never reached and the failure chain never ran.
         //
         // They reset where a new thing is genuinely being watched: `LaunchedEffect(activeVideoId)`.
-        initialLoadCompleted = false
+        //
+        // ⚠ **`initialLoadCompleted` is what puts the opening overlay back up**, so clearing it
+        // for a re-mint of the file already playing is the "loads, restarts, loads again" the
+        // user sees before a debrid stream begins. The controller above genuinely must be torn
+        // down - the URL is different and a new engine instance is coming - but the *presentation*
+        // should not start over for a file that never changed.
+        if (!isContinuation) initialLoadCompleted = false
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
         pendingScrobbleStartAfterSeek = false
@@ -112,8 +122,13 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         showSourcesPanel = false
         showEpisodesPanel = false
         episodeStreamsPanelState = EpisodeStreamsPanelState()
-        PlayerStreamsRepository.clearEpisodeStreams()
-        SubtitleRepository.clear()
+        // Both describe the *content*, which a re-mint does not change. Clearing them made the
+        // refresh throw away the source list it had just loaded to find the replacement, and
+        // dropped subtitles the user had already chosen for a file that is still playing.
+        if (!isContinuation) {
+            PlayerStreamsRepository.clearEpisodeStreams()
+            SubtitleRepository.clear()
+        }
         WatchProgressRepository.ensureLoaded()
     }
 
@@ -708,6 +723,9 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
 
         flushWatchProgress()
         stopActiveP2pStream()
+        // Same file, new signature. Set before the assignment below, because that assignment is
+        // what wakes the reset effect that reads it.
+        isCredentialRefreshHandoff = true
         activeSourceUrl = refreshedUrl
         activeSourceAudioUrl = null
         activeSourceHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)

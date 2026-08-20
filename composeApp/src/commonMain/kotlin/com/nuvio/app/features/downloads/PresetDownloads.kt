@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.language.languageMatchesPreference
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -287,9 +288,17 @@ object PresetSourceSelector {
     }
 
     private fun matchesRequirements(facts: SourceFacts, preset: DownloadPreset): Boolean {
-        val preferredLanguage = preset.preferredAudioLanguage?.trim()?.uppercase()
+        // ⚠ This compared an uppercased free-text field against a set that held `"EN"`, so a
+        // preset whose language box said "english" - or "en", or "eng" - matched nothing and
+        // *Require preferred audio language* quietly rejected every source. The box is a plain
+        // text field (`DownloadsSettingsScreen`), so typing the language's own name is the
+        // obvious thing to do and was the one input guaranteed to fail.
+        val preferredLanguage = preset.preferredAudioLanguage?.trim()?.takeIf { it.isNotEmpty() }
         if (preset.requirePreferredAudioLanguage &&
-            (preferredLanguage == null || preferredLanguage !in facts.languages)
+            (
+                preferredLanguage == null ||
+                    facts.languages.none { languageMatchesPreference(it, preferredLanguage) }
+                )
         ) return false
 
         if (preset.requirePreferredCodec && preset.codecPreference != CodecPreference.ANY &&

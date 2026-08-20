@@ -4,6 +4,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
+import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
@@ -73,6 +74,16 @@ data class PlayerSettingsUiState(
      */
     val playbackCodecPreference: CodecPreference = CodecPreference.ANY,
     val playbackDynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
+    /**
+     * How hard Streamlined tries to honour [preferredAudioLanguage] when picking a source.
+     *
+     * Defaults to REQUIRE, which is unusual for a preference and deliberate: the reported
+     * failure is being handed a source with no audio or subtitles the user can follow, and a
+     * soft preference is what produced it.
+     */
+    val playbackLanguageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
+    /** Megabits per second the automatic picker may not exceed. `0` means no ceiling. */
+    val playbackQualityCeilingMbps: Int = 0,
     val showAdvancedSettings: Boolean = false,
     val playbackMeteredCapHeight: Int = 720,
     /**
@@ -135,12 +146,18 @@ data class PlayerSettingsUiState(
      * them is a rule that holds for the first episode and not the next one.
      */
     val rankableAudioLanguage: String?
-        get() = preferredAudioLanguage.takeIf {
-            it.isNotBlank() &&
-                it != AudioLanguageOption.DEFAULT &&
-                it != AudioLanguageOption.DEVICE &&
-                it != AudioLanguageOption.ORIGINAL
-        }
+        get() = preferredAudioLanguage.rankableLanguageOrNull()
+
+    /** [secondaryPreferredAudioLanguage], under exactly [rankableAudioLanguage]'s rules. */
+    val rankableSecondaryAudioLanguage: String?
+        get() = secondaryPreferredAudioLanguage?.rankableLanguageOrNull()
+
+    private fun String.rankableLanguageOrNull(): String? = takeIf {
+        it.isNotBlank() &&
+            it != AudioLanguageOption.DEFAULT &&
+            it != AudioLanguageOption.DEVICE &&
+            it != AudioLanguageOption.ORIGINAL
+    }
 }
 
 object PlayerSettingsRepository {
@@ -178,6 +195,8 @@ object PlayerSettingsRepository {
     private var playbackAllowTorrentAutopick = false
     private var playbackCodecPreference = CodecPreference.ANY
     private var playbackDynamicRangePolicy = DynamicRangePolicy.ANY
+    private var playbackLanguageStrictness = LanguageStrictness.REQUIRE
+    private var playbackQualityCeilingMbps = 0
     private var showAdvancedSettings = false
     private var playbackMeteredCapHeight = 720
     private var playbackAutoDownshift = false
@@ -258,6 +277,8 @@ object PlayerSettingsRepository {
         playbackAllowTorrentAutopick = false
         playbackCodecPreference = CodecPreference.ANY
         playbackDynamicRangePolicy = DynamicRangePolicy.ANY
+        playbackLanguageStrictness = LanguageStrictness.REQUIRE
+        playbackQualityCeilingMbps = 0
         showAdvancedSettings = false
         playbackMeteredCapHeight = 720
         playbackAutoDownshift = false
@@ -378,6 +399,12 @@ object PlayerSettingsRepository {
         playbackDynamicRangePolicy = PlayerSettingsStorage.loadPlaybackDynamicRangePolicy()
             ?.let { stored -> DynamicRangePolicy.entries.firstOrNull { it.name == stored } }
             ?: DynamicRangePolicy.ANY
+        playbackLanguageStrictness = PlayerSettingsStorage.loadPlaybackLanguageStrictness()
+            ?.let { stored -> LanguageStrictness.entries.firstOrNull { it.name == stored } }
+            ?: LanguageStrictness.REQUIRE
+        playbackQualityCeilingMbps = PlayerSettingsStorage.loadPlaybackQualityCeilingMbps()
+            ?.coerceAtLeast(0)
+            ?: 0
         // Unset means the profile predates this toggle. Defaulting it to false there would
         // hide settings the user had already tuned, which reads as data loss rather than as
         // a cleaner screen - so a profile that has touched any advanced setting keeps them
@@ -734,6 +761,26 @@ object PlayerSettingsRepository {
         playbackDynamicRangePolicy = policy
         publish()
         PlayerSettingsStorage.savePlaybackDynamicRangePolicy(policy.name)
+    }
+
+    fun setPlaybackLanguageStrictness(strictness: LanguageStrictness) {
+        ensureLoaded()
+        if (playbackLanguageStrictness == strictness) return
+        playbackLanguageStrictness = strictness
+        publish()
+        PlayerSettingsStorage.savePlaybackLanguageStrictness(strictness.name)
+    }
+
+    fun setPlaybackQualityCeilingMbps(mbps: Int) {
+        ensureLoaded()
+        // Zero is "no ceiling" and the only value below the floor that means anything. Anything
+        // under 5 Mbps would refuse every release above a 720p encode, which is a setting that
+        // looks like a preference and behaves like a fault.
+        val normalized = if (mbps <= 0) 0 else mbps.coerceIn(5, 500)
+        if (playbackQualityCeilingMbps == normalized) return
+        playbackQualityCeilingMbps = normalized
+        publish()
+        PlayerSettingsStorage.savePlaybackQualityCeilingMbps(normalized)
     }
 
     fun setPlaybackMeteredCapHeight(height: Int) {
@@ -1133,6 +1180,8 @@ object PlayerSettingsRepository {
             playbackAllowTorrentAutopick = playbackAllowTorrentAutopick,
             playbackCodecPreference = playbackCodecPreference,
             playbackDynamicRangePolicy = playbackDynamicRangePolicy,
+            playbackLanguageStrictness = playbackLanguageStrictness,
+            playbackQualityCeilingMbps = playbackQualityCeilingMbps,
             showAdvancedSettings = showAdvancedSettings,
             playbackMeteredCapHeight = playbackMeteredCapHeight,
             playbackAutoDownshift = playbackAutoDownshift,

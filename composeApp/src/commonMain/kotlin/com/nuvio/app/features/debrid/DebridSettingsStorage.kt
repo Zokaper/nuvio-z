@@ -35,6 +35,8 @@ internal expect object DebridSettingsStorage {
     fun saveStreamNameTemplate(template: String)
     fun loadStreamDescriptionTemplate(): String?
     fun saveStreamDescriptionTemplate(template: String)
+    fun loadStreamPreferenceScope(): String?
+    fun saveStreamPreferenceScope(scope: String)
     fun loadPendingDeviceAuthorization(providerId: String): String?
     fun savePendingDeviceAuthorization(providerId: String, payload: String)
     fun clearPendingDeviceAuthorization(providerId: String)

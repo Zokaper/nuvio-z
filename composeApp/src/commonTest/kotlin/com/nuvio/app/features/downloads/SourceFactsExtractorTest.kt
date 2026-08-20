@@ -45,7 +45,7 @@ class SourceFactsExtractorTest {
         assertEquals(VideoResolution.FULL_HD_1080, facts.resolution)
         assertEquals(1_500_000_000, facts.sizeBytes)
         assertEquals("HEVC", facts.codec)
-        assertEquals(setOf("EN"), facts.languages)
+        assertEquals(setOf("en"), facts.languages)
         assertTrue(facts.hasConflictingHardMetadata)
         assertTrue(SourceFactProvenance.NUVIO_STRUCTURED in facts.provenance)
     }
@@ -121,10 +121,61 @@ class SourceFactsExtractorTest {
 
         assertEquals(VideoResolution.HD_720, filename.resolution)
         assertEquals("AV1", filename.codec)
-        assertEquals(setOf("FR"), filename.languages)
+        assertEquals(setOf("fr"), filename.languages)
         assertEquals(VideoResolution.UHD_2160, display.resolution)
         assertEquals(SourceConfidence.LOW, display.confidence)
         assertTrue(SourceFactProvenance.DISPLAY_FALLBACK in display.provenance)
+    }
+
+    @Test
+    fun readsLanguagesTheOldSevenEntryTableCouldNotSee() {
+        // The extractor knew en/ar/es/fr/de/ja/ko, so every other language read as "declares
+        // nothing" - indistinguishable from an untagged English release, which is why a strict
+        // preference had nothing to act on.
+        val hindi = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "Film.2024.1080p.HIN.WEB-DL.mkv")),
+        )
+        val italian = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "Film.2024.1080p.ITA.BluRay.mkv")),
+        )
+
+        assertEquals(setOf("hi"), hindi.languages)
+        assertEquals(setOf("it"), italian.languages)
+    }
+
+    @Test
+    fun aMultiMarkerIsCarriedSeparatelyFromTheLanguages() {
+        val facts = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "Film.2024.2160p.MULTi.REMUX.mkv")),
+        )
+
+        assertTrue(facts.isMultiLanguage)
+        assertTrue(facts.languages.isEmpty())
+    }
+
+    @Test
+    fun readsFlagEmojiOutOfADisplayName() {
+        // How Torrentio and friends label audio, and the app had no regional-indicator handling
+        // anywhere - so every one of those releases declared nothing.
+        val facts = SourceFactsExtractor.extract(stream(name = "🇬🇧 1080p WEB-DL", description = "2.0 GB"))
+
+        assertEquals(setOf("en"), facts.languages)
+    }
+
+    @Test
+    fun aStructuredMarketNameNoLongerBecomesAnUnmatchableString() {
+        // `normalizeLanguageValues` used to `uppercase()` whatever it did not recognise, so an
+        // addon sending ["Latino"] produced "LATINO" - a value no preference could ever equal,
+        // on a source that had said exactly what it was.
+        val facts = SourceFactsExtractor.extract(
+            stream(
+                streamData = AioStreamData(
+                    parsedFile = AioParsedFile(languages = listOf("Latino")),
+                ),
+            ),
+        )
+
+        assertEquals(setOf("es-419"), facts.languages)
     }
 
     @Test

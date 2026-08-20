@@ -34,9 +34,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,11 +66,13 @@ import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.playback_quality_needs
 import nuvio.composeapp.generated.resources.playback_quality_needs_estimated
 import nuvio.composeapp.generated.resources.playback_quality_no_match
+import nuvio.composeapp.generated.resources.playback_quality_preferences
 import nuvio.composeapp.generated.resources.playback_quality_over_connection
 import nuvio.composeapp.generated.resources.playback_quality_summary_with_size
 import nuvio.composeapp.generated.resources.playback_quality_title
 import nuvio.composeapp.generated.resources.playback_quality_variant_high
 import nuvio.composeapp.generated.resources.playback_quality_variant_low
+import nuvio.composeapp.generated.resources.playback_quality_variant_max
 import nuvio.composeapp.generated.resources.playback_quality_variant_mid
 import nuvio.composeapp.generated.resources.playback_quality_your_connection
 import org.jetbrains.compose.resources.stringResource
@@ -128,11 +133,45 @@ fun PlaybackQualitySheet(
     isMeasuringConnection: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
     onChooseManually: () -> Unit,
+    onAdjustPreferences: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
+    // **One figure for the life of the sheet.** The route publishes whatever the repository holds
+    // right now, and the active probe lands a second or two after the sheet opens - so the header
+    // changed under the user, and with it every card's meter and every over-connection warning.
+    // A user reading the 4K row watched it go from warned to fine, or the reverse, having done
+    // nothing. Numbers that move while being read are worse than numbers that arrive late.
+    //
+    // Latched upward only: a later, better measurement is worth showing, and the estimate is a
+    // lower bound anyway (nothing feeding it can observe more than it asked for), so a smaller
+    // figure arriving afterwards is not new information. Scoped to this composition, so the next
+    // sheet starts from whatever is current.
+    var latchedMbps by remember { mutableStateOf<Double?>(null) }
+    var latchedMeasured by remember { mutableStateOf(false) }
+    LaunchedEffect(estimatedMbps, isConnectionMeasured) {
+        val incoming = estimatedMbps?.takeIf { it > 0.0 } ?: return@LaunchedEffect
+        val held = latchedMbps
+        val accept = when {
+            // Nothing held yet.
+            held == null -> true
+            // A measurement supersedes a link-type guess however the two numbers compare - that
+            // is the one case where the *provenance* decides rather than the value.
+            isConnectionMeasured && !latchedMeasured -> true
+            // A guess must never displace a measurement, in either direction.
+            !isConnectionMeasured && latchedMeasured -> false
+            // Like for like: upward only.
+            else -> incoming > held
+        }
+        if (accept) {
+            latchedMbps = incoming
+            latchedMeasured = isConnectionMeasured
+        }
+    }
+    val shownMbps = latchedMbps ?: estimatedMbps
+    val shownMeasured = if (latchedMbps != null) latchedMeasured else isConnectionMeasured
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // The repo's tablet threshold, as used at App.kt:2051 and
@@ -179,13 +218,14 @@ fun PlaybackQualitySheet(
                         isLoading = isLoading,
                         isSelecting = isSelecting,
                         selectionContext = selectionContext,
-                        estimatedMbps = estimatedMbps,
-                        isConnectionMeasured = isConnectionMeasured,
+                        estimatedMbps = shownMbps,
+                        isConnectionMeasured = shownMeasured,
                         isMeasuringConnection = isMeasuringConnection,
                         gridMaxHeight = gridMaxHeight,
                         contentBottomPadding = tokens.spacing.dialogPadding,
                         onOptionSelected = onOptionSelected,
                         onChooseManually = onChooseManually,
+                        onAdjustPreferences = onAdjustPreferences,
                     )
                 }
             }
@@ -203,13 +243,14 @@ fun PlaybackQualitySheet(
                     isLoading = isLoading,
                     isSelecting = isSelecting,
                     selectionContext = selectionContext,
-                    estimatedMbps = estimatedMbps,
-                    isConnectionMeasured = isConnectionMeasured,
+                    estimatedMbps = shownMbps,
+                    isConnectionMeasured = shownMeasured,
                     isMeasuringConnection = isMeasuringConnection,
                     gridMaxHeight = gridMaxHeight,
                     contentBottomPadding = nuvioSafeBottomPadding(tokens.spacing.sheetPadding),
                     onOptionSelected = onOptionSelected,
                     onChooseManually = onChooseManually,
+                    onAdjustPreferences = onAdjustPreferences,
                 )
             }
         }
@@ -242,6 +283,7 @@ private fun QualitySheetBody(
     contentBottomPadding: Dp,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
     onChooseManually: () -> Unit,
+    onAdjustPreferences: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val groups = remember(options) { PlaybackQualityOptions.group(options) }
@@ -256,12 +298,29 @@ private fun QualitySheetBody(
             ),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
     ) {
-        Text(
-            text = stringResource(Res.string.playback_quality_title),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = tokens.colors.textPrimary,
-        )
+        // The title and the way into the preferences that shaped this grid.
+        //
+        // **A dialog over the sheet, not a navigation.** Settings live on a route that is not on
+        // this back stack, so opening the real page would pop `StreamRoute` and lose the play -
+        // the user would come back to the details screen having asked for an episode. The moment
+        // someone wants to change an HDR policy or a ceiling is the moment they are looking at a
+        // row they disagree with, and making them abandon the play to act on it is why the
+        // preferences went unfound in the first place.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.playback_quality_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onAdjustPreferences) {
+                Text(stringResource(Res.string.playback_quality_preferences))
+            }
+        }
         Text(
             text = when {
                 isLoading -> stringResource(Res.string.playback_quality_loading)
@@ -285,6 +344,11 @@ private fun QualitySheetBody(
                     Res.string.playback_quality_your_connection,
                     estimatedMbps.roundToInt(),
                 )
+                // Checked **before** the unmeasured figure, not after. A probe in flight means a
+                // real number is seconds away, and printing the link-type guess in the meantime
+                // is how the header came to change under the user - "Estimated ~50 Mb/s for this
+                // connection" replaced by "Your connection: about 88 Mb/s" while they read it.
+                // Saying it is still checking costs one line and tells the truth.
                 isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
                 estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
                     Res.string.playback_quality_estimated_connection,
@@ -331,6 +395,7 @@ private fun QualitySheetBody(
                         group = group,
                         selectionContext = selectionContext,
                         estimatedMbps = estimatedMbps,
+                        isConnectionMeasured = isConnectionMeasured,
                         // Disabled, not removed. A second tap while the first is being acted
                         // on would re-arm the selection effect against a different option.
                         enabled = !isSelecting,
@@ -369,6 +434,7 @@ private fun ResolutionGroupCard(
     group: PlaybackQualityGroup,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
     enabled: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
 ) {
@@ -393,6 +459,7 @@ private fun ResolutionGroupCard(
                     option = option,
                     selectionContext = selectionContext,
                     estimatedMbps = estimatedMbps,
+                    isConnectionMeasured = isConnectionMeasured,
                     enabled = enabled,
                     onClick = { onOptionSelected(option) },
                 )
@@ -420,6 +487,7 @@ private fun QualityTierRow(
     option: PlaybackQualityOption,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -435,7 +503,10 @@ private fun QualityTierRow(
     // file it would open has one, and that is the number this card has never quoted.
     val requiredMbps = option.requiredMbps
         ?: preview?.let { PlaybackQualityOptions.requiredMbpsFor(it, selectionContext) }
-    val fit = PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps)
+    // The warning is withheld until the estimate is a real measurement - see `connectionFit`.
+    // The meter still draws, because a rough baseline is useful to compare rows against; it is
+    // the *verdict* that has to be earned.
+    val fit = PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps, isConnectionMeasured)
     val band = if (isBest) bestReleaseLine(preview) else variantLabel(option)
     val source = preview?.let { PlaybackSourceSelector.describeRelease(it.facts) }.orEmpty()
 
@@ -668,6 +739,7 @@ fun playbackQualityOptionLabel(option: PlaybackQualityOption): String {
 @Composable
 private fun variantLabel(option: PlaybackQualityOption): String = when (option.variant) {
     PlaybackQualityOption.Variant.BEST -> ""
+    PlaybackQualityOption.Variant.MAX -> stringResource(Res.string.playback_quality_variant_max)
     PlaybackQualityOption.Variant.HIGH -> stringResource(Res.string.playback_quality_variant_high)
     PlaybackQualityOption.Variant.MID -> stringResource(Res.string.playback_quality_variant_mid)
     PlaybackQualityOption.Variant.LOW -> stringResource(Res.string.playback_quality_variant_low)

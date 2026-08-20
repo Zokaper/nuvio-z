@@ -6,8 +6,6 @@ import com.nuvio.app.features.downloads.SizePreference
 import com.nuvio.app.features.downloads.SourceRanking
 import com.nuvio.app.features.downloads.SourceRankingPreferences
 import com.nuvio.app.features.downloads.VideoResolution
-import kotlin.math.pow
-import kotlin.math.sqrt
 
 /**
  * The quality choices for one title, derived from the sources that actually exist for it.
@@ -18,6 +16,10 @@ import kotlin.math.sqrt
  * any file the user would receive. Here the catalogue comes first: sources are bucketed by
  * the resolution they claim, each bucket is split by what it really costs to stream, and a
  * bucket with nothing in it simply produces no row.
+ *
+ * The *bands* within a bucket are absolute rather than relative - see [Variant] and
+ * `bandBoundariesMbps`. Deriving them from each title's own spread made every label a
+ * statement about one catalogue and about nothing else.
  *
  * Pure and repository-free, like [PlaybackModeRouter] and [AutoDownshiftDetector], so the
  * shipped code can be exercised outside Gradle.
@@ -42,7 +44,19 @@ data class PlaybackQualityOption(
     /** The whole bucket, best first, so the failure chain still has somewhere to go. */
     val candidates: List<PlaybackSourceCandidate>,
 ) {
-    enum class Variant { BEST, HIGH, MID, LOW, SINGLE }
+    /**
+     * Which band of its resolution this row is, on an **absolute** scale.
+     *
+     * [MAX] exists because "High" was the word for a remux. The bands used to be the bucket's
+     * own bitrate spread cut into thirds, so the top row meant "the fattest release this
+     * particular title happens to have" - an 88 GB 4K remux on one title and a 14 GB WEB-DL on
+     * the next, under the same label. Nothing could be aimed at, and the honest report was that
+     * people went to the source list instead.
+     *
+     * With fixed boundaries a band means the same class of file everywhere, and remux territory
+     * gets its own name rather than colonising the one a user reaches for by default.
+     */
+    enum class Variant { BEST, MAX, HIGH, MID, LOW, SINGLE }
 
     /** "4K", "1080p", "SD". The High/Low half of the label is localized by the caller. */
     val resolutionLabel: String
@@ -100,17 +114,32 @@ object PlaybackQualityOptions {
      */
     const val HEADROOM = 0.75
 
-    /** A bucket splits only when its top source costs at least this much more than its cheapest. */
-    private const val SPLIT_RATIO = 1.5
-
     /**
-     * Spread at which two rows become three.
+     * Where one resolution's bands begin, in the file's own megabits per second - **before**
+     * [HEADROOM], because these describe releases rather than connections.
      *
-     * `SPLIT_RATIO` squared, so the reasoning is the same one applied twice: a band is worth
-     * offering when the thing above it costs half again as much. A 4 / 9 Mbps bucket splits
-     * in two; a 4 / 18 one has room for a middle a user can actually aim at.
+     * Absolute, and that is the whole point. The relative split these replaced divided a
+     * bucket's own spread into geometric thirds, so every label was a statement about the
+     * catalogue for one title and about nothing else. A user who learned that "1080p Mid" was
+     * about right for them learned nothing transferable: on the next title the same word meant
+     * a different file, and on a title with a remux the top band meant 88 GB.
+     *
+     * The numbers are drawn from what the formats actually cost: roughly, WEB-DL sits at or
+     * below [mid], a good Blu-ray encode between [mid] and [high], a heavy encode between
+     * [high] and [max], and a remux above [max].
      */
-    private const val THREE_WAY_RATIO = SPLIT_RATIO * SPLIT_RATIO
+    private data class BandBoundaries(val mid: Double, val high: Double, val max: Double)
+
+    private fun bandBoundariesMbps(resolution: VideoResolution): BandBoundaries = when (resolution) {
+        VideoResolution.UHD_4320 -> BandBoundaries(mid = 30.0, high = 70.0, max = 140.0)
+        // A UHD Blu-ray remux runs 60-120 Mbps; a 4K WEB-DL is usually under 25.
+        VideoResolution.UHD_2160 -> BandBoundaries(mid = 10.0, high = 25.0, max = 50.0)
+        VideoResolution.QHD_1440 -> BandBoundaries(mid = 5.0, high = 12.0, max = 25.0)
+        // A 1080p remux is 25-40 Mbps, a heavy Blu-ray encode 8-16, a WEB-DL 3-8.
+        VideoResolution.FULL_HD_1080 -> BandBoundaries(mid = 3.0, high = 8.0, max = 16.0)
+        VideoResolution.HD_720 -> BandBoundaries(mid = 1.5, high = 3.0, max = 6.0)
+        VideoResolution.SD -> BandBoundaries(mid = 0.8, high = 1.6, max = 3.5)
+    }
 
     fun build(
         candidates: List<PlaybackSourceCandidate>,
@@ -118,13 +147,31 @@ object PlaybackQualityOptions {
     ): List<PlaybackQualityOption> {
         if (candidates.isEmpty()) return emptyList()
 
-        val measured = candidates.map { candidate ->
+        val allMeasured = candidates.map { candidate ->
             val bitrate = bitrateMbps(candidate, context)
             MeasuredCandidate(
                 candidate = candidate,
                 bitrateMbps = bitrate,
                 isPlausible = bitrate == null || bitrate <= bitrateCeilingMbps(candidate.facts.resolution),
             )
+        }
+        // The user's own ceiling, applied here so **Best available honours it too**. That card
+        // is the one most people tap and the one whose source can be the most expensive in the
+        // catalogue; a ceiling it walked past would not be a ceiling.
+        //
+        // A source with no credible size is never excluded - there is no figure to judge it by,
+        // and refusing what cannot be measured would quietly empty a catalogue on the addons
+        // that report least.
+        val ceiling = context.qualityCeilingMbps?.takeIf { it > 0.0 && it.isFinite() }
+        val measured = if (ceiling == null) {
+            allMeasured
+        } else {
+            // Falling back to the unfiltered set is deliberate: a preference must never become a
+            // dead end. If nothing this title offers fits under the ceiling, the honest answer is
+            // the catalogue as it is, not an empty sheet.
+            allMeasured
+                .filter { (it.credibleBitrateMbps ?: 0.0) <= ceiling }
+                .ifEmpty { allMeasured }
         }
         val buckets = measured
             .mapNotNull { entry -> bucketFor(entry)?.let { it to entry } }
@@ -147,7 +194,7 @@ object PlaybackQualityOptions {
      * other and of every other resolution, and said "1080p" three times to say it once.
      *
      * **Order is [build]'s, not re-derived here.** That function already sorts buckets by
-     * height descending and bands High to Low within each, and `groupBy` preserves the order
+     * height descending and bands Max to Low within each, and `groupBy` preserves the order
      * keys are first seen in. Re-sorting would be a second opinion on an ordering that is
      * already decided, and the two would drift.
      *
@@ -289,7 +336,8 @@ object PlaybackQualityOptions {
     fun connectionFit(
         option: PlaybackQualityOption,
         estimatedMbps: Double?,
-    ): ConnectionFit? = connectionFit(option.requiredMbps, estimatedMbps)
+        isEstimateMeasured: Boolean = true,
+    ): ConnectionFit? = connectionFit(option.requiredMbps, estimatedMbps, isEstimateMeasured)
 
     /**
      * The same comparison for a cost that did not come from an option's own bucket.
@@ -302,6 +350,7 @@ object PlaybackQualityOptions {
     fun connectionFit(
         requiredMbps: Double?,
         estimatedMbps: Double?,
+        isEstimateMeasured: Boolean = true,
     ): ConnectionFit? {
         val required = requiredMbps?.takeIf { it > 0.0 } ?: return null
         val estimate = estimatedMbps?.takeIf { it > 0.0 } ?: return null
@@ -309,12 +358,30 @@ object PlaybackQualityOptions {
             requiredMbps = required,
             estimatedMbps = estimate,
             loadFraction = (required / estimate).coerceIn(0.0, MAX_LOAD_FRACTION),
-            // Strictly greater: an option that costs exactly what the line carries is the
-            // boundary case the headroom in `requiredMbps` already exists to cover, and
-            // warning about it would flag the very thing the estimate says is fine.
-            isOverConnection = required > estimate,
+            // Two conditions, and both were missing.
+            //
+            // **The estimate has to be a measurement.** `required > estimate` was scored against
+            // whatever `peek` returned, including the platform guess - 50 Mbps for any Wi-Fi -
+            // so a connection nobody had measured still produced a red line under half the
+            // catalogue. A meter drawn against a guess is fair enough; a verdict is not.
+            //
+            // **And it has to clear a margin.** `requiredMbps` is already the file's bitrate
+            // plus a third, and the estimate underneath it is structurally a lower bound: no
+            // signal feeding it can observe more throughput than it asked for. Warning the
+            // instant those two cross meant flagging rows that play perfectly well, which is
+            // what taught the user to ignore the warning - and a warning that is ignored is
+            // worse than none, because it was right occasionally.
+            isOverConnection = isEstimateMeasured && required > estimate * OVER_CONNECTION_MARGIN,
         )
     }
+
+    /**
+     * How far past the estimate an option must reach before the sheet says so.
+     *
+     * Not tuned to a stall threshold - nothing here can predict one. It is the width of the
+     * band where the two figures are too close for the difference to mean anything.
+     */
+    const val OVER_CONNECTION_MARGIN = 1.15
 
     private val qualityOrder = compareBy<PlaybackQualityOption>(
         { it.resolution?.height ?: 0 },
@@ -348,48 +415,46 @@ object PlaybackQualityOptions {
         context: PlaybackSelectionContext,
     ): List<PlaybackQualityOption> {
         val ranked = entries.sortedWith(rankingFor(resolution, context))
-        val measured = ranked.mapNotNull(MeasuredCandidate::credibleBitrateMbps)
-        val cheapest = measured.minOrNull()
-        val dearest = measured.maxOrNull()
+        // Banded on measured sources alone. A source that reported no size has no figure to be
+        // banded by, and 0.0 is not that figure - treating it as one would mint a "Low" row
+        // whose only occupant is a file nobody knows the size of, quoting a nominal bitrate for
+        // it. They join the lowest occupied band below instead, which is what the relative
+        // split did and the reason it did it.
+        val (sized, unsized) = ranked.partition { it.credibleBitrateMbps != null }
 
-        // Sources with no credible size ride along with the cheapest band throughout - they
-        // cannot justify a dearer row.
-        fun bandOf(entry: MeasuredCandidate): Double = entry.credibleBitrateMbps ?: 0.0
-        val spread = if (cheapest != null && dearest != null && cheapest > 0.0) {
-            dearest / cheapest
-        } else {
-            1.0
-        }
-
-        val splits = if (measured.size >= 2 && cheapest != null && spread >= THREE_WAY_RATIO) {
-            // Two geometric boundaries at the thirds, extending the midpoint reasoning rather
-            // than replacing it: the bands are equal *multiples* of each other, which is how
-            // bitrate differences are actually felt.
-            val lower = cheapest * spread.pow(1.0 / 3.0)
-            val upper = cheapest * spread.pow(2.0 / 3.0)
-            listOf(
-                PlaybackQualityOption.Variant.HIGH to ranked.filter { bandOf(it) >= upper },
-                PlaybackQualityOption.Variant.MID to ranked.filter { bandOf(it) >= lower && bandOf(it) < upper },
-                PlaybackQualityOption.Variant.LOW to ranked.filter { bandOf(it) < lower },
+        val bounds = bandBoundariesMbps(resolution)
+        // Still gated on two *measured* sources. One figure is not a comparison, and banding a
+        // bucket where only one source reported a size would put a confident label on a row
+        // whose neighbour is a guess.
+        val splits = if (sized.size >= 2) {
+            fun bandOf(entry: MeasuredCandidate): Double = entry.credibleBitrateMbps ?: 0.0
+            val banded = listOf(
+                PlaybackQualityOption.Variant.MAX to sized.filter { bandOf(it) >= bounds.max },
+                PlaybackQualityOption.Variant.HIGH to
+                    sized.filter { bandOf(it) >= bounds.high && bandOf(it) < bounds.max },
+                PlaybackQualityOption.Variant.MID to
+                    sized.filter { bandOf(it) >= bounds.mid && bandOf(it) < bounds.high },
+                PlaybackQualityOption.Variant.LOW to sized.filter { bandOf(it) < bounds.mid },
             )
-        } else if (measured.size >= 2 && cheapest != null && dearest != null && spread >= SPLIT_RATIO) {
-            // Geometric midpoint, so a 4 / 12 Mbps pair splits where a user would split it
-            // rather than wherever the arithmetic mean happens to land.
-            val boundary = sqrt(cheapest * dearest)
-            listOf(
-                PlaybackQualityOption.Variant.HIGH to ranked.filter { bandOf(it) >= boundary },
-                PlaybackQualityOption.Variant.LOW to ranked.filter { bandOf(it) < boundary },
-            )
+            // Onto the cheapest band that actually exists - `banded` runs dearest first, so that
+            // is the last occupied one. A sizeless source cannot justify a dearer row.
+            val cheapestOccupied = banded.indexOfLast { it.second.isNotEmpty() }
+            banded.mapIndexed { index, (variant, own) ->
+                variant to if (index == cheapestOccupied) own + unsized else own
+            }
         } else {
             listOf(PlaybackQualityOption.Variant.SINGLE to ranked)
         }
 
         // An empty band produces no row, and a lone row labelled "1080p Mid" would be a
-        // comparative label with nothing to compare against. The boundaries make that
-        // unreachable - the cheapest source always falls below `lower` and the dearest always
-        // reaches `upper`, so High and Low are both occupied whenever a split happens at all,
-        // and only Mid can come out empty. This is the guard for someone moving those
-        // boundaries later, not a hole being closed: see the test that pins the invariant.
+        // comparative label with nothing to compare against.
+        //
+        // ⚠ **Absolute boundaries make this load-bearing, where the relative ones made it a
+        // formality.** The old split derived its boundaries from the bucket's own cheapest and
+        // dearest, so the extreme bands were occupied by construction and only Mid could come
+        // out empty. Fixed boundaries have no such guarantee: a title whose only 1080p releases
+        // are 5 and 6 Mbps puts everything in Mid and must produce **one** unlabelled row, not
+        // a "Mid" with nothing above or below it to mean anything against.
         val resolved = if (splits.count { it.second.isNotEmpty() } < 2) {
             listOf(PlaybackQualityOption.Variant.SINGLE to ranked)
         } else {
@@ -471,7 +536,22 @@ object PlaybackQualityOptions {
         // But promoting it above plausibility would let an implausible cached season pack head
         // the row again, and it would not show: the displayed bitrate and size come from
         // `credibleBitrateMbps`, so only what actually *plays* would regress.
+        //
+        // **Under REQUIRE, language leads all three**, because a row is described by the source
+        // it would actually open (`previewSelection`) and that function moves unwatchable
+        // candidates to the back. Without the same rule here the card's caption would name a
+        // release the selector had already stepped past - the sheet describing one file and
+        // playing another.
+        //
+        // Under PREFER it must **not** lead: `SourceRanking.languageScore` is already inside the
+        // comparator below, one key under resolution, which is what "ranked on, never excluded"
+        // means. Promoting it here as well would make a right-language uncached source beat a
+        // wrong-language cached one, which is a refusal wearing a preference's name.
+        val preferences = preferencesFor(resolution, context)
+        val excludesByLanguage = context.languageStrictness == LanguageStrictness.REQUIRE &&
+            !context.preferredAudioLanguage.isNullOrBlank()
         return compareBy<MeasuredCandidate>(
+            { excludesByLanguage && !SourceRanking.isLanguageWatchable(it.candidate.facts, preferences) },
             { !it.isPlausible },
             { it.candidate.stream.isTorrentStream },
             { it.candidate.facts.isDebridReady != true },
@@ -497,7 +577,10 @@ object PlaybackQualityOptions {
         context: PlaybackSelectionContext,
     ): SourceRankingPreferences =
         SourceRankingPreferences(
-            preferredAudioLanguage = context.preferredAudioLanguage,
+            preferredAudioLanguage = context.preferredAudioLanguage
+                ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
+            secondaryAudioLanguage = context.secondaryAudioLanguage
+                ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
             codecPreference = context.codecPreference,
             dynamicRangePolicy = context.dynamicRangePolicy.takeIf {
                 it != DynamicRangePolicy.ANY

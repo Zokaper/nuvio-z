@@ -17,6 +17,7 @@ data class DebridSettings(
     val streamPreferences: DebridStreamPreferences = DebridStreamPreferences(),
     val streamNameTemplate: String = DebridStreamFormatterDefaults.NAME_TEMPLATE,
     val streamDescriptionTemplate: String = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE,
+    val streamPreferenceScope: DebridStreamPreferenceScope = DebridStreamPreferenceScope.ALL_ADDON_STREAMS,
 ) {
     val torboxApiKey: String
         get() = apiKeyFor(DebridProviders.TORBOX_ID)
@@ -48,6 +49,21 @@ data class DebridSettings(
     val canResolvePlayableLinks: Boolean
         get() = linkResolvingEnabled && hasResolverProvider
 
+    /**
+     * Whether the stream filter/sort/format pipeline runs at all.
+     *
+     * Deliberately *not* [canResolvePlayableLinks]: a user whose debrid runs inside the addon
+     * (AIOStreams and friends) has no built-in provider, so keying the pipeline off the resolver
+     * left every preference on this page dead for them. [DebridStreamPreferenceScope.RESOLVER_ONLY]
+     * reproduces the old gate exactly.
+     */
+    val appliesStreamPresentation: Boolean
+        get() = when (streamPreferenceScope) {
+            DebridStreamPreferenceScope.RESOLVER_ONLY -> canResolvePlayableLinks
+            DebridStreamPreferenceScope.DEBRID,
+            DebridStreamPreferenceScope.ALL_ADDON_STREAMS -> true
+        }
+
     val hasCloudLibraryProvider: Boolean
         get() = DebridProviders.configuredServices(this)
             .any { credential -> credential.provider.supports(DebridProviderCapability.CloudLibrary) }
@@ -55,11 +71,10 @@ data class DebridSettings(
     val canUseCloudLibrary: Boolean
         get() = cloudLibraryEnabled && hasCloudLibraryProvider
 
+    /** True only when the user has edited a template away from its default. */
     val hasCustomStreamFormatting: Boolean
-        get() = DebridStreamFormatterDefaults.NAME_TEMPLATE.isNotBlank() ||
-            DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE.isNotBlank() ||
-            streamNameTemplate.isNotBlank() ||
-            streamDescriptionTemplate.isNotBlank()
+        get() = streamNameTemplate != DebridStreamFormatterDefaults.NAME_TEMPLATE ||
+            streamDescriptionTemplate != DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE
 
     fun apiKeyFor(providerId: String?): String {
         val normalized = DebridProviders.byId(providerId)?.id
@@ -71,6 +86,20 @@ data class DebridSettings(
 
 const val DEBRID_PREPARE_INSTANT_PLAYBACK_DEFAULT_LIMIT = 2
 const val DEBRID_PREPARE_INSTANT_PLAYBACK_MAX_LIMIT = 5
+
+/**
+ * Which results the stream preference pipeline (filters, sorting, caps, templates) is applied to.
+ *
+ * [RESOLVER_ONLY] is the pre-0.5 behaviour: only streams Nuvio resolves itself.
+ * [DEBRID] widens it to addon results that carry debrid evidence of their own.
+ * [ALL_ADDON_STREAMS] covers every playable result from an installed addon, which is what makes
+ * the page work for a self-hosted AIOStreams instance that detection does not recognise.
+ */
+enum class DebridStreamPreferenceScope {
+    RESOLVER_ONLY,
+    DEBRID,
+    ALL_ADDON_STREAMS,
+}
 
 enum class DebridStreamSortMode {
     DEFAULT,
@@ -303,3 +332,7 @@ fun normalizeDebridInstantPlaybackPreparationLimit(value: Int): Int =
 
 fun normalizeDebridStreamMaxResults(value: Int): Int =
     if (value <= 0) 0 else value.coerceIn(1, 100)
+
+fun normalizeDebridStreamPreferenceScope(value: String?): DebridStreamPreferenceScope =
+    DebridStreamPreferenceScope.entries.firstOrNull { it.name == value?.trim() }
+        ?: DebridStreamPreferenceScope.ALL_ADDON_STREAMS

@@ -102,6 +102,12 @@ internal expect object PlayerSettingsStorage {
     fun savePlaybackCodecPreference(preference: String)
     fun loadPlaybackDynamicRangePolicy(): String?
     fun savePlaybackDynamicRangePolicy(policy: String)
+    fun loadPlaybackLanguageStrictness(): String?
+    fun savePlaybackLanguageStrictness(strictness: String)
+
+    /** Megabits per second the automatic picker may not exceed. `0` means no ceiling. */
+    fun loadPlaybackQualityCeilingMbps(): Int?
+    fun savePlaybackQualityCeilingMbps(mbps: Int)
     fun loadShowAdvancedSettings(): Boolean?
     fun saveShowAdvancedSettings(enabled: Boolean)
     fun loadPlaybackMeteredCapHeight(): Int?

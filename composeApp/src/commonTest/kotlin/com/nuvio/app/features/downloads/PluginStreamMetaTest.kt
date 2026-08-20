@@ -28,7 +28,7 @@ class PluginStreamMetaTest {
         assertEquals(VideoResolution.FULL_HD_1080, facts.resolution)
         assertEquals("HEVC", facts.codec)
         assertEquals("WEB-DL", facts.releaseQuality)
-        assertEquals(setOf("EN"), facts.languages)
+        assertEquals(setOf("en"), facts.languages)
         assertEquals(87, facts.seeders)
         assertEquals("TorBox", facts.providerId)
         assertTrue(SourceFactProvenance.PLUGIN_STRUCTURED in facts.provenance)

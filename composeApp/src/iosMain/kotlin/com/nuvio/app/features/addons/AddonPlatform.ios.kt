@@ -1,5 +1,6 @@
 package com.nuvio.app.features.addons
 
+import com.nuvio.app.core.network.ThroughputWindow
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
@@ -230,6 +231,7 @@ actual suspend fun httpMeasureThroughput(
             var ttfbMs = 0L
             var measuredBytes = 0L
             var transferMs = 0L
+            val window = ThroughputWindow()
             while (measuredBytes < maxBytes) {
                 val read = channel.readAvailable(buffer, 0, buffer.size)
                 if (read <= 0) break
@@ -243,18 +245,17 @@ actual suspend fun httpMeasureThroughput(
                 }
                 measuredBytes += read
                 transferMs = mark.elapsedNow().inWholeMilliseconds
+                window.record(elapsedMs = transferMs, cumulativeBytes = measuredBytes)
                 if (transferMs >= maxMillis) break
-                if (stopAboveMbps != null && transferMs > 0L &&
-                    measuredBytes.toDouble() * 8.0 / transferMs.toDouble() / 1_000.0 > stopAboveMbps
-                ) {
-                    break
-                }
+                // Windowed, not cumulative - see the Android actual and `ThroughputWindow`.
+                if (stopAboveMbps != null && (window.peakMbps ?: 0.0) > stopAboveMbps) break
             }
             ThroughputSample(
                 status = response.status.value,
                 bytes = measuredBytes,
                 transferMs = transferMs,
                 ttfbMs = ttfbMs,
+                peakWindowMbps = window.peakMbps,
             )
         }
 }

@@ -52,12 +52,19 @@ fi
   https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-serialization-core-jvm/1.9.0/kotlinx-serialization-core-jvm-1.9.0.jar
 [ -f serialization-json.jar ] || curl -sSL -o serialization-json.jar \
   https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-serialization-json-jvm/1.9.0/kotlinx-serialization-json-jvm-1.9.0.jar
+# Group 5 only. DebridStreamPreferences is @Serializable and DebridSettingsRepository.kt encodes
+# it, so unlike group 4 this one needs the serialization *compiler plugin*, which the kotlinc
+# distribution does not carry - only the runtime jars are in it. The coroutines runtime the
+# repository's StateFlow needs does ship inside kotlinc/lib.
+[ -f serialization-plugin.jar ] || curl -sSL -o serialization-plugin.jar \
+  https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/2.3.0/kotlin-serialization-compiler-plugin-2.3.0.jar
 
 export PATH="$WORK/kotlinc/bin:$PATH"
 KTJ="$WORK/kotlinc/lib/kotlin-test-junit.jar:$WORK/kotlinc/lib/kotlin-test.jar"
 CP_BUILD="$WORK/junit.jar:$WORK/hamcrest.jar:$KTJ"
 CP_RUN="$CP_BUILD:$WORK/kotlinc/lib/kotlin-stdlib.jar"
 CP_JSON="$WORK/serialization-core.jar:$WORK/serialization-json.jar"
+CP_COROUTINES="$WORK/kotlinc/lib/kotlinx-coroutines-core-jvm.jar"
 
 M="$REPO/composeApp/src/commonMain/kotlin/com/nuvio/app"
 T="$REPO/composeApp/src/commonTest/kotlin/com/nuvio/app"
@@ -66,19 +73,26 @@ STUBS="$SCRIPT_DIR/pure-suite-stubs"
 # --- Group 1: selection, quality options and the stream route's covering rules ---------------
 # These need the neighbour stubs, because PlaybackSourceCandidate carries a StreamItem.
 rm -rf "$WORK/out-selection"
+# `core/language/LanguageCodes.kt` is the real shipped file, not a stub: SourceRanking's
+# language score calls straight into it, and stubbing the thing that decides whether a source is
+# watchable would prove nothing about the fix it exists for. It is import-free by design so that
+# it can be compiled here at all - see the note at the top of that file.
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-selection" \
   "$STUBS"/*.kt \
+  "$M/core/language/LanguageCodes.kt" \
   "$M/features/downloads/SourceRanking.kt" \
   "$M/features/playback/PlaybackSourceSelector.kt" \
   "$M/features/playback/PlaybackQualityOptions.kt" \
   "$M/features/playback/StreamRouteSurface.kt" \
   "$M/features/playback/PlaybackModeRouter.kt" \
+  "$T/core/language/LanguageCodesTest.kt" \
   "$T/features/playback/PlaybackQualityOptionsTest.kt" \
   "$T/features/playback/StreamRouteSurfaceTest.kt" \
   "$T/features/playback/PlaybackModeRouterTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-selection:$CP_RUN" org.junit.runner.JUnitCore \
+  com.nuvio.app.core.language.LanguageCodesTest \
   com.nuvio.app.features.playback.PlaybackQualityOptionsTest \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
   com.nuvio.app.features.playback.PlaybackModeRouterTest 2>&1 | grep -v "Picked up JAVA_TOOL"
@@ -88,13 +102,16 @@ rm -rf "$WORK/out-standalone"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/downloads/DownloadTransfer.kt" \
   "$M/features/streams/PlaybackUrlCredentials.kt" \
+  "$M/core/network/ThroughputWindow.kt" \
   "$T/features/downloads/DownloadTransferTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
+  "$T/core/network/ThroughputWindowTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadTransferTest \
-  com.nuvio.app.features.streams.PlaybackUrlCredentialsTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.streams.PlaybackUrlCredentialsTest \
+  com.nuvio.app.core.network.ThroughputWindowTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
 # Both files are import-free, so this group needs no stubs at all. The wizard itself is a Compose
@@ -125,6 +142,35 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -d "$WORK/out-sync" \
 
 java -cp "$WORK/out-sync:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.sync.SyncKeysToClearTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 5: the debrid stream presentation pipeline ---------------------------------------
+# StreamModels.kt is compiled from the shipped source, so StreamItem, AioStreamData and the cache
+# status types are real - the stubs under pure-suite-stubs/debrid stand in only for the build
+# config, the generated Compose resource bundle and the per-platform key store. This group is what
+# proves the preference scope: the pipeline must reach addon-side debrid results with no resolver
+# connected, and must still leave a plain addon row's own name alone.
+rm -rf "$WORK/out-debrid"
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" \
+  -Xplugin="$WORK/serialization-plugin.jar" \
+  -d "$WORK/out-debrid" \
+  "$STUBS"/debrid/*.kt \
+  "$M/features/streams/StreamModels.kt" \
+  "$M/features/debrid/DebridProvider.kt" \
+  "$M/features/debrid/DebridSettings.kt" \
+  "$M/features/debrid/DebridSettingsRepository.kt" \
+  "$M/features/debrid/DebridStreamFormatterDefaults.kt" \
+  "$M/features/debrid/DebridStreamTemplateEngine.kt" \
+  "$M/features/debrid/DebridStreamFormatter.kt" \
+  "$M/features/debrid/DebridStreamPresentation.kt" \
+  "$T/features/debrid/DebridProviderTest.kt" \
+  "$T/features/debrid/DebridSettingsTest.kt" \
+  "$T/features/debrid/DebridStreamPresentationTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
+  com.nuvio.app.features.debrid.DebridProviderTest \
+  com.nuvio.app.features.debrid.DebridSettingsTest \
+  com.nuvio.app.features.debrid.DebridStreamPresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # Deliberately not run here, and CI is the gate for both:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types

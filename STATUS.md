@@ -1,6 +1,389 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-17
+Last updated: 2026-08-20
+
+| | |
+| --- | --- |
+| Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
+| Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18) and the Streamlined refinement below. **Not pushed, not tagged** |
+| Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
+| Verified | Android host **907**, desktop **1120**, pure suites **218** - all zero failures |
+| **Not** verified | nothing in the Streamlined refinement has been seen on a device or an installed desktop app; iOS is not compiled |
+
+## Streamlined: absolute quality bands, a real language rule, an honest connection figure (2026-08-20, unreleased, both repositories)
+
+**Reported from daily use, and every item is a reason the user ended up in the source list -
+which is the one outcome the mode exists to prevent.**
+
+### 1. The bands meant nothing consistent
+
+`PlaybackQualityOptions.optionsForBucket` split each resolution's *own* bitrate spread into
+geometric thirds, so "4K High" meant "the fattest 4K release this particular title happens to
+have" - an 88 GB remux on one title, a 14 GB WEB-DL on the next, under the same word. Mid and Low
+moved with it. Nothing could be aimed at, and the reported behaviour was picking manually anyway.
+
+Bands are now **absolute**, from `bandBoundariesMbps`, and there is a fourth: `MAX`, so "High"
+stops being the word for a remux. At 4K the boundaries are 10 / 25 / 50 Mbps; at 1080p 3 / 8 / 16.
+A 20 Mbps 1080p release is `MAX` whether or not the title also has a 4 Mbps encode.
+
+Three properties were kept exactly as they were, and one was newly load-bearing:
+
+- an empty band produces no row; fewer than two occupied bands collapse to `SINGLE`;
+- banding still requires **two measured sources** - one figure is not a comparison;
+- ⚠ **the collapse guard used to be a formality and is now doing real work.** The old boundaries
+  came from the bucket's own extremes, so the top and bottom bands were occupied by construction
+  and only `MID` could be empty. Fixed boundaries have no such guarantee - a title whose only
+  1080p releases are 5 and 6 Mbps puts everything in one band - and a lone row reading "1080p Mid"
+  is a comparison with nothing to compare against. Pinned by
+  `aBandedBucketNeverProducesExactlyOneRow`.
+
+**A defect found while writing it:** sizeless sources were about to form their own `LOW` row.
+`bandOf` returned `0.0` for a source with no credible size, which is below every absolute
+boundary - harmless under a relative split, a row quoting a nominal bitrate for a file nobody
+knows the size of under this one. They are now banded out entirely and appended to the cheapest
+band that exists.
+
+**New, off by default:** `playback_quality_ceiling_mbps`. Applied in `build()` *before* bucketing,
+so **Best available honours it too** - that card is the most-tapped and its source can be the most
+expensive in the catalogue. A ceiling nothing fits under is ignored for that title rather than
+emptying the sheet, and a source that reported no size is never judged by it.
+
+### 2. Language was not enforced, and could not have been
+
+Three things were wrong at once and each made the others invisible:
+
+| | |
+| --- | --- |
+| **The vocabulary** | `SourceFacts.LANGUAGE_TOKENS` knew seven languages. A Hindi, Italian or Russian release declared *nothing* - indistinguishable from an untagged English one |
+| **`MULTi` and `DUAL`** | not recognised at all, in either repository. They are the two commonest markers in the wild and **neither is a language** |
+| **Flag emoji** | no regional-indicator handling anywhere. Torrentio, Comet and MediaFusion all label audio this way |
+
+Worse, `SourceRanking`'s language key was a **boolean** - `preferred in facts.languages` - sitting
+second in the comparator, immediately under resolution. Against a set that was empty on both sides
+it discriminated nothing, so any source one step sharper on any other key won regardless. That is
+the whole mechanism behind "I keep getting sources with no English audio or subs".
+
+**The normalizer it needed already existed and was wired to nothing that reads a release.**
+`PlayerLanguagePreferences` carries ~120 ISO aliases, ~72 language names and
+`languageMatchesPreference`, used only for the player's own track selection. Those tables moved to
+a new **import-free** `core/language/LanguageCodes.kt` (that file reaches the generated Compose
+resource bundle for its labels, and `SourceFacts.kt` is compiled outside Gradle); the two public
+functions stay in `features/player` as delegates so no player call site churned.
+
+New on top of the move: `releaseLanguagesIn`, which reads a *release name* rather than a tagged
+field. ⚠ **Two-letter codes are deliberately refused there** - `IT.Chapter.Two`, `De.Palma` and
+any group with `LA` in it all look like language tags to a bare two-letter scan, and
+`DebridStreamPresentation.hasToken` is the standing proof that this misfires. Structured fields
+still go straight to `normalizeLanguageCode`, which does accept short codes, because there the
+value means what it says.
+
+`SourceFacts` gains `isMultiLanguage` and `subtitleLanguages`, and `languages` changes
+representation from uppercase two-letter (`"EN"`) to normalized codes (`"en"`, `"pt-BR"`,
+`"es-419"`). `SourceRanking.languageScore` replaces the boolean with five ranks, and `UNDECLARED`
+sits **above** `NAMES_SECONDARY` on purpose: most English releases name no language because English
+is the unmarked case, so ranking "says nothing" below "says your fallback" would hand a user their
+second choice on every title that has both.
+
+The gate is `PlaybackSourceSelector.byLanguage`, and it is a **partition, never a filter**. Under
+`REQUIRE` an unwatchable source moves behind every watchable one and stays in the failure chain;
+a title whose every release is tagged for another market still plays. Only `NAMES_OTHER_ONLY`
+fails - wrong audio *and* no subtitles you can read - because the complaint was "no English audio
+**or** subs".
+
+**Two standing bugs fell out of this:**
+
+1. `DownloadPreset.preferredAudioLanguage` is a free-text field (`DownloadsSettingsScreen`), and
+   `matchesRequirements` compared `uppercase()` against a set holding `"EN"`. Typing "english" -
+   the obvious thing to type - matched nothing, so *Require preferred audio language* silently
+   rejected every source. It matches now.
+2. `normalizeLanguageValues` used to `uppercase()` anything unrecognized, so an addon sending
+   `["Latino"]` produced `"LATINO"`, a value no preference could ever equal, on a source that had
+   said exactly what it was. `latino`, `latin american` and `brazilian` are now aliases.
+
+### 3. The connection figure under-read, then moved while being read
+
+The reported case: an 88 GB 4K remux needing ~81 Mbps played without trouble against a sheet
+reading **57 Mb/s**, with every 4K row flagged "May be more than your connection carries".
+
+**The arithmetic was the fault, not the direction.** `httpMeasureThroughput` reported the *mean*
+over the whole body, and a ranged GET's mean includes TCP slow start - on a short pull that ramp
+is most of the transfer, and it under-reads *more* the faster the line is, because a fast line
+reaches the byte cap while still climbing. Excluding TTFB, which the readers already did, removes
+the handshake and leaves the ramp untouched.
+
+New `core/network/ThroughputWindow.kt` (import-free, executable outside Gradle) reports the best
+rate sustained over any 750 ms window. Both platform readers feed it, `ThroughputSample` gains
+`peakWindowMbps` and `bestEffortMbps`, and the probe records that. The budget went 4 MiB / 2.5 s →
+**8 MiB / 3.5 s**, because a window has to *fit inside* the transfer where a mean only wanted more
+samples: 4 MiB at 200 Mbps is 0.17 s, not one window let alone one past the ramp. `EARLY_EXIT_MARGIN`
+now judges the windowed rate too - against the cumulative mean it fired late on a fast line and
+could not fire at all on a slow one.
+
+⚠ **One change was made and then reverted after reading the code it touched.**
+`recordMeasuredThroughput` was going to become monotonic on the grounds that buffer-derived rates
+are demand-limited. `NetworkThroughputMeter` already solves that: it emits only a new maximum
+**or** a window in which the buffer *drained*, and a draining buffer is direct evidence the line is
+the bottleneck. Making it raise-only would have discarded the one signal that can disprove an
+over-generous estimate. The blend stands; only a comment was added saying why.
+
+The sheet no longer moves under the user. `PlaybackQualitySheet` latches one figure for its own
+lifetime (upward only, and a real measurement always supersedes a link-type guess), and
+`connectionFit` gained two conditions the warning never had: the estimate must be a **measurement**
+- it was being scored against `defaultMbps`' 50 Mbps Wi-Fi guess - and the option must exceed it by
+`OVER_CONNECTION_MARGIN` (1.15). `requiredMbps` already carries a third of headroom and the estimate
+under it is a lower bound; warning the instant they crossed flagged rows that play fine, which is
+what taught the user to ignore the warning. Meters still draw on an unmeasured figure. Only the
+verdict has to be earned.
+
+### 4. The HDR/DV preference existed and could not be found
+
+It was `isAdvanced = true`, along with codec - so a user asking where to set one was looking at a
+page that genuinely did not have it. Both are now plain rows, joined by **Audio language** and
+**Quality ceiling**, and all four are indexed by `SettingsSearch`.
+
+The quality sheet also grows a **Preferences** button opening `PlaybackPreferencesDialog`. A
+dialog, not a navigation: Settings is on a different back stack, so opening the real page would
+pop `StreamRoute` and cost the user the episode they just asked for. Rows cycle rather than
+opening a picker - three to five values each, all of which fit in the row - and writes go through
+the real repository setters, so the grid behind rebuilds on its own.
+
+Two new profile-scoped keys, `playback_language_strictness` and `playback_quality_ceiling_mbps`,
+in **all four** storage actuals (android, ios, desktop, plus the expect) and in `syncKeys()`,
+`exportToSyncPayload` and `replaceFromSyncPayload`.
+
+### 5. Two bugs
+
+**The player appeared to load twice.** `LaunchedEffect(activeSourceUrl)` clears
+`initialLoadCompleted`, which is what puts the opening overlay back up - right for a *different*
+source, wrong for the same file behind a fresh signature. `hasLikelyExpiringPlaybackCredentials`
+matches nearly every debrid URL (its key set includes bare `t` and `e`), so any transient startup
+error spends the one permitted refresh and the user watches the load finish, restart and finish
+again. New `isCredentialRefreshHandoff` marks that one URL change as a continuation: the controller
+is still torn down, but the presentation does not start over, and `SubtitleRepository.clear()` /
+`clearEpisodeStreams()` are skipped - the refresh had just loaded that source list to find the
+replacement, and the subtitles belong to a file that is still playing.
+
+**"No streams found" over a full catalogue.** `StreamsScreen` auto-filters to the addon that last
+served this show, gated on `groups.any { it.addonId == preferred }` - but a group is created for
+every addon that is *asked*, whether or not it answers. Filter to one that returned nothing and
+`hasAnyStreams` is false while `groups` is full, so the screen draws its empty state over
+everything the other addons found. Streamlined is what made it visible: `giveUpToSourceList` drops
+the user straight onto that screen, so they pick a quality, are told no source matched, and land on
+what looks like an empty library.
+
+Three fixes, each independently worth having: the auto-filter now requires the addon to have
+streams; the empty state offers **Show all sources** whenever a filter is hiding a non-empty
+catalogue; and `giveUpToSourceList` clears the filter, because the addon it would select is quite
+possibly the one that just failed.
+
+### Verified
+
+- **Android host suite: 907 tests, 0 failures** (`ANDROID_HOME="A:\AndroidSDK"`, empty
+  `local.properties` placeholder, deleted afterwards). Up from 872.
+- **Desktop suite in `NuvioZDesktop`: 1120 tests, 0 failures**, up from 1085. This compiles
+  `desktopMain`, which is the only check for the fourth `PlayerSettingsStorage` actual, and runs
+  the download E2E harness.
+- **`scripts/run-pure-suites.sh` in both repositories: 218 tests**, up from 196. Group 1 now
+  compiles the shipped `core/language/LanguageCodes.kt` rather than stubbing it - stubbing the
+  thing that decides whether a source is watchable would prove nothing about the fix - and group 2
+  gained `ThroughputWindow`.
+
+⚠ **Not verified.** iOS is not compiled; its `httpMeasureThroughput` and the two new storage
+actuals are checked by name and by the shared `expect` only. **Nothing here has been smoke-tested
+on a device or an installed desktop app**, and both bug fixes in §5 are reasoned from the code
+rather than reproduced - §5's second item in particular is a strong hypothesis, not a confirmed
+repro. The band boundaries are calibrated from format bitrates, not from this user's catalogue.
+
+### Device script for this pass
+
+1. Open the quality sheet on a title with a 4K remux: expect **Max / High / Low**, remux under
+   Max. Then a title with only mid-range 4K releases: expect **one** unlabelled 4K row, not three.
+2. Set a preferred audio language, strictness *Only play what I can watch*. A `MULTi` release must
+   still be offered; a `HINDI`/`ITA` release must lose to an English alternative. Kill the winner
+   mid-start and confirm the chain still reaches the rejected one rather than dead-ending.
+3. Open the sheet twice on the same network: the figure must not jump, and must not read below a
+   rate you have already streamed.
+4. Watch a debrid start end to end: **one** logo overlay, not two.
+5. Play an episode whose remembered addon has no source this time - the list must appear populated,
+   never "No streams found".
+6. Settings → Playback with advanced settings **off**: Audio language, Quality ceiling, Dynamic
+   range and Video codec are all visible. The sheet's **Preferences** button changes the grid
+   without losing the play.
+
+## Stream preferences work without a built-in cloud account (2026-08-18, unreleased, both repositories)
+
+**A user whose debrid runs inside the addon - AIOStreams and anything like it - had the entire
+Debrid settings page doing nothing.** Playback was fine, because every playability gate keys off
+`playableDirectUrl`, and AIOStreams hands back a plain `https://` URL. But the filter, sort, cap and
+template pipeline was gated on `canResolvePlayableLinks`, which is false with no API key of your
+own, so `DebridStreamPresentation.apply` returned the groups untouched at line 1. Even past that
+gate, the selector was `isManagedDebridStream`, which needs a `clientResolve` or a `debridCacheStatus`
+- AIOStreams streams have neither. Every row on that page was dead for them.
+
+| | What changed |
+| --- | --- |
+| **The gate** | `apply` now tests `settings.appliesStreamPresentation`, driven by a new persisted `DebridStreamPreferenceScope { RESOLVER_ONLY, DEBRID, ALL_ADDON_STREAMS }` - **default `ALL_ADDON_STREAMS`**. `RESOLVER_ONLY` reproduces the old behaviour exactly and is the opt-out. `canResolvePlayableLinks` is untouched; its six other consumers keep their meaning |
+| **The selector** | New `isPresentableStream(settings)`. Under the default it is any installed-addon stream with a `playableDirectUrl`, which is deliberately wider than AIO detection so a self-hosted instance `AioStreamsSupport.isAioStreams()` misses is still covered. `playableDirectUrl` already strips `magnet:`/`torrent://`, so unresolved magnets never enter - asserted by a test |
+| **AIO metadata is read** | `DebridStreamMetadata.facts` and the formatter now fall back to `streamData.parsedFile` for resolution, quality, codec, HDR, audio, languages, title and size, and `streamSearchText` gains the AIO filename and parsed fields. **Every fallback sits after the resolver's own value**, so a resolver-resolved stream is bit-for-bit as before. `{stream.indexer}` falls back to the AIO sub-addon name ("Torrentio", "Comet"), which is exactly what the token means |
+| **Service names** | `serviceId` reads `streamData.debridService`, and `DebridProviders` gained a **display-only** alias map (AllDebrid, Debrid-Link, Offcloud, EasyDebrid, put.io, PikPak, Seedr). Deliberately **not** in `registered` - that feeds `all()` → `syncKeys()` in all five storage actuals and would write dead `debrid_*_api_key` entries. The generic short-name fallback is now initials-or-first-two capped at 3, not `uppercase()`, because "ALLDEBRID" wrecks a name template |
+| **Formatting is decided per stream** | `hasCustomStreamFormatting` was **always true** (lines 59-60 tested whether a *constant* was blank), which only stayed harmless while the pipeline was gated. It now means what it says - a template edited away from its default. Renaming is decided per stream: custom template, **or** a known service, **or** existing badges. Without that, widening the scope would have renamed every plain addon row to **"1080p Cloud Instant"** |
+| **Settings page split in place** | The `if (!canResolvePlayableLinks) return` at line 357 is gone. New **Stream preferences** section carries the scope picker (always enabled), a hint when no account is connected, and a pointer to Downloads → *Treat as AIOStreams* - the only place a user can be told about that switch. **Link preparation stays resolver-gated**; it drives `DirectDebridStreamPreparer`, which genuinely needs an account. Nine result-management/formatting rows now gate on `appliesStreamPresentation` |
+
+**Two things the plan did not anticipate, both found by running the suite:**
+
+1. **`hasCustomStreamFormatting` had two consumers outside the debrid package** -
+   `StreamsScreen.kt` and `PlayerStreamList.kt`, both as
+   `canResolvePlayableLinks && !hasCustomStreamFormatting`, feeding `appendInstantServiceToDefaultName`.
+   That expression was **always false**, so the "- TB Instant" suffix has never appeared. Fixing the
+   property's meaning would have switched it on and produced **"2160p TB Instant - TB Instant"**,
+   since the default template already writes the service into the name. Both call sites now read
+   `!appliesStreamPresentation`, which keeps the suffix unreachable exactly as it has been. It is
+   dead code either way; deleting it is a separate decision.
+2. **`streamSearchText` never included the stream URL**, so a plain addon row whose only metadata is
+   in its URL gets no facts at all. Pre-existing and left alone, but it is why the "formatted once a
+   template is customised" test has to put the release name in `behaviorHints.filename`.
+
+**The behaviour change to declare.** Under the default scope, existing users **with** an account now
+see non-resolver addon results participate in filtering, sorting and result caps where they
+previously passed through untouched. Names are unaffected on default templates. The sharpest edge:
+a plain addon row with an unparseable name reads as `UNKNOWN` resolution, so a *Minimum quality*
+of 1080p now hides it. `RESOLVER_ONLY` is the opt-out, one tap away on the same page.
+
+**⚠ Gradle does work on this machine, and the two sections above are wrong to say otherwise.**
+There is no Android Studio JBR and no SDK at the paths `AGENTS.md` names, but there is a JDK 21 on
+`PATH` and an SDK at **`A:\AndroidSDK`**, and that is all it needs:
+
+```bash
+ANDROID_HOME="A:\\AndroidSDK" ./gradlew.bat :composeApp:testAndroidHostTest --console=plain --max-workers=4
+ANDROID_HOME="A:\\AndroidSDK" ./gradlew.bat :composeApp:desktopTest --console=plain --max-workers=4
+```
+
+`JAVA_HOME` is not needed. **`nuvio-z` has no `local.properties`**, and
+`:composeApp:generateRuntimeConfigs` declares it as a task input, so the mobile build fails
+configuration with *"An input file was expected to be present"* - which reads like a missing SDK and
+is not one. `build.gradle.kts:52` already tolerates the file being absent at execution time, so an
+**empty placeholder is enough** to get the suite running; it was created for this run and deleted
+afterwards. Do not put real values in it - it is gitignored and carries the Supabase configuration.
+
+**Verified, with real builds:**
+
+- **Android host suite: 872 tests, 0 failures, 0 skipped** (`DebridStreamPresentationTest` alone is
+  17). This compiles the Android target and resolves the eight new string keys.
+- **Desktop suite in `NuvioZDesktop`: 1085 tests, 0 failures, 0 skipped** (9m, the download E2E
+  harness is most of it). This compiles `desktopMain` - the check for the fifth
+  `DebridSettingsStorage` actual - and compiles `DebridSettingsPage.kt` through the Compose
+  compiler, so the new section and scope dialog are no longer parser-checked only.
+- `scripts/run-pure-suites.sh` green in **both** repositories - **196 tests each**
+(72 selection/quality/route, 29 standalone, 49 setup, 17 sync, and **29 new in group 5**), zero
+failures. Group 5 is new and compiles **the shipped `StreamModels.kt`**, so `StreamItem`,
+`AioStreamData` and the cache-status types are real; `scripts/pure-suite-stubs/debrid/` stands in
+only for `AppFeaturePolicy`, the generated Compose resource bundle and the `expect object`
+`DebridSettingsStorage`. It needs the serialization *compiler plugin*, which the kotlinc
+distribution does not ship - the script now fetches it. Every changed file parser-checks clean in
+both repos, and all five `DebridSettingsStorage` actuals were checked by name.
+
+**Two of the nine existing `DebridStreamPresentationTest` cases were changed**, not because they
+broke but because they encoded the old gate: *"applies debrid sort filters ... without removing
+normal urls"* and *"leaves cloud-service results untouched when link resolving is off"* now pin
+`streamPreferenceScope = RESOLVER_ONLY`. They are the regression net for the resolver path; the new
+cases cover the same fixtures under the default scope. The other seven pass unmodified.
+
+⚠ **Not verified.** iOS is not compiled - no macOS host - so the iOS `DebridSettingsStorage` actual
+is checked by name and by parser only. Nothing here is smoke-tested on a device or an installed
+desktop app, and no sync round-trip was exercised against a real server.
+
+**Device script for this pass** (run with **no debrid API key set**):
+
+1. Settings → Debrid no longer stops after "Accounts": **Stream preferences**, Result management and
+   Formatting are present and tappable, and **Link preparation is absent**.
+2. Set *Minimum quality = 1080p* and *Sort = Quality*, then open a title served by AIOStreams. The
+   720p rows go, the order changes.
+3. Confirm plain non-debrid addon results keep their original names.
+4. Set the name template to `{stream.resolution} {service.shortName} {stream.size::bytes}`. All three
+   render, and the service reads `AD`/`RD`, never `ALLDEBRID`. If it renders blank, follow the
+   in-page hint to Downloads → *Treat as AIOStreams* and re-check.
+5. Switch the scope to *Only results Nuvio resolves*: the list reverts to the addon's own formatting.
+6. With a TorBox key and the default scope, cached-torrent rows still read `"<res> TB Instant"` and
+   uncached rows stay hidden - and the name must **not** end in a second "- TB Instant".
+7. Sign in on a second install and confirm the scope round-trips. A missed `syncKeys()` actual shows
+   up as the setting silently reverting after a pull.
+
+## The desktop self-test harness (2026-08-17, unreleased, both repositories)
+
+**A debug-only button that runs the device script against real services and writes evidence.**
+Settings → Advanced → Diagnostics → **Run self-test**, or `Ctrl+Alt+T`, or
+`-Pnuvio.desktop.selfTest=true` to start one automatically a few seconds after launch. Output goes
+to `%APPDATA%\Nuvio Z Debug\self-test\<timestamp>\` as `report.md`, `report.json`, `env.json`,
+`run.log` and PNGs.
+
+The gap it fills is stated plainly by this file: nearly every section ends with *"nothing is
+smoke-tested on a device or an installed desktop app"*, and the device scripts below have mostly
+never been run. `commonTest` has 130 pure test files and **not one crosses a network boundary**;
+`DesktopDownloadQueueE2ETest` is the only real-I/O suite and covers only downloads;
+`SetupWizardRenderHarness` writes PNGs but offscreen with **no network**, so every poster is a
+placeholder and the video region would be black regardless.
+
+| Suite | What it does that nothing else can |
+| --- | --- |
+| **S0** Environment | GPU, display scale, mpv, WebView2, which addons are active, which debrid providers actually validate, whether the Trakt refresh token still works |
+| **S1** Sources | Real `meta` fetch and real `StreamsRepository` fan-out, with **per-addon latency and result counts** |
+| **S2** Debrid | `resolveToPlayableStream(forceRefresh = true)`, then a **1 MiB range GET to prove the link serves bytes** - the placeholder-body case looks like success from a status code - then a second mint for the re-mint path |
+| **S3** Playback | Plays a real stream and reads mpv directly: **`hwdec-current`**, codecs, decoded size, fps, **dropped frames**, and both demuxer cache properties. Asserts the position advances on wall-clock and that the buffer is ahead of it and bounded - the `demuxer-cache-time` absolute-vs-duration trap |
+| **S6** Settings and sync | Writes a playback setting, reloads from disk, forces a server pull, and checks the value **did not go backwards** - the fault that wiped playback settings in `0.4.0-beta` and re-gated the app behind the wizard |
+| **S8** UI walk | Navigates the real app and screen-grabs it **with a network**, so artwork is real. Includes a mechanical version of the pointer-input check |
+
+**Two new mpv JNI exports** in `player_bridge.cpp` (and the macOS `.mm`, kept in step):
+`diagnosticsJson` and `screenshotToFile`. The C++ property helpers already existed; only the JNI
+wrappers were missing. ⚠ **The exports are not stripped from a release DLL** - both channels compile
+one source from one Gradle task - so the gate is in Kotlin, behind `isDebugBuild`, at every call
+site.
+
+Screenshots use `java.awt.Robot`, deliberately. The desktop player is not Compose - mpv renders into
+a native child HWND and the controls are a WebView2 overlay - so `ImageComposeScene` returns a black
+rectangle and no controls. mpv's own `screenshot-to-file` is taken **as well as** the grab: if the
+frame is fine and the grab is black, compositing is at fault; if both are black, decoding is.
+
+`commonMain` cost was kept to **one 12-line file with no `expect`/`actual`** (`SelfTestHooks.kt`)
+plus ~30 lines in `AdvancedSettingsPage.kt` and ~20 in `App.kt`. On mobile every hook stays null,
+which is what hides the settings row.
+
+**Verified, on this machine, for real:**
+
+- ⚠ **The harness was actually run, three times, and its output read.** That is the whole point and
+  it is the step `setup-wizard-renders` never got - green for four passes while nobody opened it.
+- `:composeApp:desktopTest` - **1072 tests, 0 failures**.
+- `scripts/run-pure-suites.sh` green in **both** repositories, 167 tests each.
+- The Windows bridge **compiles locally**, and `dumpbin /EXPORTS` confirms both new symbols.
+  Local native builds work with
+  `-Pnuvio.windows.vcvars.path="C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"`
+  - `vswhere`'s `-requires` filter does not match Build Tools, which is why it looked absent.
+  ⚠ `buildWindowsPlayerBridge` has `onlyIf { !output.exists() }`: **delete the DLL to force a rebuild.**
+- Two harness faults were found by running it and are fixed: the settle detector photographed the
+  details screen **mid-dissolve** (now needs 3 consecutive still frames and a 1.5 s floor), and the
+  status overlay appeared in the corner of every screenshot (now hidden during a grab).
+
+**⚠ Not verified:** nothing was compiled for Android or iOS - still no SDK on this machine, so
+`nuvio-z`'s three shared files are parser-checked and grepped only, per "Verifying without Gradle".
+**CI is the gate.** S4 (seek and tracks), S5 (playback modes and the failure chain) and S7 (a real
+download) are **not written yet** - `DesktopSelfTest.suites()` names them as outstanding.
+
+**Two findings from the runs themselves, both needing a second opinion:**
+
+1. ⚠ **Home draws with zero catalog rows.** `HomeRepository` reported `isLoading = false`, **0
+   sections and 0 hero items after 30 s**, on a profile whose settings page says "4 of 4 catalogs
+   visible" and whose addons returned 88-1020 sources for the same titles seconds earlier. The
+   screenshot is a black screen with one Continue Watching card. Reproduced on all three runs.
+   Refresh is a `LaunchedEffect(catalogRefreshKey)` in `HomeScreen.kt:527` that early-returns when
+   the key is empty. **Not yet confirmed against the installed MSI rather than a Gradle `run`.**
+2. **Episode stills do differ per row** on the series details screen - check 13 of the setup wizard
+   device script, previously listed there as "the least proven thing in the change". See
+   `S8.3-details-series.png`.
+
+The `Nuvio Z Debug` profile has **no debrid provider and no Trakt connection**, so S2 and S3 - the
+playback core - skipped on every run. A skip is never counted as a pass; the report lists each one
+with its reason. Configure debrid in the debug install before the next run, or the suite cannot
+answer the questions it was built for.
 
 ## Playback review pass (2026-08-17, unreleased, both repositories)
 
