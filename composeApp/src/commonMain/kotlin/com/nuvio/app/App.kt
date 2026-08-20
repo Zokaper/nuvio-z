@@ -264,6 +264,7 @@ import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.core.network.NetworkConnectionType
+import com.nuvio.app.core.network.NetworkEstimateConfidence
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkStrengthProbe
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -3656,7 +3657,6 @@ private fun MainAppContent(
                     // last. `peek` is the read, and it is pure, which is what keeps a value
                     // derived during composition from writing back into the flow driving it.
                     val networkSignal by NetworkQualityRepository.uiState.collectAsStateWithLifecycle()
-                    val isProbingConnection by NetworkStrengthProbe.isProbing.collectAsStateWithLifecycle()
                     val sheetNetworkQuality = remember(networkSignal, qualityProbeTarget?.providerId) {
                         NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
                     }
@@ -3669,11 +3669,48 @@ private fun MainAppContent(
                     // start a second one while the first is in flight, and this scope is cancelled
                     // when the sheet leaves composition, which is the cancellation actually wanted.
                     val probeScope = rememberCoroutineScope()
-                    LaunchedEffect(playbackRouteDecision, qualityProbeTarget, qualitySheetDismissed) {
+                    // **The sheet's "is a number still coming?" signal, and it is not
+                    // `isProbing`.** That flow only goes true once the transfer starts, which
+                    // waits on the option list, so between the sheet opening and the probe
+                    // launching the sheet had nothing to say and printed the stored figure -
+                    // then said "Checking", then replaced it. Three states for one question.
+                    //
+                    // Answered instead by `plan`, the same pure function the probe itself
+                    // obeys, so the header and the probe cannot disagree about whether a
+                    // measurement is happening.
+                    //
+                    // Two counters rather than a boolean: the nonce is bumped by the re-test
+                    // tap and `connectionSettled` is derived by comparing them, so a tap
+                    // un-settles the sheet in the same frame it is registered and the answer
+                    // that eventually lands can tell which ask it belongs to. `settled` means
+                    // "this figure is final", never "no probe is running" - a probe may still
+                    // be in flight past the deadline below, and the sheet has stopped waiting.
+                    var connectionRetestNonce by remember { mutableStateOf(0) }
+                    var connectionSettledNonce by remember { mutableStateOf(-1) }
+                    val connectionSettled = connectionSettledNonce == connectionRetestNonce
+                    LaunchedEffect(
+                        playbackRouteDecision,
+                        qualityProbeTarget,
+                        qualitySheetDismissed,
+                        connectionRetestNonce,
+                    ) {
                         if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) {
                             return@LaunchedEffect
                         }
                         if (qualitySheetDismissed) return@LaunchedEffect
+                        // **Two gates, and this effect re-runs often enough that both matter.**
+                        // `qualityProbeTarget` is rebuilt every time an addon answers.
+                        //
+                        // Once this sheet has committed to a figure it never goes back to
+                        // "Checking": a later provider-scoped probe is a refinement, and the
+                        // sheet's own latch absorbs it. Only a re-test re-opens the question.
+                        if (connectionSettled) return@LaunchedEffect
+                        // And a probe already in flight will settle the sheet when it lands.
+                        // Re-entering would hit `probe`'s single-flight guard, get null back
+                        // *immediately*, and settle the sheet while the real measurement was
+                        // still running - showing a figure that is about to change, which is
+                        // the exact thing this gate exists to prevent.
+                        if (NetworkStrengthProbe.isProbing.value) return@LaunchedEffect
                         val platform = NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
                         val inputs = NetworkStrengthProbe.Inputs(
                             isMetered = platform.isMetered,
@@ -3688,9 +3725,41 @@ private fun MainAppContent(
                             sourceUrl = qualityProbeTarget?.url,
                             sourceHeaders = qualityProbeTarget?.headers.orEmpty(),
                             providerId = qualityProbeTarget?.providerId,
-                            requiredMbps = playbackQualityOptions.firstOrNull()?.requiredMbps,
+                            // The **most expensive** row, not the first. The first is Best
+                            // available, whose `requiredMbps` is null by construction, so this
+                            // read null on every probe the app has ever run and the early exit
+                            // was unreachable code.
+                            requiredMbps = playbackQualityOptions.mapNotNull { it.requiredMbps }.maxOrNull(),
+                            force = connectionRetestNonce > 0,
                         )
-                        probeScope.launch { NetworkStrengthProbe.probe(inputs) }
+                        val askedNonce = connectionRetestNonce
+                        if (NetworkStrengthProbe.plan(inputs) == null) {
+                            // Nothing is going to be measured - the stored estimate is still
+                            // fresh, or there is no connection. It *is* the answer, so show it
+                            // now rather than sitting on "Checking your connection…" waiting for
+                            // a probe that will never run.
+                            connectionSettledNonce = askedNonce
+                            return@LaunchedEffect
+                        }
+                        probeScope.launch {
+                            // Settles on success and on failure alike. The sheet is withholding
+                            // a figure until this lands, so an early return that skipped it
+                            // would leave the surface stuck on "Checking".
+                            NetworkStrengthProbe.probe(inputs)
+                            connectionSettledNonce = askedNonce
+                        }
+                        // ⚠ **The deadline has to be raced here, not awaited inside the probe.**
+                        // `probe` wraps its transfer in `withTimeoutOrNull`, but the Android and
+                        // desktop readers block in `InputStream.read`, and coroutine cancellation
+                        // cannot interrupt that - a host that answers its headers and then goes
+                        // silent holds the probe for the client's own 60 s read timeout. This
+                        // coroutine only ever suspends in `delay`, so it always fires, and the
+                        // sheet settles onto whatever estimate it already had. Writing the same
+                        // nonce makes whichever finishes first the winner and the other a no-op.
+                        probeScope.launch {
+                            delay(NetworkStrengthProbe.PROBE_DEADLINE_MS)
+                            connectionSettledNonce = askedNonce
+                        }
                     }
 
                     // Nothing else bounds this wait. `isStreamlinedSelectionReady` closes every
@@ -3980,15 +4049,18 @@ private fun MainAppContent(
                                     streamsUiState.isAnyLoading,
                                 isSelecting = streamlinedSelectionPending,
                                 selectionContext = playbackSelectionContext,
-                                // Always a figure, never an unlabelled one. Hiding it until a
-                                // measurement landed took the connection meters off every card
-                                // as well, so a connection that could not be measured showed
-                                // less than before the measuring existed. The sheet says which
-                                // kind of number it is holding.
+                                // Always a labelled figure once it has settled - a connection
+                                // that could not be measured still gets its meters, which is
+                                // what an earlier "hide until measured" rule took away. What is
+                                // withheld is only the figure that is *about to be replaced*,
+                                // for the seconds `isMeasuringConnection` covers.
                                 estimatedMbps = sheetNetworkQuality.estimatedMbps,
                                 isConnectionMeasured = sheetNetworkQuality.isMeasured,
-                                isMeasuringConnection = isProbingConnection,
+                                isConnectionStale = sheetNetworkQuality.confidence ==
+                                    NetworkEstimateConfidence.CACHED,
+                                isMeasuringConnection = !connectionSettled,
                                 onOptionSelected = ::selectStreamlinedOption,
+                                onRetestConnection = { connectionRetestNonce += 1 },
                                 onChooseManually = {
                                     streamlinedSelectionPending = false
                                     pendingStreamlinedOptionId = null

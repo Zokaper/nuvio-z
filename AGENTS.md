@@ -187,10 +187,31 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   *and* no readable subtitles - because the complaint it answers is "no English audio **or** subs".
 - **Throughput is measured over a window, never as a mean** (`core/network/ThroughputWindow.kt`).
   A ranged GET's mean carries TCP slow start, and it under-reads *more* the faster the line is,
-  because a fast line hits the byte cap while still climbing - a connection shown as 57 Mb/s was
-  streaming 81. Excluding TTFB removes the handshake, not the ramp. Any new `httpMeasureThroughput`
-  actual must feed `ThroughputWindow` and report `peakWindowMbps`, and the byte budget must stay
-  large enough to *hold* a window past the ramp.
+  because a fast line hits the byte cap while still climbing - a connection shown as 56 Mb/s was
+  streaming 81. Excluding TTFB removes the handshake, not the ramp.
+  ⚠ **Shipping the window is not the same as the window working, and the first attempt shipped
+  three ways of not working.** All three are now covered by tests; do not undo any of them.
+  1. **Every `httpMeasureThroughput` actual must feed `ThroughputWindow` and report
+     `peakWindowMbps`.** The desktop actual did not - it returned null unconditionally while
+     Android and iOS carried the change - so `bestEffortMbps` fell back to the mean on the one
+     platform the fault was reported from. A null there must mean "the transfer was too small to
+     hold a window", never "this platform does not compute one".
+  2. **The byte budget must be able to hold a window at the speeds being measured**, and it is
+     sized in bytes against the fastest line worth distinguishing - a time budget cannot do that
+     job, because it is the byte cap that binds once the line is fast. 8 MiB is 66.6 Mb, under
+     one 750 ms window above ~89 Mb/s, which is why the window silently never closed for exactly
+     the users it was written for. Check both stops when moving either: at 32 MiB / 2.5 s the
+     byte cap binds above ~107 Mb/s and the clock binds below it.
+  3. **The neutral endpoint's body must be strictly larger than the budget.** `?bytes=` fixes the
+     resource size, and a resource smaller than the budget silently *becomes* the budget -
+     `CDN_FALLBACK_URL` asked for 4 MiB under an 8 MiB cap, so every reading on every platform was
+     a 4 MiB pull no matter what `MAX_BYTES` said.
+  A window is bounded by **bytes as well as time** for the same reason: 750 ms was chosen so one
+  late packet could not inflate the figure, which is a statement about bytes, not duration.
+  ⚠ **The probe's sample floors guard the mean, never the window.** A closed window already met
+  its own minimums; re-testing it against `MIN_SAMPLE_MS` discarded the fast-line samples the
+  window exists to rescue - above ~83 Mb/s the probe threw its own answer away and the stale
+  estimate survived, which is what "it won't update" looked like from outside.
   ⚠ **`NetworkThroughputMeter` is not demand-limited and must keep its blend.** It emits only a new
   maximum or a window in which the buffer drained, and a draining buffer is direct evidence the
   line is the bottleneck. Making `recordMeasuredThroughput` monotonic looks obviously right and
@@ -198,9 +219,19 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 - **The over-connection warning requires a measurement and a margin**
   (`PlaybackQualityOptions.connectionFit`). It used to be scored against `defaultMbps`' 50 Mbps
   Wi-Fi guess, so a connection nobody had measured still put a red line under half the catalogue.
-  Meters may draw on an unmeasured figure; the verdict has to be earned. The sheet also **latches
-  one figure for its own lifetime** - the probe lands a second or two after it opens, and a number
-  that changes while being read is worse than one that arrives late.
+  Meters may draw on an unmeasured figure; the verdict has to be earned.
+- **A connection figure that is about to be replaced is not shown at all.** While a measurement is
+  pending the quality sheet says it is checking and passes a **null** estimate down, so no card
+  draws a meter or an over-connection verdict either - withholding only the header still let the
+  meters jump when the probe landed. Two things this depends on, both of which were wrong first
+  time: the "checking" branch is tested **before** the measured one (a `CACHED` estimate counts as
+  measured, so the stored number printed and swapped seconds later), and the signal is
+  `NetworkStrengthProbe.plan(inputs) != null` rather than `isProbing`, which only goes true once
+  the transfer starts and left a stale-then-fresh flicker before it. It is **not** the older "hide
+  until measured" rule, which stripped the meters off a connection that simply could not be
+  measured; once the probe settles - landed, failed, or past `PROBE_DEADLINE_MS` - the sheet
+  commits to whatever it has and latches it. Nothing else bounds that wait, so the deadline is
+  load-bearing.
 - **A credential re-mint is a continuation, not a new item.**
   `PlayerScreenRuntimeState.isCredentialRefreshHandoff` suppresses `initialLoadCompleted = false`
   (and the subtitle/source-list clears) for the one `activeSourceUrl` change a re-mint causes.

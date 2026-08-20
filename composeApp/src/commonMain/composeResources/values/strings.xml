@@ -1152,6 +1152,7 @@
     <string name="playback_quality_your_connection">Your connection: about %1$d Mb/s</string>
     <string name="playback_quality_checking_connection">Checking your connection…</string>
     <string name="playback_quality_estimated_connection">Estimated ~%1$d Mb/s for this connection</string>
+    <string name="playback_quality_last_measured">Last measured: about %1$d Mb/s · tap to re-test</string>
     <string name="player_source_switched">Connection dropped - switched to %1$s</string>
     <string name="playback_instant_selected">Playing %1$s</string>
     <string name="playback_quality_no_match">No safe automatic source matched. Choose a source manually.</string>

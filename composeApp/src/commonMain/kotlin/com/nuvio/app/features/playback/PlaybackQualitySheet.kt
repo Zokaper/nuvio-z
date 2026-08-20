@@ -61,6 +61,7 @@ import nuvio.composeapp.generated.resources.playback_quality_best
 import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_estimated_connection
+import nuvio.composeapp.generated.resources.playback_quality_last_measured
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.playback_quality_needs
@@ -96,12 +97,23 @@ import kotlin.math.roundToInt
  * [PlaybackQualityOptions] and [PlaybackSourceSelector], which are testable outside Compose.
  * The same reasoning `PlaybackProgress.step`/`isVisible` are built on.
  *
- * [estimatedMbps] is what the connection is thought to carry and [isConnectionMeasured] says
- * whether that came from a measurement or from the link type. Both are needed: the figure drives
- * every card's meter, so withholding it until measured stripped the meters off a sheet that had
- * them before - a connection that could not be measured ended up showing *less* than one that
- * was never measured at all. The header names which kind of number it is instead, and
- * [isMeasuringConnection] says when one is being taken.
+ * [estimatedMbps] is what the connection is thought to carry, [isConnectionMeasured] says whether
+ * that came from a measurement or from the link type, and [isConnectionStale] says it came from a
+ * measurement the app could not refresh. The header names which kind of number it is holding
+ * rather than presenting all three alike.
+ *
+ * ⚠ **While [isMeasuringConnection] is true the sheet shows no figure at all - not the header
+ * number, and not the card meters.** A value that is about to be replaced is worse than no value:
+ * the previous build printed the stored figure, then swapped it seconds later when the probe
+ * landed, so a user reading the 4K row watched it go from warned to fine having done nothing.
+ * Withholding the header alone would not have fixed it, because [estimatedMbps] also feeds every
+ * card's `connectionFit` - the meters and the over-connection warnings would still have moved at
+ * that moment. The wait is bounded by `NetworkStrengthProbe.PROBE_DEADLINE_MS`.
+ *
+ * This is **not** the older behaviour of hiding the figure until it had been measured, which
+ * stripped the meters off a connection that simply could not be measured and left it showing less
+ * than one nobody had tried to measure. Once the measurement settles - landed, failed or timed
+ * out - the sheet commits to whatever it has, link-type guess included, and that figure holds.
  *
  * The figure is used only to mark a card as a stretch; it never disables one, because the
  * estimate is still an estimate and the user may know their line better than the app does.
@@ -130,8 +142,10 @@ fun PlaybackQualitySheet(
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
     isConnectionMeasured: Boolean,
+    isConnectionStale: Boolean,
     isMeasuringConnection: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
+    onRetestConnection: () -> Unit,
     onChooseManually: () -> Unit,
     onAdjustPreferences: () -> Unit,
     onDismiss: () -> Unit,
@@ -151,7 +165,21 @@ fun PlaybackQualitySheet(
     // sheet starts from whatever is current.
     var latchedMbps by remember { mutableStateOf<Double?>(null) }
     var latchedMeasured by remember { mutableStateOf(false) }
-    LaunchedEffect(estimatedMbps, isConnectionMeasured) {
+    // **Cleared whenever a measurement begins**, which is the one rule that keeps the latch from
+    // outliving its purpose. It exists to stop a figure moving while it is being read; it must
+    // never stop a figure the user deliberately asked for from arriving, and a re-test that came
+    // back *lower* is exactly the answer they were owed. Keyed on the flag rather than on a
+    // re-test counter so the sheet does not need to know why the measurement started.
+    LaunchedEffect(isMeasuringConnection) {
+        if (isMeasuringConnection) {
+            latchedMbps = null
+            latchedMeasured = false
+        }
+    }
+    LaunchedEffect(estimatedMbps, isConnectionMeasured, isMeasuringConnection) {
+        // Nothing is latched from a figure that is still being replaced - it would be latched
+        // and then, being upward-only, could refuse the real measurement that follows it.
+        if (isMeasuringConnection) return@LaunchedEffect
         val incoming = estimatedMbps?.takeIf { it > 0.0 } ?: return@LaunchedEffect
         val held = latchedMbps
         val accept = when {
@@ -170,8 +198,17 @@ fun PlaybackQualitySheet(
             latchedMeasured = isConnectionMeasured
         }
     }
-    val shownMbps = latchedMbps ?: estimatedMbps
-    val shownMeasured = if (latchedMbps != null) latchedMeasured else isConnectionMeasured
+    // **Null while measuring, and that null travels all the way down to the cards.**
+    // `PlaybackQualityOptions.connectionFit` already returns null for a null estimate, so every
+    // meter and every over-connection verdict disappears for the same window the header number
+    // does. Anything less leaves the meters to jump when the probe lands, which is the same
+    // fault wearing a smaller hat.
+    val shownMbps = if (isMeasuringConnection) null else latchedMbps ?: estimatedMbps
+    val shownMeasured = when {
+        isMeasuringConnection -> false
+        latchedMbps != null -> latchedMeasured
+        else -> isConnectionMeasured
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // The repo's tablet threshold, as used at App.kt:2051 and
@@ -220,7 +257,9 @@ fun PlaybackQualitySheet(
                         selectionContext = selectionContext,
                         estimatedMbps = shownMbps,
                         isConnectionMeasured = shownMeasured,
+                        isConnectionStale = isConnectionStale,
                         isMeasuringConnection = isMeasuringConnection,
+                        onRetestConnection = onRetestConnection,
                         gridMaxHeight = gridMaxHeight,
                         contentBottomPadding = tokens.spacing.dialogPadding,
                         onOptionSelected = onOptionSelected,
@@ -245,7 +284,9 @@ fun PlaybackQualitySheet(
                     selectionContext = selectionContext,
                     estimatedMbps = shownMbps,
                     isConnectionMeasured = shownMeasured,
+                    isConnectionStale = isConnectionStale,
                     isMeasuringConnection = isMeasuringConnection,
+                    onRetestConnection = onRetestConnection,
                     gridMaxHeight = gridMaxHeight,
                     contentBottomPadding = nuvioSafeBottomPadding(tokens.spacing.sheetPadding),
                     onOptionSelected = onOptionSelected,
@@ -269,6 +310,9 @@ fun PlaybackQualitySheet(
  * The third state is the one that is easy to miss: settled with nothing selectable is
  * reachable - `isStreamlinedSelectionReady` treats it as terminal - and an empty grid with
  * only "Choose source manually" under it is a dead end wearing a grid.
+ *
+ * The connection figure obeys the same rule for the same reason. [estimatedMbps] arrives null
+ * while it is being measured, so the header says so and no card draws a meter until it lands.
  */
 @Composable
 private fun QualitySheetBody(
@@ -278,10 +322,12 @@ private fun QualitySheetBody(
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
     isConnectionMeasured: Boolean,
+    isConnectionStale: Boolean,
     isMeasuringConnection: Boolean,
     gridMaxHeight: Dp,
     contentBottomPadding: Dp,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
+    onRetestConnection: () -> Unit,
     onChooseManually: () -> Unit,
     onAdjustPreferences: () -> Unit,
 ) {
@@ -332,33 +378,47 @@ private fun QualitySheetBody(
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
-        // Three states, one line, always drawn. A number appears only once the connection has
-        // actually been measured - an unmeasured one has no number, and printing a preset's
-        // bandwidth as "your connection" is the untruth this whole surface exists to stop.
-        // While a probe is running it says so rather than showing nothing and then pushing the
-        // grid down when the figure lands; the non-breaking space holds the same line open in
-        // the third case, where there is nothing to measure with and nothing to report.
+        // One line, always drawn, and it names which kind of number it is holding.
+        //
+        // ⚠ **"Checking" is tested first and must stay first.** It used to sit below the measured
+        // case, and because a figure restored from storage also counts as measured, a sheet that
+        // was actively re-measuring still printed the stored number and swapped it a second or
+        // two later - "Your connection: about 56 Mb/s" becoming 81 while it was being read. The
+        // order of these branches *is* the fix; the caller passes a null figure for the same
+        // window so the cards cannot contradict this line.
+        //
+        // The non-breaking space holds the line open in the last case, where there is nothing to
+        // measure with and nothing to report, so the grid does not shift when a figure arrives.
+        val connectionLine = when {
+            isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
+            estimatedMbps == null || estimatedMbps <= 0.0 -> "\u00A0"
+            // A measurement the app could not refresh. Days old and still rendered as "your
+            // connection" is the same untruth as printing a preset, arriving by a slower road.
+            isConnectionStale -> stringResource(
+                Res.string.playback_quality_last_measured,
+                estimatedMbps.roundToInt(),
+            )
+            isConnectionMeasured -> stringResource(
+                Res.string.playback_quality_your_connection,
+                estimatedMbps.roundToInt(),
+            )
+            else -> stringResource(
+                Res.string.playback_quality_estimated_connection,
+                estimatedMbps.roundToInt(),
+            )
+        }
         Text(
-            text = when {
-                isConnectionMeasured && estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
-                    Res.string.playback_quality_your_connection,
-                    estimatedMbps.roundToInt(),
-                )
-                // Checked **before** the unmeasured figure, not after. A probe in flight means a
-                // real number is seconds away, and printing the link-type guess in the meantime
-                // is how the header came to change under the user - "Estimated ~50 Mb/s for this
-                // connection" replaced by "Your connection: about 88 Mb/s" while they read it.
-                // Saying it is still checking costs one line and tells the truth.
-                isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
-                estimatedMbps != null && estimatedMbps > 0.0 -> stringResource(
-                    Res.string.playback_quality_estimated_connection,
-                    estimatedMbps.roundToInt(),
-                )
-                else -> "\u00A0"
-            },
+            text = connectionLine,
             style = MaterialTheme.typography.bodySmall,
             color = tokens.colors.textMuted,
             maxLines = 1,
+            // Tapping re-measures. Without it the only way to ask for a fresh reading was to
+            // close and reopen the app, and even that did nothing: the estimate outlives the
+            // process by a week and the probe is suppressed for ten minutes after each one.
+            // Inert while one is already running, so a second tap cannot queue a second probe.
+            modifier = Modifier
+                .clickable(enabled = !isMeasuringConnection, onClick = onRetestConnection)
+                .padding(vertical = CONNECTION_LINE_TAP_PADDING),
         )
 
         when {
@@ -804,6 +864,15 @@ private val ESTIMATE_MARKER_FRACTION =
  * surface does not jump when the figures arrive, which makes them wrong the moment the real
  * card's footprint changes - they are not free-standing constants.
  */
+/**
+ * Vertical padding that turns the connection line into something a finger can hit.
+ *
+ * One line of `bodySmall` is well under any sane touch target, and the re-test is the only way
+ * to ask for a fresh reading. Padding rather than a `height`, so the line still collapses to the
+ * non-breaking space when there is nothing to report.
+ */
+private val CONNECTION_LINE_TAP_PADDING = NuvioTokens.Space.s8
+
 private const val SKELETON_CARD_COUNT = 3
 private const val SKELETON_PULSE_MILLIS = 900
 private const val SKELETON_MIN_ALPHA = 0.4f

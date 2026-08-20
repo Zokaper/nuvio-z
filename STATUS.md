@@ -6,10 +6,127 @@ Last updated: 2026-08-20
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18) and the Streamlined refinement below. **Not pushed, not tagged** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, and the connection-gauge fix below. **Not pushed, not tagged** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **907**, desktop **1120**, pure suites **218** - all zero failures |
-| **Not** verified | nothing in the Streamlined refinement has been seen on a device or an installed desktop app; iOS is not compiled |
+| Verified | Android host **916**, desktop **1129**, pure suites **222** - all zero failures |
+| **Not** verified | nothing in the Streamlined refinement or the gauge fix has been seen on a device or an installed desktop app; iOS is not compiled |
+| Debug channel | desktop `DEBUG_BUILD=7` published for the gauge fix (`debug-v0.4.14-beta.7`). Mobile's counter deliberately **not** moved - a `Version.xcconfig` commit between releases truncates the next release's notes |
+
+## The connection gauge, actually fixed (2026-08-20, unreleased, both repositories)
+
+**Reported: still ~56 Mb/s, unchanged across app restarts, on the Windows desktop build.** The
+windowed-rate work in the pass below was supposed to have fixed exactly this and was inert.
+
+Unlike that pass, this one was **diagnosed from the stored estimate rather than from the code.**
+`%APPDATA%\Nuvio Z Debug\nuvio_network_quality.properties` held:
+
+```
+estimates_json=[{"networkId":"desktop:2fa9bc","mbps":56.470505050505054,
+                 "samples":14,"atEpochMs":1787231352214,"source":"PROBE"}]
+```
+
+Three facts follow directly, and they killed three plausible theories:
+
+- `"samples":14` - the probe **was** running and re-recording every time. Not a stuck cache, not a
+  suppressed probe, not a persistence bug.
+- **no `providerId`** - every reading was the neutral CDN fallback. Debrid links still need minting
+  when the sheet opens, so `probeTarget` never had a direct URL to pull from.
+- That endpoint serves exactly 4 MiB. Less the uncounted first 64 KiB chunk that starts the clock,
+  33.03 Mb; at 56.47 Mb/s the transfer lasted **585 ms**. Model a 250 ms ramp inside it and the
+  steady rate is ~72-79 Mb/s, which is the 81 Mbps remux that had been playing without a stall.
+
+### Four faults, and the first one made the previous fix a no-op on every platform
+
+1. **The budget could not hold a window.** `CDN_FALLBACK_URL` asked for `?bytes=4194304` while
+   `MAX_BYTES` said 8 MiB, so the *resource size* was the real cap and the `Range` header was
+   moot. Against a 750 ms window that gave: **≤44 Mb/s** the window closes and all is well;
+   **44-83 Mb/s** no window closes and the ramp-heavy mean is recorded - this is where 56 lived;
+   **>83 Mb/s** the transfer finishes inside `MIN_SAMPLE_MS` and the sample is discarded entirely,
+   so nothing is recorded at all. The faster the line, the worse the answer, which is the same
+   inversion the window was written to remove.
+2. **The desktop `httpMeasureThroughput` never got the window.** It built no `ThroughputWindow`,
+   returned `peakWindowMbps = null` unconditionally, and still early-exited on the cumulative mean.
+   `AGENTS.md` already required the opposite. The pass below claimed "Both platform readers feed
+   it"; that was true of Android and iOS, and the report came from the third.
+3. **The sample floors were applied to the window.** `probe()` rejected on `bytes`/`transferMs`
+   *before* reading `bestEffortMbps`, so a closed window - self-validating by construction - was
+   thrown out along with the fast short transfers it exists to rescue.
+4. **The early exit was unreachable.** `App.kt` passed `playbackQualityOptions.firstOrNull()
+   ?.requiredMbps`, and the first option is always Best available, whose `requiredMbps` is null by
+   construction. `stopAboveMbps` has been null on every probe the app has ever run.
+
+### What changed
+
+- `ThroughputWindow` gains a **byte floor** (1 MiB) beside the time floor, which drops to 250 ms.
+  750 ms was the wrong invariant: it was chosen so one late packet could not inflate the figure,
+  and that is a statement about bytes. Stated in bytes it works at both ends - a fast line closes a
+  window inside a budget it can afford, a slow line stretches its window until it is steady.
+- Budget **32 MiB / 2.5 s**, halved to 16 MiB on metered, so `Inputs.isMetered` stops being a field
+  that is carried and ignored. `Plan` carries `maxBytes` so the rule stays pure and tested.
+- `CDN_FALLBACK_URL` serves 128 MB, with the invariant written down: **the body must exceed the
+  budget**, or the resource size silently becomes the budget.
+- The floors now guard the mean only; a closed window is accepted on its own terms.
+- `requiredMbps` is the **max** across the sheet's options, so the early exit can fire.
+- The desktop reader feeds `ThroughputWindow` and judges its early exit on the windowed rate.
+- `NetworkStrengthProbe.PROBE_DEADLINE_MS` (5 s) bounds the whole measurement. Nothing else did -
+  the client allows 60 s to read a body - and the sheet now *waits* on it, so an unbounded probe
+  would have been an unbounded "Checking your connection…".
+
+### And the figure no longer changes while it is being read
+
+Reported separately, and the more visible half. The header's `when` tested `isConnectionMeasured`
+**before** `isMeasuringConnection`, and a `CACHED` estimate counts as measured - so a sheet that
+was actively re-measuring printed the stored number and replaced it a second or two later.
+`isProbing` made it worse: it only goes true once the transfer starts, which waits on the option
+list, so the real sequence was **old number → "Checking…" → new number**.
+
+- "Checking" is tested **first** now, and the signal is `NetworkStrengthProbe.plan(inputs) != null`
+  - the same pure function the probe obeys, so the header and the probe cannot disagree. When no
+  probe is planned (a fresh estimate, or offline) the figure appears immediately with no flash.
+- **The null travels down to the cards.** `estimatedMbps` also feeds every `connectionFit`, so
+  withholding only the header would have left the meters and the over-connection warnings to jump
+  at the same moment. `connectionFit` already returns null for a null estimate.
+- ⚠ **This is not the older "hide until measured" rule**, which stripped the meters off a
+  connection that simply could not be measured. Once the probe settles - landed, failed or timed
+  out - the sheet commits to whatever it has, link-type guess included.
+- The upward-only latch is cleared whenever a measurement begins, so a re-test that comes back
+  *lower* is still shown. That is the answer the user asked for.
+- The connection line is **tappable to re-test**. There was previously no way to ask for a fresh
+  reading at all: the estimate outlives the process by a week and the probe is suppressed for ten
+  minutes after each one, so closing and reopening the app - the only lever available - did
+  nothing. A forced probe skips the freshness gate and **replaces** rather than averaging; handing
+  back the mean of the new reading and the one the user just rejected is not an answer.
+
+⚠ **The deadline is raced in `App.kt`, not awaited inside `probe`.** `probe` does wrap its transfer
+in `withTimeoutOrNull`, but the Android and desktop readers block in `InputStream.read`, which
+coroutine cancellation cannot interrupt - a host that answers its headers and then goes silent
+holds the probe for the client's own 60 s read timeout, and the wrapper returns no earlier than the
+read does. A second coroutine that only ever suspends in `delay` therefore settles the sheet
+independently. The wrapper is still worth having: iOS's reader genuinely suspends, and it is what
+keeps a stalled transfer from being recorded anywhere.
+
+### Verified
+
+- **Android host suite: 916 tests, 0 failures** (`ANDROID_HOME="A:\AndroidSDK"`, empty
+  `local.properties` placeholder, deleted afterwards). Up from 907.
+- **Desktop suite in `NuvioZDesktop`: 1129 tests, 0 failures**, up from 1120. This is the only
+  thing that compiles `desktopMain`, and therefore the only check on the ported reader.
+- **`scripts/run-pure-suites.sh` in both repositories: 222 tests**, up from 218. The four new
+  `ThroughputWindowTest` cases run the shipped arithmetic outside Gradle, including a replay of
+  the 4 MiB / 585 ms transfer that produced 56.47 Mb/s - it now reports 72.
+
+⚠ **Not verified on a device or an installed app.** The end-to-end check is: delete
+`%APPDATA%\Nuvio Z Debug\nuvio_network_quality.properties`, open a title in Streamlined, and read
+the file back. Expect `"source":"PROBE"` with `mbps` in the 80-150 range rather than 56.47; a figure
+still near 56 means the reader is not feeding the window. The sheet must show "Checking your
+connection…" with **no** number and **no** card meters until it commits, then hold one figure.
+iOS is not compiled.
+
+⚠ **One open question, deliberately not chased here.** The stored blob held a single provider-less
+key and no `PASSIVE` entry at all, so `recordMeasuredThroughput` from
+`PlayerScreenRuntimeSourceActions.kt:321` appears never to have landed on this install. After a few
+minutes of playback there should be a second estimate keyed to the debrid provider. If there is
+not, the passive path has its own defect and wants its own pass.
 
 ## Streamlined: absolute quality bands, a real language rule, an honest connection figure (2026-08-20, unreleased, both repositories)
 
@@ -113,12 +230,17 @@ reaches the byte cap while still climbing. Excluding TTFB, which the readers alr
 the handshake and leaves the ramp untouched.
 
 New `core/network/ThroughputWindow.kt` (import-free, executable outside Gradle) reports the best
-rate sustained over any 750 ms window. Both platform readers feed it, `ThroughputSample` gains
-`peakWindowMbps` and `bestEffortMbps`, and the probe records that. The budget went 4 MiB / 2.5 s →
-**8 MiB / 3.5 s**, because a window has to *fit inside* the transfer where a mean only wanted more
-samples: 4 MiB at 200 Mbps is 0.17 s, not one window let alone one past the ramp. `EARLY_EXIT_MARGIN`
-now judges the windowed rate too - against the cumulative mean it fired late on a fast line and
-could not fire at all on a slow one.
+rate sustained over any 750 ms window. `ThroughputSample` gains `peakWindowMbps` and
+`bestEffortMbps`, and the probe records that. The budget went 4 MiB / 2.5 s → **8 MiB / 3.5 s**,
+because a window has to *fit inside* the transfer where a mean only wanted more samples: 4 MiB at
+200 Mbps is 0.17 s, not one window let alone one past the ramp. `EARLY_EXIT_MARGIN` now judges the
+windowed rate too - against the cumulative mean it fired late on a fast line and could not fire at
+all on a slow one.
+
+⚠ **None of the paragraph above worked, and "Both platform readers feed it" was wrong when it was
+written.** See "The connection gauge, actually fixed" below - the budget could still not hold a
+window, the desktop reader was never updated, and the sheet still swapped the figure under the
+reader. Read that section before trusting any number in this one.
 
 ⚠ **One change was made and then reverted after reading the code it touched.**
 `recordMeasuredThroughput` was going to become monotonic on the grounds that buffer-derived rates

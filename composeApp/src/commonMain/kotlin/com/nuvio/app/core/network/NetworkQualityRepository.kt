@@ -195,8 +195,17 @@ object NetworkQualityRepository {
      * measurement of the network the user is on now with one from a network they have left is
      * how a stale estimate survives being disproved. Two probes within one session average
      * evenly, because neither is better evidence than the other.
+     *
+     * [replaceExisting] overrides that averaging for a probe the **user asked for**. Someone who
+     * taps re-test is saying the stored figure is wrong; handing them its average with the new
+     * reading answers a question they did not ask, and on the fault this was written for it would
+     * have taken four re-tests to walk 56 up to a correct 80.
      */
-    fun recordProbeResult(mbps: Double, providerId: String? = null) {
+    fun recordProbeResult(
+        mbps: Double,
+        providerId: String? = null,
+        replaceExisting: Boolean = false,
+    ) {
         if (!mbps.isFinite() || mbps <= 0.0) return
         restoreIfNeeded()
         val key = EstimateKey(NetworkQualityPlatform.current().networkId, providerId.normalizedProvider())
@@ -206,7 +215,7 @@ object NetworkQualityRepository {
         // What made it untrustworthy was the arithmetic, not the direction: it recorded the mean
         // over a short transfer, which is mostly TCP slow start. That is fixed at the source in
         // `ThroughputWindow`, so the blend below stands.
-        val blended = if (old == null || !old.isThisSession) {
+        val blended = if (replaceExisting || old == null || !old.isThisSession) {
             mbps
         } else {
             old.mbps * 0.5 + mbps * 0.5

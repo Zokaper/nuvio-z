@@ -153,29 +153,107 @@ class NetworkStrengthProbeTest {
     }
 
     @Test
-    fun theEarlyExitIsSetAboveWhatTheOptionActuallyNeeds() {
-        // Proving a fast line is fast does not need the whole budget. The margin is over the
-        // requirement, not over the file's bitrate, so it already includes the headroom.
-        val plan = assertNotNull(
+    fun theEarlyExitNeverStopsBelowWhatEveryDecisionNeedsToKnow() {
+        // ⚠ **The rate a probe stops at is the rate it records**, and that figure is persisted
+        // and read back by `resolutionForEstimate` and by the next sheet for ten minutes. Scaling
+        // the exit to whatever happens to be on screen looked like a saving and was a trap: a
+        // title whose most expensive release is a 5 Mb/s 720p encode would stop the probe at 7.5
+        // and write "your connection: 8 Mb/s" for a line carrying 200.
+        val cheap = assertNotNull(
             NetworkStrengthProbe.plan(
-                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 24.0),
+                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 5.0),
             ),
         )
 
-        assertEquals(36.0, assertNotNull(plan.stopAboveMbps), 1e-9)
+        assertEquals(200.0, assertNotNull(cheap.stopAboveMbps), 1e-9)
     }
 
     @Test
-    fun anOptionWithNoCostSpendsTheWholeBudget() {
-        // Best available quotes no bucket cost, and a null here means "no early exit" rather
-        // than "exit immediately", which would return a sample below the floor every time.
+    fun anUnusuallyExpensiveSheetRaisesTheEarlyExitAboveTheFloor() {
+        // The margin is over the requirement, not over the file's bitrate, so it already includes
+        // the headroom. A 160 Mb/s remux has to be provably affordable, which needs a reading
+        // above the floor.
+        val plan = assertNotNull(
+            NetworkStrengthProbe.plan(
+                inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = 160.0),
+            ),
+        )
+
+        assertEquals(240.0, assertNotNull(plan.stopAboveMbps), 1e-9)
+    }
+
+    @Test
+    fun anOptionWithNoCostStillGetsAnEarlyExit() {
+        // Best available quotes no bucket cost. Leaving the exit null for it disabled the exit on
+        // the one option the sheet always shows first - which, with `App.kt` reading
+        // `firstOrNull()?.requiredMbps`, is why it never fired in the shipped app at all.
         val plan = assertNotNull(
             NetworkStrengthProbe.plan(
                 inputs(sourceUrl = "https://cdn.example/file.mkv", requiredMbps = null),
             ),
         )
 
-        assertNull(plan.stopAboveMbps)
+        assertEquals(200.0, assertNotNull(plan.stopAboveMbps), 1e-9)
+    }
+
+    @Test
+    fun theBudgetHasToBeAbleToHoldAWindow() {
+        // The fault this file's constants were re-derived for. A budget is only meaningful
+        // against the window it has to contain: 32 MiB is ~0.9 s at 300 Mb/s, which holds two
+        // 250 ms windows past the ramp. The predecessors - 4 MiB, then 8 MiB - could not hold
+        // one above ~44 and ~89 Mb/s respectively, so the faster the line the more certainly the
+        // measurement fell back to the ramp-contaminated mean.
+        val budget = assertNotNull(NetworkStrengthProbe.plan(inputs())).maxBytes
+        val secondsAt300Mbps = budget.toDouble() * 8.0 / 300_000_000.0
+
+        assertEquals(NetworkStrengthProbe.MAX_BYTES, budget)
+        assertTrue(
+            secondsAt300Mbps * 1_000.0 > ThroughputWindow.DEFAULT_WINDOW_MS * 2,
+            "a $budget byte budget is $secondsAt300Mbps s at 300 Mb/s, too short for two windows",
+        )
+        assertTrue(budget > ThroughputWindow.DEFAULT_MIN_WINDOW_BYTES * 4)
+    }
+
+    @Test
+    fun theNeutralEndpointServesMoreThanTheBudget() {
+        // `?bytes=` fixes the resource size, so a body smaller than the budget silently *becomes*
+        // the budget and raising MAX_BYTES changes nothing. That is exactly what happened: a
+        // 4 MiB body under an 8 MiB budget meant every reading on every platform was a 4 MiB
+        // pull, which is 585 ms at 72 Mb/s - too short to hold a window.
+        val served = NetworkStrengthProbe.CDN_FALLBACK_URL
+            .substringAfter("bytes=")
+            .toLong()
+
+        assertTrue(
+            served > NetworkStrengthProbe.MAX_BYTES,
+            "the endpoint serves $served bytes, at or under the ${NetworkStrengthProbe.MAX_BYTES} budget",
+        )
+    }
+
+    @Test
+    fun aMeteredLinkSpendsLess() {
+        // Metered is probed - see `aMeteredConnectionIsProbedToo` - but on half the budget. That
+        // still reads honestly past anything a metered link sustains, and `isMetered` stops
+        // being a field that is carried and ignored.
+        assertEquals(
+            NetworkStrengthProbe.METERED_MAX_BYTES,
+            assertNotNull(NetworkStrengthProbe.plan(inputs(isMetered = true))).maxBytes,
+        )
+        assertTrue(NetworkStrengthProbe.METERED_MAX_BYTES < NetworkStrengthProbe.MAX_BYTES)
+    }
+
+    @Test
+    fun aRequestedRetestIsNotAnsweredWithTheFigureBeingQuestioned() {
+        // Tapping re-test means the stored number is not believed. The freshness gate exists to
+        // stop the app spending bytes on an answer it already has; it must not stop the user
+        // asking for a different one.
+        assertNull(NetworkStrengthProbe.plan(inputs(lineEstimateAgeMs = 60_000L)))
+
+        val forced = assertNotNull(
+            NetworkStrengthProbe.plan(inputs(lineEstimateAgeMs = 60_000L, force = true)),
+        )
+
+        assertTrue(forced.isForced, "a forced plan must carry the flag that stops the 50/50 blend")
     }
 
     private fun inputs(
@@ -187,6 +265,7 @@ class NetworkStrengthProbeTest {
         sourceHeaders: Map<String, String> = emptyMap(),
         providerId: String? = null,
         requiredMbps: Double? = null,
+        force: Boolean = false,
     ) = NetworkStrengthProbe.Inputs(
         isMetered = isMetered,
         isOffline = isOffline,
@@ -196,5 +275,6 @@ class NetworkStrengthProbeTest {
         sourceHeaders = sourceHeaders,
         providerId = providerId,
         requiredMbps = requiredMbps,
+        force = force,
     )
 }

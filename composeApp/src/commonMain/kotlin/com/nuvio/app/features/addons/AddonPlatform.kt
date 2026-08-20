@@ -59,8 +59,8 @@ data class ThroughputSample(
     val transferMs: Long,
     val ttfbMs: Long,
     /**
-     * The best rate sustained over any [THROUGHPUT_WINDOW_MS] of the transfer, or null when the
-     * transfer was too short to hold a window.
+     * The best rate sustained over any one window of the transfer, or null when the transfer was
+     * too short or too small to hold one. See `ThroughputWindow` for what bounds a window.
      *
      * **This is the honest figure and [mbps] is not.** A mean over the whole body includes TCP
      * slow start, which on a short pull is most of it: the congestion window has to double its
@@ -68,10 +68,16 @@ data class ThroughputSample(
      * first stretch nowhere near the line's real rate. The mean of that ramp is not a
      * measurement of the connection, it is a measurement of the ramp - and it under-reads by
      * more the faster the line is, which is exactly backwards for deciding whether 4K will
-     * play. A reported "57 Mb/s" line that streamed an 81 Mbps remux without trouble is what
+     * play. A reported "56 Mb/s" line that streamed an 81 Mbps remux without trouble is what
      * this is here to stop.
      *
      * Excluding TTFB, which [mbps] already does, removes the handshake but not the ramp.
+     *
+     * ⚠ **Every actual must populate this, and the desktop one did not.** It went out reporting
+     * null unconditionally, so `bestEffortMbps` fell through to the mean on that platform and
+     * the whole windowed-rate change was inert there while the other two carried it. A null here
+     * has to mean "the transfer was too small to hold a window", never "this platform does not
+     * compute one" - the callers cannot tell those apart.
      */
     val peakWindowMbps: Double? = null,
 ) {
@@ -96,14 +102,6 @@ data class ThroughputSample(
 }
 
 /**
- * How much of the transfer one throughput window covers.
- *
- * Long enough that a single delayed packet cannot inflate the figure, short enough that a
- * 2-3 second budget holds several windows and the ramp occupies only the first.
- */
-const val THROUGHPUT_WINDOW_MS: Long = 750L
-
-/**
  * Streams up to [maxBytes] and reports how long they took, without materialising the body.
  *
  * [httpRequestRaw] cannot do this job: it decodes the body to a `String` and caps at 1 MiB, so
@@ -113,6 +111,13 @@ const val THROUGHPUT_WINDOW_MS: Long = 750L
  * is non-null - the running rate clearing it, which is there so proving a fast line is fast does
  * not cost the full budget. Implementations must request `identity` encoding: a gzipped body
  * would time compressed bytes and report a rate no video file will ever reach.
+ *
+ * Every actual owes three things, and the desktop one shipped without the last two:
+ *
+ * 1. exclude the chunk that starts the clock, whose own transfer time was not measured;
+ * 2. feed every subsequent chunk to a `ThroughputWindow` and report [ThroughputSample.peakWindowMbps];
+ * 3. judge [stopAboveMbps] on the **windowed** rate, not the cumulative mean - the mean lags the
+ *    real rate, so on a fast line the exit fires late and on a slow one it cannot fire at all.
  */
 expect suspend fun httpMeasureThroughput(
     url: String,

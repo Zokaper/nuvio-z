@@ -19,11 +19,24 @@ package com.nuvio.app.core.network
  * Excluding time-to-first-byte, which the callers already do, removes the handshake and leaves
  * the ramp untouched. Only a window does that.
  *
+ * **A window is bounded by bytes as well as by time, and the byte bound is the load-bearing one.**
+ * The first cut required only a fixed 750 ms, which no transfer the probe could afford ever
+ * contained: the neutral endpoint serves 4 MiB, so above ~44 Mb/s the whole pull finished inside
+ * one window, [peakMbps] stayed null, and every caller fell back to the very mean this class
+ * exists to replace. That is not a tuning miss, it is the wrong invariant - 750 ms was chosen so
+ * that one delayed packet could not inflate the figure, and *that* is a statement about how many
+ * bytes the window holds, not about how long it lasts. Stated in bytes it works at both ends: a
+ * fast line closes a window inside a budget it can afford (250 ms at 100 Mb/s is 3 MB, thousands
+ * of packets), and a slow line stretches its window until it has enough bytes to be steady.
+ *
  * Feed [record] a cumulative byte count and the milliseconds since the first byte. Sample count
- * is bounded by the transfer's chunk count - about 128 for an 8 MiB body - so the scan below is
+ * is bounded by the transfer's chunk count - about 512 for a 32 MiB body - so the scan below is
  * not worth indexing.
  */
-class ThroughputWindow(private val windowMs: Long = DEFAULT_WINDOW_MS) {
+class ThroughputWindow(
+    private val windowMs: Long = DEFAULT_WINDOW_MS,
+    private val minWindowBytes: Long = DEFAULT_MIN_WINDOW_BYTES,
+) {
 
     private val elapsed = ArrayDeque<Long>()
     private val cumulative = ArrayDeque<Long>()
@@ -40,12 +53,16 @@ class ThroughputWindow(private val windowMs: Long = DEFAULT_WINDOW_MS) {
         // The newest start point far enough back to close a window. Newest rather than oldest so
         // the span stays close to `windowMs`: measuring across the whole transfer would drag the
         // ramp back in, which is the thing being escaped.
+        //
+        // Both bounds are monotone as `index` walks older - the span only grows and the byte
+        // delta only grows - so the first index satisfying both, scanning newest to oldest, is
+        // the newest qualifying one and the scan can still stop there.
         var index = elapsed.size - 2
         while (index >= 0) {
             val span = elapsedMs - elapsed[index]
-            if (span >= windowMs) {
-                val rate = (cumulativeBytes - cumulative[index]).toDouble() * 8.0 /
-                    span.toDouble() / 1_000.0
+            val bytes = cumulativeBytes - cumulative[index]
+            if (span >= windowMs && bytes >= minWindowBytes) {
+                val rate = bytes.toDouble() * 8.0 / span.toDouble() / 1_000.0
                 if (rate > (best ?: 0.0)) best = rate
                 // Everything older can only produce a longer span, which is a worse window.
                 break
@@ -54,8 +71,15 @@ class ThroughputWindow(private val windowMs: Long = DEFAULT_WINDOW_MS) {
         }
 
         // Nothing before the cutoff can ever be the *newest* qualifying start again, except the
-        // single most recent one, which is still needed to close the next window.
-        while (elapsed.size > 2 && elapsedMs - elapsed[1] >= windowMs) {
+        // single most recent one, which is still needed to close the next window. Pruning has to
+        // test the same pair of bounds as the scan: dropping an entry that is old enough but has
+        // not yet carried `minWindowBytes` would discard the only start point a slow line can
+        // ever close a window from.
+        while (
+            elapsed.size > 2 &&
+            elapsedMs - elapsed[1] >= windowMs &&
+            cumulativeBytes - cumulative[1] >= minWindowBytes
+        ) {
             elapsed.removeFirst()
             cumulative.removeFirst()
         }
@@ -63,9 +87,23 @@ class ThroughputWindow(private val windowMs: Long = DEFAULT_WINDOW_MS) {
 
     companion object {
         /**
-         * Long enough that one delayed packet cannot inflate the figure, short enough that a
-         * 2-3 second budget holds several windows and the ramp occupies only the first.
+         * The floor on a window's duration.
+         *
+         * Was 750 ms, which could not close inside any transfer the probe was willing to pay
+         * for - see the class note. 250 ms is short enough that a 32 MiB budget holds several
+         * windows past the ramp at 300 Mb/s, and the "one late packet must not matter" property
+         * it used to carry alone is now held by [DEFAULT_MIN_WINDOW_BYTES].
          */
-        const val DEFAULT_WINDOW_MS: Long = 750L
+        const val DEFAULT_WINDOW_MS: Long = 250L
+
+        /**
+         * The floor on a window's size, which is what actually makes the figure steady.
+         *
+         * A mebibyte is ~700 full-size segments, so no single delayed or coalesced read can move
+         * the rate meaningfully. On a slow line this is the binding constraint and the window
+         * simply lasts longer than [DEFAULT_WINDOW_MS]; that is the intended behaviour, not a
+         * fallback.
+         */
+        const val DEFAULT_MIN_WINDOW_BYTES: Long = 1024L * 1024L
     }
 }
