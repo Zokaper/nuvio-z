@@ -164,6 +164,13 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   condition: four separate dead ends reached "covered screen, nothing behind it" that
   way, and the worst of them was a blank screen with a fully tappable source list
   underneath. A new terminal state is a new case in that function and its test.
+  ⚠ **`isAutoPickRoute` is a route *identity*, not a second "the automatic path is working"
+  flag.** The note left when it was deleted warned against two of the latter, and it was
+  right: there is still exactly one, `isAutoPlaybackStarting`, serving both modes. Instant's
+  rule sits **above** `awaitingUserAnswer` on purpose, so its metered question is asked over
+  the progress overlay rather than over the Classic source list the mode exists to avoid -
+  dismissing that dialog answers Data saver and the play continues, so there is nothing for
+  an uncovered list to be the fallback for.
 - A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
   `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
   the user searched for by name is worse than showing it.
@@ -330,14 +337,33 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `features/playback/AutoDownshiftDetector.kt`,
   `features/playback/PlaybackProgressOverlay.kt`,
   `features/playback/PlaybackPreferencesDialog.kt`.
-  ⚠ **Only Classic and Streamlined ship.** `PlaybackMode.isSelectable` is the *only*
-  availability test, and `coerceSelectable` maps a stored `INSTANT` to `STREAMLINED` at
-  read time, so no profile can be on Instant at runtime. Its route paths were removed in
-  `0.5.0-beta`; `PlaybackRouteDecision.AutoPick`, `AutoDownshiftDetector` and
-  `NetworkQualityRepository` are kept as its re-entry point, and `NetworkStrengthProbe`
-  still draws the quality sheet's connection meters. The disabled Instant card stays
-  visible in the wizard and settings by decision, not oversight.
+  ⚠ **All three modes ship.** `PlaybackMode.isSelectable` is still the *only* availability
+  test and `coerceSelectable` is still applied at read time; both are now no-ops, kept
+  because they are the withdrawal mechanism and it has been used twice. Automatic downshift
+  is withheld **separately**, by `AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE` - it used
+  to ride on `INSTANT.isSelectable` and would otherwise have shipped a never-once-observed
+  mid-playback source swap in the same release the mode returned.
   There is no `PlaybackModeRepository.kt` - the mode lives in `PlayerSettingsRepository`.
+- **Instant is not a third selection mechanism; it is Streamlined with the quality sheet
+  auto-answered by the connection.** One effect in `entry<StreamRoute>` picks an option with
+  `PlaybackQualityOptions.stickyAffordable` and hands off through the same
+  `startAutoSelectedPlayback` the sheet and the remembered band use, so both modes share one
+  picker, one failure chain, one overlay and one set of dead ends. A second ordering scoring
+  the same candidates is what got Instant withdrawn the first time. Four rules hold it:
+  - **It waits for the connection measurement to settle** (`connectionSettled`, bounded by the
+    raced `NetworkStrengthProbe.PROBE_DEADLINE_MS`) before it decides. The sheet merely prints
+    that figure; Instant *decides* on it, so choosing early means choosing from `defaultMbps`'
+    unmeasured 50 Mbps Wi-Fi guess - which is the sentence the mode was withdrawn under.
+  - ⚠ **`instantSelectionHandled` is latched for the life of the route and must never be
+    reset.** It guards the seed, so clearing it on a retry re-seeds the chain back to
+    candidate 1 and the same failure loops forever instead of advancing.
+  - **The toast and the remembered resolution are written where the source *opens*, not where
+    Instant chooses.** The chain can advance past a dead candidate to a different resolution;
+    recording the intent would remember something that never played, and the next episode
+    would then prefer a resolution that had just failed.
+  - **Instant passes `rememberBand = false`.** The band id is Streamlined's record of a
+    question the user answered and is what makes the route skip the sheet; Instant asked
+    nothing, so it records only the height, which `stickyAffordable` reads as a tie-break.
 - First-launch setup wizard: `features/setup/` - `SetupWizardSteps.kt` (the ordering and the
   show-once revision rule) and `SetupModeStoryboard.kt` (what each playback mode's animation
   claims) are **import-free** and covered by `scripts/run-pure-suites.sh`; everything else there
@@ -696,6 +722,14 @@ every one of them has caught a real fault:
    generated `Res`, `getString`) can be stubbed in the same package. **Stub the
    neighbours, never the file under test**, and say in `STATUS.md` which were
    stubbed - a test against a copy of the code proves nothing.
+
+   ⚠ **A stub can also drift without the compile noticing, which is worse than a
+   loud failure.** `PlaybackModeStub.kt` carried its own `isSelectable`, hardcoded to
+   `this != INSTANT`; nothing in group 1 called it, so the compile stayed green and
+   the suite would have gone on asserting a rule the app had stopped following.
+   **Prefer compiling the shipped source over stubbing anything that carries a
+   decision**, even at the cost of a compiler plugin - group 1 gained `-Xplugin`
+   and the JSON runtime purely so `PlaybackModeModels.kt` could be the real file.
 
 3. **The desktop download harness.** `NuvioZDesktop`'s
    `composeApp/src/desktopTest/.../DesktopDownloadQueueE2ETest.kt` runs the real

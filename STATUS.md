@@ -6,11 +6,197 @@ Last updated: 2026-08-21
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, and the settings reorganisation + audio/HDR-aware source preferences below. **Not pushed, not tagged** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **937**, desktop **1150**, pure suites **235** - all zero failures |
-| **Not** verified | **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.10`, mobile `debug-v0.4.14-beta.18` - both published 2026-08-21, carrying the settings reorganisation and the tag-combining fix. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Verified | Android host **946**, desktop **1159**, pure suites **251** - all zero failures |
+| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
+| Debug channel | desktop `debug-v0.4.14-beta.11`, mobile `debug-v0.4.14-beta.19` - both published 2026-08-21, **carrying Instant's return**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## Instant is back (2026-08-21, unreleased, both repositories)
+
+Instant was withdrawn twice, and both times for the same sentence: it picked a quality from a
+line nobody had measured properly and had no ceiling to hold what it picked. `0.4.10-beta`
+(`8a61c993`) withheld the mode behind `PlaybackMode.isSelectable`; `0.5.0-beta` (`476eef64`)
+deleted its route paths, because a third of `entry<StreamRoute>` existed to serve a mode no
+profile could be on.
+
+**Every reason it was pulled has been answered since, and by work done for Streamlined rather
+than for Instant.** The estimate is a windowed sustained rate that every platform reader feeds
+(`ThroughputWindow`, the gauge fix, the 403 follow-up); a figure that is still moving is
+withheld rather than shown; `playback_quality_ceiling_mbps` is applied before bucketing so even
+Best available honours it; bands are absolute; the picker reads HDR, audio and language
+correctly; and a dead source is named, counted and stepped past by a capped chain with an
+escape hatch. `isSelectable`'s own KDoc had already recorded that the original reason no longer
+applied and that *"what is left is evidence"*. This change is about going and getting it.
+
+### Instant is Streamlined with the sheet auto-answered
+
+That is the whole design, and it is what keeps the diff small. Streamlined already had a path
+that skips its sheet and plays - the remembered band, which picks an option, announces
+*"Playing 1080p High · Change"* and hands off. Instant is that path with
+`PlaybackQualityOptions.stickyAffordable` in place of `rememberedOption`.
+
+One picker, one failure chain, one overlay, one set of dead ends. `PlaybackModeRouter` did not
+change: its Instant arm was never removed, and neither was `PlaybackModeDownloadRouter`'s, which
+is still wired to `MetaDetailsScreen` - Instant's download entry point has worked the whole
+time. `PlayerNextEpisodeAutoPlay` branches on `!= CLASSIC`, so Instant's next episode reached
+parity for free.
+
+What was actually built:
+
+| | |
+| --- | --- |
+| `PlaybackMode.isSelectable` | true for all three. Kept, with `coerceSelectable`, because they are the withdrawal mechanism and it has been used twice. A profile stored on Instant since `0.4.9-beta` **comes back to Instant on update** - storage was never rewritten, which was the point of coercing at read time |
+| `streamRouteSurface` | `isAutoPickRoute` restored, plus one rule. Without it an Instant play matched nothing and fell to the final `HandOff`: an opaque, empty, pointer-consuming screen over a tappable source list - the exact fault that function exists to prevent |
+| `isStreamlinedPlaybackStarting` → `isAutoPlaybackStarting` | one flag for both modes, which is what the deletion note was actually protecting |
+| The selection effect | waits for the fetch **and** for `connectionSettled`, then `stickyAffordable` → `startAutoSelectedPlayback(option, rememberBand = false)` |
+| Metered | the ask is back, as **Data saver / High quality**. Dismissing answers Data saver |
+| The toast | `Playing 1080p · WEB-DL · TorBox`, with **Change** |
+| Auto-downshift | **withheld separately**, see below |
+
+### Four things worth not re-deriving
+
+- ⚠ **Instant waits for the connection measurement.** The quality sheet only *prints* that
+  figure; Instant *decides* on it, so choosing before the probe settles means choosing from
+  `defaultMbps`' unmeasured 50 Mbps Wi-Fi guess. It gates on the same `connectionSettled` nonce
+  the sheet uses, so the two cannot disagree, and it inherits the raced `PROBE_DEADLINE_MS` that
+  bounds it - `probe` itself cannot, because the Android and desktop readers block in
+  `InputStream.read`. The wait is usually invisible: the probe runs beside the fetch and the
+  fetch is slower. `PlaybackProgressStep.CheckingConnection` names it for when it is not, reusing
+  the sheet's own wording rather than inventing a second one.
+- ⚠ **`instantSelectionHandled` is latched and must never be reset.** It guards the seed.
+  Clearing it on a retry re-seeds the chain back to candidate 1 and the failure loops forever
+  instead of advancing - the same warning this file has carried since `0.4.9-beta`.
+- ⚠ **The toast and the remembered resolution are written where the source *opens*, not where
+  Instant chooses.** The chain can advance past a dead or evicted candidate to a different
+  resolution; recording the intent would remember something that never played, and the next
+  episode would then prefer a resolution that had just failed. That is the churn the
+  predictability pass removed and it would have come straight back.
+- **`rememberBand = false`.** The band id is Streamlined's record of a question the user
+  answered and is what makes the route skip its sheet. Instant asked nothing, so it writes only
+  the height, which `stickyAffordable` treats as a tie-break - never a ceiling, never a floor.
+
+### Three faults found while building it, all the same shape
+
+None was in the plan, and they share one cause: **Instant is the first thing in
+`entry<StreamRoute>` that waits on purpose.** Every guard in that route was written on the
+assumption that a wait there is a stall, and three of them acted on a deliberate one.
+
+1. **The stall backstop would have killed the probe wait.** Its guard is "overlay up, no
+   candidate armed, nothing resolving, fetch settled" and it gives up after
+   `PLAYBACK_PROGRESS_STALL_GRACE_MS` - 1.5 s. Instant standing by for `connectionSettled` matches
+   that exactly, and the probe deadline is 5 s. So on any connection that actually needed
+   measuring, Instant would have dropped to the Classic source list a second and a half in -
+   the one outcome the mode exists to prevent, on precisely the users it exists for. The guard
+   now excludes an `AutoPick` route whose measurement has not settled, and the effect is keyed on
+   `connectionSettled` so it re-arms the moment it does. **A wait with a named owner and its own
+   deadline is not a dead end**; that is the distinction the backstop was missing.
+2. **Instant probed the user's data plan before asking to use it.** A metered probe is capped at
+   `METERED_MAX_BYTES` (16 MiB), and the mode card promises it *"asks once before using mobile
+   data"*. Measuring first and asking afterwards spends the allowance to decide a question the
+   user has not yet agreed to be asked. The probe effect now returns - **without settling the
+   nonce**, so the selection effect keeps waiting - while the question is unanswered, and re-runs
+   when the answer lands.
+3. **The 20-second selection timeout would have fired on someone reading that dialog**, toasting
+   *"sources timed out"* at a question the app itself had asked. That clock is for an addon that
+   never answers; a user deciding whether to spend their data can easily take longer.
+
+`awaitingMeteredAnswer` is hoisted to one `val` with **four** readers - the probe, the selection
+timeout, the stall backstop (through `awaitingUserAnswer`) and the surface - because four copies
+of one condition is how three of them end up agreeing and the fourth does not. It is gated on the
+**route**, not the mode: Streamlined has no such dialog, its `meteredChoice` is null forever, and
+waiting on it there would strand its sheet on "Checking your connection…".
+
+### The two smaller decisions
+
+**The metered ask is Data saver / High quality**, and "High quality" is not "unlimited" - it
+only removes the cap, so the pick still comes from the measured line. That is exactly
+`maxHeight = null`, so `MeteredPlaybackChoice` needed no new members, only new copy. The dialog
+is drawn over the **progress overlay**, not over an uncovered source list: Instant's surface rule
+sits above `awaitingUserAnswer` on purpose, because dismissing this dialog answers Data saver and
+the play continues - there is nothing for an uncovered list to be the fallback for. It is still
+counted in `awaitingUserAnswer` so the stall backstop does not give up on a question that is on
+screen.
+
+**Automatic downshift stays withheld, and now on its own terms.** Its availability was
+`PlaybackMode.INSTANT.isSelectable`, so bringing the mode back would have handed every Instant
+user a mid-playback source swap nobody has ever watched run, in the same release, for free.
+`AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE` holds it instead, checked **before** the
+setting - a profile that stored `playback_auto_downshift = true` back in `0.4.9-beta` must not
+wake up on update. The KDoc says what evidence flips it.
+
+### A stub that had drifted without failing
+
+`scripts/pure-suite-stubs/PlaybackModeStub.kt` carried its own copy of `isSelectable`, hardcoded
+to `this != INSTANT` - a second definition of the one predicate whose KDoc says it must be the
+only availability test in the codebase. Nothing in group 1 called it, so the compile stayed green
+while the suite would have gone on asserting the withdrawn rule after the shipped one changed.
+**That is the failure mode a stub has that a missing file does not.**
+
+Group 1 now compiles the shipped `PlaybackModeModels.kt`; the only obstacle was `@Serializable`,
+so the group gained `-Xplugin` and the JSON runtime (both already downloaded for group 5) and the
+stub is deleted. `PlaybackModeAvailabilityTest` and `StickySourcePinTest` run there now, so the
+single switch this whole change turns is executable without Gradle.
+
+### Verified, and what is not
+
+- **`scripts/run-pure-suites.sh`: 251 tests in both repositories**, zero failures, up from 235.
+  All sixteen land in group 1, which went from 101 to 117: five new `StreamRouteSurfaceTest`
+  Instant rows, plus the five `PlaybackModeAvailabilityTest` cases (which **inverted**, as the
+  tripwire intended) and six `StickySourcePinTest` cases, neither of which had ever run outside
+  Gradle.
+  ⚠ **Pass that script an absolute repository path.** It `cd`s to its work directory before
+  resolving `$REPO`, so `./scripts/run-pure-suites.sh .` fails with fifteen "source file not
+  found" errors that look like a missing checkout. Pre-existing; noted because it cost a run.
+- **Android host suite: 946 tests, 0 failures**, up from 937 (`ANDROID_HOME="A:\AndroidSDK"`,
+  empty `local.properties` placeholder, deleted afterwards). The nine are the five surface rows,
+  three `PlaybackProgressTest` step cases and the downshift-availability case.
+- **Desktop suite in `NuvioZDesktop`: 1159 tests, 0 failures**, up from 1150, in 9m10s. It is
+  the only local compile of `desktopMain` and therefore the only check on the ported
+  `entry<StreamRoute>`; it also ran the full download E2E harness. **No new `expect` was
+  introduced** - every storage key Instant needs already had all four actuals.
+
+**The port was mechanical and that is worth recording.** All nineteen `App.kt` hunks applied to
+`NuvioZDesktop` at an offset with **zero fuzz**, so every edited region was byte-identical
+between the repositories; the three `externalPlayerSupported` guards that legitimately differ
+were not in any hunk. `features/playback/*` and the four test files were copied outright.
+`PlaybackSettingsPage.kt`, `PlayerScreenRuntimeSourceActions.kt` and `strings.xml` were edited by
+hand, as the never-`cp` rule requires.
+
+⚠ **Nothing here has been watched running, and that is the whole point of the debug line.**
+Instant is a mode whose value is entirely in what happens in the first three seconds, and no test
+in either repository can see any of it. iOS is not compiled.
+
+### The Instant device script
+
+The evidence `isSelectable`'s KDoc has been asking for since `0.4.10-beta`. Run it on the debug
+line **before** the release bump. It is published and waiting: mobile
+`debug-v0.4.14-beta.19`, desktop `debug-v0.4.14-beta.11`, both cut from this branch on
+2026-08-21.
+
+1. **Settings → Playback → Playback mode.** Instant is selectable, not greyed. Pick it. Then
+   confirm *"Switch source when buffering persists"* is **still** greyed and still says why -
+   that row is the one thing this pass deliberately did not unlock.
+2. **A movie on Wi-Fi.** Plays with no sheet and no source list, and raises
+   *"Playing 1080p · WEB-DL · TorBox"* naming what actually opened.
+3. **A fresh network.** Delete `nuvio_network_quality.properties` first. The overlay must show
+   *"Checking your connection…"* and then play - never sit past ~5 s, and never pick before the
+   figure lands.
+4. **Three consecutive episodes of one show.** All three at the same resolution. Then press
+   **Change** on the toast: the player's source panel opens, and the *next* episode re-decides.
+5. **Kill the chosen source mid-start** (disable the addon). The overlay must **name** the dead
+   source, the counter must stop at 3, *"Choose source manually"* must appear, and exhaustion
+   must land on a **populated** source list - not "No streams found".
+6. **Mobile data, Android only** (desktop reports unmetered by construction). The Data saver /
+   High quality dialog appears **once**, not per episode, and is drawn over the progress overlay
+   rather than over the source list. Data saver caps at 720p.
+7. **Back out of the player with the system gesture**, not the in-app button - that asymmetry has
+   hidden two separate faults in this route. Details screen, one press, no blank frame, no list.
+8. **Long-press an episode** (right-click on desktop) → the Classic source list, that play only.
+9. **The download button** on a single episode starts straight away with a preset, no dialog.
+10. **Reuse-last-link on, re-watch a finished episode.** *"Resuming your last source · Change"*
+    must appear - Instant skipping its own decision silently is the same defect that toast was
+    added to fix for Streamlined.
 
 ## Settings reorganisation, and an auto-picker that knows what Atmos is (2026-08-21, unreleased, both repositories)
 
