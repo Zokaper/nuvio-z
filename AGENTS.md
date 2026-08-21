@@ -118,6 +118,41 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   the structured fields and the release text as one body of evidence. The single-valued facts -
   `codec`, `releaseQuality`, `resolution` - still walk the ladder, because for those a
   structured field really does beat a filename.
+- **A source is abandoned for lack of progress, never for lack of a first frame**
+  (`features/playback/PlaybackStartupWatchdog.kt`). The rule this replaced waited eight seconds
+  and asked `isPlaying`, which is not the same question: a debrid mint, a cold provider or a
+  60 GB remux seeking its first keyframe are all healthy at eight seconds with a buffer visibly
+  filling, and nothing in that check could see a buffer. ⚠ **It is armed by
+  `onFatalPlaybackError`, so it only ever ran against Streamlined and Instant** - the same file
+  tapped by hand in Classic had no deadline at all - which is why a player fault was reported as
+  a mode fault: the two modes whose promise is "you do not have to choose" were the only ones
+  that threw good sources away, one per candidate, and then said *"No safe automatic source
+  matched"* about a catalogue that was fine. Three clocks now, and the ordering between them is
+  the argument: nothing at all gets `NO_PROGRESS_DEADLINE_MS`, a source that advanced and then
+  stopped gets the shorter `STALL_DEADLINE_MS` from its last advance (it has already proved it
+  can reach the host, so silence from it is evidence), and `MAX_STARTUP_MS` ends the one that
+  creeps forever - without that, "measure progress instead" trades a false positive for a hang.
+  A longer wait is affordable **only because `shouldOfferManualEscape` exists**: the source list
+  is one tap away after 5 s, so the cost is a wait somebody can walk out of rather than the
+  source itself. Do not shorten these to "feel faster" without moving that escape hatch first.
+- **Every path that ends a play has to say why, in a log and in the overlay.** The startup
+  watchdog did neither - no log line, and `noteSourceFailure(reason = null)` - so a chain burning
+  three healthy sources looked exactly like three dead ones from outside a device, and the fault
+  survived three releases on that alone. It is the same rule `NetworkStrengthProbe` carries for
+  the same reason. The reason travels on `StreamsRepository.noteAutoPickFailureReason`, not on
+  `onFatalPlaybackError`'s signature: that callback is threaded from `App.kt` through
+  `PlayerScreen`, `PlayerScreenArgs` and two runtime files on three platforms, and the value is
+  wanted in one of them. `adb logcat -s PlaybackStartup` is the whole diagnosis.
+- ⚠ **`consumeAutoPlay` is called more than once per play, so retiring is not a reset.**
+  `onPlaybackStarted` fires on every not-playing → playing transition - a pause and resume, or a
+  rebuffer the engine reports as a stop and a start - and the second call read an `autoPlayStream`
+  the first had already cleared and retained **null** over the real chain. A source that then died
+  had `failOverAfterPlaybackStarted` answer false with two ranked candidates in hand: no failover,
+  and "No safe automatic source matched" over a chain that was never spent. It only writes the
+  retained chain when there is one to write. `AutoPlayFailoverTest` therefore tears down with an
+  **empty `seedAutoPlayCandidates`** - that call is what retires a chain for good - because a bare
+  `consumeAutoPlay` no longer doubles as one and a case that left a chain retained would hand it
+  to the next.
 - A player property read on more than one engine must mean the same thing on each. mpv's
   `demuxer-cache-time` is an **absolute** stream timestamp, not a duration ahead of the
   position; iOS shipped it as a duration and its buffer readout grew with playback until
@@ -393,6 +428,8 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   `PlaybackSourceSelector.kt`, `PlaybackQualityOptions.kt`, `StreamRouteSurface.kt`,
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
   `features/playback/AutoDownshiftDetector.kt`,
+  `features/playback/PlaybackStartupWatchdog.kt` (**import-free**, group 2 of
+  `scripts/run-pure-suites.sh`), consumed by `features/player/PlayerScreenRuntimeEffects.kt`,
   `features/playback/PlaybackProgressOverlay.kt`,
   `features/playback/PlaybackPreferencesDialog.kt`.
   ⚠ **All three modes ship.** `PlaybackMode.isSelectable` is still the *only* availability
