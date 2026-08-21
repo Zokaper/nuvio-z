@@ -6,11 +6,11 @@ Last updated: 2026-08-21
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Not pushed, not tagged** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
 | Verified | Android host **946**, desktop **1159**, pure suites **251** - all zero failures |
 | **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.10`, mobile `debug-v0.4.14-beta.18` - both published 2026-08-21, carrying the settings reorganisation and the tag-combining fix. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Debug channel | desktop `debug-v0.4.14-beta.11`, mobile `debug-v0.4.14-beta.19` - both published 2026-08-21, **carrying Instant's return**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
 ## Instant is back (2026-08-21, unreleased, both repositories)
 
@@ -170,7 +170,9 @@ in either repository can see any of it. iOS is not compiled.
 ### The Instant device script
 
 The evidence `isSelectable`'s KDoc has been asking for since `0.4.10-beta`. Run it on the debug
-line **before** the release bump.
+line **before** the release bump. It is published and waiting: mobile
+`debug-v0.4.14-beta.19`, desktop `debug-v0.4.14-beta.11`, both cut from this branch on
+2026-08-21.
 
 1. **Settings → Playback → Playback mode.** Instant is selectable, not greyed. Pick it. Then
    confirm *"Switch source when buffering persists"* is **still** greyed and still says why -
