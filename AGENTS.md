@@ -215,6 +215,31 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   produce a single unlabelled row), and a source with no credible size must be banded **out** and
   appended to the cheapest occupied band, never treated as 0.0 - that mints a "Low" row quoting a
   nominal bitrate for a file nobody knows the size of.
+- **A demoted resolution is what the whole picker sees, not just the row it lands on**
+  (`PlaybackQualityOptions.build`). `bucketFor` had always moved a source whose bitrate is far
+  below its claimed floor onto the row its bitrate supports - but it left `facts.resolution`
+  alone, so `SourceRanking`'s leading key still read the claim. Reported: `8K · HDR · 18 GB ·
+  Needs 33 Mb/s` - **24 Mb/s, a 1080p-grade bitrate** - at the head of **Best available**, above a
+  genuine 61 GB 4K remux, with the caption still saying 8K. It is decided once now, as
+  `effectiveResolution`, and `MeasuredCandidate` stores a `facts.copy(resolution = …)` candidate,
+  so ranking, captions and labels agree without a second vocabulary. Three rules hold it:
+  **demote only** (`aLargeReleaseIsNeverPromotedAboveWhatItClaims`); ⚠ **rewrite a stated claim
+  only** - `effectiveResolution` also *infers* one for a source that stated none, capped at 1080p,
+  and writing that back would **promote** it (an unstated resolution sorts at the bottom of
+  `SourceRanking`, so 1080p lifts it over labelled 720p) *and* tighten `bitrateCeilingMbps` under
+  `requiredMbpsFor` until an 80 Mb/s unlabelled source headed a row quoting no bandwidth and
+  drawing no meter; and **plausibility is judged against the claim**, never the demotion.
+  `bitrateFloorMbps(UHD_4320)` is **40.0**, which is `nominalBitrateMbps` for the same resolution -
+  a file cheaper than what this app's own tables say 8K costs has no claim to the word. It was
+  8.0, which admitted anything above a good 720p encode, so the check was inert for the one
+  resolution nothing reaches by accident. Do not tighten the other rows: 2160's 3.0 is deliberately
+  low, and raising it would demote efficient AV1 4K encodes.
+  ⚠ **The download path is deliberately not included.** `PresetSourceSelector`'s `targetResolution`
+  test is a **ceiling**, so an inflated label already excludes the file from every shipped preset;
+  demoting it there would flip an exclusion into an *inclusion* on a path that spends storage and
+  metered allowance, and `SourceSelectionResult.Selected.facts` is `@Serializable` and persisted
+  with the download record. If it is ever wanted, the shape is "send it to **approval**", not
+  "rewrite its facts".
 - **`SourceFacts.languages` holds normalized codes (`en`, `pt-BR`), never uppercase two-letter.**
   Compare with `languageMatchesPreference`, never with `in`. The tables live in the import-free
   `core/language/LanguageCodes.kt` so `SourceFacts.kt` can still be compiled outside Gradle;
@@ -228,7 +253,8 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   would leave a title whose every release is tagged for another market with nothing to play, which
   is the dead end the mode exists to avoid. Only `NAMES_OTHER_ONLY` fails the gate - wrong audio
   *and* no readable subtitles - because the complaint it answers is "no English audio **or** subs".
-- **Throughput is measured over a window, never as a mean** (`core/network/ThroughputWindow.kt`).
+- **Throughput is measured over the transfer's steady stretch - never as a mean, and never as a
+  maximum** (`core/network/ThroughputWindow.kt`).
   A ranged GET's mean carries TCP slow start, and it under-reads *more* the faster the line is,
   because a fast line hits the byte cap while still climbing - a connection shown as 56 Mb/s was
   streaming 81. Excluding TTFB removes the handshake, not the ramp.
@@ -264,10 +290,42 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
      a caller-side `isProbing` guard back, it strands the sheet on "Checking".
   A window is bounded by **bytes as well as time** for the same reason: 750 ms was chosen so one
   late packet could not inflate the figure, which is a statement about bytes, not duration.
-  ⚠ **The probe's sample floors guard the mean, never the window.** A closed window already met
-  its own minimums; re-testing it against `MIN_SAMPLE_MS` discarded the fast-line samples the
-  window exists to rescue - above ~83 Mb/s the probe threw its own answer away and the stale
-  estimate survived, which is what "it won't update" looked like from outside.
+  ⚠ **The probe's sample floors guard the mean, never the window or the partition.** A closed
+  window already met its own minimums; re-testing it against `MIN_SAMPLE_MS` discarded the
+  fast-line samples the window exists to rescue - above ~83 Mb/s the probe threw its own answer
+  away and the stale estimate survived, which is what "it won't update" looked like from outside.
+  ⚠ **The window's *maximum* was the second half of the same mistake, and it shipped.** The mean
+  was refused because slow start contaminates it. A sliding maximum answers that and brings a
+  bias of its own in the other direction, because a maximum over positions **hunts** for the most
+  flattering window. Two things feed it: Wi-Fi aggregation makes the per-window rate vary by
+  ~10%, so the best of eight positions reads well above the typical one; and the readers timestamp
+  bytes when `read()` **returns**, not when they arrive, so a descheduled reader lets the kernel
+  receive buffer fill and then drains it at memcpy speed into whichever window the maximum is
+  looking for. An autotuned 4 MB buffer at 500 Mb/s is ~64 ms of data - +26% inside a 250 ms
+  window on its own. Reported: the gauge reading **538 Mb/s on a line Ookla measured at 416**
+  multi-stream, 9 ms RTT. A single TCP stream reading 29% *above* a multi-stream figure is
+  backwards, and it is not cosmetic - **Instant decides which source to play from this number.**
+  The fix keeps the original argument and removes only the selection. `sustainedMbps` skips the
+  first eighth of the bytes - a *fraction*, because the ramp's byte cost scales with the
+  bandwidth-delay product exactly as a proportional skip does - partitions the rest into eight
+  fixed **byte** blocks and reports the **lower median**. A trailing stall carries no bytes and
+  therefore joins no block, so it is excluded by construction rather than by being out-voted; a
+  mid-transfer stall makes one block slow; a buffer drain makes one block fast; the median
+  discards both. The mean is still refused, for the reason it always was.
+  **The partition is admitted on exactly the evidence one window needs** - `minWindowBytes` of
+  region and `windowMs` of span - so the two statistics see the same transfers and the median is
+  simply the better one over them. `peakMbps` **stays, and stays a maximum**, for the two jobs
+  that need a running figure (`stopAboveMbps` and the log) and as the fallback above ~939 Mb/s,
+  where there is no partition. Its ten tests stand unchanged; do not "simplify" them to the median.
+  ⚠ **`bestEffortMbps` is a precedence, not a `maxOrNull`.** It took the larger of the window and
+  the mean, which was right while both were *lower bounds* on what the line carried. Once one
+  candidate is a maximum with a known upward bias, `max(median, max)` **is** the max and the whole
+  change is inert while looking as though it works - regression 1 above, arriving a second time by
+  a different route. Order is **sustained -> window -> mean**.
+  ⚠ **The probe log prints all three.** `sustained=`, `peak=` and `mean=` on one line. The gap
+  between them is the only thing that separates "measured badly upwards" from "measured badly
+  downwards" from outside a device, and the line it replaced printed one of them as `window=`,
+  which did not even say which statistic it was.
   ⚠ **`NetworkThroughputMeter` is not demand-limited and must keep its blend.** It emits only a new
   maximum or a window in which the buffer drained, and a draining buffer is direct evidence the
   line is the bottleneck. Making `recordMeasuredThroughput` monotonic looks obviously right and

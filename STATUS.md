@@ -6,11 +6,78 @@ Last updated: 2026-08-21
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **946**, desktop **1159**, pure suites **251** - all zero failures |
-| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and the gauge fix are still undevice-tested; iOS is not compiled |
+| Verified | Android host **957**, desktop **1170**, pure suites **262** - all zero failures |
+| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; iOS is not compiled |
 | Debug channel | desktop `debug-v0.4.14-beta.11`, mobile `debug-v0.4.14-beta.19` - both published 2026-08-21, **carrying Instant's return**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## The gauge was over-reading, and a fake 8K led the sheet (2026-08-21, unreleased, both repositories)
+
+Both reported from one screenshot of Streamlined's quality sheet on a Galaxy S25+ over Wi-Fi.
+
+### The gauge read 538 Mb/s on a line Speedtest measured at 416
+
+The window fix was right about the mean and wrong about the remedy. `ThroughputWindow.peakMbps`
+is a **maximum** over sliding windows, and a maximum over positions hunts for the most flattering
+one. Two things feed it: Wi-Fi aggregation makes the per-window rate vary by ~10%, so the best of
+eight positions sits well above the typical one; and the readers timestamp bytes when `read()`
+*returns*, not when they arrive, so a descheduled reader lets the kernel receive buffer fill and
+then drains it at memcpy speed into whichever window the maximum is looking for - an autotuned
+4 MB buffer at 500 Mb/s is ~64 ms of data, +26% inside a 250 ms window on its own. A single TCP
+stream reading 29% *above* a multi-stream Ookla figure is the tell.
+
+Not cosmetic: the sheet only prints this number, but **Instant decides on it**.
+
+What changed. `ThroughputWindow` gained `sustainedMbps` - skip the first eighth of the bytes (a
+fraction, because the ramp's byte cost scales with the bandwidth-delay product), partition the
+rest into eight fixed **byte** blocks, report the lower median. Byte partitioning is the whole
+idea: a trailing stall carries no bytes and so joins no block, a mid-transfer stall makes one
+block slow, a buffer drain makes one block fast, and the median discards both. The partition is
+admitted on exactly the two floors a window needs, so both statistics see the same transfers.
+`peakMbps` is untouched and still serves `stopAboveMbps` and the log. `bestEffortMbps` became a
+**precedence** - sustained, then window, then mean - because `max(median, max)` is the max and
+would have left the change inert. All three actuals report the new field; the probe log now prints
+`sustained=`, `peak=` and `mean=` side by side.
+
+The stale 538 on disk is deliberately **not** invalidated - `FRESH_ESTIMATE_MS` retires it within
+ten minutes and `NetworkQualityStorage` is untouched.
+
+### An 18 GB "8K" upscale headed Best available
+
+18 GB over ~100 minutes is 24 Mb/s - a 1080p-grade bitrate wearing an 8K label - sorting above a
+genuine 61 GB 4K remux. `bitrateFloorMbps(UHD_4320)` was 8.0, which admits anything above a good
+720p encode, so the demotion check was inert for the one resolution nothing reaches by accident.
+It is 40.0 now, matching `nominalBitrateMbps` for the same resolution.
+
+Raising the floor alone only fixed the *grouping*. `facts.resolution` still said `UHD_4320`, so
+`SourceRanking`'s leading key kept the fake at the head of Best available and the caption kept
+saying 8K. The rule is decided once now, as `effectiveResolution`, and `MeasuredCandidate` carries
+a rewritten candidate so ranking, captions and labels agree. ⚠ **Only a stated claim is rewritten** -
+writing back the *inference* made for a source that stated none would promote it over labelled
+720p and would tighten `bitrateCeilingMbps` until an 80 Mb/s unlabelled source headed a row quoting
+no bandwidth at all. That is pinned by `aSourceThatStatedNoResolutionIsNeverRelabelled`.
+
+**Considered and declined: the download path.** `PresetSourceSelector`'s `targetResolution` test is
+a *ceiling*, so an inflated 8K label already excludes the file from every shipped preset. Demoting
+it there would flip an exclusion into an inclusion on a path that spends storage and metered
+allowance, and `SourceSelectionResult.Selected.facts` is `@Serializable` and persisted with the
+download record. If it is ever wanted the shape is "send it to approval", not "rewrite its facts".
+
+### Verification
+
+Android host **957** (was 946), desktop **1170** (was 1159), pure suites **262** in both
+repositories (was 251), all zero failures. The desktop suite is the only thing that compiles
+`desktopMain`, so it is what proves the desktop actual reports the new field - the one that
+shipped returning null unconditionally last time. The three 8K tests were confirmed to **fail** against the old floor of 8.0 and pass
+against 40.0. No file under `commonTest` was stubbed; `PlaybackQualityOptions.kt` and
+`ThroughputWindow.kt` both compile as shipped source in groups 1 and 2.
+
+⚠ **Not verified on a device.** Nobody has yet seen the corrected figure on the handset that
+reported it. The check is one log line: open the quality sheet on that Wi-Fi and read
+`sustained=` against `peak=` under tag `NetworkStrengthProbe`. `sustained=` should sit near 416
+with `peak=` near 538 above it. If the two are equal the partition is not closing; if `sustained=`
+reads `none` the region floors are rejecting a transfer they should admit.
 
 ## Instant is back (2026-08-21, unreleased, both repositories)
 
