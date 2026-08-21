@@ -19,6 +19,7 @@ import com.nuvio.app.core.debug.isDebugBuild
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import com.nuvio.app.features.playback.SwapDiagnosticsLog
+import com.nuvio.app.features.streams.StreamsRepository
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -211,6 +212,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                             }
                             errorMessage = message
                             controlsVisible = !playerControlsLocked
+                            // The engine's own words, carried to the progress overlay of the
+                            // *next* attempt. This route bumped the attempt counter in silence,
+                            // and it is the one that covers the most visible failure there is -
+                            // a source that opens, plays a second and dies.
+                            StreamsRepository.noteAutoPickFailureReason(message)
                             args.onFatalPlaybackError?.invoke()
                             return@PlatformPlayerSurface
                         }

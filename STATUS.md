@@ -1,16 +1,107 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 | | |
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, and **Instant brought back** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, and the **startup-watchdog fix for the reported retry loop** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **957**, desktop **1170**, pure suites **262** - all zero failures |
-| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.11`, mobile `debug-v0.4.14-beta.19` - both published 2026-08-21, **carrying Instant's return**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Verified | Android host **968**, desktop **1181**, pure suites **272** - all zero failures |
+| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
+| Debug channel | desktop `debug-v0.4.14-beta.13`, mobile `debug-v0.4.14-beta.21` - both published 2026-08-22, **carrying the startup-watchdog fix**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## Streamlined and Instant were throwing away sources that worked (2026-08-22, unreleased, both repositories)
+
+**Reported from debug 19/20, and reproduced on a second device the build was handed to.** Sources
+picked by Streamlined and Instant "keep doing the looping thing where the video play loads it then
+it tries again", ending on *"No safe automatic source matched"*. Manual picks in Classic were fine.
+
+The two halves of that report are **one event**. A retry is the auto-pick failure chain advancing:
+the player abandons the source, `onFatalPlaybackError` fires, the chain steps to the next candidate
+and `StreamRoute` relaunches it. Three candidates, three loads, and then the chain is spent and the
+route toasts `playback_quality_no_match`. So the question was never "why does it loop" but "why is
+every auto-picked source being abandoned".
+
+### The eight-second startup deadline could not see a buffer
+
+`PlayerScreenRuntimeEffects.kt` waited eight seconds and asked one question: `!isPlaying &&
+positionMs <= 0`. **"Has not started yet" is not "is not going to start."** A debrid link being
+minted, a cold provider, or a 60 GB remux seeking its first keyframe are all perfectly healthy at
+eight seconds - with a buffer visibly filling - and nothing in that check could see a buffer.
+
+⚠ **It is armed by `onFatalPlaybackError`, which only Streamlined and Instant pass.** The identical
+file tapped by hand in Classic had no deadline at all. That asymmetry is the whole reason a player
+fault was reported as a mode fault: the two modes whose promise is "you do not have to choose" were
+the only ones that discarded working sources, one per candidate, and then blamed the catalogue.
+
+`PlaybackStartupWatchdog` measures progress instead - import-free, group 2 of the pure suites, so
+the rule is executable where the player is not. Three clocks, and their ordering is the argument:
+a source that has produced nothing at all gets `NO_PROGRESS_DEADLINE_MS` (20 s); one that advanced
+and then stopped gets the shorter `STALL_DEADLINE_MS` (12 s) **from its last advance**, because it
+has already proved it can reach the host and silence from it is evidence rather than an absence of
+one; and `MAX_STARTUP_MS` (60 s) ends the source whose buffer creeps forever, without which
+"measure progress instead" would have traded a false positive for a hang. Position and buffer are
+taken as a **maximum**, not the buffer alone - mpv reports a cache position first and ExoPlayer
+sometimes a play position - and a known duration counts as life without shortening any deadline,
+which is exactly the state a big file sits in between the header and the first keyframe.
+
+The longer wait is affordable **only because `shouldOfferManualEscape` already exists**: the source
+list is one tap away after five seconds. The cost is now a wait somebody can walk out of, where
+before it was the source itself.
+
+### It gave up in complete silence
+
+No log line, and `noteSourceFailure(reason = null)`, so the overlay read *"1080p · WEB-DL · TorBox
+did not start"* with no account of why. A chain burning three healthy sources was indistinguishable
+from three dead ones **from outside a device** - which is how this survived three releases. Same
+rule `NetworkStrengthProbe` carries, arriving by a different route.
+
+There is a `PlaybackStartup` tag now printing the reason, the elapsed time, the best progress seen
+and the engine, and the reason reaches the overlay through
+`StreamsRepository.noteAutoPickFailureReason` - deliberately not through `onFatalPlaybackError`'s
+signature, which is threaded from `App.kt` through `PlayerScreen`, `PlayerScreenArgs` and two
+runtime files on three platforms for the sake of one value. The engine's own error message takes
+the same road from `onError`, so the *other* silent failure route - a source that opens, plays a
+second and dies - now names itself too.
+
+### A pause and a resume discarded the failure chain
+
+Found while tracing the above, and it produces the same toast with no retries at all.
+
+`onPlaybackStarted` fires on **every** not-playing → playing transition, so a pause and resume - or
+a rebuffer the engine reports as a stop and a start - calls `consumeAutoPlay` again. The second
+call read an `autoPlayStream` the first had already cleared and retained **null** over the real
+chain. A source that then died had `failOverAfterPlaybackStarted` answer false with two ranked
+candidates still in hand: no failover, and "No safe automatic source matched" over a chain that was
+never spent. Retiring an empty chain is a no-op now.
+
+⚠ **Retiring is no longer a reset**, so `AutoPlayFailoverTest` tears down with an empty
+`seedAutoPlayCandidates` - the call that retires a chain for good - instead of a bare
+`consumeAutoPlay`. Without that, a case that left a chain retained handed it to the next one.
+
+### Verification
+
+Android host **968** (was 957), desktop **1181** (was 1170), pure suites **272** in both
+repositories (was 262), all zero failures. `a second start does not discard the retained chain` was
+confirmed to **fail** against the old `consumeAutoPlay` and pass against the fix. The ten watchdog
+cases all fail against the rule they replace by construction - three of them assert `Waiting` at
+exactly the eight-second mark. Nothing under `commonTest` was stubbed; `PlaybackStartupWatchdog.kt`
+compiles as shipped source in group 2.
+
+⚠ **Not watched on a device.** The whole diagnosis was made by reading, from a description. The
+confirming check is one command while reproducing the report:
+
+```
+adb logcat -s PlaybackStartup
+```
+
+Nothing at all, and the source plays: fixed, and the old deadline was the cause. Three
+`abandoning …` lines with `reason=NeverStarted`: the sources really are dead and the loop is
+correct behaviour badly explained - look at the addon, not at this. `reason=Stalled` or
+`reason=TooSlow` on a source that plays fine in Classic: the new deadlines are still too tight,
+and the figures to move are in `PlaybackStartupWatchdog`, not in the player.
 
 ## The gauge was over-reading, and a fake 8K led the sheet (2026-08-21, unreleased, both repositories)
 

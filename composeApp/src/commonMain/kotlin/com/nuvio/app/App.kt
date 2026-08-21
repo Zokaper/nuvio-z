@@ -3231,8 +3231,17 @@ private fun MainAppContent(
                         // The third failure route, and the only one that used to say nothing.
                         // The source opened, played, and died - the most visible failure there
                         // is - and the overlay came back showing a bumped counter with no
-                        // account of what had just happened.
-                        lastHandedOffStream?.let { noteSourceFailure(stream = it, reason = null) }
+                        // account of what had just happened. The player now leaves the reason on
+                        // the repository on its way out: the engine's own error message, or the
+                        // startup watchdog's verdict when it gave up on a source that never
+                        // played a frame. Still nullable, because a fatal path that has nothing
+                        // to say must not invent something.
+                        lastHandedOffStream?.let {
+                            noteSourceFailure(
+                                stream = it,
+                                reason = StreamsRepository.consumeAutoPickFailureReason(),
+                            )
+                        }
                     }
 
                     var autoPlayHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }

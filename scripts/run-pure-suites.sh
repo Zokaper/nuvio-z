@@ -124,15 +124,18 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/downloads/DownloadTransfer.kt" \
   "$M/features/streams/PlaybackUrlCredentials.kt" \
   "$M/core/network/ThroughputWindow.kt" \
+  "$M/features/playback/PlaybackStartupWatchdog.kt" \
   "$T/features/downloads/DownloadTransferTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
+  "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadTransferTest \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest \
-  com.nuvio.app.core.network.ThroughputWindowTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.core.network.ThroughputWindowTest \
+  com.nuvio.app.features.playback.PlaybackStartupWatchdogTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
 # Both files are import-free, so this group needs no stubs at all. The wizard itself is a Compose

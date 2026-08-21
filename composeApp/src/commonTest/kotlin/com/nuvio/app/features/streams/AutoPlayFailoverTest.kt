@@ -19,6 +19,12 @@ class AutoPlayFailoverTest {
 
     @AfterTest
     fun tearDown() {
+        // An **empty seed**, not a bare `consumeAutoPlay`. Retiring is what carries a chain
+        // across the moment playback starts, so it no longer doubles as a reset - and a case
+        // that left one retained would otherwise hand it to the next one. `seedAutoPlayCandidates`
+        // is the call that retires a previous chain for good, which is exactly what a teardown
+        // wants. See `a second start does not discard the retained chain`.
+        StreamsRepository.seedAutoPlayCandidates(emptyList())
         StreamsRepository.consumeAutoPlay()
     }
 
@@ -62,6 +68,27 @@ class AutoPlayFailoverTest {
         StreamsRepository.consumeAutoPlay()
 
         assertFalse(StreamsRepository.failOverAfterPlaybackStarted())
+    }
+
+    /**
+     * The reported fault: "No safe automatic source matched" over a chain that was never spent.
+     *
+     * `onPlaybackStarted` fires on **every** not-playing -> playing transition, so a pause and a
+     * resume - or a rebuffer the engine reports as a stop and a start - calls `consumeAutoPlay`
+     * again. The second call read an `autoPlayStream` the first had already cleared and retained
+     * *null* over the real chain, so a source that then died had nothing to fail over to and the
+     * user was told the catalogue had nothing safe in it, with two ranked candidates in hand.
+     */
+    @Test
+    fun `a second start does not discard the retained chain`() {
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b"), stream("c")))
+        StreamsRepository.consumeAutoPlay()
+        // The pause and the resume.
+        StreamsRepository.consumeAutoPlay()
+        StreamsRepository.consumeAutoPlay()
+
+        assertTrue(StreamsRepository.failOverAfterPlaybackStarted())
+        assertEquals("b", StreamsRepository.uiState.value.autoPlayStream?.url)
     }
 
     @Test

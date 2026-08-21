@@ -802,12 +802,54 @@ object StreamsRepository {
         return pending
     }
 
+    /**
+     * Why the player gave up on the source it was handed, in the user's language.
+     *
+     * Written by the player runtime immediately before it invokes `onFatalPlaybackError`, and
+     * read by the stream route on the way past. It goes through the repository rather than
+     * through the callback's signature because the callback is threaded from `App.kt` through
+     * `PlayerScreen`, `PlayerScreenArgs` and two runtime files on three platforms, and the value
+     * is wanted in exactly one of them.
+     *
+     * ⚠ **This is the third failure route, and it was the one that said nothing.** A resolve
+     * failure and a missing URL both named a reason; a source that opened and then died bumped
+     * the attempt counter in silence, so the progress overlay read *"1080p · WEB-DL · TorBox did
+     * not start"* with no account of why - which covers the most common failure there is and is
+     * unfalsifiable from outside a device.
+     */
+    private var pendingFailureReason: String? = null
+
+    fun noteAutoPickFailureReason(reason: String?) {
+        pendingFailureReason = reason?.takeIf { it.isNotBlank() }
+    }
+
+    /** The reason for the failure just reported, once. */
+    fun consumeAutoPickFailureReason(): String? {
+        val reason = pendingFailureReason
+        pendingFailureReason = null
+        return reason
+    }
+
+    /**
+     * Retires the armed chain, keeping it for [failOverAfterPlaybackStarted].
+     *
+     * ⚠ **The retained chain is written only when there is one to write, because this is called
+     * more than once per play.** `onPlaybackStarted` fires on every not-playing -> playing
+     * transition - a pause and resume, or a rebuffer the engine reports as a stop and a start -
+     * and the second call read an `autoPlayStream` the first had already cleared, so it retained
+     * *null*. A source that then died had `failOverAfterPlaybackStarted` answer false with two
+     * ranked candidates still in hand: no failover, and "No safe automatic source matched" over
+     * a chain that was never spent. Retiring an empty chain is a no-op now, so the retained one
+     * belongs to the play that armed it however many times the player says it started.
+     */
     fun consumeAutoPlay() {
         activeRequestKey = null
         failoverRetryPending = false
         _uiState.update {
-            retiredAutoPlayStream = it.autoPlayStream
-            retiredAutoPlayCandidates = it.autoPlayCandidates
+            if (it.autoPlayStream != null) {
+                retiredAutoPlayStream = it.autoPlayStream
+                retiredAutoPlayCandidates = it.autoPlayCandidates
+            }
             it.copy(
                 autoPlayStream = null,
                 autoPlayCandidates = emptyList(),
@@ -852,6 +894,9 @@ object StreamsRepository {
         retiredAutoPlayStream = null
         retiredAutoPlayCandidates = emptyList()
         failoverRetryPending = false
+        // A reason belongs to the chain that produced it. Carrying one into a fresh chain would
+        // caption the next play's first failure with the last play's complaint.
+        pendingFailureReason = null
         _uiState.update { current ->
             current.copy(
                 autoPlayStream = limited.firstOrNull(),

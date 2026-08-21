@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import co.touchlab.kermit.Logger
 import com.nuvio.app.core.debug.PlaybackDebugSettings
 import com.nuvio.app.core.debug.isDebugBuild
 import androidx.compose.runtime.Composable
@@ -17,6 +18,7 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.playback.AutoDownshiftDetector
+import com.nuvio.app.features.playback.PlaybackStartupWatchdog
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.skip.SkipIntroRepository
@@ -25,6 +27,7 @@ import com.nuvio.app.features.streams.credentialRefreshDecision
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.hasLikelyExpiringPlaybackCredentials
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.CancellationException
@@ -33,6 +36,15 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import kotlin.time.TimeSource
+
+/**
+ * The startup watchdog's own tag, because it is the one thing here that ends a play by itself.
+ *
+ * `adb logcat -s PlaybackStartup` is the whole diagnosis for "it loads, then it tries again":
+ * three lines means the chain burned three sources, and `reason=` says whether the host answered
+ * at all. There was no line at all before, which is how the fault survived three releases.
+ */
+private val startupLog = Logger.withTag("PlaybackStartup")
 
 @Composable
 internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
@@ -282,20 +294,66 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // An auto-played next episode carries its chain here rather than through
         // `PlayerLaunch`, so the budget has to be armed for it too - see
         // `nextEpisodeFallbacks`. Keying on it gives every source in the chain its own
-        // eight seconds instead of sharing the first one's.
+        // deadline instead of sharing the first one's.
         nextEpisodeFallbacks,
         PlaybackDebugSettings.hudEnabled,
     ) {
         val hasChain = args.onFatalPlaybackError != null || nextEpisodeFallbacks.isNotEmpty()
         if (!hasChain) return@LaunchedEffect
-        // An auto-picked source that has not started within eight seconds is abandoned. While
-        // diagnosing startup/buffering, that hides the useful state (and can reject a healthy
-        // large source that is merely slow to prepare), so leave the player open for inspection.
+        // While diagnosing startup/buffering, abandoning the source hides the useful state, so
+        // leave the player open for inspection.
         if (isDebugBuild && PlaybackDebugSettings.hudEnabled) return@LaunchedEffect
-        delay(8_000L)
-        if (!playbackSnapshot.isPlaying && playbackSnapshot.positionMs <= 0L) {
-            if (tryNextEpisodeFallback()) return@LaunchedEffect
-            args.onFatalPlaybackError?.invoke()
+        // ⚠ **Armed only for automatic picks**, because `onFatalPlaybackError` is only passed by
+        // Streamlined and Instant - the same file tapped by hand in Classic has no deadline at
+        // all. That asymmetry is why the rule this loop replaced was reported as a mode fault
+        // rather than as a player one: it abandoned any auto-picked source that had not started
+        // in eight seconds, and it could not see a buffer, so a debrid mint or a large remux
+        // doing exactly the right thing was killed, three candidates in a row, and blamed on the
+        // catalogue. See `PlaybackStartupWatchdog` for the whole argument.
+        val startedAt = TimeSource.Monotonic.markNow()
+        var watch = PlaybackStartupWatchdog.initial()
+        while (true) {
+            delay(PlaybackStartupWatchdog.POLL_INTERVAL_MS)
+            val snapshot = playbackSnapshot
+            val sample = PlaybackStartupWatchdog.PlaybackStartupSample(
+                elapsedMs = startedAt.elapsedNow().inWholeMilliseconds,
+                isPlaying = snapshot.isPlaying,
+                positionMs = snapshot.positionMs,
+                bufferedPositionMs = snapshot.bufferedPositionMs,
+                durationMs = snapshot.durationMs,
+            )
+            watch = PlaybackStartupWatchdog.observe(watch, sample)
+            when (watch.verdict) {
+                PlaybackStartupWatchdog.Verdict.Waiting -> Unit
+                PlaybackStartupWatchdog.Verdict.Started -> return@LaunchedEffect
+                PlaybackStartupWatchdog.Verdict.Abandon -> {
+                    val reason = watch.reason
+                    // ⚠ **A source abandoned in silence is unfalsifiable from outside a device.**
+                    // This is the same rule `NetworkStrengthProbe` carries: "cannot measure" and
+                    // "measured badly" look identical on screen. Nothing logged this, so a chain
+                    // burning three healthy sources looked exactly like three dead ones.
+                    startupLog.w {
+                        "abandoning $activeStreamTitle: reason=$reason " +
+                            "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
+                            "lastAdvance=${watch.lastAdvanceMs}ms duration=${sample.durationMs}ms " +
+                            "engine=${snapshot.engineName}"
+                    }
+                    StreamsRepository.noteAutoPickFailureReason(
+                        when (reason) {
+                            PlaybackStartupWatchdog.Reason.NeverStarted ->
+                                getString(Res.string.playback_startup_never_started)
+                            PlaybackStartupWatchdog.Reason.Stalled ->
+                                getString(Res.string.playback_startup_stalled)
+                            PlaybackStartupWatchdog.Reason.TooSlow ->
+                                getString(Res.string.playback_startup_too_slow)
+                            null -> null
+                        },
+                    )
+                    if (tryNextEpisodeFallback()) return@LaunchedEffect
+                    args.onFatalPlaybackError?.invoke()
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
