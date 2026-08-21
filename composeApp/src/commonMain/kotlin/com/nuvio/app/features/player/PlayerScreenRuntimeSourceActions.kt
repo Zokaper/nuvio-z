@@ -338,6 +338,10 @@ internal fun PlayerScreenRuntime.observePlaybackForThroughput() {
  */
 internal fun PlayerScreenRuntime.observePlaybackForAutoDownshift() {
     val settings = playerSettingsUiState
+    // The availability test comes first and is not the mode's. `playbackAutoDownshift` could
+    // have been stored true by a profile that was on Instant in `0.4.9-beta`, and bringing
+    // Instant back must not silently wake a mid-playback source swap nobody has watched.
+    if (!AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE) return
     if (!settings.playbackAutoDownshift || settings.playbackMode != PlaybackMode.INSTANT) return
 
     val sample = AutoDownshiftDetector.Sample(

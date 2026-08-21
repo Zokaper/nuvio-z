@@ -12,6 +12,18 @@ import kotlin.test.assertTrue
 class AutoDownshiftDetectorTest {
 
     @Test
+    fun theSwapIsWithheldOnItsOwnTermsNotOnInstants() {
+        // Availability used to be `PlaybackMode.INSTANT.isSelectable`, so bringing Instant back
+        // would have handed every Instant user a mid-playback source swap nobody has ever
+        // watched run - in the same release, for free. Everything below this line is tested and
+        // none of it has been *seen*; that difference is what this constant holds.
+        //
+        // If this case fails, that has to be a decision someone made deliberately. The KDoc on
+        // the constant says what evidence flips it.
+        assertFalse(AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE)
+    }
+
+    @Test
     fun sustainedStarvationFiresOnceThePlaybackHasSettled() {
         val result = run(intervalMs = 250L, bufferedAheadMs = 500L)
         assertTrue(result.fired, "sustained starvation past the settle grace should downshift")

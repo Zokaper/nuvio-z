@@ -263,6 +263,7 @@ import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.qualityLabel
+import com.nuvio.app.core.network.MeteredPlaybackChoice
 import com.nuvio.app.core.network.NetworkConnectionType
 import com.nuvio.app.core.network.NetworkEstimateConfidence
 import com.nuvio.app.core.network.NetworkQualityRepository
@@ -2698,8 +2699,22 @@ private fun MainAppContent(
 
                     // Streamlined covers the source list with the quality sheet until a tier is
                     // picked; from that point until playback starts the progress overlay owns the
-                    // screen, so the list is never what the user is left looking at.
-                    var streamlinedPlaybackStarting by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // screen, so the list is never what the user is left looking at. Instant
+                    // reaches the same flag from the other side - it has no sheet, so the overlay
+                    // owns the screen from the start - and one flag serves both on purpose: two
+                    // that both mean "the automatic path is working" is how one ends up uncleared.
+                    var autoPlaybackStarting by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // Instant has chosen. ⚠ **Latched for the life of the route, and never reset.**
+                    // It guards the effect that *seeds* the failure chain, so clearing it on a
+                    // retry re-seeds back to candidate 1 and the same failure loops forever
+                    // instead of advancing. Do not reset it alongside `playbackHandedOff`.
+                    var instantSelectionHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
+                    // The answer to "you're on mobile data", for this network, for this session.
+                    // Read once from the repository so a play that already asked does not ask
+                    // again, and held locally so answering it recomposes this route.
+                    var meteredChoice by remember(route.launchId) {
+                        mutableStateOf(NetworkQualityRepository.meteredChoiceForCurrentNetwork())
+                    }
                     // 1-based, and only ever advanced by the auto-pick failure chain. The overlay
                     // shows it so a silent retry does not read as a hang.
                     var autoPickAttempt by rememberSaveable(route.launchId) { mutableStateOf(1) }
@@ -3049,7 +3064,8 @@ private fun MainAppContent(
                         )
                         playbackRouteDecision = decision
                         if (decision is PlaybackRouteDecision.ReuseLastLink && cached != null) {
-                            // Streamlined promised a quality sheet and is about to skip it,
+                            // Streamlined promised a quality sheet, Instant promised a source
+                            // chosen from the connection, and both are about to be skipped
                             // because a cached link for this exact episode outranks the mode
                             // (precedence rule 4). Silently reusing it is the single biggest
                             // reason Streamlined reads as non-deterministic: same show, same
@@ -3058,7 +3074,7 @@ private fun MainAppContent(
                             //
                             // Classic is deliberately excluded: nothing was skipped there -
                             // the user never expected a sheet - so the toast would be noise.
-                            if (playerSettings.playbackMode == PlaybackMode.STREAMLINED) {
+                            if (playerSettings.playbackMode != PlaybackMode.CLASSIC) {
                                 NuvioToastController.show(
                                     message = getString(Res.string.playback_reused_last_link),
                                     actionLabel = getString(Res.string.playback_reused_last_link_change),
@@ -3228,21 +3244,23 @@ private fun MainAppContent(
                         playbackRouteDecision,
                         playerSettings.playbackMode,
                         launch.manualSelection,
-                        streamlinedPlaybackStarting,
+                        autoPlaybackStarting,
                     ) {
                         if (!reuseHandled) return@LaunchedEffect
                         if (launch.manualSelection) return@LaunchedEffect
                         val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
                             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
-                        // Streamlined runs the chain from the moment a tier is chosen. Before
-                        // that `streamlinedPlaybackStarting` is false and nothing has been
-                        // seeded, so the sheet is still the user's to answer.
+                        // Streamlined runs the chain from the moment a tier is chosen, Instant
+                        // from the moment the connection answers. Before either,
+                        // `autoPlaybackStarting` is false and nothing has been seeded, so the
+                        // sheet is still the user's to answer and Instant is still deciding.
                         //
                         // One flag, asked once: "is there a next candidate to fall to?".
-                        // Answering that in two ways is how the chain ends up half-wired.
+                        // Answering that in two ways is how the chain ends up half-wired - which
+                        // is why this is not `mode == STREAMLINED || mode == INSTANT`.
                         val hasFailureChain =
-                            playerSettings.playbackMode == PlaybackMode.STREAMLINED &&
-                                streamlinedPlaybackStarting
+                            playerSettings.playbackMode != PlaybackMode.CLASSIC &&
+                                autoPlaybackStarting
                         if (!isClassicAutoPlay && !hasFailureChain) return@LaunchedEffect
                         if (reuseNavigated) return@LaunchedEffect
                         if (autoPlayHandled && !hasFailureChain) return@LaunchedEffect
@@ -3371,6 +3389,46 @@ private fun MainAppContent(
                             initialProgressFraction = launch.resumeProgressFraction,
                             autoPickedWithFailureChain = hasFailureChain,
                         )
+                        if (playerSettings.playbackMode == PlaybackMode.INSTANT) {
+                            // ⚠ **Both of these describe the source that is about to *open*, not
+                            // the one Instant chose**, and that is the whole reason they live
+                            // here rather than beside the selection effect. The failure chain can
+                            // advance past a dead or evicted candidate to a different resolution;
+                            // recording the intent would remember something that never played,
+                            // and the next episode would then prefer a resolution that had just
+                            // failed - reintroducing exactly the churn this removes.
+                            val openedFacts = playbackCandidates
+                                .firstOrNull { it.stream === stream }?.facts
+                            openedFacts?.resolution?.height?.let { height ->
+                                BingeGroupCacheRepository.saveSessionQualityHeight(
+                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                    height = height,
+                                )
+                            }
+                            // Instant otherwise gives no indication of what it decided, which is
+                            // most of why a defensible pick reads as a random one - reported as
+                            // "spinning a roulette wheel on what resolution I'm going to get".
+                            val detail = listOfNotNull(
+                                openedFacts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+                                openedFacts?.releaseQuality?.takeIf { it.isNotBlank() },
+                                (openedFacts?.providerName ?: openedFacts?.debridService)
+                                    ?.takeIf { it.isNotBlank() },
+                            ).joinToString(" · ")
+                            if (detail.isNotBlank()) {
+                                NuvioToastController.show(
+                                    message = getString(Res.string.playback_instant_selected, detail),
+                                    actionLabel = getString(Res.string.playback_reused_last_link_change),
+                                    action = NuvioToastAction.ChangePlaybackSource,
+                                )
+                                // Pressing Change is the user saying this pick was wrong, so the
+                                // remembered resolution goes with it and the next episode
+                                // re-decides from the connection rather than sticking to a band
+                                // they just rejected.
+                                BingeGroupCacheRepository.armBandChange(
+                                    launch.parentMetaId ?: effectiveVideoId,
+                                )
+                            }
+                        }
                         // Remembered before the hand-off, because a retry comes back with the
                         // chain already advanced and no way to name what it advanced *from*.
                         lastHandedOffStream = stream
@@ -3558,7 +3616,21 @@ private fun MainAppContent(
                         )
                     }
 
-                    fun completeStreamlinedOptionSelection(option: PlaybackQualityOption) {
+                    /**
+                     * Starts the automatic path on a chosen quality row. Serves all three ways
+                     * a row gets chosen: the sheet, a remembered band, and Instant.
+                     *
+                     * [rememberBand] is the one thing that differs. The band id is Streamlined's
+                     * record of a question the user answered, and it is what lets this route
+                     * skip the sheet for the rest of the sitting - so Instant, which asked
+                     * nothing, must not write one. Instant records the resolution it actually
+                     * *opened* instead, where the source opens, because its failure chain can
+                     * still advance past this row to another.
+                     */
+                    fun startAutoSelectedPlayback(
+                        option: PlaybackQualityOption,
+                        rememberBand: Boolean = true,
+                    ) {
                         when (
                             val result = PlaybackSourceSelector.select(
                                 option = option,
@@ -3567,7 +3639,7 @@ private fun MainAppContent(
                         ) {
                             is PlaybackSelectionResult.Play -> {
                                 qualitySheetDismissed = true
-                                streamlinedPlaybackStarting = true
+                                autoPlaybackStarting = true
                                 armNetworkObservation(result.stream)
                                 // Remember the band for the sitting, so the next episode plays
                                 // what the user just chose rather than re-deriving a resolution
@@ -3584,11 +3656,13 @@ private fun MainAppContent(
                                 // gating this on one meant the top row was never remembered and
                                 // the sheet reappeared every episode. The height is written when
                                 // there is one; the id always is.
-                                BingeGroupCacheRepository.saveSessionQualityBand(
-                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                    height = option.resolution?.height,
-                                    optionId = option.id,
-                                )
+                                if (rememberBand) {
+                                    BingeGroupCacheRepository.saveSessionQualityBand(
+                                        parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                                        height = option.resolution?.height,
+                                        optionId = option.id,
+                                    )
+                                }
                                 // `select` has already ranked the whole row and handed back
                                 // everything behind the winner. Throwing those away is what made
                                 // one "not cached" answer the end of the road in Streamlined,
@@ -3626,7 +3700,7 @@ private fun MainAppContent(
                      */
                     fun startUncachedStream(uncached: StreamItem) {
                         qualitySheetDismissed = true
-                        streamlinedPlaybackStarting = true
+                        autoPlaybackStarting = true
                         armNetworkObservation(uncached)
                         // A chain of one, deliberately. Everything else in this row failed the
                         // same cache gate, so there is no better candidate to fall to - what
@@ -3689,15 +3763,44 @@ private fun MainAppContent(
                     var connectionRetestNonce by remember { mutableStateOf(0) }
                     var connectionSettledNonce by remember { mutableStateOf(-1) }
                     val connectionSettled = connectionSettledNonce == connectionRetestNonce
+
+                    /**
+                     * Instant's metered question is on screen and unanswered.
+                     *
+                     * Hoisted here because **five** things need it and they have to agree.
+                     * Instant is the first thing in this route that waits on purpose, and every
+                     * mechanism below was written on the assumption that a wait here is a stall:
+                     * the probe would spend the user's data before they agreed to it, the
+                     * selection timeout would give up on someone still reading the dialog, the
+                     * stall backstop would give up 1.5 s in, the selection effect must not
+                     * choose without an answer, and the surface decides what is drawn behind the
+                     * dialog. Five copies of one condition is how four of them end up agreeing
+                     * and the fifth does not.
+                     *
+                     * Read from the remembered `peek`, never from
+                     * `NetworkQualityRepository.current()` - that one publishes to the flow it
+                     * is being derived from.
+                     */
+                    val awaitingMeteredAnswer =
+                        playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+                            sheetNetworkQuality.isMetered &&
+                            meteredChoice == null
                     LaunchedEffect(
                         playbackRouteDecision,
                         qualityProbeTarget,
                         qualitySheetDismissed,
                         connectionRetestNonce,
+                        // Instant only, and it must re-run when the answer lands - see the
+                        // metered guard in the body.
+                        awaitingMeteredAnswer,
                     ) {
-                        if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) {
-                            return@LaunchedEffect
-                        }
+                        // Both automatic modes need this. Streamlined shows the figure and
+                        // withholds it while it moves; Instant never shows it and *decides* on
+                        // it, which is the stricter of the two requirements.
+                        val needsConnectionFigure =
+                            playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet ||
+                                playbackRouteDecision is PlaybackRouteDecision.AutoPick
+                        if (!needsConnectionFigure) return@LaunchedEffect
                         if (qualitySheetDismissed) return@LaunchedEffect
                         // This effect re-runs often - `qualityProbeTarget` is rebuilt every
                         // time an addon answers - and once this sheet has committed to a figure
@@ -3711,6 +3814,18 @@ private fun MainAppContent(
                         // launch instead would strand the sheet: nothing else would ever write
                         // this ask's nonce, and it would sit on "Checking" for good.
                         if (connectionSettled) return@LaunchedEffect
+                        // ⚠ **Instant asks before it spends.** A metered probe is capped at
+                        // `METERED_MAX_BYTES` - 16 MiB - and Instant's card promises it asks once
+                        // before using mobile data. Measuring first and asking afterwards would
+                        // spend that allowance to decide a question the user had not yet agreed
+                        // to be asked. Returning without settling is deliberate: the nonce stays
+                        // unwritten, so the selection effect keeps waiting and this re-runs when
+                        // the answer arrives.
+                        //
+                        // `awaitingMeteredAnswer` is route-gated rather than mode-gated because
+                        // Streamlined has no such dialog: its `meteredChoice` is null forever,
+                        // and waiting on it would strand its sheet on "Checking your connection…".
+                        if (awaitingMeteredAnswer) return@LaunchedEffect
                         val platform = NetworkQualityRepository.peek(qualityProbeTarget?.providerId)
                         val inputs = NetworkStrengthProbe.Inputs(
                             isMetered = platform.isMetered,
@@ -3770,8 +3885,29 @@ private fun MainAppContent(
                     // working. The user tapped a quality and nothing happened, with nothing on
                     // screen to say why. Cancelled automatically when the selection resolves,
                     // because the effect is keyed on the flag it is waiting out.
-                    LaunchedEffect(streamlinedSelectionPending) {
-                        if (!streamlinedSelectionPending) return@LaunchedEffect
+                    //
+                    // Instant is armed the moment its route decision exists, because it has no
+                    // tap to wait for - the whole mode is a wait the user did not ask for. Its
+                    // flag is deliberately **not** `streamlinedSelectionPending`: the effect
+                    // that flag drives falls back to `playbackQualityOptions.firstOrNull()`,
+                    // which would silently play Best available on a mode that is supposed to
+                    // pick from the connection.
+                    // ⚠ **Not armed while the metered question is unanswered.** This clock is for
+                    // an addon that never answers, not for a user reading a dialog - and someone
+                    // deciding whether to spend their data can easily take longer than twenty
+                    // seconds. Firing there would toast "sources timed out" at a question the app
+                    // itself had asked.
+                    val automaticSelectionPending = !awaitingMeteredAnswer && (
+                        streamlinedSelectionPending ||
+                            (
+                                playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+                                    !instantSelectionHandled &&
+                                    !qualitySheetDismissed &&
+                                    !manualSourceListRequested
+                                )
+                        )
+                    LaunchedEffect(automaticSelectionPending) {
+                        if (!automaticSelectionPending) return@LaunchedEffect
                         delay(STREAMLINED_SELECTION_TIMEOUT_MS)
                         streamlinedSelectionPending = false
                         pendingStreamlinedOptionId = null
@@ -3812,7 +3948,7 @@ private fun MainAppContent(
                             giveUpToSourceList()
                             return@LaunchedEffect
                         }
-                        completeStreamlinedOptionSelection(option)
+                        startAutoSelectedPlayback(option)
                     }
 
                     /**
@@ -3828,7 +3964,7 @@ private fun MainAppContent(
                      * Waits on the same settle signal a manual tap does, because a band matched
                      * against a half-filled catalogue is matched against the wrong catalogue.
                      * `rememberedBandHandled` makes it once-only: the effect's own keys change
-                     * as the fetch lands, and re-entering after `completeStreamlinedOptionSelection`
+                     * as the fetch lands, and re-entering after `startAutoSelectedPlayback`
                      * would seed a second chain over the first.
                      */
                     LaunchedEffect(
@@ -3888,7 +4024,96 @@ private fun MainAppContent(
                         BingeGroupCacheRepository.armBandChange(
                             launch.parentMetaId ?: effectiveVideoId,
                         )
-                        completeStreamlinedOptionSelection(option)
+                        startAutoSelectedPlayback(option)
+                    }
+
+                    /**
+                     * Instant: the same path, with the quality answered by the connection.
+                     *
+                     * **Instant is not a third selection mechanism.** It is the effect above
+                     * with `stickyAffordable` in place of `rememberedOption`, handing off through
+                     * the same `startAutoSelectedPlayback`. That is the whole mode, and it is
+                     * deliberate: two pickers scoring the same candidates and disagreeing is the
+                     * finicky behaviour `PLAYBACK_MODES_PLAN.md` names as the concentrated risk,
+                     * and a third ordering is what got Instant withdrawn the first time.
+                     *
+                     * ⚠ **It waits for the connection measurement to settle.** Instant *decides*
+                     * on that figure where the sheet merely prints it, so choosing early means
+                     * choosing from `defaultMbps`' unmeasured 50 Mbps Wi-Fi guess - which is
+                     * precisely "picks a tier from a line nobody measured and has no ceiling to
+                     * hold it", the sentence this mode was withdrawn under. The wait is bounded
+                     * by the deadline raced above and is usually invisible, because the probe
+                     * runs beside the fetch and the fetch is slower.
+                     *
+                     * ⚠ **`instantSelectionHandled` is latched and must never be reset.** It
+                     * guards the seed, so clearing it on a retry re-seeds the chain back to
+                     * candidate 1 and the failure loops instead of advancing.
+                     */
+                    LaunchedEffect(
+                        playbackRouteDecision,
+                        instantSelectionHandled,
+                        meteredChoice,
+                        connectionSettled,
+                        playbackQualityOptions,
+                        streamsUiState.requestToken,
+                        streamsUiState.isAnyLoading,
+                        streamsUiState.emptyStateReason,
+                    ) {
+                        if (playbackRouteDecision !is PlaybackRouteDecision.AutoPick) return@LaunchedEffect
+                        if (instantSelectionHandled) return@LaunchedEffect
+                        if (qualitySheetDismissed || manualSourceListRequested) return@LaunchedEffect
+                        if (
+                            !com.nuvio.app.features.playback.isStreamlinedSelectionReady(
+                                requestToken = streamsUiState.requestToken,
+                                expectedRequestToken = expectedStreamsRequestToken,
+                                isAnyLoading = streamsUiState.isAnyLoading,
+                                candidateCount = playbackCandidates.size,
+                                hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
+                                hasStreams = streamsUiState.groups.any { it.streams.isNotEmpty() },
+                            )
+                        ) return@LaunchedEffect
+                        if (!connectionSettled) return@LaunchedEffect
+                        // The metered question is still on screen. Answering it is what makes
+                        // `maxHeight` knowable, so there is nothing to decide until it lands.
+                        // Unreachable in practice - the probe holds `connectionSettled` false
+                        // for the same reason - and kept because that ordering is the probe's to
+                        // change, not this effect's.
+                        if (awaitingMeteredAnswer) return@LaunchedEffect
+
+                        instantSelectionHandled = true
+                        // A resolution ceiling, applied to the derived rows exactly as it used to
+                        // be applied to the preset list. "High quality" is not "ignore the line" -
+                        // it only removes this cap, and the pick still comes from the estimate.
+                        val meteredCapHeight = playerSettings.playbackMeteredCapHeight
+                            .takeIf {
+                                sheetNetworkQuality.isMetered &&
+                                    meteredChoice == MeteredPlaybackChoice.CAPPED
+                            }
+                        // Biased towards the resolution this show already got in this sitting.
+                        // A tie-break, never a ceiling or a floor: it is dropped the moment the
+                        // estimate stops carrying it and never invents a row this episode has no
+                        // release for. It is what answers "Instant feels like spinning a roulette
+                        // wheel on what resolution I'm going to get" - two taps that look
+                        // identical must not land on different resolutions.
+                        val option = PlaybackQualityOptions.stickyAffordable(
+                            options = playbackQualityOptions,
+                            pinnedHeight = BingeGroupCacheRepository.sessionQualityHeight(
+                                launch.parentMetaId ?: effectiveVideoId,
+                            ),
+                            estimatedMbps = sheetNetworkQuality.estimatedMbps,
+                            maxHeight = meteredCapHeight,
+                        )
+                        if (option == null) {
+                            giveUpToSourceList()
+                            return@LaunchedEffect
+                        }
+                        // `rememberBand = false`: the band id is Streamlined's record of a
+                        // question the user answered, and it is what makes *this* route skip the
+                        // sheet. Instant asked nothing, so writing one would mean a user who
+                        // switched to Streamlined mid-sitting found their sheet already answered
+                        // by a decision they never made. What Instant remembers - the resolution
+                        // it actually opened - is written where the source opens instead.
+                        startAutoSelectedPlayback(option, rememberBand = false)
                     }
 
                     // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
@@ -3901,8 +4126,16 @@ private fun MainAppContent(
                     // Instant and Streamlined must never leave the user reading the source list
                     // while the app is still deciding. The overlay covers it - it cannot replace
                     // it, because StreamsScreen owns the fetch this is reporting on.
+                    // Instant's metered question counts as a user answer for the same reason the
+                    // other two do - the stall backstop gives up on an overlay that is waiting
+                    // for nothing, and a question on screen is something. It does *not* uncover
+                    // the list the way the other two do, because Instant's own surface rule
+                    // outranks `awaitingUserAnswer`: the dialog is drawn over the progress
+                    // overlay rather than over the source list the mode exists to avoid, and
+                    // dismissing it answers Data saver rather than dropping the play.
                     val awaitingUserAnswer = pendingUncachedStream != null ||
-                        pendingP2pStreamOpen != null
+                        pendingP2pStreamOpen != null ||
+                        awaitingMeteredAnswer
                     val streamSurface = streamRouteSurface(
                         StreamRouteSurfaceInputs(
                             isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
@@ -3916,7 +4149,9 @@ private fun MainAppContent(
                             // sheet is the honest surface again, and the flag must stop
                             // suppressing it.
                             hasRememberedBand = rememberedBandId != null && !rememberedBandMissed,
-                            isStreamlinedPlaybackStarting = streamlinedPlaybackStarting,
+                            isAutoPickRoute =
+                                playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                            isAutoPlaybackStarting = autoPlaybackStarting,
                             awaitingUserAnswer = awaitingUserAnswer,
                         ),
                     )
@@ -3952,6 +4187,9 @@ private fun MainAppContent(
                         // restart the effect, or the backstop it was meant to suppress has
                         // already been scheduled and still fires underneath it.
                         awaitingUserAnswer,
+                        // Same reason, for the probe: it settles mid-grace on most plays.
+                        playbackRouteDecision,
+                        connectionSettled,
                     ) {
                         // Both covered surfaces, not just the overlay. `HandOff` is supposed
                         // to be a navigation in flight and nothing else, so resting on it once
@@ -3970,6 +4208,18 @@ private fun MainAppContent(
                         // asked to choose. The non-remembered path resolves to QualitySheet and
                         // was already skipped by the surface check above.
                         if (awaitingUserAnswer) return@LaunchedEffect
+                        // ⚠ **Instant is waiting on the connection probe here, and that wait
+                        // routinely outlasts the 1.5 s grace.** Every other state this backstop
+                        // sees is transient by construction; this one is a deliberate pause with
+                        // a named owner and its own deadline (`PROBE_DEADLINE_MS`, raced above),
+                        // so it is not a dead end. Without this the backstop drops Instant onto
+                        // the Classic source list after a second and a half - on exactly the
+                        // unmeasured connections the wait exists to measure, which is the one
+                        // outcome the mode is for avoiding.
+                        if (
+                            playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+                            !connectionSettled
+                        ) return@LaunchedEffect
                         if (
                             streamsUiState.requestToken != expectedStreamsRequestToken ||
                             streamsUiState.isAnyLoading
@@ -4098,6 +4348,53 @@ private fun MainAppContent(
                                 onDismiss = { showPlaybackPreferences = false },
                             )
                         }
+                        if (awaitingMeteredAnswer) {
+                            // Asked once per network per session, because Instant's promise is
+                            // that it does not ask - a question repeated every episode is the
+                            // mode failing at the one thing it is for.
+                            //
+                            // Dismissing counts as Data saver. The safe answer on someone's data
+                            // plan is the cheap one, and unlike every other dialog in this route
+                            // there is no "and now nothing happens" outcome to fall back to: the
+                            // play continues either way.
+                            AlertDialog(
+                                onDismissRequest = {
+                                    NetworkQualityRepository.rememberMeteredChoice(
+                                        MeteredPlaybackChoice.CAPPED,
+                                    )
+                                    meteredChoice = MeteredPlaybackChoice.CAPPED
+                                },
+                                title = { Text(stringResource(Res.string.playback_metered_title)) },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            Res.string.playback_metered_description,
+                                            "${playerSettings.playbackMeteredCapHeight}p",
+                                        ),
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            NetworkQualityRepository.rememberMeteredChoice(
+                                                MeteredPlaybackChoice.CAPPED,
+                                            )
+                                            meteredChoice = MeteredPlaybackChoice.CAPPED
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_metered_capped)) }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            NetworkQualityRepository.rememberMeteredChoice(
+                                                MeteredPlaybackChoice.FULL_QUALITY,
+                                            )
+                                            meteredChoice = MeteredPlaybackChoice.FULL_QUALITY
+                                        },
+                                    ) { Text(stringResource(Res.string.playback_metered_full)) }
+                                },
+                            )
+                        }
                         pendingUncachedStream?.let { uncached ->
                             AlertDialog(
                                 onDismissRequest = { pendingUncachedStream = null },
@@ -4156,9 +4453,15 @@ private fun MainAppContent(
                                     PlaybackProgressInputs(
                                         isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
                                             streamsUiState.isAnyLoading,
-                                        hasChosenSource = streamlinedPlaybackStarting,
+                                        hasChosenSource = autoPlaybackStarting,
                                         isResolvingLink = resolvingDebridStream,
                                         attempt = autoPickAttempt,
+                                        // Instant only. The remembered-band path is also covered
+                                        // by this overlay and does not need an estimate - its
+                                        // band is exact - so it must not claim to be waiting for
+                                        // one.
+                                        isMeasuringConnection = !connectionSettled &&
+                                            playbackRouteDecision is PlaybackRouteDecision.AutoPick,
                                     ),
                                 ),
                                 attempt = autoPickAttempt,

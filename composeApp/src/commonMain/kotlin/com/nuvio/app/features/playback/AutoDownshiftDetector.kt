@@ -23,6 +23,23 @@ import com.nuvio.app.features.streams.StreamItem
  */
 object AutoDownshiftDetector {
 
+    /**
+     * Whether the automatic downshift may be offered to a user at all.
+     *
+     * **Withheld, and this is the only place that says so.** Its availability used to be
+     * `PlaybackMode.INSTANT.isSelectable`, which was correct while Instant was withdrawn and
+     * became a trap the moment it was not: bringing the mode back would have brought this with
+     * it, in the same release, having never once fired on a device.
+     *
+     * Everything below is covered by tests and none of it has been *watched*. What would flip
+     * this: one observed swap on a deliberately throttled line, firing once rather than
+     * repeatedly, landing on a lower release from the same group, with the position preserved
+     * across the tear-down. Until then the settings row is greyed with a reason and
+     * `observePlaybackForAutoDownshift` returns early - a profile that had
+     * `playback_auto_downshift` stored true from `0.4.9-beta` must not wake up on update.
+     */
+    const val AUTO_DOWNSHIFT_AVAILABLE = false
+
     /** Buffer-ahead at or below this is starvation. */
     const val STARVED_BUFFER_MS = 4_000L
 

@@ -16,13 +16,19 @@
 # WHAT IS REAL AND WHAT IS NOT
 #
 # Everything under composeApp/ is the shipped source, unmodified. `scripts/pure-suite-stubs/`
-# holds *neighbours* only - SourceFacts, StreamItem, PlaybackMode and the three ranking enums -
-# because the real ones reach kotlinx.serialization, the whole stream stack and the generated
-# Compose resource bundle, none of which this logic touches.
+# holds *neighbours* only - SourceFacts, StreamItem and the three ranking enums - because the
+# real ones reach the whole stream stack and the generated Compose resource bundle, neither of
+# which this logic touches.
 #
 # NEVER stub a file under test. A test against a copy of the code proves nothing, and AGENTS.md
 # says so. If a stub drifts from the real declaration the compile fails, which is the intended
 # alarm - fix the stub, do not work around it.
+#
+# ⚠ **A stub can also drift without the compile noticing, and that is the worse failure.**
+# `PlaybackMode` was stubbed here and its stub carried a second copy of `isSelectable`. Nothing
+# in group 1 called it, so the compile stayed green while the suite quietly asserted a rule the
+# app no longer followed. It is the real file now. Prefer compiling the shipped source - even at
+# the cost of a compiler plugin - over stubbing anything that carries a decision.
 #
 # This does not replace CI. Compose, expect/actual matching and anything touching resources are
 # only checked by a real build.
@@ -77,11 +83,19 @@ rm -rf "$WORK/out-selection"
 # language score calls straight into it, and stubbing the thing that decides whether a source is
 # watchable would prove nothing about the fix it exists for. It is import-free by design so that
 # it can be compiled here at all - see the note at the top of that file.
-kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-selection" \
+#
+# `features/playback/PlaybackModeModels.kt` is the real file for the same reason, and it used to
+# be a stub. That stub carried its own copy of `isSelectable` - the one predicate whose KDoc says
+# it must be the only availability test in the codebase - so bringing Instant back would have
+# flipped the shipped rule while the suite went on asserting the withdrawn one. Its only
+# obstacle was `@Serializable`, hence the plugin and the JSON runtime below.
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.jar" \
+  -d "$WORK/out-selection" \
   "$STUBS"/*.kt \
   "$M/core/language/LanguageCodes.kt" \
   "$M/core/media/ReleaseTags.kt" \
   "$M/features/downloads/SourceRanking.kt" \
+  "$M/features/playback/PlaybackModeModels.kt" \
   "$M/features/playback/PlaybackSourceSelector.kt" \
   "$M/features/playback/PlaybackQualityOptions.kt" \
   "$M/features/playback/StreamRouteSurface.kt" \
@@ -91,14 +105,18 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-selection" \
   "$T/features/playback/PlaybackQualityOptionsTest.kt" \
   "$T/features/playback/StreamRouteSurfaceTest.kt" \
   "$T/features/playback/PlaybackModeRouterTest.kt" \
+  "$T/features/playback/PlaybackModeAvailabilityTest.kt" \
+  "$T/features/playback/StickySourcePinTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
-java -cp "$WORK/out-selection:$CP_RUN" org.junit.runner.JUnitCore \
+java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.language.LanguageCodesTest \
   com.nuvio.app.core.media.ReleaseTagsTest \
   com.nuvio.app.features.playback.PlaybackQualityOptionsTest \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
-  com.nuvio.app.features.playback.PlaybackModeRouterTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.playback.PlaybackModeRouterTest \
+  com.nuvio.app.features.playback.PlaybackModeAvailabilityTest \
+  com.nuvio.app.features.playback.StickySourcePinTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 2: files with no dependencies at all, so no stubs are involved --------------------
 rm -rf "$WORK/out-standalone"

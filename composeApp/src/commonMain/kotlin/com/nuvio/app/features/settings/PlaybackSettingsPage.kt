@@ -80,6 +80,7 @@ import com.nuvio.app.features.p2p.P2pCacheSize
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pTorrentProfile
+import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
@@ -477,11 +478,11 @@ private fun PlaybackSettingsSection(
             val classicOnlyReason = stringResource(Res.string.settings_playback_classic_only)
             fun withClassicReason(description: String): String =
                 if (isClassicMode) description + "\n" + classicOnlyReason else description
-            // Automatic source swapping only ever ran in Instant, so withdrawing Instant takes
-            // it with it - `maybeDownshift` already returns early on every other mode, and no
-            // profile can now be on Instant. It goes dead on its own; saying so is the
-            // difference between withheld and broken.
-            val autoDownshiftAvailable = PlaybackMode.INSTANT.isSelectable
+            // Automatic source swapping is withheld on its own terms now. It used to ride on
+            // `PlaybackMode.INSTANT.isSelectable`, which was true enough while Instant was
+            // withdrawn and would have handed a never-once-observed mid-playback source swap
+            // to users in the same release that brought the mode back.
+            val autoDownshiftAvailable = AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE
             SettingsGroup(isTablet = isTablet) {
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_language_strictness),

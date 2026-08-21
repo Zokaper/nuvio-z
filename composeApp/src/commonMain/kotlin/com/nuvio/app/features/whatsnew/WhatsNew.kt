@@ -50,6 +50,16 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.NewFeatures,
             items = listOfNotNull(
                 WhatsNewItem(
+                    title = "Instant is back",
+                    description = "Tap an episode and it plays. Nuvio measures your connection, " +
+                        "picks the quality it can actually carry and the best release in it, and " +
+                        "tells you what it opened - with a Change button if you disagree. It " +
+                        "keeps the same quality across a show for the rest of the sitting, steps " +
+                        "past a source that will not start, and asks once before spending mobile " +
+                        "data. Choose it in Settings → Playback → Playback mode. If you picked " +
+                        "Instant before it was withdrawn, you are back on it.",
+                ),
+                WhatsNewItem(
                     title = "A setup wizard, with a live preview",
                     description = "First launch now walks you through how Nuvio picks sources and " +
                         "how it looks. Each question shows the part of the app it changes, right " +

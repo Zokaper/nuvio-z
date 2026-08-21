@@ -123,14 +123,26 @@ data class StreamRouteSurfaceInputs(
      */
     val hasRememberedBand: Boolean = false,
     /**
-     * A tier has been chosen and the automatic path is running.
+     * The route decision is `AutoPick` - Instant, which has no sheet to draw.
      *
-     * There used to be a second input beside this one, `isAutoPickRoute`, for Instant's
-     * sheet-less start. Instant is withdrawn and its route paths are gone, so the overlay has
-     * exactly one owner again - and two flags meaning "the automatic path is working" is how
-     * one of them ends up not being cleared.
+     * This input was removed in `0.5.0-beta` with a note saying two flags meaning "the
+     * automatic path is working" is how one of them ends up not being cleared. That note is
+     * right and this is not one of those flags: it is a **route identity**, derived from
+     * `playbackRouteDecision is AutoPick` exactly as [isQualitySheetRoute] is derived from
+     * `ShowQualitySheet`. Nothing sets it and nothing clears it.
+     *
+     * The rule the note was actually protecting is honoured by
+     * [isAutoPlaybackStarting] instead, which is one flag for both modes.
      */
-    val isStreamlinedPlaybackStarting: Boolean,
+    val isAutoPickRoute: Boolean = false,
+    /**
+     * A quality has been chosen - by the user, by a remembered band, or by the connection -
+     * and the automatic path is running.
+     *
+     * **One flag for Streamlined and Instant**, deliberately. It was
+     * `isStreamlinedPlaybackStarting` while Instant was withdrawn.
+     */
+    val isAutoPlaybackStarting: Boolean,
     /** A dialog is up and needs an answer before anything else can happen. */
     val awaitingUserAnswer: Boolean,
 )
@@ -156,11 +168,17 @@ data class StreamRouteSurfaceInputs(
  *    than below it because the sheet's own condition is still true here - the route is
  *    `ShowQualitySheet` and nothing has been dismissed - and drawing it for the frames before
  *    the auto-selection lands is a question flashed and withdrawn.
- * 4. The sheet, while it is still the user's to answer.
- * 5. **A question uncovers the list too**, so dismissing the dialog leaves something usable
+ * 4. **Instant covers the screen from the start**, because it has no sheet: its equivalent of
+ *    the question is the overlay reporting on a decision being made. Without this rule an
+ *    Instant play matched nothing and fell to rule 8 - an opaque, empty, pointer-consuming
+ *    screen over a source list, which is the exact fault [streamRouteSurface] was written to
+ *    kill. Above the dialog rule so the metered question is asked over the overlay rather than
+ *    over the list Instant exists to avoid; below the bail-outs so every give-up still wins.
+ * 5. The sheet, while it is still the user's to answer.
+ * 6. **A question uncovers the list too**, so dismissing the dialog leaves something usable
  *    behind it rather than the opaque surface.
- * 6. The overlay, while the automatic path can still finish.
- * 7. Hand-off, before a decision exists. The only legitimate blank frame there is.
+ * 7. The overlay, while the automatic path can still finish.
+ * 8. Hand-off, before a decision exists. The only legitimate blank frame there is.
  */
 fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = when {
     inputs.isClassic || inputs.isManualLaunch || inputs.manualSourceListRequested ->
@@ -171,12 +189,15 @@ fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = w
     inputs.isQualitySheetRoute && inputs.hasRememberedBand && !inputs.qualitySheetDismissed ->
         StreamRouteSurface.ProgressOverlay
 
+    inputs.isAutoPickRoute && !inputs.qualitySheetDismissed ->
+        StreamRouteSurface.ProgressOverlay
+
     inputs.isQualitySheetRoute && !inputs.qualitySheetDismissed ->
         StreamRouteSurface.QualitySheet
 
     inputs.awaitingUserAnswer -> StreamRouteSurface.SourceList
 
-    inputs.isStreamlinedPlaybackStarting -> StreamRouteSurface.ProgressOverlay
+    inputs.isAutoPlaybackStarting -> StreamRouteSurface.ProgressOverlay
 
     else -> StreamRouteSurface.HandOff
 }

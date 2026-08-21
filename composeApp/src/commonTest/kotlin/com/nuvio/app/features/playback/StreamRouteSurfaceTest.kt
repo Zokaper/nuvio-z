@@ -20,7 +20,8 @@ class StreamRouteSurfaceTest {
         isQualitySheetRoute: Boolean = false,
         qualitySheetDismissed: Boolean = false,
         hasRememberedBand: Boolean = false,
-        isStreamlinedPlaybackStarting: Boolean = false,
+        isAutoPickRoute: Boolean = false,
+        isAutoPlaybackStarting: Boolean = false,
         awaitingUserAnswer: Boolean = false,
     ) = StreamRouteSurfaceInputs(
         isClassic = isClassic,
@@ -30,7 +31,8 @@ class StreamRouteSurfaceTest {
         isQualitySheetRoute = isQualitySheetRoute,
         qualitySheetDismissed = qualitySheetDismissed,
         hasRememberedBand = hasRememberedBand,
-        isStreamlinedPlaybackStarting = isStreamlinedPlaybackStarting,
+        isAutoPickRoute = isAutoPickRoute,
+        isAutoPlaybackStarting = isAutoPlaybackStarting,
         awaitingUserAnswer = awaitingUserAnswer,
     )
 
@@ -38,7 +40,7 @@ class StreamRouteSurfaceTest {
     fun classicNeverCoversItsList() {
         assertEquals(
             StreamRouteSurface.SourceList,
-            streamRouteSurface(inputs(isClassic = true, isStreamlinedPlaybackStarting = true)),
+            streamRouteSurface(inputs(isClassic = true, isAutoPlaybackStarting = true)),
         )
     }
 
@@ -58,7 +60,7 @@ class StreamRouteSurfaceTest {
                 inputs(
                     isQualitySheetRoute = true,
                     qualitySheetDismissed = true,
-                    isStreamlinedPlaybackStarting = true,
+                    isAutoPlaybackStarting = true,
                 ),
             ),
         )
@@ -138,14 +140,14 @@ class StreamRouteSurfaceTest {
             StreamRouteSurface.SourceList,
             streamRouteSurface(
                 inputs(
-                    isStreamlinedPlaybackStarting = true,
+                    isAutoPlaybackStarting = true,
                     manualSourceListRequested = true,
                 ),
             ),
         )
         assertEquals(
             StreamRouteSurface.SourceList,
-            streamRouteSurface(inputs(isStreamlinedPlaybackStarting = true, awaitingUserAnswer = true)),
+            streamRouteSurface(inputs(isAutoPlaybackStarting = true, awaitingUserAnswer = true)),
         )
         assertEquals(
             StreamRouteSurface.SourceList,
@@ -168,7 +170,7 @@ class StreamRouteSurfaceTest {
                 inputs(
                     isQualitySheetRoute = true,
                     qualitySheetDismissed = true,
-                    isStreamlinedPlaybackStarting = true,
+                    isAutoPlaybackStarting = true,
                     hasNavigatedAway = true,
                 ),
             ),
@@ -184,7 +186,7 @@ class StreamRouteSurfaceTest {
             StreamRouteSurface.SourceList,
             streamRouteSurface(
                 inputs(
-                    isStreamlinedPlaybackStarting = true,
+                    isAutoPlaybackStarting = true,
                     hasNavigatedAway = true,
                     manualSourceListRequested = true,
                 ),
@@ -219,7 +221,7 @@ class StreamRouteSurfaceTest {
             StreamRouteSurface.ProgressOverlay,
             streamRouteSurface(
                 inputs(
-                    isStreamlinedPlaybackStarting = true,
+                    isAutoPlaybackStarting = true,
                     hasNavigatedAway = false,
                 ),
             ),
@@ -233,7 +235,7 @@ class StreamRouteSurfaceTest {
         assertEquals(
             StreamRouteSurface.HandOff,
             streamRouteSurface(
-                inputs(isStreamlinedPlaybackStarting = true, hasNavigatedAway = true),
+                inputs(isAutoPlaybackStarting = true, hasNavigatedAway = true),
             ),
         )
     }
@@ -245,6 +247,92 @@ class StreamRouteSurfaceTest {
         assertEquals(
             StreamRouteSurface.HandOff,
             streamRouteSurface(inputs()),
+        )
+    }
+
+    @Test
+    fun instantIsCoveredFromTheStart() {
+        // Instant has no sheet, so nothing else in this table matched it: before this rule an
+        // Instant play fell all the way to the final `HandOff` - an opaque, empty,
+        // pointer-consuming screen resting over a fully tappable source list. That is the exact
+        // fault this function was written to make impossible, and it would have come back with
+        // the mode.
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(inputs(isAutoPickRoute = true)),
+        )
+    }
+
+    @Test
+    fun instantStaysCoveredOnceItHasChosen() {
+        // Choosing sets `qualitySheetDismissed` alongside `autoPlaybackStarting`, so the rule
+        // above stops matching and the overlay comes from the shared starting rule instead.
+        // Both answers must be the overlay or the screen flickers at the moment of the pick.
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(
+                inputs(
+                    isAutoPickRoute = true,
+                    qualitySheetDismissed = true,
+                    isAutoPlaybackStarting = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun instantsMeteredQuestionIsAskedOverTheOverlay() {
+        // `awaitingUserAnswer` uncovers the list so a dialog has something usable behind it,
+        // which is right for a question whose dismissal drops the play. The metered question is
+        // not one of those - dismissing it answers Data saver and playback continues - so
+        // uncovering would flash the Classic source list the mode exists to avoid. Instant's own
+        // rule sits above `awaitingUserAnswer` for exactly this.
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(inputs(isAutoPickRoute = true, awaitingUserAnswer = true)),
+        )
+    }
+
+    @Test
+    fun instantStillLosesToEveryBailOut() {
+        // Same standing as the remembered band: a way of skipping a question, never a new way
+        // to cover the list.
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(
+                inputs(isAutoPickRoute = true, manualSourceListRequested = true),
+            ),
+        )
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(inputs(isAutoPickRoute = true, isManualLaunch = true)),
+        )
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(inputs(isAutoPickRoute = true, isClassic = true)),
+        )
+        // And a hand-off outranks it in both directions, so backing out of the player does not
+        // flash the list on the way to details.
+        assertEquals(
+            StreamRouteSurface.HandOff,
+            streamRouteSurface(inputs(isAutoPickRoute = true, hasNavigatedAway = true)),
+        )
+    }
+
+    @Test
+    fun instantsGiveUpUncoversTheList() {
+        // `giveUpToSourceList` sets both flags. The first is what stops Instant's rule matching;
+        // the second is what uncovers. Asserting the pair together is the guard against someone
+        // later setting only one of them.
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(
+                inputs(
+                    isAutoPickRoute = true,
+                    qualitySheetDismissed = true,
+                    manualSourceListRequested = true,
+                ),
+            ),
         )
     }
 }

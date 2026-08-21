@@ -31,6 +31,7 @@ import nuvio.composeapp.generated.resources.playback_progress_resolving
 import nuvio.composeapp.generated.resources.playback_progress_source_failed
 import nuvio.composeapp.generated.resources.playback_progress_source_failed_reason
 import nuvio.composeapp.generated.resources.playback_progress_starting
+import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.streams_finding_source
 import org.jetbrains.compose.resources.stringResource
@@ -46,6 +47,19 @@ import org.jetbrains.compose.resources.stringResource
 enum class PlaybackProgressStep {
     /** Addons and plugins are still returning candidates. */
     FindingSources,
+
+    /**
+     * Instant only: the candidates are in but the connection measurement has not settled.
+     *
+     * Instant picks a quality *from* that measurement, so choosing before it lands would be
+     * choosing from the unmeasured platform guess - the fault the mode was withdrawn for the
+     * first time. The wait is bounded by `NetworkStrengthProbe.PROBE_DEADLINE_MS` and is
+     * usually invisible, because the probe runs alongside the fetch and the fetch is slower.
+     * It gets its own step for the case where it is not, because "Choosing a source" while the
+     * app is measuring a line is the same small lie the connection gauge work spent three
+     * passes removing.
+     */
+    CheckingConnection,
 
     /** Candidates are in; `PlaybackSourceSelector` is ranking them. */
     ChoosingSource,
@@ -72,6 +86,14 @@ data class PlaybackProgressInputs(
     val isResolvingLink: Boolean,
     /** 1-based. Above 1 means the failure chain has moved on from a dead candidate. */
     val attempt: Int = 1,
+    /**
+     * Instant only: `!connectionSettled`, the same signal the quality sheet withholds its
+     * figure on.
+     *
+     * Deliberately not passed by the remembered-band path, which does not need an estimate -
+     * its band is exact - and must not claim to be waiting for one.
+     */
+    val isMeasuringConnection: Boolean = false,
 )
 
 object PlaybackProgress {
@@ -95,6 +117,10 @@ object PlaybackProgress {
     fun step(inputs: PlaybackProgressInputs): PlaybackProgressStep = when {
         inputs.isResolvingLink -> PlaybackProgressStep.ResolvingLink
         inputs.isLoadingSources -> PlaybackProgressStep.FindingSources
+        // Below the fetch, because the two run concurrently and the fetch is nearly always the
+        // longer of the two; above the choice, because Instant genuinely cannot choose yet.
+        inputs.isMeasuringConnection && !inputs.hasChosenSource ->
+            PlaybackProgressStep.CheckingConnection
         !inputs.hasChosenSource -> PlaybackProgressStep.ChoosingSource
         else -> PlaybackProgressStep.StartingPlayback
     }
@@ -226,6 +252,10 @@ fun PlaybackProgressOverlay(
 @Composable
 private fun stepLabel(step: PlaybackProgressStep): String = when (step) {
     PlaybackProgressStep.FindingSources -> stringResource(Res.string.playback_progress_finding)
+    // The quality sheet's own wording, reused rather than duplicated: the two surfaces are
+    // waiting on the same probe and must not describe it differently.
+    PlaybackProgressStep.CheckingConnection ->
+        stringResource(Res.string.playback_quality_checking_connection)
     PlaybackProgressStep.ChoosingSource -> stringResource(Res.string.playback_progress_choosing)
     PlaybackProgressStep.ResolvingLink -> stringResource(Res.string.playback_progress_resolving)
     PlaybackProgressStep.StartingPlayback -> stringResource(Res.string.playback_progress_starting)

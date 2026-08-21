@@ -12,11 +12,13 @@ class PlaybackProgressTest {
         hasChosenSource: Boolean = false,
         isResolvingLink: Boolean = false,
         attempt: Int = 1,
+        isMeasuringConnection: Boolean = false,
     ) = PlaybackProgressInputs(
         isLoadingSources = isLoadingSources,
         hasChosenSource = hasChosenSource,
         isResolvingLink = isResolvingLink,
         attempt = attempt,
+        isMeasuringConnection = isMeasuringConnection,
     )
 
     @Test
@@ -51,6 +53,37 @@ class PlaybackProgressTest {
         assertEquals(
             PlaybackProgressStep.ResolvingLink,
             PlaybackProgress.step(inputs(isLoadingSources = true, hasChosenSource = true, isResolvingLink = true)),
+        )
+    }
+
+    @Test
+    fun instantWaitingOnTheProbeSaysSoInsteadOfClaimingToChoose() {
+        // Instant decides *from* the connection figure, so between the fetch settling and the
+        // probe landing it genuinely cannot choose yet. "Choosing the best source" there is the
+        // same small untruth three passes of connection-gauge work went into removing.
+        assertEquals(
+            PlaybackProgressStep.CheckingConnection,
+            PlaybackProgress.step(inputs(isMeasuringConnection = true)),
+        )
+    }
+
+    @Test
+    fun theFetchOutranksTheProbeBecauseTheyRunTogether() {
+        // The probe is launched beside the fetch and is nearly always the shorter of the two,
+        // so naming it first would replace an accurate wait with a briefer one.
+        assertEquals(
+            PlaybackProgressStep.FindingSources,
+            PlaybackProgress.step(inputs(isLoadingSources = true, isMeasuringConnection = true)),
+        )
+    }
+
+    @Test
+    fun aChosenSourceIsNeverStillCheckingTheConnection() {
+        // The figure only matters up to the pick. A probe still in flight afterwards is a
+        // refinement for the next episode, not something this play is waiting on.
+        assertEquals(
+            PlaybackProgressStep.StartingPlayback,
+            PlaybackProgress.step(inputs(hasChosenSource = true, isMeasuringConnection = true)),
         )
     }
 

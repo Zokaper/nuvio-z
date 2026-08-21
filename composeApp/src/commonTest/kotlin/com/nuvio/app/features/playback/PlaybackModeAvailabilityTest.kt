@@ -2,7 +2,6 @@ package com.nuvio.app.features.playback
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -11,31 +10,35 @@ import kotlin.test.assertTrue
  * `0.4.0-beta` shipped a stale "Not ready yet" caption because two files described the modes
  * independently. The machinery that produced it was deleted rather than fixed, so this is new
  * construction - and the point of these cases is that there is exactly **one** predicate.
+ *
+ * These cases were written to pin Instant's withdrawal and they inverted when it came back.
+ * That is the tripwire working: re-enabling a mode is a deliberate change to this file, not
+ * something a boolean flip does quietly on the way past.
  */
 class PlaybackModeAvailabilityTest {
 
     @Test
-    fun `Instant is withdrawn and the other two are not`() {
-        assertFalse(PlaybackMode.INSTANT.isSelectable)
-        assertTrue(PlaybackMode.CLASSIC.isSelectable)
-        assertTrue(PlaybackMode.STREAMLINED.isSelectable)
+    fun `all three modes ship`() {
+        PlaybackMode.entries.forEach { mode ->
+            assertTrue(mode.isSelectable, "$mode should be selectable")
+        }
     }
 
     @Test
-    fun `a profile stored on Instant behaves as Streamlined`() {
-        // Streamlined, not Classic: the source is still chosen for them, they only add one
-        // tap for quality. Classic would take away the automatic selection they opted into.
+    fun `a profile stored on Instant is on Instant again`() {
+        // The whole point of coercing at read time rather than rewriting storage: a profile
+        // that chose Instant before `0.4.10-beta` withheld it was shown Streamlined for two
+        // releases with its stored key untouched, and comes back on its own now.
         assertEquals(
-            PlaybackMode.STREAMLINED,
+            PlaybackMode.INSTANT,
             PlaybackMode.coerceSelectable(PlaybackMode.fromStorage("INSTANT")),
         )
     }
 
     @Test
     fun `coercing leaves the stored value alone`() {
-        // The coercion is a read-time view. `fromStorage` must keep answering INSTANT, or the
-        // choice is forgotten for good and re-enabling the mode silently leaves those
-        // profiles behind.
+        // `fromStorage` must keep answering INSTANT whether or not it is selectable, or the
+        // choice is forgotten for good and the next withdrawal leaves those profiles behind.
         assertEquals(PlaybackMode.INSTANT, PlaybackMode.fromStorage("INSTANT"))
     }
 
@@ -47,9 +50,9 @@ class PlaybackModeAvailabilityTest {
     }
 
     @Test
-    fun `the mode Instant is coerced to is itself selectable`() {
-        // Guards the obvious foot-gun in withdrawing a second mode later: a coercion target
-        // that is itself unavailable would leave a profile with nothing it can be.
+    fun `the coercion target is itself selectable`() {
+        // Guards the obvious foot-gun in withdrawing a mode later: a coercion target that is
+        // itself unavailable would leave a profile with nothing it can be.
         assertTrue(PlaybackMode.coerceSelectable(PlaybackMode.INSTANT).isSelectable)
     }
 }

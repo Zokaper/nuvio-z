@@ -29,22 +29,31 @@ enum class PlaybackMode {
      * caption precisely because two files described the modes independently, and the
      * machinery that produced it was deleted in `0.4.1-beta` rather than fixed.
      *
-     * Instant is withdrawn until its selection has been watched working on a real device.
+     * **All three modes ship.** Kept as a property rather than deleted because it is the
+     * mechanism a withdrawal uses, and it has been used twice: `0.4.10-beta` withheld Instant
+     * here, and `0.5.0-beta` deleted its route paths on top of that.
      *
-     * The original reason - it picked a tier from a measured line and then had no ceiling to
-     * hold it - **no longer applies**: options are derived from the catalogue by
-     * [PlaybackQualityOptions] and `stickyAffordable` costs each one against the estimate. Nor
-     * is the estimate a platform guess any more; `NetworkStrengthProbe` measures the host
-     * before the first play and `NetworkThroughputMeter` keeps measuring during it.
+     * Instant came back once every reason it was pulled had been answered, and each was
+     * answered by work done for Streamlined rather than for Instant:
      *
-     * What is left is evidence. Instant's bounded failure chain, its metered consent and its
-     * automatic downshift have all passed on tests alone and none has been seen on a device,
-     * and `playbackAutoDownshift` is still default-off pending the measured buffer ceiling
-     * `STATUS.md` asks for. Withdrawing it is not a decision about the idea; it is a decision
-     * not to ship a mode nobody has watched behave.
+     *  - the estimate was a platform guess, and then a *mean* that under-read worse the faster
+     *    the line was. `core/network/ThroughputWindow.kt` reports a sustained windowed rate,
+     *    every `httpMeasureThroughput` actual feeds it, and a probe that cannot measure now
+     *    says so in a log instead of failing silently;
+     *  - the figure moved while it was being read. The route waits for the probe to settle
+     *    before it decides, on the same signal the quality sheet waits on;
+     *  - there was no ceiling to hold what it picked. `playback_quality_ceiling_mbps` is
+     *    applied in [PlaybackQualityOptions.build] before bucketing, so even Best available
+     *    honours it, and the bands are absolute rather than one title's own spread;
+     *  - a dead source dead-ended the mode. The capped failure chain, the overlay that names
+     *    the dead source, `shouldOfferManualEscape` and `giveUpToSourceList` are all shared.
+     *
+     * ⚠ **Automatic downshift is withheld separately, by `AUTO_DOWNSHIFT_AVAILABLE` in
+     * [AutoDownshiftDetector].** It used to be gated on `INSTANT.isSelectable` and would have
+     * ridden back in on this line for free, having never once run on a device.
      */
     val isSelectable: Boolean
-        get() = this != INSTANT
+        get() = true
 
     companion object {
         /**
@@ -60,15 +69,18 @@ enum class PlaybackMode {
             entries.firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) } ?: Default
 
         /**
-         * The mode a profile stored on [INSTANT] behaves as while Instant is withdrawn.
+         * The mode a profile behaves as while its stored choice is withdrawn.
          *
-         * Streamlined, because it is the closest experience: the source is still chosen for
-         * the user, they only add one tap for quality. Classic would take away the automatic
-         * selection they opted into.
+         * **The identity today**, because every mode is selectable. It is kept because the
+         * read-time shape is the load-bearing part, and it just proved itself: a profile that
+         * chose Instant before `0.4.10-beta` withheld it was read as [STREAMLINED] for two
+         * releases with its stored key untouched, and came back to Instant on its own the
+         * moment `isSelectable` said yes. Rewriting storage would have forgotten those
+         * choices for good.
          *
-         * Applied at **read** time, deliberately. Rewriting storage would forget the choice
-         * for good, so re-enabling Instant later would silently leave those profiles behind;
-         * this way the stored key is untouched and they come back on their own.
+         * Streamlined is the coercion target, not Classic, for the same reason: the source is
+         * still chosen for the user and they only add one tap for quality, where Classic would
+         * take away the automatic selection they opted into.
          */
         fun coerceSelectable(mode: PlaybackMode): PlaybackMode =
             if (mode.isSelectable) mode else STREAMLINED
