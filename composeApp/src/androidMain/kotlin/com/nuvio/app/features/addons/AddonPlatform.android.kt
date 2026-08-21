@@ -371,6 +371,7 @@ private fun measureBodyThroughput(
         transferMs = if (firstByteNs == 0L) 0L else (lastNs - firstByteNs) / 1_000_000L,
         ttfbMs = if (firstByteNs == 0L) 0L else (firstByteNs - startNs) / 1_000_000L,
         peakWindowMbps = window.peakMbps,
+        sustainedMbps = window.sustainedMbps,
     )
 }
 

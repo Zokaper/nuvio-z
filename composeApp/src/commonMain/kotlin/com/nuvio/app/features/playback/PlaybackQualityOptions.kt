@@ -150,10 +150,30 @@ object PlaybackQualityOptions {
 
         val allMeasured = candidates.map { candidate ->
             val bitrate = bitrateMbps(candidate, context)
+            val claimed = candidate.facts.resolution
+            val effective = effectiveResolution(claimed, bitrate)
             MeasuredCandidate(
-                candidate = candidate,
+                // ⚠ **Only a resolution the source actually stated is ever rewritten.**
+                // [effectiveResolution] also *infers* one for a source that stated none, capped
+                // at 1080p - but that is a guess, not a correction, and writing it back would do
+                // two things this guard must never do. `SourceRanking` sorts an unstated
+                // resolution at the very bottom, so relabelling one to 1080p **promotes** it
+                // above genuinely-labelled 720p releases; and [requiredMbpsFor] tests the bitrate
+                // against `bitrateCeilingMbps(facts.resolution)`, so an unlabelled 80 Mb/s source
+                // would go from a 150 Mb/s ceiling to a 50 Mb/s one, return null, and head a row
+                // quoting no bandwidth and drawing no meter - which is
+                // `bestAvailableFailedQuietlyWhenItLedWithAPack` arriving from the other side.
+                candidate = if (claimed != null && effective != claimed) {
+                    candidate.copy(facts = candidate.facts.copy(resolution = effective))
+                } else {
+                    candidate
+                },
                 bitrateMbps = bitrate,
-                isPlausible = bitrate == null || bitrate <= bitrateCeilingMbps(candidate.facts.resolution),
+                // Judged against the **claim**, deliberately, and not against the demotion:
+                // plausibility asks whether the reported size can be one episode at the
+                // resolution the source says it is.
+                isPlausible = bitrate == null || bitrate <= bitrateCeilingMbps(claimed),
+                resolution = effective,
             )
         }
         // The user's own ceiling, applied here so **Best available honours it too**. That card
@@ -175,7 +195,7 @@ object PlaybackQualityOptions {
                 .ifEmpty { allMeasured }
         }
         val buckets = measured
-            .mapNotNull { entry -> bucketFor(entry)?.let { it to entry } }
+            .mapNotNull { entry -> entry.resolution?.let { it to entry } }
             .groupBy({ it.first }, { it.second })
 
         val derived = buckets.entries
@@ -406,6 +426,16 @@ object PlaybackQualityOptions {
          * catalogue heads the High row every time and the quoted bandwidth is fiction.
          */
         val isPlausible: Boolean,
+        /**
+         * The row this source belongs on - and, when it contradicts a resolution the source
+         * actually stated, the value [candidate]'s facts have been rewritten to carry.
+         *
+         * Deciding this at grouping time only was not enough. `facts.resolution` still said "8K"
+         * after the demotion, so `SourceRanking`'s leading key - resolution height, descending -
+         * put the fake at the head of Best available, and `describeBestRelease` captioned it 8K.
+         * One value, decided once, and every consumer reads it through [candidate].
+         */
+        val resolution: VideoResolution?,
     ) {
         val credibleBitrateMbps: Double? get() = bitrateMbps?.takeIf { isPlausible }
     }
@@ -606,10 +636,12 @@ object PlaybackQualityOptions {
      *
      * Returns null when neither a resolution nor a size is known. Such a source cannot honestly
      * head any row, but it remains reachable through Best available.
+     *
+     * **When this contradicts a stated claim, [build] writes the answer back into the candidate's
+     * facts**, so ranking and captions cannot disagree with the row. It does *not* write back the
+     * inference made for a source that stated nothing - see the note at that call site.
      */
-    private fun bucketFor(entry: MeasuredCandidate): VideoResolution? {
-        val claimed = entry.candidate.facts.resolution
-        val bitrate = entry.bitrateMbps
+    private fun effectiveResolution(claimed: VideoResolution?, bitrate: Double?): VideoResolution? {
         if (claimed == null) {
             // Never invent 4K from a big file alone; an unlabelled source tops out at 1080p.
             return bitrate?.let { supportedResolution(it, ceiling = VideoResolution.FULL_HD_1080) }
@@ -708,9 +740,23 @@ object PlaybackQualityOptions {
         null -> 150.0
     }
 
-    /** Deliberately low - this only has to catch a mislabel, not police efficient encodes. */
+    /**
+     * Deliberately low - this only has to catch a mislabel, not police efficient encodes.
+     *
+     * 8K is the exception, and it is not a tightening of the same idea but the same idea finally
+     * applied. A genuine 8K release runs 50-150+ Mb/s; the previous floor of 8.0 admitted
+     * anything above a good 720p encode, so the check was inert for the one resolution nothing
+     * legitimately reaches by accident. The reported case: an 18 GB, ~100 minute file - **24.75
+     * Mb/s, a 1080p-grade bitrate** - kept its `8K` label, headed **Best available** above a
+     * genuine 61 GB 4K remux, and was what Instant would have played. 40.0 is
+     * [nominalBitrateMbps] for the same resolution: a file cheaper than what this app's own
+     * tables say 8K costs has no claim to the word.
+     *
+     * Do **not** tighten the rest. 2160's 3.0 is low on purpose, and raising it would demote
+     * efficient AV1 4K encodes, which is the error this table is written to avoid.
+     */
     private fun bitrateFloorMbps(resolution: VideoResolution): Double = when (resolution) {
-        VideoResolution.UHD_4320 -> 8.0
+        VideoResolution.UHD_4320 -> 40.0
         VideoResolution.UHD_2160 -> 3.0
         VideoResolution.QHD_1440 -> 2.5
         VideoResolution.FULL_HD_1080 -> 1.2

@@ -151,6 +151,135 @@ class ThroughputWindowTest {
     }
 
     @Test
+    fun aSteadyLineReadsTheSameSustainedRateAsItDoesPeakRate() {
+        // Nothing to discard, so the median of the blocks and the best window agree. If these
+        // two ever disagree on a flat input, the block partitioning is wrong.
+        val window = ThroughputWindow()
+        var bytes = 0L
+        (1..200).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+
+        assertEquals(100.0, assertNotNull(window.peakMbps), 1.0)
+        assertEquals(100.0, assertNotNull(window.sustainedMbps), 1.0)
+    }
+
+    @Test
+    fun aDrainedReceiveBufferDoesNotBecomeTheAnswer() {
+        // The reported fault, and the reason `sustainedMbps` exists. The line holds 100 Mb/s the
+        // whole way - the byte total over the whole transfer proves it - but the reader falls
+        // behind for half a second and then catches up in 50 ms, emptying the receive buffer at
+        // memory speed. Those bytes arrived while the reader was behind. The sliding maximum
+        // credits them to the window it drained them in and reads nearly twice the truth.
+        val window = ThroughputWindow()
+        var bytes = 0L
+        // 12.5 kB/ms = 100 Mb/s, keeping up.
+        (1..100).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+        // 1000 -> 1500 ms: the reader is descheduled down to 60 Mb/s and 2.5 MB piles up.
+        (101..150).forEach { step ->
+            bytes += 75_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+        // 1500 -> 1550 ms: the backlog plus 50 ms of live data, all read in 50 ms.
+        (1..5).forEach { step ->
+            bytes += 625_000L
+            window.record(elapsedMs = 1_500L + step * 10L, cumulativeBytes = bytes)
+        }
+        (156..400).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+
+        // 50 MB in 4 s: the line really did carry 100 Mb/s.
+        val mean = bytes.toDouble() * 8.0 / 4_000.0 / 1_000.0
+        assertEquals(100.0, mean, 0.5, "the scenario must conserve bytes or it proves nothing")
+
+        val peak = assertNotNull(window.peakMbps)
+        val sustained = assertNotNull(window.sustainedMbps)
+
+        assertEquals(100.0, sustained, 3.0)
+        assertTrue(peak > 150.0, "the maximum should visibly over-read here, but read $peak")
+    }
+
+    @Test
+    fun aTrailingStallIsInNoBlockAtAll() {
+        // The byte partitioning earns its keep here. A stall at the end of a transfer carries no
+        // bytes, so it falls outside every block by construction rather than by a rule - which is
+        // how `sustainedMbps` keeps the same answer `peakMbps` gives above.
+        val window = ThroughputWindow()
+        var bytes = 0L
+        (1..100).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+        window.record(elapsedMs = 2_000L, cumulativeBytes = bytes)
+
+        assertEquals(100.0, assertNotNull(window.sustainedMbps), 2.0)
+    }
+
+    @Test
+    fun aMidTransferStallIsDiscardedByTheMedian() {
+        // One block goes slow and the middle pair never sees it. A stall says the line paused,
+        // not that it cannot go fast, and every signal feeding the estimate is a lower bound.
+        val window = ThroughputWindow()
+        var bytes = 0L
+        (1..100).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = step * 10L, cumulativeBytes = bytes)
+        }
+        // 300 ms in which almost nothing arrives.
+        (1..3).forEach { step ->
+            bytes += 1_000L
+            window.record(elapsedMs = 1_000L + step * 100L, cumulativeBytes = bytes)
+        }
+        (1..100).forEach { step ->
+            bytes += 125_000L
+            window.record(elapsedMs = 1_300L + step * 10L, cumulativeBytes = bytes)
+        }
+
+        assertEquals(100.0, assertNotNull(window.sustainedMbps), 5.0)
+    }
+
+    @Test
+    fun theReplayedFourMebibyteTransferReadsItsSteadyRateAsWell() {
+        // The same replay as above, read the way the probe now records it. The point is that the
+        // median must NOT drift back towards the 56.9 Mb/s mean: this statistic replaces a
+        // maximum that over-read, and it must not re-open the under-read the maximum was added
+        // to fix.
+        val window = ThroughputWindow()
+        var bytes = 0L
+        (1..50).forEach { step ->
+            bytes += 900L * step
+            window.record(elapsedMs = step * 5L, cumulativeBytes = bytes)
+        }
+        (51..117).forEach { step ->
+            bytes += 45_000L
+            window.record(elapsedMs = step * 5L, cumulativeBytes = bytes)
+        }
+
+        val mean = bytes.toDouble() * 8.0 / 585.0 / 1_000.0
+        val sustained = assertNotNull(window.sustainedMbps)
+
+        assertEquals(72.0, sustained, 4.0)
+        assertTrue(sustained > mean * 1.2, "sustained $sustained should clearly beat the mean $mean")
+    }
+
+    @Test
+    fun aTransferTooSmallToHoldBlocksReportsNoSustainedFigure() {
+        // The same honest null `peakMbps` reports. Three blocks is not a median.
+        val window = ThroughputWindow()
+        (1..20).forEach { step ->
+            window.record(elapsedMs = step * 100L, cumulativeBytes = step * 25_000L)
+        }
+
+        assertNull(window.sustainedMbps)
+    }
+
+    @Test
     fun aTransferTooSmallToHoldAWindowStillReportsNothing() {
         // The honest null. Under a mebibyte there is no window, whatever the clock says, and the
         // caller falls back to the mean under its own sample floors rather than being handed a

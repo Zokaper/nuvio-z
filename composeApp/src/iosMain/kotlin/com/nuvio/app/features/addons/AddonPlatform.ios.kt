@@ -256,6 +256,7 @@ actual suspend fun httpMeasureThroughput(
                 transferMs = transferMs,
                 ttfbMs = ttfbMs,
                 peakWindowMbps = window.peakMbps,
+                sustainedMbps = window.sustainedMbps,
             )
         }
 }

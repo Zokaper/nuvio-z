@@ -144,10 +144,11 @@ object NetworkStrengthProbe {
      * Floors for the **mean**, which is the fallback figure and the only one that needs guarding.
      *
      * A closed window is self-validating: it spanned [ThroughputWindow.DEFAULT_WINDOW_MS] and
-     * carried [ThroughputWindow.DEFAULT_MIN_WINDOW_BYTES] by construction. Applying these to it
-     * as well is what discarded the fast-line samples the window was added to rescue - a 4 MiB
-     * pull above ~83 Mb/s finishes inside 400 ms, so the probe threw its own answer away and the
-     * stale estimate survived, which is what "it won't update" looked like from outside.
+     * carried [ThroughputWindow.DEFAULT_MIN_WINDOW_BYTES] by construction - and so did a closed
+     * partition, which is admitted on those same two floors. Applying these to either is what
+     * discarded the fast-line samples the window was added to rescue: a 4 MiB pull above
+     * ~83 Mb/s finishes inside 400 ms, so the probe threw its own answer away and the stale
+     * estimate survived, which is what "it won't update" looked like from outside.
      */
     private const val MIN_SAMPLE_BYTES = 512L * 1024L
     private const val MIN_SAMPLE_MS = 400L
@@ -378,26 +379,35 @@ object NetworkStrengthProbe {
                 return null
             }
 
-            // **The floors guard the mean, never the window.** A closed window already spanned
-            // its minimum duration and carried its minimum bytes, so re-testing it against a
-            // transfer-wide floor can only reject good readings - and it rejected them fastest
-            // on the fastest lines, which is where the window matters most.
-            val hasWindow = sample.peakWindowMbps != null
-            if (!hasWindow && (sample.bytes < MIN_SAMPLE_BYTES || sample.transferMs < MIN_SAMPLE_MS)) {
+            // **The floors guard the mean, never a windowed figure.** A closed window already
+            // spanned its minimum duration and carried its minimum bytes, and so did a closed
+            // partition - it is admitted on exactly the same two floors. Re-testing either
+            // against a transfer-wide floor can only reject good readings, and it rejected them
+            // fastest on the fastest lines, which is where they matter most.
+            val hasWindowedRate = sample.sustainedMbps != null || sample.peakWindowMbps != null
+            if (!hasWindowedRate &&
+                (sample.bytes < MIN_SAMPLE_BYTES || sample.transferMs < MIN_SAMPLE_MS)
+            ) {
                 logger.w {
                     "probe: sample too small - ${sample.bytes} bytes in ${sample.transferMs}ms, no window"
                 }
                 return null
             }
-            // The windowed rate, falling back to the mean only when the transfer was too short
-            // to hold a window. The mean includes TCP slow start and therefore under-reads by
-            // more the faster the line is - see `ThroughputWindow`, and the 56-vs-81 Mb/s case
-            // that is the whole reason this changed.
+            // Sustained, then the window, then the mean - see `ThroughputSample.bestEffortMbps`.
+            // The mean carries TCP slow start and under-reads by more the faster the line is
+            // (the 56-vs-81 Mb/s case); the window is a maximum and over-reads on a bursty link
+            // (the 538-vs-416 case). The median of the byte partition is neither.
             val mbps = sample.bestEffortMbps ?: return null
+            // **All three statistics, every time.** The gap between them is the only thing that
+            // separates "measured badly upwards" from "measured badly downwards" from outside a
+            // device, and the line this replaced printed one of them as `window=`, which did not
+            // even say which statistic it was.
             logger.i {
                 "probe: ${mbps.toInt()} Mb/s from ${plan.url} " +
                     "(${sample.bytes} bytes in ${sample.transferMs}ms, ttfb ${sample.ttfbMs}ms, " +
-                    "window=${sample.peakWindowMbps?.toInt() ?: "none"}, forced=${plan.isForced})"
+                    "sustained=${sample.sustainedMbps?.toInt() ?: "none"}, " +
+                    "peak=${sample.peakWindowMbps?.toInt() ?: "none"}, " +
+                    "mean=${sample.mbps?.toInt() ?: "none"}, forced=${plan.isForced})"
             }
             NetworkQualityRepository.recordProbeResult(
                 mbps = mbps,

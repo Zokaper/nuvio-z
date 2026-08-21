@@ -293,6 +293,93 @@ class PlaybackQualityOptionsTest {
     }
 
     @Test
+    fun anEightKLabelOnAThousandEightyPBitrateIsBucketedAsFourK() {
+        // The reported sheet: "8K · HDR · 18 GB · Needs 33 Mb/s". 18 GB over ~100 minutes is
+        // 24 Mb/s - a 1080p-grade bitrate wearing an 8K label - and the old floor of 8.0 waved
+        // it straight through, because nothing legitimately reaches 8K by accident and the
+        // check was therefore inert for the one resolution that needed it.
+        val options = build(
+            candidate("fake-8k", VideoResolution.UHD_4320, gigabytes = 18.0, runtimeMinutes = 100),
+            runtimeMinutes = 100,
+        )
+
+        assertTrue(options.none { it.resolution == VideoResolution.UHD_4320 })
+    }
+
+    @Test
+    fun aDemotedEightKIsCalledFourKEverywhere() {
+        // Bucketing the source correctly is not enough on its own. `SourceRanking`'s leading key
+        // is resolution height descending, so while `facts.resolution` still read UHD_4320 the
+        // fake kept the head of Best available and the caption kept saying 8K.
+        val options = build(
+            candidate("fake-8k", VideoResolution.UHD_4320, gigabytes = 18.0, runtimeMinutes = 100),
+            runtimeMinutes = 100,
+        )
+
+        assertTrue(
+            options.flatMap { it.candidates }.none { it.facts.resolution == VideoResolution.UHD_4320 },
+            "the demotion has to reach facts, or ranking and captions contradict the row",
+        )
+    }
+
+    @Test
+    fun theBestAvailableCardIsNotHeadedByAnUpscale() {
+        // The screenshot, exactly: an 18 GB "8K" upscale beside a genuine 61 GB 4K remux. Once
+        // both read as 4K the resolution key ties and `LARGEST_UNDER_CAP` decides on size, which
+        // is the honest answer. Best available is the card most people tap and the one Instant
+        // plays, so this is the assertion that matters most.
+        val options = build(
+            candidate("fake-8k", VideoResolution.UHD_4320, gigabytes = 18.0, runtimeMinutes = 100),
+            candidate("real-remux", VideoResolution.UHD_2160, gigabytes = 61.0, runtimeMinutes = 100),
+            runtimeMinutes = 100,
+        )
+
+        val best = options.first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("real-remux", best.candidates.first().stream.name)
+        // Still reachable behind it - a demotion is not a deletion.
+        assertTrue(best.candidates.any { it.stream.name == "fake-8k" })
+    }
+
+    @Test
+    fun aSourceThatStatedNoResolutionIsNeverRelabelled() {
+        // The guard on the rewrite. `effectiveResolution` *infers* a resolution for a source that
+        // stated none, capped at 1080p, so the sheet has a row to put it on - but that is a guess,
+        // not a correction, and writing it into facts breaks two things at once. `SourceRanking`
+        // sorts an unstated resolution at the bottom, so relabelling it to 1080p promotes it over
+        // genuinely-labelled 720p releases. And `requiredMbpsFor` tests the bitrate against the
+        // ceiling for whatever `facts.resolution` says: 80 Mb/s passes the 150 Mb/s ceiling for
+        // an unknown resolution and fails the 50 Mb/s one for 1080p, so the source would head a
+        // row and then quote no bandwidth and draw no meter at all.
+        val unlabelled = candidate("unlabelled", null, gigabytes = 60.0, runtimeMinutes = 100)
+        val options = build(unlabelled, runtimeMinutes = 100)
+
+        val carried = options.flatMap { it.candidates }.first { it.stream.name == "unlabelled" }
+        assertNull(carried.facts.resolution, "an inference must not be written back as a fact")
+        assertNotNull(
+            PlaybackQualityOptions.requiredMbpsFor(
+                carried,
+                PlaybackSelectionContext(runtimeMinutes = 100, isEpisode = false),
+            ),
+            "a relabelled source would fail its own plausibility ceiling and quote nothing",
+        )
+    }
+
+    @Test
+    fun aGenuineEightKKeepsItsLabel() {
+        // Demote-only, from the other direction. 60 GB over 100 minutes is 80 Mb/s, which is
+        // what 8K actually costs, so nothing here is contradicted.
+        val options = build(
+            candidate("8k-remux", VideoResolution.UHD_4320, gigabytes = 60.0, runtimeMinutes = 100),
+            runtimeMinutes = 100,
+        )
+
+        assertTrue(options.any { it.resolution == VideoResolution.UHD_4320 })
+        assertTrue(
+            options.flatMap { it.candidates }.all { it.facts.resolution == VideoResolution.UHD_4320 },
+        )
+    }
+
+    @Test
     fun aLargeReleaseIsNeverPromotedAboveWhatItClaims() {
         // The guard only demotes. A bloated 1080p remux is still a 1080p file.
         val options = build(candidate("remux", VideoResolution.FULL_HD_1080, gigabytes = 40.0))
@@ -862,7 +949,7 @@ class PlaybackQualityOptionsTest {
 
     private fun candidate(
         name: String,
-        resolution: VideoResolution,
+        resolution: VideoResolution?,
         gigabytes: Double?,
         runtimeMinutes: Int? = null,
         infoHash: String? = null,
