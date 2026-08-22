@@ -6,11 +6,143 @@ Last updated: 2026-08-22
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, and the **startup-watchdog fix for the reported retry loop** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **eight fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **968**, desktop **1181**, pure suites **272** - all zero failures |
-| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
+| Verified | pure suites **284** in both repositories, zero failures. Android host and desktop suites were **968** / **1181** before the review pass and have not been re-run since - Gradle cannot configure here, so CI is the gate |
+| **Not** verified | the **eight review-pass fixes have not been seen on a device or compiled by CI**, and `player_bridge.cpp` has not been compiled by anything - see that section's own verification note for the three device checks and what still has to run; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
 | Debug channel | desktop `debug-v0.4.14-beta.13`, mobile `debug-v0.4.14-beta.21` - both published 2026-08-22, **carrying the startup-watchdog fix**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## The 0.5.0-beta review pass: eight defects, six of them in both apps (2026-08-22, unreleased, both repositories)
+
+Two `/code-review high` runs against the release candidate - `origin/main...HEAD` in `nuvio-z`,
+`origin/Dev...HEAD` in `NuvioZDesktop` - found eight distinct defects. Six are in files the two
+repositories share, so they are one fix applied twice. The through-line is that **each of this
+release's headline features has one path that does the opposite of what its own doc comment
+says**, which is why reading the comments was not enough to find them.
+
+### `isMultiLanguage` counted audio codecs as audio languages
+
+`nuvioParsed.audio` and `aio.parsedFile.audio` are **codec** lists - they sit beside separate
+`languages` and `channels` fields, and `audioCodecs` one field above already reads them as
+`ReleaseTags.audioCodecs`. Reading them a second time as language evidence meant the entirely
+ordinary `audio: ["DTS-HD MA", "Atmos"], languages: ["hi"]` claimed to be multi-language.
+
+That defeats the gate end to end: `languageScore` short-circuits on `isMultiLanguage` to
+`UNDECLARED` instead of `NAMES_OTHER_ONLY`, `isLanguageWatchable` returns true, and
+`PlaybackSourceSelector.byLanguage` leaves the release in the watchable partition. A Hindi-only
+file auto-played to somebody who asked for English - **the exact failure the language gate was
+written to stop**, silently, on the most common shape of addon response there is.
+
+### The startup watchdog declared a resume seek to be playback
+
+`PlaybackStartupSample.progressMs` was the absolute furthest point reached, with no baseline
+subtracted. Resuming episode 3 at 22 minutes therefore read 1,320,000 ms of progress on the very
+first sample, before a byte had arrived - and `isPlaying` came back true off the pending seek,
+because ExoPlayer answers `currentPosition` with the seek target the instant `seekTo` is called.
+The class's own KDoc for `progressMs` said so.
+
+So `observe` returned `Verdict.Started` immediately for **any play that begins at a resume point**,
+which is how most people start most videos. On a dead link the failure chain never ran and the
+player sat on the startup overlay indefinitely - the case the comment above that check claims to
+guard against, which only ever held when the resume position was zero. The `bestProgressMs <= 0L`
+branch and the stall clock were unreachable for the same reason.
+
+Samples carry `baselineMs` now and progress is measured from it. The runtime passes
+`activeInitialPositionMs`, already reassigned on every source swap and credential refresh, and the
+effect is keyed on `activeSourceUrl`, so each source gets its own baseline.
+
+### `lastHandedOffStream` was a plain `remember` on a route that leaves composition
+
+A mode with a failure chain keeps `StreamRoute` on the back stack on purpose, and `NavDisplay`
+composes only the top entry - so the value was gone by the time the player handed control back.
+Two effects, both silence: the `?.let { noteSourceFailure(...) }` was skipped, so the overlay
+bumped its attempt counter with no account of what died, and `consumeAutoPickFailureReason()` was
+never called, leaving a stored reason to be blamed on a later unrelated source. **This is the
+route the previous section had just finished making talk.**
+
+It holds the resolved label in a `rememberSaveable` now, like every sibling flag that makes the
+same trip. The label is all `noteSourceFailure` ever needed, a `String?` needs no `Saver`, and the
+identity lookup that produces it could not survive process death anyway.
+
+### The Android stall watchdog leaked a forever-looping coroutine
+
+Launched beside the transfer coroutine rather than inside it, so it outlived the one exit that
+happens before the `try`: a queued download that starts before `initialize` has run fails with
+`Fatal` and returns above it, `finally { watchdog.cancel() }` never runs, and the loop goes on
+waking, marking the item stalled and resetting for the life of the process - holding that
+transfer's `SupervisorJob` and `CoroutineScope` with it. One leak per affected item, reachable
+whenever the system restarts the process with work queued. It is a child of the transfer coroutine
+now, inside the scope the existing `finally` covers. **The desktop downloader was already clean**;
+this was only ever the Android actual, which both repositories carry.
+
+### A credential refresh that found nothing swallowed the error
+
+`tryRefreshCredentialedSourceAfterError` returns `true` the moment it decides to refresh - budget
+spent, caller told the error is handled - and the work happens in a launched job. When that job
+came back with no candidate, or with only the URL that had just died, it painted `errorMessage`
+and returned. Nothing else still considered the error unhandled, so `onFatalPlaybackError` never
+fired: a debrid link expiring mid-episode against a down addon parked the player on a message with
+live ranked fallbacks behind it - **the outcome the `Decline` branch exists to prevent**. The fatal
+tail is `failPlaybackFatally` now and both dead ends go through it; the debug-HUD guard that keeps
+the failure screen up for a tester survives the extraction.
+
+### `claimsHdr` read unrecognised strings as HDR
+
+`normalizeDynamicRange` keeps anything `ReleaseTags` does not recognise, uppercased, so
+`hdr: ["None"]` produced `{"NONE"}` - not `SDR`, so the `!= SDR` test read a release saying plainly
+it has no HDR as a positive claim. `REQUIRE_HDR` scored it 6 instead of `UNSATISFIED_REQUIREMENT`,
+`PresetDownloads.matchesRequirements` admitted it to a REQUIRE_HDR preset, and `AVOID_HDR`
+*penalised* it. And the two gates disagreed about one file: `PREFER_HDR` scored it 0, because that
+path resolves the name through `dynamicRangeNamed` and `"NONE"` resolves to nothing. `claimsHdr`
+resolves first now, as `dynamicRangeScore` one function below already did. Dolby Vision still
+satisfies it - deliberately wider than `ReleaseTags.claimsHdrFamily`, which excludes DV for the
+badge row - and there is a case pinning that.
+
+### Two desktop-only diagnostics faults
+
+`player_bridge.cpp` streamed `avsync`, `container-fps`, `estimated-vf-fps` and the two
+`demuxer-cache-*` values as raw doubles. mpv returns NaN for `avsync` whenever there is no audio
+track; MSVC writes that as `nan` or `-nan(ind)`, which is not JSON, so `NativeMpvDiagnostics.parse`
+threw and **one bad field cost all seventeen** - including `hwdec-current`, the reason the export
+exists. `finiteProperty` applies the guard `rawPositionSeconds` already used. ⚠ The macOS bridge is
+safe from this **by accident** - `NSJSONSerialization` rejects the dictionary and returns `@"{}"` -
+so the two bridges diverge here.
+
+`NativePlayerDiagnostics.writeFrame` never deleted the target before asking mpv for a screenshot.
+The settle loop only checks that the file is non-empty and unchanged across two polls, so a file
+left by an earlier capture satisfied it before mpv had touched the path, and the harness verified a
+frame from the *previous* source - a false pass on the one check whose whole purpose is proving
+that this frame decoded.
+
+### Verification
+
+Pure suites **284** in both repositories (was 272), zero failures. `SourceRankingTest` **joined
+group 1** while this was in hand: it compiles against the shipped `SourceRanking.kt` and the
+neighbour stubs, so the dynamic-range rules now execute outside Gradle instead of waiting for CI.
+`SourceFactsExtractorTest` deliberately did **not** join it - `SourceFacts` and its extractor are
+both stubs there, so the suite would assert against the stub rather than the shipped file, which is
+exactly the failure AGENTS.md warns about. Every changed Kotlin file passes the parser check, and
+all eight shared files are byte-identical across the repositories again.
+
+⚠ **Not verified.** The seven added cases are expected to take Android host to **975** and desktop
+to **1188**; neither number has been confirmed, because Gradle cannot configure here and CI has not
+run this branch yet. The `player_bridge.cpp` change has **not been compiled by anything** - only
+`desktop-release.yml` `mode=build-only, target=windows` and the every-push Windows MSI job compile
+`desktopMain`, and both are still to run. `DesktopDownloadQueueE2ETest` was **not** run for the
+downloader fix, and would not have covered it either: it drives the desktop downloader, and the
+leak is in the Android actual. That one was confirmed by reading the control flow - the context
+check is the only `return@launch` above the `try`, and every other one is inside it.
+
+Three device checks, on the debug line below:
+
+- Resume a part-watched episode on a source known to be dead. The chain must advance;
+  `adb logcat -s PlaybackStartup` should print `abandoning ... reason=NeverStarted` rather than
+  nothing at all. **This is the one that matters most** - it is the most common playback path in
+  the app, and it currently hangs.
+- Let an auto-picked source die a second into playing. The retry overlay must name the source that
+  died, not just show a bumped counter.
+- Under a strict language preference, a release with several audio codecs and one non-preferred
+  language must no longer be auto-played.
 
 ## Streamlined and Instant were throwing away sources that worked (2026-08-22, unreleased, both repositories)
 
