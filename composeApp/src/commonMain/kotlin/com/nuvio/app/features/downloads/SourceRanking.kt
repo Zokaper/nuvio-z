@@ -173,9 +173,21 @@ object SourceRanking {
      *
      * ⚠ Not `dynamicRange.isNotEmpty()`. The set can now carry `SDR` as a positive claim, so the
      * emptiness test that used to stand in for this would read a release tagged `SDR` as HDR.
+     *
+     * ⚠ **And not `!= SDR` either.** `normalizeDynamicRange` keeps anything `ReleaseTags` does
+     * not recognise, uppercased, so an addon sending `hdr: ["None"]` - or `"n/a"`, or `"unknown"`
+     * - produced `{"NONE"}`, which is not `SDR` and so read as a positive HDR claim. That is a
+     * release saying plainly it has no HDR being admitted to a REQUIRE_HDR preset by
+     * `PresetDownloads.matchesRequirements`, scored 6 by [dynamicRangeScore] under `REQUIRE_HDR`,
+     * and *penalised* under `AVOID_HDR` where a silent SDR release scores 6. Worse, the two
+     * gates disagreed about the same file: `PREFER_HDR` scored it 0, because it goes through
+     * `dynamicRangeNamed` and `"NONE"` resolves to nothing. Resolving the names first is what
+     * makes the require gate and the prefer gate answer the same question.
      */
     fun claimsHdr(facts: SourceFacts): Boolean =
-        facts.dynamicRange.any { it != ReleaseDynamicRange.SDR.name }
+        facts.dynamicRange
+            .mapNotNull(ReleaseTags::dynamicRangeNamed)
+            .any { it != ReleaseDynamicRange.SDR }
 
     fun claimsDolbyVision(facts: SourceFacts): Boolean =
         ReleaseDynamicRange.DOLBY_VISION.name in facts.dynamicRange

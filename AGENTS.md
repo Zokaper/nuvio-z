@@ -105,7 +105,14 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   unmet requirement; only the comparator is shared.
   ⚠ **`SourceFacts.dynamicRange` can now contain `SDR` as a positive claim, so
   `isNotEmpty()` no longer means "has HDR".** Use `SourceRanking.claimsHdr`; the emptiness test
-  it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`.
+  it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`. ⚠ **And
+  `claimsHdr` resolves the names through `ReleaseTags.dynamicRangeNamed` rather than testing
+  `!= SDR`**, because `normalizeDynamicRange` keeps anything it does not recognise, uppercased:
+  an addon sending `hdr: ["None"]` produced `{"NONE"}`, which is not `SDR`, so a release saying
+  plainly it has no HDR satisfied `REQUIRE_HDR`, was admitted to a REQUIRE_HDR preset and was
+  *penalised* under `AVOID_HDR` - while `PREFER_HDR` scored the same file 0, because that path
+  resolves the name. Any new dynamic-range test has to resolve first, or the require gate and
+  the prefer gate go on disagreeing about one file.
 - **`dynamicRange`, `audioCodecs` and `audioChannels` combine their sources; they do not walk
   the provenance ladder.** They are sets, and one file routinely states half of one in a
   structured field and the other half in its name - `HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF` is two

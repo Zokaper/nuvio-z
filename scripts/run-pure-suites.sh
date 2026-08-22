@@ -102,6 +102,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.ja
   "$M/features/playback/PlaybackModeRouter.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
   "$T/core/media/ReleaseTagsTest.kt" \
+  "$T/features/downloads/SourceRankingTest.kt" \
   "$T/features/playback/PlaybackQualityOptionsTest.kt" \
   "$T/features/playback/StreamRouteSurfaceTest.kt" \
   "$T/features/playback/PlaybackModeRouterTest.kt" \
@@ -112,6 +113,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.ja
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.language.LanguageCodesTest \
   com.nuvio.app.core.media.ReleaseTagsTest \
+  com.nuvio.app.features.downloads.SourceRankingTest \
   com.nuvio.app.features.playback.PlaybackQualityOptionsTest \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
   com.nuvio.app.features.playback.PlaybackModeRouterTest \
@@ -197,9 +199,12 @@ java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUn
   com.nuvio.app.features.debrid.DebridSettingsTest \
   com.nuvio.app.features.debrid.DebridStreamPresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
-# Deliberately not run here, and CI is the gate for both:
+# Deliberately not run here, and CI is the gate for all three:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types
 #   AutoPlayFailoverTest        - reaches the real StreamItem and StreamsRepository
+#   SourceFactsExtractorTest    - both SourceFacts and its extractor are stubs here, so the
+#                                 suite would be asserting against the stub, not the shipped file
 echo
 echo "Not covered here (CI is the gate): PlaybackSourceSelectorTest, AutoPlayFailoverTest,"
+echo "SourceFactsExtractorTest,"
 echo "and everything Compose - App.kt and the player runtime are parser-checked only."

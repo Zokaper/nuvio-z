@@ -135,6 +135,33 @@ class SourceRankingTest {
         )
     }
 
+    @Test
+    fun anUnrecognisedDynamicRangeStringIsNotAnHdrClaim() {
+        // `normalizeDynamicRange` keeps whatever it does not recognise, uppercased, so an addon
+        // sending `hdr: ["None"]` produced {"NONE"} - not SDR, and so read as HDR by a `!= SDR`
+        // test. A release saying plainly it has no HDR was admitted to a REQUIRE_HDR preset and
+        // penalised under AVOID_HDR, while PREFER_HDR scored the same file 0 because it resolves
+        // the name first. The two gates have to agree about one file.
+        val declaredNone = SourceFacts(dynamicRange = mutableSetOf("NONE"))
+
+        assertEquals(
+            SourceRanking.UNSATISFIED_REQUIREMENT,
+            SourceRanking.dynamicRangeScore(declaredNone, DynamicRangePolicy.REQUIRE_HDR),
+        )
+        assertEquals(6, SourceRanking.dynamicRangeScore(declaredNone, DynamicRangePolicy.AVOID_HDR))
+        assertEquals(0, SourceRanking.dynamicRangeScore(declaredNone, DynamicRangePolicy.PREFER_HDR))
+    }
+
+    @Test
+    fun dolbyVisionStillSatisfiesRequireHdr() {
+        // `claimsHdr` is deliberately wider than `ReleaseTags.claimsHdrFamily`, which excludes
+        // DV for the badge row. Resolving names must not have narrowed it.
+        val dolbyVision = facts("Movie.2026.2160p.WEB-DL.DV-GRP")
+
+        assertTrue(SourceRanking.claimsHdr(dolbyVision))
+        assertEquals(6, SourceRanking.dynamicRangeScore(dolbyVision, DynamicRangePolicy.REQUIRE_HDR))
+    }
+
     private fun facts(releaseName: String, sizeBytes: Long? = null): SourceFacts =
         SourceFacts(
             resolution = VideoResolution.UHD_2160.takeIf { "2160p" in releaseName }
