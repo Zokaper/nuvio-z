@@ -321,6 +321,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 positionMs = snapshot.positionMs,
                 bufferedPositionMs = snapshot.bufferedPositionMs,
                 durationMs = snapshot.durationMs,
+                // Where this play began. An engine reports a pending seek target as its
+                // position immediately, so without this a resumed episode looked like 22
+                // minutes of progress on its first sample and any dead source was declared
+                // started - see `PlaybackStartupSample.baselineMs`.
+                baselineMs = activeInitialPositionMs.coerceAtLeast(0L),
             )
             watch = PlaybackStartupWatchdog.observe(watch, sample)
             when (watch.verdict) {

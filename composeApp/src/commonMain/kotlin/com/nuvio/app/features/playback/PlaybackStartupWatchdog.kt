@@ -88,17 +88,42 @@ object PlaybackStartupWatchdog {
         val positionMs: Long,
         val bufferedPositionMs: Long,
         val durationMs: Long,
+        /**
+         * Where in the file this play *began* - the resume point, or 0 for a play from the start.
+         *
+         * ⚠ **Without it every deadline here was dead on a resumed play, which is the most
+         * common way anybody starts a video at all.** [progressMs] was the absolute furthest
+         * point reached, so continuing an episode at 22 minutes made the very first sample read
+         * 1_320_000 ms of "progress" before a single byte had arrived: [hasEvidenceOfLife] was
+         * true immediately, `isPlaying` came back true off the pending seek - ExoPlayer returns
+         * the seek target from `currentPosition` the instant `seekTo` is called, which the note
+         * on [progressMs] already said - and the watchdog announced [Verdict.Started] over a
+         * dead debrid link. The failure chain never ran and the player sat on the startup
+         * overlay indefinitely. The `bestProgressMs <= 0L` branch below was unreachable for the
+         * same reason.
+         *
+         * Defaults to 0, which is both the play-from-the-start case and what every caller that
+         * has no resume point to declare should leave it at.
+         */
+        val baselineMs: Long = 0L,
     ) {
         /**
-         * The furthest into the file anything has reached.
+         * How far this play has moved **from where it started**.
          *
          * The **maximum** of the two, not the buffer alone: engines disagree about which moves
          * first. mpv reports a cache position before a play position; some ExoPlayer sources do
          * the opposite when the play begins with a seek to a resume point. Taking the larger
          * means either one alone counts as progress, which is the whole point.
+         *
+         * Measured against [baselineMs] rather than against zero, because a resume point is a
+         * position the engine reports before it has fetched anything - see that field.
          */
         val progressMs: Long
-            get() = if (bufferedPositionMs > positionMs) bufferedPositionMs else positionMs
+            get() {
+                val furthest = if (bufferedPositionMs > positionMs) bufferedPositionMs else positionMs
+                val advanced = furthest - baselineMs
+                return if (advanced > 0L) advanced else 0L
+            }
 
         /**
          * Whether anything at all has come back from the host.

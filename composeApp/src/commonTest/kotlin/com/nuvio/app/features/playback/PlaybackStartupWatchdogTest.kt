@@ -201,17 +201,96 @@ class PlaybackStartupWatchdogTest {
         )
     }
 
+    @Test
+    fun `a dead source resumed at a position is abandoned, not declared started`() {
+        // Continuing episode 3 at 22 minutes on a debrid link that no longer resolves. The
+        // engine answers the pending seek immediately - `currentPosition` is the seek target
+        // the instant `seekTo` is called - and reports itself playing, with nothing buffered
+        // and no duration. Measured against zero this was 22 minutes of progress and the
+        // watchdog said Started on the very first sample, so the failure chain never ran and
+        // the player sat on the startup overlay for good.
+        val resumeMs = 22L * 60L * 1_000L
+        var state = PlaybackStartupWatchdog.initial()
+        var elapsedMs = 0L
+        while (elapsedMs < PlaybackStartupWatchdog.NO_PROGRESS_DEADLINE_MS) {
+            elapsedMs += PlaybackStartupWatchdog.POLL_INTERVAL_MS
+            state = PlaybackStartupWatchdog.observe(
+                state,
+                sample(
+                    elapsedMs = elapsedMs,
+                    isPlaying = true,
+                    positionMs = resumeMs,
+                    baselineMs = resumeMs,
+                ),
+            )
+        }
+
+        assertEquals(Verdict.Abandon, state.verdict)
+        assertEquals(Reason.NeverStarted, state.reason)
+    }
+
+    @Test
+    fun `a healthy source resumed at a position still starts`() {
+        // The other half of the same rule: past the resume point is real progress, and this
+        // must not have become harder to start than a play from zero.
+        val resumeMs = 22L * 60L * 1_000L
+        val state = PlaybackStartupWatchdog.observe(
+            PlaybackStartupWatchdog.initial(),
+            sample(
+                elapsedMs = 2_000L,
+                isPlaying = true,
+                positionMs = resumeMs,
+                bufferedPositionMs = resumeMs + 4_000L,
+                baselineMs = resumeMs,
+            ),
+        )
+
+        assertEquals(Verdict.Started, state.verdict)
+    }
+
+    @Test
+    fun `a resumed source that fills its buffer and then stops is stalled, not started`() {
+        // The stall clock was equally unreachable on a resumed play, because the first sample
+        // ended the watchdog before any of it could run.
+        val resumeMs = 22L * 60L * 1_000L
+        var state = PlaybackStartupWatchdog.observe(
+            PlaybackStartupWatchdog.initial(),
+            sample(
+                elapsedMs = 2_000L,
+                positionMs = resumeMs,
+                bufferedPositionMs = resumeMs + 4_000L,
+                baselineMs = resumeMs,
+            ),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(
+                elapsedMs = 2_000L + PlaybackStartupWatchdog.STALL_DEADLINE_MS,
+                positionMs = resumeMs,
+                bufferedPositionMs = resumeMs + 4_000L,
+                baselineMs = resumeMs,
+            ),
+        )
+
+        assertEquals(Verdict.Abandon, state.verdict)
+        assertEquals(Reason.Stalled, state.reason)
+    }
+
     private fun sample(
         elapsedMs: Long,
         isPlaying: Boolean = false,
         positionMs: Long = 0L,
         bufferedPositionMs: Long = 0L,
         durationMs: Long = 0L,
+        baselineMs: Long = 0L,
     ) = PlaybackStartupSample(
         elapsedMs = elapsedMs,
         isPlaying = isPlaying,
         positionMs = positionMs,
         bufferedPositionMs = bufferedPositionMs,
         durationMs = durationMs,
+        baselineMs = baselineMs,
     )
 }
