@@ -6,11 +6,272 @@ Last updated: 2026-08-22
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, and the **startup-watchdog fix for the reported retry loop** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **968**, desktop **1181**, pure suites **272** - all zero failures |
-| **Not** verified | **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.13`, mobile `debug-v0.4.14-beta.21` - both published 2026-08-22, **carrying the startup-watchdog fix**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Verified | Android host **975**, pure suites **284** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite has not been re-run since **1181** |
+| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; **iOS still does not compile, but it has now been tried and the exact reason is known** - two bugs, one of them in `commonMain`, and the Swift side not yet reached; see the iOS section below |
+| Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
+| Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## iOS put in front of a compiler for the first time (2026-08-22, `nuvio-z` only)
+
+**Paused after this, deliberately.** The next thing is the **NuvioWeb port**, not iOS - iOS gets
+much cheaper to finish once a MacBook is available, because everything below the compile errors
+needs a device to see. What follows is written so that whoever picks iOS back up does not have to
+rediscover any of it.
+
+New workflow `.github/workflows/ios-build.yml` (commits `679dc3f0`, `c1df8f6d`). Build-only:
+link the Kotlin framework for `iosArm64` and `iosSimulatorArm64`, then `xcodebuild` with
+`CODE_SIGNING_ALLOWED=NO`. **No Apple Developer account is needed for any of it** - no team, no
+certificate, no provisioning profile. An account only becomes necessary to reach TestFlight.
+`workflow_dispatch` plus a paths filter on iOS files only, because macOS runners bill at 10x.
+
+### Why iOS could not compile before, and what it cost to find out
+
+`ci.yml` runs on ubuntu, where cinterop cannot cross-compile, so the Android job disables
+`iosArm64`/`iosSimulatorArm64`. Nothing in either repository had ever put `iosMain` or the Swift
+sources in front of a compiler. Two runs settled it:
+
+| Run | Result |
+| --- | --- |
+| `32580170028` | Failed at **checkout**, 13 s. `fatal: No url found for submodule path 'libass-android'` |
+| `32580254253` | Reached the compiler. Failed at `compileKotlinIosArm64` after **4 m 21 s**, 7 errors |
+
+### ⚠ This repository cannot be cloned `--recursive` - and that is not an iOS problem
+
+The tree carries **five** gitlinks; `.gitmodules` declares **one**:
+
+| Gitlink | In `.gitmodules`? |
+| --- | --- |
+| `MPVKit` | yes - `NuvioMedia/MPVKit`, branch `Nuvio`, pinned `d5cf091` |
+| `libass-android` | **no** |
+| `stremiotorrernt/public/enginefs` | **no** |
+| `vendor/TorrServer` | **no** |
+| `vendor/quickjs-kt` | **no** |
+
+`git submodule update --init --recursive` aborts on the first undeclared one, so this hits any
+consumer of the repository, not just CI. All four orphans are empty directories in the working
+copy and have been for as long as anyone has looked, because `ci.yml` never touches submodules and
+the Android build does not need them. Two of the names look load-bearing for code that exists -
+`vendor/quickjs-kt` is the JS plugin runtime the **full** flavour depends on, and
+`vendor/TorrServer`/`enginefs` are torrent-side - so find out where they actually come from before
+anyone needs to rebuild `full`. **Not fixed here**: the intended URLs are unknown, and repairing
+four submodule declarations does not belong in a CI commit. The workflow sidesteps it by naming the
+path - `git submodule update --init --depth 1 MPVKit` - which skips the orphans.
+
+### The seven errors are two bugs, and only one of them is iOS
+
+- **`PresetDownloadDialog.kt:83` calls `toSortedSet()` in `commonMain`.** That is a **JVM-only**
+  stdlib extension returning `java.util.SortedSet`, so Android compiles it happily and
+  Kotlin/Native cannot. This single line causes **five of the seven errors**: `availableSeasons`
+  gets an error type, inference collapses at `:82` on `remember`'s `T`, and `:189`, `:190` and
+  `:201` follow. The two *"@Composable invocations can only happen from the context of a
+  @Composable function"* messages are inference fallout, **not** real Compose problems - do not go
+  looking for a missing `@Composable`. `.distinct().sorted().toSet()` preserves sorted iteration
+  order and matches `DownloadBatches.kt:229`, which wants a plain `Set<Int>`.
+  **`commonMain` was grepped and this is the only occurrence** - no `java.util` import anywhere
+  else in common code. An isolated slip, not a pattern.
+- **`DebugBuild.ios.kt:11`** needs `@OptIn(kotlin.experimental.ExperimentalNativeApi::class)` for
+  `kotlin.native.Platform.isDebugBinary`. Accounts for the last two errors. Mechanical.
+
+**Neither is fixed.** The opt-in is trivially safe, but the `toSortedSet` fix edits `commonMain`,
+which Android and the 975-test host suite also compile.
+
+⚠ **The linker never ran.** Compilation stopped at `compileKotlinIosArm64`, so the framework was
+never linked and **the Swift side is still entirely uncompiled** - `MPVPlayerBridge.swift`, the
+Metal layer, `NowPlayingController`, the widget extension. Expect a second wave from `xcodebuild`
+after the two fixes above. The uncompiled `demuxer-cache-time` fix from Phase 4 of
+`PLAYBACK_MODES_PLAN.md` is still uncompiled.
+
+### What the CI route turns out to be able to do
+
+**MPVKit needs no Mac and no source build.** All 38 of its targets are
+`.binaryTarget(url:checksum:)` against `mpvkit/MPVKit` GitHub releases at `0.41.0-n8.1.2` -
+libmpv, ffmpeg, MoltenVK, libplacebo, dav1d, prebuilt. `mpv.sh` and the `.mpvkit-build.sparseimage`
+entry in `.gitignore` are only for rebuilding MPVKit **itself** on a case-sensitive volume, which
+is not required. The workflow caches the download via `-clonedSourcePackagesDirPath`. The project
+links the `MPVKit` product, **not** `MPVKit-GPL` - the licensing-safer variant.
+
+`NUVIO_IOS_DISTRIBUTION` is pinned to `appstore`. It is already the default; pinning documents that
+**`full` cannot build in CI at all**, because `composeApp/build.gradle.kts:373` hard-fails without
+`../nuvio-engine/platform/apple/NuvioEngine.xcframework`, which is not in this repository. The
+`appstore` flavour swaps in `src/iosAppStore/kotlin`, stubbing P2P, the plugin repository and the
+trailer extractor - which is also the shape App Store review wants.
+
+`gradle.properties` asks for a 12G Gradle heap and a **16G Kotlin/Native heap** against a runner
+with ~7G, overridden to 3G/2G/4G via `GRADLE_USER_HOME`. `kotlin.native.jvmArgs` matters here and
+does not in `ci.yml`, which never links a native binary; if the linker is OOM-killed, retune that
+split first. The 4 m 21 s includes a one-time LLVM/sysroot download into `~/.konan` - **not cached
+yet**; add that cache once the build is green.
+
+### ⚠ Before any archive: the signing config is upstream's, not ours
+
+Not touched, and all of it wrong for a release built here:
+
+- `DEVELOPMENT_TEAM = 8QBDZ766S3` in **four** places in `iosApp/iosApp.xcodeproj/project.pbxproj`.
+  `git log -S` traces it to **tapframe** commits (2026-03-11, 2026-04-11) - it is upstream's team.
+- The bundle identifier differs by configuration and is baked into **five** places: Debug
+  `com.nuvio.app`, Release `com.nuvio.media`, the widget's two children of each, and
+  `iosFrameworkBundleId` at `composeApp/build.gradle.kts:254`. Bundle IDs are unique across all of
+  Apple, so if upstream registered `com.nuvio.media` it cannot be reused.
+- `CODE_SIGN_IDENTITY = "Apple Development"` is pinned in the **Release** configs too. Distribution
+  needs `Apple Distribution`; delete the line and let automatic signing choose.
+- `Config.xcconfig` is half-dead - its `PRODUCT_BUNDLE_IDENTIFIER` is overridden by the target
+  settings, but its `PRODUCT_NAME=Nuvio` is **not**, which is the wrong home-screen name recorded
+  further down this file.
+
+**No entitlements are needed.** There is no `.entitlements` file and none is required: Live
+Activities (`NSSupportsLiveActivities`, deployment target 16.1) and background audio are Info.plist
+only, episode-release notifications are local, and there are no App Groups, push, iCloud or
+Sign in with Apple. So the App ID needs no capabilities and automatic signing has nothing to trip
+on. `NSAllowsArbitraryLoads = true` will need a written justification at App Store review; it is
+not a problem for TestFlight.
+
+## The 0.5.0-beta review pass: nine defects, seven of them in both apps (2026-08-22, unreleased, both repositories)
+
+Two `/code-review high` runs against the release candidate - `origin/main...HEAD` in `nuvio-z`,
+`origin/Dev...HEAD` in `NuvioZDesktop` - found eight distinct defects, and fixing the first one
+turned up a ninth. Seven are in files the two repositories share, so they are one fix applied
+twice. The through-line is that **each of this
+release's headline features has one path that does the opposite of what its own doc comment
+says**, which is why reading the comments was not enough to find them.
+
+### `isMultiLanguage` counted audio codecs as audio languages
+
+`nuvioParsed.audio` and `aio.parsedFile.audio` are **codec** lists - they sit beside separate
+`languages` and `channels` fields, and `audioCodecs` one field above already reads them as
+`ReleaseTags.audioCodecs`. Reading them a second time as language evidence meant the entirely
+ordinary `audio: ["DTS-HD MA", "Atmos"], languages: ["hi"]` claimed to be multi-language.
+
+That defeats the gate end to end: `languageScore` short-circuits on `isMultiLanguage` to
+`UNDECLARED` instead of `NAMES_OTHER_ONLY`, `isLanguageWatchable` returns true, and
+`PlaybackSourceSelector.byLanguage` leaves the release in the watchable partition. A Hindi-only
+file auto-played to somebody who asked for English - **the exact failure the language gate was
+written to stop**, silently, on the most common shape of addon response there is.
+
+### ...and the same codecs were being written into `languages` itself
+
+**Found by CI, from the test written for the fix above**, whose
+`assertEquals(setOf("hi"), languages)` failed. `normalizeLanguages` folded `parsed.audio` into
+the language values too - and `normalizeLanguageCode` passes anything it does not recognise
+straight through, so those two codec names did not merely fail to add a language: they went
+*into* `SourceFacts.languages`.
+
+That is the set `languageScore` matches a preference against, so it broke the gate **in both
+directions**. A release declaring no language at all came out declaring two that match nothing,
+and `NAMES_OTHER_ONLY` demoted a perfectly good English WEB-DL for carrying an Atmos track. The
+review found the `isMultiLanguage` half; this half was one function down the same file.
+
+### The startup watchdog declared a resume seek to be playback
+
+`PlaybackStartupSample.progressMs` was the absolute furthest point reached, with no baseline
+subtracted. Resuming episode 3 at 22 minutes therefore read 1,320,000 ms of progress on the very
+first sample, before a byte had arrived - and `isPlaying` came back true off the pending seek,
+because ExoPlayer answers `currentPosition` with the seek target the instant `seekTo` is called.
+The class's own KDoc for `progressMs` said so.
+
+So `observe` returned `Verdict.Started` immediately for **any play that begins at a resume point**,
+which is how most people start most videos. On a dead link the failure chain never ran and the
+player sat on the startup overlay indefinitely - the case the comment above that check claims to
+guard against, which only ever held when the resume position was zero. The `bestProgressMs <= 0L`
+branch and the stall clock were unreachable for the same reason.
+
+Samples carry `baselineMs` now and progress is measured from it. The runtime passes
+`activeInitialPositionMs`, already reassigned on every source swap and credential refresh, and the
+effect is keyed on `activeSourceUrl`, so each source gets its own baseline.
+
+### `lastHandedOffStream` was a plain `remember` on a route that leaves composition
+
+A mode with a failure chain keeps `StreamRoute` on the back stack on purpose, and `NavDisplay`
+composes only the top entry - so the value was gone by the time the player handed control back.
+Two effects, both silence: the `?.let { noteSourceFailure(...) }` was skipped, so the overlay
+bumped its attempt counter with no account of what died, and `consumeAutoPickFailureReason()` was
+never called, leaving a stored reason to be blamed on a later unrelated source. **This is the
+route the previous section had just finished making talk.**
+
+It holds the resolved label in a `rememberSaveable` now, like every sibling flag that makes the
+same trip. The label is all `noteSourceFailure` ever needed, a `String?` needs no `Saver`, and the
+identity lookup that produces it could not survive process death anyway.
+
+### The Android stall watchdog leaked a forever-looping coroutine
+
+Launched beside the transfer coroutine rather than inside it, so it outlived the one exit that
+happens before the `try`: a queued download that starts before `initialize` has run fails with
+`Fatal` and returns above it, `finally { watchdog.cancel() }` never runs, and the loop goes on
+waking, marking the item stalled and resetting for the life of the process - holding that
+transfer's `SupervisorJob` and `CoroutineScope` with it. One leak per affected item, reachable
+whenever the system restarts the process with work queued. It is a child of the transfer coroutine
+now, inside the scope the existing `finally` covers. **The desktop downloader was already clean**;
+this was only ever the Android actual, which both repositories carry.
+
+### A credential refresh that found nothing swallowed the error
+
+`tryRefreshCredentialedSourceAfterError` returns `true` the moment it decides to refresh - budget
+spent, caller told the error is handled - and the work happens in a launched job. When that job
+came back with no candidate, or with only the URL that had just died, it painted `errorMessage`
+and returned. Nothing else still considered the error unhandled, so `onFatalPlaybackError` never
+fired: a debrid link expiring mid-episode against a down addon parked the player on a message with
+live ranked fallbacks behind it - **the outcome the `Decline` branch exists to prevent**. The fatal
+tail is `failPlaybackFatally` now and both dead ends go through it; the debug-HUD guard that keeps
+the failure screen up for a tester survives the extraction.
+
+### `claimsHdr` read unrecognised strings as HDR
+
+`normalizeDynamicRange` keeps anything `ReleaseTags` does not recognise, uppercased, so
+`hdr: ["None"]` produced `{"NONE"}` - not `SDR`, so the `!= SDR` test read a release saying plainly
+it has no HDR as a positive claim. `REQUIRE_HDR` scored it 6 instead of `UNSATISFIED_REQUIREMENT`,
+`PresetDownloads.matchesRequirements` admitted it to a REQUIRE_HDR preset, and `AVOID_HDR`
+*penalised* it. And the two gates disagreed about one file: `PREFER_HDR` scored it 0, because that
+path resolves the name through `dynamicRangeNamed` and `"NONE"` resolves to nothing. `claimsHdr`
+resolves first now, as `dynamicRangeScore` one function below already did. Dolby Vision still
+satisfies it - deliberately wider than `ReleaseTags.claimsHdrFamily`, which excludes DV for the
+badge row - and there is a case pinning that.
+
+### Two desktop-only diagnostics faults
+
+`player_bridge.cpp` streamed `avsync`, `container-fps`, `estimated-vf-fps` and the two
+`demuxer-cache-*` values as raw doubles. mpv returns NaN for `avsync` whenever there is no audio
+track; MSVC writes that as `nan` or `-nan(ind)`, which is not JSON, so `NativeMpvDiagnostics.parse`
+threw and **one bad field cost all seventeen** - including `hwdec-current`, the reason the export
+exists. `finiteProperty` applies the guard `rawPositionSeconds` already used. ⚠ The macOS bridge is
+safe from this **by accident** - `NSJSONSerialization` rejects the dictionary and returns `@"{}"` -
+so the two bridges diverge here.
+
+`NativePlayerDiagnostics.writeFrame` never deleted the target before asking mpv for a screenshot.
+The settle loop only checks that the file is non-empty and unchanged across two polls, so a file
+left by an earlier capture satisfied it before mpv had touched the path, and the harness verified a
+frame from the *previous* source - a false pass on the one check whose whole purpose is proving
+that this frame decoded.
+
+### Verification
+
+Android host **975**, pure suites **284** in both repositories (was 968 and 272), zero failures
+after the ninth fix. The first CI run on this branch is what found that one: 975 tests, 1 failed,
+at the new `assertEquals(setOf("hi"), languages)`. `SourceRankingTest` **joined
+group 1** while this was in hand: it compiles against the shipped `SourceRanking.kt` and the
+neighbour stubs, so the dynamic-range rules now execute outside Gradle instead of waiting for CI.
+`SourceFactsExtractorTest` deliberately did **not** join it - `SourceFacts` and its extractor are
+both stubs there, so the suite would assert against the stub rather than the shipped file, which is
+exactly the failure AGENTS.md warns about. Every changed Kotlin file passes the parser check, and
+all eight shared files are byte-identical across the repositories again.
+
+⚠ **Not verified.** The desktop suite is expected at **1189** and has not been confirmed.
+`player_bridge.cpp` **is** compiled - `desktop-release.yml` `mode=build-only, target=windows` and
+the desktop debug release both ran green on this branch - but nothing has executed it. `DesktopDownloadQueueE2ETest` was **not** run for the
+downloader fix, and would not have covered it either: it drives the desktop downloader, and the
+leak is in the Android actual. That one was confirmed by reading the control flow - the context
+check is the only `return@launch` above the `try`, and every other one is inside it.
+
+Three device checks, on the debug line below:
+
+- Resume a part-watched episode on a source known to be dead. The chain must advance;
+  `adb logcat -s PlaybackStartup` should print `abandoning ... reason=NeverStarted` rather than
+  nothing at all. **This is the one that matters most** - it is the most common playback path in
+  the app, and it currently hangs.
+- Let an auto-picked source die a second into playing. The retry overlay must name the source that
+  died, not just show a bumped counter.
+- Under a strict language preference, a release with several audio codecs and one non-preferred
+  language must no longer be auto-played.
 
 ## Streamlined and Instant were throwing away sources that worked (2026-08-22, unreleased, both repositories)
 

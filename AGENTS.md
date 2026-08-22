@@ -105,7 +105,14 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
   unmet requirement; only the comparator is shared.
   ⚠ **`SourceFacts.dynamicRange` can now contain `SDR` as a positive claim, so
   `isNotEmpty()` no longer means "has HDR".** Use `SourceRanking.claimsHdr`; the emptiness test
-  it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`.
+  it replaced would have read an SDR-tagged release as satisfying `REQUIRE_HDR`. ⚠ **And
+  `claimsHdr` resolves the names through `ReleaseTags.dynamicRangeNamed` rather than testing
+  `!= SDR`**, because `normalizeDynamicRange` keeps anything it does not recognise, uppercased:
+  an addon sending `hdr: ["None"]` produced `{"NONE"}`, which is not `SDR`, so a release saying
+  plainly it has no HDR satisfied `REQUIRE_HDR`, was admitted to a REQUIRE_HDR preset and was
+  *penalised* under `AVOID_HDR` - while `PREFER_HDR` scored the same file 0, because that path
+  resolves the name. Any new dynamic-range test has to resolve first, or the require gate and
+  the prefer gate go on disagreeing about one file.
 - **`dynamicRange`, `audioCodecs` and `audioChannels` combine their sources; they do not walk
   the provenance ladder.** They are sets, and one file routinely states half of one in a
   structured field and the other half in its name - `HDR.DV.HEVC.DTS-HD.MA.Atmos-SGF` is two
@@ -628,6 +635,7 @@ still be checked locally.
 | both | `ci.yml` | every push | nuvio-z: Android host tests + debug APK. Desktop: desktop tests. |
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
 | `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes a debug APK as a `debug-v*` prerelease. |
+| `nuvio-z` | `ios-build.yml` | `workflow_dispatch`, or a push touching iOS paths | **The only thing that compiles iOS.** Build-only, unsigned. |
 | `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
 | `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
 
@@ -639,6 +647,20 @@ in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
 state` rejects any file changed between the bump and the release commit except the
 release workflows and the two release scripts, and the debug counter is not on that
 list. This is the same trap as a `STATUS.md` commit after the bump.
+
+**`ios-build.yml` is the only compiler iOS has.** `ci.yml` runs on ubuntu, where cinterop cannot
+cross-compile, so its Android job disables `iosArm64`/`iosSimulatorArm64` - which is why `iosMain`
+accumulated for months against nothing. The job links the Kotlin framework for device and simulator,
+then runs `xcodebuild` with `CODE_SIGNING_ALLOWED=NO`, so it needs **no Apple Developer account**;
+an account is only required to reach TestFlight. It does not run on every push - macOS runners bill
+at 10x - so **dispatch it by hand after touching any iOS `actual`**, and expect the Kotlin link step
+to be where a `commonMain` change that used a JVM-only API gets caught. Run state and the current
+failures are in `STATUS.md`.
+
+⚠ **Never use `submodules: recursive`, and do not tell anyone to clone `--recursive`.** The tree has
+five gitlinks and `.gitmodules` declares only `MPVKit`; a recursive update aborts on
+`libass-android`. Fetch by path instead: `git submodule update --init --depth 1 MPVKit`. `MPVKit` is
+the only submodule any build currently needs, and it is public, so no token is involved.
 
 `desktop-release.yml` with `mode=build-only`, `target=windows` compiles `desktopMain`.
 Run it before any desktop release - but it is **not** the only thing that does:
