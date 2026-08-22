@@ -635,6 +635,7 @@ still be checked locally.
 | both | `ci.yml` | every push | nuvio-z: Android host tests + debug APK. Desktop: desktop tests. |
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
 | `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes a debug APK as a `debug-v*` prerelease. |
+| `nuvio-z` | `ios-build.yml` | `workflow_dispatch`, or a push touching iOS paths | **The only thing that compiles iOS.** Build-only, unsigned. |
 | `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
 | `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
 
@@ -646,6 +647,20 @@ in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
 state` rejects any file changed between the bump and the release commit except the
 release workflows and the two release scripts, and the debug counter is not on that
 list. This is the same trap as a `STATUS.md` commit after the bump.
+
+**`ios-build.yml` is the only compiler iOS has.** `ci.yml` runs on ubuntu, where cinterop cannot
+cross-compile, so its Android job disables `iosArm64`/`iosSimulatorArm64` - which is why `iosMain`
+accumulated for months against nothing. The job links the Kotlin framework for device and simulator,
+then runs `xcodebuild` with `CODE_SIGNING_ALLOWED=NO`, so it needs **no Apple Developer account**;
+an account is only required to reach TestFlight. It does not run on every push - macOS runners bill
+at 10x - so **dispatch it by hand after touching any iOS `actual`**, and expect the Kotlin link step
+to be where a `commonMain` change that used a JVM-only API gets caught. Run state and the current
+failures are in `STATUS.md`.
+
+⚠ **Never use `submodules: recursive`, and do not tell anyone to clone `--recursive`.** The tree has
+five gitlinks and `.gitmodules` declares only `MPVKit`; a recursive update aborts on
+`libass-android`. Fetch by path instead: `git submodule update --init --depth 1 MPVKit`. `MPVKit` is
+the only submodule any build currently needs, and it is public, so no token is involved.
 
 `desktop-release.yml` with `mode=build-only`, `target=windows` compiles `desktopMain`.
 Run it before any desktop release - but it is **not** the only thing that does:

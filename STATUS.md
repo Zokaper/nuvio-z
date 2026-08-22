@@ -9,8 +9,123 @@ Last updated: 2026-08-22
 | Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
 | Verified | Android host **975**, pure suites **284** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite has not been re-run since **1181** |
-| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
+| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; **iOS still does not compile, but it has now been tried and the exact reason is known** - two bugs, one of them in `commonMain`, and the Swift side not yet reached; see the iOS section below |
+| Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
 | Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+
+## iOS put in front of a compiler for the first time (2026-08-22, `nuvio-z` only)
+
+**Paused after this, deliberately.** The next thing is the **NuvioWeb port**, not iOS - iOS gets
+much cheaper to finish once a MacBook is available, because everything below the compile errors
+needs a device to see. What follows is written so that whoever picks iOS back up does not have to
+rediscover any of it.
+
+New workflow `.github/workflows/ios-build.yml` (commits `679dc3f0`, `c1df8f6d`). Build-only:
+link the Kotlin framework for `iosArm64` and `iosSimulatorArm64`, then `xcodebuild` with
+`CODE_SIGNING_ALLOWED=NO`. **No Apple Developer account is needed for any of it** - no team, no
+certificate, no provisioning profile. An account only becomes necessary to reach TestFlight.
+`workflow_dispatch` plus a paths filter on iOS files only, because macOS runners bill at 10x.
+
+### Why iOS could not compile before, and what it cost to find out
+
+`ci.yml` runs on ubuntu, where cinterop cannot cross-compile, so the Android job disables
+`iosArm64`/`iosSimulatorArm64`. Nothing in either repository had ever put `iosMain` or the Swift
+sources in front of a compiler. Two runs settled it:
+
+| Run | Result |
+| --- | --- |
+| `32580170028` | Failed at **checkout**, 13 s. `fatal: No url found for submodule path 'libass-android'` |
+| `32580254253` | Reached the compiler. Failed at `compileKotlinIosArm64` after **4 m 21 s**, 7 errors |
+
+### ⚠ This repository cannot be cloned `--recursive` - and that is not an iOS problem
+
+The tree carries **five** gitlinks; `.gitmodules` declares **one**:
+
+| Gitlink | In `.gitmodules`? |
+| --- | --- |
+| `MPVKit` | yes - `NuvioMedia/MPVKit`, branch `Nuvio`, pinned `d5cf091` |
+| `libass-android` | **no** |
+| `stremiotorrernt/public/enginefs` | **no** |
+| `vendor/TorrServer` | **no** |
+| `vendor/quickjs-kt` | **no** |
+
+`git submodule update --init --recursive` aborts on the first undeclared one, so this hits any
+consumer of the repository, not just CI. All four orphans are empty directories in the working
+copy and have been for as long as anyone has looked, because `ci.yml` never touches submodules and
+the Android build does not need them. Two of the names look load-bearing for code that exists -
+`vendor/quickjs-kt` is the JS plugin runtime the **full** flavour depends on, and
+`vendor/TorrServer`/`enginefs` are torrent-side - so find out where they actually come from before
+anyone needs to rebuild `full`. **Not fixed here**: the intended URLs are unknown, and repairing
+four submodule declarations does not belong in a CI commit. The workflow sidesteps it by naming the
+path - `git submodule update --init --depth 1 MPVKit` - which skips the orphans.
+
+### The seven errors are two bugs, and only one of them is iOS
+
+- **`PresetDownloadDialog.kt:83` calls `toSortedSet()` in `commonMain`.** That is a **JVM-only**
+  stdlib extension returning `java.util.SortedSet`, so Android compiles it happily and
+  Kotlin/Native cannot. This single line causes **five of the seven errors**: `availableSeasons`
+  gets an error type, inference collapses at `:82` on `remember`'s `T`, and `:189`, `:190` and
+  `:201` follow. The two *"@Composable invocations can only happen from the context of a
+  @Composable function"* messages are inference fallout, **not** real Compose problems - do not go
+  looking for a missing `@Composable`. `.distinct().sorted().toSet()` preserves sorted iteration
+  order and matches `DownloadBatches.kt:229`, which wants a plain `Set<Int>`.
+  **`commonMain` was grepped and this is the only occurrence** - no `java.util` import anywhere
+  else in common code. An isolated slip, not a pattern.
+- **`DebugBuild.ios.kt:11`** needs `@OptIn(kotlin.experimental.ExperimentalNativeApi::class)` for
+  `kotlin.native.Platform.isDebugBinary`. Accounts for the last two errors. Mechanical.
+
+**Neither is fixed.** The opt-in is trivially safe, but the `toSortedSet` fix edits `commonMain`,
+which Android and the 975-test host suite also compile.
+
+⚠ **The linker never ran.** Compilation stopped at `compileKotlinIosArm64`, so the framework was
+never linked and **the Swift side is still entirely uncompiled** - `MPVPlayerBridge.swift`, the
+Metal layer, `NowPlayingController`, the widget extension. Expect a second wave from `xcodebuild`
+after the two fixes above. The uncompiled `demuxer-cache-time` fix from Phase 4 of
+`PLAYBACK_MODES_PLAN.md` is still uncompiled.
+
+### What the CI route turns out to be able to do
+
+**MPVKit needs no Mac and no source build.** All 38 of its targets are
+`.binaryTarget(url:checksum:)` against `mpvkit/MPVKit` GitHub releases at `0.41.0-n8.1.2` -
+libmpv, ffmpeg, MoltenVK, libplacebo, dav1d, prebuilt. `mpv.sh` and the `.mpvkit-build.sparseimage`
+entry in `.gitignore` are only for rebuilding MPVKit **itself** on a case-sensitive volume, which
+is not required. The workflow caches the download via `-clonedSourcePackagesDirPath`. The project
+links the `MPVKit` product, **not** `MPVKit-GPL` - the licensing-safer variant.
+
+`NUVIO_IOS_DISTRIBUTION` is pinned to `appstore`. It is already the default; pinning documents that
+**`full` cannot build in CI at all**, because `composeApp/build.gradle.kts:373` hard-fails without
+`../nuvio-engine/platform/apple/NuvioEngine.xcframework`, which is not in this repository. The
+`appstore` flavour swaps in `src/iosAppStore/kotlin`, stubbing P2P, the plugin repository and the
+trailer extractor - which is also the shape App Store review wants.
+
+`gradle.properties` asks for a 12G Gradle heap and a **16G Kotlin/Native heap** against a runner
+with ~7G, overridden to 3G/2G/4G via `GRADLE_USER_HOME`. `kotlin.native.jvmArgs` matters here and
+does not in `ci.yml`, which never links a native binary; if the linker is OOM-killed, retune that
+split first. The 4 m 21 s includes a one-time LLVM/sysroot download into `~/.konan` - **not cached
+yet**; add that cache once the build is green.
+
+### ⚠ Before any archive: the signing config is upstream's, not ours
+
+Not touched, and all of it wrong for a release built here:
+
+- `DEVELOPMENT_TEAM = 8QBDZ766S3` in **four** places in `iosApp/iosApp.xcodeproj/project.pbxproj`.
+  `git log -S` traces it to **tapframe** commits (2026-03-11, 2026-04-11) - it is upstream's team.
+- The bundle identifier differs by configuration and is baked into **five** places: Debug
+  `com.nuvio.app`, Release `com.nuvio.media`, the widget's two children of each, and
+  `iosFrameworkBundleId` at `composeApp/build.gradle.kts:254`. Bundle IDs are unique across all of
+  Apple, so if upstream registered `com.nuvio.media` it cannot be reused.
+- `CODE_SIGN_IDENTITY = "Apple Development"` is pinned in the **Release** configs too. Distribution
+  needs `Apple Distribution`; delete the line and let automatic signing choose.
+- `Config.xcconfig` is half-dead - its `PRODUCT_BUNDLE_IDENTIFIER` is overridden by the target
+  settings, but its `PRODUCT_NAME=Nuvio` is **not**, which is the wrong home-screen name recorded
+  further down this file.
+
+**No entitlements are needed.** There is no `.entitlements` file and none is required: Live
+Activities (`NSSupportsLiveActivities`, deployment target 16.1) and background audio are Info.plist
+only, episode-release notifications are local, and there are no App Groups, push, iCloud or
+Sign in with Apple. So the App ID needs no capabilities and automatic signing has nothing to trip
+on. `NSAllowsArbitraryLoads = true` will need a written justification at App Store review; it is
+not a problem for TestFlight.
 
 ## The 0.5.0-beta review pass: nine defects, seven of them in both apps (2026-08-22, unreleased, both repositories)
 
