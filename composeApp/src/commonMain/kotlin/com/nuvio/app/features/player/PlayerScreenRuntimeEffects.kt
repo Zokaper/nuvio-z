@@ -703,6 +703,53 @@ internal fun PlayerScreenRuntime.removeFailedStreamFromCache() {
     StreamLinkCacheRepository.remove(cacheKey)
 }
 
+/**
+ * Ends this play for good, and says so everywhere that has to hear it.
+ *
+ * ⚠ **Every fatal route has to go through here, including the ones that decide they are fatal
+ * only later.** This used to live inline in the `onError` branch of the player surface, which
+ * meant the credential refresh had no way to reach it: `tryRefreshCredentialedSourceAfterError`
+ * returns `true` the moment it decides to refresh, spending the budget and telling its caller
+ * the error is handled, and the work itself happens in a launched job. When that job came back
+ * with no candidate - an addon that is down, an item that is gone - it painted `errorMessage`
+ * and returned, so `onFatalPlaybackError` never fired and the ranked fallbacks sitting behind it
+ * were never tried. A debrid link expiring mid-episode parked the player on a message with a
+ * live chain behind it, which is the outcome the `Decline` branch was added to prevent.
+ *
+ * The debug-HUD guard is deliberate and must stay: diagnostics keeps the failure screen up so a
+ * tester can read the engine's real error instead of being returned to details.
+ *
+ * A null [message] is the engine clearing a previous error rather than reporting one, and it is
+ * not a failure at all - it only reaches here because the surface's `onError` hands both through
+ * one callback.
+ */
+internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
+    if (message == null) {
+        errorMessage = null
+        return
+    }
+    removeFailedStreamFromCache()
+    if (isDebugBuild && PlaybackDebugSettings.hudEnabled) {
+        errorMessage = message
+        controlsVisible = !playerControlsLocked
+        return
+    }
+    // An auto-played next episode advances to its next ranked source rather than showing the
+    // user an error mid-binge. The error is deliberately not painted first: the swap is meant
+    // to be the only thing they notice.
+    if (tryNextEpisodeFallback()) {
+        errorMessage = null
+        return
+    }
+    errorMessage = message
+    controlsVisible = !playerControlsLocked
+    // The engine's own words, carried to the progress overlay of the *next* attempt. This route
+    // bumped the attempt counter in silence, and it is the one that covers the most visible
+    // failure there is - a source that opens, plays a second and dies.
+    StreamsRepository.noteAutoPickFailureReason(message)
+    args.onFatalPlaybackError?.invoke()
+}
+
 internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message: String?): Boolean {
     val failedUrl = activeSourceUrl
     when (
@@ -770,17 +817,20 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
             pollCount++
         }
 
+        // ⚠ **Both of these are fatal, not merely disappointing.** The caller was told `true`
+        // before this job ran, so nothing else will treat this error as unhandled: if the
+        // re-fetch found no candidate, or found only the URL that just died, the failure chain
+        // has to be advanced from here or it never runs at all. Painting `errorMessage` and
+        // returning left the player parked on a message with live ranked fallbacks behind it.
         val stream = refreshedStream
         if (stream == null) {
-            errorMessage = message
-            controlsVisible = !playerControlsLocked
+            failPlaybackFatally(message)
             return@launch
         }
 
         val refreshedUrl = stream.playableDirectUrl
         if (refreshedUrl.isNullOrBlank() || refreshedUrl == failedUrl) {
-            errorMessage = message
-            controlsVisible = !playerControlsLocked
+            failPlaybackFatally(message)
             return@launch
         }
 

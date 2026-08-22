@@ -14,12 +14,9 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.isIos
-import com.nuvio.app.core.debug.PlaybackDebugSettings
-import com.nuvio.app.core.debug.isDebugBuild
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import com.nuvio.app.features.playback.SwapDiagnosticsLog
-import com.nuvio.app.features.streams.StreamsRepository
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -197,34 +194,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                         return@PlatformPlayerSurface
                     }
-                    if (message != null) {
-                        removeFailedStreamFromCache()
-                        // Diagnostics must retain the failure screen so the tester can read the
-                        // real player error instead of being silently returned to details.
-                        if (!(isDebugBuild && PlaybackDebugSettings.hudEnabled)) {
-                            // An auto-played next episode advances to its next ranked source
-                            // rather than showing the user an error mid-binge. The error is
-                            // deliberately not painted first: the swap is meant to be the only
-                            // thing they notice.
-                            if (tryNextEpisodeFallback()) {
-                                errorMessage = null
-                                return@PlatformPlayerSurface
-                            }
-                            errorMessage = message
-                            controlsVisible = !playerControlsLocked
-                            // The engine's own words, carried to the progress overlay of the
-                            // *next* attempt. This route bumped the attempt counter in silence,
-                            // and it is the one that covers the most visible failure there is -
-                            // a source that opens, plays a second and dies.
-                            StreamsRepository.noteAutoPickFailureReason(message)
-                            args.onFatalPlaybackError?.invoke()
-                            return@PlatformPlayerSurface
-                        }
-                        errorMessage = message
-                        controlsVisible = !playerControlsLocked
-                        return@PlatformPlayerSurface
-                    }
-                    errorMessage = message
+                    // The whole tail lives in `failPlaybackFatally` so that the credential
+                    // refresh can reach it too: that path answers `true` here before it knows
+                    // whether a replacement exists, so its own dead ends are the only thing
+                    // left that can advance the chain.
+                    failPlaybackFatally(message)
                 },
             )
         }
