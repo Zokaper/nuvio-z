@@ -67,27 +67,6 @@ internal actual object DownloadsPlatformDownloader {
         val handle = AndroidDownloadsTaskHandle(job)
         val lastByteAtEpochMs = AtomicLong(DownloadsClock.nowEpochMs())
 
-        // Android had no active stall watchdog at all. Desktop has polled and force-closed a
-        // silent stream since `0.4.5-beta`; here a connection that went quiet without closing
-        // sat on OkHttp's fixed 60-second read timeout, which no test could shorten and which
-        // is itself longer than most of the deadlines around it. A download stuck behind it
-        // held a transfer slot and showed its last percentage - "no row that stops moving",
-        // violated on the platform most people are running.
-        //
-        // Cancelling the call is what unblocks the read; OkHttp propagates it as an IO error
-        // on the reading thread. Flagged before the cancel, never after, so the handler can
-        // tell a stall from a user pause - the two arrive as the same exception otherwise.
-        val watchdog = scope.launch {
-            while (true) {
-                delay(stallCheckIntervalMs(DownloadsTiming.stallTimeoutMs))
-                if (DownloadsClock.nowEpochMs() - lastByteAtEpochMs.get() < DownloadsTiming.stallTimeoutMs) {
-                    continue
-                }
-                handle.markStalled()
-                lastByteAtEpochMs.set(DownloadsClock.nowEpochMs())
-            }
-        }
-
         scope.launch {
             val context = appContext
             if (context == null) {
@@ -97,6 +76,35 @@ internal actual object DownloadsPlatformDownloader {
                     0L,
                 )
                 return@launch
+            }
+
+            // Android had no active stall watchdog at all. Desktop has polled and force-closed a
+            // silent stream since `0.4.5-beta`; here a connection that went quiet without closing
+            // sat on OkHttp's fixed 60-second read timeout, which no test could shorten and which
+            // is itself longer than most of the deadlines around it. A download stuck behind it
+            // held a transfer slot and showed its last percentage - "no row that stops moving",
+            // violated on the platform most people are running.
+            //
+            // Cancelling the call is what unblocks the read; OkHttp propagates it as an IO error
+            // on the reading thread. Flagged before the cancel, never after, so the handler can
+            // tell a stall from a user pause - the two arrive as the same exception otherwise.
+            //
+            // ⚠ **Launched here, inside the coroutine the `finally` below belongs to, and not
+            // beside it.** Started outside, it outlived the one exit that happens before the
+            // `try` is entered: a queued download that starts before `initialize` has run fails
+            // with `Fatal` and returns above, `finally { watchdog.cancel() }` never runs, and the
+            // loop goes on waking, marking stalled and resetting for the life of the process -
+            // holding this transfer's `SupervisorJob` and `CoroutineScope` with it, one leak per
+            // affected item. Reachable whenever the system restarts the process with work queued.
+            val watchdog = launch {
+                while (true) {
+                    delay(stallCheckIntervalMs(DownloadsTiming.stallTimeoutMs))
+                    if (DownloadsClock.nowEpochMs() - lastByteAtEpochMs.get() < DownloadsTiming.stallTimeoutMs) {
+                        continue
+                    }
+                    handle.markStalled()
+                    lastByteAtEpochMs.set(DownloadsClock.nowEpochMs())
+                }
             }
 
             // Scheduling is best-effort and must not be able to take the transfer with
