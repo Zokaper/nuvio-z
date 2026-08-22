@@ -6,17 +6,18 @@ Last updated: 2026-08-22
 | --- | --- |
 | Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **eight fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | pure suites **284** in both repositories, zero failures. Android host and desktop suites were **968** / **1181** before the review pass and have not been re-run since - Gradle cannot configure here, so CI is the gate |
-| **Not** verified | the **eight review-pass fixes have not been seen on a device or compiled by CI**, and `player_bridge.cpp` has not been compiled by anything - see that section's own verification note for the three device checks and what still has to run; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
-| Debug channel | desktop `debug-v0.4.14-beta.14`, mobile `debug-v0.4.14-beta.22` - both published 2026-08-22, **carrying the eight review-pass fixes**. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Verified | Android host **975**, pure suites **284** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite has not been re-run since **1181** |
+| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; iOS is not compiled |
+| Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
-## The 0.5.0-beta review pass: eight defects, six of them in both apps (2026-08-22, unreleased, both repositories)
+## The 0.5.0-beta review pass: nine defects, seven of them in both apps (2026-08-22, unreleased, both repositories)
 
 Two `/code-review high` runs against the release candidate - `origin/main...HEAD` in `nuvio-z`,
-`origin/Dev...HEAD` in `NuvioZDesktop` - found eight distinct defects. Six are in files the two
-repositories share, so they are one fix applied twice. The through-line is that **each of this
+`origin/Dev...HEAD` in `NuvioZDesktop` - found eight distinct defects, and fixing the first one
+turned up a ninth. Seven are in files the two repositories share, so they are one fix applied
+twice. The through-line is that **each of this
 release's headline features has one path that does the opposite of what its own doc comment
 says**, which is why reading the comments was not enough to find them.
 
@@ -32,6 +33,19 @@ That defeats the gate end to end: `languageScore` short-circuits on `isMultiLang
 `PlaybackSourceSelector.byLanguage` leaves the release in the watchable partition. A Hindi-only
 file auto-played to somebody who asked for English - **the exact failure the language gate was
 written to stop**, silently, on the most common shape of addon response there is.
+
+### ...and the same codecs were being written into `languages` itself
+
+**Found by CI, from the test written for the fix above**, whose
+`assertEquals(setOf("hi"), languages)` failed. `normalizeLanguages` folded `parsed.audio` into
+the language values too - and `normalizeLanguageCode` passes anything it does not recognise
+straight through, so those two codec names did not merely fail to add a language: they went
+*into* `SourceFacts.languages`.
+
+That is the set `languageScore` matches a preference against, so it broke the gate **in both
+directions**. A release declaring no language at all came out declaring two that match nothing,
+and `NAMES_OTHER_ONLY` demoted a perfectly good English WEB-DL for carrying an Atmos track. The
+review found the `isMultiLanguage` half; this half was one function down the same file.
 
 ### The startup watchdog declared a resume seek to be playback
 
@@ -116,7 +130,9 @@ that this frame decoded.
 
 ### Verification
 
-Pure suites **284** in both repositories (was 272), zero failures. `SourceRankingTest` **joined
+Android host **975**, pure suites **284** in both repositories (was 968 and 272), zero failures
+after the ninth fix. The first CI run on this branch is what found that one: 975 tests, 1 failed,
+at the new `assertEquals(setOf("hi"), languages)`. `SourceRankingTest` **joined
 group 1** while this was in hand: it compiles against the shipped `SourceRanking.kt` and the
 neighbour stubs, so the dynamic-range rules now execute outside Gradle instead of waiting for CI.
 `SourceFactsExtractorTest` deliberately did **not** join it - `SourceFacts` and its extractor are
@@ -124,11 +140,9 @@ both stubs there, so the suite would assert against the stub rather than the shi
 exactly the failure AGENTS.md warns about. Every changed Kotlin file passes the parser check, and
 all eight shared files are byte-identical across the repositories again.
 
-⚠ **Not verified.** The seven added cases are expected to take Android host to **975** and desktop
-to **1188**; neither number has been confirmed, because Gradle cannot configure here and CI has not
-run this branch yet. The `player_bridge.cpp` change has **not been compiled by anything** - only
-`desktop-release.yml` `mode=build-only, target=windows` and the every-push Windows MSI job compile
-`desktopMain`, and both are still to run. `DesktopDownloadQueueE2ETest` was **not** run for the
+⚠ **Not verified.** The desktop suite is expected at **1189** and has not been confirmed.
+`player_bridge.cpp` **is** compiled - `desktop-release.yml` `mode=build-only, target=windows` and
+the desktop debug release both ran green on this branch - but nothing has executed it. `DesktopDownloadQueueE2ETest` was **not** run for the
 downloader fix, and would not have covered it either: it drives the desktop downloader, and the
 leak is in the Android actual. That one was confirmed by reading the control flow - the context
 check is the only `return@launch` above the `try`, and every other one is inside it.
