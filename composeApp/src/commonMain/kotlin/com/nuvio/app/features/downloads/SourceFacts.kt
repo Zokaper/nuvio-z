@@ -498,11 +498,24 @@ object SourceFactsExtractor {
         return structuredValues.map { it.trim().uppercase() }.filter(String::isNotEmpty).toSet()
     }
 
+    /**
+     * The languages a structured field claims.
+     *
+     * ⚠ **`audio` is deliberately not folded in, and it used to be.** It is a codec list in both
+     * models - it sits beside `languages` and `channels` - and `normalizeLanguageCode` passes
+     * anything it does not recognise straight through, so `audio: ["DTS-HD MA", "Atmos"]` did not
+     * merely fail to add a language: it put `"dts-hd ma"` and `"atmos"` *into* [SourceFacts.languages].
+     * That is the set `languageScore` matches a user's preference against, and it broke the gate
+     * in both directions - a release with no declared language at all now "declared" two that
+     * match nothing, so `NAMES_OTHER_ONLY` demoted a perfectly good English WEB-DL for having an
+     * Atmos track. Same mistake as the one `isMultiLanguage` was making one field over, and it
+     * was found by the test written for that one.
+     */
     private fun normalizeLanguages(parsed: StreamClientResolveParsed?): Set<String> =
-        parsed?.let { normalizeLanguageValues(it.languages + it.audio) }.orEmpty()
+        parsed?.let { normalizeLanguageValues(it.languages) }.orEmpty()
 
     private fun normalizeLanguages(parsed: AioParsedFile?): Set<String> =
-        parsed?.let { normalizeLanguageValues(it.languages + it.audio) }.orEmpty()
+        parsed?.let { normalizeLanguageValues(it.languages) }.orEmpty()
 
     /**
      * Structured values, which are tagged fields rather than prose.

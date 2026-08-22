@@ -172,6 +172,9 @@ class SourceFactsExtractorTest {
         )
 
         assertFalse(hindiRemux.isMultiLanguage)
+        // And the codec names must not land in `languages` either, which is the set a preference
+        // is matched against. `normalizeLanguageCode` passes anything it does not recognise
+        // straight through, so folding `audio` in here produced {"hi", "dts-hd ma", "atmos"}.
         assertEquals(setOf("hi"), hindiRemux.languages)
         // The codecs are still read - as codecs.
         assertTrue(hindiRemux.audioCodecs.isNotEmpty())
@@ -191,6 +194,24 @@ class SourceFactsExtractorTest {
         )
 
         assertTrue(facts.isMultiLanguage)
+    }
+
+    @Test
+    fun anAudioCodecNeverBecomesADeclaredLanguage() {
+        // The other half of the same mistake, and the more damaging one: these strings used to be
+        // folded into `languages`, which is the set a user's preference is matched against. A
+        // release that declared no language at all came out "declaring" two that match nothing,
+        // so `NAMES_OTHER_ONLY` demoted an English WEB-DL for carrying an Atmos track.
+        val noDeclaredLanguage = SourceFactsExtractor.extract(
+            stream(
+                streamData = AioStreamData(
+                    parsedFile = AioParsedFile(audio = listOf("DTS-HD MA", "Atmos")),
+                ),
+            ),
+        )
+
+        assertTrue(noDeclaredLanguage.languages.isEmpty())
+        assertFalse(noDeclaredLanguage.isMultiLanguage)
     }
 
     @Test
