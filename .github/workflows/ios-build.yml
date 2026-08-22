@@ -37,17 +37,23 @@ jobs:
       NUVIO_IOS_DISTRIBUTION: appstore
 
     steps:
-      # MPVKit is a git submodule (NuvioMedia/MPVKit @ Nuvio, pinned d5cf091) and the
-      # Xcode project links it as a local Swift package at iosApp/../MPVKit. Without
-      # this, MPVKit/ is empty and xcodebuild dies at package resolution rather than at
-      # anything worth reading.
       - name: Check out source
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
-      - name: Verify MPVKit submodule
+      # MPVKit is a git submodule (NuvioMedia/MPVKit @ Nuvio, pinned d5cf091) and the
+      # Xcode project links it as a local Swift package at iosApp/../MPVKit. Without it,
+      # MPVKit/ is empty and xcodebuild dies at package resolution rather than at
+      # anything worth reading.
+      #
+      # Fetched by path rather than with checkout's submodules: recursive, which cannot
+      # work in this repository: the tree carries five gitlinks - MPVKit, libass-android,
+      # stremiotorrernt/public/enginefs, vendor/TorrServer, vendor/quickjs-kt - and
+      # .gitmodules declares only MPVKit. A recursive update aborts on the first
+      # undeclared one with "No url found for submodule path 'libass-android'".
+      # Naming the path skips the orphans. MPVKit is public, so no token is needed.
+      - name: Fetch MPVKit submodule
         run: |
+          git submodule update --init --depth 1 MPVKit
           if [ ! -f MPVKit/Package.swift ]; then
             echo "::error::MPVKit submodule is empty - iOS cannot build without it."
             exit 1
