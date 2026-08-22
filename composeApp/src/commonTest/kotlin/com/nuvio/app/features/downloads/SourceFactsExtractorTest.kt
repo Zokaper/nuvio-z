@@ -154,6 +154,46 @@ class SourceFactsExtractorTest {
     }
 
     @Test
+    fun severalAudioCodecsAreNotSeveralAudioLanguages() {
+        // `audio` is a codec list - it sits beside `languages` and `channels` - and counting it
+        // as language evidence made this extremely ordinary release claim to be multi-language.
+        // `languageScore` then read it as UNDECLARED rather than NAMES_OTHER_ONLY and
+        // `PlaybackSourceSelector.byLanguage` left it watchable: a Hindi-only file auto-played
+        // to somebody who had asked for English.
+        val hindiRemux = SourceFactsExtractor.extract(
+            stream(
+                streamData = AioStreamData(
+                    parsedFile = AioParsedFile(
+                        audio = listOf("DTS-HD MA", "Atmos"),
+                        languages = listOf("hi"),
+                    ),
+                ),
+            ),
+        )
+
+        assertFalse(hindiRemux.isMultiLanguage)
+        assertEquals(setOf("hi"), hindiRemux.languages)
+        // The codecs are still read - as codecs.
+        assertTrue(hindiRemux.audioCodecs.isNotEmpty())
+    }
+
+    @Test
+    fun severalDeclaredLanguagesStillCountAsMultiLanguage() {
+        val facts = SourceFactsExtractor.extract(
+            stream(
+                streamData = AioStreamData(
+                    parsedFile = AioParsedFile(
+                        audio = listOf("DTS-HD MA", "Atmos"),
+                        languages = listOf("en", "hi"),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(facts.isMultiLanguage)
+    }
+
+    @Test
     fun readsFlagEmojiOutOfADisplayName() {
         // How Torrentio and friends label audio, and the app had no regional-indicator handling
         // anywhere - so every one of those releases declared nothing.

@@ -273,9 +273,18 @@ object SourceFactsExtractor {
             // and the marker is what makes a strict language preference survivable - it is the
             // difference between "this release is not for you" and "this release carries
             // several tracks and probably yours".
-            isMultiLanguage = nuvioParsed?.audio.orEmpty().size > 1 ||
-                aio?.parsedFile?.audio.orEmpty().size > 1 ||
-                aio?.parsedFile?.languages.orEmpty().size > 1 ||
+            //
+            // ⚠ **`audio` is a codec list, not a language list, and counting it here defeated
+            // the whole gate.** It sits beside `languages` and `channels` for exactly that
+            // reason, and `audioCodecs` above already reads it as `ReleaseTags.audioCodecs`. Reading
+            // it a second time as language evidence meant the very ordinary
+            // `audio: ["DTS-HD MA", "Atmos"], languages: ["hi"]` claimed to be multi-language:
+            // `languageScore` then short-circuited to `UNDECLARED` instead of `NAMES_OTHER_ONLY`,
+            // `isLanguageWatchable` said yes, and `PlaybackSourceSelector.byLanguage` left a
+            // Hindi-only release in the watchable partition - the auto-play with no English
+            // audio and no English subtitles that this field exists to prevent. Only evidence
+            // that is *about languages* belongs in this expression.
+            isMultiLanguage = aio?.parsedFile?.languages.orEmpty().size > 1 ||
                 nuvioParsed?.languages.orEmpty().size > 1 ||
                 filenames.any { releaseLanguagesIn(it).isMulti } ||
                 releaseLanguagesIn(
