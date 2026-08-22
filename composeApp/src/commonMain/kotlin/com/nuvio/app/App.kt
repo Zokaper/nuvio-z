@@ -2725,12 +2725,27 @@ private fun MainAppContent(
                     var autoPickFailure by remember(route.launchId) {
                         mutableStateOf<PlaybackProgressFailure?>(null)
                     }
-                    // The stream handed to the player, kept so a player-requested retry can say
+                    // The source handed to the player, kept so a player-requested retry can say
                     // what it is retrying *from*. That path bumped `autoPickAttempt` silently -
                     // the one failure route of three that reported nothing at all, and the one
                     // covering the most visible failure there is: a source that opens, plays a
                     // second and dies.
-                    var lastHandedOffStream by remember(route.launchId) { mutableStateOf<StreamItem?>(null) }
+                    //
+                    // ⚠ **`rememberSaveable`, and the label rather than the `StreamItem`.** This
+                    // was a plain `remember`, which is exactly what it must not be: a mode with a
+                    // failure chain keeps `StreamRoute` on the back stack on purpose, `NavDisplay`
+                    // composes only the top entry, and so the value was gone by the time the
+                    // player handed it back - null, the `let` below skipped, the overlay bumping
+                    // its counter in silence over the one failure this was added to report, and
+                    // `consumeAutoPickFailureReason` never called, leaving a stored reason to be
+                    // blamed on some later unrelated source. Every sibling flag that makes this
+                    // trip is already saveable (`instantSelectionHandled`, `autoPickAttempt`,
+                    // `playbackHandedOff`). A `String?` needs no `Saver`, and the label is all
+                    // `noteSourceFailure` ever needed - the identity lookup it does could not
+                    // survive process death anyway.
+                    var lastHandedOffLabel by rememberSaveable(route.launchId) {
+                        mutableStateOf<String?>(null)
+                    }
                     // Set at *every* exit to playback, not just the reuse-last-link one.
                     // Instant deliberately leaves StreamRoute on the back stack so the failure
                     // chain survives, so without this, backing out of the player lands on an
@@ -3173,11 +3188,20 @@ private fun MainAppContent(
                      * Declared above the retry effect below, which calls it: Kotlin resolves
                      * local functions positionally, lambda or not.
                      */
-                    fun noteSourceFailure(stream: StreamItem, reason: String?) {
-                        val label = PlaybackSourceSelector.describe(
+                    // How a source is named in the progress overlay. Resolved while the
+                    // candidate list is still in hand, because the lookup is by identity and
+                    // nothing about it survives the route leaving composition.
+                    fun sourceFailureLabel(stream: StreamItem): String =
+                        PlaybackSourceSelector.describe(
                             playbackCandidates.firstOrNull { it.stream === stream }?.facts,
                         ).takeIf { it.isNotBlank() } ?: stream.streamLabel
+
+                    fun noteSourceFailureByLabel(label: String, reason: String?) {
                         autoPickFailure = PlaybackProgressFailure(label = label, reason = reason)
+                    }
+
+                    fun noteSourceFailure(stream: StreamItem, reason: String?) {
+                        noteSourceFailureByLabel(sourceFailureLabel(stream), reason)
                     }
 
                     // Coming back from the player with a candidate still armed. Two very
@@ -3236,9 +3260,9 @@ private fun MainAppContent(
                         // startup watchdog's verdict when it gave up on a source that never
                         // played a frame. Still nullable, because a fatal path that has nothing
                         // to say must not invent something.
-                        lastHandedOffStream?.let {
-                            noteSourceFailure(
-                                stream = it,
+                        lastHandedOffLabel?.let {
+                            noteSourceFailureByLabel(
+                                label = it,
                                 reason = StreamsRepository.consumeAutoPickFailureReason(),
                             )
                         }
@@ -3440,7 +3464,9 @@ private fun MainAppContent(
                         }
                         // Remembered before the hand-off, because a retry comes back with the
                         // chain already advanced and no way to name what it advanced *from*.
-                        lastHandedOffStream = stream
+                        // Resolved to a label here rather than carried as a `StreamItem`: this
+                        // is the last point at which the candidate list can name it.
+                        lastHandedOffLabel = sourceFailureLabel(stream)
                         // The wait this described is over. Leaving it set would carry a
                         // complaint about the previous candidate into the overlay of the one
                         // that is now working.
