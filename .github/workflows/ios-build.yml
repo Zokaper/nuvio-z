@@ -1,0 +1,184 @@
+name: iOS build
+
+# Build-only. No signing, no Apple account, no installable artifact - the point is to
+# find out whether iosMain and the Swift sources compile at all. Neither has ever been
+# through a compiler: ci.yml runs on ubuntu, where cinterop cannot cross-compile, so the
+# Android job disables iosArm64/iosSimulatorArm64 outright.
+#
+# macOS runners bill at 10x the Linux rate, so this does not run on every push.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'iosApp/**'
+      - 'MPVKit'
+      - 'composeApp/src/iosMain/**'
+      - 'composeApp/src/iosAppStore/**'
+      - 'composeApp/src/appleMain/**'
+      - 'composeApp/src/nativeInterop/**'
+      - 'composeApp/build.gradle.kts'
+      - 'gradle/libs.versions.toml'
+      - '.github/workflows/ios-build.yml'
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile Kotlin framework and Xcode app
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # 'full' needs ../nuvio-engine/platform/apple/NuvioEngine.xcframework, which is not
+      # in this repository - composeApp/build.gradle.kts:373 hard-fails without it. The
+      # appstore flavour is the default and the only one CI can build.
+      NUVIO_IOS_DISTRIBUTION: appstore
+
+    steps:
+      # MPVKit is a git submodule (NuvioMedia/MPVKit @ Nuvio, pinned d5cf091) and the
+      # Xcode project links it as a local Swift package at iosApp/../MPVKit. Without
+      # this, MPVKit/ is empty and xcodebuild dies at package resolution rather than at
+      # anything worth reading.
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Verify MPVKit submodule
+        run: |
+          if [ ! -f MPVKit/Package.swift ]; then
+            echo "::error::MPVKit submodule is empty - iOS cannot build without it."
+            exit 1
+          fi
+          echo "MPVKit at $(git -C MPVKit rev-parse --short HEAD)"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The multiplatform project configures its Android target even when only iOS tasks
+      # are requested, and the Android Gradle Plugin needs an SDK to do it. The arm64
+      # macOS images do not ship one.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # All 38 of MPVKit's targets are .binaryTarget(url:checksum:) against mpvkit/MPVKit
+      # GitHub releases - libmpv, ffmpeg, MoltenVK and friends, prebuilt. Nothing is
+      # compiled from source here (mpv.sh and the sparse-image entry in .gitignore are
+      # only for rebuilding MPVKit itself), but it is a large download, so cache it.
+      - name: Cache Swift package binaries
+        uses: actions/cache@v4
+        with:
+          path: .spm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('MPVKit/Package.swift') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Cap Gradle memory for hosted runners
+        run: |
+          # gradle.properties asks for a 12G Gradle heap and a 16G Kotlin/Native heap; a
+          # hosted macOS runner has ~7G total. Values in GRADLE_USER_HOME take precedence
+          # over the project file, so override without touching the repository.
+          #
+          # kotlin.native.jvmArgs matters here and does not in ci.yml - the Linux job
+          # never links a native binary. If the linker gets OOM-killed, this split is the
+          # first thing to retune.
+          mkdir -p "${HOME}/.gradle"
+          {
+            echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+            echo 'kotlin.daemon.jvmargs=-Xmx2g'
+            echo 'kotlin.native.jvmArgs=-Xmx4g'
+          } >> "${HOME}/.gradle/gradle.properties"
+
+      - name: Configure runtime properties
+        run: |
+          # generateRuntimeConfigs declares local.properties as an input file and fails
+          # validation when it is absent, so it must exist even when empty. A build
+          # without the secret still compiles; it just ships no backend configuration,
+          # which is fine for a compile check.
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set; building without backend configuration."
+            : > local.properties
+            exit 0
+          fi
+          # Secrets have arrived BOM-prefixed, wrapped, CRLF-terminated and URL-safe.
+          # Drop every character outside the base64 alphabet rather than failing.
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" \
+            | tr '_-' '/+' \
+            | LC_ALL=C tr -cd 'A-Za-z0-9+/=' \
+            | base64 --decode > local.properties
+          if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' local.properties; then
+            echo "NUVIO_LOCAL_PROPERTIES_BASE64 did not yield a properties file." >&2
+            exit 1
+          fi
+          # BSD sed - the empty -i argument is required on macOS and absent in ci.yml.
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Split from the Xcode build on purpose. This is where months of never-compiled
+      # iosMain will fail, and it fails in a fraction of the time a full xcodebuild takes.
+      - name: Link Kotlin framework (device)
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:linkDebugFrameworkIosArm64 --console=plain 2>&1 | tee kotlin-device.log || {
+            echo "::error::Kotlin/Native framework failed to link for iosArm64"
+            grep -E '^e: ' kotlin-device.log | head -60
+            exit 1
+          }
+
+      - name: Link Kotlin framework (simulator)
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --console=plain 2>&1 | tee kotlin-sim.log || {
+            echo "::error::Kotlin/Native framework failed to link for iosSimulatorArm64"
+            grep -E '^e: ' kotlin-sim.log | head -60
+            exit 1
+          }
+
+      # CODE_SIGNING_ALLOWED=NO is what keeps this account-free: no team, no certificate,
+      # no provisioning profile. The project's embedAndSignAppleFrameworkForXcode build
+      # phase skips its signing step when the identity is empty.
+      #
+      # Debug configuration deliberately: it carries PRODUCT_BUNDLE_IDENTIFIER
+      # com.nuvio.app, while Release carries com.nuvio.media and pins
+      # CODE_SIGN_IDENTITY = "Apple Development" - wrong for distribution, and wants
+      # fixing along with DEVELOPMENT_TEAM before the first real archive.
+      - name: Build iOS app without signing
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            2>&1 | tee xcodebuild.log || {
+              echo "::error::xcodebuild failed"
+              grep -E '(error:|^e: )' xcodebuild.log | head -60
+              exit 1
+            }
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-build-logs-${{ github.sha }}
+          path: |
+            kotlin-device.log
+            kotlin-sim.log
+            xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 14
