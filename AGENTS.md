@@ -18,6 +18,25 @@ completed, verified, deferred, or blocked.
 - The private personal fork should use the `origin` remote.
 - Preserve GPL-3.0 licensing and upstream notices.
 
+### Nuvio Z is a mod, not a fork - read these four first
+
+| File | What it settles |
+| --- | --- |
+| `Docs/Z-FEATURES.md` | **What Nuvio Z is.** Every Z feature, numbered, with its state and the platforms it exists on. A new feature is not done until it has a row there. |
+| `Docs/UPSTREAM.md` | The doctrine: the patch-surface rules, the versioning scheme, and the sync procedure. |
+| `Docs/PATCH-SURFACE.md` | Every upstream-owned file we modify, ranked. The checklist for a sync. |
+| `nuvioweb/docs/Z-PORT-MATRIX.md` | What the TV app takes and what it deliberately does not. |
+
+Nuvio Z rides on a **stated vanilla base**. Vanilla features arrive by inheritance, not by
+re-implementation, and every release names the vanilla release it is built on.
+
+**First clone, once, or `.gitattributes` silently does nothing:**
+
+```bash
+git config merge.ours.driver true
+git config rerere.enabled true
+```
+
 ## Security and Privacy
 
 Never commit or print private configuration. In particular:
@@ -60,6 +79,31 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 "Verifying without Gradle".
 
 ## Working Rules
+
+### Patch-surface rules - these decide what a sync costs
+
+Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
+
+1. **New code goes in new files.** 133 of our 252 changed files are 100% ours and carry zero
+   conflict risk. If a new feature has no obvious Z-owned package, that is a sign it is being
+   written in the wrong place.
+2. **Touch upstream files at seams, not in bulk.** One insertion point, ideally one call. If a
+   change needs twenty lines inside an upstream function, the twenty lines go in a Z file and the
+   upstream file gets one call. `App.kt` carries 40 of our commits precisely because Z decisions
+   were written inline in it.
+3. **Never reorganise upstream code for cosmetic reasons.** The settings reorganisation is the case
+   study: rows moved between upstream's own pages, in a 3,903-line upstream-owned file, never seen
+   on a screen, permanently on the merge path.
+4. **A commit that widens the patch surface says so** - which upstream file, and why a seam was not
+   possible.
+5. **Z strings go in one contiguous appended block** behind a marker comment, never interleaved.
+   `strings.xml` is our worst conflict file at 46 of our commits, and upstream churns it with every
+   locale.
+6. **Retro-refactor opportunistically.** The `PlayerScreenRuntime*` cluster (5 files, 53 commits)
+   and the `PlayerSettings*` cluster (4 files, 49) are where a sync will hurt. Refactor one into an
+   extension point **the first time a sync conflicts in it** - not in advance.
+
+### General
 
 - Preserve unrelated user changes in the working tree.
 - Prefer small, focused changes with regression tests.
@@ -670,7 +714,20 @@ build-only before a release; the every-push net is better than this line used to
 
 ### Release procedure
 
+**Step 1 is an upstream sync. No Nuvio Z release is cut on a stale base.** Procedure in
+`Docs/UPSTREAM.md`; run `scripts/upstream-drift.sh` first to know the size. Floor of every two
+weeks even between releases.
+
 ### Versioning
+
+**A Nuvio Z version is a vanilla version plus a Z revision.** Vanilla ships `0.6.0`, we ship
+`0.6.0-z1`; iterating on the same base gives `-z2`, `-z3`; the revision **resets when the base
+moves**. About reads `Nuvio Z 0.6.0-z2 - based on Nuvio 0.6.0`.
+
+**Release ordering is `RELEASE_SERIAL`, not the version string** - a monotonic integer published in
+the tag as `v0.6.0-z1+127`. The updater compares on it and falls back to the old string comparison
+when the suffix is absent. The Android version code is unaffected; it is independent and already
+monotonic. Full scheme, and the one-time bridge release it needs, in `Docs/UPSTREAM.md`.
 
 **From `0.4.0-beta` (2026-08-07) the two apps share one version name.** Before that
 they ran independent lines inherited from upstream Nuvio - mobile had reached

@@ -33,7 +33,9 @@ captures
 node_modules/
 logs/
 analysis/
-Docs
+# Docs/ carries the canonical Nuvio Z documents and must be tracked.
+# Only the untracked reference material inside it is ignored.
+Docs/Stremio addons refer/
 keystore/
 scripts/build-distribution.sh
 asset
