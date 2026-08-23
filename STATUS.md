@@ -14,6 +14,46 @@ Last updated: 2026-08-22
 | Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
 
+
+## Device verification, 2026-08-23 - the first real pass
+
+Run by the maintainer on the handset, against `debug-v0.4.14-beta.23` (mobile) and
+`debug-v0.4.14-beta.16` (desktop). **Four of the six standing verification-debt items are now
+cleared**, and one is confirmed as a live bug.
+
+| Item | Result |
+| --- | --- |
+| **The updater still offers the debug line** with `RELEASE_SERIAL` compiled in | **PASS.** `.23` was offered to an install on `.22` and taken. The serial-aware comparator falls through to the string exactly as intended, so the bridge release's transition path is sound. |
+| **Instant watched running** | **PASS.** Works. This is the item Instant was withheld twice for. |
+| **The setup wizard on a screen** | **PASS.** Works. First time it has been seen outside CI. |
+| **The settings reorganisation on a screen** | **PASS.** Works. |
+| **The connection gauge** (`sustained=` vs `peak=`) | **FAIL - see below.** The figure is still generous, and **it still moves**: the sheet shows one number and replaces it about three seconds later. |
+| **The startup watchdog** (`PlaybackStartup`, `reason=NeverStarted`) | **NOT TESTED, and deliberately parked.** It needs a source that dies, which does not happen on demand. Not worth blocking a release on. |
+
+### The gauge still moves while it is read - N3 is not actually fixed
+
+`Docs/Z-FEATURES.md` N3 claims "the figure does not move while it is read", and on a device it
+does. Observed: a number, then a different number roughly three seconds later.
+
+That is the exact failure N3 was written to end, and it is a house rule, not a nicety: **a value
+still resolving must read as "measuring", never as a stale number that swaps under the reader.** A
+figure that changes after it has been read is worse than no figure, because the first one was
+believed.
+
+Two separate faults are possible and they need different fixes:
+
+1. the "Checking" predicate is not being consulted on the path the sheet actually takes, so a stale
+   estimate renders before the probe reports; or
+2. the probe legitimately reports twice - an early estimate, then a sustained one - and the second
+   is allowed through to a surface that has already committed to the first.
+
+The second is the more likely, given the `sustained` / `window` / `mean` precedence added in the
+over-read pass. **Reproduce first, decide after** - do not "fix" this by freezing the first value,
+which would keep the generous number rather than the true one.
+
+Also still open: the figure reads **generous**. The 538 -> ~416 correction has still not been
+confirmed against `sustained=` on the reporting handset.
+
 ## Upstream drift, measured for the first time (2026-08-23)
 
 `upstream` had been declared in `AGENTS.md` since the fork and **had never been fetched**. It has
