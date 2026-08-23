@@ -47,9 +47,47 @@ Two separate faults are possible and they need different fixes:
 2. the probe legitimately reports twice - an early estimate, then a sustained one - and the second
    is allowed through to a surface that has already committed to the first.
 
-The second is the more likely, given the `sustained` / `window` / `mean` precedence added in the
-over-read pass. **Reproduce first, decide after** - do not "fix" this by freezing the first value,
-which would keep the generous number rather than the true one.
+**Cause found, in code, 2026-08-23.** It is the second, and the mechanism is exact.
+
+`App.kt` races two coroutines that both settle the sheet by writing the same nonce - the probe, and
+a 5 s deadline (`NetworkStrengthProbe.PROBE_DEADLINE_MS`). The deadline exists for a real reason:
+the Android and desktop readers block in `InputStream.read`, coroutine cancellation cannot interrupt
+that, and a host that answers its headers then goes silent would hold the probe for the client's own
+60 s read timeout. So the deadline must stay.
+
+But when the deadline wins the race, `connectionSettled` becomes true **while the probe is still
+running**, and the code says so in its own comment: *"`settled` means 'this figure is final', never
+'no probe is running' - a probe may still be in flight past the deadline below, and the sheet has
+stopped waiting."*
+
+What follows is the fault N3 was written to close, walking back in through the door the deadline
+left open:
+
+1. the deadline fires at 5 s; `isMeasuringConnection` goes false; the sheet latches the only
+   estimate it has, which is an **unmeasured link-type guess** - the generous number;
+2. the probe lands a few seconds later with a real, measured figure;
+3. `PlaybackQualitySheet`'s latch rule `isConnectionMeasured && !latchedMeasured -> true` accepts
+   it, exactly as designed - a measurement is supposed to supersede a guess whichever way the two
+   numbers compare;
+4. **the number on screen changes under the reader.**
+
+Every individual piece is correct. The latch is right, the deadline is right, and the supersede rule
+is right. The bug is that settling on the deadline publishes a figure the app does not yet believe.
+
+Three candidate fixes, none applied - **this needs a device, and the wrong one is worse than the
+bug**:
+
+- **Do not latch an unmeasured guess when a probe is still in flight.** Keep "Checking" until the
+  probe lands or genuinely gives up, and let the deadline end the *wait for a value*, not the
+  measuring state. Closest to the house rule. Risk: the sheet says "Checking" longer on a slow line.
+- **Let the late result land, but re-enter the measuring state while it does**, so the figure is
+  withdrawn and replaced rather than silently swapped. Honest, but flickers.
+- **Refuse a late measurement once settled.** Cheapest, and **wrong** - it keeps the generous guess
+  and permanently discards the true number. Do not do this.
+
+Whichever is taken, `NetworkStrengthProbeTest` and the sheet's pure suite must gain a case for
+"deadline wins, probe lands afterwards", because nothing today covers that ordering - which is why
+this shipped.
 
 Also still open: the figure reads **generous**. The 538 -> ~416 correction has still not been
 confirmed against `sustained=` on the reporting handset.
