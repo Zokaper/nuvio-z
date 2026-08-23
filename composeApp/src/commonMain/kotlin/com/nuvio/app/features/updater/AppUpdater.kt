@@ -123,7 +123,52 @@ internal object VersionUtils {
         return parts.takeIf { it.isNotEmpty() }
     }
 
-    fun isRemoteNewer(remote: String?, local: String?): Boolean {
+    /**
+     * The release serial carried in a tag as "+<serial>", or null when there is none.
+     *
+     * v0.6.0-z1+127 -> 127, debug-v0.6.0-z1.3+128 -> 128, v0.4.14-beta -> null.
+     *
+     * Read off the raw tag rather than the normalized version, because normalize()
+     * only strips prefixes and the serial is a suffix; either would work, but the
+     * raw tag is what GitHub gives us and what the release workflows write.
+     */
+    fun parseReleaseSerial(raw: String?): Int? {
+        if (raw.isNullOrBlank()) return null
+        val marker = raw.lastIndexOf('+')
+        if (marker < 0) return null
+        return raw.substring(marker + 1)
+            .trim()
+            .takeWhile { it.isDigit() }
+            .toIntOrNull()
+    }
+
+    /**
+     * Whether [remote] should be offered to a build on [local].
+     *
+     * Ordering is by [localSerial] against the remote tag's serial WHENEVER BOTH
+     * EXIST, and by the version string otherwise. That fallback is the whole point:
+     * an install that predates the serial has no local serial to compare, so it must
+     * keep ordering exactly as it always did or it would be stranded forever.
+     *
+     * The serial exists because the version string cannot order what is coming. A
+     * Nuvio Z version is a vanilla version plus a Z revision, so adopting vanilla's
+     * numbering makes the next release 0.4.9-z1 while installs sit on 0.4.14-beta -
+     * numerically lower, and the string comparison refuses it. See the bridge release
+     * described in ReleaseSerial.xcconfig.
+     *
+     * @param localSerial AppVersionConfig.RELEASE_SERIAL, or null/0 for a build that
+     *   has none. Defaulted so the existing string-only behaviour is still reachable,
+     *   which is what the pre-serial tests exercise.
+     */
+    fun isRemoteNewer(remote: String?, local: String?, localSerial: Int? = null): Boolean {
+        val remoteSerial = parseReleaseSerial(remote)
+        // 0 is "no serial", not "serial zero": a build predating the serial generates
+        // RELEASE_SERIAL = 0 from the gradle default, and must fall through to the string.
+        val localSerialOrNull = localSerial?.takeIf { it > 0 }
+        if (remoteSerial != null && localSerialOrNull != null) {
+            return remoteSerial > localSerialOrNull
+        }
+
         val remoteParts = parseVersionParts(remote)
         val localParts = parseVersionParts(local)
 
@@ -303,7 +348,11 @@ class AppUpdaterController internal constructor(
                 } else {
                     AppVersionConfig.VERSION_NAME
                 }
-                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, localVersion)
+                val remoteNewer = VersionUtils.isRemoteNewer(
+                    remote = update.tag,
+                    local = localVersion,
+                    localSerial = AppVersionConfig.RELEASE_SERIAL,
+                )
                 val ignored = ignoredTag != null && ignoredTag == update.tag
                 val shouldShowDialog = force || (remoteNewer && !ignored)
 

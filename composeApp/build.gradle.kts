@@ -29,6 +29,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     abstract val debugBuildNumber: Property<Int>
 
     @get:Input
+    abstract val releaseSerial: Property<Int>
+
+    @get:Input
     abstract val supabaseUrl: Property<String>
 
     @get:Input
@@ -165,6 +168,18 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val DEBUG_BUILD = ${debugBuildNumber.get()}
                 |
                 |    /**
+                |     * What orders this build against a published release.
+                |     *
+                |     * A monotonic integer, bumped once per published release and carried in the
+                |     * tag as "+<serial>": v0.6.0-z1+127, debug-v0.6.0-z1.3+128. It exists because
+                |     * a Nuvio Z version can go BACKWARDS by name - adopting vanilla's numbering
+                |     * puts 0.4.9-z1 after 0.4.14-beta - and the version string cannot order that.
+                |     *
+                |     * See RELEASE_SERIAL in ReleaseSerial.xcconfig.
+                |     */
+                |    const val RELEASE_SERIAL = ${releaseSerial.get()}
+                |
+                |    /**
                 |     * What a debug build compares against the debug update channel.
                 |     *
                 |     * A fourth component, so every debug APK cut from one release version still
@@ -237,6 +252,14 @@ val appDebugVersionConfigFile = rootProject.file("iosApp/Configuration/DebugVers
 val releaseAppDebugBuildNumber = readXcconfigValue(appDebugVersionConfigFile, "DEBUG_BUILD")
     ?.toIntOrNull()
     ?: 1
+// Also its own file, and for the same reason as the debug counter above: a commit that only
+// moved the serial must not read as a release bump. Optional and defaulted, so a checkout that
+// predates the serial still configures - 0 means "no serial", and VersionUtils falls back to the
+// old string comparison whenever either side lacks one.
+val appReleaseSerialConfigFile = rootProject.file("iosApp/Configuration/ReleaseSerial.xcconfig")
+val releaseSerialNumber = readXcconfigValue(appReleaseSerialConfigFile, "RELEASE_SERIAL")
+    ?.toIntOrNull()
+    ?: 0
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -316,6 +339,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
     debugBuildNumber.set(releaseAppDebugBuildNumber)
+    releaseSerial.set(releaseSerialNumber)
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))

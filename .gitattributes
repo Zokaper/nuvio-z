@@ -10,3 +10,4 @@
 # Without the first line the attribute below silently does nothing.
 iosApp/Configuration/Version.xcconfig       merge=ours
 iosApp/Configuration/DebugVersion.xcconfig  merge=ours
+iosApp/Configuration/ReleaseSerial.xcconfig merge=ours

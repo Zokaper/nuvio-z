@@ -1,0 +1,32 @@
+# Release ordering serial for the mobile app.
+#
+# THIS, NOT THE VERSION STRING, IS WHAT ORDERS RELEASES.
+#
+# Nuvio Z is a mod: a Nuvio Z version is a vanilla version plus a Z revision
+# (0.6.0-z1, then -z2, resetting when the base moves). That number can go
+# BACKWARDS by name - adopting vanilla's numbering means our first mod release
+# is 0.4.9-z1 while installs are sitting on 0.4.14-beta - and the old updater
+# refused anything numerically lower, so it could never have been offered.
+#
+# Bump this by exactly one for every published release, stable or debug. It is
+# the same discipline CURRENT_PROJECT_VERSION already has, and it is published
+# in the tag rather than as an asset:
+#
+#     v0.6.0-z1+127          stable
+#     debug-v0.6.0-z1.3+128  debug channel
+#
+# Both updaters already read tag_name, so this costs no extra request.
+# VersionUtils compares on the serial when both sides have one and falls back to
+# the old string comparison when either does not, so every pre-bridge release
+# stays orderable and no installed build is stranded.
+#
+# Seeded at 125, one above CURRENT_PROJECT_VERSION at the time (124), so a
+# serial can never collide with a version code in a log or a tag.
+#
+# DELIBERATELY ITS OWN FILE, for the same reason DEBUG_BUILD is:
+# scripts/release-metadata.sh treats any commit touching Version.xcconfig as a
+# release bump and generates notes across previous_bump..current_bump, so a
+# serial-only commit sitting between two releases would silently truncate the
+# next release's notes. That has already happened once with the debug counter.
+# See the note in DebugVersion.xcconfig.
+RELEASE_SERIAL=125
