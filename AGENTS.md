@@ -37,6 +37,12 @@ git config merge.ours.driver true
 git config rerere.enabled true
 ```
 
+**`merge=ours` only fires on a *conflict*.** A version file we have not touched since the fork base
+merges cleanly and silently takes upstream's value -- this is exactly what happens to `appinfo.json`
+on web and to the (stale, unused) `iosApp/Configuration/Version.xcconfig` on desktop. After every
+sync, re-check the version files by eye before cutting a release; the attribute protects the files
+we edit, not the files we ignore.
+
 ## Security and Privacy
 
 Never commit or print private configuration. In particular:

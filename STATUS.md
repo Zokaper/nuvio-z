@@ -13,6 +13,60 @@ Last updated: 2026-08-22
 | Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
 | Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
+
+## Upstream drift, measured for the first time (2026-08-23)
+
+`upstream` had been declared in `AGENTS.md` since the fork and **had never been fetched**. It has
+now been, and the distance is a real number. Run `scripts/upstream-drift.sh` for the current one;
+the weekly `upstream-drift.yml` workflow trends it into a pinned issue.
+
+| repo | upstream ref | ahead | behind | patch surface | conflict surface |
+| --- | --- | --- | --- | --- | --- |
+| `nuvio-z` | `upstream/cmp-rewrite` (NuvioMobile) | 245 | **205** | 128 | **57** |
+| `nuviozdesktop` | `upstream/Dev` (**NuvioDesktop**) | 176 | **192** | 135 | **47** |
+| `nuvioweb` | `upstream/main` (NuvioWeb) | 12 | **20** | 7 | **3** |
+
+*Patch surface* = upstream-owned files we modify. *Conflict surface* = the subset upstream has also
+touched since our fork base, i.e. what will actually conflict at the next merge.
+
+Fork bases: mobile `979d5680` (2026-07-29), desktop `1704f6c9` (2026-08-02), web `0c3bafc`
+(2026-08-22). Upstream tips at measurement were `e27b9195`, `e1e27163` and `f9a546a` (vanilla web
+`0.3.40`), all 2026-08-23.
+
+**The desktop upstream is a different repository than the plan assumed.** `NuvioMobile:desktopweb`
+has been retired; upstream moved desktop development to `NuvioMedia/NuvioDesktop` branch `Dev`,
+which is where `1704f6c9` lives. `NuvioMobile:cmp-rewrite` keeps a `desktopMain` of **4 files**
+against our 278, so it is not a desktop merge source. `nuviozdesktop` therefore has two remotes:
+`upstream` (NuvioDesktop/`Dev`, the sync source) and `upstream-mobile` (NuvioMobile/`cmp-rewrite`,
+reference only). Push is disabled on both, and on mobile's `upstream`.
+
+**This bears on Stage 4 of the adoption plan** (unify the two KMP repos): upstream has itself split
+mobile and desktop into two repositories, i.e. it moved the opposite way. Unifying ours means every
+future sync straddles two upstreams. Re-argue Stage 4 against that before executing it.
+
+### Dry-run merges, 2026-08-23
+
+`git merge --no-commit --no-ff <upstream>`, inspected, aborted. Nothing was kept.
+
+| repo | conflicts | version files |
+| --- | --- | --- |
+| `nuvio-z` | **16** | clean - `merge=ours` held, `0.4.14-beta` survived |
+| `nuviozdesktop` | **14** | clean - `DesktopVersion.properties` and `DEBUG_BUILD=15` survived |
+| `nuvioweb` | **0** | clean |
+
+Two results worth having: **web merges with zero conflicts**, which is the doctrine's proof, and
+mobile's 16 conflicts **do not include `App.kt`**, which the plan named as the hard one. The mobile
+list is `.gitignore`, `README.md`, `androidApp/build.gradle.kts`, `MainActivity.kt`,
+`DownloadsLiveStatusPlatform.android.kt`, `values/strings.xml`, `values-el/strings.xml`,
+`MetaDetailsScreen.kt`, `DownloadsScreen.kt`, `HomeContinueWatchingSection.kt`,
+`PlayerStreamsRepository.kt`, `PlaybackSettingsPage.kt`, `SettingsComponents.kt`,
+`SettingsRootPage.kt`, `StreamsRepository.kt`, `StreamsScreen.kt`.
+
+⚠ **`merge=ours` only fires on a conflict.** A version file we have not touched since the fork base
+merges cleanly and silently takes upstream's value. Both dry-runs showed it: web's `appinfo.json`
+went to `0.3.40`, and desktop's stale, unused `iosApp/Configuration/Version.xcconfig` went from
+`0.4.0` to upstream's `0.4.7`. Re-check the version files by eye after every sync.
+
 ## iOS put in front of a compiler for the first time (2026-08-22, `nuvio-z` only)
 
 **Paused after this, deliberately.** The next thing is the **NuvioWeb port**, not iOS - iOS gets
