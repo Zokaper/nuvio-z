@@ -8,12 +8,27 @@
 # is 0.4.9-z1 while installs are sitting on 0.4.14-beta - and the old updater
 # refused anything numerically lower, so it could never have been offered.
 #
-# Bump this by exactly one for every published release, stable or debug. It is
+# Bump this by exactly one for every published STABLE release, IN THE SAME COMMIT
+# as the MARKETING_VERSION bump. The release workflow rejects any file changed
+# between the version bump and the release commit, and this file is not on its
+# allow-list, so a serial bumped in a later commit would fail the release.
+#
+# THE DEBUG LINE DELIBERATELY DOES NOT CARRY A SERIAL, and that is safe: a tag
+# with no serial falls back to the string comparison, which is how the debug
+# channel already orders itself, on the fourth version component.
+#
+# Do not "finish the job" by adding the serial to debug tags without also bumping
+# it on every debug publish. Every debug build cut from one release compiles the
+# SAME RELEASE_SERIAL, so two debug tags would carry equal serials, the comparison
+# would find them equal, and no debug update would ever be offered - silently, with
+# the version names still looking correct. The fallback is doing real work here.
+#
+# It is
 # the same discipline CURRENT_PROJECT_VERSION already has, and it is published
 # in the tag rather than as an asset:
 #
-#     v0.6.0-z1+127          stable
-#     debug-v0.6.0-z1.3+128  debug channel
+#     v0.6.0-z1+127            stable, carries the serial
+#     debug-v0.6.0-z1.3        debug channel, deliberately does not - see above
 #
 # Both updaters already read tag_name, so this costs no extra request.
 # VersionUtils compares on the serial when both sides have one and falls back to
