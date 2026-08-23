@@ -653,17 +653,47 @@ This work spans two repositories that share history and must be kept in step:
   `AGENTS.md` points back to these canonical files; it has no separate
   `STATUS.md`.
 
-Almost every file under `composeApp/src/commonMain`, `androidMain` and `iosMain`
-is **byte-identical** between the two. Before editing one, check:
+### Shared changes flow by merge, not by `cp`
+
+**The `cp` ritual is retired.** Each repository is now a remote of the other, and
+they share history at mobile's fork base `979d5680`, so a shared change can be
+carried across with `git merge` and a conflict is a conflict rather than a silent
+delta:
+
+| in | remote | tracks |
+| --- | --- | --- |
+| `nuvio-z` | `desktop` | `Zokaper/NuvioZDesktop` |
+| `NuvioZDesktop` | `mobile` | `Zokaper/nuvio-z` |
+
+Push is disabled on both. Measure before you touch anything shared:
 
 ```bash
-diff -q /path/nuvio-z/<file> /path/NuvioZDesktop/<file>
+scripts/shared-code-drift.sh              # what differs, and why
+scripts/shared-code-drift.sh --expected   # only the unexplained ones
 ```
 
-If identical, edit in `nuvio-z` and `cp` the file across. If it differs, port the
-change by hand. Things that legitimately differ: `MetaDetailsScreen.kt`,
-`strings.xml` (desktop has extra keys), the desktop's `AppFeaturePolicy` gating,
-and everything under `desktopMain`.
+**303 shared files currently differ**, which is what `cp` bought us. That number
+has two very different causes and the script labels them:
+
+- **upstream-fork-gap.** The two repos forked from *different upstreams* -
+  `NuvioMobile:cmp-rewrite` and `NuvioDesktop:Dev` - at different times, so a
+  file one side inherited and the other did not shows up as a difference. SIMKL
+  and the newer locales are this. **Settled by an upstream sync, never by
+  copying**, and the count stays large until both repos have synced.
+- **missed `cp`.** One of *our* changes that never made it across. This is the
+  real bug and the reason the script exists.
+
+If you must still port by hand - and for a genuinely divergent file you must -
+port it, do not copy it. `AppUpdater.kt` is the worked example: it looks shared,
+but desktop's carries MSI paths, `downloadedUpdatePath` instead of
+`downloadedApkPath`, its own install-permission naming and a different import
+list. A `cp` reverts all of it silently.
+
+Things that legitimately differ, and must **never** be copied:
+`MetaDetailsScreen.kt`, `strings.xml` (desktop has extra keys), the desktop's
+`AppFeaturePolicy` external-player gating, the NVIDIA RTX setting,
+`features/setup/SetupHomeStill.kt` (a genuinely per-target file), and everything
+under `desktopMain`.
 
 **`desktopMain` has no counterpart in `nuvio-z`.** Any `expect` declaration needs
 a **desktop actual** in `NuvioZDesktop` as well as the android and ios ones. This
