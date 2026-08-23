@@ -1,0 +1,107 @@
+name: Upstream drift
+
+# Nuvio Z is a mod riding on a stated vanilla base. This job keeps the size of
+# the next sync visible, so it is never a surprise: it measures drift weekly and
+# rewrites a single pinned issue with the result.
+#
+# It never fails the build -- drift is a fact to report, not an error.
+
+on:
+  schedule:
+    # Mondays, 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this fork with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/NuvioMedia/NuvioMobile.git 2>/dev/null || \
+            git remote set-url upstream https://github.com/NuvioMedia/NuvioMobile.git
+          git remote set-url --push upstream DISABLED
+          git fetch --no-tags upstream cmp-rewrite
+
+      - name: Measure drift
+        id: drift
+        run: |
+          {
+            echo 'report<<DRIFT_EOF'
+            bash scripts/upstream-drift.sh --format=markdown
+            echo 'DRIFT_EOF'
+          } >> "$GITHUB_OUTPUT"
+          read -r AHEAD BEHIND PATCH CONFLICT < <(bash scripts/upstream-drift.sh --format=counts)
+          echo "behind=$BEHIND"     >> "$GITHUB_OUTPUT"
+          echo "conflict=$CONFLICT" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Update the pinned drift issue
+        uses: actions/github-script@v7
+        env:
+          REPORT: ${{ steps.drift.outputs.report }}
+          BEHIND: ${{ steps.drift.outputs.behind }}
+          CONFLICT: ${{ steps.drift.outputs.conflict }}
+        with:
+          script: |
+            const MARKER = '<!-- upstream-drift-report -->';
+            const TITLE = 'Upstream drift';
+            const stamp = new Date().toISOString().slice(0, 10);
+            const body = [
+              MARKER,
+              `_Measured ${stamp} by [\`upstream-drift.yml\`](../blob/HEAD/.github/workflows/upstream-drift.yml). Rewritten weekly._`,
+              '',
+              process.env.REPORT,
+              '',
+              '---',
+              '',
+              'A sync is step 1 of the release procedure, with a floor of every two weeks.',
+              'The **conflict surface** is the number that predicts how much hand-resolution the',
+              'next merge costs. The **patch surface** should trend down as Z features move behind',
+              'seams -- see `Docs/UPSTREAM.md`.',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const found = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} is:issue in:body "${MARKER}"`,
+              per_page: 1,
+            });
+            const existing = found.data.items.find((i) => i.state === 'open');
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.number, body,
+              });
+              core.info(`Updated #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title: TITLE, body,
+              });
+              core.info(`Created #${created.data.number}`);
+              try {
+                await github.rest.issues.pin({
+                  owner, repo, issue_number: created.data.number,
+                  mediaType: { previews: ['elektra'] },
+                });
+              } catch (e) {
+                core.warning(`Could not pin the issue, pin it by hand: ${e.message}`);
+              }
+            }
+
+            core.notice(
+              `${process.env.BEHIND} commits behind upstream; ` +
+              `${process.env.CONFLICT} files in the conflict surface.`
+            );

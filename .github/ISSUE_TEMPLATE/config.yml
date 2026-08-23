@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Downloads / Releases
-    url: https://github.com/NuvioMedia/NuvioMobile/releases
-    about: Grab the latest release here.
+    url: https://github.com/Zokaper/nuvio-z/releases
+    about: Grab the latest Nuvio Z release here.
   - name: Documentation
-    url: https://github.com/NuvioMedia/NuvioMobile/blob/main/README.md
+    url: https://github.com/Zokaper/nuvio-z/blob/main/README.md
     about: Read the README for setup and usage details.
+  - name: Upstream Nuvio
+    url: https://github.com/NuvioMedia/NuvioMobile/issues
+    about: Nuvio Z is a mod of Nuvio. Report bugs you can also reproduce in vanilla Nuvio here.

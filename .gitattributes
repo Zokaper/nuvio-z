@@ -1,0 +1,12 @@
+# Version files: ours always wins on the merge path.
+#
+# These carry a large share of our commits and nothing in them is ever worth
+# inheriting from upstream -- their version number is not our version number.
+# Resolving them by hand at every sync is pure noise.
+#
+# REQUIRES, once per clone (machine config, not committed):
+#   git config merge.ours.driver true
+#   git config rerere.enabled true
+# Without the first line the attribute below silently does nothing.
+iosApp/Configuration/Version.xcconfig       merge=ours
+iosApp/Configuration/DebugVersion.xcconfig  merge=ours
