@@ -2393,4 +2393,5 @@
 
     <string name="settings_run_setup_again">Run setup again</string>
     <string name="settings_run_setup_again_description">Step through the look and playback choices from the start.</string>
+    <string name="compose_about_based_on_version_format">Based on Nuvio %1$s</string>
 </resources>

@@ -1,19 +1,30 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-24
 
 | | |
 | --- | --- |
-| Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
+| Active branch | `claude/upstream-doctrine-stage0` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
 | Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **975**, pure suites **284** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite has not been re-run since **1181** |
+| Verified | Android host **986**, pure suites **287** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite last passed **1199** before the About-only change below. |
 | **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; **iOS still does not compile, but it has now been tried and the exact reason is known** - two bugs, one of them in `commonMain`, and the Swift side not yet reached; see the iOS section below |
 | Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
 | Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
 
 
+
+
+## KMP About names the vanilla base (2026-08-24)
+
+Settings → About in both KMP repos now derives the vanilla base from the Z version name: a build
+named `0.6.0-z2` shows `Based on Nuvio 0.6.0`, and a debug build `0.6.0-z2.3` names the same base.
+The bridge (`0.5.0-beta`) and malformed/pre-scheme names show no base rather than inventing one.
+The rule lives in the new import-free `core/build/NuvioZVersion.kt` instead of in updater or
+platform code, with three tests per repo. Both `scripts/run-pure-suites.sh` runs pass: **287 tests,
+0 failures** in each repo. Focused Gradle runs exceeded their bounded local runtime and were
+stopped; Compose wiring remains a CI gate.
 
 ## Device verification, 2026-08-23 - the first real pass
 

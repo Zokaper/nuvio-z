@@ -30,7 +30,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.core.build.AppVersionConfig
+import com.nuvio.app.core.build.NuvioZVersion
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.compose_about_based_on_version_format
 import nuvio.composeapp.generated.resources.compose_about_made_with
 import nuvio.composeapp.generated.resources.compose_about_version_format
 import nuvio.composeapp.generated.resources.compose_settings_page_account
@@ -348,6 +350,18 @@ internal fun LazyListScope.settingsRootContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            NuvioZVersion.vanillaBaseVersion(AppVersionConfig.VERSION_NAME)?.let { baseVersion ->
+                Text(
+                    text = stringResource(
+                        Res.string.compose_about_based_on_version_format,
+                        baseVersion,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
