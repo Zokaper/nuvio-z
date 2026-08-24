@@ -31,9 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -52,20 +51,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.DisintegratingContainer
+import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioProgressBar
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PosterLandscapeAspectRatio
+import com.nuvio.app.core.ui.ScopedDisintegrationTracker
 import com.nuvio.app.core.ui.landscapePosterHeightForWidth
 import com.nuvio.app.core.ui.landscapePosterWidth
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.cloudLibraryDisplayArtworkUrl
+import com.nuvio.app.features.tracking.WatchProgressSource
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
+import com.nuvio.app.features.watchprogress.WatchProgressCompletionPercentThreshold
+import com.nuvio.app.features.watchprogress.continueWatchingItemKey
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import com.nuvio.app.features.watchprogress.computeAirDateBadgeText
 import kotlin.math.roundToInt
@@ -222,10 +226,23 @@ private fun ContinueWatchingItem.continueWatchingCardArtworkUrl(
 private fun firstNonBlank(vararg values: String?): String? =
     values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
 
+internal fun ContinueWatchingItem.shouldBlurContinueWatchingArtwork(
+    blurUnwatchedEpisodes: Boolean,
+    useEpisodeThumbnails: Boolean,
+    artworkUrl: String?,
+): Boolean {
+    if (!blurUnwatchedEpisodes || !useEpisodeThumbnails) return false
+    val thumbnail = episodeThumbnail?.trim()?.takeIf { it.isNotBlank() } ?: return false
+    val artwork = artworkUrl?.trim()?.takeIf { it.isNotBlank() } ?: return false
+    val isUnwatched = isNextUp || progressFraction < WatchProgressCompletionPercentThreshold / 100f
+    return isUnwatched && artwork == thumbnail
+}
+
 @Composable
 internal fun HomeContinueWatchingSection(
     items: List<ContinueWatchingItem>,
     style: ContinueWatchingSectionStyle,
+    dataSourceKey: WatchProgressSource,
     useEpisodeThumbnails: Boolean = true,
     blurNextUp: Boolean = false,
     modifier: Modifier = Modifier,
@@ -236,12 +253,14 @@ internal fun HomeContinueWatchingSection(
     onItemClick: ((ContinueWatchingItem) -> Unit)? = null,
     onDetailsClick: ((ContinueWatchingItem) -> Unit)? = null,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)? = null,
+    disintegrationRequest: DisintegrationRequest<String>? = null,
 ) {
     if (items.isEmpty()) return
 
     if (sectionPadding != null && layout != null) {
         HomeContinueWatchingSectionContent(
             items = items,
+            dataSourceKey = dataSourceKey,
             style = style,
             useEpisodeThumbnails = useEpisodeThumbnails,
             blurNextUp = blurNextUp,
@@ -253,11 +272,13 @@ internal fun HomeContinueWatchingSection(
             onItemClick = onItemClick,
             onDetailsClick = onDetailsClick,
             onItemLongPress = onItemLongPress,
+            disintegrationRequest = disintegrationRequest,
         )
     } else {
         BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
             HomeContinueWatchingSectionContent(
                 items = items,
+                dataSourceKey = dataSourceKey,
                 style = style,
                 useEpisodeThumbnails = useEpisodeThumbnails,
                 blurNextUp = blurNextUp,
@@ -269,6 +290,7 @@ internal fun HomeContinueWatchingSection(
                 onItemClick = onItemClick,
                 onDetailsClick = onDetailsClick,
                 onItemLongPress = onItemLongPress,
+                disintegrationRequest = disintegrationRequest,
             )
         }
     }
@@ -277,6 +299,7 @@ internal fun HomeContinueWatchingSection(
 @Composable
 private fun HomeContinueWatchingSectionContent(
     items: List<ContinueWatchingItem>,
+    dataSourceKey: WatchProgressSource,
     style: ContinueWatchingSectionStyle,
     useEpisodeThumbnails: Boolean,
     blurNextUp: Boolean,
@@ -288,9 +311,15 @@ private fun HomeContinueWatchingSectionContent(
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onDetailsClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
+    disintegrationRequest: DisintegrationRequest<String>?,
 ) {
-    val disintegration = remember { ContinueWatchingDisintegrationHolder() }
-    val displayEntries = disintegration.sync(items)
+    key(dataSourceKey) {
+        val disintegration = remember {
+            ScopedDisintegrationTracker<WatchProgressSource, String, ContinueWatchingItem>(
+                itemKey = ::continueWatchingItemKey,
+            )
+        }
+        val displayEntries = disintegration.sync(dataSourceKey, items, disintegrationRequest)
 
     NuvioShelfSection(
         title = title ?: stringResource(Res.string.compose_settings_page_continue_watching),
@@ -340,53 +369,6 @@ private fun HomeContinueWatchingSectionContent(
                 )
             }
         }
-    }
-}
-
-private data class ContinueWatchingDisplayEntry(
-    val videoId: String,
-    val item: ContinueWatchingItem,
-    val exiting: Boolean,
-)
-
-private class ContinueWatchingDisintegrationHolder {
-    private val exiting = LinkedHashMap<String, Pair<ContinueWatchingItem, Int>>()
-    private var previous = LinkedHashMap<String, Pair<ContinueWatchingItem, Int>>()
-    private var invalidations by mutableStateOf(0)
-
-    fun onExited(videoId: String) {
-        if (exiting.remove(videoId) != null) invalidations++
-    }
-
-    fun sync(items: List<ContinueWatchingItem>): List<ContinueWatchingDisplayEntry> {
-        @Suppress("UNUSED_EXPRESSION")
-        invalidations
-
-        val current = LinkedHashMap<String, Pair<ContinueWatchingItem, Int>>()
-        items.forEachIndexed { index, item -> current[item.videoId] = item to index }
-
-        for ((videoId, info) in previous) {
-            if (videoId !in current && videoId !in exiting) {
-                exiting[videoId] = info
-            }
-        }
-        for (videoId in current.keys) {
-            exiting.remove(videoId)
-        }
-        previous = current
-
-        val entries = ArrayList<ContinueWatchingDisplayEntry>(items.size + exiting.size)
-        items.forEach { item ->
-            entries += ContinueWatchingDisplayEntry(item.videoId, item, exiting = false)
-        }
-        exiting.entries
-            .sortedBy { it.value.second }
-            .forEach { (videoId, info) ->
-                val insertAt = info.second.coerceIn(0, entries.size)
-                entries.add(insertAt, ContinueWatchingDisplayEntry(videoId, info.first, exiting = true))
-            }
-
-        return entries
     }
 }
 
@@ -682,24 +664,28 @@ private fun ContinueWatchingCard(
         )
     }
     val todayIsoDate = CurrentDateProvider.todayIsoDate()
-    val compactAirDateText = if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
-        computeAirDateBadgeText(item.released, todayIsoDate, compact = true)
+    val airDateText = if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
+        computeAirDateBadgeText(item.released, todayIsoDate)
     } else {
         null
     }
-    val preferBackdropForNextUp = item.isNextUp && compactAirDateText != null && !item.isReleaseAlert
+    val preferBackdropForNextUp = item.isNextUp && airDateText != null && !item.isReleaseAlert
     val imageUrl = item.continueWatchingCardArtworkUrl(
         useEpisodeThumbnails = useEpisodeThumbnails,
         preferBackdropForNextUp = preferBackdropForNextUp,
     )
-    val shouldBlurArtwork = blurNextUp && useEpisodeThumbnails && item.isNextUp
+    val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
+        blurUnwatchedEpisodes = blurNextUp,
+        useEpisodeThumbnails = useEpisodeThumbnails,
+        artworkUrl = imageUrl,
+    )
     val episodeCode = if (item.seasonNumber != null && item.episodeNumber != null) {
         stringResource(Res.string.streams_episode_badge, item.seasonNumber, item.episodeNumber)
     } else {
         null
     }
-    val episodeTitle = item.episodeTitle?.trim()?.takeIf { it.isNotBlank() } ?: compactAirDateText
-    val badgeText = continueWatchingCardBadgeText(item = item, compactAirDateText = compactAirDateText)
+    val episodeTitle = item.episodeTitle?.trim()?.takeIf { it.isNotBlank() } ?: airDateText
+    val badgeText = continueWatchingCardBadgeText(item = item, airDateText = airDateText)
     val backgroundColor = MaterialTheme.colorScheme.background
     val badgeBackground = when {
         item.isNewSeasonRelease -> ContinueWatchingNewSeasonBadgeColor
@@ -850,7 +836,7 @@ private fun ContinueWatchingCard(
 @Composable
 private fun continueWatchingCardBadgeText(
     item: ContinueWatchingItem,
-    compactAirDateText: String?,
+    airDateText: String?,
 ): String {
     if (item.progressFraction > 0f) {
         if (item.durationMs <= 0L) {
@@ -877,7 +863,7 @@ private fun continueWatchingCardBadgeText(
     return when {
         item.isReleaseAlert && item.isNewSeasonRelease -> stringResource(Res.string.cw_new_season)
         item.isReleaseAlert -> stringResource(Res.string.cw_new_episode)
-        compactAirDateText != null -> compactAirDateText
+        airDateText != null -> airDateText
         else -> stringResource(Res.string.home_continue_watching_up_next)
     }
 }
@@ -910,8 +896,12 @@ private fun ContinueWatchingWideCard(
                 onLongClick = onLongClick,
             ),
     ) {
-        val shouldBlurArtwork = blurNextUp && useEpisodeThumbnails && item.isNextUp
         val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
+        val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
+            blurUnwatchedEpisodes = blurNextUp,
+            useEpisodeThumbnails = useEpisodeThumbnails,
+            artworkUrl = artworkUrl,
+        )
         ArtworkPanel(
             imageUrl = artworkUrl,
             width = layout.widePosterStripWidth,
@@ -957,7 +947,7 @@ private fun ContinueWatchingWideCard(
                                 else stringResource(Res.string.cw_new_episode)
                             }
                             else -> {
-                                computeAirDateBadgeText(item.released, todayIsoDate, compact = isCompact)
+                                computeAirDateBadgeText(item.released, todayIsoDate)
                                     ?: stringResource(Res.string.home_continue_watching_up_next)
                             }
                         }
@@ -1046,10 +1036,11 @@ private fun ContinueWatchingPosterCard(
                     zoomCornerRadius = layout.cardRadius,
                 ),
         ) {
-            val shouldBlurArtwork = blurNextUp &&
-                useEpisodeThumbnails &&
-                item.isNextUp &&
-                imageUrl == firstNonBlank(item.episodeThumbnail)
+            val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
+                blurUnwatchedEpisodes = blurNextUp,
+                useEpisodeThumbnails = useEpisodeThumbnails,
+                artworkUrl = imageUrl,
+            )
             if (imageUrl != null) {
                 AsyncImage(
                     model = cloudLibraryDisplayArtworkUrl(imageUrl),
@@ -1079,7 +1070,7 @@ private fun ContinueWatchingPosterCard(
                             else stringResource(Res.string.cw_new_episode)
                         }
                         else -> {
-                            computeAirDateBadgeText(item.released, todayIsoDate, compact = true)
+                            computeAirDateBadgeText(item.released, todayIsoDate)
                                 ?: stringResource(Res.string.home_continue_watching_up_next)
                         }
                     }

@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -87,6 +88,7 @@ fun DownloadsScreen(
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var pendingTitleDeletion by remember { mutableStateOf<DownloadTitleGroup?>(null) }
     val listState = rememberLazyListState()
+    var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
 
     LaunchedEffect(scrollToTopRequests) {
@@ -153,11 +155,13 @@ fun DownloadsScreen(
                 },
                 onRequestTitleDeletion = { pendingTitleDeletion = it },
                 onChooseBatchEntryManually = onChooseBatchEntryManually,
+                onDeleteDownload = { downloadPendingDeletionId = it },
             )
         } else {
             downloadsShowContent(
                 episodes = showEpisodes,
                 onOpenDownload = onOpenDownload,
+                onDeleteDownload = { downloadPendingDeletionId = it },
             )
         }
     }
@@ -170,6 +174,22 @@ fun DownloadsScreen(
                 DownloadsRepository.deleteDownloadsForTitle(group.parentMetaId)
                 pendingTitleDeletion = null
             },
+        )
+    }
+
+    val pendingDeletionId = downloadPendingDeletionId
+    if (pendingDeletionId != null) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.action_delete_confirm_title),
+            message = stringResource(Res.string.action_delete_confirm_message),
+            isVisible = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                DownloadsRepository.cancelDownload(pendingDeletionId)
+                downloadPendingDeletionId = null
+            },
+            onDismiss = { downloadPendingDeletionId = null },
         )
     }
 }
@@ -206,6 +226,7 @@ private fun LazyListScope.downloadsRootContent(
     onOpenShow: (showId: String, title: String) -> Unit,
     onRequestTitleDeletion: (DownloadTitleGroup) -> Unit,
     onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)?,
+    onDeleteDownload: (String) -> Unit,
 ) {
     val preparingBatches = batches.filter { it.isPreparing }
     // A batch that has already failed an episode but is still working through the rest
@@ -279,7 +300,7 @@ private fun LazyListScope.downloadsRootContent(
                     }
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                onDelete = { onDeleteDownload(item.id) },
                 queueControls = QueueControls(
                     canMoveUp = index > 0,
                     canMoveDown = index < activeItems.lastIndex,
@@ -356,6 +377,7 @@ private fun LazyListScope.downloadsRootContent(
 private fun LazyListScope.downloadsShowContent(
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
+    onDeleteDownload: (String) -> Unit,
 ) {
     if (episodes.isEmpty()) {
         item(key = "downloads-show-empty") {
@@ -430,7 +452,7 @@ private fun LazyListScope.downloadsShowContent(
                     }
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                onDelete = { onDeleteDownload(item.id) },
             )
         }
     }

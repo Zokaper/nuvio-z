@@ -19,7 +19,7 @@ import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
-import com.nuvio.app.features.trakt.TraktScrobbleItem
+import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watchprogress.WatchProgressUiState
 import kotlinx.coroutines.CoroutineScope
@@ -74,7 +74,7 @@ internal class PlayerScreenRuntime(
     var watchedUiState: WatchedUiState = WatchedUiState()
     var watchProgressUiState: WatchProgressUiState = WatchProgressUiState()
     var sourceStreamsState by mutableStateOf(StreamsUiState())
-    var episodeStreamsRepoState: StreamsUiState = StreamsUiState()
+    var episodeStreamsRepoState by mutableStateOf(StreamsUiState())
     var metaUiState: MetaDetailsUiState = MetaDetailsUiState()
     var addonsUiState: AddonsUiState = AddonsUiState()
     var addonSubtitles: List<AddonSubtitle> = emptyList()
@@ -122,6 +122,7 @@ internal class PlayerScreenRuntime(
     var activeEpisodeNumber by mutableStateOf(episodeNumber)
     var activeEpisodeTitle by mutableStateOf(episodeTitle)
     var activeEpisodeThumbnail by mutableStateOf(episodeThumbnail)
+    var activePauseDescription by mutableStateOf(pauseDescription)
     var activeVideoId by mutableStateOf(videoId)
     var activeInitialPositionMs by mutableStateOf(initialPositionMs)
     var activeInitialProgressFraction by mutableStateOf(initialProgressFraction)
@@ -182,9 +183,9 @@ internal class PlayerScreenRuntime(
     var previousIsPlaying by mutableStateOf(false)
     var hasRequestedScrobbleStartForCurrentItem by mutableStateOf(false)
     var scrobbleStartRequestGeneration by mutableStateOf(0L)
-    var pendingScrobbleStartAfterSeek by mutableStateOf(false)
+    var pendingSeekScrobbleRestart by mutableStateOf(false)
     var hasSentCompletionScrobbleForCurrentItem by mutableStateOf(false)
-    var currentTraktScrobbleItem by mutableStateOf<TraktScrobbleItem?>(null)
+    var currentTrackingMedia by mutableStateOf<TrackingMediaReference?>(null)
 
     var showSourcesPanel by mutableStateOf(false)
     var showEpisodesPanel by mutableStateOf(false)

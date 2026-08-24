@@ -58,7 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
-import com.nuvio.app.core.ui.ProfileMeshBackground
+import com.nuvio.app.features.membership.CosmeticEntitlement
+import com.nuvio.app.features.settings.MemberBrandWordmark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -80,6 +81,15 @@ fun ProfileSelectionScreen(
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(20f) }
     val manageAlpha = remember { Animatable(0f) }
+    val onProfileClick: (NuvioProfile) -> Unit = { profile ->
+        routeProfileSelection(
+            profile = profile,
+            isEditMode = isEditMode,
+            onEditProfile = onEditProfile,
+            onPinRequired = { pinDialogProfile = it },
+            onProfileSelected = onProfileSelected,
+        )
+    }
 
     LaunchedEffect(Unit) {
         AvatarRepository.fetchAvatars()
@@ -100,18 +110,17 @@ fun ProfileSelectionScreen(
     }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val backgroundProfileColor = remember(profileState.activeProfile, profileState.profiles) {
-        val sourceProfile = profileState.activeProfile ?: profileState.profiles.firstOrNull()
-        sourceProfile?.avatarColorHex?.let(::parseHexColor) ?: Color(0xFF1E88E5)
-    }
+    val backgroundProfile = profileState.activeProfile ?: profileState.profiles.firstOrNull()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize(),
     ) {
         val isTabletLayout = maxWidth >= 768.dp
-
-        ProfileMeshBackground(profileColor = backgroundProfileColor)
+        ProfileBackgroundBackdrop(
+            profile = backgroundProfile,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         Column(
             modifier = Modifier
@@ -130,6 +139,16 @@ fun ProfileSelectionScreen(
         ) {
             Spacer(modifier = Modifier.height(if (isTabletLayout) 0.dp else 60.dp))
 
+            MemberBrandWordmark(
+                height = if (isTabletLayout) 42.dp else 34.dp,
+                modifier = Modifier.graphicsLayer {
+                    alpha = titleAlpha.value
+                    translationY = titleOffset.value
+                },
+            )
+
+            Spacer(modifier = Modifier.height(if (isTabletLayout) 22.dp else 18.dp))
+
             Text(
                 text = stringResource(Res.string.profile_who_is_watching),
                 style = MaterialTheme.typography.headlineLarge.copy(
@@ -147,7 +166,7 @@ fun ProfileSelectionScreen(
             Spacer(modifier = Modifier.height(if (isTabletLayout) 28.dp else 48.dp))
 
             val profiles = profileState.profiles
-            val items = profiles.size + if (profiles.size < MAX_PROFILES) 1 else 0
+            val items = profiles.size + if (isEditMode && profiles.size < MAX_PROFILES) 1 else 0
 
             if (isTabletLayout) {
                 Box(
@@ -168,14 +187,7 @@ fun ProfileSelectionScreen(
                                     isEditMode = isEditMode,
                                     animDelay = currentIndex * 80,
                                     onClick = {
-                                        if (isEditMode) {
-                                            onEditProfile(profile)
-                                        } else if (profile.pinEnabled) {
-                                            pinDialogProfile = profile
-                                        } else {
-                                            ProfileRepository.selectProfile(profile.profileIndex)
-                                            onProfileSelected(profile)
-                                        }
+                                        onProfileClick(profile)
                                     },
                                 )
                             } else {
@@ -209,14 +221,7 @@ fun ProfileSelectionScreen(
                                             isEditMode = isEditMode,
                                             animDelay = currentIndex * 80,
                                             onClick = {
-                                                if (isEditMode) {
-                                                    onEditProfile(profile)
-                                                } else if (profile.pinEnabled) {
-                                                    pinDialogProfile = profile
-                                                } else {
-                                                    ProfileRepository.selectProfile(profile.profileIndex)
-                                                    onProfileSelected(profile)
-                                                }
+                                                onProfileClick(profile)
                                             },
                                         )
                                     } else {
@@ -279,7 +284,6 @@ fun ProfileSelectionScreen(
             onVerify = { pin -> ProfileRepository.verifyPin(profile.profileIndex, pin) },
             onVerified = {
                 pinDialogProfile = null
-                ProfileRepository.selectProfile(profile.profileIndex)
                 onProfileSelected(profile)
             },
             onDismiss = { pinDialogProfile = null },

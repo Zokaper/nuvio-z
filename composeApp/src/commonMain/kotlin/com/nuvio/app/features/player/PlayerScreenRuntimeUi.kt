@@ -215,7 +215,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 seasonNumber = activeSeasonNumber,
                 episodeNumber = activeEpisodeNumber,
                 episodeTitle = activeEpisodeTitle,
-                pauseDescription = pauseDescription ?: activeStreamSubtitle,
+                pauseDescription = activePauseDescription ?: activeStreamSubtitle,
                 providerName = activeProviderName,
                 metrics = metrics,
                 horizontalSafePadding = horizontalSafePadding,
@@ -407,7 +407,10 @@ private fun BoxScope.RenderPlaybackOverlays(
         skipIntervalDismissed = skipIntervalDismissed,
         controlsVisible = controlsVisible,
         onSkipInterval = { interval ->
-            playerController?.seekTo((interval.endTime * 1000).toLong())
+            val rawMs = (interval.endTime * 1000.0).toLong()
+            val durationMs = playbackSnapshot.durationMs
+            val seekMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
+            playerController?.seekTo(seekMs)
             scheduleProgressSyncAfterSeek()
             skipIntervalDismissed = true
         },
@@ -420,6 +423,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         nextEpisodeAutoPlaySearching = nextEpisodeAutoPlaySearching,
         nextEpisodeAutoPlaySourceName = nextEpisodeAutoPlaySourceName,
         nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
+        blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         onPlayNextEpisode = {
             nextEpisodeAutoPlayJob?.cancel()
             playNextEpisode()

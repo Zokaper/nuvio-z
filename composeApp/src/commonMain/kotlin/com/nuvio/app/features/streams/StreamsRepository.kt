@@ -5,8 +5,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
-import com.nuvio.app.features.addons.httpGetText
-import com.nuvio.app.features.addons.httpGetTextWithHeaders
+import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.downloads.AddonSourceKey
 import com.nuvio.app.features.downloads.AioDetectionContext
 import com.nuvio.app.features.downloads.AioStreamsSupport
@@ -469,11 +468,11 @@ object StreamsRepository {
                             treatAsAioStreams = addonKey in DownloadsRepository.sourcePolicy.value.aioOverrides,
                         )
                         val enhancedHeaders = AioStreamsSupport.requestHeaders(aioContext)
-                        val payload = if (enhancedHeaders.isEmpty()) {
-                            httpGetText(url)
-                        } else {
-                            httpGetTextWithHeaders(url, enhancedHeaders)
-                        }
+                        val payload = fetchAddonResponseText(
+                            url = url,
+                            forceRefresh = forceRefresh,
+                            headers = enhancedHeaders,
+                        )
                         StreamParser.parse(
                             payload = payload,
                             addonName = displayName,

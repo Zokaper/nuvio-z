@@ -47,6 +47,8 @@ internal expect object PlayerSettingsStorage {
     fun saveSubtitleFontSizeSp(fontSizeSp: Int)
     fun loadSubtitleBottomOffset(): Int?
     fun saveSubtitleBottomOffset(bottomOffset: Int)
+    fun loadSubtitleStripSdh(): Boolean?
+    fun saveSubtitleStripSdh(enabled: Boolean)
     fun loadSubtitleUseForcedSubtitles(): Boolean?
     fun saveSubtitleUseForcedSubtitles(enabled: Boolean)
     fun loadSubtitleShowOnlyPreferredLanguages(): Boolean?
@@ -140,6 +142,8 @@ internal expect object PlayerSettingsStorage {
     fun saveSetupWizardCompletedRevision(revision: Int)
     fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean?
     fun saveStreamAutoPlayNextEpisodeEnabled(enabled: Boolean)
+    fun loadStreamAutoPlayNextEpisodeFallbackEnabled(): Boolean?
+    fun saveStreamAutoPlayNextEpisodeFallbackEnabled(enabled: Boolean)
     fun loadStreamAutoPlayPreferBingeGroup(): Boolean?
     fun saveStreamAutoPlayPreferBingeGroup(enabled: Boolean)
     fun loadStreamAutoPlayReuseBingeGroup(): Boolean?

@@ -36,6 +36,8 @@ analysis/
 # Docs/ carries the canonical Nuvio Z documents and must be tracked.
 # Only the untracked reference material inside it is ignored.
 Docs/Stremio addons refer/
+SUPPORTER_COSMETICS.md
+supabase/migrations/
 keystore/
 scripts/build-distribution.sh
 asset

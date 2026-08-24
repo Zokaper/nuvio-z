@@ -1,9 +1,11 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloudDownload
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.playback.playbackModeName
+import androidx.compose.ui.Alignment
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.build.NuvioZVersion
 import nuvio.composeapp.generated.resources.Res
@@ -57,7 +60,7 @@ import nuvio.composeapp.generated.resources.compose_settings_root_notifications_
 import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_title
-import nuvio.composeapp.generated.resources.compose_settings_root_trakt_description
+import nuvio.composeapp.generated.resources.compose_settings_root_tracking_description
 import nuvio.composeapp.generated.resources.compose_settings_root_about_section
 import nuvio.composeapp.generated.resources.compose_settings_root_account_section
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_description
@@ -67,7 +70,7 @@ import nuvio.composeapp.generated.resources.whats_new_version
 import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced
 import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced_description
 import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
-import nuvio.composeapp.generated.resources.compose_settings_page_trakt
+import nuvio.composeapp.generated.resources.compose_settings_page_tracking
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
 import nuvio.composeapp.generated.resources.settings_playback_mode
 import nuvio.composeapp.generated.resources.settings_run_setup_again
@@ -89,7 +92,7 @@ internal fun LazyListScope.settingsRootContent(
     onNotificationsClick: () -> Unit,
     onContentDiscoveryClick: () -> Unit,
     onIntegrationsClick: () -> Unit,
-    onTraktClick: () -> Unit,
+    onTrackingClick: () -> Unit,
     onSupportersContributorsClick: () -> Unit,
     onLicensesAttributionsClick: () -> Unit,
     onCheckForUpdatesClick: (() -> Unit)? = null,
@@ -131,11 +134,11 @@ internal fun LazyListScope.settingsRootContent(
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.compose_settings_page_trakt),
-                        description = stringResource(Res.string.compose_settings_root_trakt_description),
-                        iconPainter = integrationLogoPainter(IntegrationLogo.Trakt),
+                        title = stringResource(Res.string.compose_settings_page_tracking),
+                        description = stringResource(Res.string.compose_settings_root_tracking_description),
+                        icon = Icons.Default.Sync,
                         isTablet = isTablet,
-                        onClick = onTraktClick,
+                        onClick = onTrackingClick,
                     )
                 }
             }
@@ -332,6 +335,15 @@ internal fun LazyListScope.settingsRootContent(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = if (isTablet) 20.dp else 16.dp),
         ) {
+            if (showAboutSection) {
+                MemberBrandWordmark(
+                    height = if (isTablet) 30.dp else 26.dp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                androidx.compose.foundation.layout.Spacer(
+                    modifier = Modifier.height(if (isTablet) 10.dp else 8.dp),
+                )
+            }
             Text(
                 text = stringResource(Res.string.compose_about_made_with),
                 modifier = Modifier.fillMaxWidth(),
