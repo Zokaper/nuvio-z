@@ -8,8 +8,8 @@ Last updated: 2026-08-24
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | synced mobile CI run `32781826587` passed Android host tests and debug APK assembly; synced desktop build-only run `32781339968` passed Kotlin compilation, MSI packaging and MSI verification, after the full local desktop suite passed. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
-| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS native frameworks now link; the unsigned Xcode app rerun after an xcconfig syntax repair is pending. |
+| Verified | synced mobile CI run `32781826587` passed Android host tests and debug APK assembly; iOS run `32783935384` linked device/simulator frameworks and built the unsigned app; synced desktop build-only run `32781339968` passed Kotlin compilation, MSI packaging and MSI verification, after the full local desktop suite passed. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
+| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
 | Next work | migrate mobile across upstream's `0.4.9` app-host split, take the next desktop named release, then adopt vanilla numbering after both bases line up. Browser checks can continue now; TV remote/focus, overscan and platform playback wait for hardware. |
 | Debug channel | desktop `debug-v0.4.14-beta.17`, mobile `debug-v0.4.14-beta.24` - both published 2026-08-24 carrying the deadline/late-probe fix. |
 
@@ -265,9 +265,10 @@ path - `git submodule update --init --depth 1 MPVKit` - which skips the orphans.
   `kotlin.native.Platform.isDebugBinary`. Accounts for the last two errors. Mechanical.
 
 **Both are fixed at `21fd0d20`.** Android run `32781826587` recompiled the shared change and passed
-the host suite plus APK assembly. iOS run `32781826565` then linked both the device and simulator
-Kotlin frameworks successfully. Xcode stopped before compiling Swift because `Version.xcconfig`
-used shell-style `#` comments; xcconfig accepts `//` comments. That syntax is repaired for rerun.
+the host suite plus APK assembly. iOS run `32781826565` then linked both Kotlin frameworks, but
+Xcode stopped before Swift because `Version.xcconfig` used shell-style `#` comments. Commit
+`43155318` changed them to valid `//` comments; rerun `32783935384` linked the device and simulator
+frameworks and built the complete unsigned iOS app successfully.
 
 ### What the CI route turns out to be able to do
 

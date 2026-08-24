@@ -3,8 +3,7 @@
 set -euo pipefail
 
 version_file="${VERSION_FILE:-iosApp/Configuration/Version.xcconfig}"
-# The release ordering serial, in its own file so that moving it is never mistaken
-# for a release bump by the walk below. See the note in ReleaseSerial.xcconfig.
+# The release ordering serial remains independent from the marketing version.
 serial_file="${RELEASE_SERIAL_FILE:-iosApp/Configuration/ReleaseSerial.xcconfig}"
 target_ref="${1:-HEAD}"
 
@@ -42,9 +41,16 @@ while IFS= read -r commit; do
     if [[ -z "$current_version" ]]; then
         current_version="$version"
         current_bump="$commit"
-    elif [[ "$version" != "$current_version" ]]; then
+    elif [[ -z "$previous_version" && "$version" == "$current_version" ]]; then
+        # Keep walking to the oldest commit in this same-version group. Comments or
+        # formatting edits to the version file must not become the release boundary.
+        current_bump="$commit"
+    elif [[ -z "$previous_version" ]]; then
         previous_version="$version"
         previous_bump="$commit"
+    elif [[ "$version" == "$previous_version" ]]; then
+        previous_bump="$commit"
+    else
         break
     fi
 done < <(git log "$target_ref" --format='%H' -- "$version_file")

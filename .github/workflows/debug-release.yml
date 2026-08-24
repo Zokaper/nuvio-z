@@ -43,9 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           config=iosApp/Configuration/Version.xcconfig
-          # Its own file, and it must stay that way: any commit touching Version.xcconfig is
-          # read as a release bump by scripts/release-metadata.sh, so a debug build cut between
-          # two releases used to truncate the next release's notes. See the note in that file.
+          # Debug and stable build ordering are independent, so their counters stay separate.
           debug_config=iosApp/Configuration/DebugVersion.xcconfig
           read_value() {
             sed -nE "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p" "$1" | head -1

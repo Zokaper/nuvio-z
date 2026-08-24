@@ -802,13 +802,10 @@ refuses to run if the state is wrong.
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopDebugVersion.properties` | `DEBUG_BUILD` |
 
 ⚠ **Both debug counters live in their own file, and neither may move back.**
-`release-metadata.sh` walks the commits that touch the *version file* newest-first and
-takes the first one whose `MARKETING_VERSION` **differs** from the newest as
-`previous_bump`. Same-version commits are skipped, so a debug commit is invisible while
-the version has not moved - and then the release bump changes it, every prior
-`0.4.14-beta` commit differs, and the newest of them wins. Notes run
-`previous_bump..current_bump`, so **the newest debug commit becomes the start of the
-next release's notes**.
+`release-metadata.sh` groups consecutive version-file commits by their parsed marketing
+version and uses the oldest commit in each group as the real bump. This makes comment-only
+or formatting edits invisible to release-note boundaries. Keeping debug counters separate
+still avoids coupling two independent update channels and keeps the history auditable.
 
 Mobile only got its own file on 2026-08-20 (`iosApp/Configuration/DebugVersion.xcconfig`),
 and moving it does **not** repair what already happened: `chore: debug build 15` is the
