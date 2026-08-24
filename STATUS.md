@@ -10,8 +10,8 @@ Last updated: 2026-08-24
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
 | Verified | Android host **986** and desktop **1199** before the two latest pure-policy/UI-seam changes; pure suites **290** in both repositories after them, zero failures. Device pass cleared Instant, setup, settings and serial-fallback checks. |
 | **Not** verified | the new deadline/late-probe gauge fix still needs the reporting handset; compare the visible behavior and `sustained=` vs `peak=`. The startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS still does not compile; see below. |
-| Next work | publish debug builds carrying the deadline/late-probe fix, verify on the handset, then finish the `0.5.0-beta` bridge release before adopting vanilla numbering or beginning the KMP upstream syncs. |
-| Debug channel | desktop `debug-v0.4.14-beta.16`, mobile `debug-v0.4.14-beta.23` - both 2026-08-23. The next builds must bump these counters and carry the deadline/late-probe fix. |
+| Next work | verify the deadline/late-probe fix on the handset, then finish the `0.5.0-beta` bridge release before adopting vanilla numbering or beginning the KMP upstream syncs. |
+| Debug channel | desktop `debug-v0.4.14-beta.17`, mobile `debug-v0.4.14-beta.24` - both published 2026-08-24 carrying the deadline/late-probe fix. |
 
 
 
@@ -106,6 +106,15 @@ Three pure cases cover deadline-first/probe-later, probe completion, and the sta
 ordering. Both repositories pass **290 pure tests, 0 failures** (131 + 64 + 49 + 17 + 29).
 **Still needs the reporting handset**: the visible number must appear once and stay fixed, and the
 log still needs `sustained=` compared with `peak=` to settle the separate generous-value report.
+
+Debug packages published for that check:
+
+- mobile [`debug-v0.4.14-beta.24`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.14-beta.24),
+  APK SHA-256 `3c208d5ad894d40d32713a0f6aa98ec781e302826049842262932c4c2c6e2e50`; its workflow ran the
+  Android host suite and published successfully (run `32735072649`);
+- desktop [`debug-v0.4.14-beta.17`](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.4.14-beta.17),
+  MSI SHA-256 `f3a8a24ae4b87073147303f9add5a82f2f2e5d56d1ebdda102564b0554521431`; packaging and publish
+  succeeded (run `32735073128`).
 
 Also still open: the figure reads **generous**. The 538 -> ~416 correction has still not been
 confirmed against `sustained=` on the reporting handset.
