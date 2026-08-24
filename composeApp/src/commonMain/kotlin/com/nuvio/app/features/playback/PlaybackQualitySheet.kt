@@ -108,12 +108,14 @@ import kotlin.math.roundToInt
  * landed, so a user reading the 4K row watched it go from warned to fine having done nothing.
  * Withholding the header alone would not have fixed it, because [estimatedMbps] also feeds every
  * card's `connectionFit` - the meters and the over-connection warnings would still have moved at
- * that moment. The wait is bounded by `NetworkStrengthProbe.PROBE_DEADLINE_MS`.
+ * that moment. The rows remain usable while the probe finishes; only the unresolved figure and
+ * the verdicts derived from it are withheld.
  *
  * This is **not** the older behaviour of hiding the figure until it had been measured, which
  * stripped the meters off a connection that simply could not be measured and left it showing less
- * than one nobody had tried to measure. Once the measurement settles - landed, failed or timed
- * out - the sheet commits to whatever it has, link-type guess included, and that figure holds.
+ * than one nobody had tried to measure. Once the measurement actually finishes - with a value or
+ * a failure - the sheet commits to whatever it has, link-type guess included, and that figure
+ * holds. The five-second deadline bounds Instant's automatic decision, not this displayed truth.
  *
  * The figure is used only to mark a card as a stretch; it never disables one, because the
  * estimate is still an estimate and the user may know their line better than the app does.

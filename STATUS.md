@@ -6,12 +6,12 @@ Last updated: 2026-08-24
 | --- | --- |
 | Active branch | `claude/upstream-doctrine-stage0` in **both** repositories |
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
+| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fixes including the **deadline/late-probe race**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **No release tag.** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **986**, pure suites **287** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite last passed **1199** before the About-only change below. |
-| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; **iOS still does not compile, but it has now been tried and the exact reason is known** - two bugs, one of them in `commonMain`, and the Swift side not yet reached; see the iOS section below |
-| Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
-| Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Verified | Android host **986** and desktop **1199** before the two latest pure-policy/UI-seam changes; pure suites **290** in both repositories after them, zero failures. Device pass cleared Instant, setup, settings and serial-fallback checks. |
+| **Not** verified | the new deadline/late-probe gauge fix still needs the reporting handset; compare the visible behavior and `sustained=` vs `peak=`. The startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS still does not compile; see below. |
+| Next work | publish debug builds carrying the deadline/late-probe fix, verify on the handset, then finish the `0.5.0-beta` bridge release before adopting vanilla numbering or beginning the KMP upstream syncs. |
+| Debug channel | desktop `debug-v0.4.14-beta.16`, mobile `debug-v0.4.14-beta.23` - both 2026-08-23. The next builds must bump these counters and carry the deadline/late-probe fix. |
 
 
 
@@ -41,7 +41,7 @@ cleared**, and one is confirmed as a live bug.
 | **The connection gauge** (`sustained=` vs `peak=`) | **FAIL - see below.** The figure is still generous, and **it still moves**: the sheet shows one number and replaces it about three seconds later. |
 | **The startup watchdog** (`PlaybackStartup`, `reason=NeverStarted`) | **NOT TESTED, and deliberately parked.** It needs a source that dies, which does not happen on demand. Not worth blocking a release on. |
 
-### The gauge still moves while it is read - N3 is not actually fixed
+### The gauge moved while it was read - fix implemented, device confirmation pending
 
 `Docs/Z-FEATURES.md` N3 claims "the figure does not move while it is read", and on a device it
 does. Observed: a number, then a different number roughly three seconds later.
@@ -85,8 +85,7 @@ left open:
 Every individual piece is correct. The latch is right, the deadline is right, and the supersede rule
 is right. The bug is that settling on the deadline publishes a figure the app does not yet believe.
 
-Three candidate fixes, none applied - **this needs a device, and the wrong one is worse than the
-bug**:
+Three candidate fixes were considered:
 
 - **Do not latch an unmeasured guess when a probe is still in flight.** Keep "Checking" until the
   probe lands or genuinely gives up, and let the deadline end the *wait for a value*, not the
@@ -96,9 +95,17 @@ bug**:
 - **Refuse a late measurement once settled.** Cheapest, and **wrong** - it keeps the generous guess
   and permanently discards the true number. Do not do this.
 
-Whichever is taken, `NetworkStrengthProbeTest` and the sheet's pure suite must gain a case for
-"deadline wins, probe lands afterwards", because nothing today covers that ordering - which is why
-this shipped.
+**Implemented 2026-08-24: the first option.** The single settle nonce is now an import-free
+`ConnectionProbeSettlement` with separate decision and figure outcomes. The five-second deadline
+settles Instant's automatic decision so a blocked platform read cannot strand playback, but the
+quality sheet stays on "Checking" until the real probe finishes; its cards remain usable. Probe
+completion settles both. Monotonic nonces also prevent a late result from an older re-test from
+regressing or settling the current ask.
+
+Three pure cases cover deadline-first/probe-later, probe completion, and the stale-older-probe
+ordering. Both repositories pass **290 pure tests, 0 failures** (131 + 64 + 49 + 17 + 29).
+**Still needs the reporting handset**: the visible number must appear once and stay fixed, and the
+log still needs `sustained=` compared with `peak=` to settle the separate generous-value report.
 
 Also still open: the figure reads **generous**. The 538 -> ~416 correction has still not been
 confirmed against `sustained=` on the reporting handset.

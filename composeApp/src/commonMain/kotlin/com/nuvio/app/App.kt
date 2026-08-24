@@ -236,6 +236,7 @@ import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
+import com.nuvio.app.features.playback.ConnectionProbeSettlement
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackProgress
@@ -3789,15 +3790,15 @@ private fun MainAppContent(
                     // obeys, so the header and the probe cannot disagree about whether a
                     // measurement is happening.
                     //
-                    // Two counters rather than a boolean: the nonce is bumped by the re-test
-                    // tap and `connectionSettled` is derived by comparing them, so a tap
-                    // un-settles the sheet in the same frame it is registered and the answer
-                    // that eventually lands can tell which ask it belongs to. `settled` means
-                    // "this figure is final", never "no probe is running" - a probe may still
-                    // be in flight past the deadline below, and the sheet has stopped waiting.
+                    // The nonce is bumped by the re-test tap, so a tap un-settles both answers in
+                    // the same frame and a late probe can say which ask it belongs to. There are
+                    // deliberately two answers: Instant may decide on the deadline, while the
+                    // quality sheet must keep withholding its figure until the probe really ends.
                     var connectionRetestNonce by remember { mutableStateOf(0) }
-                    var connectionSettledNonce by remember { mutableStateOf(-1) }
-                    val connectionSettled = connectionSettledNonce == connectionRetestNonce
+                    var connectionSettlement by remember { mutableStateOf(ConnectionProbeSettlement()) }
+                    val connectionSettlementState = connectionSettlement.stateFor(connectionRetestNonce)
+                    val connectionSettled = connectionSettlementState.isDecisionSettled
+                    val connectionFigureSettled = connectionSettlementState.isFigureSettled
 
                     /**
                      * Instant's metered question is on screen and unanswered.
@@ -3888,7 +3889,7 @@ private fun MainAppContent(
                             // fresh, or there is no connection. It *is* the answer, so show it
                             // now rather than sitting on "Checking your connection…" waiting for
                             // a probe that will never run.
-                            connectionSettledNonce = askedNonce
+                            connectionSettlement = connectionSettlement.onProbeFinished(askedNonce)
                             return@LaunchedEffect
                         }
                         probeScope.launch {
@@ -3896,19 +3897,20 @@ private fun MainAppContent(
                             // a figure until this lands, so an early return that skipped it
                             // would leave the surface stuck on "Checking".
                             NetworkStrengthProbe.probe(inputs)
-                            connectionSettledNonce = askedNonce
+                            connectionSettlement = connectionSettlement.onProbeFinished(askedNonce)
                         }
                         // ⚠ **The deadline has to be raced here, not awaited inside the probe.**
                         // `probe` wraps its transfer in `withTimeoutOrNull`, but the Android and
                         // desktop readers block in `InputStream.read`, and coroutine cancellation
                         // cannot interrupt that - a host that answers its headers and then goes
                         // silent holds the probe for the client's own 60 s read timeout. This
-                        // coroutine only ever suspends in `delay`, so it always fires, and the
-                        // sheet settles onto whatever estimate it already had. Writing the same
-                        // nonce makes whichever finishes first the winner and the other a no-op.
+                        // coroutine only ever suspends in `delay`, so it always fires. It settles
+                        // Instant's *decision*, but not the sheet's figure: publishing the stored
+                        // guess here is what made it change under the reader when the probe landed
+                        // later. The rows remain usable while the header honestly says Checking.
                         probeScope.launch {
                             delay(NetworkStrengthProbe.PROBE_DEADLINE_MS)
-                            connectionSettledNonce = askedNonce
+                            connectionSettlement = connectionSettlement.onDeadline(askedNonce)
                         }
                     }
 
@@ -4343,7 +4345,7 @@ private fun MainAppContent(
                                 isConnectionMeasured = sheetNetworkQuality.isMeasured,
                                 isConnectionStale = sheetNetworkQuality.confidence ==
                                     NetworkEstimateConfidence.CACHED,
-                                isMeasuringConnection = !connectionSettled,
+                                isMeasuringConnection = !connectionFigureSettled,
                                 onOptionSelected = ::selectStreamlinedOption,
                                 onRetestConnection = { connectionRetestNonce += 1 },
                                 onChooseManually = {

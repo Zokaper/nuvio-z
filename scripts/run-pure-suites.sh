@@ -127,11 +127,13 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/streams/PlaybackUrlCredentials.kt" \
   "$M/core/network/ThroughputWindow.kt" \
   "$M/core/build/NuvioZVersion.kt" \
+  "$M/features/playback/ConnectionProbeSettlement.kt" \
   "$M/features/playback/PlaybackStartupWatchdog.kt" \
   "$T/features/downloads/DownloadTransferTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
   "$T/core/build/NuvioZVersionTest.kt" \
+  "$T/features/playback/ConnectionProbeSettlementTest.kt" \
   "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
@@ -140,6 +142,7 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest \
   com.nuvio.app.core.network.ThroughputWindowTest \
   com.nuvio.app.core.build.NuvioZVersionTest \
+  com.nuvio.app.features.playback.ConnectionProbeSettlementTest \
   com.nuvio.app.features.playback.PlaybackStartupWatchdogTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
