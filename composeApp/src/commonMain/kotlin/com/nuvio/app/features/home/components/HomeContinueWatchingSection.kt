@@ -328,7 +328,7 @@ private fun HomeContinueWatchingSectionContent(
         headerHorizontalPadding = sectionPadding,
         rowContentPadding = PaddingValues(horizontal = sectionPadding),
         itemSpacing = layout.itemGap,
-        key = { entry -> entry.videoId },
+        key = { entry -> entry.key },
         animatePlacement = true,
         state = listState,
     ) { entry ->
@@ -338,7 +338,7 @@ private fun HomeContinueWatchingSectionContent(
         val onDetails = if (entry.exiting) null else onDetailsClick?.let { { it(item) } }
         DisintegratingContainer(
             disintegrating = entry.exiting,
-            onDisintegrated = { disintegration.onExited(entry.videoId) },
+            onDisintegrated = { disintegration.onDisintegrated(entry.key) },
         ) {
             when (style) {
                 ContinueWatchingSectionStyle.Card -> ContinueWatchingCard(
@@ -370,6 +370,7 @@ private fun HomeContinueWatchingSectionContent(
             }
         }
     }
+}
 }
 
 @Composable

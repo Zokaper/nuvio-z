@@ -331,7 +331,7 @@ actual suspend fun httpMeasureThroughput(
     // in, so a clock started inside the body reader would report a time-to-first-byte of
     // nearly zero for a host that took two seconds to answer.
     val startNs = System.nanoTime()
-    addonHttpClient.newCall(builder.get().build()).execute().use { response ->
+    AddonHttpClientProvider.get().newCall(builder.get().build()).execute().use { response ->
         if (response.code !in 200..299) {
             return@withContext ThroughputSample(response.code, bytes = 0L, transferMs = 0L, ttfbMs = 0L)
         }

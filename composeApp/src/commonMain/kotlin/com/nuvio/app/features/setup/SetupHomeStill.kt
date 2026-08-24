@@ -26,6 +26,7 @@ import com.nuvio.app.features.home.components.HomeHeroSection
 import com.nuvio.app.features.home.components.homeHeroLayout
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
+import com.nuvio.app.features.tracking.WatchProgressSource
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_nav_downloads
@@ -43,9 +44,8 @@ import org.jetbrains.compose.resources.stringResource
  * ## ⚠ This is the one file under `features/setup/` that is NOT byte-identical across the
  * ## repositories, and it must never be `cp`'d
  *
- * `NuvioZDesktop`'s `HomeContinueWatchingSection` takes a **required** `dataSourceKey:
- * WatchProgressSource` in third position that this repository's does not, and imports it from
- * `features.tracking` rather than `features.trakt`. Its `HomeHeroSection` also inserts an
+ * Both repositories now pass the required `dataSourceKey: WatchProgressSource`; desktop's
+ * `HomeHeroSection` also inserts an
  * optional `sectionPadding` mid-list, and `NuvioShelfSection` reorders `rowModifier`. **Named
  * arguments at every call below** are what stops a positional argument binding to the wrong slot
  * when this is ported. Port by hand; the two copies differ by three hunks.
@@ -156,6 +156,7 @@ fun SetupHomeStill(modifier: Modifier = Modifier) {
                 HomeContinueWatchingSection(
                     items = SetupSampleTitle.continueWatching,
                     style = continueWatching.style,
+                    dataSourceKey = WatchProgressSource.NUVIO_SYNC,
                     useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
                     blurNextUp = continueWatching.blurNextUp,
                     sectionPadding = sectionPadding,

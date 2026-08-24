@@ -73,6 +73,7 @@ import com.nuvio.app.core.debug.isDebugBuild
 import com.nuvio.app.core.debug.PlaybackDebugSettings
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.p2p.P2pCacheClearResult
@@ -95,8 +96,14 @@ import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.formatPlaybackSpeedLabel
 import com.nuvio.app.features.player.languageLabelForCode
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
+import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
+import com.nuvio.app.features.player.SubtitleColorSwatches
+import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.subtitleFontSizeRangeSp
 import com.nuvio.app.features.player.toStorageHexString
+import com.nuvio.app.features.p2p.P2pConsentDialog
+import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.PluginsUiState
 import com.nuvio.app.features.streams.StreamAutoPlayMode
@@ -322,6 +329,24 @@ private fun PlaybackSettingsSection(
 ) {
     var showPreferredAudioDialog by remember { mutableStateOf(false) }
     var showSecondaryAudioDialog by remember { mutableStateOf(false) }
+    var showPreferredSubtitleDialog by remember { mutableStateOf(false) }
+    var showSecondarySubtitleDialog by remember { mutableStateOf(false) }
+    var showAddonSubtitleStartupModeDialog by remember { mutableStateOf(false) }
+    var showSubtitleTextColorDialog by remember { mutableStateOf(false) }
+    var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
+    var showSubtitleOutlineColorDialog by remember { mutableStateOf(false) }
+    var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
+    var showLibassRenderTypeDialog by remember { mutableStateOf(false) }
+    var showAutoPlayModeDialog by remember { mutableStateOf(false) }
+    var showAutoPlaySourceDialog by remember { mutableStateOf(false) }
+    var showAutoPlayAddonSelectionDialog by remember { mutableStateOf(false) }
+    var showAutoPlayPluginSelectionDialog by remember { mutableStateOf(false) }
+    var showAutoPlayRegexDialog by remember { mutableStateOf(false) }
+    var showP2pConsentDialog by remember { mutableStateOf(false) }
+    var showP2pProfileDialog by remember { mutableStateOf(false) }
+    var showP2pCacheSizeDialog by remember { mutableStateOf(false) }
+    var p2pCacheClearResult by remember { mutableStateOf<P2pCacheClearResult?>(null) }
+    var p2pCacheClearFailed by remember { mutableStateOf(false) }
     var showPlaybackModeDialog by remember { mutableStateOf(false) }
     var showPlaybackCodecDialog by remember { mutableStateOf(false) }
     var showPlaybackDynamicRangeDialog by remember { mutableStateOf(false) }
@@ -579,8 +604,12 @@ private fun PlaybackSettingsSection(
             title = stringResource(Res.string.settings_playback_section_audio),
             isTablet = isTablet,
         ) {
-            // An external player picks its own audio track, so these two are its to ignore.
-            val audioLanguageEnabled = !autoPlayPlayerSettings.externalPlayerEnabled
+            // External players own audio; subtitle forwarding only keeps the language pickers relevant.
+            val isExternalPlayer = autoPlayPlayerSettings.externalPlayerEnabled
+            val isForwardingSubtitles = autoPlayPlayerSettings.externalPlayerForwardSubtitles
+            val audioLanguageEnabled = !isExternalPlayer
+            val subtitleLanguageEnabled = !isExternalPlayer || isForwardingSubtitles
+            val otherSubtitleOptionsEnabled = !isExternalPlayer
             SettingsGroup(isTablet = isTablet) {
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_preferred_audio_language),
@@ -1312,6 +1341,140 @@ private fun PlaybackSettingsSection(
         )
     }
 
+    if (showPreferredSubtitleDialog) {
+        LanguageSelectionDialog(
+            title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
+            options = listOf(
+                LanguageSelectionOption(SubtitleLanguageOption.NONE, stringResource(Res.string.settings_playback_option_none)),
+                LanguageSelectionOption(SubtitleLanguageOption.DEVICE, stringResource(Res.string.settings_playback_option_device_language)),
+                LanguageSelectionOption(SubtitleLanguageOption.FORCED, stringResource(Res.string.settings_playback_option_forced)),
+            ) + AvailableLanguageOptions.map { option ->
+                LanguageSelectionOption(option.code, stringResource(option.labelRes))
+            },
+            selectedValue = preferredSubtitleLanguage,
+            onSelect = { value ->
+                PlayerSettingsRepository.setPreferredSubtitleLanguage(value ?: SubtitleLanguageOption.NONE)
+                showPreferredSubtitleDialog = false
+            },
+            onDismiss = { showPreferredSubtitleDialog = false },
+        )
+    }
+
+    if (showSecondarySubtitleDialog) {
+        LanguageSelectionDialog(
+            title = stringResource(Res.string.settings_playback_secondary_subtitle_language),
+            options = listOf(
+                LanguageSelectionOption(null, stringResource(Res.string.settings_playback_option_none)),
+                LanguageSelectionOption(SubtitleLanguageOption.FORCED, stringResource(Res.string.settings_playback_option_forced)),
+            ) + AvailableLanguageOptions.map { option ->
+                LanguageSelectionOption(option.code, stringResource(option.labelRes))
+            },
+            selectedValue = secondaryPreferredSubtitleLanguage,
+            onSelect = { value ->
+                PlayerSettingsRepository.setSecondaryPreferredSubtitleLanguage(value)
+                showSecondarySubtitleDialog = false
+            },
+            onDismiss = { showSecondarySubtitleDialog = false },
+        )
+    }
+
+    if (showAddonSubtitleStartupModeDialog) {
+        AddonSubtitleStartupModeDialog(
+            selectedMode = autoPlayPlayerSettings.addonSubtitleStartupMode,
+            onModeSelected = {
+                PlayerSettingsRepository.setAddonSubtitleStartupMode(it)
+                showAddonSubtitleStartupModeDialog = false
+            },
+            onDismiss = { showAddonSubtitleStartupModeDialog = false },
+        )
+    }
+
+    if (showSubtitleTextColorDialog) {
+        SubtitleColorDialog(
+            title = stringResource(Res.string.settings_playback_subtitle_text_color),
+            colors = SubtitleColorSwatches,
+            selectedColor = autoPlayPlayerSettings.subtitleStyle.textColor,
+            onColorSelected = { color ->
+                PlayerSettingsRepository.setSubtitleStyle(autoPlayPlayerSettings.subtitleStyle.copy(textColor = color))
+                showSubtitleTextColorDialog = false
+            },
+            onDismiss = { showSubtitleTextColorDialog = false },
+        )
+    }
+
+    if (showSubtitleBackgroundColorDialog) {
+        SubtitleColorDialog(
+            title = stringResource(Res.string.settings_playback_subtitle_background_color),
+            colors = SubtitleBackgroundColorSwatches,
+            selectedColor = autoPlayPlayerSettings.subtitleStyle.backgroundColor,
+            onColorSelected = { color ->
+                PlayerSettingsRepository.setSubtitleStyle(autoPlayPlayerSettings.subtitleStyle.copy(backgroundColor = color))
+                showSubtitleBackgroundColorDialog = false
+            },
+            onDismiss = { showSubtitleBackgroundColorDialog = false },
+        )
+    }
+
+    if (showSubtitleOutlineColorDialog) {
+        SubtitleColorDialog(
+            title = stringResource(Res.string.settings_playback_subtitle_outline_color),
+            colors = SubtitleColorSwatches,
+            selectedColor = autoPlayPlayerSettings.subtitleStyle.outlineColor,
+            onColorSelected = { color ->
+                PlayerSettingsRepository.setSubtitleStyle(autoPlayPlayerSettings.subtitleStyle.copy(outlineColor = color))
+                showSubtitleOutlineColorDialog = false
+            },
+            onDismiss = { showSubtitleOutlineColorDialog = false },
+        )
+    }
+
+    if (showP2pProfileDialog) {
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_p2p_profile_title),
+            options = P2pTorrentProfile.entries,
+            selected = p2pSettings.torrentProfile,
+            label = { p2pProfileLabel(it) },
+            description = { profile ->
+                when (profile) {
+                    P2pTorrentProfile.SOFT -> stringResource(Res.string.settings_p2p_profile_soft_description)
+                    P2pTorrentProfile.BALANCED -> stringResource(Res.string.settings_p2p_profile_balanced_description)
+                    P2pTorrentProfile.FAST -> stringResource(Res.string.settings_p2p_profile_fast_description)
+                }
+            },
+            onSelect = { profile ->
+                P2pSettingsRepository.setTorrentProfile(profile)
+                showP2pProfileDialog = false
+            },
+            onDismiss = { showP2pProfileDialog = false },
+        )
+    }
+
+    if (showP2pCacheSizeDialog) {
+        IosEnumSelectionDialog(
+            title = stringResource(Res.string.settings_p2p_cache_size_title),
+            options = P2pCacheSize.entries,
+            selected = p2pSettings.cacheSize,
+            label = { p2pCacheSizeLabel(it) },
+            onSelect = { size ->
+                P2pSettingsRepository.setCacheSize(size)
+                p2pCacheClearResult = null
+                showP2pCacheSizeDialog = false
+            },
+            onDismiss = { showP2pCacheSizeDialog = false },
+        )
+    }
+
+    if (showReuseCacheDurationDialog) {
+        ReuseCacheDurationDialog(
+            selectedHours = streamReuseLastLinkCacheHours,
+            onDurationSelected = { hours ->
+                PlayerSettingsRepository.setStreamReuseLastLinkCacheHours(hours)
+                showReuseCacheDurationDialog = false
+            },
+            onDismiss = { showReuseCacheDurationDialog = false },
+        )
+    }
+
 
 
 
@@ -1430,6 +1593,101 @@ private fun PlaybackSettingsSection(
                 showExternalPlayerAppDialog = false
             },
             onDismiss = { showExternalPlayerAppDialog = false },
+        )
+    }
+
+    if (showP2pConsentDialog) {
+        P2pConsentDialog(
+            onEnableP2p = {
+                P2pSettingsRepository.setP2pEnabled(true)
+                showP2pConsentDialog = false
+            },
+            onDismiss = { showP2pConsentDialog = false },
+        )
+    }
+
+    if (showLibassRenderTypeDialog) {
+        LibassRenderTypeDialog(
+            selectedRenderType = libassRenderType,
+            onRenderTypeSelected = { renderType ->
+                PlayerSettingsRepository.setLibassRenderType(renderType)
+                showLibassRenderTypeDialog = false
+            },
+            onDismiss = { showLibassRenderTypeDialog = false },
+        )
+    }
+
+    if (showAutoPlayModeDialog) {
+        StreamAutoPlayModeDialog(
+            selectedMode = autoPlayPlayerSettings.streamAutoPlayMode,
+            onModeSelected = {
+                PlayerSettingsRepository.setStreamAutoPlayMode(it)
+                showAutoPlayModeDialog = false
+            },
+            onDismiss = { showAutoPlayModeDialog = false },
+        )
+    }
+
+    if (showAutoPlaySourceDialog) {
+        StreamAutoPlaySourceDialog(
+            pluginsEnabled = pluginsEnabled,
+            selectedSource = autoPlayPlayerSettings.streamAutoPlaySource,
+            onSourceSelected = {
+                PlayerSettingsRepository.setStreamAutoPlaySource(it)
+                showAutoPlaySourceDialog = false
+            },
+            onDismiss = { showAutoPlaySourceDialog = false },
+        )
+    }
+
+    if (showAutoPlayAddonSelectionDialog) {
+        val addonNames = addonUiState.addons
+            .enabledAddons()
+            .mapNotNull { it.manifest }
+            .filter { manifest -> manifest.resources.any { resource -> resource.name == "stream" } }
+            .map { it.name }
+            .distinct()
+            .sorted()
+        StreamAutoPlayProviderSelectionDialog(
+            title = stringResource(Res.string.settings_playback_allowed_addons),
+            allLabel = stringResource(Res.string.settings_playback_all_addons),
+            items = addonNames,
+            selectedItems = autoPlayPlayerSettings.streamAutoPlaySelectedAddons,
+            onSelectionSaved = {
+                PlayerSettingsRepository.setStreamAutoPlaySelectedAddons(it)
+                showAutoPlayAddonSelectionDialog = false
+            },
+            onDismiss = { showAutoPlayAddonSelectionDialog = false },
+        )
+    }
+
+    if (pluginsEnabled && showAutoPlayPluginSelectionDialog) {
+        val pluginNames = pluginUiState.scrapers
+            .filter { it.enabled }
+            .map { it.name }
+            .distinct()
+            .sorted()
+        StreamAutoPlayProviderSelectionDialog(
+            title = stringResource(Res.string.settings_playback_allowed_plugins),
+            allLabel = stringResource(Res.string.settings_playback_all_plugins),
+            items = pluginNames,
+            selectedItems = autoPlayPlayerSettings.streamAutoPlaySelectedPlugins,
+            onSelectionSaved = {
+                PlayerSettingsRepository.setStreamAutoPlaySelectedPlugins(it)
+                showAutoPlayPluginSelectionDialog = false
+            },
+            onDismiss = { showAutoPlayPluginSelectionDialog = false },
+        )
+    }
+
+    if (showAutoPlayRegexDialog) {
+        StreamAutoPlayRegexDialog(
+            initialRegex = autoPlayPlayerSettings.streamAutoPlayRegex,
+            onSave = {
+                PlayerSettingsRepository.setStreamAutoPlayRegex(it)
+                showAutoPlayRegexDialog = false
+            },
+            onDismiss = { showAutoPlayRegexDialog = false },
         )
     }
 
