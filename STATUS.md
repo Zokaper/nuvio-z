@@ -8,9 +8,9 @@ Last updated: 2026-08-24
 | Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
 | Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fixes including the **deadline/late-probe race**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **No release tag.** |
 | Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **986** and desktop **1199** before the two latest pure-policy/UI-seam changes; pure suites **290** in both repositories after them, zero failures. Device pass cleared Instant, setup, settings and serial-fallback checks. |
-| **Not** verified | the new deadline/late-probe gauge fix still needs the reporting handset; compare the visible behavior and `sustained=` vs `peak=`. The startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS still does not compile; see below. |
-| Next work | verify the deadline/late-probe fix on the handset, then finish the `0.5.0-beta` bridge release before adopting vanilla numbering or beginning the KMP upstream syncs. |
+| Verified | Android host **986** and desktop **1199** before the two latest pure-policy/UI-seam changes; pure suites **290** in both repositories after them, zero failures. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
+| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS still does not compile; see below. |
+| Next work | finish the `0.5.0-beta` bridge release, then adopt vanilla numbering and begin the named-release KMP upstream syncs. |
 | Debug channel | desktop `debug-v0.4.14-beta.17`, mobile `debug-v0.4.14-beta.24` - both published 2026-08-24 carrying the deadline/late-probe fix. |
 
 
@@ -28,9 +28,10 @@ stopped; Compose wiring remains a CI gate.
 
 ## Device verification, 2026-08-23 - the first real pass
 
-Run by the maintainer on the handset, against `debug-v0.4.14-beta.23` (mobile) and
-`debug-v0.4.14-beta.16` (desktop). **Four of the six standing verification-debt items are now
-cleared**, and one is confirmed as a live bug.
+Run by the maintainer on the handset, first against `debug-v0.4.14-beta.23` / desktop `.16`, then
+against mobile `.24` for the gauge repair. **Five of the six standing verification-debt items are
+now cleared**; the remaining startup-watchdog item is deliberately parked and does not block the
+bridge.
 
 | Item | Result |
 | --- | --- |
@@ -38,10 +39,10 @@ cleared**, and one is confirmed as a live bug.
 | **Instant watched running** | **PASS.** Works. This is the item Instant was withheld twice for. |
 | **The setup wizard on a screen** | **PASS.** Works. First time it has been seen outside CI. |
 | **The settings reorganisation on a screen** | **PASS.** Works. |
-| **The connection gauge** (`sustained=` vs `peak=`) | **FAIL - see below.** The figure is still generous, and **it still moves**: the sheet shows one number and replaces it about three seconds later. |
+| **The connection gauge** (`sustained=` vs `peak=`) | **PASS on `.24`.** The sheet reported 541 Mb/s once and did not change; an Ookla test reported 497 Mb/s. The 8.9% difference is credible host/route/window variance rather than the former unstable guess. |
 | **The startup watchdog** (`PlaybackStartup`, `reason=NeverStarted`) | **NOT TESTED, and deliberately parked.** It needs a source that dies, which does not happen on demand. Not worth blocking a release on. |
 
-### The gauge moved while it was read - fix implemented, device confirmation pending
+### The gauge moved while it was read - fixed and confirmed on device
 
 `Docs/Z-FEATURES.md` N3 claims "the figure does not move while it is read", and on a device it
 does. Observed: a number, then a different number roughly three seconds later.
@@ -104,8 +105,9 @@ regressing or settling the current ask.
 
 Three pure cases cover deadline-first/probe-later, probe completion, and the stale-older-probe
 ordering. Both repositories pass **290 pure tests, 0 failures** (131 + 64 + 49 + 17 + 29).
-**Still needs the reporting handset**: the visible number must appear once and stay fixed, and the
-log still needs `sustained=` compared with `peak=` to settle the separate generous-value report.
+**Confirmed on the reporting handset, 2026-08-24:** the visible value appeared once and stayed
+fixed. Nuvio Z reported 541 Mb/s and Ookla reported 497 Mb/s; the 8.9% difference is within the
+expected variance between different hosts, routes and sampling windows.
 
 Debug packages published for that check:
 
@@ -116,8 +118,8 @@ Debug packages published for that check:
   MSI SHA-256 `f3a8a24ae4b87073147303f9add5a82f2f2e5d56d1ebdda102564b0554521431`; packaging and publish
   succeeded (run `32735073128`).
 
-Also still open: the figure reads **generous**. The 538 -> ~416 correction has still not been
-confirmed against `sustained=` on the reporting handset.
+The separate generous-value report is also closed: the device result is comparable to an external
+speed test and no longer resembles the earlier unstable 538 -> ~416 replacement.
 
 ## Upstream drift, measured for the first time (2026-08-23)
 
