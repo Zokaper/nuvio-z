@@ -8,10 +8,30 @@ Last updated: 2026-08-24
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | pure suites **290** in both repositories; mobile CI run `32775961232` passed Android host tests and APK assembly; desktop CI run `32775960554` passed the full desktop suite and MSI packaging. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
-| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS still does not compile; see below. |
-| Next work | merge the latest named upstream releases, verify the combined applications, then adopt vanilla numbering. |
+| Verified | synced mobile CI run `32781826587` passed Android host tests and debug APK assembly; synced desktop build-only run `32781339968` passed Kotlin compilation, MSI packaging and MSI verification, after the full local desktop suite passed. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
+| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. iOS native frameworks now link; the unsigned Xcode app rerun after an xcconfig syntax repair is pending. |
+| Next work | migrate mobile across upstream's `0.4.9` app-host split, take the next desktop named release, then adopt vanilla numbering after both bases line up. Browser checks can continue now; TV remote/focus, overscan and platform playback wait for hardware. |
 | Debug channel | desktop `debug-v0.4.14-beta.17`, mobile `debug-v0.4.14-beta.24` - both published 2026-08-24 carrying the deadline/late-probe fix. |
+
+## The first named KMP upstream sync is complete (2026-08-24)
+
+Mobile now contains upstream Nuvio `0.4.8` (`e27b9195`) via merge `33f368a5`, followed by the
+compiler-led integration repairs at `2c24ffb7` and the two previously documented iOS portability
+repairs at `21fd0d20`. Android run `32781826587` passed the host suite, built the debug APK and
+uploaded it from the final commit. The merge keeps Z's download grouping, AIO request policy,
+details actions, Continue Watching details affordance and next-episode safeguards while adding
+upstream's tracking, app-icon, subtitle rendering, stream autoplay, P2P and cache-refresh work.
+
+Desktop now contains NuvioDesktop `0.1.20-alpha` (`b32dd57b`) via merge `e649ff75`. The full local
+desktop suite passed, and build-only run `32781339968` compiled the final tree, built the MSI,
+verified it and uploaded it. Upstream Sentry credentials are optional in this fork: absent secrets
+produce an explicit warning and skip only source-bundle upload, not compilation or packaging.
+
+Mobile `0.4.9` and `0.4.10` both replace the monolithic app host with `MainAppContent.kt`. Merging
+that split wholesale on top of Z's current host creates two application hosts, so it is deliberately
+the next focused migration rather than an unsafe conflict choice inside this sync. Measured against
+current upstream tips, mobile is now **266 ahead / 21 behind**, patch surface **138**, conflict
+surface **7**; desktop is **193 ahead / 162 behind**, patch surface **144**, conflict surface **44**.
 
 ## The numbering bridge is published (2026-08-24)
 
@@ -244,14 +264,10 @@ path - `git submodule update --init --depth 1 MPVKit` - which skips the orphans.
 - **`DebugBuild.ios.kt:11`** needs `@OptIn(kotlin.experimental.ExperimentalNativeApi::class)` for
   `kotlin.native.Platform.isDebugBinary`. Accounts for the last two errors. Mechanical.
 
-**Neither is fixed.** The opt-in is trivially safe, but the `toSortedSet` fix edits `commonMain`,
-which Android and the 975-test host suite also compile.
-
-⚠ **The linker never ran.** Compilation stopped at `compileKotlinIosArm64`, so the framework was
-never linked and **the Swift side is still entirely uncompiled** - `MPVPlayerBridge.swift`, the
-Metal layer, `NowPlayingController`, the widget extension. Expect a second wave from `xcodebuild`
-after the two fixes above. The uncompiled `demuxer-cache-time` fix from Phase 4 of
-`PLAYBACK_MODES_PLAN.md` is still uncompiled.
+**Both are fixed at `21fd0d20`.** Android run `32781826587` recompiled the shared change and passed
+the host suite plus APK assembly. iOS run `32781826565` then linked both the device and simulator
+Kotlin frameworks successfully. Xcode stopped before compiling Swift because `Version.xcconfig`
+used shell-style `#` comments; xcconfig accepts `//` comments. That syntax is repaired for rerun.
 
 ### What the CI route turns out to be able to do
 
@@ -595,11 +611,10 @@ shipped returning null unconditionally last time. The three 8K tests were confir
 against 40.0. No file under `commonTest` was stubbed; `PlaybackQualityOptions.kt` and
 `ThroughputWindow.kt` both compile as shipped source in groups 1 and 2.
 
-⚠ **Not verified on a device.** Nobody has yet seen the corrected figure on the handset that
-reported it. The check is one log line: open the quality sheet on that Wi-Fi and read
-`sustained=` against `peak=` under tag `NetworkStrengthProbe`. `sustained=` should sit near 416
-with `peak=` near 538 above it. If the two are equal the partition is not closing; if `sustained=`
-reads `none` the region floors are rejecting a transfer they should admit.
+**Device-verified 2026-08-24.** On the same handset/network, Nuvio Z reported **541 Mb/s** while an
+Ookla Speedtest reported **497 Mbps**. Repeated checks no longer changed the Nuvio Z result. The
+roughly 9% difference is normal measurement variance and, critically, the gauge is no longer the
+order-of-magnitude underestimate that prompted the fix.
 
 ## Instant is back (2026-08-21, unreleased, both repositories)
 
