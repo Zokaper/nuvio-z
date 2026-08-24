@@ -7,6 +7,7 @@ package com.nuvio.app.core.debug
  * ExoPlayer's `DataSource`, which iOS does not have - but the flag is honest on every target
  * so nothing gated on it accidentally ships enabled.
  */
+@OptIn(kotlin.experimental.ExperimentalNativeApi::class)
 internal actual val isDebugBuild: Boolean
     get() = kotlin.native.Platform.isDebugBinary
 
