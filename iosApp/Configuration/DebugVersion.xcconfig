@@ -19,4 +19,4 @@
 #
 # NuvioZDesktop has kept its counter in DesktopDebugVersion.properties from the start for
 # exactly this reason. A separate file cannot spring the trap.
-DEBUG_BUILD=23
+DEBUG_BUILD=24
