@@ -1,17 +1,232 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-30
 
 | | |
 | --- | --- |
-| Active branch | `claude/setup-wizard-final-pass-wy7csp` in **both** repositories |
-| Version in the files | `0.4.14-beta` (mobile `CURRENT_PROJECT_VERSION=124`, desktop `VERSION_CODE=38`) |
-| Unreleased on the branch | the debrid stream-preference scope work (2026-08-18), the Streamlined refinement, the connection-gauge fix **and its over-read follow-up**, the **fake-8K demotion**, the settings reorganisation + audio/HDR-aware source preferences, **Instant brought back**, the **startup-watchdog fix for the reported retry loop**, and the **nine fixes from the 0.5.0-beta review pass** - all below. **Pushed to the branch in both repositories; no release tag** |
-| Next version | the work on this branch is `0.5.0-beta` material; bump as the **final** commit, after the docs |
-| Verified | Android host **975**, pure suites **284** in both repositories, zero failures. `desktopMain` compiles - build-only and the desktop debug release both ran green. The desktop suite has not been re-run since **1181** |
-| **Not** verified | the **nine review-pass fixes have not been seen on a device** - see that section's own verification note for the three device checks; **Instant has never been watched running**, which is the entire reason it was withheld and the reason to test the debug line before the release; **nothing in the settings reorganisation has been seen on a screen**, and no test in either repository can see where a settings row is drawn; the Streamlined refinement and both gauge passes are still undevice-tested - **the 538 → ~416 correction has not been seen on the handset that reported it**; **the retry loop was diagnosed by reading and has not been watched not-happening** - the confirming check is the `PlaybackStartup` log line, below; **iOS still does not compile, but it has now been tried and the exact reason is known** - two bugs, one of them in `commonMain`, and the Swift side not yet reached; see the iOS section below |
-| Next work | the **NuvioWeb port**, chosen over iOS on 2026-08-22: iOS is much cheaper to finish once a MacBook is available, since everything past the compile errors needs a device to see |
-| Debug channel | desktop `debug-v0.4.14-beta.15`, mobile `debug-v0.4.14-beta.22` - both 2026-08-22, **carrying the nine review-pass fixes**. ⚠ Desktop `.14` published before the ninth fix and is superseded; mobile `.21` is the last one that got out before this pass. This is the line the Instant device script below is to be run on. Mobile's `DEBUG_BUILD` lives in `iosApp/Configuration/DebugVersion.xcconfig` |
+| Active branch | `codex/next-episode-debug-hotfix` in **both** repositories, based on the synced `claude/upstream-doctrine-stage0` line |
+| Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
+| Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
+| Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
+| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
+| **Not** verified | the corrected transition and desktop HTML button still need a device/install pass. The startup watchdog remains parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
+| Next work | Device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18` were published 2026-08-30 from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Correcting the stale next-episode debug builds (2026-08-30)
+
+The first 2026-08-30 debug builds came from `claude/release-0.5.0-beta-polish-ivcjsl`, whose merge
+base predates the published bridge and the named upstream sync. The transition work was valid, but
+the builds omitted the release-serial updater, About/version work, upstream merges and later Z
+fixes. They are not promoted or merged wholesale.
+
+Only the coordinated next-episode change is ported here onto `claude/upstream-doctrine-stage0`.
+Manual Next episode actions now follow the active mode (Classic source list, Streamlined quality
+sheet, Instant automatic pick); automatic transitions resolve without stopping the current
+episode, count down with cancellation, ignore stale results and stay covered until the replacement
+episode produces its first playable frame. The current failure chain, ranking preferences,
+unwatched-artwork blur and desktop stream-settlement coordinator were retained during conflict
+resolution. Desktop also carries the native HTML-overlay Next Episode control.
+
+Verification and publishing: `scripts/run-pure-suites.sh` passes 290 tests in each repository;
+focused `testAndroidHostTest` and `desktopTest` runs compile the real platform source sets and pass
+the 16 new routing, transition and threshold tests. Mobile CI `33327792025` passes. Desktop's first clean CI run built and uploaded
+the Windows MSI, then exposed a pre-existing Ubuntu job gap: the synced `compose-media-player`
+module now builds a GStreamer shim during `desktopTest`, but CI installed no GStreamer development
+packages. The job now installs the required core/base headers before Gradle, and replacement CI
+`33328140034` passes. Debug publish runs `33328752860` and `33328752260` released mobile
+`debug-v0.5.0-beta.25` from `921a62dc` and desktop `debug-v0.5.0-beta.18` from `d316a28e`.
+Both tags resolve to those exact current-line commits. The behavior is not yet device-verified.
+
+## The first named KMP upstream sync is complete (2026-08-24)
+
+Mobile now contains upstream Nuvio `0.4.8` (`e27b9195`) via merge `33f368a5`, followed by the
+compiler-led integration repairs at `2c24ffb7` and the two previously documented iOS portability
+repairs at `21fd0d20`. Android run `32781826587` passed the host suite, built the debug APK and
+uploaded it from the final commit. The merge keeps Z's download grouping, AIO request policy,
+details actions, Continue Watching details affordance and next-episode safeguards while adding
+upstream's tracking, app-icon, subtitle rendering, stream autoplay, P2P and cache-refresh work.
+
+Desktop now contains NuvioDesktop `0.1.20-alpha` (`b32dd57b`) via merge `e649ff75`. The full local
+desktop suite passed, and build-only run `32781339968` compiled the final tree, built the MSI,
+verified it and uploaded it. Upstream Sentry credentials are optional in this fork: absent secrets
+produce an explicit warning and skip only source-bundle upload, not compilation or packaging.
+
+Mobile `0.4.9` and `0.4.10` both replace the monolithic app host with `MainAppContent.kt`. Merging
+that split wholesale on top of Z's current host creates two application hosts, so it is deliberately
+the next focused migration rather than an unsafe conflict choice inside this sync. Measured against
+current upstream tips, mobile is now **266 ahead / 21 behind**, patch surface **138**, conflict
+surface **7**; desktop is **193 ahead / 162 behind**, patch surface **144**, conflict surface **44**.
+
+## The numbering bridge is published (2026-08-24)
+
+Stable `0.5.0-beta+126` is live in both KMP repositories. It is the one-time bridge that ranks above
+`0.4.14-beta` for old updaters while carrying the serial-aware updater needed for the later
+`<vanilla>-z1` name. Mobile run `32777297537` published four signed ABI APKs from `6778a89f`;
+desktop run `32777297995` published the verified Windows MSI and checksum file from `ee193661`.
+Both tags resolve to those exact commits and both repositories return the bridge from
+`/releases/latest`.
+
+
+
+
+## KMP About names the vanilla base (2026-08-24)
+
+Settings → About in both KMP repos now derives the vanilla base from the Z version name: a build
+named `0.6.0-z2` shows `Based on Nuvio 0.6.0`, and a debug build `0.6.0-z2.3` names the same base.
+The bridge (`0.5.0-beta`) and malformed/pre-scheme names show no base rather than inventing one.
+The rule lives in the new import-free `core/build/NuvioZVersion.kt` instead of in updater or
+platform code, with three tests per repo. Both `scripts/run-pure-suites.sh` runs pass: **287 tests,
+0 failures** in each repo. Focused Gradle runs exceeded their bounded local runtime and were
+stopped; Compose wiring remains a CI gate.
+
+## Device verification, 2026-08-23 - the first real pass
+
+Run by the maintainer on the handset, first against `debug-v0.4.14-beta.23` / desktop `.16`, then
+against mobile `.24` for the gauge repair. **Five of the six standing verification-debt items are
+now cleared**; the remaining startup-watchdog item is deliberately parked and does not block the
+bridge.
+
+| Item | Result |
+| --- | --- |
+| **The updater still offers the debug line** with `RELEASE_SERIAL` compiled in | **PASS.** `.23` was offered to an install on `.22` and taken. The serial-aware comparator falls through to the string exactly as intended, so the bridge release's transition path is sound. |
+| **Instant watched running** | **PASS.** Works. This is the item Instant was withheld twice for. |
+| **The setup wizard on a screen** | **PASS.** Works. First time it has been seen outside CI. |
+| **The settings reorganisation on a screen** | **PASS.** Works. |
+| **The connection gauge** (`sustained=` vs `peak=`) | **PASS on `.24`.** The sheet reported 541 Mb/s once and did not change; an Ookla test reported 497 Mb/s. The 8.9% difference is credible host/route/window variance rather than the former unstable guess. |
+| **The startup watchdog** (`PlaybackStartup`, `reason=NeverStarted`) | **NOT TESTED, and deliberately parked.** It needs a source that dies, which does not happen on demand. Not worth blocking a release on. |
+
+### The gauge moved while it was read - fixed and confirmed on device
+
+`Docs/Z-FEATURES.md` N3 claims "the figure does not move while it is read", and on a device it
+does. Observed: a number, then a different number roughly three seconds later.
+
+That is the exact failure N3 was written to end, and it is a house rule, not a nicety: **a value
+still resolving must read as "measuring", never as a stale number that swaps under the reader.** A
+figure that changes after it has been read is worse than no figure, because the first one was
+believed.
+
+Two separate faults are possible and they need different fixes:
+
+1. the "Checking" predicate is not being consulted on the path the sheet actually takes, so a stale
+   estimate renders before the probe reports; or
+2. the probe legitimately reports twice - an early estimate, then a sustained one - and the second
+   is allowed through to a surface that has already committed to the first.
+
+**Cause found, in code, 2026-08-23.** It is the second, and the mechanism is exact.
+
+`App.kt` races two coroutines that both settle the sheet by writing the same nonce - the probe, and
+a 5 s deadline (`NetworkStrengthProbe.PROBE_DEADLINE_MS`). The deadline exists for a real reason:
+the Android and desktop readers block in `InputStream.read`, coroutine cancellation cannot interrupt
+that, and a host that answers its headers then goes silent would hold the probe for the client's own
+60 s read timeout. So the deadline must stay.
+
+But when the deadline wins the race, `connectionSettled` becomes true **while the probe is still
+running**, and the code says so in its own comment: *"`settled` means 'this figure is final', never
+'no probe is running' - a probe may still be in flight past the deadline below, and the sheet has
+stopped waiting."*
+
+What follows is the fault N3 was written to close, walking back in through the door the deadline
+left open:
+
+1. the deadline fires at 5 s; `isMeasuringConnection` goes false; the sheet latches the only
+   estimate it has, which is an **unmeasured link-type guess** - the generous number;
+2. the probe lands a few seconds later with a real, measured figure;
+3. `PlaybackQualitySheet`'s latch rule `isConnectionMeasured && !latchedMeasured -> true` accepts
+   it, exactly as designed - a measurement is supposed to supersede a guess whichever way the two
+   numbers compare;
+4. **the number on screen changes under the reader.**
+
+Every individual piece is correct. The latch is right, the deadline is right, and the supersede rule
+is right. The bug is that settling on the deadline publishes a figure the app does not yet believe.
+
+Three candidate fixes were considered:
+
+- **Do not latch an unmeasured guess when a probe is still in flight.** Keep "Checking" until the
+  probe lands or genuinely gives up, and let the deadline end the *wait for a value*, not the
+  measuring state. Closest to the house rule. Risk: the sheet says "Checking" longer on a slow line.
+- **Let the late result land, but re-enter the measuring state while it does**, so the figure is
+  withdrawn and replaced rather than silently swapped. Honest, but flickers.
+- **Refuse a late measurement once settled.** Cheapest, and **wrong** - it keeps the generous guess
+  and permanently discards the true number. Do not do this.
+
+**Implemented 2026-08-24: the first option.** The single settle nonce is now an import-free
+`ConnectionProbeSettlement` with separate decision and figure outcomes. The five-second deadline
+settles Instant's automatic decision so a blocked platform read cannot strand playback, but the
+quality sheet stays on "Checking" until the real probe finishes; its cards remain usable. Probe
+completion settles both. Monotonic nonces also prevent a late result from an older re-test from
+regressing or settling the current ask.
+
+Three pure cases cover deadline-first/probe-later, probe completion, and the stale-older-probe
+ordering. Both repositories pass **290 pure tests, 0 failures** (131 + 64 + 49 + 17 + 29).
+**Confirmed on the reporting handset, 2026-08-24:** the visible value appeared once and stayed
+fixed. Nuvio Z reported 541 Mb/s and Ookla reported 497 Mb/s; the 8.9% difference is within the
+expected variance between different hosts, routes and sampling windows.
+
+Debug packages published for that check:
+
+- mobile [`debug-v0.4.14-beta.24`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.14-beta.24),
+  APK SHA-256 `3c208d5ad894d40d32713a0f6aa98ec781e302826049842262932c4c2c6e2e50`; its workflow ran the
+  Android host suite and published successfully (run `32735072649`);
+- desktop [`debug-v0.4.14-beta.17`](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.4.14-beta.17),
+  MSI SHA-256 `f3a8a24ae4b87073147303f9add5a82f2f2e5d56d1ebdda102564b0554521431`; packaging and publish
+  succeeded (run `32735073128`).
+
+The separate generous-value report is also closed: the device result is comparable to an external
+speed test and no longer resembles the earlier unstable 538 -> ~416 replacement.
+
+## Upstream drift, measured for the first time (2026-08-23)
+
+`upstream` had been declared in `AGENTS.md` since the fork and **had never been fetched**. It has
+now been, and the distance is a real number. Run `scripts/upstream-drift.sh` for the current one;
+the weekly `upstream-drift.yml` workflow trends it into a pinned issue.
+
+| repo | upstream ref | ahead | behind | patch surface | conflict surface |
+| --- | --- | --- | --- | --- | --- |
+| `nuvio-z` | `upstream/cmp-rewrite` (NuvioMobile) | 245 | **205** | 128 | **57** |
+| `nuviozdesktop` | `upstream/Dev` (**NuvioDesktop**) | 176 | **192** | 135 | **47** |
+| `nuvioweb` | `upstream/main` (NuvioWeb) | 12 | **20** | 7 | **3** |
+
+*Patch surface* = upstream-owned files we modify. *Conflict surface* = the subset upstream has also
+touched since our fork base, i.e. what will actually conflict at the next merge.
+
+Fork bases: mobile `979d5680` (2026-07-29), desktop `1704f6c9` (2026-08-02), web `0c3bafc`
+(2026-08-22). Upstream tips at measurement were `e27b9195`, `e1e27163` and `f9a546a` (vanilla web
+`0.3.40`), all 2026-08-23.
+
+**The desktop upstream is a different repository than the plan assumed.** `NuvioMobile:desktopweb`
+has been retired; upstream moved desktop development to `NuvioMedia/NuvioDesktop` branch `Dev`,
+which is where `1704f6c9` lives. `NuvioMobile:cmp-rewrite` keeps a `desktopMain` of **4 files**
+against our 278, so it is not a desktop merge source. `nuviozdesktop` therefore has two remotes:
+`upstream` (NuvioDesktop/`Dev`, the sync source) and `upstream-mobile` (NuvioMobile/`cmp-rewrite`,
+reference only). Push is disabled on both, and on mobile's `upstream`.
+
+**This bears on Stage 4 of the adoption plan** (unify the two KMP repos): upstream has itself split
+mobile and desktop into two repositories, i.e. it moved the opposite way. Unifying ours means every
+future sync straddles two upstreams. Re-argue Stage 4 against that before executing it.
+
+### Dry-run merges, 2026-08-23
+
+`git merge --no-commit --no-ff <upstream>`, inspected, aborted. Nothing was kept.
+
+| repo | conflicts | version files |
+| --- | --- | --- |
+| `nuvio-z` | **16** | clean - `merge=ours` held, `0.4.14-beta` survived |
+| `nuviozdesktop` | **14** | clean - `DesktopVersion.properties` and `DEBUG_BUILD=15` survived |
+| `nuvioweb` | **0** | clean |
+
+Two results worth having: **web merges with zero conflicts**, which is the doctrine's proof, and
+mobile's 16 conflicts **do not include `App.kt`**, which the plan named as the hard one. The mobile
+list is `.gitignore`, `README.md`, `androidApp/build.gradle.kts`, `MainActivity.kt`,
+`DownloadsLiveStatusPlatform.android.kt`, `values/strings.xml`, `values-el/strings.xml`,
+`MetaDetailsScreen.kt`, `DownloadsScreen.kt`, `HomeContinueWatchingSection.kt`,
+`PlayerStreamsRepository.kt`, `PlaybackSettingsPage.kt`, `SettingsComponents.kt`,
+`SettingsRootPage.kt`, `StreamsRepository.kt`, `StreamsScreen.kt`.
+
+⚠ **`merge=ours` only fires on a conflict.** A version file we have not touched since the fork base
+merges cleanly and silently takes upstream's value. Both dry-runs showed it: web's `appinfo.json`
+went to `0.3.40`, and desktop's stale, unused `iosApp/Configuration/Version.xcconfig` went from
+`0.4.0` to upstream's `0.4.7`. Re-check the version files by eye after every sync.
 
 ## iOS put in front of a compiler for the first time (2026-08-22, `nuvio-z` only)
 
@@ -74,14 +289,11 @@ path - `git submodule update --init --depth 1 MPVKit` - which skips the orphans.
 - **`DebugBuild.ios.kt:11`** needs `@OptIn(kotlin.experimental.ExperimentalNativeApi::class)` for
   `kotlin.native.Platform.isDebugBinary`. Accounts for the last two errors. Mechanical.
 
-**Neither is fixed.** The opt-in is trivially safe, but the `toSortedSet` fix edits `commonMain`,
-which Android and the 975-test host suite also compile.
-
-⚠ **The linker never ran.** Compilation stopped at `compileKotlinIosArm64`, so the framework was
-never linked and **the Swift side is still entirely uncompiled** - `MPVPlayerBridge.swift`, the
-Metal layer, `NowPlayingController`, the widget extension. Expect a second wave from `xcodebuild`
-after the two fixes above. The uncompiled `demuxer-cache-time` fix from Phase 4 of
-`PLAYBACK_MODES_PLAN.md` is still uncompiled.
+**Both are fixed at `21fd0d20`.** Android run `32781826587` recompiled the shared change and passed
+the host suite plus APK assembly. iOS run `32781826565` then linked both Kotlin frameworks, but
+Xcode stopped before Swift because `Version.xcconfig` used shell-style `#` comments. Commit
+`43155318` changed them to valid `//` comments; rerun `32783935384` linked the device and simulator
+frameworks and built the complete unsigned iOS app successfully.
 
 ### What the CI route turns out to be able to do
 
@@ -425,11 +637,10 @@ shipped returning null unconditionally last time. The three 8K tests were confir
 against 40.0. No file under `commonTest` was stubbed; `PlaybackQualityOptions.kt` and
 `ThroughputWindow.kt` both compile as shipped source in groups 1 and 2.
 
-⚠ **Not verified on a device.** Nobody has yet seen the corrected figure on the handset that
-reported it. The check is one log line: open the quality sheet on that Wi-Fi and read
-`sustained=` against `peak=` under tag `NetworkStrengthProbe`. `sustained=` should sit near 416
-with `peak=` near 538 above it. If the two are equal the partition is not closing; if `sustained=`
-reads `none` the region floors are rejecting a transfer they should admit.
+**Device-verified 2026-08-24.** On the same handset/network, Nuvio Z reported **541 Mb/s** while an
+Ookla Speedtest reported **497 Mbps**. Repeated checks no longer changed the Nuvio Z result. The
+roughly 9% difference is normal measurement variance and, critically, the gauge is no longer the
+order-of-magnitude underestimate that prompted the fix.
 
 ## Instant is back (2026-08-21, unreleased, both repositories)
 
@@ -2861,6 +3072,52 @@ could not choose — never because the user left.** Classic and an explicit manu
 **Failure still goes to the list, with a reason.** An exhausted chain, no safely playable
 source, or a timed-out fetch is the escape hatch `PLAYBACK_MODES_PLAN.md` specifies, and the
 user is then one tap from choosing. Confirmed with the maintainer rather than assumed.
+
+### 12. Next episode is one coordinated, visible transition
+
+Reported during the pre-release device pass: the explicit **Next episode** control appeared to
+do nothing while source discovery ran, could take roughly ten seconds to react, and then replaced
+the player abruptly or failed silently. Manual and automatic paths owned overlapping flags and
+could both launch the same adjacent episode.
+
+Both repositories now use one request-keyed transition lifecycle: `idle`, `resolving`,
+`awaiting choice`, `countdown`, `starting`, `failed`. Compose controls, the threshold/ended
+triggers, and desktop's native card plus keyboard/remote bridge enter that coordinator. A repeat
+request for the same target does not restart discovery; cancelled or superseded request ids
+cannot apply a stale result; and an explicit tap during an automatic Instant resolution promotes
+that request to manual playback and removes its warning countdown.
+
+The current episode keeps playing while sources resolve. The Next Episode card appears at once
+with the adjacent episode and **Finding source…**, disables duplicate actions while work is
+owned, and supports a real dismiss/cancel action. Dismissal is scoped to the current episode so
+position updates cannot immediately reopen it. When a source is ready, the transition enters
+`starting` before the URL changes; the loading cover uses the next episode's title and artwork
+until the new player reports playable, avoiding an unexplained bare reset.
+
+Manual routing follows the active playback mode with no artificial countdown: **Classic opens
+the source list, Streamlined opens the shared loading quality sheet, and Instant resolves and
+starts immediately**. A completed local download still wins. Automatic playback retains the
+existing settings, Classic policy, Prefer Binge Group optimization, and cancelable three-second
+warning, including downloaded episodes. Streamlined/Instant discovery waits for the real settle
+signal with the existing 20-second safety backstop. Timeout, empty results, or no safe automatic
+candidate exposes the manual source list with an explicit reason instead of leaving an inert
+button.
+
+The change is mirrored in `NuvioZDesktop`, including native HTML/CSS/JavaScript card status,
+dismissal, keyboard/remote event routing, and first-frame cover behavior. `NuvioZWeb` was left
+untouched. No setting key, public API, migration, version, release, or push changed.
+
+Verification on the maintainer's Windows laptop:
+
+- `:composeApp:testAndroidHostTest`: **815 tests across 107 result files**, zero failures,
+  errors, or skips. This includes the mode matrix, transition identity/promotion/deduplication,
+  and adjacent/season-boundary/last/unaired episode rules.
+- `:composeApp:desktopTest`: **1,020 tests across 137 result files**, zero failures, errors, or
+  skips; the full long-running desktop download harness also completed.
+- `node --check composeApp/src/desktopMain/resources/player-ui/controls.js` passed. The native
+  `nextEpisodeCard`, `nextEpisodeStatus`, and `nextEpisodeDismiss` ids each occur exactly once.
+- No Android device is connected to this laptop, so the device acceptance matrix remains
+  deliberately unclaimed and is the first follow-up before release.
 
 ## Verification for 0.5.0-beta
 

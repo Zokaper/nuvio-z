@@ -18,6 +18,31 @@ completed, verified, deferred, or blocked.
 - The private personal fork should use the `origin` remote.
 - Preserve GPL-3.0 licensing and upstream notices.
 
+### Nuvio Z is a mod, not a fork - read these four first
+
+| File | What it settles |
+| --- | --- |
+| `Docs/Z-FEATURES.md` | **What Nuvio Z is.** Every Z feature, numbered, with its state and the platforms it exists on. A new feature is not done until it has a row there. |
+| `Docs/UPSTREAM.md` | The doctrine: the patch-surface rules, the versioning scheme, and the sync procedure. |
+| `Docs/PATCH-SURFACE.md` | Every upstream-owned file we modify, ranked. The checklist for a sync. |
+| `nuvioweb/docs/Z-PORT-MATRIX.md` | What the TV app takes and what it deliberately does not. |
+
+Nuvio Z rides on a **stated vanilla base**. Vanilla features arrive by inheritance, not by
+re-implementation, and every release names the vanilla release it is built on.
+
+**First clone, once, or `.gitattributes` silently does nothing:**
+
+```bash
+git config merge.ours.driver true
+git config rerere.enabled true
+```
+
+**`merge=ours` only fires on a *conflict*.** A version file we have not touched since the fork base
+merges cleanly and silently takes upstream's value -- this is exactly what happens to `appinfo.json`
+on web and to the (stale, unused) `iosApp/Configuration/Version.xcconfig` on desktop. After every
+sync, re-check the version files by eye before cutting a release; the attribute protects the files
+we edit, not the files we ignore.
+
 ## Security and Privacy
 
 Never commit or print private configuration. In particular:
@@ -60,6 +85,31 @@ done when the desktop harness covers the fault it claims to fix - see item 3 of
 "Verifying without Gradle".
 
 ## Working Rules
+
+### Patch-surface rules - these decide what a sync costs
+
+Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
+
+1. **New code goes in new files.** 133 of our 252 changed files are 100% ours and carry zero
+   conflict risk. If a new feature has no obvious Z-owned package, that is a sign it is being
+   written in the wrong place.
+2. **Touch upstream files at seams, not in bulk.** One insertion point, ideally one call. If a
+   change needs twenty lines inside an upstream function, the twenty lines go in a Z file and the
+   upstream file gets one call. `App.kt` carries 40 of our commits precisely because Z decisions
+   were written inline in it.
+3. **Never reorganise upstream code for cosmetic reasons.** The settings reorganisation is the case
+   study: rows moved between upstream's own pages, in a 3,903-line upstream-owned file, never seen
+   on a screen, permanently on the merge path.
+4. **A commit that widens the patch surface says so** - which upstream file, and why a seam was not
+   possible.
+5. **Z strings go in one contiguous appended block** behind a marker comment, never interleaved.
+   `strings.xml` is our worst conflict file at 46 of our commits, and upstream churns it with every
+   locale.
+6. **Retro-refactor opportunistically.** The `PlayerScreenRuntime*` cluster (5 files, 53 commits)
+   and the `PlayerSettings*` cluster (4 files, 49) are where a sync will hurt. Refactor one into an
+   extension point **the first time a sync conflicts in it** - not in advance.
+
+### General
 
 - Preserve unrelated user changes in the working tree.
 - Prefer small, focused changes with regression tests.
@@ -603,17 +653,47 @@ This work spans two repositories that share history and must be kept in step:
   `AGENTS.md` points back to these canonical files; it has no separate
   `STATUS.md`.
 
-Almost every file under `composeApp/src/commonMain`, `androidMain` and `iosMain`
-is **byte-identical** between the two. Before editing one, check:
+### Shared changes flow by merge, not by `cp`
+
+**The `cp` ritual is retired.** Each repository is now a remote of the other, and
+they share history at mobile's fork base `979d5680`, so a shared change can be
+carried across with `git merge` and a conflict is a conflict rather than a silent
+delta:
+
+| in | remote | tracks |
+| --- | --- | --- |
+| `nuvio-z` | `desktop` | `Zokaper/NuvioZDesktop` |
+| `NuvioZDesktop` | `mobile` | `Zokaper/nuvio-z` |
+
+Push is disabled on both. Measure before you touch anything shared:
 
 ```bash
-diff -q /path/nuvio-z/<file> /path/NuvioZDesktop/<file>
+scripts/shared-code-drift.sh              # what differs, and why
+scripts/shared-code-drift.sh --expected   # only the unexplained ones
 ```
 
-If identical, edit in `nuvio-z` and `cp` the file across. If it differs, port the
-change by hand. Things that legitimately differ: `MetaDetailsScreen.kt`,
-`strings.xml` (desktop has extra keys), the desktop's `AppFeaturePolicy` gating,
-and everything under `desktopMain`.
+**303 shared files currently differ**, which is what `cp` bought us. That number
+has two very different causes and the script labels them:
+
+- **upstream-fork-gap.** The two repos forked from *different upstreams* -
+  `NuvioMobile:cmp-rewrite` and `NuvioDesktop:Dev` - at different times, so a
+  file one side inherited and the other did not shows up as a difference. SIMKL
+  and the newer locales are this. **Settled by an upstream sync, never by
+  copying**, and the count stays large until both repos have synced.
+- **missed `cp`.** One of *our* changes that never made it across. This is the
+  real bug and the reason the script exists.
+
+If you must still port by hand - and for a genuinely divergent file you must -
+port it, do not copy it. `AppUpdater.kt` is the worked example: it looks shared,
+but desktop's carries MSI paths, `downloadedUpdatePath` instead of
+`downloadedApkPath`, its own install-permission naming and a different import
+list. A `cp` reverts all of it silently.
+
+Things that legitimately differ, and must **never** be copied:
+`MetaDetailsScreen.kt`, `strings.xml` (desktop has extra keys), the desktop's
+`AppFeaturePolicy` external-player gating, the NVIDIA RTX setting,
+`features/setup/SetupHomeStill.kt` (a genuinely per-target file), and everything
+under `desktopMain`.
 
 **`desktopMain` has no counterpart in `nuvio-z`.** Any `expect` declaration needs
 a **desktop actual** in `NuvioZDesktop` as well as the android and ios ones. This
@@ -670,7 +750,20 @@ build-only before a release; the every-push net is better than this line used to
 
 ### Release procedure
 
+**Step 1 is an upstream sync. No Nuvio Z release is cut on a stale base.** Procedure in
+`Docs/UPSTREAM.md`; run `scripts/upstream-drift.sh` first to know the size. Floor of every two
+weeks even between releases.
+
 ### Versioning
+
+**A Nuvio Z version is a vanilla version plus a Z revision.** Vanilla ships `0.6.0`, we ship
+`0.6.0-z1`; iterating on the same base gives `-z2`, `-z3`; the revision **resets when the base
+moves**. About reads `Nuvio Z 0.6.0-z2 - based on Nuvio 0.6.0`.
+
+**Release ordering is `RELEASE_SERIAL`, not the version string** - a monotonic integer published in
+the tag as `v0.6.0-z1+127`. The updater compares on it and falls back to the old string comparison
+when the suffix is absent. The Android version code is unaffected; it is independent and already
+monotonic. Full scheme, and the one-time bridge release it needs, in `Docs/UPSTREAM.md`.
 
 **From `0.4.0-beta` (2026-08-07) the two apps share one version name.** Before that
 they ran independent lines inherited from upstream Nuvio - mobile had reached
@@ -709,13 +802,10 @@ refuses to run if the state is wrong.
 | `NuvioZDesktop` | `composeApp/Configuration/DesktopDebugVersion.properties` | `DEBUG_BUILD` |
 
 ⚠ **Both debug counters live in their own file, and neither may move back.**
-`release-metadata.sh` walks the commits that touch the *version file* newest-first and
-takes the first one whose `MARKETING_VERSION` **differs** from the newest as
-`previous_bump`. Same-version commits are skipped, so a debug commit is invisible while
-the version has not moved - and then the release bump changes it, every prior
-`0.4.14-beta` commit differs, and the newest of them wins. Notes run
-`previous_bump..current_bump`, so **the newest debug commit becomes the start of the
-next release's notes**.
+`release-metadata.sh` groups consecutive version-file commits by their parsed marketing
+version and uses the oldest commit in each group as the real bump. This makes comment-only
+or formatting edits invisible to release-note boundaries. Keeping debug counters separate
+still avoids coupling two independent update channels and keeps the history auditable.
 
 Mobile only got its own file on 2026-08-20 (`iosApp/Configuration/DebugVersion.xcconfig`),
 and moving it does **not** repair what already happened: `chore: debug build 15` is the
