@@ -1,12 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-30
 
 | | |
 | --- | --- |
 | **Active branch** | `claude/release-0.5.0-beta-polish-ivcjsl` in both repositories, cut from `main` / `Dev`. Carries the **0.5.0-beta polish pass** below, plus the previously queued network-strength fix, which has been merged in rather than held again. **Not yet released, and the version is deliberately not bumped**: the maintainer is smoke-testing first — see "The 0.5.0-beta device script" below. |
 | **Released** | `0.4.14-beta` on both. Superseded by the branch above once it ships. |
-| **Next** | **Run the device script.** `0.5.0-beta` is the first build going to other people, and the defect it mostly fixes — a blank screen after backing out of the player — was reachable on every Streamlined play and survived every green CI run since `0.4.10-beta`. Then bump both version files as the final commit and dispatch the release workflows. |
+| **Next** | **Device-verify the coordinated next-episode transition before resuming the release script:** immediate feedback, uninterrupted current playback while resolving, mode-correct manual routing, automatic countdown/cancel, one request and one player switch under repeated input, and coverage until the next episode's first playable frame. Then run the full `0.5.0-beta` device script, bump both version files as the final commit, and dispatch the release workflows. |
 | **Also unpushed** | `codex/whats-new` (local only, in `nuvio-z`): one commit, "feat: show release notes after updates". Not merged, not verified. |
 
 This table is the first thing to update in any session, and it is kept current on
@@ -251,6 +251,52 @@ could not choose — never because the user left.** Classic and an explicit manu
 **Failure still goes to the list, with a reason.** An exhausted chain, no safely playable
 source, or a timed-out fetch is the escape hatch `PLAYBACK_MODES_PLAN.md` specifies, and the
 user is then one tap from choosing. Confirmed with the maintainer rather than assumed.
+
+### 12. Next episode is one coordinated, visible transition
+
+Reported during the pre-release device pass: the explicit **Next episode** control appeared to
+do nothing while source discovery ran, could take roughly ten seconds to react, and then replaced
+the player abruptly or failed silently. Manual and automatic paths owned overlapping flags and
+could both launch the same adjacent episode.
+
+Both repositories now use one request-keyed transition lifecycle: `idle`, `resolving`,
+`awaiting choice`, `countdown`, `starting`, `failed`. Compose controls, the threshold/ended
+triggers, and desktop's native card plus keyboard/remote bridge enter that coordinator. A repeat
+request for the same target does not restart discovery; cancelled or superseded request ids
+cannot apply a stale result; and an explicit tap during an automatic Instant resolution promotes
+that request to manual playback and removes its warning countdown.
+
+The current episode keeps playing while sources resolve. The Next Episode card appears at once
+with the adjacent episode and **Finding source…**, disables duplicate actions while work is
+owned, and supports a real dismiss/cancel action. Dismissal is scoped to the current episode so
+position updates cannot immediately reopen it. When a source is ready, the transition enters
+`starting` before the URL changes; the loading cover uses the next episode's title and artwork
+until the new player reports playable, avoiding an unexplained bare reset.
+
+Manual routing follows the active playback mode with no artificial countdown: **Classic opens
+the source list, Streamlined opens the shared loading quality sheet, and Instant resolves and
+starts immediately**. A completed local download still wins. Automatic playback retains the
+existing settings, Classic policy, Prefer Binge Group optimization, and cancelable three-second
+warning, including downloaded episodes. Streamlined/Instant discovery waits for the real settle
+signal with the existing 20-second safety backstop. Timeout, empty results, or no safe automatic
+candidate exposes the manual source list with an explicit reason instead of leaving an inert
+button.
+
+The change is mirrored in `NuvioZDesktop`, including native HTML/CSS/JavaScript card status,
+dismissal, keyboard/remote event routing, and first-frame cover behavior. `NuvioZWeb` was left
+untouched. No setting key, public API, migration, version, release, or push changed.
+
+Verification on the maintainer's Windows laptop:
+
+- `:composeApp:testAndroidHostTest`: **815 tests across 107 result files**, zero failures,
+  errors, or skips. This includes the mode matrix, transition identity/promotion/deduplication,
+  and adjacent/season-boundary/last/unaired episode rules.
+- `:composeApp:desktopTest`: **1,020 tests across 137 result files**, zero failures, errors, or
+  skips; the full long-running desktop download harness also completed.
+- `node --check composeApp/src/desktopMain/resources/player-ui/controls.js` passed. The native
+  `nextEpisodeCard`, `nextEpisodeStatus`, and `nextEpisodeDismiss` ids each occur exactly once.
+- No Android device is connected to this laptop, so the device acceptance matrix remains
+  deliberately unclaimed and is the first follow-up before release.
 
 ## Verification for 0.5.0-beta
 

@@ -72,10 +72,13 @@ import nuvio.composeapp.generated.resources.compose_player_panel_streams
 import nuvio.composeapp.generated.resources.compose_player_playing
 import nuvio.composeapp.generated.resources.episodes_season
 import nuvio.composeapp.generated.resources.episodes_specials
+import nuvio.composeapp.generated.resources.player_next_episode_choose_source
+import nuvio.composeapp.generated.resources.player_next_episode_no_sources
+import nuvio.composeapp.generated.resources.player_next_episode_timed_out
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-fun PlayerEpisodesPanel(
+internal fun PlayerEpisodesPanel(
     visible: Boolean,
     episodes: List<MetaVideo>,
     parentMetaType: String,
@@ -148,10 +151,11 @@ fun PlayerEpisodesPanel(
     }
 }
 
-data class EpisodeStreamsPanelState(
+internal data class EpisodeStreamsPanelState(
     val showStreams: Boolean = false,
     val selectedEpisode: MetaVideo? = null,
     val streamsUiState: StreamsUiState = StreamsUiState(),
+    val automaticSelectionFailure: PlayerNextEpisodeFailureReason? = null,
 )
 
 @Composable
@@ -492,6 +496,23 @@ private fun EpisodeStreamsPanelContent(
         }
 
         Spacer(Modifier.height(16.dp))
+
+        state.automaticSelectionFailure?.let { failure ->
+            Text(
+                text = when (failure) {
+                    PlayerNextEpisodeFailureReason.TIMED_OUT ->
+                        stringResource(Res.string.player_next_episode_timed_out)
+                    PlayerNextEpisodeFailureReason.EMPTY_RESULTS ->
+                        stringResource(Res.string.player_next_episode_no_sources)
+                    PlayerNextEpisodeFailureReason.NO_SAFE_CANDIDATE ->
+                        stringResource(Res.string.player_next_episode_choose_source)
+                },
+                color = tokens.colors.textSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+        }
 
         if (streamsUiState.groups.isNotEmpty()) {
             Row(

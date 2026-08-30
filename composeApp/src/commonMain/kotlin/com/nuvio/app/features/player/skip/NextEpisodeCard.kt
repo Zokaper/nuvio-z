@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -40,10 +42,13 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_episode_title_format
+import nuvio.composeapp.generated.resources.compose_player_close
 import nuvio.composeapp.generated.resources.detail_btn_play
 import nuvio.composeapp.generated.resources.player_next_episode
 import nuvio.composeapp.generated.resources.player_next_episode_finding_source
+import nuvio.composeapp.generated.resources.player_next_episode_playing_countdown
 import nuvio.composeapp.generated.resources.player_next_episode_playing_via_countdown
+import nuvio.composeapp.generated.resources.player_next_episode_starting
 import nuvio.composeapp.generated.resources.player_next_episode_thumbnail
 import nuvio.composeapp.generated.resources.player_next_episode_unaired
 import org.jetbrains.compose.resources.stringResource
@@ -52,9 +57,12 @@ import org.jetbrains.compose.resources.stringResource
 fun NextEpisodeCard(
     nextEpisode: NextEpisodeInfo?,
     visible: Boolean,
-    isAutoPlaySearching: Boolean,
-    autoPlaySourceName: String?,
-    autoPlayCountdownSec: Int?,
+    isResolving: Boolean,
+    sourceName: String?,
+    countdownSeconds: Int?,
+    isStarting: Boolean,
+    actionEnabled: Boolean,
+    showDismiss: Boolean,
     onPlayNext: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -78,7 +86,7 @@ fun NextEpisodeCard(
                 .clip(shape)
                 .background(Color(0xFF191919).copy(alpha = 0.89f))
                 .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
-                .clickable { if (isPlayable) onPlayNext() }
+                .clickable(enabled = isPlayable && actionEnabled) { onPlayNext() }
                 .padding(horizontal = 9.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -137,12 +145,18 @@ fun NextEpisodeCard(
                 )
                 val autoPlayStatus = when {
                     !isPlayable && !nextEpisode.unairedMessage.isNullOrBlank() -> nextEpisode.unairedMessage
-                    isAutoPlaySearching -> stringResource(Res.string.player_next_episode_finding_source)
-                    !autoPlaySourceName.isNullOrBlank() && autoPlayCountdownSec != null ->
+                    isResolving -> stringResource(Res.string.player_next_episode_finding_source)
+                    isStarting -> stringResource(Res.string.player_next_episode_starting)
+                    !sourceName.isNullOrBlank() && countdownSeconds != null ->
                         stringResource(
                             Res.string.player_next_episode_playing_via_countdown,
-                            autoPlaySourceName,
-                            autoPlayCountdownSec,
+                            sourceName,
+                            countdownSeconds,
+                        )
+                    countdownSeconds != null ->
+                        stringResource(
+                            Res.string.player_next_episode_playing_countdown,
+                            countdownSeconds,
                         )
                     else -> null
                 }
@@ -183,6 +197,20 @@ fun NextEpisodeCard(
                     fontSize = 11.sp,
                     modifier = Modifier.padding(start = 3.dp),
                 )
+            }
+
+            if (showDismiss) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(Res.string.compose_player_close),
+                        tint = Color.White.copy(alpha = 0.78f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
     }

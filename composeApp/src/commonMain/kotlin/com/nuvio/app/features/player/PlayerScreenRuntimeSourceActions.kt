@@ -215,7 +215,8 @@ internal fun PlayerScreenRuntime.switchToP2pEpisodeStream(
         pendingP2pSwitch = PendingPlayerP2pSwitch(stream = stream, episode = episode, isAutoPlay = isAutoPlay)
         return
     }
-    resetEpisodePanelAndNextEpisodeState()
+    val preserveTransition = markNextEpisodeStarting(episode, stream.addonName)
+    resetEpisodePanelAndNextEpisodeState(preserveTransition = preserveTransition)
     flushWatchProgress()
     stopActiveP2pStream()
     val epVideoId = episode.id
@@ -588,12 +589,17 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episo
         )
     ) return
     if (isP2pStream(stream)) {
-        switchToP2pEpisodeStream(stream, episode)
+        switchToP2pEpisodeStream(
+            stream = stream,
+            episode = episode,
+            isAutoPlay = nextEpisodeTransition.origin == PlayerNextEpisodeOrigin.AUTOMATIC,
+        )
         return
     }
     if (openExternalSourceUrl(stream)) return
     val url = stream.playableDirectUrl ?: return
-    resetEpisodePanelAndNextEpisodeState()
+    val preserveTransition = markNextEpisodeStarting(episode, stream.addonName)
+    resetEpisodePanelAndNextEpisodeState(preserveTransition = preserveTransition)
     flushWatchProgress()
     stopActiveP2pStream()
     val epVideoId = episode.id
@@ -611,7 +617,11 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episo
 
 internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: DownloadItem, episode: MetaVideo) {
     val localFileUri = DownloadsRepository.playableLocalFileUri(downloadItem) ?: return
-    resetEpisodePanelAndNextEpisodeState()
+    val preserveTransition = markNextEpisodeStarting(
+        episode = episode,
+        sourceName = downloadItem.providerName.takeIf { it.isNotBlank() },
+    )
+    resetEpisodePanelAndNextEpisodeState(preserveTransition = preserveTransition)
     flushWatchProgress()
     stopActiveP2pStream()
 
@@ -654,38 +664,45 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeVideoId = resolvedVideoId
     activeInitialPositionMs = epResumePositionMs
     activeInitialProgressFraction = epResumeFraction
+    shouldPlay = true
     controlsVisible = true
 }
 
 internal fun PlayerScreenRuntime.playNextEpisode() {
-    scope.launchPlayerNextEpisodeAutoPlay(
-        previousJob = nextEpisodeAutoPlayJob,
-        nextEpisodeInfo = nextEpisodeInfo,
-        allEpisodes = playerMetaVideos,
-        parentMetaId = parentMetaId,
-        parentMetaType = parentMetaType,
-        contentType = contentType,
-        settings = playerSettingsUiState,
-        currentStreamBingeGroup = currentStreamBingeGroup,
-        onDownloadedEpisodeSelected = { item, episode -> switchToDownloadedEpisode(item, episode) },
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
-        onManualSelectionRequired = { nextVideo ->
-            episodeStreamsPanelState = EpisodeStreamsPanelState(
-                showStreams = true,
-                selectedEpisode = nextVideo,
-            )
-            showEpisodesPanel = true
-        },
-        onSearchingChanged = { nextEpisodeAutoPlaySearching = it },
-        onSourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
-        onCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
-        onNextEpisodeCardVisibleChanged = { showNextEpisodeCard = it },
-    )?.let { job ->
-        nextEpisodeAutoPlayJob = job
+    resolveNextEpisodeVideo()?.let { episode ->
+        startNextEpisodeResolution(episode, PlayerNextEpisodeOrigin.AUTOMATIC)
     }
 }
 
+/**
+ * Handles an explicit Next episode tap as an episode choice, not as background auto-play.
+ *
+ * The old callback entered [launchPlayerNextEpisodeAutoPlay], whose Classic-era timeout and
+ * source rules made the button appear inert and could bypass the active playback mode.
+ */
+internal fun PlayerScreenRuntime.playNextEpisodeFromControls() {
+    val nextVideo = resolveNextEpisodeVideo() ?: return
+    val existing = nextEpisodeTransition
+    if (existing.targetVideoId == nextVideo.id && existing.isActive) {
+        if (
+            playerSettingsUiState.playbackMode == com.nuvio.app.features.playback.PlaybackMode.INSTANT &&
+            existing.origin == PlayerNextEpisodeOrigin.AUTOMATIC
+        ) {
+            nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.promoteToManual(existing)
+            showNextEpisodeCard = true
+            return
+        }
+        if (existing.origin == PlayerNextEpisodeOrigin.MANUAL) return
+    }
+    playEpisodeFromPicker(nextVideo)
+}
+
 internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
+    beginNextEpisodeTransition(
+        episode = episode,
+        origin = PlayerNextEpisodeOrigin.MANUAL,
+        phase = PlayerNextEpisodePhase.AWAITING_CHOICE,
+    )
     if (
         selectDownloadedEpisodeForPlayback(
             parentMetaId = parentMetaId,
@@ -694,19 +711,78 @@ internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
         )
     ) return
 
-    if (playerSettingsUiState.playbackMode == com.nuvio.app.features.playback.PlaybackMode.CLASSIC) {
-        PlayerStreamsRepository.loadEpisodeStreams(
-            type = contentType ?: parentMetaType,
-            videoId = episode.id,
-            season = episode.season,
-            episode = episode.episode,
-        )
-        episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
-        return
+    when (playerEpisodeModeRoute(playerSettingsUiState.playbackMode)) {
+        PlayerEpisodeModeRoute.SOURCE_LIST -> openEpisodeSourceList(episode)
+        PlayerEpisodeModeRoute.QUALITY_SHEET -> openEpisodeQualitySheet(episode)
+        PlayerEpisodeModeRoute.AUTO_PICK ->
+            startNextEpisodeResolution(episode, PlayerNextEpisodeOrigin.MANUAL)
+    }
+}
+
+private fun PlayerScreenRuntime.resolveNextEpisodeVideo(): MetaVideo? {
+    val info = nextEpisodeInfo?.takeIf { it.hasAired } ?: return null
+    return playerMetaVideos.firstOrNull { video ->
+        video.season == info.season && video.episode == info.episode
+    } ?: playerMetaVideos.firstOrNull { video -> video.id == info.videoId }
+}
+
+private fun PlayerScreenRuntime.beginNextEpisodeTransition(
+    episode: MetaVideo,
+    origin: PlayerNextEpisodeOrigin,
+    phase: PlayerNextEpisodePhase,
+): PlayerNextEpisodeTransition {
+    nextEpisodeAutoPlayJob?.cancel()
+    nextEpisodeAutoPlayJob = null
+    nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.begin(
+        previousRequestId = nextEpisodeTransition.requestId,
+        currentVideoId = activeVideoId,
+        targetVideoId = episode.id,
+        origin = origin,
+        phase = phase,
+    )
+    return nextEpisodeTransition
+}
+
+private fun PlayerScreenRuntime.startNextEpisodeResolution(
+    episode: MetaVideo,
+    origin: PlayerNextEpisodeOrigin,
+) {
+    val existing = nextEpisodeTransition
+    val preparedManualRequest =
+        origin == PlayerNextEpisodeOrigin.MANUAL &&
+            existing.targetVideoId == episode.id &&
+            existing.origin == PlayerNextEpisodeOrigin.MANUAL &&
+            existing.phase == PlayerNextEpisodePhase.AWAITING_CHOICE
+    if (existing.targetVideoId == episode.id && existing.isActive) {
+        if (preparedManualRequest) {
+            nextEpisodeTransition = existing.copy(phase = PlayerNextEpisodePhase.RESOLVING)
+        } else if (origin == PlayerNextEpisodeOrigin.MANUAL) {
+            nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.promoteToManual(existing)
+            showNextEpisodeCard = true
+            return
+        } else {
+            showNextEpisodeCard = true
+            return
+        }
     }
 
+    val request = if (preparedManualRequest) {
+        nextEpisodeTransition
+    } else {
+        beginNextEpisodeTransition(
+            episode = episode,
+            origin = origin,
+            phase = PlayerNextEpisodePhase.RESOLVING,
+        )
+    }
+    showNextEpisodeCard = true
+    val requestId = request.requestId
+    val targetVideoId = episode.id
+
+    fun isCurrent(): Boolean = nextEpisodeTransition.isRequest(requestId, targetVideoId)
+
     nextEpisodeAutoPlayJob = scope.launchPlayerNextEpisodeAutoPlay(
-        previousJob = nextEpisodeAutoPlayJob,
+        previousJob = null,
         nextEpisodeInfo = null,
         targetEpisode = episode,
         allEpisodes = playerMetaVideos,
@@ -715,17 +791,98 @@ internal fun PlayerScreenRuntime.playEpisodeFromPicker(episode: MetaVideo) {
         contentType = contentType,
         settings = playerSettingsUiState,
         currentStreamBingeGroup = currentStreamBingeGroup,
-        onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
-        onEpisodeStreamSelected = { stream, video -> switchToEpisodeStream(stream, video) },
-        onManualSelectionRequired = { video ->
-            episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = video)
-            showEpisodesPanel = true
+        isRequestCurrent = ::isCurrent,
+        shouldCountDownBeforePlayback = {
+            isCurrent() && nextEpisodeTransition.shouldCountDown()
         },
-        onSearchingChanged = { nextEpisodeAutoPlaySearching = it },
-        onSourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
-        onCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
-        onNextEpisodeCardVisibleChanged = { showNextEpisodeCard = it },
+        onResult = { result, video ->
+            if (!isCurrent()) return@launchPlayerNextEpisodeAutoPlay
+            when (result) {
+                is PlayerNextEpisodeResolutionResult.DownloadReady ->
+                    switchToDownloadedEpisode(result.item, video)
+                is PlayerNextEpisodeResolutionResult.StreamReady ->
+                    switchToEpisodeStream(result.stream, video)
+                is PlayerNextEpisodeResolutionResult.ManualSelectionRequired -> {
+                    nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.update(
+                        state = nextEpisodeTransition,
+                        requestId = requestId,
+                        targetVideoId = targetVideoId,
+                        phase = PlayerNextEpisodePhase.FAILED,
+                    )
+                    showNextEpisodeCard = false
+                    openEpisodeSourceList(video, automaticSelectionFailure = result.reason)
+                }
+            }
+        },
+        onResolving = {
+            nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.update(
+                state = nextEpisodeTransition,
+                requestId = requestId,
+                targetVideoId = targetVideoId,
+                phase = PlayerNextEpisodePhase.RESOLVING,
+                sourceName = null,
+            )
+        },
+        onCountdown = { sourceName, seconds ->
+            nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.update(
+                state = nextEpisodeTransition,
+                requestId = requestId,
+                targetVideoId = targetVideoId,
+                phase = PlayerNextEpisodePhase.COUNTDOWN,
+                sourceName = sourceName,
+                countdownSeconds = seconds,
+            )
+        },
+        onStarting = { sourceName ->
+            nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.update(
+                state = nextEpisodeTransition,
+                requestId = requestId,
+                targetVideoId = targetVideoId,
+                phase = PlayerNextEpisodePhase.STARTING,
+                sourceName = sourceName,
+            )
+            showNextEpisodeCard = true
+        },
     )
+}
+
+internal fun PlayerScreenRuntime.openEpisodeSourceList(
+    episode: MetaVideo,
+    automaticSelectionFailure: PlayerNextEpisodeFailureReason? = null,
+) {
+    episodeQualitySheetEpisode = null
+    if (nextEpisodeTransition.targetVideoId == episode.id) {
+        nextEpisodeTransition = nextEpisodeTransition.copy(
+            phase = PlayerNextEpisodePhase.AWAITING_CHOICE,
+            countdownSeconds = null,
+        )
+    }
+    PlayerStreamsRepository.loadEpisodeStreams(
+        type = contentType ?: parentMetaType,
+        videoId = episode.id,
+        season = episode.season,
+        episode = episode.episode,
+    )
+    episodeStreamsPanelState = EpisodeStreamsPanelState(
+        showStreams = true,
+        selectedEpisode = episode,
+        automaticSelectionFailure = automaticSelectionFailure,
+    )
+    showEpisodesPanel = true
+    controlsVisible = false
+}
+
+private fun PlayerScreenRuntime.openEpisodeQualitySheet(episode: MetaVideo) {
+    PlayerStreamsRepository.loadEpisodeStreams(
+        type = contentType ?: parentMetaType,
+        videoId = episode.id,
+        season = episode.season,
+        episode = episode.episode,
+    )
+    episodeStreamsPanelState = EpisodeStreamsPanelState(selectedEpisode = episode)
+    episodeQualitySheetEpisode = episode
+    showEpisodesPanel = false
+    controlsVisible = false
 }
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {
@@ -754,15 +911,60 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
 
 private data class EpisodeResume(val positionMs: Long, val fraction: Float?)
 
-private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState() {
+private fun PlayerScreenRuntime.markNextEpisodeStarting(
+    episode: MetaVideo,
+    sourceName: String?,
+): Boolean {
+    val transition = nextEpisodeTransition
+    if (transition.targetVideoId != episode.id || !transition.isActive) return false
+    nextEpisodeTransition = transition.copy(
+        phase = PlayerNextEpisodePhase.STARTING,
+        sourceName = sourceName ?: transition.sourceName,
+        countdownSeconds = null,
+    )
+    showNextEpisodeCard = true
+    return true
+}
+
+internal fun PlayerScreenRuntime.cancelNextEpisodeTransition(suppressForCurrentEpisode: Boolean) {
+    nextEpisodeAutoPlayJob?.cancel()
+    nextEpisodeAutoPlayJob = null
+    if (suppressForCurrentEpisode) {
+        nextEpisodeDismissedForVideoId = activeVideoId
+    }
+    nextEpisodeTransition = PlayerNextEpisodeTransitionPolicy.cancel(nextEpisodeTransition)
     showNextEpisodeCard = false
+}
+
+internal fun PlayerScreenRuntime.completeNextEpisodeTransitionIfStarted() {
+    val transition = nextEpisodeTransition
+    if (
+        transition.phase != PlayerNextEpisodePhase.STARTING ||
+        transition.targetVideoId != activeVideoId
+    ) return
+    nextEpisodeAutoPlayJob = null
+    nextEpisodeTransition = transition.copy(
+        phase = PlayerNextEpisodePhase.IDLE,
+        origin = null,
+        currentVideoId = null,
+        targetVideoId = null,
+        sourceName = null,
+        countdownSeconds = null,
+    )
+    showNextEpisodeCard = false
+}
+
+private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState(
+    preserveTransition: Boolean = false,
+) {
+    showNextEpisodeCard = preserveTransition
     showSourcesPanel = false
     showEpisodesPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
-    nextEpisodeAutoPlayJob?.cancel()
-    nextEpisodeAutoPlaySearching = false
-    nextEpisodeAutoPlaySourceName = null
-    nextEpisodeAutoPlayCountdown = null
+    episodeQualitySheetEpisode = null
+    if (!preserveTransition) {
+        cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
+    }
     PlayerStreamsRepository.clearEpisodeStreams()
 }
 
@@ -804,6 +1006,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeVideoId = episode.id
     activeInitialPositionMs = resume.positionMs
     activeInitialProgressFraction = resume.fraction
+    shouldPlay = true
     controlsVisible = true
 }
 

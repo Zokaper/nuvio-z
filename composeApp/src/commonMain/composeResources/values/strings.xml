@@ -1324,6 +1324,11 @@
     <string name="player_next_episode">Next Episode</string>
     <string name="player_next_episode_finding_source">Finding source…</string>
     <string name="player_next_episode_playing_via_countdown">Playing via %1$s in %2$d…</string>
+    <string name="player_next_episode_playing_countdown">Playing in %1$d…</string>
+    <string name="player_next_episode_starting">Starting next episode…</string>
+    <string name="player_next_episode_choose_source">No safe automatic source was found. Choose a source to continue.</string>
+    <string name="player_next_episode_no_sources">No sources were found for this episode. Choose another source or try again.</string>
+    <string name="player_next_episode_timed_out">Source search timed out. Choose a source to continue.</string>
     <string name="player_next_episode_thumbnail">Next episode thumbnail</string>
     <string name="player_next_episode_unaired">Unaired</string>
     <string name="player_skip">Skip</string>
