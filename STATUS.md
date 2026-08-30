@@ -601,8 +601,10 @@ rule with phase 2 still to come, so the debug counter carries the identity inste
 **Published `debug-v0.4.14-beta.25`** (versionCode 124025) from commit `339bc7b0`, carrying the
 coordinated next-episode transition. `.6` through `.24` were already occupied on the remote debug
 line. The APK is [androidApp-full-debug.apk](https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.14-beta.25/androidApp-full-debug.apk).
-The desktop mirror is pushed to its matching branch;
-the debug update workflow remains Android-only by design.
+The desktop mirror is also published on its own debug channel as
+[`debug-v0.4.14-beta.18`](https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.4.14-beta.18),
+with the [Windows MSI](https://github.com/Zokaper/NuvioZDesktop/releases/download/debug-v0.4.14-beta.18/Nuvio-Z-Debug-Windows-x64-0.4.14-beta.18.msi)
+installing beside the release app and updating only from the desktop debug line.
 
 **Publishing a debug build (2026-08-11): dispatch `debug-release.yml`.** Bump `DEBUG_BUILD` in
 `Version.xcconfig`, push, then run the workflow against whatever branch you want the build cut
