@@ -598,8 +598,9 @@ from `claude/release-0.5.0-beta-polish-ivcjsl` at `3178ae9`. The installed debug
 `0.4.14-beta` deliberately — bumping it to 0.5.0 now would break the release line's bump-last
 rule with phase 2 still to come, so the debug counter carries the identity instead.
 
-The next debug publish is `debug-v0.4.14-beta.6` (versionCode 124006), carrying the coordinated
-next-episode transition from this branch. The desktop mirror is pushed to its matching branch;
+The next debug publish is `debug-v0.4.14-beta.25` (versionCode 124025), carrying the coordinated
+next-episode transition from this branch; `.6` through `.24` are already occupied on the remote
+debug line. The desktop mirror is pushed to its matching branch;
 the debug update workflow remains Android-only by design.
 
 **Publishing a debug build (2026-08-11): dispatch `debug-release.yml`.** Bump `DEBUG_BUILD` in
