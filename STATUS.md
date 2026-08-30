@@ -8,10 +8,10 @@ Last updated: 2026-08-30
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Earlier synced mobile CI, iOS, desktop build-only and device passes remain recorded below. |
+| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
 | **Not** verified | the corrected transition and desktop HTML button still need a device/install pass. The startup watchdog remains parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
-| Next work | Publish corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18`, then device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` were published 2026-08-30 from a stale pre-sync branch and are superseded by this correction. The current line advances its own counters from desktop 17 → 18 and mobile 24 → 25; the `0.5.0-beta` marketing version makes the corrected tags distinct. |
+| Next work | Device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18` were published 2026-08-30 from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
 
 ## Correcting the stale next-episode debug builds (2026-08-30)
 
@@ -28,9 +28,15 @@ episode produces its first playable frame. The current failure chain, ranking pr
 unwatched-artwork blur and desktop stream-settlement coordinator were retained during conflict
 resolution. Desktop also carries the native HTML-overlay Next Episode control.
 
-Verification before publishing: `scripts/run-pure-suites.sh` passes 290 tests in each repository;
+Verification and publishing: `scripts/run-pure-suites.sh` passes 290 tests in each repository;
 focused `testAndroidHostTest` and `desktopTest` runs compile the real platform source sets and pass
-the 16 new routing, transition and threshold tests. The behavior is not yet device-verified.
+the 16 new routing, transition and threshold tests. Mobile CI `33327792025` passes. Desktop's first clean CI run built and uploaded
+the Windows MSI, then exposed a pre-existing Ubuntu job gap: the synced `compose-media-player`
+module now builds a GStreamer shim during `desktopTest`, but CI installed no GStreamer development
+packages. The job now installs the required core/base headers before Gradle, and replacement CI
+`33328140034` passes. Debug publish runs `33328752860` and `33328752260` released mobile
+`debug-v0.5.0-beta.25` from `921a62dc` and desktop `debug-v0.5.0-beta.18` from `d316a28e`.
+Both tags resolve to those exact current-line commits. The behavior is not yet device-verified.
 
 ## The first named KMP upstream sync is complete (2026-08-24)
 
