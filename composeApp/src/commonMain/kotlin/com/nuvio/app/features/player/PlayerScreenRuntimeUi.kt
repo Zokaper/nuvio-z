@@ -648,7 +648,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             selectionContext = selectionContext,
             estimatedMbps = network.estimatedMbps,
             isConnectionMeasured = network.isMeasured,
+            isConnectionStale = false,
             isMeasuringConnection = false,
+            onRetestConnection = null,
             onOptionSelected = { option ->
                 when (val result = PlaybackSourceSelector.select(option, selectionContext)) {
                     is PlaybackSelectionResult.Play -> {
@@ -661,6 +663,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
                 }
             },
             onChooseManually = { openEpisodeSourceList(episode) },
+            onAdjustPreferences = null,
             onDismiss = {
                 cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
                 episodeQualitySheetEpisode = null

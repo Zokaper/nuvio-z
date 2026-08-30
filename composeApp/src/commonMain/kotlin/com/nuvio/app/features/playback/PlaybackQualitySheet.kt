@@ -147,9 +147,9 @@ fun PlaybackQualitySheet(
     isConnectionStale: Boolean,
     isMeasuringConnection: Boolean,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
-    onRetestConnection: () -> Unit,
+    onRetestConnection: (() -> Unit)?,
     onChooseManually: () -> Unit,
-    onAdjustPreferences: () -> Unit,
+    onAdjustPreferences: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -329,9 +329,9 @@ private fun QualitySheetBody(
     gridMaxHeight: Dp,
     contentBottomPadding: Dp,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
-    onRetestConnection: () -> Unit,
+    onRetestConnection: (() -> Unit)?,
     onChooseManually: () -> Unit,
-    onAdjustPreferences: () -> Unit,
+    onAdjustPreferences: (() -> Unit)?,
 ) {
     val tokens = MaterialTheme.nuvio
     val groups = remember(options) { PlaybackQualityOptions.group(options) }
@@ -365,8 +365,10 @@ private fun QualitySheetBody(
                 color = tokens.colors.textPrimary,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onAdjustPreferences) {
-                Text(stringResource(Res.string.playback_quality_preferences))
+            if (onAdjustPreferences != null) {
+                TextButton(onClick = onAdjustPreferences) {
+                    Text(stringResource(Res.string.playback_quality_preferences))
+                }
             }
         }
         Text(
@@ -419,7 +421,16 @@ private fun QualitySheetBody(
             // process by a week and the probe is suppressed for ten minutes after each one.
             // Inert while one is already running, so a second tap cannot queue a second probe.
             modifier = Modifier
-                .clickable(enabled = !isMeasuringConnection, onClick = onRetestConnection)
+                .then(
+                    if (onRetestConnection != null) {
+                        Modifier.clickable(
+                            enabled = !isMeasuringConnection,
+                            onClick = onRetestConnection,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(vertical = CONNECTION_LINE_TAP_PADDING),
         )
 

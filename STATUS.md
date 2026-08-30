@@ -8,10 +8,29 @@ Last updated: 2026-08-30
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | synced mobile CI run `32781826587` passed Android host tests and debug APK assembly; iOS run `32783935384` linked device/simulator frameworks and built the unsigned app; synced desktop build-only run `32781339968` passed Kotlin compilation, MSI packaging and MSI verification, after the full local desktop suite passed. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
-| **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
-| Next work | Port and verify the coordinated next-episode transition from the mistakenly stale debug branch, then publish corrected mobile `.26` and desktop `.19` debug builds. Stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | desktop `.18` and mobile `.25` were published 2026-08-30 from a stale pre-sync branch and are superseded by this correction; next tags are desktop `debug-v0.4.14-beta.19` and mobile `debug-v0.4.14-beta.26`. |
+| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Earlier synced mobile CI, iOS, desktop build-only and device passes remain recorded below. |
+| **Not** verified | the corrected transition and desktop HTML button still need a device/install pass. The startup watchdog remains parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
+| Next work | Publish corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18`, then device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` were published 2026-08-30 from a stale pre-sync branch and are superseded by this correction. The current line advances its own counters from desktop 17 → 18 and mobile 24 → 25; the `0.5.0-beta` marketing version makes the corrected tags distinct. |
+
+## Correcting the stale next-episode debug builds (2026-08-30)
+
+The first 2026-08-30 debug builds came from `claude/release-0.5.0-beta-polish-ivcjsl`, whose merge
+base predates the published bridge and the named upstream sync. The transition work was valid, but
+the builds omitted the release-serial updater, About/version work, upstream merges and later Z
+fixes. They are not promoted or merged wholesale.
+
+Only the coordinated next-episode change is ported here onto `claude/upstream-doctrine-stage0`.
+Manual Next episode actions now follow the active mode (Classic source list, Streamlined quality
+sheet, Instant automatic pick); automatic transitions resolve without stopping the current
+episode, count down with cancellation, ignore stale results and stay covered until the replacement
+episode produces its first playable frame. The current failure chain, ranking preferences,
+unwatched-artwork blur and desktop stream-settlement coordinator were retained during conflict
+resolution. Desktop also carries the native HTML-overlay Next Episode control.
+
+Verification before publishing: `scripts/run-pure-suites.sh` passes 290 tests in each repository;
+focused `testAndroidHostTest` and `desktopTest` runs compile the real platform source sets and pass
+the 16 new routing, transition and threshold tests. The behavior is not yet device-verified.
 
 ## The first named KMP upstream sync is complete (2026-08-24)
 
