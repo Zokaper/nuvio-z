@@ -561,9 +561,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         skipIntervals = emptyList()
         activeSkipInterval = null
         skipIntervalDismissed = false
-        showNextEpisodeCard = false
-        nextEpisodeAutoPlayJob?.cancel()
-        nextEpisodeAutoPlaySearching = false
+        if (!PlayerNextEpisodeTransitionPolicy.isPromptSuppressed(nextEpisodeDismissedForVideoId, activeVideoId)) {
+            nextEpisodeDismissedForVideoId = null
+        }
+        if (
+            nextEpisodeTransition.phase != PlayerNextEpisodePhase.STARTING ||
+            nextEpisodeTransition.targetVideoId != activeVideoId
+        ) {
+            cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
+        }
 
         val season = activeSeasonNumber
         val episode = activeEpisodeNumber
@@ -670,7 +676,11 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
     ) {
         if (nextEpisodeInfo == null || playbackSnapshot.durationMs <= 0L) {
-            showNextEpisodeCard = false
+            if (!nextEpisodeTransition.isActive) showNextEpisodeCard = false
+            return@LaunchedEffect
+        }
+        if (PlayerNextEpisodeTransitionPolicy.isPromptSuppressed(nextEpisodeDismissedForVideoId, activeVideoId)) {
+            if (!nextEpisodeTransition.isActive) showNextEpisodeCard = false
             return@LaunchedEffect
         }
         val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
@@ -681,18 +691,24 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             thresholdPercent = playerSettingsUiState.nextEpisodeThresholdPercent,
             thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         )
-        if (shouldShow && !showNextEpisodeCard) {
+        if (shouldShow && !showNextEpisodeCard && !nextEpisodeTransition.isActive) {
             showNextEpisodeCard = true
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
                 playNextEpisode()
             }
-        } else if (!shouldShow) {
+        } else if (!shouldShow && !nextEpisodeTransition.isActive) {
             showNextEpisodeCard = false
         }
     }
 
     LaunchedEffect(playbackSnapshot.isEnded, nextEpisodeInfo) {
-        if (playbackSnapshot.isEnded && nextEpisodeInfo != null && !showNextEpisodeCard) {
+        if (
+            playbackSnapshot.isEnded &&
+            nextEpisodeInfo != null &&
+            !PlayerNextEpisodeTransitionPolicy.isPromptSuppressed(nextEpisodeDismissedForVideoId, activeVideoId) &&
+            !showNextEpisodeCard &&
+            !nextEpisodeTransition.isActive
+        ) {
             showNextEpisodeCard = true
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
                 playNextEpisode()

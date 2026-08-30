@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.core.network.NetworkQualityRepository
+import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
@@ -17,6 +19,12 @@ import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import com.nuvio.app.features.playback.SwapDiagnosticsLog
+import com.nuvio.app.features.playback.PlaybackQualityOptions
+import com.nuvio.app.features.playback.PlaybackQualitySheet
+import com.nuvio.app.features.playback.PlaybackSelectionContext
+import com.nuvio.app.features.playback.PlaybackSelectionResult
+import com.nuvio.app.features.playback.PlaybackSourceCandidate
+import com.nuvio.app.features.playback.PlaybackSourceSelector
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -168,6 +176,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (!wasPlaying && snapshot.isPlaying) args.onPlaybackStarted?.invoke()
                     if (!snapshot.isLoading) {
                         initialLoadCompleted = true
+                        if (snapshot.isPlaying) {
+                            completeNextEpisodeTransitionIfStarted()
+                        }
                         // A swap is only over when the replacement actually renders. This is
                         // the measurement that decides whether automatic quality switching is
                         // worth its interruption; nothing else in the app times it.
@@ -308,7 +319,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             },
             onSourcesClick = if (activeVideoId != null) { { openSourcesPanel() } } else null,
             onEpisodesClick = if (isSeries) { { openEpisodesPanel() } } else null,
-            onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true) { { playNextEpisode() } } else null,
+            onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true) { { playNextEpisodeFromControls() } } else null,
             onOpenInExternalPlayer = args.onOpenInExternalPlayer?.let { openExternal ->
                 {
                     val loadedSubtitles = addonSubtitles
@@ -378,6 +389,10 @@ private fun BoxScope.RenderPlaybackOverlays(
     p2pRebufferProgress: Float?,
 ) {
     runtime.run {
+        val startingEpisode = nextEpisodeTransition
+            .takeIf { it.phase == PlayerNextEpisodePhase.STARTING }
+            ?.targetVideoId
+            ?.let { targetId -> playerMetaVideos.firstOrNull { it.id == targetId } }
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             lockedOverlayVisible = lockedOverlayVisible,
@@ -387,14 +402,18 @@ private fun BoxScope.RenderPlaybackOverlays(
         horizontalSafePadding = horizontalSafePadding,
         onUnlock = { unlockPlayerControls() },
         showOpeningOverlay = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null,
-        backdropArtwork = background ?: poster,
-        logo = logo,
-        title = title,
+        backdropArtwork = startingEpisode?.thumbnail ?: background ?: poster,
+        logo = if (startingEpisode != null) null else logo,
+        title = startingEpisode?.title ?: title,
         onBackWithProgress = {
             flushWatchProgress()
             args.onBack()
         },
-        p2pInitialLoadingMessage = p2pInitialLoadingMessage,
+        p2pInitialLoadingMessage = if (startingEpisode != null) {
+            org.jetbrains.compose.resources.stringResource(Res.string.player_next_episode_starting)
+        } else {
+            p2pInitialLoadingMessage
+        },
         p2pInitialLoadingProgress = p2pInitialLoadingProgress,
         showP2pRebufferStats = showP2pRebufferStats,
         p2pRebufferMessage = p2pRebufferMessage,
@@ -420,20 +439,16 @@ private fun BoxScope.RenderPlaybackOverlays(
         isSeries = isSeries,
         nextEpisodeInfo = nextEpisodeInfo,
         showNextEpisodeCard = showNextEpisodeCard,
-        nextEpisodeAutoPlaySearching = nextEpisodeAutoPlaySearching,
-        nextEpisodeAutoPlaySourceName = nextEpisodeAutoPlaySourceName,
-        nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
+        nextEpisodeResolving = nextEpisodeTransition.phase == PlayerNextEpisodePhase.RESOLVING,
+        nextEpisodeSourceName = nextEpisodeTransition.sourceName,
+        nextEpisodeCountdown = nextEpisodeTransition.countdownSeconds,
+        nextEpisodeStarting = nextEpisodeTransition.phase == PlayerNextEpisodePhase.STARTING,
+        nextEpisodeActionEnabled = nextEpisodeTransition.canAcceptManualTap(),
+        nextEpisodeShowDismiss = showNextEpisodeCard,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
-        onPlayNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
-            playNextEpisode()
-        },
+        onPlayNextEpisode = { playNextEpisodeFromControls() },
         onDismissNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
-            showNextEpisodeCard = false
-            nextEpisodeAutoPlaySearching = false
-            nextEpisodeAutoPlaySourceName = null
-            nextEpisodeAutoPlayCountdown = null
+            cancelNextEpisodeTransition(suppressForCurrentEpisode = true)
         },
         errorMessage = errorMessage,
             onDismissError = {
@@ -453,9 +468,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             switchToP2pEpisodeStream(stream, episode, isAutoPlay)
         },
         onP2pSourceStreamSelected = { stream -> switchToP2pSourceStream(stream) },
-        onNextEpisodeAutoPlaySearchingChanged = { nextEpisodeAutoPlaySearching = it },
-        onNextEpisodeAutoPlayCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
-        onNextEpisodeAutoPlaySourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
+        onNextEpisodeAutoPlayCancelled = {
+            cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
+        },
         showAudioModal = showAudioModal,
         audioTracks = audioTracks,
         selectedAudioIndex = selectedAudioIndex,
@@ -549,16 +564,8 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         episodeStreamsPanelState = episodeStreamsPanelState,
         episodeStreamsRepoState = episodeStreamsRepoState,
         onEpisodeSelectedForDownload = { episode ->
-            if (playerSettingsUiState.playbackMode == com.nuvio.app.features.playback.PlaybackMode.CLASSIC) {
-                selectDownloadedEpisodeForPlayback(
-                    parentMetaId = parentMetaId,
-                    episode = episode,
-                    onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
-                )
-            } else {
-                playEpisodeFromPicker(episode)
-                true
-            }
+            playEpisodeFromPicker(episode)
+            true
         },
         onEpisodeStreamsRequested = { episode ->
             PlayerStreamsRepository.loadEpisodeStreams(
@@ -572,6 +579,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
         onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
         onBackToEpisodes = {
+            cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
             episodeStreamsPanelState = EpisodeStreamsPanelState()
             PlayerStreamsRepository.clearEpisodeStreams()
         },
@@ -588,6 +596,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             }
         },
         onEpisodesPanelDismissed = {
+            cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
             showEpisodesPanel = false
             episodeStreamsPanelState = EpisodeStreamsPanelState()
             PlayerStreamsRepository.clearEpisodeStreams()
@@ -611,4 +620,53 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             showSubmitIntroModal = false
         },
     )
+
+    episodeQualitySheetEpisode?.let { episode ->
+        val selectionContext = PlaybackSelectionContext(
+            runtimeMinutes = episode.runtime,
+            isEpisode = true,
+            allowTorrentSources = playerSettingsUiState.playbackAllowTorrentAutopick,
+            preferredAudioLanguage = playerSettingsUiState.rankableAudioLanguage,
+            codecPreference = playerSettingsUiState.playbackCodecPreference,
+            dynamicRangePolicy = playerSettingsUiState.playbackDynamicRangePolicy,
+        )
+        val candidates = episodeStreamsRepoState.groups.flatMapIndexed { addonOrder, group ->
+            group.streams.map { stream ->
+                PlaybackSourceCandidate(
+                    stream = stream,
+                    facts = SourceFactsExtractor.extract(stream),
+                    addonOrder = addonOrder,
+                )
+            }
+        }
+        val options = PlaybackQualityOptions.build(candidates, selectionContext)
+        val network = NetworkQualityRepository.current()
+        PlaybackQualitySheet(
+            options = options,
+            isLoading = episodeStreamsRepoState.isAnyLoading,
+            isSelecting = false,
+            selectionContext = selectionContext,
+            estimatedMbps = network.estimatedMbps,
+            isConnectionMeasured = network.isMeasured,
+            isMeasuringConnection = false,
+            onOptionSelected = { option ->
+                when (val result = PlaybackSourceSelector.select(option, selectionContext)) {
+                    is PlaybackSelectionResult.Play -> {
+                        episodeQualitySheetEpisode = null
+                        controlsVisible = true
+                        switchToEpisodeStream(result.stream, episode)
+                    }
+                    is PlaybackSelectionResult.AskUncached,
+                    is PlaybackSelectionResult.NeedsManual -> openEpisodeSourceList(episode)
+                }
+            },
+            onChooseManually = { openEpisodeSourceList(episode) },
+            onDismiss = {
+                cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
+                episodeQualitySheetEpisode = null
+                showEpisodesPanel = true
+                controlsVisible = false
+            },
+        )
+    }
 }
