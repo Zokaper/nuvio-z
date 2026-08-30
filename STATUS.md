@@ -1,17 +1,17 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-24
+Last updated: 2026-08-30
 
 | | |
 | --- | --- |
-| Active branch | `claude/upstream-doctrine-stage0` in **both** repositories |
+| Active branch | `codex/next-episode-debug-hotfix` in **both** repositories, based on the synced `claude/upstream-doctrine-stage0` line |
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
 | Verified | synced mobile CI run `32781826587` passed Android host tests and debug APK assembly; iOS run `32783935384` linked device/simulator frameworks and built the unsigned app; synced desktop build-only run `32781339968` passed Kotlin compilation, MSI packaging and MSI verification, after the full local desktop suite passed. Device passes cleared Instant, setup, settings, serial fallback and the deadline/late-probe connection gauge. |
 | **Not** verified | the startup watchdog is deliberately parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
-| Next work | migrate mobile across upstream's `0.4.9` app-host split, take the next desktop named release, then adopt vanilla numbering after both bases line up. Browser checks can continue now; TV remote/focus, overscan and platform playback wait for hardware. |
-| Debug channel | desktop `debug-v0.4.14-beta.17`, mobile `debug-v0.4.14-beta.24` - both published 2026-08-24 carrying the deadline/late-probe fix. |
+| Next work | Port and verify the coordinated next-episode transition from the mistakenly stale debug branch, then publish corrected mobile `.26` and desktop `.19` debug builds. Stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | desktop `.18` and mobile `.25` were published 2026-08-30 from a stale pre-sync branch and are superseded by this correction; next tags are desktop `debug-v0.4.14-beta.19` and mobile `debug-v0.4.14-beta.26`. |
 
 ## The first named KMP upstream sync is complete (2026-08-24)
 
