@@ -8,10 +8,69 @@ Last updated: 2026-09-01
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
-| **Not** verified | Social backend migrations have not been deployed to any real project; both capabilities remain off. They now apply cleanly and pass 54 pgTAP assertions on a local stack, but nothing has run against staging, and no client has yet talked to a live social server. Social/party behavior still needs two-profile and multi-client staging and manual iOS. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
-| Next work | Deploy the migrations to staging, enable Social only, run the two-profile acceptance matrix, then enable Watch Together after Android↔desktop and Android↔iOS validation. Stable `0.5.0-beta+126` remains untouched. |
+| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
+| **Not** verified | No client has yet completed a real token exchange, so nothing has proven a Nuvio identity can reach the Z backend end to end. In particular it is unconfirmed whether `admin.createUser` accepts an explicit `id`; if it does not, the Z user id cannot be the official auth subject and a mapping column is needed. Desktop client wiring is written but untested against the live project, mobile is not yet ported, and both capabilities remain off. Social/party behavior still needs two-profile and multi-client testing and manual iOS. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
+| Next work | Get one real exchange through from the desktop client, which settles the `createUser` id question, then port the wiring to mobile. Then enable Social only, run the two-profile acceptance matrix, and enable Watch Together after Android↔desktop and Android↔iOS validation. Stable `0.5.0-beta+126` remains untouched. |
 | Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop reached `debug-v0.5.0-beta.21` on 2026-08-31, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## The social backend is Z-owned, and why it had to be (2026-09-01)
+
+The social schema was written to extend `public.profiles`, with thirteen foreign keys into it. That
+table lives in the **official Nuvio** project at `api.nuvio.tv`, which NuvioMedia operates and we
+have no administrative relationship to. Nuvio Z is a mod of Nuvio, not a product we run. As written,
+the feature was only deployable by NuvioMedia, and the local-only fixture that stood in for their
+table during tests is precisely what kept that hidden - the suite passed against a stand-in for
+infrastructure we cannot deploy to.
+
+Nuvio Z now has its own Supabase project, `pzbpghmmordvzcfbayoh` (eu-central-1, Postgres 17), holding
+**only** the social and Watch Together surface. Accounts, profiles and all base user data stay on the
+official backend, so a Z install remains cross-compatible with vanilla Nuvio. `AGENTS.md` carries the
+full rules under **The Two Backends**; the short version is that nothing may ever deploy to theirs.
+
+`public.z_identities` replaces `public.profiles` as the anchor. Because every table is now ours, a
+fresh database applies all migrations unaided and the fixture is deleted - `supabase db reset &&
+supabase test db` works directly.
+
+### One identity, two backends
+
+Users still sign in once, to official Nuvio. Supabase third-party auth trusts only five named
+providers, so the Z project cannot simply be told to trust that issuer; the `z-session` Edge Function
+bridges instead. It works without any cooperation from NuvioMedia because their project publishes an
+asymmetric ES256 JWKS, so a user's token can be verified with the public key alone.
+
+The function verifies the presented token, then confirms the claimed profile belongs to its subject
+by querying the official REST API **with the caller's own token** - their RLS answers it, so a
+profile the caller does not own returns nothing. That step is load-bearing: profile UUIDs are visible
+to friends through the feed, so without it any user could claim an identity they had merely seen.
+`owns_profile()` then requires the token and the registry to agree, and reads the active profile from
+the token rather than from a caller-supplied argument.
+
+Two things were found by executing rather than reviewing, both of which would have failed in the
+field:
+
+- The exchange originally minted its own HS256 token signed with the project JWT secret. The Z
+  project signs asymmetrically, so no shared secret exists and the token would have been rejected.
+  Supabase now issues the session (`generateLink` + `verifyOtp`), which also yields refresh tokens.
+- The follow-up fix was first written into migration `202609010002`, which was already applied.
+  `db push` tracks migrations by version rather than content, so the change would silently never have
+  reached the database - passing locally, failing live. It shipped as `202609010008` instead, and
+  applied migrations stay immutable.
+
+### Desktop client wiring
+
+`ZSupabaseProvider` is a second Supabase client alongside the official one, and `ZSessionBridge`
+performs the exchange, caches the session per profile, and re-exchanges once when a Z token is
+rejected. `SocialRepository` and `WatchPartyRepository` now talk exclusively to the Z client; the
+official client keeps playback and sign-in. Realtime is gated on a live Z session because both social
+and party topics are private channels authorized by RLS on `realtime.messages`.
+
+Endpoints come from the ignored `local.properties` as `NUVIO_Z_SUPABASE_URL` and
+`NUVIO_Z_SUPABASE_PUBLISHABLE_KEY`. Blank values leave `ZSupabaseConfig.isConfigured` false and every
+social surface hidden, which is the same degradation an undeployed backend produces, so a build
+without them is valid rather than broken.
+
+Desktop is wired first deliberately, to get one real exchange through before the shape is duplicated
+into mobile.
 
 ## Social foundation and Watch Together implementation (2026-09-01)
 

@@ -59,6 +59,71 @@ The public Supabase client configuration used for personal builds is kept in
 the ignored `local.properties`; do not move it into tracked source. Before a
 commit or push, inspect staged files and run a targeted secret scan.
 
+## The Two Backends
+
+Nuvio Z talks to **two** Supabase backends, and confusing them is the most damaging mistake
+available in this repository.
+
+| | official Nuvio | Nuvio Z |
+| --- | --- | --- |
+| Where | `https://api.nuvio.tv` (fallback `api-*.nuvioapp.space`) | project `pzbpghmmordvzcfbayoh`, eu-central-1 |
+| Who runs it | **NuvioMedia.** Not us. | Us. |
+| Holds | accounts, `auth.users`, `public.profiles`, all base user data | only Z's social and Watch Together surface |
+| Schema source | not ours, not in any repo we control | `Zokaper/nuvio-z-backend` |
+| Client | `SupabaseProvider` | `ZSupabaseProvider` |
+
+**Never run DDL, `supabase db push`, or any schema change against the official backend.** Nuvio Z
+is a mod of Nuvio, not a product we operate. We have no administrative relationship to that server,
+it serves real users, and using its API with the shipped publishable key is the only interaction we
+are entitled to. If a task appears to require changing their schema, the task is wrong - say so
+rather than looking for a credential.
+
+Base user data deliberately stays on the official backend so a Z install remains cross-compatible
+with vanilla Nuvio. Social data lives on ours. Nothing is duplicated across the two.
+
+### How one identity reaches two backends
+
+Users sign in once, to official Nuvio. The Z backend cannot be configured to trust that issuer -
+Supabase third-party auth accepts only five named providers, and a generic OIDC issuer is not one of
+them - so the bridge is the `z-session` Edge Function, driven by `ZSessionBridge`:
+
+1. The client presents its official access token.
+2. The function verifies it against Nuvio's **published ES256 JWKS**. Only the public key is needed,
+   so this requires no secret from NuvioMedia and no cooperation with them.
+3. It confirms the claimed profile belongs to that user by querying the official REST API **with the
+   caller's own token** - their RLS answers the question, so a profile the caller does not own comes
+   back empty. Profile UUIDs are visible to friends through the feed, so without this step any user
+   could claim an identity they had merely seen.
+4. Supabase issues a Z session whose user id **is** the official auth subject, so `auth.uid()` in our
+   database is the Nuvio identity and no table has to know the exchange happened. The verified
+   profile rides in `app_metadata`, which only the secret key can write.
+
+`owns_profile()` requires the token and the `z_identities` registry to agree, and reads the active
+profile from the token rather than from a caller-supplied argument.
+
+The session is **never minted client-side and never signed by us**: the Z project uses asymmetric
+JWT signing keys, so there is no shared secret and a self-signed token is rejected. If session
+handling ever needs changing, it is `generateLink` + `verifyOtp` on the server, not signing.
+
+Switching profile means a new exchange, not a new argument. A rejected Z token means expiry; the
+official session is the source of truth and re-exchanging is always the recovery.
+
+### Configuration
+
+Both endpoints come from the ignored `local.properties`, never from tracked source:
+
+```
+NUVIO_SUPABASE_URL / NUVIO_SUPABASE_ANON_KEY / NUVIO_SUPABASE_FALLBACK_URL   # official
+NUVIO_Z_SUPABASE_URL / NUVIO_Z_SUPABASE_PUBLISHABLE_KEY                      # ours
+```
+
+When the Z values are blank, `ZSupabaseConfig.isConfigured` is false and every social surface stays
+hidden - the same degradation an undeployed backend produces. That is the intended failure mode, so
+a build without them is valid rather than broken.
+
+Do not run `supabase projects api-keys` casually: it prints **legacy** `service_role` and `anon`
+JWTs in full even without `--reveal`, because its masking only covers new-style `sb_secret_` keys.
+
 ## What a Download Has To Be
 
 **The standard is a Netflix download.** Start it, reorder it, pause it, resume
