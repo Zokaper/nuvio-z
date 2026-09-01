@@ -2,6 +2,8 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.nuvio.app.features.watchparty.PartyContent
+import com.nuvio.app.features.watchparty.SourceFingerprint
 
 @Composable
 fun PlayerScreen(
@@ -23,6 +25,7 @@ fun PlayerScreen(
     onOpenExternalUrl: ((String) -> Unit)? = null,
     onFatalPlaybackError: (() -> Unit)? = null,
     onPlaybackStarted: (() -> Unit)? = null,
+    onStartWatchTogether: ((PartyContent, SourceFingerprint) -> Unit)? = null,
     modifier: Modifier = Modifier,
     logo: String? = null,
     poster: String? = null,
@@ -64,6 +67,7 @@ fun PlayerScreen(
             onOpenExternalUrl = onOpenExternalUrl,
             onFatalPlaybackError = onFatalPlaybackError,
             onPlaybackStarted = onPlaybackStarted,
+            onStartWatchTogether = onStartWatchTogether,
             modifier = modifier,
             logo = logo,
             poster = poster,

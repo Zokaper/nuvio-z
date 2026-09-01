@@ -153,18 +153,21 @@ internal fun PlayerScreenRuntime.togglePlayback() {
     if (playbackSnapshot.isPlaying) {
         shouldPlay = false
         playerController?.pause()
+        submitPartyPlayPause(isPlaying = false, positionMs = playbackSnapshot.positionMs)
     } else {
         if (playbackSnapshot.isEnded) {
             playerController?.seekTo(0L)
         }
         shouldPlay = true
         playerController?.play()
+        submitPartyPlayPause(isPlaying = true, positionMs = if (playbackSnapshot.isEnded) 0L else playbackSnapshot.positionMs)
     }
     controlsVisible = true
 }
 
 internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
     playerController?.seekBy(offsetMs)
+    submitPartySeek((playbackSnapshot.positionMs + offsetMs).coerceAtLeast(0L))
     scheduleProgressSyncAfterSeek()
     controlsVisible = true
     when {
@@ -198,6 +201,7 @@ internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirect
         }
     }
     playerController?.seekTo(targetPositionMs)
+    submitPartySeek(targetPositionMs)
     scheduleProgressSyncAfterSeek()
     showSeekFeedback(direction, nextState.amountMs)
 
@@ -228,6 +232,7 @@ internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
     val current = playbackSnapshot.playbackSpeed
     val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
     playerController?.setPlaybackSpeed(next)
+    submitPartySpeed(next)
     showGestureMessage(formatPlaybackSpeedLabel(next))
     controlsVisible = true
 }

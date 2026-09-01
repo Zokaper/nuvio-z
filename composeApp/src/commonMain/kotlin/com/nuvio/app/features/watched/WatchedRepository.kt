@@ -1,5 +1,7 @@
 package com.nuvio.app.features.watched
 
+import com.nuvio.app.features.social.SocialWatchedActivity
+
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
@@ -791,6 +793,9 @@ object WatchedRepository {
         }
         publish()
         persist()
+        if (source.providerId == null && syncRemote) {
+            SocialWatchedActivity.publish(timestampedItems)
+        }
         if (syncRemote) {
             pushMarksToServer(
                 items = timestampedItems,
@@ -866,6 +871,9 @@ object WatchedRepository {
         if (removedItems.isNotEmpty()) {
             publish()
             persist()
+            if (source.providerId == null) {
+                SocialWatchedActivity.remove(removedItems)
+            }
             pushDeleteToServer(items = removedItems, source = source)
         } else if (source.providerId != null) {
             if (removedExtraKeys) {

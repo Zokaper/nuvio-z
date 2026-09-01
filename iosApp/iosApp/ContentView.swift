@@ -234,7 +234,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
     case home = "Home"
     case search = "Search"
     case library = "Library"
-    case downloads = "Downloads"
+    case social = "Social"
     case settings = "Settings"
 
     var fallbackTitle: String {
@@ -246,7 +246,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case "home": return .home
         case "search": return .search
         case "library": return .library
-        case "downloads": return .downloads
+        case "social": return .social
         case "settings", "profile": return .settings
         default: return nil
         }
@@ -257,7 +257,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case .home: return "NuvioTabHome"
         case .search: return "NuvioTabSearch"
         case .library: return "NuvioTabLibrary"
-        case .downloads: return "NuvioTabDownloads"
+        case .social: return "NuvioTabSocial"
         case .settings: return "NuvioTabProfile"
         }
     }
@@ -267,7 +267,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         case .home: return "house.fill"
         case .search: return "magnifyingglass"
         case .library: return "rectangle.stack.fill"
-        case .downloads: return "arrow.down.circle.fill"
+        case .social: return "person.2.fill"
         case .settings: return "person.crop.circle.fill"
         }
     }
@@ -574,7 +574,7 @@ final class AppNavigationCoordinator: ObservableObject {
         case .home: return homeCoordinator
         case .search: return searchCoordinator
         case .library: return libraryCoordinator
-        case .downloads: return downloadsCoordinator
+        case .social: return downloadsCoordinator
         case .settings: return settingsCoordinator
         }
     }
@@ -603,7 +603,7 @@ final class AppNavigationCoordinator: ObservableObject {
             .home: home,
             .search: search,
             .library: library,
-            .downloads: downloads,
+            .social: downloads,
             .settings: profile,
         ]
         localizedSwitchProfileTitle = switchProfile

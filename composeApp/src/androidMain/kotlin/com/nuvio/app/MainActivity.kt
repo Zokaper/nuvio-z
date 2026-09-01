@@ -62,6 +62,7 @@ import com.nuvio.app.features.updater.AndroidAppUpdaterPlatform
 import com.nuvio.app.core.ui.CardDepthStyleStorage
 import com.nuvio.app.core.ui.PosterCardStyleStorage
 import com.nuvio.app.features.watched.WatchedStorage
+import com.nuvio.app.features.social.SocialStorage
 import com.nuvio.app.features.streams.StreamLinkCacheStorage
 import com.nuvio.app.features.streams.StreamBadgeSettingsStorage
 import com.nuvio.app.features.streams.BingeGroupCacheStorage
@@ -98,6 +99,7 @@ open class MainActivity : AppCompatActivity() {
         ServerConfigurationStorage.initialize(applicationContext)
         LibraryStorage.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)
+        SocialStorage.initialize(applicationContext)
         MetaScreenSettingsStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)

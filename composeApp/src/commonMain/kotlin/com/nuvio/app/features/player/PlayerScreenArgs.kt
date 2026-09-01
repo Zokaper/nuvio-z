@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.ui.Modifier
+import com.nuvio.app.features.watchparty.PartyContent
+import com.nuvio.app.features.watchparty.SourceFingerprint
 
 internal data class PlayerScreenArgs(
     val profileId: Int,
@@ -20,6 +22,7 @@ internal data class PlayerScreenArgs(
     val onOpenExternalUrl: ((String) -> Unit)?,
     val onFatalPlaybackError: (() -> Unit)? = null,
     val onPlaybackStarted: (() -> Unit)? = null,
+    val onStartWatchTogether: ((PartyContent, SourceFingerprint) -> Unit)? = null,
     val modifier: Modifier,
     val logo: String?,
     val poster: String?,

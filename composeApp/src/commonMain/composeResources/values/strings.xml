@@ -2569,4 +2569,25 @@
     <string name="settings_run_setup_again">Run setup again</string>
     <string name="settings_run_setup_again_description">Step through the look and playback choices from the start.</string>
     <string name="compose_about_based_on_version_format">Based on Nuvio %1$s</string>
+
+    <!-- Nuvio Z social foundation. -->
+    <string name="compose_nav_social">Social</string>
+    <string name="social_title">Social</string>
+    <string name="social_disabled">Social features are not enabled on this server yet.</string>
+    <string name="social_handle">Choose your handle</string>
+    <string name="social_handle_help">Use 3–24 lowercase letters, numbers, or underscores. You can keep using the rest of Nuvio Z without setting one.</string>
+    <string name="social_save_handle">Save handle</string>
+    <string name="social_offline_cache">Offline · showing the last saved social feed.</string>
+    <string name="social_inbox">Inbox</string>
+    <string name="social_watching_now">Watching Now</string>
+    <string name="social_recently_watched">Friends Recently Watched</string>
+    <string name="social_no_activity">Nothing here yet. Add friends to see what they watch.</string>
+    <string name="social_friends">Friends</string>
+    <string name="social_search_handle">Search by handle</string>
+    <string name="social_add_friend">Add friend</string>
+    <string name="social_accept">Accept</string>
+    <string name="social_decline">Decline</string>
+    <string name="social_remove_friend">Remove friend</string>
+    <string name="social_share_watching">Share Watching Now</string>
+    <string name="social_share_recent">Share Recently Watched</string>
 </resources>

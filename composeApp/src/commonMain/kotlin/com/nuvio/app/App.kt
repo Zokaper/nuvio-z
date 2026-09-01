@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Replay
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.runtime.LaunchedEffect
@@ -178,6 +179,10 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.LibrarySection
+import com.nuvio.app.features.social.SocialRepository
+import com.nuvio.app.features.social.SocialScreen
+import com.nuvio.app.features.watchparty.WatchPartyRepository
+import com.nuvio.app.features.watchparty.WatchPartyLobbyScreen
 import com.nuvio.app.features.library.LibrarySortOption
 import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.library.librarySectionItemKey
@@ -335,6 +340,7 @@ private val navigationSavedStateConfiguration = SavedStateConfiguration {
         polymorphic(NavKey::class) {
             subclass(TabsRoute::class, TabsRoute.serializer())
             subclass(DetailRoute::class, DetailRoute.serializer())
+            subclass(WatchPartyLobbyRoute::class, WatchPartyLobbyRoute.serializer())
             subclass(PersonDetailRoute::class, PersonDetailRoute.serializer())
             subclass(EntityBrowseRoute::class, EntityBrowseRoute.serializer())
             subclass(SettingsPageRoute::class, SettingsPageRoute.serializer())
@@ -430,7 +436,7 @@ enum class AppScreenTab {
     Home,
     Search,
     Library,
-    Downloads,
+    Social,
     Settings,
     ;
 
@@ -444,7 +450,7 @@ private fun AppScreenTab.toNativeNavigationTab(): NativeNavigationTab = when (th
     AppScreenTab.Home -> NativeNavigationTab.Home
     AppScreenTab.Search -> NativeNavigationTab.Search
     AppScreenTab.Library -> NativeNavigationTab.Library
-    AppScreenTab.Downloads -> NativeNavigationTab.Downloads
+    AppScreenTab.Social -> NativeNavigationTab.Social
     AppScreenTab.Settings -> NativeNavigationTab.Settings
 }
 
@@ -452,7 +458,7 @@ private fun NativeNavigationTab.toAppScreenTab(): AppScreenTab = when (this) {
     NativeNavigationTab.Home -> AppScreenTab.Home
     NativeNavigationTab.Search -> AppScreenTab.Search
     NativeNavigationTab.Library -> AppScreenTab.Library
-    NativeNavigationTab.Downloads -> AppScreenTab.Downloads
+    NativeNavigationTab.Social -> AppScreenTab.Social
     NativeNavigationTab.Settings -> AppScreenTab.Settings
 }
 
@@ -1011,7 +1017,7 @@ private fun MainAppContent(
         val homeScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val searchScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val libraryScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
-        val downloadsScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+        val socialScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val settingsRootActionRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val currentRoute = navBackStack.lastOrNull() as? AppRoute
         // Publishes the real back stack to the debug self-test harness, which drives the routes a
@@ -1110,7 +1116,7 @@ private fun MainAppContent(
     val nativeTabHomeTitle = stringResource(Res.string.compose_nav_home)
     val nativeTabSearchTitle = stringResource(Res.string.compose_nav_search)
     val nativeTabLibraryTitle = stringResource(Res.string.compose_nav_library)
-    val nativeTabDownloadsTitle = stringResource(Res.string.compose_nav_downloads)
+    val nativeTabDownloadsTitle = stringResource(Res.string.compose_nav_social)
     val nativeTabProfileTitle = stringResource(Res.string.compose_nav_profile)
     val nativeSwitchProfileTitle = stringResource(Res.string.compose_settings_root_switch_profile_title)
     val nativeAddProfileTitle = stringResource(Res.string.compose_profile_add_profile)
@@ -1153,13 +1159,7 @@ private fun MainAppContent(
      * own stacks and switches to the Downloads one by itself.
      */
     fun openDownloadsTab() {
-        activateTab(AppScreenTab.Downloads)
-        if (!useNativeNavigation && navController.currentRoute !is TabsRoute) {
-            navController.navigate(TabsRoute) {
-                popUpTo<TabsRoute>()
-                launchSingleTop = true
-            }
-        }
+        navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle))
     }
 
     fun handleRootTabClick(tab: AppScreenTab) {
@@ -1175,7 +1175,7 @@ private fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
-            AppScreenTab.Downloads -> downloadsScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.Social -> socialScrollToTopRequests.tryEmit(Unit)
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
     }
@@ -1442,6 +1442,15 @@ private fun MainAppContent(
         onDispose {
             if (ownsAppRuntime) SyncManager.stopPeriodicNuvioSyncPull()
         }
+    }
+
+    // Z social identity is the stable profile UUID. profileIndex remains local-only legacy state.
+    LaunchedEffect(authState, profileState.activeProfile?.id) {
+        val authenticated = authState as? AuthState.Authenticated
+        val socialProfileId = profileState.activeProfile?.id
+            ?.takeIf { authenticated != null && !authenticated.isAnonymous }
+        SocialRepository.activate(socialProfileId)
+        WatchPartyRepository.setActiveProfile(socialProfileId)
     }
 
     LaunchedEffect(authState, profileState.activeProfile?.profileIndex) {
@@ -2185,10 +2194,10 @@ private fun MainAppContent(
                                             contentDescription = stringResource(Res.string.compose_nav_library),
                                         )
                                         NavItem(
-                                            selected = selectedTab == AppScreenTab.Downloads,
-                                            onClick = { handleRootTabClick(AppScreenTab.Downloads) },
-                                            icon = Icons.Filled.Download,
-                                            contentDescription = stringResource(Res.string.compose_nav_downloads),
+                                            selected = selectedTab == AppScreenTab.Social,
+                                            onClick = { handleRootTabClick(AppScreenTab.Social) },
+                                            icon = Icons.Filled.People,
+                                            contentDescription = stringResource(Res.string.compose_nav_social),
                                         )
                                         NavItem(
                                             selected = selectedTab == AppScreenTab.Settings,
@@ -2222,7 +2231,7 @@ private fun MainAppContent(
                                         homeScrollToTopRequests = homeScrollToTopRequests,
                                         searchScrollToTopRequests = searchScrollToTopRequests,
                                         libraryScrollToTopRequests = libraryScrollToTopRequests,
-                                        downloadsScrollToTopRequests = downloadsScrollToTopRequests,
+                                        socialScrollToTopRequests = socialScrollToTopRequests,
                                         settingsRootActionRequests = settingsRootActionRequests,
                                         animateHomeCollectionGifs = tabsRouteActive,
                                         onCatalogClick = onCatalogClick,
@@ -2245,6 +2254,8 @@ private fun MainAppContent(
                                             )
                                         },
                                         onLibrarySectionViewAllClick = onLibrarySectionViewAllClick,
+                                        onJoinParty = { code -> navController.navigate(WatchPartyLobbyRoute(inviteCode = code)) },
+                                        onJoinInvitedParty = { partyId -> navController.navigate(WatchPartyLobbyRoute(partyId = partyId)) },
                                         onCloudFilePlay = { item, file ->
                                             coroutineScope.launch {
                                                 val resumeItem = WatchProgressRepository
@@ -2422,11 +2433,11 @@ private fun MainAppContent(
                                             label = stringResource(Res.string.compose_nav_library),
                                         )
                                         NavItem(
-                                            selected = selectedTab == AppScreenTab.Downloads,
-                                            onClick = { handleRootTabClick(AppScreenTab.Downloads) },
-                                            icon = Icons.Filled.Download,
-                                            contentDescription = stringResource(Res.string.compose_nav_downloads),
-                                            label = stringResource(Res.string.compose_nav_downloads),
+                                            selected = selectedTab == AppScreenTab.Social,
+                                            onClick = { handleRootTabClick(AppScreenTab.Social) },
+                                            icon = Icons.Filled.People,
+                                            contentDescription = stringResource(Res.string.compose_nav_social),
+                                            label = stringResource(Res.string.compose_nav_social),
                                         )
                                         NavItem(
                                             selected = selectedTab == AppScreenTab.Settings,
@@ -2456,6 +2467,20 @@ private fun MainAppContent(
                         type = route.type,
                         id = route.id,
                         onBack = onBack,
+                        onWatchTogether = { content ->
+                            navController.navigate(
+                                WatchPartyLobbyRoute(
+                                    contentId = content.contentId,
+                                    contentType = content.contentType,
+                                    videoId = content.videoId,
+                                    title = content.title,
+                                    poster = content.poster,
+                                    season = content.season,
+                                    episode = content.episode,
+                                    episodeTitle = content.episodeTitle,
+                                ),
+                            )
+                        },
                         onPlay = onPlay,
                         onPlayManually = onPlayManually,
                         onDownloadManually = onDownloadManually,
@@ -2519,6 +2544,12 @@ private fun MainAppContent(
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = animatedVisibilityScope,
                         modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                entry<WatchPartyLobbyRoute> { route ->
+                    WatchPartyLobbyScreen(
+                        route = route,
+                        onBack = rememberGuardedPopBackStack(navController, route),
                     )
                 }
                 entry<PersonDetailRoute> { route ->
@@ -4643,6 +4674,24 @@ private fun MainAppContent(
                         initialProgressFraction = launch.initialProgressFraction,
                         contentLanguage = launch.contentLanguage,
                         onBack = onBackToDetails,
+                        onStartWatchTogether = { content, fingerprint ->
+                            navController.navigate(
+                                WatchPartyLobbyRoute(
+                                    contentId = content.contentId,
+                                    contentType = content.contentType,
+                                    videoId = content.videoId,
+                                    title = content.title,
+                                    poster = content.poster,
+                                    season = content.season,
+                                    episode = content.episode,
+                                    episodeTitle = content.episodeTitle,
+                                    sourceAddonId = fingerprint.addonId,
+                                    sourceInfoHash = fingerprint.infoHash,
+                                    sourceFileIndex = fingerprint.fileIndex,
+                                    sourceReleaseFingerprint = fingerprint.releaseFingerprint,
+                                ),
+                            )
+                        },
                         onOpenInExternalPlayer = { request ->
                             val playerLaunch = PlayerLaunch(
                                 profileId = launch.profileId,
@@ -5436,7 +5485,7 @@ private fun AppTabHost(
     homeScrollToTopRequests: Flow<Unit>,
     searchScrollToTopRequests: Flow<Unit>,
     libraryScrollToTopRequests: Flow<Unit>,
-    downloadsScrollToTopRequests: Flow<Unit>,
+    socialScrollToTopRequests: Flow<Unit>,
     settingsRootActionRequests: Flow<Unit>,
     animateHomeCollectionGifs: Boolean = true,
     onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
@@ -5445,6 +5494,8 @@ private fun AppTabHost(
     onLibraryPosterClick: ((LibraryItem) -> Unit)? = null,
     onLibraryPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
     onLibrarySectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
+    onJoinParty: ((String) -> Unit)? = null,
+    onJoinInvitedParty: ((String) -> Unit)? = null,
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
@@ -5518,16 +5569,19 @@ private fun AppTabHost(
                         onCloudFilePlay = onCloudFilePlay,
                         onConnectCloudClick = onConnectCloudClick,
                         disintegrationRequest = libraryDisintegrationRequest,
+                        onDownloadsClick = onDownloadsSettingsClick,
                     )
                 }
 
-                AppScreenTab.Downloads -> {
-                    DownloadsScreen(
-                        onOpenDownload = onOpenDownload ?: {},
-                        scrollToTopRequests = downloadsScrollToTopRequests,
-                        onNavigateToShow = onDownloadShowClick,
-                        onOpenSettings = onDownloadsSettingsClick,
-                        onChooseBatchEntryManually = onChooseBatchEntryManually,
+                AppScreenTab.Social -> {
+                    SocialScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        scrollToTopRequests = socialScrollToTopRequests,
+                        onOpenContent = { type, id, title ->
+                            onPosterClick?.invoke(MetaPreview(id = id, type = type, name = title, poster = null))
+                        },
+                        onJoinParty = onJoinParty ?: {},
+                        onJoinInvitedParty = onJoinInvitedParty ?: {},
                     )
                 }
 
@@ -5641,15 +5695,15 @@ private fun TabletFloatingTopBar(
                     },
                 )
                 TabletTopPillItem(
-                    label = stringResource(Res.string.compose_nav_downloads),
-                    selected = selectedTab == AppScreenTab.Downloads,
-                    onClick = { onTabSelected(AppScreenTab.Downloads) },
+                    label = stringResource(Res.string.compose_nav_social),
+                    selected = selectedTab == AppScreenTab.Social,
+                    onClick = { onTabSelected(AppScreenTab.Social) },
                     icon = {
                         Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = stringResource(Res.string.compose_nav_downloads),
+                            imageVector = Icons.Filled.People,
+                            contentDescription = stringResource(Res.string.compose_nav_social),
                             modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = if (selectedTab == AppScreenTab.Downloads) {
+                            tint = if (selectedTab == AppScreenTab.Social) {
                                 tokens.colors.textPrimary
                             } else {
                                 tokens.colors.textMuted

@@ -164,6 +164,7 @@ object WatchingActions {
             poster = entry.poster,
             season = entry.seasonNumber,
             episode = entry.episodeNumber,
+            videoId = entry.videoId,
             markedAtEpochMs = entry.lastUpdatedEpochMs,
         )
         WatchedRepository.markWatchedFromPlaybackCompletion(watchedItem, syncRemote = syncRemote)

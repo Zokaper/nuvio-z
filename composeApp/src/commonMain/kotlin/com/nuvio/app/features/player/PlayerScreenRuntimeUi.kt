@@ -7,8 +7,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.downloads.SourceFactsExtractor
@@ -25,6 +30,9 @@ import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
+import com.nuvio.app.features.watchparty.PartyContent
+import com.nuvio.app.features.watchparty.SourceFingerprint
+import com.nuvio.app.features.watchparty.normalizeReleaseFingerprint
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -214,6 +222,33 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             )
         }
 
+        if (controlsVisible && !playerControlsLocked && args.onStartWatchTogether != null) {
+            Button(
+                onClick = {
+                    playerController?.pause()
+                    args.onStartWatchTogether?.invoke(
+                        PartyContent(
+                            contentId = parentMetaId,
+                            contentType = parentMetaType,
+                            videoId = playbackSession.videoId,
+                            title = title,
+                            poster = poster,
+                            season = activeSeasonNumber,
+                            episode = activeEpisodeNumber,
+                            episodeTitle = activeEpisodeTitle,
+                        ),
+                        SourceFingerprint(
+                            addonId = activeProviderAddonId,
+                            infoHash = activeTorrentInfoHash,
+                            fileIndex = activeTorrentFileIdx,
+                            releaseFingerprint = normalizeReleaseFingerprint(activeStreamTitle),
+                        ),
+                    )
+                },
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 52.dp, end = 20.dp),
+            ) { Text("Watch Together") }
+        }
+
         AnimatedVisibility(
             visible = pausedOverlayVisible && !controlsVisible && !playerControlsLocked,
             enter = fadeIn(animationSpec = tween(durationMillis = 220)),
@@ -369,6 +404,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 isScrubbingTimeline = false
                 scrubbingPositionMs = null
                 playerController?.seekTo(positionMs)
+                submitPartySeek(positionMs)
                 scheduleProgressSyncAfterSeek()
             },
             horizontalSafePadding = horizontalSafePadding,

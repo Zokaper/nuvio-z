@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.ViewAgenda
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -107,6 +108,7 @@ fun LibraryScreen(
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     disintegrationRequest: DisintegrationRequest<String>? = null,
+    onDownloadsClick: () -> Unit = {},
 ) {
     val uiState by remember {
         LibraryRepository.ensureLoaded()
@@ -309,6 +311,17 @@ fun LibraryScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                     }
+                }
+            }
+
+            item(key = "z-library-downloads-shortcut") {
+                Button(
+                    onClick = onDownloadsClick,
+                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(Res.string.compose_nav_downloads))
                 }
             }
 
