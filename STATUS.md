@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-30
+Last updated: 2026-09-01
 
 | | |
 | --- | --- |
@@ -9,9 +9,77 @@ Last updated: 2026-08-30
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
 | Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
-| **Not** verified | the corrected transition and desktop HTML button still need a device/install pass. The startup watchdog remains parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
-| Next work | Device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18` were published 2026-08-30 from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+| **Not** verified | Social backend migrations have not been deployed to any real project; both capabilities remain off. They now apply cleanly and pass 54 pgTAP assertions on a local stack, but nothing has run against staging, and no client has yet talked to a live social server. Social/party behavior still needs two-profile and multi-client staging and manual iOS. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
+| Next work | Deploy the migrations to staging, enable Social only, run the two-profile acceptance matrix, then enable Watch Together after Android↔desktop and Android↔iOS validation. Stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop reached `debug-v0.5.0-beta.21` on 2026-08-31, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Social foundation and Watch Together implementation (2026-09-01)
+
+A new private `Zokaper/nuvio-z-backend` repository now owns versioned social/party migrations,
+RPC-only mutation boundaries, RLS/private-Realtime authorization, throttling and pgTAP coverage.
+The KMP client has Realtime installed, stable profile-UUID activation, handle/friend/feed UI,
+offline activity outbox, sanitized player presence, Home rows, a Social root tab, retained Downloads
+routes plus a Library shortcut, and Watch Together lobby/player synchronization primitives.
+Backend capabilities default off, so an undeployed or older server disables the surfaces cleanly.
+
+The plan itself was only ever held in a Codex session; it is now checked in as
+`Docs/SOCIAL-WATCH-TOGETHER-PLAN.md` and is the source of truth for this work.
+
+Verified on 2026-09-01: `:composeApp:compileAndroidMain` and `:composeApp:testAndroidHostTest` pass
+in `nuvio-z`. The desktop port landed the same day and is covered below. Backend deployment,
+staging E2E and the iOS workflow remain required before either gate is enabled.
+
+### Desktop port (2026-09-01)
+
+`nuviozdesktop` now carries the shared `features/social` and `features/watchparty` packages, a
+`DesktopStorage`-backed `SocialStorage` actual, Realtime installed on its Supabase client, the
+`WatchPartyLobbyRoute`, Home social rows, the details and player Watch Together entries, and the
+watched-activity publish/remove hooks. Three divergences from mobile are deliberate and recorded in
+`Docs/PATCH-SURFACE.md`: Social is added *beside* the desktop Downloads sidebar entry rather than
+replacing it, the Library Downloads shortcut is not ported, and the Watch Together entry is inserted
+into both of desktop's mutually exclusive detail layouts. Folding Downloads into Library is a
+separate pass the maintainer has deferred.
+
+### The backend SQL had never been executed until 2026-09-01
+
+Codex wrote the migrations but no database ever ran them. Installing the Supabase CLI and standing
+up a local stack changed that, and `scripts/test-db.sh` now resets a database, applies all seven
+migrations and runs the pgTAP suite in one command: **54 assertions across 3 files, all passing.**
+
+`public.profiles` belongs to the main Nuvio project, not to the backend repository, so a fresh
+database cannot apply migration 0001 unaided. `supabase/fixtures/` holds a local-only stand-in that
+the script stages as a temporary first migration and always removes again, so it can never reach a
+real project through `supabase db push`.
+
+Executing the SQL immediately found a **blocking bug**. `party_change_broadcast_trigger` picked the
+party id with a single CASE expression referencing both `new.id` and `new.party_id`. PL/pgSQL
+compiles that assignment as one SQL expression and resolves every field in it against the real row
+type regardless of branch, so inserting into `watch_parties` raised `record "new" has no field
+"party_id"`. **Every watch party creation failed**, which also meant invites, joins and the whole
+party flow were dead. `202609010007_fix_party_broadcast_trigger.sql` splits the branches so only the
+field that exists on the triggering table is dereferenced.
+
+The suite also grew beyond the original structural checks. `social_authorization.sql` drives real
+`request.jwt.claims` through the RPCs to prove that profile impersonation is refused on every
+mutation, that the two sharing toggles gate independently, that unfriending revokes feed access at
+once, and that watched publishing is idempotent. `party_security.sql` pushes a payload containing a
+stream URL, request headers, a debrid token and an addon key through `party_create` and asserts none
+of it survives into the snapshot every guest receives, while the legitimate info hash still does.
+
+### Two fixes found while verifying (2026-09-01)
+
+`202609010006_sanitize_party_payloads.sql` adds a server-side key whitelist for
+`watch_parties.content`, `.source_fingerprint` and `.quality_intent`. Those columns were free-form
+`jsonb` written verbatim from client input, and `party_snapshot` fans the whole row out to every
+member, so a buggy or hostile client could have published a resolved stream URL, request headers, an
+addon credential or a debrid identifier to the party. The plan places that guarantee on the RPC
+layer, not only on the client, and it is now enforced there, and `party_security.sql` proves it
+end to end rather than only unit-testing the projection.
+
+`generateInviteCode` drew from `kotlin.random.Random`, whose sequence is predictable once a few
+outputs are observed. Party invite codes are a bearer credential, so both repositories now derive
+them from `Uuid.random`, which is specified to use the platform secure generator on every target.
+The 32-character alphabet keeps the five-bit mask uniform.
 
 ## Correcting the stale next-episode debug builds (2026-08-30)
 
