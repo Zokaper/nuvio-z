@@ -20,8 +20,8 @@ position". **The propagation half is fixed and measured.** From the most recent 
 `ageMs` is `now + serverClockOffsetMs - payload.server_time`, so end-to-end broadcast propagation is
 now **~225ms**, against a measured RTT of 284ms. It was 0–5000ms.
 
-Two bugs remain, both reproduced in that same session, neither related to propagation. They are §3
-and §4 and they are the whole of the remaining work.
+The remaining work is §3 (fixed, needs on-device confirmation), §3b and §4. None of it is about
+propagation.
 
 ---
 
@@ -60,50 +60,84 @@ splits the member trigger so a bare `last_seen_at` bump broadcasts nothing. That
 
 ---
 
-## 3. OPEN BUG 1 — a party frozen in `buffering` never recovers
+## 3. FIXED, NEEDS ON-DEVICE CONFIRMATION — the host latched `buffering` forever
 
-**Symptom as reported:** "it plays a few seconds then it pauses on non-hosts while the host
-continues."
+**Symptom as reported:** "we both loaded in, both started playing, then about two seconds later it
+says waiting for host on his client again, and mine continued."
 
-**Evidence.** From 10:38:53 to 10:43:05 — over four minutes — every snapshot is identical:
+**Evidence — the host's own log, the user hosting this time.** For minutes on end, every heartbeat
+republishes the same thing:
 
 ```
-status=buffering seq=1 positionMs=16400 updatedAt=...  members=[f662ef78:host:ready:up, ...]
-10:39:39.788  members=[f662ef78:host:resolving:up,   ...]
-10:42:50.454  members=[f662ef78:host:resolving:down, ...]
-10:43:05.568  Warn: host f662ef78 gone past grace, claiming
+10:52:10.511  state viewer=d3397924 party=7dd29ae2 status=buffering seq=2 positionMs=10244 host=d3397924
+              members=[d3397924:host:ready:up, f662ef78:participant:ready:up]
+10:52:15.751  state ... status=buffering seq=2 positionMs=10244 ...
+10:52:20.985  state ... status=buffering seq=2 positionMs=10244 ...
 ```
 
-and the guest sits at `hold seq=1 status=buffering localMs=10160 expectedMs=16400` the whole time.
+`updatedAt` advances every ~5s, so the host *is* heartbeating; `status` and `positionMs` never move.
 
-**Mechanism.** The host's source failed, so it left the player screen. `party_heartbeat` only writes
-position and status **when the caller is the host and `p_position_ms` is not null**
-(`202609010003_watch_party_rpc_and_realtime.sql:96-100`). The repository's *poll* heartbeat sends no
-position, so once the host's *player* heartbeat stops, the party row freezes at whatever it last
-carried — here `buffering` at 16400 — and stays there indefinitely. The guest correctly obeys a
-`buffering` status by holding, so it holds forever.
+**Mechanism — a regression introduced by the intent-aware status change.** `reportedStatus` was
+computed in the composable body and read inside
 
-Note `applied=false` on later broadcasts is **correct**: the monotonicity guard rejects payloads
-whose `(sequence, state_updated_at)` has not advanced. It is a symptom, not the bug.
+```kotlin
+LaunchedEffect(generationKey) { while (true) { ... status = reportedStatus ...; delay(5s) } }
+```
 
-**Where to fix.** Options, roughly in order of preference:
+That effect is keyed **only on the generation**, so the value is captured from the composition pass
+that launched it and never updated. The loop launches the moment playback starts, when
+`shouldPlay` is true and `isPlaying` has not turned true yet — which maps to `buffering`. The host
+therefore latched `buffering` and republished it every five seconds for the rest of the session.
 
-1. **Give `buffering` a deadline in the guest.** In `PlayerWatchPartyEffect.kt`, if the party has
-   been `buffering` with an unchanged `sequence`/`state_updated_at` for more than ~10–15s, stop
-   holding — either resume at the extrapolated position or surface a banner. A party's buffering
-   state should never be able to pause someone indefinitely.
+`partyPlaybackGate` turns *any* non-`playing` status into `WAITING_FOR_HOST` for every non-host:
+
+```kotlin
+if (party.status == WatchPartyStatus.playing) return allow
+if (party.hostProfileId != viewerProfileId) return WAITING_FOR_HOST
+```
+
+So the guest sat on "waiting for host" indefinitely while the host played on. Both halves of the
+report, one cause.
+
+**Fixed** by deriving the status inside each heartbeat from the snapshot that pass just read, via a
+top-level `partyStatusFor(snapshot, shouldPlay)` in `PlayerWatchPartyEffect.kt`. The
+composable-level `reportedStatus` now serves only as the key for the immediate-publish effect.
+Compiles; **not yet confirmed on device.**
+
+⚠ **The general trap:** `LaunchedEffect(generationKey)` runs for the life of a party. Anything it
+closes over from composition is frozen at launch. `playbackSnapshot` is safe because it is re-read
+from the runtime each pass; a plain `val` computed in the composable body is not.
+
+**Confirm it is fixed:** host a party, start playback, and watch the host log. `status` must reach
+`playing` and `positionMs` must advance. If `status=buffering` with a frozen position repeats, this
+has regressed.
+
+## 3b. STILL OPEN — a frozen party has no recovery
+
+Independent of §3, and seen in the earlier 10:37 session where the *guest's* host abandoned a failed
+source: `party_heartbeat` only writes position and status when the caller is the host **and**
+`p_position_ms` is not null (`202609010003_watch_party_rpc_and_realtime.sql:96-100`). The
+repository's poll heartbeat sends no position, so once a host's *player* stops heartbeating the row
+freezes at its last value and every guest obeys it indefinitely — four minutes of
+`hold seq=1 status=buffering localMs=10160 expectedMs=16400` in that log.
+
+`applied=false` on the broadcasts afterwards is **correct** — the monotonicity guard rejecting
+payloads whose `(sequence, state_updated_at)` has not advanced. Symptom, not cause.
+
+Candidate fixes, preferred first:
+
+1. **Give `buffering` a deadline on the guest.** If the party has been `buffering` with an unchanged
+   `sequence`/`state_updated_at` for ~10–15s, stop holding: resume at the extrapolated position, or
+   surface a banner. A party's buffering state must never pause someone indefinitely. This is the
+   safety net that would have contained §3 too.
 2. **Expire a stale host server-side.** `party_heartbeat` already flips members to
-   `connected = false` after 15s of silence (`…0003…sql:90-91`). Extend that: when the *host* goes
-   disconnected while `status = buffering`, move the party to `paused` so it stops looking live.
-3. **Make the poll heartbeat carry position** when the local player has one, so the party row keeps
-   moving even when the player screen is not driving it. Careful: this must not let a guest write
-   host state — the `v_is_host` guard already prevents that.
+   `connected = false` after 15s (`…0003…sql:90-91`); when the *host* goes disconnected while
+   `status = buffering`, move the party to `paused`.
+3. **Soften the gate.** `WAITING_FOR_HOST` for any non-`playing` status is very blunt — a host
+   buffering for 300ms should not read as "waiting for host" at all.
 
-The host-claim path did eventually fire (`gone past grace, claiming` at 10:43:05), so recovery
-exists; it is just gated on the 15s *connection* grace, which a host that is still connected but
-stuck in source resolution never trips.
-
----
+The host-claim path does eventually fire (`host … gone past grace, claiming`), but it is gated on the
+15s *connection* grace, which a host that is still connected but stuck never trips.
 
 ## 4. OPEN BUG 2 — leaving a broken party strands the client (partly fixed, unverified)
 
@@ -221,6 +255,7 @@ Latest is `debug-v0.5.0-beta.33`.
 | `NuvioZDesktop` | `9025a047` | the sync fixes in §2 |
 | `NuvioZDesktop` | `b7dc9370` | `DEBUG_BUILD` → 33 |
 | `NuvioZDesktop` | `d9fb00a5` | the `leave()` fix in §4 — compiles, untested on device |
+| `NuvioZDesktop` | `4b287aa1` | the latched-`buffering` fix in §3 — compiles, untested on device |
 | `nuvio-z` | `ae62ec18` | shared half, head start, unrun |
 | `nuvio-z-backend` | `a5e7b84` | migration + 4 pgTAP assertions; **applied to production** |
 
