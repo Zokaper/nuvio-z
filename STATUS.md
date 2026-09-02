@@ -8,10 +8,39 @@ Last updated: 2026-09-02
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
-| **Not** verified | No client has yet completed a real token exchange, so nothing has proven a Nuvio identity can reach the Z backend end to end. In particular it is unconfirmed whether `admin.createUser` accepts an explicit `id`; if it does not, the Z user id cannot be the official auth subject and a mapping column is needed. Desktop client wiring is written but untested against the live project, mobile is not yet ported, and both capabilities remain off. Social/party behavior still needs two-profile and multi-client testing and manual iOS. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
-| Next work | Get one real exchange through from the desktop client, which settles the `createUser` id question, then port the wiring to mobile. Then enable Social only, run the two-profile acceptance matrix, and enable Watch Together after Android↔desktop and Android↔iOS validation. Stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop reached `debug-v0.5.0-beta.21` on 2026-08-31, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the follow-up recovery/control fixes compile and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
+| **Not** verified | The latest desktop Watch Together recovery/control fixes still need a two-device install pass: host status/position must advance after start, every host transport action must bump `sequence`, a frozen buffering episode must release the guest after 12 seconds, and offline Leave/End must permit a new party immediately. Mobile is still not wired to the Z backend, and manual iOS verification remains outstanding. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
+| Next work | Run the focused two-desktop Watch Together matrix recorded below, then publish the next desktop debug build if it passes. Port the already-carried shared work only after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop `debug-v0.5.0-beta.34` was published 2026-09-02 from `2383ac75`, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Desktop Watch Together recovery and control audit (2026-09-02)
+
+The remaining desktop fixes landed on `codex/next-episode-debug-hotfix` in commits `d6f2e440` and
+`2383ac75`, continuing commits `d9fb00a5` and `4b287aa1`:
+
+- A guest now labels a transient host stall as **Host is buffering**, holds for at most 12 seconds,
+  then resumes if the same generation and command sequence remain stuck. The timeout deliberately
+  ignores `state_updated_at`, because the latched-buffering regression kept refreshing that timestamp
+  every five seconds without changing the sequence or position and would otherwise renew the hold
+  forever. A real status/sequence transition cancels or resets the recovery.
+- Every inspected desktop user seek path now submits the party command: native-fallback double tap,
+  the native scrub bar, the Compose scrub bar, horizontal swipe, and skip-intro/outro. Play/pause,
+  seek-by, and playback speed were already covered. The on-device invariant is one `sequence` bump
+  for every permitted host action.
+- Leave and End clear the held party, poll and realtime channel before issuing a bounded background
+  RPC. This also covers `end()` failing before its RPC block because session refresh was unavailable;
+  local teardown no longer depends on any network operation returning.
+- Expected-position arithmetic now uses `Double`, preserving millisecond precision for long content
+  rather than promoting the whole sum to 24-bit `Float` precision.
+
+**Verified:** `:composeApp:compileKotlinDesktop` passes; the focused
+`WatchPartyModelsTest` run passes 14/14; the full `:composeApp:desktopTest` run passes 1,318/1,318
+with no failures or skips. Desktop debug workflow `33611263629` built, verified and published the
+Windows x64 MSI and unsigned macOS arm64 DMG as `debug-v0.5.0-beta.34`. Device verification remains
+required: confirm the host reaches `playing`
+with an advancing position, force or reproduce an unchanged `buffering` sequence for more than 12
+seconds and confirm the guest resumes, exercise every host transport path while watching `sequence`,
+and press Leave/End with the network down before creating a new party.
 
 ## Watch Together sync fixes carried ahead of the mobile port (2026-09-02)
 
