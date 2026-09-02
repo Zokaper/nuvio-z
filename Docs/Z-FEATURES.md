@@ -53,7 +53,7 @@ whole Swift side is uncompiled. An `iOS: yes` below means "shared code, no iOS-s
 | --- | --- | --- | --- | --- | --- | --- |
 | **S1** | **Mutual friends and social profiles** — stable profile-UUID identity, unique handles, requests, removal, separate live/recent privacy controls, private Realtime invalidations and offline feed cache. | **branch** | yes | yes* | yes | **no** |
 | **S2** | **Watching Now and Friends Recently Watched** — sanitized 20-second playback presence with a 90-second server TTL, permanent idempotent watched events, consecutive episode runs, Home rows and the Social tab. Provider imports never create activity. | **branch** | yes | yes* | yes | **no** |
-| **S3** | **Watch Together** — private eight-profile lobby, invite codes, independent source fingerprints, host/collaborative commands, five-second snapshots, clock correction, drift convergence and deterministic host transfer. | **branch** | yes | yes* | yes | **no** |
+| **S3** | **Watch Together** — private eight-profile lobby, invite codes, independent source fingerprints, host/collaborative commands, deterministic host transfer, and a timing plane carried between clients over the party channel: positions paired with the instant they were read, a host-anchored clock, and play and seek scheduled at a shared instant. Desktop only so far, and not yet verified against a live party. | **branch** | yes | yes* | yes | **no** |
 
 Both capabilities default off in the backend and must be enabled independently after migrations and staging checks. Letterboxd, provider-history ingestion, OS push and NuvioZWeb are intentionally outside this release. `yes*` retains the standing manual-iOS verification caveat.
 

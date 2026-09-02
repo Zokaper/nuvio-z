@@ -4,14 +4,80 @@ Last updated: 2026-09-02
 
 | | |
 | --- | --- |
-| Active branch | `codex/next-episode-debug-hotfix` in **both** repositories, based on the synced `claude/upstream-doctrine-stage0` line |
+| Active branch | `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because the rework is deliberately desktop-first until it is verified on two machines. |
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. |
-| **Not** verified | Desktop `debug-v0.5.0-beta.35` still needs a two-client install pass: a real host buffer must pause the guest promptly, repeated host buffering heartbeats must keep it paused, and the guest must resume only after the host reports `playing`. Every host transport action must bump `sequence`, and offline Leave/End must permit a new party immediately. Mobile is still not wired to the Z backend, and manual iOS verification remains outstanding. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
-| Next work | Run the focused two-desktop Watch Together matrix against `debug-v0.5.0-beta.35`, especially a real host rebuffer and recovery. Port the already-carried shared work only after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop `debug-v0.5.0-beta.35` was published 2026-09-02 from `f0aef43f`, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. For the sync rework: `scripts/run-pure-suites.sh` passes all six groups (131, 64, 49, 17, 29, 42) with the new group 6 compiling the shipped sync sources and no stubs, and desktop CI `33627311248` passes the full `:composeApp:desktopTest` run and the Windows MSI build. |
+| **Not** verified | **Nothing in the Watch Together sync rework has run against a live party.** It compiles and both suites pass, and that is all: the party clock, the tick, the barriers and the wait-for-everyone policy have never had two machines on them. The matrix is cold start; pause and resume ten times, measuring the spread; seek ten times; a real host rebuffer; a real guest rebuffer with the toggle on and off; host migration; the socket killed mid-film; and a `debug-v0.5.0-beta.36` client against a `.35` one, which must degrade to the old five-second behaviour rather than break. Carried forward from `debug-v0.5.0-beta.35` and still open independently of the rework: every host transport action must bump `sequence`, offline Leave/End must permit a new party immediately, and the corrected next-episode transition and the desktop HTML button still need a device/install pass. Mobile is still not wired to the Z backend and has none of this; manual iOS verification remains outstanding. |
+| Next work | Run the two-desktop Watch Together matrix against `debug-v0.5.0-beta.36` with the playback HUD on, and read `errMs` off the screen rather than diffing two logs. Nothing in the rework has been measured between two machines. Port to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | desktop `debug-v0.5.0-beta.36` carries the sync rework, published 2026-09-02 from `claude/watch-together-sync-7ceki1`; `debug-v0.5.0-beta.35` from `f0aef43f` is the build the current sync report came from. Mobile `debug-v0.5.0-beta.25` was published 2026-08-30. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Watch Together sync: the timing plane moved off the database (2026-09-02)
+
+Landed on `NuvioZDesktop` branch `claude/watch-together-sync-7ceki1`. **Desktop only, and
+unverified against a live party** - see the table above.
+
+The "few seconds apart, pause is slow, unpause jumps" report is one design fault with three
+faces, and none of them was a tuning problem:
+
+- **The anchor was biased.** Party state carried `(position_ms, state_updated_at)`, where the
+  position was a host sample lifted from a 500ms Compose polling loop and the timestamp was the
+  *server's* `now()` at commit. Those are different instants, so every guest computed a position
+  behind the host by the host's sample age plus its uplink - a constant, re-applied on every
+  anchor, invisible from either side because both machines computed the same wrong number.
+  `WatchPartyDriftDeadbandMs = 750` then declared that in sync, which is why no amount of
+  correction tuning ever moved it.
+- **A pause took two server hops** - PostgREST, a Postgres write, a trigger calling
+  `realtime.send`, then Realtime - for which the recorded best case was about 225ms.
+- **Every transition jumped by construction.** A guest was handed `position + delay` on resume
+  and jumped forward by exactly the delay it had spent waiting; on pause it played on and was
+  seeked backwards.
+
+Postgres keeps everything it was already good at - membership, readiness, the host's identity,
+content, the late-joiner snapshot, every authorization decision. What moved is the timing plane,
+onto the private party channel that was already open and already RLS-gated. **No backend
+migration.**
+
+- The position now travels with **the instant it was read**. `PlayerEngineController` gained
+  `samplePositionMs()`, answered on desktop straight off the mpv handle, and the host broadcasts
+  that pair twice a second. This is the single change that removes the standing offset.
+- The party clock is the **host's**, estimated NTP-style over the same socket the positions
+  arrive on: min-RTT selection across a sliding window, slew-limited once locked, re-locked on a
+  step no drift could produce. It replaces three PostgREST round trips taken once at party start
+  and never again.
+- Play and seek are **barriers**: a position and the party instant to be playing it at, executed
+  by every client including the host through one code path. Pause deliberately carries no lead
+  and aligns while paused, where closing a gap costs one frame rather than a visible jump.
+- Bands retuned for an unbiased anchor - deadband 750ms to 200ms, seek 4s to 1.5s, with a seek
+  needing the gap seen twice. The old bands are kept intact as `partyFallbackDriftCorrection` for
+  the database path, which is still biased; exactly one of the two paths runs at a time.
+- The host holds the party for a guest stalled past 1.5s and starts everyone together again,
+  behind a lobby toggle. It is host-side and this session only: there is no party settings
+  surface to persist it into yet.
+- A guest without control can no longer move its own player. It always could - the press looked
+  like it worked and silently desynced them - and it now says why instead.
+
+**Three faults were found by executing rather than reading.** `minByOrNull` keeps the *first*
+minimum, and on a steady link every round trip measures the same, so the opening exchange of a
+party won every comparison for the life of the window and the clock estimate could never move. A
+barrier scheduled against an offset of zero - which means "no estimate", not "no error" - would
+be either far in the future or long past. And three helpers were top-level extensions the player
+file never imported: eight files passed the `kotlinc` parser check cleanly while none of them
+compiled, which is exactly the gap `AGENTS.md` names about that check. Only CI could see it.
+
+The decision layer is deliberately import-free, for the reason `core/media/ReleaseTags.kt` is:
+Gradle cannot configure in the agent sandbox, and two clients disagreeing about a clock is not
+something a single-machine build can find. `scripts/run-pure-suites.sh` gained a **group 6** that
+compiles the shipped sync sources - no stubs - and runs 42 tests against them.
+
+A Watch Together row was added to the playback HUD (`errMs`, `offsetMs`, `rttMs`, `tickAgeMs`),
+so the two-client matrix can be read off the screen instead of by lining up two log files
+afterwards. Every previous round of this work was measured the second way.
+
+**Verified:** all six pure-suite groups pass (131, 64, 49, 17, 29, 42); desktop CI
+`33627311248` passes `:composeApp:desktopTest` in full and builds the Windows MSI.
+**Not verified:** anything requiring two machines. Nothing here has met a live party.
 
 ## Desktop Watch Together recovery and control audit (2026-09-02)
 
