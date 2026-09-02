@@ -9,6 +9,46 @@ const val WatchPartyMaxParticipants = 8
 const val WatchPartyHostGraceMs = 15_000L
 const val WatchPartySnapshotIntervalMs = 5_000L
 
+/**
+ * A refused private topic never reports itself subscribed - the client library retries the join in
+ * the background and `subscribe(blockUntilSubscribed = true)` simply never returns - so the wait
+ * needs a deadline of its own to be a wait at all rather than a coroutine parked for the life of
+ * the app.
+ */
+const val WatchPartyChannelSubscribeTimeoutMs = 12_000L
+
+/** Leaving a channel sends over the socket that has just failed, so it is bounded for the same reason. */
+const val WatchPartyChannelCloseTimeoutMs = 3_000L
+
+/** Drift the guest lives with: below this, correcting is more visible than the error. */
+const val WatchPartyDriftDeadbandMs = 750L
+
+/**
+ * Above this a nudge cannot close the gap inside [WatchPartyNudgeWindowMs] without an audible
+ * pitch shift, so the guest seeks and accepts the rebuffer.
+ */
+const val WatchPartySeekThresholdMs = 4_000L
+
+/** How long a speed nudge is given to close the gap it was chosen for. */
+const val WatchPartyNudgeWindowMs = 10_000L
+
+/**
+ * Bound on the nudge, as a fraction of the party's shared speed. The player preserves pitch, so
+ * +-10% is unobjectionable across a few seconds of dialogue; past that it is audible.
+ */
+const val WatchPartyMaxNudgeRate = 0.10f
+
+/**
+ * How far ahead of the party a corrective seek aims.
+ *
+ * Seeking to where the party is *now* lands the guest where the party *was* by the time the seek
+ * completes: the shared clock runs on through the rebuffer, so the guest resumes exactly one
+ * rebuffer behind, measures the same drift again, and seeks again. Leading by roughly the cost of
+ * resuming is what makes one correction one correction. Seeded from media3's own
+ * `DEFAULT_BUFFER_FOR_PLAYBACK_MS`, which is the gate a post-seek resume actually waits on.
+ */
+const val WatchPartySeekLeadMs = 2_500L
+
 @Serializable
 enum class WatchPartyControlMode { host_only, collaborative }
 
@@ -102,19 +142,55 @@ fun expectedPartyPositionMs(
     return (statePositionMs + elapsed * playbackSpeed).toLong().coerceAtLeast(0L)
 }
 
+/**
+ * Chooses how a guest closes the gap between where it is and where the party says it should be.
+ *
+ * A seek is the expensive option, not the safe one: on Android it is a rebuffer, and a rebuffer
+ * does not resume until `bufferForPlaybackAfterRebufferMs` of media is held. A guest that seeks on
+ * every correction therefore stalls, falls further behind while stalled, and is handed a *larger*
+ * drift on the next pass - a loop that settles at roughly the rebuffer cushion and never leaves.
+ * So the nudge band has to be wide enough, and the nudge itself strong enough, to be the ordinary
+ * answer; seeking is reserved for a gap no nudge can close.
+ *
+ * The old fixed 1.03x could not: it recovered 300ms over its ten second hold, against a band that
+ * admitted gaps up to 2,500ms. Every drift that mattered escalated to a seek. The rate is now
+ * chosen for the gap - cover the party's own advance plus the drift, across
+ * [WatchPartyNudgeWindowMs] - and clamped where the pitch shift starts to be audible.
+ */
 fun partyDriftCorrection(localPositionMs: Long, expectedPositionMs: Long, sharedSpeed: Float): DriftCorrection {
     val drift = expectedPositionMs - localPositionMs
     val magnitude = abs(drift)
     return when {
-        magnitude <= 750L -> DriftCorrection(DriftCorrectionKind.NONE, expectedPositionMs, restoreSpeed = sharedSpeed)
-        magnitude <= 2_500L -> DriftCorrection(
+        magnitude <= WatchPartyDriftDeadbandMs ->
+            DriftCorrection(DriftCorrectionKind.NONE, expectedPositionMs, restoreSpeed = sharedSpeed)
+        magnitude <= WatchPartySeekThresholdMs -> DriftCorrection(
             kind = DriftCorrectionKind.TEMPORARY_SPEED,
             targetPositionMs = expectedPositionMs,
-            temporarySpeed = (sharedSpeed * if (drift > 0) 1.03f else 0.97f).coerceIn(0.25f, 4f),
+            temporarySpeed = partyNudgeSpeed(drift, sharedSpeed),
             restoreSpeed = sharedSpeed,
         )
-        else -> DriftCorrection(DriftCorrectionKind.SEEK, expectedPositionMs, restoreSpeed = sharedSpeed)
+        // Only when behind. A guest that is ahead is about to lose time to the stall anyway, so
+        // leading it further would overshoot in the direction it is already going.
+        else -> DriftCorrection(
+            kind = DriftCorrectionKind.SEEK,
+            targetPositionMs = expectedPositionMs + if (drift > 0) WatchPartySeekLeadMs else 0L,
+            restoreSpeed = sharedSpeed,
+        )
     }
+}
+
+/**
+ * The playback rate that closes [driftMs] over [WatchPartyNudgeWindowMs] while the party goes on
+ * advancing at [sharedSpeed] - so the guest has to cover the party's advance *and* the gap.
+ *
+ * Clamped as a factor of the shared speed rather than in absolute terms, so a party watching at
+ * 1.5x is nudged by the same proportion a party at 1x is, and never past [DriftCorrection]'s own
+ * playable range.
+ */
+internal fun partyNudgeSpeed(driftMs: Long, sharedSpeed: Float): Float {
+    val rate = (driftMs.toFloat() / WatchPartyNudgeWindowMs)
+        .coerceIn(-WatchPartyMaxNudgeRate, WatchPartyMaxNudgeRate)
+    return (sharedSpeed * (1f + rate)).coerceIn(0.25f, 4f)
 }
 
 fun arePartyDurationsCompatible(hostDurationMs: Long, candidateDurationMs: Long): Boolean {

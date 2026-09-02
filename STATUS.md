@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 | | |
 | --- | --- |
@@ -12,6 +12,36 @@ Last updated: 2026-09-01
 | **Not** verified | No client has yet completed a real token exchange, so nothing has proven a Nuvio identity can reach the Z backend end to end. In particular it is unconfirmed whether `admin.createUser` accepts an explicit `id`; if it does not, the Z user id cannot be the official auth subject and a mapping column is needed. Desktop client wiring is written but untested against the live project, mobile is not yet ported, and both capabilities remain off. Social/party behavior still needs two-profile and multi-client testing and manual iOS. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
 | Next work | Get one real exchange through from the desktop client, which settles the `createUser` id question, then port the wiring to mobile. Then enable Social only, run the two-profile acceptance matrix, and enable Watch Together after Android↔desktop and Android↔iOS validation. Stable `0.5.0-beta+126` remains untouched. |
 | Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop reached `debug-v0.5.0-beta.21` on 2026-08-31, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Watch Together sync fixes carried ahead of the mobile port (2026-09-02)
+
+**The tested client was desktop, not this one.** The two-device run that produced the five second
+sync report was Windows host and macOS guest on the debug channel; mobile is still not wired to the
+Z backend - `SupabaseConfig.URL` here is the official `api.nuvio.tv`, which hosts none of the party
+RPCs. The diagnosis, the fixes and the verification for that run are in `NuvioZDesktop/STATUS.md`.
+
+What landed here is the shared half of that work, applied early so the mobile port does not inherit
+faults already understood. It compiles and the host suite passes, but **none of it has run against a
+live party**, and it cannot until mobile reaches the Z backend.
+
+- The drift policy: a nudge proportional to the gap and capped at +-10%, replacing a fixed 1.03x
+  that recovered 300ms over its ten second hold and so escalated every drift that mattered to a
+  seek; the band widened to 4s; the blocking `delay(10_000L)` removed so a snapshot arriving mid
+  correction is no longer skipped; and a corrective seek that leads by the resume cost, because
+  seeking to where the party is now lands where the party was.
+- The `buffering` branch holds position instead of realigning. A host publishes `buffering` from its
+  own `isLoading` and `expectedPartyPositionMs` freezes for any non-playing status, so the 500ms
+  test passed almost every time and every host stutter cost every guest a seek.
+- An `isLoading` guard and a duration clamp on the correction path, matching desktop.
+- A bounded `subscribe`, the clock offset measured from a polling floor rather than behind the
+  subscription, coalesced refreshes, broadcast payload decode ordered over
+  `(sequence, state_updated_at)`, readiness keyed on whether a duration is known rather than on its
+  value, and the `WatchParty` / `WatchPartyPlayer` log tags.
+
+Mobile still lacks `ZSupabaseProvider` and `ZSessionBridge`, so the port itself is unstarted.
+
+**Verified:** `:composeApp:testAndroidHostTest` passes, 1,246 tests, including new coverage of the
+drift bands, the proportional nudge and its cap, and the seek lead applying only when behind.
 
 ## The social backend is Z-owned, and why it had to be (2026-09-01)
 
