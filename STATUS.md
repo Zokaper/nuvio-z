@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-08-30
+Last updated: 2026-09-02
 
 | | |
 | --- | --- |
@@ -8,10 +8,196 @@ Last updated: 2026-08-30
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
-| **Not** verified | the corrected transition and desktop HTML button still need a device/install pass. The startup watchdog remains parked until a source dies on demand. Nothing from the TV port has been watched on a television. |
-| Next work | Device-check immediate feedback, uninterrupted resolving, mode-correct routing, countdown/cancel and exactly one player switch. Stable `0.5.0-beta+126` remains untouched. |
-| Debug channel | corrected mobile `debug-v0.5.0-beta.25` and desktop `debug-v0.5.0-beta.18` were published 2026-08-30 from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the follow-up recovery/control fixes compile and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33328752260` all pass. |
+| **Not** verified | The latest desktop Watch Together recovery/control fixes still need a two-device install pass: host status/position must advance after start, every host transport action must bump `sequence`, a frozen buffering episode must release the guest after 12 seconds, and offline Leave/End must permit a new party immediately. Mobile is still not wired to the Z backend, and manual iOS verification remains outstanding. The corrected next-episode transition and desktop HTML button still need a device/install pass. |
+| Next work | Run the focused two-desktop Watch Together matrix recorded below, then publish the next desktop debug build if it passes. Port the already-carried shared work only after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
+| Debug channel | mobile `debug-v0.5.0-beta.25` was published 2026-08-30 and desktop `debug-v0.5.0-beta.34` was published 2026-09-02 from `2383ac75`, both from the current synced line. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## Desktop Watch Together recovery and control audit (2026-09-02)
+
+The remaining desktop fixes landed on `codex/next-episode-debug-hotfix` in commits `d6f2e440` and
+`2383ac75`, continuing commits `d9fb00a5` and `4b287aa1`:
+
+- A guest now labels a transient host stall as **Host is buffering**, holds for at most 12 seconds,
+  then resumes if the same generation and command sequence remain stuck. The timeout deliberately
+  ignores `state_updated_at`, because the latched-buffering regression kept refreshing that timestamp
+  every five seconds without changing the sequence or position and would otherwise renew the hold
+  forever. A real status/sequence transition cancels or resets the recovery.
+- Every inspected desktop user seek path now submits the party command: native-fallback double tap,
+  the native scrub bar, the Compose scrub bar, horizontal swipe, and skip-intro/outro. Play/pause,
+  seek-by, and playback speed were already covered. The on-device invariant is one `sequence` bump
+  for every permitted host action.
+- Leave and End clear the held party, poll and realtime channel before issuing a bounded background
+  RPC. This also covers `end()` failing before its RPC block because session refresh was unavailable;
+  local teardown no longer depends on any network operation returning.
+- Expected-position arithmetic now uses `Double`, preserving millisecond precision for long content
+  rather than promoting the whole sum to 24-bit `Float` precision.
+
+**Verified:** `:composeApp:compileKotlinDesktop` passes; the focused
+`WatchPartyModelsTest` run passes 14/14; the full `:composeApp:desktopTest` run passes 1,318/1,318
+with no failures or skips. Desktop debug workflow `33611263629` built, verified and published the
+Windows x64 MSI and unsigned macOS arm64 DMG as `debug-v0.5.0-beta.34`. Device verification remains
+required: confirm the host reaches `playing`
+with an advancing position, force or reproduce an unchanged `buffering` sequence for more than 12
+seconds and confirm the guest resumes, exercise every host transport path while watching `sequence`,
+and press Leave/End with the network down before creating a new party.
+
+## Watch Together sync fixes carried ahead of the mobile port (2026-09-02)
+
+**The tested client was desktop, not this one.** The two-device run that produced the five second
+sync report was Windows host and macOS guest on the debug channel; mobile is still not wired to the
+Z backend - `SupabaseConfig.URL` here is the official `api.nuvio.tv`, which hosts none of the party
+RPCs. The diagnosis, the fixes and the verification for that run are in `NuvioZDesktop/STATUS.md`.
+
+What landed here is the shared half of that work, applied early so the mobile port does not inherit
+faults already understood. It compiles and the host suite passes, but **none of it has run against a
+live party**, and it cannot until mobile reaches the Z backend.
+
+- The drift policy: a nudge proportional to the gap and capped at +-10%, replacing a fixed 1.03x
+  that recovered 300ms over its ten second hold and so escalated every drift that mattered to a
+  seek; the band widened to 4s; the blocking `delay(10_000L)` removed so a snapshot arriving mid
+  correction is no longer skipped; and a corrective seek that leads by the resume cost, because
+  seeking to where the party is now lands where the party was.
+- The `buffering` branch holds position instead of realigning. A host publishes `buffering` from its
+  own `isLoading` and `expectedPartyPositionMs` freezes for any non-playing status, so the 500ms
+  test passed almost every time and every host stutter cost every guest a seek.
+- An `isLoading` guard and a duration clamp on the correction path, matching desktop.
+- A bounded `subscribe`, the clock offset measured from a polling floor rather than behind the
+  subscription, coalesced refreshes, broadcast payload decode ordered over
+  `(sequence, state_updated_at)`, readiness keyed on whether a duration is known rather than on its
+  value, and the `WatchParty` / `WatchPartyPlayer` log tags.
+
+Mobile still lacks `ZSupabaseProvider` and `ZSessionBridge`, so the port itself is unstarted.
+
+**Verified:** `:composeApp:testAndroidHostTest` passes, 1,246 tests, including new coverage of the
+drift bands, the proportional nudge and its cap, and the seek lead applying only when behind.
+
+## The social backend is Z-owned, and why it had to be (2026-09-01)
+
+The social schema was written to extend `public.profiles`, with thirteen foreign keys into it. That
+table lives in the **official Nuvio** project at `api.nuvio.tv`, which NuvioMedia operates and we
+have no administrative relationship to. Nuvio Z is a mod of Nuvio, not a product we run. As written,
+the feature was only deployable by NuvioMedia, and the local-only fixture that stood in for their
+table during tests is precisely what kept that hidden - the suite passed against a stand-in for
+infrastructure we cannot deploy to.
+
+Nuvio Z now has its own Supabase project, `pzbpghmmordvzcfbayoh` (eu-central-1, Postgres 17), holding
+**only** the social and Watch Together surface. Accounts, profiles and all base user data stay on the
+official backend, so a Z install remains cross-compatible with vanilla Nuvio. `AGENTS.md` carries the
+full rules under **The Two Backends**; the short version is that nothing may ever deploy to theirs.
+
+`public.z_identities` replaces `public.profiles` as the anchor. Because every table is now ours, a
+fresh database applies all migrations unaided and the fixture is deleted - `supabase db reset &&
+supabase test db` works directly.
+
+### One identity, two backends
+
+Users still sign in once, to official Nuvio. Supabase third-party auth trusts only five named
+providers, so the Z project cannot simply be told to trust that issuer; the `z-session` Edge Function
+bridges instead. It works without any cooperation from NuvioMedia because their project publishes an
+asymmetric ES256 JWKS, so a user's token can be verified with the public key alone.
+
+The function verifies the presented token, then confirms the claimed profile belongs to its subject
+by querying the official REST API **with the caller's own token** - their RLS answers it, so a
+profile the caller does not own returns nothing. That step is load-bearing: profile UUIDs are visible
+to friends through the feed, so without it any user could claim an identity they had merely seen.
+`owns_profile()` then requires the token and the registry to agree, and reads the active profile from
+the token rather than from a caller-supplied argument.
+
+Two things were found by executing rather than reviewing, both of which would have failed in the
+field:
+
+- The exchange originally minted its own HS256 token signed with the project JWT secret. The Z
+  project signs asymmetrically, so no shared secret exists and the token would have been rejected.
+  Supabase now issues the session (`generateLink` + `verifyOtp`), which also yields refresh tokens.
+- The follow-up fix was first written into migration `202609010002`, which was already applied.
+  `db push` tracks migrations by version rather than content, so the change would silently never have
+  reached the database - passing locally, failing live. It shipped as `202609010008` instead, and
+  applied migrations stay immutable.
+
+### Desktop client wiring
+
+`ZSupabaseProvider` is a second Supabase client alongside the official one, and `ZSessionBridge`
+performs the exchange, caches the session per profile, and re-exchanges once when a Z token is
+rejected. `SocialRepository` and `WatchPartyRepository` now talk exclusively to the Z client; the
+official client keeps playback and sign-in. Realtime is gated on a live Z session because both social
+and party topics are private channels authorized by RLS on `realtime.messages`.
+
+Endpoints come from the ignored `local.properties` as `NUVIO_Z_SUPABASE_URL` and
+`NUVIO_Z_SUPABASE_PUBLISHABLE_KEY`. Blank values leave `ZSupabaseConfig.isConfigured` false and every
+social surface hidden, which is the same degradation an undeployed backend produces, so a build
+without them is valid rather than broken.
+
+Desktop is wired first deliberately, to get one real exchange through before the shape is duplicated
+into mobile.
+
+## Social foundation and Watch Together implementation (2026-09-01)
+
+A new private `Zokaper/nuvio-z-backend` repository now owns versioned social/party migrations,
+RPC-only mutation boundaries, RLS/private-Realtime authorization, throttling and pgTAP coverage.
+The KMP client has Realtime installed, stable profile-UUID activation, handle/friend/feed UI,
+offline activity outbox, sanitized player presence, Home rows, a Social root tab, retained Downloads
+routes plus a Library shortcut, and Watch Together lobby/player synchronization primitives.
+Backend capabilities default off, so an undeployed or older server disables the surfaces cleanly.
+
+The plan itself was only ever held in a Codex session; it is now checked in as
+`Docs/SOCIAL-WATCH-TOGETHER-PLAN.md` and is the source of truth for this work.
+
+Verified on 2026-09-01: `:composeApp:compileAndroidMain` and `:composeApp:testAndroidHostTest` pass
+in `nuvio-z`. The desktop port landed the same day and is covered below. Backend deployment,
+staging E2E and the iOS workflow remain required before either gate is enabled.
+
+### Desktop port (2026-09-01)
+
+`nuviozdesktop` now carries the shared `features/social` and `features/watchparty` packages, a
+`DesktopStorage`-backed `SocialStorage` actual, Realtime installed on its Supabase client, the
+`WatchPartyLobbyRoute`, Home social rows, the details and player Watch Together entries, and the
+watched-activity publish/remove hooks. Three divergences from mobile are deliberate and recorded in
+`Docs/PATCH-SURFACE.md`: Social is added *beside* the desktop Downloads sidebar entry rather than
+replacing it, the Library Downloads shortcut is not ported, and the Watch Together entry is inserted
+into both of desktop's mutually exclusive detail layouts. Folding Downloads into Library is a
+separate pass the maintainer has deferred.
+
+### The backend SQL had never been executed until 2026-09-01
+
+Codex wrote the migrations but no database ever ran them. Installing the Supabase CLI and standing
+up a local stack changed that, and `scripts/test-db.sh` now resets a database, applies all seven
+migrations and runs the pgTAP suite in one command: **54 assertions across 3 files, all passing.**
+
+`public.profiles` belongs to the main Nuvio project, not to the backend repository, so a fresh
+database cannot apply migration 0001 unaided. `supabase/fixtures/` holds a local-only stand-in that
+the script stages as a temporary first migration and always removes again, so it can never reach a
+real project through `supabase db push`.
+
+Executing the SQL immediately found a **blocking bug**. `party_change_broadcast_trigger` picked the
+party id with a single CASE expression referencing both `new.id` and `new.party_id`. PL/pgSQL
+compiles that assignment as one SQL expression and resolves every field in it against the real row
+type regardless of branch, so inserting into `watch_parties` raised `record "new" has no field
+"party_id"`. **Every watch party creation failed**, which also meant invites, joins and the whole
+party flow were dead. `202609010007_fix_party_broadcast_trigger.sql` splits the branches so only the
+field that exists on the triggering table is dereferenced.
+
+The suite also grew beyond the original structural checks. `social_authorization.sql` drives real
+`request.jwt.claims` through the RPCs to prove that profile impersonation is refused on every
+mutation, that the two sharing toggles gate independently, that unfriending revokes feed access at
+once, and that watched publishing is idempotent. `party_security.sql` pushes a payload containing a
+stream URL, request headers, a debrid token and an addon key through `party_create` and asserts none
+of it survives into the snapshot every guest receives, while the legitimate info hash still does.
+
+### Two fixes found while verifying (2026-09-01)
+
+`202609010006_sanitize_party_payloads.sql` adds a server-side key whitelist for
+`watch_parties.content`, `.source_fingerprint` and `.quality_intent`. Those columns were free-form
+`jsonb` written verbatim from client input, and `party_snapshot` fans the whole row out to every
+member, so a buggy or hostile client could have published a resolved stream URL, request headers, an
+addon credential or a debrid identifier to the party. The plan places that guarantee on the RPC
+layer, not only on the client, and it is now enforced there, and `party_security.sql` proves it
+end to end rather than only unit-testing the projection.
+
+`generateInviteCode` drew from `kotlin.random.Random`, whose sequence is predictable once a few
+outputs are observed. Party invite codes are a bearer credential, so both repositories now derive
+them from `Uuid.random`, which is specified to use the platform secure generator on every target.
+The 32-character alphabet keeps the five-bit mask uniform.
 
 ## Correcting the stale next-episode debug builds (2026-08-30)
 
