@@ -4,6 +4,29 @@ Pick this up cold. It states what is fixed and proven, what is still broken with
 the two open bugs in priority order. Everything below is desktop (`NuvioZDesktop`); mobile cannot
 run a party at all (see §6).
 
+## 0. Codex continuation — 2026-09-02
+
+The open desktop items in §3b, §4, B1, B2, B3 and B4 are now addressed on
+`NuvioZDesktop` branch `codex/next-episode-debug-hotfix` in `d6f2e440`; debug counter commit
+`2383ac75` published them as `debug-v0.5.0-beta.34` (workflow `33611263629`):
+
+- Guest buffering holds have a 12-second safety deadline keyed to party generation and command
+  sequence, deliberately ignoring heartbeat-only `state_updated_at` churn. A stuck guest then
+  resumes until authoritative state advances. The transient banner says `Host is buffering`, not
+  `Waiting for the host to start`.
+- The native-fallback double tap, native scrub bar, horizontal seek gesture and skip interval paths
+  now submit party seeks. The Compose scrub bar already did; play/pause, seek-by and speed were
+  already covered.
+- Both Leave and End clear the local party/poll/channel before attempting a bounded background RPC,
+  so neither a dead network nor a failed session refresh can strand the client.
+- Expected-position arithmetic uses `Double`, retaining millisecond precision on long content.
+
+Verification: `:composeApp:compileKotlinDesktop` passes; focused `WatchPartyModelsTest` passes 14/14;
+full `:composeApp:desktopTest` passes 1,318/1,318 with no failures or skips. Still device-only: prove
+the host reaches `playing` with an advancing position, prove every host control increments `sequence`,
+hold one guest on an unchanged `buffering` sequence for over 12 seconds, and leave/end with the
+network down before immediately creating a new party.
+
 ---
 
 ## 1. Where things stand
@@ -247,6 +270,115 @@ Latest is `debug-v0.5.0-beta.33`.
   over "the newest".
 
 ---
+
+## 6b. Bug sweep — found by reading, not yet reproduced
+
+Confidence is stated for each. **Confirmed** means the code plainly does this; **likely** means the
+reasoning is sound but it has not been run. Nothing here is fixed.
+
+### B1 — double-tap seek never reaches the party (confirmed, same class as the root cause)
+
+`PlayerScreenRuntimeGestureActions.kt:248-251`:
+
+```kotlin
+    if (sendToController) {
+        playerController?.seekTo(targetPositionMs)
+    submitPartySeek(targetPositionMs)
+    }
+```
+
+`submitPartySeek` is **inside** the `if`, and `handleDoubleTapSeek(direction, sendToController = false)`
+at `:218` is the native-fallback caller — the same path the play button and spacebar take. So a host
+double-tapping to skip moves only itself. The misindentation is how it hid; treat the indentation as
+the tell, not the cause.
+
+This is the third instance of one pattern: **the native controls layer performs the transport, and
+the Kotlin side forgets to tell the party.** Audit every `PlayerControlsAction` branch in
+`PlayerScreenRuntimeUi.kt` that returns `false`, and every `prepare*ForNativeFallback`, against the
+matching non-fallback function. Two were fixed (toggle, seek-by); this is a third; there may be more
+— speed changes and the scrub bar are the obvious candidates to check next.
+
+### B2 — `end()` strands the host the way `leave()` used to (confirmed)
+
+`WatchPartyRepository.end()` still has the pre-fix shape: `party_end` RPC and the local teardown in
+one `call { }`. An RPC failure leaves the party held, with the same consequences as §4. Give it the
+same treatment.
+
+### B3 — the gate reads any non-`playing` status as "waiting for host" (confirmed)
+
+`partyPlaybackGate` in `WatchPartyModels.kt`:
+
+```kotlin
+if (party.status == WatchPartyStatus.playing) return allow
+if (party.hostProfileId != viewerProfileId) return WAITING_FOR_HOST
+```
+
+A host buffering for 300ms therefore shows every guest "waiting for host" and pauses them. It needs
+either a grace period before the gate closes, or a distinction between "the host has not started"
+and "the host is momentarily buffering". This is what made §3 so visible, and it will make any
+future status glitch equally visible.
+
+### B4 — `expectedPartyPositionMs` loses precision on long content (likely)
+
+`WatchPartyModels.kt`: `(statePositionMs + elapsed * playbackSpeed).toLong()`. `playbackSpeed` is a
+`Float`, so the whole expression promotes to `Float` — 24 bits of mantissa, exact only to
+16,777,216. Beyond ~4h39m of runtime the position quantises to 2ms steps and grows from there, which
+starts to interact with the 750ms dead-band and the 500ms realign test. Extended cuts, concert films
+and multi-part features reach that. Compute in `Long`, or in `Double`.
+
+### B5 — a guest pausing under `host_only` is silently overridden (confirmed)
+
+`submitPartyPlayPause` returns early when the viewer is not allowed to command. The guest's local
+pause therefore happens, propagates nowhere, and is undone by the next drift correction with no
+explanation. Either disable the control in `host_only` for non-hosts, or surface "only the host can
+control playback".
+
+### B6 — `applyBroadcastState` never refreshes the roster (likely, latent)
+
+It copies `held.members` unchanged. Correct *today* only because member-row broadcasts carry no
+`sequence` and so fall through to `refresh()`. That is an implicit coupling between the client guard
+and the trigger's payload shape: if the member trigger ever gains a `sequence`, the roster silently
+freezes. Make the fallthrough explicit — key on `reason`, not on a missing field.
+
+### B7 — a coalesced refresh can be dropped between channels (likely, low impact)
+
+`refreshRequests` is an object-level `MutableSharedFlow(replay = 0)`, but `refreshJob` is cancelled
+in `closeChannel()` and recreated in `openChannel()`. An emit landing in that window has no
+collector and is discarded. The 5s poll covers it, so the effect is a delayed update rather than a
+lost one.
+
+### B8 — a `lobby` snapshot yanks a guest to position 0 (likely)
+
+The guest hold branch treats `lobby` like `paused` and realigns when more than 500ms out. A fresh
+lobby has `positionMs = 0`, so any snapshot that arrives with `status = lobby` while a guest has a
+real position seeks them to the start. Reachable via `party_change_content`, which sets
+`status = 'lobby'` and `position_ms = 0`.
+
+### B9 — a brief network blip can trigger host transfer (likely)
+
+`party_heartbeat` marks peers `connected = false` after 15s of silence, and outside the player the
+only heartbeat is the 5s poll. Three consecutive failed polls — a short blip — is enough to mark a
+host down, and `party_claim_or_transfer_host` then moves the crown after its own 15s grace. The
+margin is three ticks; consider requiring more, or distinguishing "no heartbeat" from "heartbeat
+failed".
+
+### B10 — `hostStartReleased` latches for the generation (likely)
+
+Once the host's start gate is released, `partyPlaybackGate` returns allow for the host regardless of
+participant readiness. A participant who later drops back to `resolving` — which the logs show
+happening — leaves the host playing on with no indication anyone has fallen out.
+
+### B11 — duration compatibility is loose enough to admit a different cut (by design, but unhandled)
+
+`arePartyDurationsCompatible` allows `max(90_000L, 2%)`. Two cuts of one film can pass, after which
+the party drifts permanently and the guest has no way to say "my file does not match yours". Worth a
+mismatch banner even if the tolerance stays.
+
+### Mobile-only
+
+`nuvio-z`'s host-claim effect calls `claimHostAfterGrace()` immediately rather than after
+`WatchPartyHostGraceMs`, so it is rejected with `host_grace_active` on every snapshot. Desktop has
+the delay. Harmless but noisy, and it will matter when mobile is wired up.
 
 ## 7. Commits
 
