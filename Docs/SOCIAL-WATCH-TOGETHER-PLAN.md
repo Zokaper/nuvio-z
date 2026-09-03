@@ -126,6 +126,14 @@ Letterboxd and NuvioZWeb are explicitly excluded. Trakt/Simkl history will not c
 
 **Source selection**
 
+- Choosing a source and starting the party are **two separate host actions**, in that order.
+  Publishing the fingerprint is what moves a party out of the lobby, so doing it from the source list
+  committed everyone the instant the host tapped a release — the host never got a moment to look at
+  who had actually turned up, and a member whose resolution then dead-ended had nowhere to land.
+  The pick is held on the host’s own client until they press Start; only then is it published.
+- One signal takes everyone out of the lobby, host included: the party carrying a fingerprint in
+  `resolving_sources`. Each start re-runs `party_begin_source_selection` first, so the generation
+  advances and re-starting the same source still reads as a new launch.
 - Never send the host’s resolved playback URL or headers.
 - Publish a sanitized `SourceFingerprint` containing:
   - Addon manifest ID.
