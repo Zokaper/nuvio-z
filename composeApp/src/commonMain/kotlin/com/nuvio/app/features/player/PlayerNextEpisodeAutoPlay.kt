@@ -16,7 +16,6 @@ import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.core.network.NetworkQualityRepository
-import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
@@ -212,15 +211,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             // The same derived options the quality sheet would show, picked the way the sheet
             // itself would pick within a row - one selector over one candidate set.
             val options = PlaybackQualityOptions.build(candidates, selectionContext)
-            // Prefer the band the user actually chose in the sheet for this show, so episode
-            // two is not re-derived from a bandwidth estimate that has moved since episode
-            // one. `stickyAffordable` is a tie-break, not a ceiling: it drops the preference
-            // the moment the estimate stops carrying it, and never invents a row this
-            // episode has no release for.
-            val chosenHeight = BingeGroupCacheRepository.sessionQualityHeight(parentMetaId)
             val option = PlaybackQualityOptions.stickyAffordable(
                 options = options,
-                pinnedHeight = chosenHeight,
+                pinnedHeight = null,
                 estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
             ) ?: return null
             return when (val result = PlaybackSourceSelector.select(option, selectionContext)) {

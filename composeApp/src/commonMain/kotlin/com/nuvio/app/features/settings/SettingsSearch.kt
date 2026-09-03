@@ -537,7 +537,6 @@ internal fun settingsSearchEntries(
     val subtitlesLanguages = stringResource(Res.string.settings_subtitles_section_languages)
     val subtitlesRendering = stringResource(Res.string.settings_subtitles_section_rendering)
     val playbackSubtitleAudio = stringResource(Res.string.settings_playback_section_subtitle_audio)
-    val playbackStreamSelection = stringResource(Res.string.settings_playback_section_stream_selection)
     val playbackStreamAutoPlay = stringResource(Res.string.settings_playback_section_stream_auto_play)
     val playbackDecoder = stringResource(Res.string.settings_playback_section_decoder)
     val playbackSubtitleRendering = stringResource(Res.string.settings_playback_section_subtitle_rendering)
@@ -681,21 +680,6 @@ internal fun settingsSearchEntries(
                 pageOverride = SettingsPage.Subtitles,
                 pageLabelOverride = subtitlesPage,
             ),
-        ),
-    )
-    addPlaybackRows(
-        addRow = ::addRow,
-        pageLabel = advancedPage,
-        page = SettingsPage.Advanced,
-        section = playbackStreamSelection,
-        icon = Icons.Rounded.PlayArrow,
-        rows = listOf(
-            PlaybackSearchRow(
-                "reuse-last-link",
-                stringResource(Res.string.settings_playback_reuse_last_link),
-                stringResource(Res.string.settings_playback_reuse_last_link_description),
-            ),
-            PlaybackSearchRow("last-link-cache", stringResource(Res.string.settings_playback_last_link_cache_duration)),
         ),
     )
     addPlaybackRows(

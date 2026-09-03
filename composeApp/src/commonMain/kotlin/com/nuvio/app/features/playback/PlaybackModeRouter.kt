@@ -16,9 +16,8 @@ sealed class PlaybackRouteDecision {
      * `NavDisplay` composes only the top entry, so a mode with a failure chain - which
      * deliberately keeps `StreamRoute` on the back stack while the player is open - loses every
      * plain `remember` the moment it hands off. Re-running [PlaybackModeRouter.decide] on the
-     * way back is **not** a substitute: by then the play just wrote a reuse-last-link entry, so
-     * the same inputs answer [ReuseLastLink] where they first answered [AutoPick], and Instant's
-     * retry chain is gated on that answer. The decision has to be carried, not re-derived.
+     * way back is **not** a substitute because the retry chain is gated on the original answer.
+     * The decision has to be carried, not re-derived.
      */
     abstract val key: String
 
@@ -32,12 +31,6 @@ sealed class PlaybackRouteDecision {
     data class PlayLocalDownload(override val reason: String) : PlaybackRouteDecision() {
         override val key: String get() = KEY
         companion object { const val KEY = "local_download" }
-    }
-
-    /** A cached link for this exact video is still valid; reuse it. */
-    data class ReuseLastLink(override val reason: String) : PlaybackRouteDecision() {
-        override val key: String get() = KEY
-        companion object { const val KEY = "reuse_last_link" }
     }
 
     /**
@@ -73,7 +66,6 @@ sealed class PlaybackRouteDecision {
         fun fromKey(key: String?, reason: String): PlaybackRouteDecision? = when (key) {
             ShowSourceList.KEY -> ShowSourceList(reason)
             PlayLocalDownload.KEY -> PlayLocalDownload(reason)
-            ReuseLastLink.KEY -> ReuseLastLink(reason)
             ShowQualitySheet.KEY -> ShowQualitySheet(reason)
             AutoPick.KEY -> AutoPick(reason)
             else -> null
@@ -93,8 +85,6 @@ data class PlaybackRouteInputs(
     /** `StreamLaunch.manualSelection` - the long-press / right-click / "Select source" path. */
     val manualSelection: Boolean,
     val hasCompletedLocalDownload: Boolean,
-    val reuseLastLinkEnabled: Boolean,
-    val hasValidCachedLink: Boolean,
 )
 
 /**
@@ -108,7 +98,7 @@ data class PlaybackRouteInputs(
  *  - the reuse-last-link effect is itself gated on `!launch.manualSelection` and fires
  *    *before* auto-play evaluation.
  *
- * So the order is `manualSelection` > local download > reuse-last-link > mode.
+ * So the order is `manualSelection` > local download > mode.
  *
  * A sticky-pin rule used to sit above reuse-last-link, so that a release the user pinned for
  * a season beat a cached link. It was withdrawn in `0.5.0-beta`: the pin could only be
@@ -116,10 +106,6 @@ data class PlaybackRouteInputs(
  * and once made it silently stopped the quality sheet appearing for that season with nothing
  * in the UI to say why or to clear it. [StickySourcePin] is kept for when it is surfaced
  * properly - this is a product deferral, not a rejection of the idea.
- *
- * Reuse-last-link therefore now answers first for an episode the user has already watched,
- * and Streamlined says so rather than skipping its sheet silently - see the toast raised
- * beside [ReuseLastLink] in `entry<StreamRoute>`.
  *
  * `streamAutoPlayMode` (MANUAL / FIRST_STREAM / REGEX_MATCH) is **not** an input here. It
  * stays a Classic-only setting; letting it run alongside [PlaybackSourceSelector] would put
@@ -134,9 +120,6 @@ object PlaybackModeRouter {
         inputs.hasCompletedLocalDownload ->
             PlaybackRouteDecision.PlayLocalDownload("a completed download exists on this device")
 
-        inputs.reuseLastLinkEnabled && inputs.hasValidCachedLink ->
-            PlaybackRouteDecision.ReuseLastLink("a cached link for this video is still valid")
-
         inputs.mode == PlaybackMode.STREAMLINED ->
             PlaybackRouteDecision.ShowQualitySheet("streamlined mode")
 
@@ -146,3 +129,4 @@ object PlaybackModeRouter {
         else -> PlaybackRouteDecision.ShowSourceList("classic mode")
     }
 }
+

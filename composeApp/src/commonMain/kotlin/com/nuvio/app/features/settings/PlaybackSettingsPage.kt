@@ -126,8 +126,6 @@ internal fun LazyListScope.playbackSettingsContent(
     secondaryPreferredAudioLanguage: String?,
     preferredSubtitleLanguage: String,
     secondaryPreferredSubtitleLanguage: String?,
-    streamReuseLastLinkEnabled: Boolean,
-    streamReuseLastLinkCacheHours: Int,
     androidPlaybackEngine: AndroidPlaybackEngine,
     androidLibmpvVideoOutput: AndroidLibmpvVideoOutput,
     androidLibmpvHardwareDecodingEnabled: Boolean,
@@ -150,8 +148,6 @@ internal fun LazyListScope.playbackSettingsContent(
             secondaryPreferredAudioLanguage = secondaryPreferredAudioLanguage,
             preferredSubtitleLanguage = preferredSubtitleLanguage,
             secondaryPreferredSubtitleLanguage = secondaryPreferredSubtitleLanguage,
-            streamReuseLastLinkEnabled = streamReuseLastLinkEnabled,
-            streamReuseLastLinkCacheHours = streamReuseLastLinkCacheHours,
             androidPlaybackEngine = androidPlaybackEngine,
             androidLibmpvVideoOutput = androidLibmpvVideoOutput,
             androidLibmpvHardwareDecodingEnabled = androidLibmpvHardwareDecodingEnabled,
@@ -315,8 +311,6 @@ private fun PlaybackSettingsSection(
     secondaryPreferredAudioLanguage: String?,
     preferredSubtitleLanguage: String,
     secondaryPreferredSubtitleLanguage: String?,
-    streamReuseLastLinkEnabled: Boolean,
-    streamReuseLastLinkCacheHours: Int,
     androidPlaybackEngine: AndroidPlaybackEngine,
     androidLibmpvVideoOutput: AndroidLibmpvVideoOutput,
     androidLibmpvHardwareDecodingEnabled: Boolean,
@@ -335,7 +329,6 @@ private fun PlaybackSettingsSection(
     var showSubtitleTextColorDialog by remember { mutableStateOf(false) }
     var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
     var showSubtitleOutlineColorDialog by remember { mutableStateOf(false) }
-    var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
     var showLibassRenderTypeDialog by remember { mutableStateOf(false) }
     var showAutoPlayModeDialog by remember { mutableStateOf(false) }
     var showAutoPlaySourceDialog by remember { mutableStateOf(false) }
@@ -883,30 +876,6 @@ private fun PlaybackSettingsSection(
                                     .onFailure { p2pCacheClearFailed = true }
                             }
                         },
-                    )
-                }
-            }
-        }
-
-        SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_stream_selection),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_reuse_last_link),
-                    description = stringResource(Res.string.settings_playback_reuse_last_link_description),
-                    checked = streamReuseLastLinkEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setStreamReuseLastLinkEnabled,
-                )
-                if (streamReuseLastLinkEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_last_link_cache_duration),
-                        description = formatReuseCacheDuration(streamReuseLastLinkCacheHours),
-                        isTablet = isTablet,
-                        onClick = { showReuseCacheDurationDialog = true },
                     )
                 }
             }
@@ -1464,17 +1433,6 @@ private fun PlaybackSettingsSection(
         )
     }
 
-    if (showReuseCacheDurationDialog) {
-        ReuseCacheDurationDialog(
-            selectedHours = streamReuseLastLinkCacheHours,
-            onDurationSelected = { hours ->
-                PlayerSettingsRepository.setStreamReuseLastLinkCacheHours(hours)
-                showReuseCacheDurationDialog = false
-            },
-            onDismiss = { showReuseCacheDurationDialog = false },
-        )
-    }
-
 
 
 
@@ -1715,18 +1673,6 @@ private fun PlaybackSettingsSection(
 
 
 
-}
-
-@Composable
-internal fun formatReuseCacheDuration(hours: Int): String = when {
-    hours < 24 && hours == 1 -> stringResource(Res.string.settings_playback_duration_hour_one, hours)
-    hours < 24 -> stringResource(Res.string.settings_playback_duration_hours, hours)
-    hours % 24 == 0 -> {
-        val days = hours / 24
-        if (days == 1) stringResource(Res.string.settings_playback_duration_day_one, days)
-        else stringResource(Res.string.settings_playback_duration_days, days)
-    }
-    else -> stringResource(Res.string.settings_playback_duration_hours, hours)
 }
 
 internal data class LanguageSelectionOption(
@@ -2077,93 +2023,6 @@ internal fun LanguageSelectionDialog(
                                         )
                                     }
                                 }
-                                Box(
-                                    modifier = Modifier.size(24.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(Res.string.settings_playback_dialog_close),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-internal fun ReuseCacheDurationDialog(
-    selectedHours: Int,
-    onDurationSelected: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val options = listOf(1, 2, 3, 6, 12, 24, 48, 72, 168)
-
-    BasicAlertDialog(
-        onDismissRequest = onDismiss,
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.settings_playback_last_link_cache_duration),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    options.forEach { hours ->
-                        val isSelected = hours == selectedHours
-                        val containerColor = if (isSelected) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                        }
-
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onDurationSelected(hours) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = containerColor,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = formatReuseCacheDuration(hours),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
                                 Box(
                                     modifier = Modifier.size(24.dp),
                                     contentAlignment = Alignment.Center,

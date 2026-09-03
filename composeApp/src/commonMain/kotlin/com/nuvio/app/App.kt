@@ -245,7 +245,6 @@ import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLaunch
 import com.nuvio.app.features.streams.StreamLaunchStore
-import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
 import com.nuvio.app.features.tmdb.TmdbService
@@ -478,9 +477,8 @@ private fun PlayerLaunch.toExternalPlayerPlaybackRequest(): ExternalPlayerPlayba
  * Carries the stream route's decision across the route leaving composition.
  *
  * Key and reason are saved separately rather than the decision being re-derived, because the
- * inputs genuinely change while the player is open - a play writes a reuse-last-link entry, so
- * re-running the router on the way back answers `ReuseLastLink` where it first answered
- * `AutoPick`, and Instant's failure chain is gated on that answer.
+ * retry state genuinely changes while the player is open, and Instant's failure chain is gated
+ * on the original answer.
  *
  * The saver lives here rather than beside `PlaybackRouteDecision` on purpose:
  * `PlaybackModeRouter.kt` has no imports at all, which is what lets it be compiled and run
@@ -2652,21 +2650,6 @@ private fun MainAppContent(
                     // because the next person to add a dialog here will have to decide the same
                     // thing.
                     var showPlaybackPreferences by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    // The band chosen earlier in this sitting for this show, read once. Read
-                    // once because the route *clears* it on "Change", and a value that moved
-                    // underneath the effects below would let one frame see a band and the next
-                    // not - which decides whether a sheet is shown.
-                    val rememberedBandId = remember(route.launchId) {
-                        BingeGroupCacheRepository.sessionQualityBandId(
-                            launch.parentMetaId ?: launch.videoId,
-                        )
-                    }
-                    // Set when this episode has no release in the remembered band. The question
-                    // is live again, so the sheet must appear - see
-                    // `PlaybackQualityOptions.rememberedOption`, which answers null rather than
-                    // substituting a band the user never picked.
-                    var rememberedBandMissed by rememberSaveable(route.launchId) { mutableStateOf(false) }
-                    var rememberedBandHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
                     // Set by the one exit that leaves rather than uncovering - see
                     // `leaveToDetails`. Saved beside the other flags because that exit must
                     // outlive the sheet, which leaves composition the moment `onDismiss` runs.
@@ -2863,30 +2846,6 @@ private fun MainAppContent(
                     ) {
                         val infoHash = stream.p2pInfoHash ?: return
                         val sentinelUrl = p2pSentinelUrl(infoHash, stream.p2pFileIdx)
-                        if (playerSettings.streamReuseLastLinkEnabled) {
-                            val cacheKey = StreamLinkCacheRepository.contentKey(
-                                type = launch.type,
-                                videoId = effectiveVideoId,
-                                parentMetaId = launch.parentMetaId,
-                                season = launch.seasonNumber,
-                                episode = launch.episodeNumber,
-                            )
-                            StreamLinkCacheRepository.save(
-                                contentKey = cacheKey,
-                                url = "",
-                                streamName = stream.streamLabel,
-                                addonName = stream.addonName,
-                                addonId = stream.addonId,
-                                requestHeaders = emptyMap(),
-                                responseHeaders = emptyMap(),
-                                filename = stream.behaviorHints.filename,
-                                videoSize = stream.behaviorHints.videoSize,
-                                infoHash = infoHash,
-                                fileIdx = stream.p2pFileIdx,
-                                sources = stream.sources,
-                                bingeGroup = stream.behaviorHints.bingeGroup,
-                            )
-                        }
                         val playerLaunch = PlayerLaunch(
                             profileId = launch.profileId,
                             title = launch.title,
@@ -3042,158 +3001,32 @@ private fun MainAppContent(
                             put(option.id, playbackQualityOptionLabel(option))
                         }
                     }
-                    // Reuse Last Link: auto-play from cache if enabled (only on first entry).
-                    // Saved, not remembered. A mode with a failure chain keeps this route on the
-                    // back stack while the player is open, and NavDisplay composes only the top
-                    // entry - so a plain `remember` came back null while `reuseHandled` (which
-                    // is saved) stayed true and blocked the effect that would set it again.
-                    // Every branch below then read "no decision": no sheet, no overlay, and the
-                    // opaque hand-off surface still painting. That was the blank screen after
-                    // backing out of the player.
-                    // Keyed on the launch, not on `effectiveVideoId`. That value is resolved
-                    // asynchronously and used to round-trip through a placeholder on every
-                    // return from the player, so keying on it discarded the saved decision -
-                    // which is the state that stops this route showing a blank screen - for
-                    // exactly the content that has an episode id to resolve. Series episodes:
-                    // the case being tested. `route.launchId` is what every other flag here
-                    // already uses.
+                    // Keep the route decision across player hand-off and retry.
                     var playbackRouteDecision by rememberSaveable(
                         route.launchId,
                         playerSettings.playbackMode,
                         stateSaver = PlaybackRouteDecisionSaver,
                     ) { mutableStateOf<PlaybackRouteDecision?>(null) }
-                    var reuseHandled by rememberSaveable(
+                    var routeDecisionHandled by rememberSaveable(
                         route.launchId,
                         playerSettings.playbackMode,
                     ) { mutableStateOf(false) }
-                    var reuseNavigated by remember { mutableStateOf(false) }
                     LaunchedEffect(
-                        effectiveVideoId,
                         hasResolvedVideoId,
                         playerSettings.playbackMode,
-                        playerSettings.streamReuseLastLinkEnabled,
-                        playerSettings.streamReuseLastLinkCacheHours,
                         launch.manualSelection,
                     ) {
                         if (!hasResolvedVideoId) return@LaunchedEffect
-                        if (reuseHandled) return@LaunchedEffect
-                        // No longer waits on the fetch. That gate existed only so a stored
-                        // Streamlined pin could be matched against real candidates before it
-                        // outranked reuse-last-link; with the pin gone the decision depends on
-                        // nothing the addons return, so it settles on the first frame again.
-                        reuseHandled = true
-                        val cacheKey = StreamLinkCacheRepository.contentKey(
-                            type = launch.type,
-                            videoId = effectiveVideoId,
-                            parentMetaId = launch.parentMetaId,
-                            season = launch.seasonNumber,
-                            episode = launch.episodeNumber,
-                        )
-                        val maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
-                        val cached = if (playerSettings.streamReuseLastLinkEnabled) {
-                            StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)
-                        } else {
-                            null
-                        }
-                        val decision = PlaybackModeRouter.decide(
+                        if (routeDecisionHandled) return@LaunchedEffect
+                        routeDecisionHandled = true
+                        playbackRouteDecision = PlaybackModeRouter.decide(
                             PlaybackRouteInputs(
                                 mode = playerSettings.playbackMode,
                                 manualSelection = launch.manualSelection,
                                 // Completed downloads are consumed before StreamRoute is created.
                                 hasCompletedLocalDownload = false,
-                                reuseLastLinkEnabled = playerSettings.streamReuseLastLinkEnabled,
-                                hasValidCachedLink = cached != null,
                             ),
                         )
-                        playbackRouteDecision = decision
-                        if (decision is PlaybackRouteDecision.ReuseLastLink && cached != null) {
-                            // Streamlined promised a quality sheet, Instant promised a source
-                            // chosen from the connection, and both are about to be skipped
-                            // because a cached link for this exact episode outranks the mode
-                            // (precedence rule 4). Silently reusing it is the single biggest
-                            // reason Streamlined reads as non-deterministic: same show, same
-                            // tap, no sheet, no explanation. Say what happened and offer the
-                            // way out, which is the player's own Change source panel.
-                            //
-                            // Classic is deliberately excluded: nothing was skipped there -
-                            // the user never expected a sheet - so the toast would be noise.
-                            if (playerSettings.playbackMode != PlaybackMode.CLASSIC) {
-                                NuvioToastController.show(
-                                    message = getString(Res.string.playback_reused_last_link),
-                                    actionLabel = getString(Res.string.playback_reused_last_link_change),
-                                    action = NuvioToastAction.ChangePlaybackSource,
-                                )
-                            }
-                            if (cached.url.isBlank() && !cached.infoHash.isNullOrBlank()) {
-                                val cachedStream = StreamItem(
-                                    name = cached.streamName,
-                                    url = null,
-                                    infoHash = cached.infoHash,
-                                    fileIdx = cached.fileIdx,
-                                    sources = cached.sources,
-                                    addonName = cached.addonName,
-                                    addonId = cached.addonId,
-                                    behaviorHints = StreamBehaviorHints(
-                                        filename = cached.filename,
-                                        videoSize = cached.videoSize,
-                                        bingeGroup = cached.bingeGroup,
-                                    ),
-                                )
-                                requestOrOpenP2pStream(
-                                    stream = cachedStream,
-                                    resolvedResumePositionMs = launch.resumePositionMs,
-                                    resolvedResumeProgressFraction = launch.resumeProgressFraction,
-                                    forceExternal = false,
-                                    forceInternal = true,
-                                    isAutoPlay = true,
-                                )
-                                reuseNavigated = true
-                                return@LaunchedEffect
-                            }
-                            val playerLaunch = PlayerLaunch(
-                                profileId = launch.profileId,
-                                title = launch.title,
-                                sourceUrl = cached.url,
-                                sourceHeaders = sanitizePlaybackHeaders(cached.requestHeaders),
-                                sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
-                                externalSubtitles = emptyList(),
-                                streamType = cached.streamType,
-                                logo = launch.logo,
-                                poster = launch.poster,
-                                background = launch.background,
-                                seasonNumber = launch.seasonNumber,
-                                episodeNumber = launch.episodeNumber,
-                                episodeTitle = launch.episodeTitle,
-                                episodeThumbnail = launch.episodeThumbnail,
-                                streamTitle = cached.streamName,
-                                streamSubtitle = null,
-                                bingeGroup = cached.bingeGroup,
-                                pauseDescription = pauseDescription,
-                                providerName = cached.addonName,
-                                providerAddonId = cached.addonId,
-                                contentType = launch.type,
-                                videoId = effectiveVideoId,
-                                parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                parentMetaType = launch.parentMetaType ?: launch.type,
-                                initialPositionMs = launch.resumePositionMs ?: 0L,
-                                initialProgressFraction = launch.resumeProgressFraction,
-                                contentLanguage = cached.contentLanguage,
-                            )
-                            if (playerSettings.externalPlayerEnabled) {
-                                playbackHandedOff = true
-                                openExternalPlayback(playerLaunch)
-                                StreamsRepository.setOverlayVisible(false)
-                                reuseNavigated = true
-                                return@LaunchedEffect
-                            }
-                            StreamsRepository.clear()
-                            reuseNavigated = true
-                            val launchId = PlayerLaunchStore.put(playerLaunch)
-                            playbackHandedOff = true
-                            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-                                popUpTo<StreamRoute> { inclusive = true }
-                            }
-                        }
                     }
 
                     /**
@@ -3301,13 +3134,13 @@ private fun MainAppContent(
                         streamsUiState.autoPlayStream,
                         streamsUiState.requestToken,
                         expectedStreamsRequestToken,
-                        reuseHandled,
+                        routeDecisionHandled,
                         playbackRouteDecision,
                         playerSettings.playbackMode,
                         launch.manualSelection,
                         autoPlaybackStarting,
                     ) {
-                        if (!reuseHandled) return@LaunchedEffect
+                        if (!routeDecisionHandled) return@LaunchedEffect
                         if (launch.manualSelection) return@LaunchedEffect
                         val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
                             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
@@ -3323,7 +3156,6 @@ private fun MainAppContent(
                             playerSettings.playbackMode != PlaybackMode.CLASSIC &&
                                 autoPlaybackStarting
                         if (!isClassicAutoPlay && !hasFailureChain) return@LaunchedEffect
-                        if (reuseNavigated) return@LaunchedEffect
                         if (autoPlayHandled && !hasFailureChain) return@LaunchedEffect
                         if (streamsUiState.requestToken != expectedStreamsRequestToken) return@LaunchedEffect
                         val selectedStream = streamsUiState.autoPlayStream ?: return@LaunchedEffect
@@ -3399,28 +3231,6 @@ private fun MainAppContent(
                             return@LaunchedEffect
                         }
                         autoPlayHandled = true
-                        if (playerSettings.streamReuseLastLinkEnabled) {
-                            val cacheKey = StreamLinkCacheRepository.contentKey(
-                                type = launch.type,
-                                videoId = effectiveVideoId,
-                                parentMetaId = launch.parentMetaId,
-                                season = launch.seasonNumber,
-                                episode = launch.episodeNumber,
-                            )
-                            StreamLinkCacheRepository.save(
-                                contentKey = cacheKey,
-                                url = sourceUrl,
-                                streamName = stream.streamLabel,
-                                addonName = stream.addonName,
-                                addonId = stream.addonId,
-                                requestHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request),
-                                responseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-                                filename = stream.behaviorHints.filename,
-                                videoSize = stream.behaviorHints.videoSize,
-                                bingeGroup = stream.behaviorHints.bingeGroup,
-                                streamType = stream.streamType,
-                            )
-                        }
                         val playerLaunch = PlayerLaunch(
                             profileId = launch.profileId,
                             title = launch.title,
@@ -3451,21 +3261,8 @@ private fun MainAppContent(
                             autoPickedWithFailureChain = hasFailureChain,
                         )
                         if (playerSettings.playbackMode == PlaybackMode.INSTANT) {
-                            // ⚠ **Both of these describe the source that is about to *open*, not
-                            // the one Instant chose**, and that is the whole reason they live
-                            // here rather than beside the selection effect. The failure chain can
-                            // advance past a dead or evicted candidate to a different resolution;
-                            // recording the intent would remember something that never played,
-                            // and the next episode would then prefer a resolution that had just
-                            // failed - reintroducing exactly the churn this removes.
                             val openedFacts = playbackCandidates
                                 .firstOrNull { it.stream === stream }?.facts
-                            openedFacts?.resolution?.height?.let { height ->
-                                BingeGroupCacheRepository.saveSessionQualityHeight(
-                                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                    height = height,
-                                )
-                            }
                             // Instant otherwise gives no indication of what it decided, which is
                             // most of why a defensible pick reads as a random one - reported as
                             // "spinning a roulette wheel on what resolution I'm going to get".
@@ -3480,13 +3277,6 @@ private fun MainAppContent(
                                     message = getString(Res.string.playback_instant_selected, detail),
                                     actionLabel = getString(Res.string.playback_reused_last_link_change),
                                     action = NuvioToastAction.ChangePlaybackSource,
-                                )
-                                // Pressing Change is the user saying this pick was wrong, so the
-                                // remembered resolution goes with it and the next episode
-                                // re-decides from the connection rather than sticking to a band
-                                // they just rejected.
-                                BingeGroupCacheRepository.armBandChange(
-                                    launch.parentMetaId ?: effectiveVideoId,
                                 )
                             }
                         }
@@ -3589,28 +3379,6 @@ private fun MainAppContent(
                             return
                         }
                         val sourceUrl = stream.playableDirectUrl ?: return
-                        if (playerSettings.streamReuseLastLinkEnabled) {
-                            val cacheKey = StreamLinkCacheRepository.contentKey(
-                                type = launch.type,
-                                videoId = effectiveVideoId,
-                                parentMetaId = launch.parentMetaId,
-                                season = launch.seasonNumber,
-                                episode = launch.episodeNumber,
-                            )
-                            StreamLinkCacheRepository.save(
-                                contentKey = cacheKey,
-                                url = sourceUrl,
-                                streamName = stream.streamLabel,
-                                addonName = stream.addonName,
-                                addonId = stream.addonId,
-                                requestHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request),
-                                responseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-                                filename = stream.behaviorHints.filename,
-                                videoSize = stream.behaviorHints.videoSize,
-                                bingeGroup = stream.behaviorHints.bingeGroup,
-                                streamType = stream.streamType,
-                            )
-                        }
                         val playerLaunch = PlayerLaunch(
                             profileId = launch.profileId,
                             title = launch.title,
@@ -3680,20 +3448,10 @@ private fun MainAppContent(
                     }
 
                     /**
-                     * Starts the automatic path on a chosen quality row. Serves all three ways
-                     * a row gets chosen: the sheet, a remembered band, and Instant.
-                     *
-                     * [rememberBand] is the one thing that differs. The band id is Streamlined's
-                     * record of a question the user answered, and it is what lets this route
-                     * skip the sheet for the rest of the sitting - so Instant, which asked
-                     * nothing, must not write one. Instant records the resolution it actually
-                     * *opened* instead, where the source opens, because its failure chain can
-                     * still advance past this row to another.
+                     * Starts the automatic path on a chosen quality row. Streamlined supplies the
+                     * user's current answer; Instant supplies a fresh connection-based answer.
                      */
-                    fun startAutoSelectedPlayback(
-                        option: PlaybackQualityOption,
-                        rememberBand: Boolean = true,
-                    ) {
+                    fun startAutoSelectedPlayback(option: PlaybackQualityOption) {
                         when (
                             val result = PlaybackSourceSelector.select(
                                 option = option,
@@ -3704,34 +3462,12 @@ private fun MainAppContent(
                                 qualitySheetDismissed = true
                                 autoPlaybackStarting = true
                                 armNetworkObservation(result.stream)
-                                // Remember the band for the sitting, so the next episode plays
-                                // what the user just chose rather than re-deriving a resolution
-                                // from a bandwidth estimate that ratchets while they watch.
-                                // Written from the *option*, not from the source that opens:
-                                // the failure chain may advance past the winner, but it stays
-                                // inside the row, and the row is what was chosen.
-                                //
-                                // Stored twice, for two readers with different jobs: the height
-                                // steers the in-player next episode as a tie-break, the id lets
-                                // *this* route skip the sheet outright. See
-                                // `BingeGroupCacheRepository.sessionQualityBandIds`.
-                                // Unconditional: "Best available" carries no resolution, so
-                                // gating this on one meant the top row was never remembered and
-                                // the sheet reappeared every episode. The height is written when
-                                // there is one; the id always is.
-                                if (rememberBand) {
-                                    BingeGroupCacheRepository.saveSessionQualityBand(
-                                        parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-                                        height = option.resolution?.height,
-                                        optionId = option.id,
-                                    )
-                                }
                                 // `select` has already ranked the whole row and handed back
                                 // everything behind the winner. Throwing those away is what made
                                 // one "not cached" answer the end of the road in Streamlined,
                                 // while Instant - seeding the very same chain - stepped past it.
                                 // Seeding rather than opening also puts the auto-play effect in
-                                // charge, so resolve failures, P2P, reuse-last-link and the
+                                // charge, so resolve failures, P2P and the
                                 // attempt counter all behave identically in both modes.
                                 //
                                 // Capped by `playbackChain`, because the overlay tells the user
@@ -3774,10 +3510,6 @@ private fun MainAppContent(
                     }
 
                     fun selectStreamlinedOption(option: PlaybackQualityOption) {
-                        // An explicit tap retires any arming left over from a previous play:
-                        // the user is answering the sheet, so a later "Change source" is about
-                        // this choice, not about one they made two episodes ago.
-                        BingeGroupCacheRepository.disarmBandChange()
                         pendingStreamlinedOptionId = option.id
                         streamlinedSelectionPending = true
                     }
@@ -4016,82 +3748,6 @@ private fun MainAppContent(
                     }
 
                     /**
-                     * Answers the sheet's question with the band the user already chose.
-                     *
-                     * Streamlined remembered a band from the moment it shipped, but only the
-                     * *in-player* next episode read it. So bingeing from the player skipped the
-                     * sheet and bingeing from the details screen did not - same show, same
-                     * sitting, same choice already made, and the app asked again depending on
-                     * which door you came through. There is no user-visible difference between
-                     * those two taps, so there must be no behavioural one.
-                     *
-                     * Waits on the same settle signal a manual tap does, because a band matched
-                     * against a half-filled catalogue is matched against the wrong catalogue.
-                     * `rememberedBandHandled` makes it once-only: the effect's own keys change
-                     * as the fetch lands, and re-entering after `startAutoSelectedPlayback`
-                     * would seed a second chain over the first.
-                     */
-                    LaunchedEffect(
-                        playbackRouteDecision,
-                        rememberedBandId,
-                        rememberedBandHandled,
-                        playbackQualityOptions,
-                        streamsUiState.requestToken,
-                        streamsUiState.isAnyLoading,
-                        streamsUiState.emptyStateReason,
-                    ) {
-                        if (rememberedBandId == null || rememberedBandHandled) return@LaunchedEffect
-                        if (playbackRouteDecision !is PlaybackRouteDecision.ShowQualitySheet) return@LaunchedEffect
-                        // The user has already taken over - an explicit tap, a dismissal or a
-                        // bail-out all outrank a remembered preference.
-                        if (qualitySheetDismissed || manualSourceListRequested) return@LaunchedEffect
-                        if (streamlinedSelectionPending) return@LaunchedEffect
-                        if (
-                            !com.nuvio.app.features.playback.isStreamlinedSelectionReady(
-                                requestToken = streamsUiState.requestToken,
-                                expectedRequestToken = expectedStreamsRequestToken,
-                                isAnyLoading = streamsUiState.isAnyLoading,
-                                candidateCount = playbackCandidates.size,
-                                hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
-                                hasStreams = streamsUiState.groups.any { it.streams.isNotEmpty() },
-                            )
-                        ) return@LaunchedEffect
-
-                        rememberedBandHandled = true
-                        val option = PlaybackQualityOptions.rememberedOption(
-                            options = playbackQualityOptions,
-                            bandId = rememberedBandId,
-                        )
-                        if (option == null) {
-                            // No release at that band for this episode. Ask rather than
-                            // substitute: the sheet is skipped, so a substitution would be one
-                            // the user never sees and cannot disagree with.
-                            rememberedBandMissed = true
-                            return@LaunchedEffect
-                        }
-                        // Said out loud, with the way back. Skipping a question the user was
-                        // promised is exactly the silent-behaviour fault that made
-                        // reuse-last-link read as non-deterministic, and it is answered the same
-                        // way: name what happened, and offer the player's own Change source.
-                        NuvioToastController.show(
-                            message = getString(
-                                Res.string.playback_band_remembered,
-                                playbackQualityOptionLabels[option.id] ?: option.resolutionLabel,
-                            ),
-                            actionLabel = getString(Res.string.playback_reused_last_link_change),
-                            action = NuvioToastAction.ChangePlaybackSource,
-                        )
-                        // Pressing Change is the user saying this pick was wrong, so the next
-                        // episode has to ask again. The toast action is a typed enum with one
-                        // central handler and no content identity, so the identity is armed here
-                        // as data and consumed there.
-                        BingeGroupCacheRepository.armBandChange(
-                            launch.parentMetaId ?: effectiveVideoId,
-                        )
-                        startAutoSelectedPlayback(option)
-                    }
-
-                    /**
                      * Instant: the same path, with the quality answered by the connection.
                      *
                      * **Instant is not a third selection mechanism.** It is the effect above
@@ -4161,9 +3817,7 @@ private fun MainAppContent(
                         // identical must not land on different resolutions.
                         val option = PlaybackQualityOptions.stickyAffordable(
                             options = playbackQualityOptions,
-                            pinnedHeight = BingeGroupCacheRepository.sessionQualityHeight(
-                                launch.parentMetaId ?: effectiveVideoId,
-                            ),
+                            pinnedHeight = null,
                             estimatedMbps = sheetNetworkQuality.estimatedMbps,
                             maxHeight = meteredCapHeight,
                         )
@@ -4171,20 +3825,7 @@ private fun MainAppContent(
                             giveUpToSourceList()
                             return@LaunchedEffect
                         }
-                        // `rememberBand = false`: the band id is Streamlined's record of a
-                        // question the user answered, and it is what makes *this* route skip the
-                        // sheet. Instant asked nothing, so writing one would mean a user who
-                        // switched to Streamlined mid-sitting found their sheet already answered
-                        // by a decision they never made. What Instant remembers - the resolution
-                        // it actually opened - is written where the source opens instead.
-                        startAutoSelectedPlayback(option, rememberBand = false)
-                    }
-
-                    // Hide overlay when reuse navigated to external player (prevents reload from showing it again)
-                    LaunchedEffect(reuseNavigated) {
-                        if (reuseNavigated) {
-                            StreamsRepository.setOverlayVisible(false)
-                        }
+                        startAutoSelectedPlayback(option)
                     }
 
                     // Instant and Streamlined must never leave the user reading the source list
@@ -4205,30 +3846,16 @@ private fun MainAppContent(
                             isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
                             isManualLaunch = launch.manualSelection || launch.downloadIntent,
                             manualSourceListRequested = manualSourceListRequested,
-                            hasNavigatedAway = reuseNavigated || playbackHandedOff,
+                            hasNavigatedAway = playbackHandedOff,
                             isQualitySheetRoute =
                                 playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
                             qualitySheetDismissed = qualitySheetDismissed,
-                            // Only while it can still answer. Once the band has been missed the
-                            // sheet is the honest surface again, and the flag must stop
-                            // suppressing it.
-                            hasRememberedBand = rememberedBandId != null && !rememberedBandMissed,
                             isAutoPickRoute =
                                 playbackRouteDecision is PlaybackRouteDecision.AutoPick,
                             isAutoPlaybackStarting = autoPlaybackStarting,
                             awaitingUserAnswer = awaitingUserAnswer,
                         ),
                     )
-
-                    // An arming only outlives its own show if the user ignored the toast, and at
-                    // that point it is no longer about anything they are looking at. Retiring it
-                    // as the next show opens is what keeps `consumeArmedBandChange` the no-op
-                    // its call site claims it is for every unrelated Change.
-                    LaunchedEffect(launch.parentMetaId ?: effectiveVideoId) {
-                        BingeGroupCacheRepository.disarmBandChangeIfNot(
-                            launch.parentMetaId ?: effectiveVideoId,
-                        )
-                    }
 
                     // The backstop, for the dead ends nobody has found yet.
                     //
@@ -5442,11 +5069,6 @@ private fun MainAppContent(
                         // The player owns its source panel and this host sits above it, so
                         // the request is handed over rather than navigated to.
                         NuvioToastAction.ChangePlaybackSource -> {
-                            // If this Change belongs to a play that skipped the quality sheet,
-                            // pressing it also retires the band - otherwise the affordance
-                            // undoes one episode and the next one skips the sheet again. A
-                            // no-op for every other Change, including reuse-last-link's.
-                            BingeGroupCacheRepository.consumeArmedBandChange()
                             PlayerSourcePanelRequest.request()
                         }
                     }

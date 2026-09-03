@@ -1002,7 +1002,7 @@
     <string name="settings_meta_episodes">Episodes</string>
     <string name="settings_meta_episodes_description">Seasons and episode list for series.</string>
     <string name="settings_meta_blur_unwatched_episodes">Blur Unwatched Episodes</string>
-    <string name="settings_meta_blur_unwatched_episodes_description">Blur episode thumbnails until watched to avoid spoilers.</string>
+    <string name="settings_meta_blur_unwatched_episodes_description">Blur episode thumbnails and hide their synopsis until watched, to avoid spoilers.</string>
     <string name="settings_meta_group_label">Group %1$d</string>
     <string name="settings_meta_more_like_this">More like this</string>
     <string name="settings_meta_more_like_this_description">TMDB recommendation backdrops on detail page</string>
@@ -1213,7 +1213,7 @@
     <string name="playback_mode_classic_download">One episode or movie opens the source list; a whole season uses your preset</string>
     <string name="playback_mode_streamlined_tagline">Quality without the wall of releases</string>
     <string name="playback_mode_streamlined_stream_1">Pick a quality, Nuvio picks the release</string>
-    <string name="playback_mode_streamlined_stream_2">Remembers the quality you picked for the rest of the show</string>
+    <string name="playback_mode_streamlined_stream_2">Asks for the quality on every episode</string>
     <string name="playback_mode_streamlined_download">Always asks which preset to use</string>
     <string name="playback_mode_instant_tagline">Press play, it plays</string>
     <string name="playback_mode_instant_stream_1">Quality and source chosen from your connection</string>
@@ -2544,7 +2544,7 @@
     <string name="setup_details_episodes_horizontal">Large</string>
     <string name="setup_details_episodes_list">Compact</string>
     <string name="setup_episodes_blur_unwatched">Blur unwatched episodes</string>
-    <string name="setup_episodes_blur_unwatched_description">Keeps stills from episodes you haven't seen out of view.</string>
+    <string name="setup_episodes_blur_unwatched_description">Keeps stills and synopses from episodes you haven't seen out of view.</string>
     <string name="setup_details_tabs">Group sections into tabs</string>
     <string name="setup_details_tabs_description">Cast, trailers and details share a row of tabs instead of stacking down the page.</string>
 

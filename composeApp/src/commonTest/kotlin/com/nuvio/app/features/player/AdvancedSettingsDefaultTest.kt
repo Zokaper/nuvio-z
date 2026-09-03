@@ -10,8 +10,6 @@ class AdvancedSettingsDefaultTest {
         allowTorrentAutopick: Boolean? = null,
         autoDownshift: Boolean? = null,
         meteredCapHeight: Int? = null,
-        reuseLastLinkEnabled: Boolean? = null,
-        reuseLastLinkCacheHours: Int? = null,
         streamAutoPlayMode: String? = null,
         streamAutoPlayRegex: String? = null,
         androidPlaybackEngine: String? = null,
@@ -20,8 +18,6 @@ class AdvancedSettingsDefaultTest {
         allowTorrentAutopick = allowTorrentAutopick,
         autoDownshift = autoDownshift,
         meteredCapHeight = meteredCapHeight,
-        reuseLastLinkEnabled = reuseLastLinkEnabled,
-        reuseLastLinkCacheHours = reuseLastLinkCacheHours,
         streamAutoPlayMode = streamAutoPlayMode,
         streamAutoPlayRegex = streamAutoPlayRegex,
         androidPlaybackEngine = androidPlaybackEngine,
@@ -49,6 +45,6 @@ class AdvancedSettingsDefaultTest {
         // "Never written" is null. An explicit false means the user went in and turned
         // something off, which is every bit as deliberate as turning it on.
         assertTrue(untouched(allowTorrentAutopick = false))
-        assertTrue(untouched(reuseLastLinkEnabled = false))
+        assertTrue(untouched(autoDownshift = false))
     }
 }

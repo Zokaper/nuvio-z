@@ -431,14 +431,18 @@ private fun EpisodeRow(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                Text(
-                    text = overview,
-                    color = tokens.colors.textSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            // Withheld with the still: blurring the thumbnail while printing the synopsis under it
+            // protected nothing, because the overview is the spoiler.
+            if (!shouldBlurArtwork) {
+                episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                    Text(
+                        text = overview,
+                        color = tokens.colors.textSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

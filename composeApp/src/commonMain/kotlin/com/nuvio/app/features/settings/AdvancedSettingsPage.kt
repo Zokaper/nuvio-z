@@ -366,7 +366,6 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
     var showP2pProfileDialog by remember { mutableStateOf(false) }
     var showP2pCacheSizeDialog by remember { mutableStateOf(false) }
     var showP2pConsentDialog by remember { mutableStateOf(false) }
-    var showReuseCacheDurationDialog by remember { mutableStateOf(false) }
     var showDecoderPriorityDialog by remember { mutableStateOf(false) }
     var showPlaybackEngineDialog by remember { mutableStateOf(false) }
     var showLibmpvVideoOutputDialog by remember { mutableStateOf(false) }
@@ -398,8 +397,6 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
     } else {
         PluginsUiState(pluginsEnabled = false)
     }
-    val streamReuseLastLinkEnabled = autoPlayPlayerSettings.streamReuseLastLinkEnabled
-    val streamReuseLastLinkCacheHours = autoPlayPlayerSettings.streamReuseLastLinkCacheHours
     val androidPlaybackEngine = autoPlayPlayerSettings.androidPlaybackEngine
     val androidLibmpvVideoOutput = autoPlayPlayerSettings.androidLibmpvVideoOutput
     val androidLibmpvHardwareDecodingEnabled = autoPlayPlayerSettings.androidLibmpvHardwareDecodingEnabled
@@ -634,32 +631,6 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
         }
 
         SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_stream_selection),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_reuse_last_link),
-                    description = stringResource(Res.string.settings_playback_reuse_last_link_description),
-                    checked = streamReuseLastLinkEnabled,
-                    isAdvanced = true,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setStreamReuseLastLinkEnabled,
-                )
-                if (streamReuseLastLinkEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_last_link_cache_duration),
-                        description = formatReuseCacheDuration(streamReuseLastLinkCacheHours),
-                        isAdvanced = true,
-                        isTablet = isTablet,
-                        onClick = { showReuseCacheDurationDialog = true },
-                    )
-                }
-            }
-        }
-
-        SettingsSection(
             title = stringResource(Res.string.settings_playback_section_stream_auto_play),
             isTablet = isTablet,
         ) {
@@ -848,17 +819,6 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                 showP2pConsentDialog = false
             },
             onDismiss = { showP2pConsentDialog = false },
-        )
-    }
-
-    if (showReuseCacheDurationDialog) {
-        ReuseCacheDurationDialog(
-            selectedHours = streamReuseLastLinkCacheHours,
-            onDurationSelected = { hours ->
-                PlayerSettingsRepository.setStreamReuseLastLinkCacheHours(hours)
-                showReuseCacheDurationDialog = false
-            },
-            onDismiss = { showReuseCacheDurationDialog = false },
         )
     }
 

@@ -20,8 +20,6 @@ internal fun hasTunedAnAdvancedSetting(
     allowTorrentAutopick: Boolean?,
     autoDownshift: Boolean?,
     meteredCapHeight: Int?,
-    reuseLastLinkEnabled: Boolean?,
-    reuseLastLinkCacheHours: Int?,
     streamAutoPlayMode: String?,
     streamAutoPlayRegex: String?,
     androidPlaybackEngine: String?,
@@ -30,10 +28,9 @@ internal fun hasTunedAnAdvancedSetting(
     allowTorrentAutopick,
     autoDownshift,
     meteredCapHeight,
-    reuseLastLinkEnabled,
-    reuseLastLinkCacheHours,
     streamAutoPlayMode,
     streamAutoPlayRegex,
     androidPlaybackEngine,
     decoderPriority,
 ).any { it != null }
+

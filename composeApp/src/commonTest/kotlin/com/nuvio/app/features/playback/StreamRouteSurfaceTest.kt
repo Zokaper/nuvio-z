@@ -19,7 +19,6 @@ class StreamRouteSurfaceTest {
         hasNavigatedAway: Boolean = false,
         isQualitySheetRoute: Boolean = false,
         qualitySheetDismissed: Boolean = false,
-        hasRememberedBand: Boolean = false,
         isAutoPickRoute: Boolean = false,
         isAutoPlaybackStarting: Boolean = false,
         awaitingUserAnswer: Boolean = false,
@@ -30,7 +29,6 @@ class StreamRouteSurfaceTest {
         hasNavigatedAway = hasNavigatedAway,
         isQualitySheetRoute = isQualitySheetRoute,
         qualitySheetDismissed = qualitySheetDismissed,
-        hasRememberedBand = hasRememberedBand,
         isAutoPickRoute = isAutoPickRoute,
         isAutoPlaybackStarting = isAutoPlaybackStarting,
         awaitingUserAnswer = awaitingUserAnswer,
@@ -62,59 +60,6 @@ class StreamRouteSurfaceTest {
                     qualitySheetDismissed = true,
                     isAutoPlaybackStarting = true,
                 ),
-            ),
-        )
-    }
-
-    @Test
-    fun aRememberedBandAnswersTheSheetInsteadOfDrawingIt() {
-        // The sheet's own condition is still true here - the route is `ShowQualitySheet` and
-        // nothing has been dismissed - so without this rule the grid appeared for the frames
-        // before the auto-selection landed, then vanished. A question flashed and withdrawn is
-        // worse than either asking or not.
-        assertEquals(
-            StreamRouteSurface.ProgressOverlay,
-            streamRouteSurface(inputs(isQualitySheetRoute = true, hasRememberedBand = true)),
-        )
-    }
-
-    @Test
-    fun aMissedBandGivesTheSheetBack() {
-        // This episode has no release in the remembered band. `rememberedOption` answers null
-        // rather than substituting one, the route clears the flag, and the question is live
-        // again - the alternative is silently playing a band the user never picked, on a path
-        // where there is nothing on screen to disagree with.
-        assertEquals(
-            StreamRouteSurface.QualitySheet,
-            streamRouteSurface(inputs(isQualitySheetRoute = true, hasRememberedBand = false)),
-        )
-    }
-
-    @Test
-    fun aRememberedBandStillLosesToEveryBailOut() {
-        // It is a shortcut through a question, not a new way to cover the list. Rule 1 outranks
-        // it exactly as it outranks the sheet.
-        assertEquals(
-            StreamRouteSurface.SourceList,
-            streamRouteSurface(
-                inputs(
-                    isQualitySheetRoute = true,
-                    hasRememberedBand = true,
-                    manualSourceListRequested = true,
-                ),
-            ),
-        )
-        assertEquals(
-            StreamRouteSurface.SourceList,
-            streamRouteSurface(
-                inputs(isQualitySheetRoute = true, hasRememberedBand = true, isManualLaunch = true),
-            ),
-        )
-        // And a hand-off still stays covered on the way back out.
-        assertEquals(
-            StreamRouteSurface.HandOff,
-            streamRouteSurface(
-                inputs(isQualitySheetRoute = true, hasRememberedBand = true, hasNavigatedAway = true),
             ),
         )
     }
@@ -336,3 +281,4 @@ class StreamRouteSurfaceTest {
         )
     }
 }
+

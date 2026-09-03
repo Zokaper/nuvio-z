@@ -498,34 +498,6 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(mode, forKey = ProfileScopedKey.of(addonSubtitleStartupModeKey))
     }
 
-    actual fun loadStreamReuseLastLinkEnabled(): Boolean? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(streamReuseLastLinkEnabledKey)
-        return if (defaults.objectForKey(key) != null) {
-            defaults.boolForKey(key)
-        } else {
-            null
-        }
-    }
-
-    actual fun saveStreamReuseLastLinkEnabled(enabled: Boolean) {
-        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(streamReuseLastLinkEnabledKey))
-    }
-
-    actual fun loadStreamReuseLastLinkCacheHours(): Int? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(streamReuseLastLinkCacheHoursKey)
-        return if (defaults.objectForKey(key) != null) {
-            defaults.integerForKey(key).toInt()
-        } else {
-            null
-        }
-    }
-
-    actual fun saveStreamReuseLastLinkCacheHours(hours: Int) {
-        NSUserDefaults.standardUserDefaults.setInteger(hours.toLong(), forKey = ProfileScopedKey.of(streamReuseLastLinkCacheHoursKey))
-    }
-
     actual fun loadAndroidPlaybackEngine(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(androidPlaybackEngineKey))
 
@@ -1109,8 +1081,6 @@ actual object PlayerSettingsStorage {
         loadSubtitleUseForcedSubtitles()?.let { put(subtitleUseForcedSubtitlesKey, encodeSyncBoolean(it)) }
         loadSubtitleShowOnlyPreferredLanguages()?.let { put(subtitleShowOnlyPreferredLanguagesKey, encodeSyncBoolean(it)) }
         loadAddonSubtitleStartupMode()?.let { put(addonSubtitleStartupModeKey, encodeSyncString(it)) }
-        loadStreamReuseLastLinkEnabled()?.let { put(streamReuseLastLinkEnabledKey, encodeSyncBoolean(it)) }
-        loadStreamReuseLastLinkCacheHours()?.let { put(streamReuseLastLinkCacheHoursKey, encodeSyncInt(it)) }
         loadAndroidPlaybackEngine()?.let { put(androidPlaybackEngineKey, encodeSyncString(it)) }
         loadAndroidLibmpvVideoOutput()?.let { put(androidLibmpvVideoOutputKey, encodeSyncString(it)) }
         loadAndroidLibmpvHardwareDecodingEnabled()?.let {
@@ -1215,8 +1185,6 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(subtitleUseForcedSubtitlesKey)?.let(::saveSubtitleUseForcedSubtitles)
         payload.decodeSyncBoolean(subtitleShowOnlyPreferredLanguagesKey)?.let(::saveSubtitleShowOnlyPreferredLanguages)
         payload.decodeSyncString(addonSubtitleStartupModeKey)?.let(::saveAddonSubtitleStartupMode)
-        payload.decodeSyncBoolean(streamReuseLastLinkEnabledKey)?.let(::saveStreamReuseLastLinkEnabled)
-        payload.decodeSyncInt(streamReuseLastLinkCacheHoursKey)?.let(::saveStreamReuseLastLinkCacheHours)
         payload.decodeSyncString(androidPlaybackEngineKey)?.let(::saveAndroidPlaybackEngine)
         payload.decodeSyncString(androidLibmpvVideoOutputKey)?.let(::saveAndroidLibmpvVideoOutput)
         payload.decodeSyncBoolean(androidLibmpvHardwareDecodingEnabledKey)

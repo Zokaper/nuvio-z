@@ -25,7 +25,6 @@ import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.streams.CredentialRefreshDecision
 import com.nuvio.app.features.streams.credentialRefreshDecision
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
-import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.hasLikelyExpiringPlaybackCredentials
@@ -758,18 +757,6 @@ private fun buildNowPlayingSubtitle(
 private fun firstNonBlankUrl(vararg values: String?): String? =
     values.firstOrNull { !it.isNullOrBlank() }?.trim()
 
-internal fun PlayerScreenRuntime.removeFailedStreamFromCache() {
-    val currentVideoId = activeVideoId ?: return
-    val cacheKey = StreamLinkCacheRepository.contentKey(
-        type = contentType ?: parentMetaType,
-        videoId = currentVideoId,
-        parentMetaId = parentMetaId,
-        season = activeSeasonNumber,
-        episode = activeEpisodeNumber,
-    )
-    StreamLinkCacheRepository.remove(cacheKey)
-}
-
 /**
  * Ends this play for good, and says so everywhere that has to hear it.
  *
@@ -795,7 +782,6 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
         errorMessage = null
         return
     }
-    removeFailedStreamFromCache()
     if (isDebugBuild && PlaybackDebugSettings.hudEnabled) {
         errorMessage = message
         controlsVisible = !playerControlsLocked
@@ -838,7 +824,6 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
     val currentVideoId = activeVideoId ?: return false
     credentialRefreshesUsed += 1
     credentialRefreshAttemptedSourceUrl = failedUrl
-    removeFailedStreamFromCache()
 
     val savedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
     val expectedProviderAddonId = activeProviderAddonId

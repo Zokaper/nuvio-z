@@ -347,14 +347,19 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
   `dataSourceKey`. Use **named arguments** at every call into a diverged composable; desktop's
   `HomeHeroSection` and `DetailHero` have both gained parameters mid-list.
 - Source selection inside `entry<StreamRoute>` follows one precedence order:
-  `manualSelection` > completed local download > reuse-last-link > playback mode.
+  `manualSelection` > completed local download > playback mode.
   `streamAutoPlayMode` applies to Classic only - two pickers scoring the same
-  candidates must never both run. A **sticky pin** rule sat between the download and
-  reuse-last-link until `0.5.0-beta`; it was withdrawn because the pin could only be
-  created from the long-press escape hatch and, once created, silently stopped the
-  quality sheet appearing with nothing in the UI to say why or to clear it.
+  candidates must never both run. Two shortcuts used to sit between the download and
+  the mode, and both are gone for the same reason - a choice made once kept answering
+  a question the user was never shown again. A **sticky pin** rule was withdrawn in
+  `0.5.0-beta`: the pin could only be created from the long-press escape hatch and,
+  once created, silently stopped the quality sheet appearing with nothing in the UI to
+  say why or to clear it. **Reuse-last-link** and Streamlined's remembered quality band
+  followed it out. Classic now always opens the source selector and Streamlined always
+  opens the quality sheet, on every title and every episode.
   `StickySourcePin` and `StickySourcePinTest` are kept for a surfaced version -
-  re-adding it means re-adding a row to `PlaybackModeRouterTest`, not just a branch.
+  re-adding any of them means re-adding a row to `PlaybackModeRouterTest`, not just a
+  branch.
 - **Streamlined's next episode must behave like its first.** The stream route's failure
   chain lives in `StreamsRepository` and is armed through
   `PlayerLaunch.autoPickedWithFailureChain`; neither reaches an auto-played next

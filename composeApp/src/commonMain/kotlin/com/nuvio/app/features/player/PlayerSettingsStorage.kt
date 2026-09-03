@@ -55,10 +55,6 @@ internal expect object PlayerSettingsStorage {
     fun saveSubtitleShowOnlyPreferredLanguages(enabled: Boolean)
     fun loadAddonSubtitleStartupMode(): String?
     fun saveAddonSubtitleStartupMode(mode: String)
-    fun loadStreamReuseLastLinkEnabled(): Boolean?
-    fun saveStreamReuseLastLinkEnabled(enabled: Boolean)
-    fun loadStreamReuseLastLinkCacheHours(): Int?
-    fun saveStreamReuseLastLinkCacheHours(hours: Int)
     fun loadAndroidPlaybackEngine(): String?
     fun saveAndroidPlaybackEngine(engine: String)
     fun loadAndroidLibmpvVideoOutput(): String?
