@@ -1,17 +1,87 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 | | |
 | --- | --- |
-| Active branch | `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because the rework is deliberately desktop-first until it is verified on two machines. |
+| Active branch | `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework and, since 2026-09-03, the social/lobby/player UI rebuild. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because both are deliberately desktop-first until verified on two machines. |
 | Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
-| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` returns both flags false, direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. For the sync rework: `scripts/run-pure-suites.sh` passes all six groups (131, 64, 49, 17, 29, 42) with the new group 6 compiling the shipped sync sources and no stubs, and desktop CI `33627311248` passes the full `:composeApp:desktopTest` run and the Windows MSI build. |
-| **Not** verified | **Nothing in the Watch Together sync rework has run against a live party.** It compiles and both suites pass, and that is all: the party clock, the tick, the barriers and the wait-for-everyone policy have never had two machines on them. The matrix is cold start; pause and resume ten times, measuring the spread; seek ten times; a real host rebuffer; a real guest rebuffer with the toggle on and off; host migration; the socket killed mid-film; and a `debug-v0.5.0-beta.36` client against a `.35` one, which must degrade to the old five-second behaviour rather than break. Carried forward from `debug-v0.5.0-beta.35` and still open independently of the rework: every host transport action must bump `sequence`, offline Leave/End must permit a new party immediately, and the corrected next-episode transition and the desktop HTML button still need a device/install pass. Mobile is still not wired to the Z backend and has none of this; manual iOS verification remains outstanding. |
-| Next work | Run the two-desktop Watch Together matrix against `debug-v0.5.0-beta.36` with the playback HUD on, and read `errMs` off the screen rather than diffing two logs. Nothing in the rework has been measured between two machines. Port to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
+| Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` now returns both flags **true** - `202609010009_enable_social.sql` enabled them, and the desktop client renders the invite-code field and the Watch Together action, which it only does when `watchPartyEnabled` is set, so the earlier "both flags false" reading in this table predates that migration - direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. For the sync rework: `scripts/run-pure-suites.sh` passes all six groups (131, 64, 49, 17, 29, 42) with the new group 6 compiling the shipped sync sources and no stubs, and desktop CI `33627311248` passes the full `:composeApp:desktopTest` run and the Windows MSI build. For the UI rebuild: 1,360/1,360 desktop tests pass locally, and the social tab and the party lobby were both driven in the running app over Compose Hot Reload - the lobby across three live stage transitions. |
+| **Not** verified | **Nothing in the Watch Together sync rework has run against a live party.** It compiles and both suites pass, and that is all: the party clock, the tick, the barriers and the wait-for-everyone policy have never had two machines on them. The matrix is cold start; pause and resume ten times, measuring the spread; seek ten times; a real host rebuffer; a real guest rebuffer with the toggle on and off; host migration; the socket killed mid-film; and a `debug-v0.5.0-beta.36` client against a `.35` one, which must degrade to the old five-second behaviour rather than break. Carried forward from `debug-v0.5.0-beta.35` and still open independently of the rework: every host transport action must bump `sequence`, offline Leave/End must permit a new party immediately, and the corrected next-episode transition and the desktop HTML button still need a device/install pass. Mobile is still not wired to the Z backend and has none of this; manual iOS verification remains outstanding. From the UI rebuild: the **in-player Watch Together panel has never been seen** - reaching it needs playback, and its CSS and JS are desktop resources that a Compose reload does not pick up, so it wants a deliberate restart. Nor has any **multi-member lobby state**: a one-person party cannot produce a green `ready` tile, a red `failed` tile with its error text, the alternate-source chip, or the dimming of a disconnected member, and a still cannot judge the resolving ring's animation. All of those fall out of the two-desktop matrix. |
+| Next work | Run the two-desktop Watch Together matrix against `debug-v0.5.0-beta.36` with the playback HUD on, and read `errMs` off the screen rather than diffing two logs; it is also the only run that can show the lobby's multi-member tiles and the in-player panel. Nothing in the rework has been measured between two machines. Port to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
 | Debug channel | desktop `debug-v0.5.0-beta.36` carries the sync rework, published 2026-09-02 from `claude/watch-together-sync-7ceki1`; `debug-v0.5.0-beta.35` from `f0aef43f` is the build the current sync report came from. Mobile `debug-v0.5.0-beta.25` was published 2026-08-30. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
+
+## The social tab, the party lobby and the in-player panel were rebuilt (2026-09-03)
+
+Landed on `NuvioZDesktop` branch `claude/watch-together-sync-7ceki1` in `12542f2f`, `4d63cbfa` and
+`99b115ef`. **Desktop only.** Two of the three surfaces were verified in the running app; the third
+was not - see the table above.
+
+All three had been written without anyone being able to look at them, and it showed. Every element
+was the same `tonalElevation` grey box, so an error message, the profile header and a privacy
+toggle all carried equal weight; and the states people actually read - is this person ready, did my
+friend request send - were the least legible things on screen.
+
+**One vocabulary for readiness.** `WatchPartyPresentation.kt` names the tone
+(ready/working/failed/offline), the label and the stage rail once. The lobby and the player were
+each spelling this out for themselves and neither carried severity: the player sent
+`readyState.name` with the underscores swapped - the codebase's words rather than the viewer's - and
+disagreed with the lobby beside it. `PlayerPartyMember` now carries `statusTone` across the native
+bridge, so the controls layer can colour a pill instead of printing a grey caption.
+
+**Semantic colour is fixed, not themed.** Ready and live are a fixed green. `colorScheme.primary`
+follows the user's theme picker, and under Crimson a red "ready" sits beside a pink
+`colorScheme.error` "no source found" and the pair says nothing. The accent still carries emphasis -
+the stage rail, the invite tile - where no state is meant.
+
+`avatarUrl` and `avatarColorHex` were on `SocialProfileSummary`, `PartyParticipantProfile` and
+`PlayerPartyMember` from the day the feature shipped and were drawn by nothing, so every avatar on
+every social surface was a monogram. They render now.
+
+**What looking at it actually caught.** Ten defects, none of which a test would have found:
+
+- The lobby's blurred backdrop was invisible. The scrim ran `0.86 -> 1.0` alpha over the art, which
+  is opaque; the screen read as flat black and the art might as well not have been fetched.
+- `Modifier.fillMaxSize().widthIn(max = ...)` silently defeats the cap - `fillMaxSize` forces the
+  node to the parent's width - so the lobby stretched across a 2880px window. The same line was
+  written twice, in `SocialScreen.kt` and then again in `WatchPartyLobbyScreen.kt`.
+- `NO SOURCE YET` ellipsised to `NO SOURCE ...` in a 150dp tile, so the longest and most alarming
+  states were exactly the ones truncated away.
+- The lobby was never centred: `widthIn` with no centring parent pinned it to the left edge of a
+  wide monitor.
+- Activity cropped a 2:3 poster into a 76x48 letterbox, mangling the art on every card, on the
+  social tab and the home rows alike.
+- The social header's tint had two hard edges and read as a mis-drawn panel rather than a header.
+- Empty states stretched to about 1250px for two short lines, so an empty tab looked broken rather
+  than empty.
+- The recent-activity row's trailing avatar sat alone at the far right, separated from the name it
+  belongs to by the entire empty middle, repeating what the subtitle already said.
+- A dark `avatarColorHex` - zokaper's is near-black green - left the monogram floating with no
+  visible circle.
+- `social_no_activity` already says "Add friends to see what they watch", and the detail line under
+  it said the same thing again.
+
+**What the verification run established.** The social tab was driven against real friend activity.
+`social_get_state` returns `activity` correctly, and the empty feed seen first was accurate, because
+`zokaper` has published **zero** `social_activity_events` rows. That is not a fault:
+`SocialWatchedActivity` bridges *explicit local mark-watched mutations* only and is not a backfill,
+so an account whose history predates the social wiring has nothing to publish. `seraph`'s four rows
+prove the path works end to end. Worth knowing before reading an empty feed as a bug.
+
+The lobby was driven across three live stage transitions - the rail filling one, two and three
+segments; the headline moving through "Waiting in the lobby", "Waiting for the host to pick a
+source" and "Everyone is finding their source - 1 to go"; the pill through `NO SOURCE YET`,
+`FINDING SOURCE` and `PICKING A SOURCE`; and the primary action flipping to "Resolve source" once a
+fingerprint existed. Both test parties were ended afterwards.
+
+**Two housekeeping notes from that run.** There are **20 open `watch_parties` rows** with
+`ended_at is null`, from test sessions on 2026-09-01 and 02 that were never ended; they accumulate.
+And `DesktopDownloadQueueE2ETest > a source that trickles and drops forever fails instead of
+retrying forever` failed once in a full sweep and then passed 20/20 in isolation - it is a
+wall-clock simulation of a starving source, and the failing run shared the machine with a running
+Compose app and Gradle daemons. Run `desktopTest` on a quiet machine before believing it.
 
 ## Watch Together sync: the timing plane moved off the database (2026-09-02)
 
