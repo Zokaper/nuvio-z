@@ -419,7 +419,7 @@ had its specific check run.
 
 | What | The check that would settle it |
 | --- | --- |
-| **The nine review-pass fixes** | The three device checks in `STATUS.md`. |
+| **The nine review-pass fixes** | The three device checks in the 2026-08-22 review-pass entry, now in `Docs/STATUS-ARCHIVE.md`. |
 | **The startup watchdog** | The startup log line, under load - watching the retry loop *not* happen. |
 | **Downloads across a connectivity transition** | Item 4 of the downloads follow-up in `STATUS.md`. The link-expiry half has been run; this half has not. |
 
