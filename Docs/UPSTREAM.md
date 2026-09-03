@@ -94,6 +94,35 @@ They are the files a sync will actually hurt in.
 the cost is justified and the correct shape is visible. Rewriting all nine in advance is speculative
 work against a merge that has not happened.
 
+### 7. A vanilla bug is noted, not fixed - unless it breaks something of ours
+
+Nuvio Z inherits vanilla's features. It inherits vanilla's bugs with them, and the default answer to
+one is **write it down and wait**.
+
+The reason is the patch surface, not purity. A vanilla bugfix is the worst possible addition to it:
+it lives *inside* upstream logic, where no seam is available by definition - if a clean seam existed
+the bug would be ours, not theirs - and it becomes a permanent conflict the day upstream fixes the
+same bug their own way. We would then be merging our fix against their fix, in their file, forever,
+for a bug neither of us still has.
+
+**The triage:**
+
+1. **Check whether upstream already fixed it.** This is the answer most of the time. We run behind
+   vanilla by design, so a bug found today has a real chance of being fixed in commits we have not
+   merged yet - free, and on the base we will actually ship. `scripts/upstream-drift.sh` says how
+   far back we are looking.
+2. **Fix it only if it breaks something of ours** - a Z feature, or a phase exit gate in
+   `ROADMAP.md`. Then: a seam if one can be made, an entry in `Docs/PATCH-SURFACE.md` naming the
+   upstream file and saying why no seam was possible, and the commit tagged **`drop-at-next-sync`**
+   so it is *removed* when upstream lands their version rather than defended in a conflict.
+3. **Otherwise log it in `Docs/VANILLA-BUGS.md` and inherit the fix.** One line. It costs nothing,
+   and it stops the same bug being investigated three times as a suspected Z regression - which is
+   the actual failure this rule prevents.
+
+**Confirming it is vanilla is part of the report.** "Probably upstream" is not a finding. Reproduce
+it on a vanilla build, or say plainly in the register that it has not been confirmed and is
+therefore not yet an answer to anything.
+
 ## Versioning
 
 **A Nuvio Z version is a vanilla version plus a Z revision.** Vanilla ships `0.6.0`, we ship

@@ -7,7 +7,7 @@ what is still unverified.
 
 Base: NuvioMobile `979d5680` (2026-07-29), which is **205 commits behind** `upstream/cmp-rewrite`
 as of 2026-08-23 - run `scripts/upstream-drift.sh` for the current distance. 245 commits in
-`nuvio-z`, 176 in `NuvioZDesktop`, 12 in `NuvioZWeb`. Last updated 2026-08-23.
+`nuvio-z`, 176 in `NuvioZDesktop`, 12 in `NuvioZWeb`. Last updated 2026-09-04.
 
 **Audited 2026-08-23.** Every `feat:` and `refactor:` subject in all three repositories since its
 fork base was mapped to a row here: 39 subjects in `nuvio-z`, 38 in `NuvioZDesktop`, 7 in
@@ -38,10 +38,11 @@ fixed and recorded in **C5** and **C19**.
 | **no** | deliberately absent - the reason is in the row or in `nuvioweb/docs/Z-PORT-MATRIX.md` |
 | n/a | the feature is that platform's own infrastructure |
 
-**iOS carries a standing caveat.** Everything in `commonMain` applies to iOS in principle, but
-**iOS does not currently compile** - two bugs, seven errors, and the linker has never run, so the
-whole Swift side is uncompiled. An `iOS: yes` below means "shared code, no iOS-specific gap", not
-"seen working". See §12.
+**iOS carries a standing caveat.** Everything in `commonMain` applies to iOS in principle, and
+**iOS compiles** - the Kotlin framework and the Xcode app both build in CI, unsigned, since
+`21fd0d20` and `43155318` on 2026-08-25. But it has never been *run*: no signing, no installable
+build, nobody has held it. An `iOS: yes` below means "shared code, no iOS-specific gap", not "seen
+working". See §12 and Phase 7 of `ROADMAP.md`.
 
 **Rule:** a new Z feature is not done until it has a row here with its platform column filled in.
 
@@ -375,6 +376,7 @@ the mode-availability rule and would have gone on asserting a withdrawn one.
 | **P9** | Sticky season pin | Withdrawn. Reachable only from the escape hatch, invisible once set, and it silently suppressed the quality sheet for a whole season with no way to clear it. |
 | **P10** | `PlaybackQualityTier` | Removed entirely, with its storage key and all four actuals. Replaced by catalogue-derived options. |
 | **P8** | Standalone mode-selector screen | Deleted on the KMPs, replaced by wizard step 2. Still the right shape on TV, which has no wizard. |
+| **P2-web** | The remembered quality band, on the web port | Removed 2026-09-04, bringing the web port into line with the decision the KMPs had already taken. A band chosen earlier in the sitting silently answered the sheet, which reads as the app deciding for you with nothing on screen to disagree with. It also forced a second mechanism to exist - `hasRememberedBand`, which suppressed a skeleton grid that would otherwise be drawn and withdrawn on every episode. Both are gone; `streamPreferencesStore.js` was deleted outright with its settings row, its profile sync key and its player wiring. |
 | - | The ranking helper on the source selector | Deleted; it had no production callers. The comparator survives only inside its own test. |
 | **W-** | Five earlier wizard shapes | See §5. Preset-first, translucent-sheet, preview-follows-touch, Trakt step, hand-drawn miniature. |
 | - | Metered cap height and auto-downshift keys on TV | Never ported. A television is never metered and neither platform reports it honestly. |
@@ -384,21 +386,56 @@ the mode-availability rule and would have gone on asserting a withdrawn one.
 
 ## 12. Standing verification debt
 
-**This list is the point of the ledger.** Everything above compiles and passes its tests. These are
-the things nobody has *watched*.
+**This list is the point of the ledger.** Everything above compiles and passes its tests. This
+section records what has been *watched*, and what has not.
 
-| What | The check that settles it |
+**Refreshed 2026-09-04** by asking the maintainer directly, per the standing rule in `ROADMAP.md`.
+The previous revision of this section listed as never-watched several things that had in fact been
+used for weeks. The testing had happened; the write-up had not.
+
+**Three states, because two were not enough.**
+
+| | |
 | --- | --- |
-| **Instant has never been watched running.** The entire reason it was withheld twice. | The 10-step device script in `STATUS.md`, on the debug line. |
-| **The setup wizard has never been rendered outside CI**, and nobody has looked at the PNGs the desktop job has been uploading for five passes. | Download the `setup-wizard-renders` artifact and look at it. |
-| **The settings reorganisation has never been seen on a screen**, and no test in either repo can see where a settings row is drawn. | Walk Playback, Advanced and Subtitles on a device and on Windows. |
-| **The nine review-pass fixes have not been seen on a device.** | Three checks listed in that section of `STATUS.md`. |
-| **The connection-gauge correction is unconfirmed** on the handset that reported the over-read. | Compare the sustained and peak figures under the probe's log tag. |
-| **The startup watchdog was diagnosed by reading**, not by watching the retry loop not happen. | The startup log line, under load. |
-| **Nothing from the web port has ever run on a television**, in a browser or on a TV. Streamlined is wired and reachable and unwatched. | Dispatch the TV debug workflow and look at it. |
-| **iOS does not compile.** Seven errors, two bugs - one a single line in shared code using a JVM-only stdlib call, which accounts for five of them. The linker has never run, so the whole Swift side is uncompiled and a second wave is expected. | The iOS build workflow, then a Mac. |
-| **The desktop self-test found the home screen drawing zero catalog rows** on a profile whose addons return 88 to 1,020 sources. Reproduced 3 of 3. Unresolved. | Open. |
-| **The real-account download run** against a live provider across the link-expiry window has been done once; the connectivity-transition half has not. | Item 4 of the downloads follow-up in `STATUS.md`. |
+| **watched** | somebody deliberately looked at this thing doing its job |
+| **in daily use** | the maintainer has run Nuvio Z for weeks and nothing attributable to it has failed. This is real evidence and it is not the same as the check having been run - these systems are invisible when working, so "no complaint" is the only signal they emit |
+| **open** | genuinely unchecked, or checked and found wanting |
+
+### Watched
+
+| What | Where it was seen | Caveat |
+| --- | --- | --- |
+| **Instant** | On the debug line, in normal use. | *Usually* works; it sometimes does not, and nobody has characterised when. That is Phase 2's problem, not a blocker here. |
+| **The setup wizard** | Rendered on a real screen, not only in CI. | - |
+| **The settings reorganisation** | Playback, Advanced and Subtitles walked on a real screen. | - |
+| **The web port on a television** | It ran on a TV. | Buggy. Phase 8 owns the bugs; the claim being settled here is only that it runs at all. |
+| **The connection-gauge correction** | Confirmed on the handset that reported the over-read. | - |
+
+### In daily use, never isolated
+
+These are under-the-hood systems with no visible output when correct. Weeks of use without an
+attributable failure is the evidence available, and it is worth recording - but none of them has
+had its specific check run.
+
+| What | The check that would settle it |
+| --- | --- |
+| **The nine review-pass fixes** | The three device checks in `STATUS.md`. |
+| **The startup watchdog** | The startup log line, under load - watching the retry loop *not* happen. |
+| **Downloads across a connectivity transition** | Item 4 of the downloads follow-up in `STATUS.md`. The link-expiry half has been run; this half has not. |
+
+**Why these stay listed.** When something does break in this area, the failure is rarely
+attributable to one system - source resolution, the watchdog, the debrid mint and the network probe
+all participate in the same second of wall-clock time, and a user-visible symptom names none of
+them. So the phase that owns each of these opens with investigation rather than with a fix. That is
+the reason the checks are still worth running even though nothing is currently complaining.
+
+### Open
+
+| What | Where it stands |
+| --- | --- |
+| **The home screen sometimes draws only the Continue Watching row.** | **Revised 2026-09-04, and the revision matters.** The self-test recorded "zero catalog rows, 3 of 3" on an addon-heavy profile. Observed behaviour is narrower and stranger: it is **intermittent**, Continue Watching **survives**, and **scrolling down sometimes forces the missing rows to load**. That is not a catalogue-fetch failure - a failed fetch would not be rescued by a scroll. It points at row virtualisation or a lazy-load viewport calculation losing its first pass. **Unattributed: this may be a vanilla Nuvio bug.** Settle that first, per Rule 7 in `Docs/UPSTREAM.md` - if vanilla reproduces it, it goes to `Docs/VANILLA-BUGS.md` and the Phase 1 sync may fix it for nothing. |
+| **iOS has never been run.** | The ledger's old claim - "does not compile, seven errors, the linker has never run" - **was true on 2026-08-23 and was fixed on 2026-08-25** by `21fd0d20` and `43155318`. The Kotlin framework and the Xcode app both build in CI today, unsigned. What remains is not compilation: it is signing, an installable build, and somebody holding an iPhone. Phase 7. |
+
 
 ---
 
