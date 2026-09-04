@@ -31,11 +31,16 @@ days.
 
 ## The proof the model works
 
+Measured at the 0.4.13 sync (2026-09-04), each against the target tag named below.
+
 | | our commits | behind upstream | files upstream owns that we edit |
 | --- | --- | --- | --- |
-| `nuvio-z` | 245 | never measured | **128** |
-| `NuvioZDesktop` | 176 | no upstream remote at all | **135** |
-| `NuvioZWeb` | 12 | **0** | **8** |
+| `nuvio-z` | 319 | **90** at `0.4.13` (now merged) | **153** |
+| `NuvioZDesktop` | 257 | **357** at `0.1.22-alpha` | **164** |
+| `NuvioZWeb` | 24 | **137** at `1.0.5` | **20** |
+
+`NuvioZWeb`'s zero was an artefact of never having fetched: vanilla web went 0.3.44 -> 1.0.x while
+the fork sat still.
 
 `NuvioZWeb` carries a complete port of the playback-mode system - the facts extractor, the ranking,
 the mode router, the quality options, the source selector, the startup watchdog, the quality sheet,
@@ -156,7 +161,7 @@ no matter what we ship. The transition therefore has exactly one awkward step:
 | Bridge | `0.5.0-beta` | Ranks above `0.4.14-beta` **by the old rule**, so every existing install is offered it. Carries the serial-aware updater. |
 | First mod release | `<vanilla>-z1` | Free to go backwards by name; every install that took the bridge orders by serial. |
 
-**`NuvioZWeb` needs no bridge.** It is at `0.3.37` and vanilla is at `0.3.39-beta`, so adopting
+**`NuvioZWeb` needs no bridge.** It is at `0.3.37` and vanilla is at `1.0.5`, so adopting
 vanilla's number moves *forward*.
 
 ### The trap to not reintroduce
@@ -181,9 +186,13 @@ even where the work is identical.
 
 | Repo | Base | Upstream branch |
 | --- | --- | --- |
-| `nuvio-z` | `979d5680`, 2026-07-29 | **`cmp-rewrite`** - not `main` |
-| `NuvioZDesktop` | `1704f6c9`, 2026-08-02 | **`desktopweb`** |
-| `NuvioZWeb` | `0c3bafc`, 2026-08-22 | `main` |
+| `nuvio-z` | `979d5680`, 2026-07-29 | `NuvioMedia/NuvioMobile`, **`cmp-rewrite`** - not `main` |
+| `NuvioZDesktop` | `b32dd57b` = `0.1.20-alpha` | `NuvioMedia/NuvioDesktop`, **`Dev`** |
+| `NuvioZWeb` | `0c3bafc`, 2026-08-22 | `NuvioMedia/NuvioWeb`, `main` |
+
+Two of these were wrong until the 0.4.13 sync measured them: the desktop fork was recorded as
+`1704f6c9` on a branch called `desktopweb`. That commit is upstream's `0.1.16-alpha` tag, and no
+`desktopweb` branch exists in any of the upstream repositories.
 
 Fetching the wrong branch gives a misleading ahead/behind. This is also the main argument for
 unifying the two KMP repositories: otherwise every sync is performed twice, against two different
@@ -197,7 +206,7 @@ upstream branches, with conflicts hand-resolved in both.
 3. Resolve, in expected order of pain: the strings file (mechanical once rule 5 holds), `App.kt`
    (the hard one), the two player clusters (apply rule 6), version files (already handled by
    `merge=ours`).
-4. Run everything: the pure suites (**284** per KMP repo), the Android host suite (**975**), the
+4. Run everything: the pure suites (**285** on mobile, **336** on desktop), the Android host suite (**975**), the
    desktop suite, and `npm test` (**177**) on web.
 5. Regenerate `Docs/PATCH-SURFACE.md`; review every file that gained a reason-free row.
 6. Record the new base commit and version in `STATUS.md`, in `AGENTS.md`'s base line, and in the

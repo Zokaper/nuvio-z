@@ -135,6 +135,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         speedBoostRestoreSpeed = null
         preferredAudioSelectionApplied = false
         preferredSubtitleSelectionApplied = false
+        isUserExplicitSubtitleSelection = false
+        hasScannedTextTracksOnce = false
+        selectedSubtitleIndex = -1
+        selectedAddonSubtitleId = null
+        useCustomSubtitles = false
         showSourcesPanel = false
         showEpisodesPanel = false
         episodeStreamsPanelState = EpisodeStreamsPanelState()
@@ -232,6 +237,41 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     LaunchedEffect(playerController, subtitleStyle) {
         playerController?.applySubtitleStyle(subtitleStyle)
+    }
+
+    val subtitlePreferenceKey = listOf(
+        playerSettingsUiState.preferredSubtitleLanguage,
+        playerSettingsUiState.secondaryPreferredSubtitleLanguage.orEmpty(),
+        subtitleStyle.useForcedSubtitles,
+    ).joinToString("|")
+    var lastSubtitlePreferenceKey by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(
+        playerController,
+        subtitlePreferenceKey,
+        preferredSubtitleSelectionApplied,
+        selectedSubtitleIndex,
+        selectedAddonSubtitleId,
+        useCustomSubtitles,
+    ) {
+        val controller = playerController ?: return@LaunchedEffect
+        val preferenceChanged = lastSubtitlePreferenceKey != null &&
+            lastSubtitlePreferenceKey != subtitlePreferenceKey
+        lastSubtitlePreferenceKey = subtitlePreferenceKey
+
+        controller.applySubtitlePreferences(
+            preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
+            secondaryPreferredLanguage = playerSettingsUiState.secondaryPreferredSubtitleLanguage,
+            useForcedSubtitles = subtitleStyle.useForcedSubtitles,
+            autoSelectionApplied = preferredSubtitleSelectionApplied,
+            hasActiveSubtitle = selectedSubtitleIndex >= 0 || selectedAddonSubtitleId != null,
+            useCustomSubtitles = useCustomSubtitles,
+        )
+
+        if (preferenceChanged) {
+            preferredSubtitleSelectionApplied = false
+            refreshTracks()
+        }
     }
 
     LaunchedEffect(
@@ -380,6 +420,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playbackSnapshot.isLoading,
         preferredAudioSelectionApplied,
         preferredSubtitleSelectionApplied,
+        addonSubtitles,
+        isLoadingAddonSubtitles,
     ) {
         if (playerController == null || playbackSnapshot.isLoading) {
             return@LaunchedEffect

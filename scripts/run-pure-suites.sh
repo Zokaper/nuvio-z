@@ -37,7 +37,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 WORK="${2:-/tmp/nuvio-pure-suites}"
-KOTLIN_VERSION="2.3.0"
+KOTLIN_VERSION="2.4.10"
 
 mkdir -p "$WORK"
 cd "$WORK"
@@ -62,10 +62,26 @@ fi
 # it, so unlike group 4 this one needs the serialization *compiler plugin*, which the kotlinc
 # distribution does not carry - only the runtime jars are in it. The coroutines runtime the
 # repository's StateFlow needs does ship inside kotlinc/lib.
-[ -f serialization-plugin.jar ] || curl -sSL -o serialization-plugin.jar \
-  https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/2.3.0/kotlin-serialization-compiler-plugin-2.3.0.jar
+# The plugin version MUST track KOTLIN_VERSION. A plugin built against an older compiler dies
+# at registration with `NoSuchMethodError: ...ExtensionStorage.registerExtension` - not a
+# compile error, so it scrolls past as a stack trace while the run carries on regardless.
+[ -f serialization-plugin-${KOTLIN_VERSION}.jar ] || curl -sSL -o serialization-plugin-${KOTLIN_VERSION}.jar \
+  https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/${KOTLIN_VERSION}/kotlin-serialization-compiler-plugin-${KOTLIN_VERSION}.jar
 
 export PATH="$WORK/kotlinc/bin:$PATH"
+
+# kotlinc and the JUnit runner both need a JVM. On a machine whose only JDK is Android
+# Studio's bundled runtime there is no `java` on PATH, and every `java` line below then
+# failed with "command not found" while the script still exited 0 - a run that tested
+# nothing and said so only in the scrollback.
+if ! command -v java >/dev/null 2>&1; then
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+  else
+    echo "no java on PATH and JAVA_HOME is unset or has no bin/java - nothing would run" >&2
+    exit 1
+  fi
+fi
 KTJ="$WORK/kotlinc/lib/kotlin-test-junit.jar:$WORK/kotlinc/lib/kotlin-test.jar"
 CP_BUILD="$WORK/junit.jar:$WORK/hamcrest.jar:$KTJ"
 CP_RUN="$CP_BUILD:$WORK/kotlinc/lib/kotlin-stdlib.jar"
@@ -89,7 +105,7 @@ rm -rf "$WORK/out-selection"
 # it must be the only availability test in the codebase - so bringing Instant back would have
 # flipped the shipped rule while the suite went on asserting the withdrawn one. Its only
 # obstacle was `@Serializable`, hence the plugin and the JSON runtime below.
-kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.jar" \
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-selection" \
   "$STUBS"/*.kt \
   "$M/core/language/LanguageCodes.kt" \
@@ -183,7 +199,7 @@ java -cp "$WORK/out-sync:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
 # connected, and must still leave a plain addon row's own name alone.
 rm -rf "$WORK/out-debrid"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" \
-  -Xplugin="$WORK/serialization-plugin.jar" \
+  -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-debrid" \
   "$STUBS"/debrid/*.kt \
   "$M/core/media/ReleaseTags.kt" \

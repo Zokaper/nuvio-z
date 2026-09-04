@@ -11,8 +11,9 @@ completed, verified, deferred, or blocked.
 - Android release application ID: `com.nuvio.app.z`
 - Android debug application ID: `com.nuvio.app.z.debug`
 - Kotlin namespace remains `com.nuvio.app`.
-- The project is based on NuvioMobile commit
-  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71`.
+- The project forked from NuvioMobile commit
+  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and is synced to upstream tag `0.4.13`
+  (`42a9febf`), merged 2026-09-04.
 - `upstream` must continue to point to
   `https://github.com/NuvioMedia/NuvioMobile.git`.
 - The private personal fork should use the `origin` remote.

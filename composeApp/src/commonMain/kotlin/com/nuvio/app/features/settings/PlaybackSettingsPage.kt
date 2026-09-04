@@ -325,7 +325,6 @@ private fun PlaybackSettingsSection(
     var showSecondaryAudioDialog by remember { mutableStateOf(false) }
     var showPreferredSubtitleDialog by remember { mutableStateOf(false) }
     var showSecondarySubtitleDialog by remember { mutableStateOf(false) }
-    var showAddonSubtitleStartupModeDialog by remember { mutableStateOf(false) }
     var showSubtitleTextColorDialog by remember { mutableStateOf(false) }
     var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
     var showSubtitleOutlineColorDialog by remember { mutableStateOf(false) }
@@ -683,14 +682,6 @@ private fun PlaybackSettingsSection(
                             autoPlayPlayerSettings.subtitleStyle.copy(showOnlyPreferredLanguages = enabled),
                         )
                     },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_addon_subtitle_startup_mode),
-                    description = addonSubtitleStartupModeLabel(autoPlayPlayerSettings.addonSubtitleStartupMode),
-                    enabled = otherSubtitleOptionsEnabled,
-                    isTablet = isTablet,
-                    onClick = { showAddonSubtitleStartupModeDialog = true },
                 )
             }
         }
@@ -1344,17 +1335,6 @@ private fun PlaybackSettingsSection(
                 showSecondarySubtitleDialog = false
             },
             onDismiss = { showSecondarySubtitleDialog = false },
-        )
-    }
-
-    if (showAddonSubtitleStartupModeDialog) {
-        AddonSubtitleStartupModeDialog(
-            selectedMode = autoPlayPlayerSettings.addonSubtitleStartupMode,
-            onModeSelected = {
-                PlayerSettingsRepository.setAddonSubtitleStartupMode(it)
-                showAddonSubtitleStartupModeDialog = false
-            },
-            onDismiss = { showAddonSubtitleStartupModeDialog = false },
         )
     }
 
@@ -2618,6 +2598,7 @@ internal fun AddonSubtitleStartupModeDialog(
         }
     }
 }
+
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
