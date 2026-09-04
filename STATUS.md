@@ -37,7 +37,10 @@ sat in the UI wired to nothing. The check that catches this class of loss is
 Pure suites 285 green - the pre-merge baseline exactly - and the Android host suite 1,286 green.
 `scripts/run-pure-suites.sh` had to be repaired first: its serialization compiler plugin was
 pinned to Kotlin 2.3.0 against a 2.4.10 compiler, and there is no `java` on PATH on this machine,
-so it had been exiting 0 while running nothing at all. iOS is CI's to check; no macOS here.
+so it had been exiting 0 while running nothing at all. CI `33861273289` passes, and the iOS build
+`33861273328` compiles the Kotlin framework and the Xcode app in 38 minutes - the merge brought
+upstream's `ios-test-build.yml` and `scripts/build-ios-ipa.sh` with it, so the IPA pipeline is
+inherited rather than owed.
 
 Full analysis, and the brief for the desktop sync, in `Docs/UPSTREAM-SYNC-0.4.13.md`.
 
