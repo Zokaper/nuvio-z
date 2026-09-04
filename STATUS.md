@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 | | |
 | --- | --- |
-| Active branch | `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework and, since 2026-09-03, the social/lobby/player UI rebuild. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because both are deliberately desktop-first until verified on two machines. |
-| Version in the files | `0.5.0-beta` (mobile `CURRENT_PROJECT_VERSION=125`, desktop `VERSION_CODE=39`, release serial 126) |
+| Active branch | `claude/upstream-sync-0.4.13` in **nuvio-z**, carrying the vanilla `0.4.13` merge. `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework and, since 2026-09-03, the social/lobby/player UI rebuild. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because both are deliberately desktop-first until verified on two machines. |
+| Version in the files | mobile **`0.4.13-z1`** with release serial **127** as of the sync below; desktop still `0.5.0-beta` (`VERSION_CODE=39`). `CURRENT_PROJECT_VERSION` stays 125 until a build is published. The two repositories deliberately disagree until the desktop sync lands. |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
-| Next version | adopt the synced vanilla base as `<vanilla>-z1`, with release serial 127, after the upstream merges and verification |
+| Next version | mobile has adopted `0.4.13-z1`. Desktop adopts `<vanilla>-z1` when its own sync to `0.1.22-alpha` lands. Note that the debug channel carries no serial, so a debug install on `0.5.0-beta.25` will not be offered a `0.4.13-z1` debug build - it needs one manual sideload. |
 | Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` now returns both flags **true** - `202609010009_enable_social.sql` enabled them, and the desktop client renders the invite-code field and the Watch Together action, which it only does when `watchPartyEnabled` is set, so the earlier "both flags false" reading in this table predates that migration - direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. For the sync rework: `scripts/run-pure-suites.sh` passes all six groups (131, 64, 49, 17, 29, 42) with the new group 6 compiling the shipped sync sources and no stubs, and desktop CI `33627311248` passes the full `:composeApp:desktopTest` run and the Windows MSI build. For the UI rebuild: 1,360/1,360 desktop tests pass locally, and the social tab and the party lobby were both driven in the running app over Compose Hot Reload - the lobby across three live stage transitions. |
 | **Not** verified | **Nothing in the Watch Together sync rework has run against a live party.** It compiles and both suites pass, and that is all: the party clock, the tick, the barriers and the wait-for-everyone policy have never had two machines on them. The matrix is cold start; pause and resume ten times, measuring the spread; seek ten times; a real host rebuffer; a real guest rebuffer with the toggle on and off; host migration; the socket killed mid-film; and a `debug-v0.5.0-beta.36` client against a `.35` one, which must degrade to the old five-second behaviour rather than break. Carried forward from `debug-v0.5.0-beta.35` and still open independently of the rework: every host transport action must bump `sequence`, offline Leave/End must permit a new party immediately, and the corrected next-episode transition and the desktop HTML button still need a device/install pass. Mobile is still not wired to the Z backend and has none of this; manual iOS verification remains outstanding. From the UI rebuild: the **in-player Watch Together panel has never been seen** - reaching it needs playback, and its CSS and JS are desktop resources that a Compose reload does not pick up, so it wants a deliberate restart. Nor has any **multi-member lobby state**: a one-person party cannot produce a green `ready` tile, a red `failed` tile with its error text, the alternate-source chip, or the dimming of a disconnected member, and a still cannot judge the resolving ring's animation. All of those fall out of the two-desktop matrix. |
 | Next work | Run the two-desktop Watch Together matrix against `debug-v0.5.0-beta.36` with the playback HUD on, and read `errMs` off the screen rather than diffing two logs; it is also the only run that can show the lobby's multi-member tiles and the in-player panel. Nothing in the rework has been measured between two machines. Port to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
@@ -16,6 +16,30 @@ Last updated: 2026-09-03
 > **The history moved.** Everything before 2026-08-24 is in [`Docs/STATUS-ARCHIVE.md`](Docs/STATUS-ARCHIVE.md) -
 > 48 sections, kept whole and in order. This file is the live handoff only: the
 > state table above, the work since the last release, and what is still open below.
+
+## Mobile is synced to vanilla 0.4.13 (2026-09-04)
+
+Phase 1 of `ROADMAP.md`, on `nuvio-z` branch `claude/upstream-sync-0.4.13`, merged in `bacb3a23`.
+90 commits of vanilla, a 27-file conflict surface, 11 files actually in conflict.
+
+The work was not the conflicts. Upstream dissolved `App.kt` into a 98-line shell plus 13 new
+files, and our copy carried 1,639 lines of Z changes across 44 commits, so there was no "keep
+ours": the new files merged in cleanly as additions and their declarations collided with the
+monolith. Z's hunks were routed into `MainAppContent.kt`, `StreamDestination.kt` and the six
+destination files, then read by hand.
+
+**Five pieces of Z code went missing with no conflict marker.** Four were found by the compiler.
+The fifth was not: `AddonSubtitleStartupPolicy.kt` and its 40-test suite were deleted outright
+together with their last caller, so everything compiled while the Fast-startup subtitle setting
+sat in the UI wired to nothing. The check that catches this class of loss is
+`git diff --cached --diff-filter=D --name-only`, and it belongs in every sync.
+
+Pure suites 285 green - the pre-merge baseline exactly - and the Android host suite 1,286 green.
+`scripts/run-pure-suites.sh` had to be repaired first: its serialization compiler plugin was
+pinned to Kotlin 2.3.0 against a 2.4.10 compiler, and there is no `java` on PATH on this machine,
+so it had been exiting 0 while running nothing at all. iOS is CI's to check; no macOS here.
+
+Full analysis, and the brief for the desktop sync, in `Docs/UPSTREAM-SYNC-0.4.13.md`.
 
 ## The social tab, the party lobby and the in-player panel were rebuilt (2026-09-03)
 
