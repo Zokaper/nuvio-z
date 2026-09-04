@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.p2p.P2pLoadingStatus
+import com.nuvio.app.features.playback.PlaybackLoadingState
+import com.nuvio.app.features.playback.PlaybackProgressStep
+import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.player.skip.NextEpisodeCard
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipIntroButton
@@ -67,6 +71,13 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onDismissNextEpisode: () -> Unit,
     errorMessage: String?,
     onDismissError: () -> Unit,
+    /** What the route chose, carried across so the band survives the hand-off unchanged. */
+    loadingState: PlaybackLoadingState = PlaybackLoadingState(
+        step = PlaybackProgressStep.StartingPlayback,
+    ),
+    formatSize: (Long) -> String = { it.toString() },
+    /** Puts the source label and the engine's message on the clipboard together. */
+    onCopyErrorDetails: (() -> Unit)? = null,
 ) {
     AnimatedVisibility(
         visible = playerControlsLocked && lockedOverlayVisible,
@@ -85,7 +96,12 @@ internal fun BoxScope.PlayerPlaybackOverlays(
 
     AnimatedVisibility(
         visible = showOpeningOverlay,
-        enter = fadeIn(),
+        // **No enter transition, deliberately.** This overlay is the continuation of the one
+        // the stream route was already drawing, so fading it in cross-fades a screen over an
+        // identical screen - the flicker at the hand-off that Phase 2 exists to remove. The
+        // exit fade stays: that one is the loading screen giving way to the first frame, which
+        // is a real transition between two different things.
+        enter = EnterTransition.None,
         exit = fadeOut(),
     ) {
         OpeningOverlay(
@@ -97,6 +113,8 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             modifier = Modifier.fillMaxSize(),
             message = p2pInitialLoadingMessage,
             progress = p2pInitialLoadingProgress,
+            state = loadingState,
+            formatSize = formatSize,
         )
     }
 
@@ -168,6 +186,11 @@ internal fun BoxScope.PlayerPlaybackOverlays(
         ErrorModal(
             message = errorMessage,
             onDismiss = onDismissError,
+            // The same words the loading screen and the failure chain use, from the same
+            // `SourceFacts`, so the three surfaces cannot disagree about what just died.
+            sourceLabel = PlaybackSourceSelector.describe(loadingState.facts)
+                .takeIf { it.isNotBlank() },
+            onCopyDetails = onCopyErrorDetails,
         )
     }
 }

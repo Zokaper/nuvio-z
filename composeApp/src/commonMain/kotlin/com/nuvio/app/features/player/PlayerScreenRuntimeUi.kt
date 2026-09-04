@@ -33,6 +33,11 @@ import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.watchparty.SourceFingerprint
 import com.nuvio.app.features.watchparty.normalizeReleaseFingerprint
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.nuvio.app.features.playback.PlaybackLoadingState
+import com.nuvio.app.features.playback.PlaybackProgressStep
+import com.nuvio.app.features.updater.formatFileSize
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -429,6 +434,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             .takeIf { it.phase == PlayerNextEpisodePhase.STARTING }
             ?.targetVideoId
             ?.let { targetId -> playerMetaVideos.firstOrNull { it.id == targetId } }
+        val playerClipboardManager = LocalClipboardManager.current
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             lockedOverlayVisible = lockedOverlayVisible,
@@ -490,6 +496,27 @@ private fun BoxScope.RenderPlaybackOverlays(
             onDismissError = {
                 flushWatchProgress()
                 args.onBack()
+            },
+            // The route's own state, carried through `PlayerScreenArgs` rather than rebuilt:
+            // the band must say the same thing on both sides of the hand-off, and a second
+            // derivation here is a second thing to drift.
+            loadingState = PlaybackLoadingState(
+                step = PlaybackProgressStep.StartingPlayback,
+                attempt = args.playbackAttempt,
+                facts = args.sourceFacts,
+            ),
+            formatSize = ::formatFileSize,
+            onCopyErrorDetails = errorMessage?.let { message ->
+                {
+                    val label = PlaybackSourceSelector.describe(args.sourceFacts)
+                    playerClipboardManager.setText(
+                        AnnotatedString(
+                            listOf(label, args.streamTitle, message)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" - "),
+                        ),
+                    )
+                }
             },
         )
     }

@@ -138,6 +138,8 @@ internal fun PlayerDestination(
         initialPositionMs = launch.initialPositionMs,
         initialProgressFraction = launch.initialProgressFraction,
         contentLanguage = launch.contentLanguage,
+        sourceFacts = launch.sourceFacts,
+        playbackAttempt = launch.playbackAttempt,
         onBack = onBackToDetails,
         onStartWatchTogether = { content, fingerprint ->
             navController.navigate(

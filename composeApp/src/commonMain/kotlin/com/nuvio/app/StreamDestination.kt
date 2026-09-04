@@ -75,6 +75,7 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLaunchStore
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
+import com.nuvio.app.features.updater.formatFileSize
 import com.nuvio.app.navigation.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -436,6 +437,23 @@ internal fun StreamDestination(
             }
         }
     }
+    /**
+     * The facts for the candidate currently armed, for the loading screen's band.
+     *
+     * Read from `autoPlayStream` rather than from the winner the selector returned, because the
+     * chain advances underneath it: after a dead candidate the armed stream is the *next* one,
+     * and a band still describing the source that just failed is worse than a blank band - it
+     * names the wrong release while the screen says it is starting playback.
+     *
+     * Null is an ordinary answer. Before anything is armed, and for a stream no candidate row
+     * matches, the band simply has no chips.
+     */
+    val activeCandidateFacts = remember(streamsUiState.autoPlayStream, playbackCandidates) {
+        streamsUiState.autoPlayStream?.let { armed ->
+            playbackCandidates.firstOrNull { it.stream === armed }?.facts
+                ?: SourceFactsExtractor.extract(armed)
+        }
+    }
     val playbackSelectionContext = remember(
         launch.runtimeMinutes,
         launch.seasonNumber,
@@ -539,8 +557,24 @@ internal fun StreamDestination(
         autoPickFailure = PlaybackProgressFailure(label = label, reason = reason)
     }
 
+    /**
+     * Names a dead candidate, falling back to **the addon's own words** when the caller has none.
+     *
+     * `AddonStreamGroup.error` has always held what the provider actually said and every reader
+     * reduced it to a boolean, so an addon answering "stream not found" and an addon answering
+     * nothing produced the same silent step to the next candidate. That is bug 3's whole
+     * symptom, and the evidence for it was already in memory.
+     *
+     * The caller's reason still wins where there is one - a resolve failure knows more than the
+     * group does. This only fills the gap that used to be filled with nothing.
+     */
     fun noteSourceFailure(stream: StreamItem, reason: String?) {
-        noteSourceFailureByLabel(sourceFailureLabel(stream), reason)
+        val addonMessage = reason?.takeIf { it.isNotBlank() }
+            ?: streamsUiState.groups
+                .firstOrNull { group -> group.addonId == stream.addonId }
+                ?.error
+                ?.takeIf { it.isNotBlank() }
+        noteSourceFailureByLabel(sourceFailureLabel(stream), addonMessage)
     }
 
     // Coming back from the player with a candidate still armed. Two very
@@ -737,6 +771,10 @@ internal fun StreamDestination(
             initialPositionMs = launch.resumePositionMs ?: 0L,
             initialProgressFraction = launch.resumeProgressFraction,
             autoPickedWithFailureChain = hasFailureChain,
+            // The band the player draws is the band the route was drawing a frame ago.
+            sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
+                ?: SourceFactsExtractor.extract(stream),
+            playbackAttempt = autoPickAttempt,
         )
         if (playerSettings.playbackMode == PlaybackMode.INSTANT) {
             val openedFacts = playbackCandidates
@@ -884,6 +922,9 @@ internal fun StreamDestination(
             parentMetaType = launch.parentMetaType ?: launch.type,
             initialPositionMs = resolvedResumePositionMs ?: 0L,
             initialProgressFraction = resolvedResumeProgressFraction,
+            sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
+                ?: SourceFactsExtractor.extract(stream),
+            playbackAttempt = autoPickAttempt,
         )
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
@@ -1636,6 +1677,21 @@ internal fun StreamDestination(
                 ),
                 attempt = autoPickAttempt,
                 failure = autoPickFailure,
+                // The structured facts for whatever is actually armed, so the
+                // band names the release the user is about to receive - and so
+                // the same figures survive the hand-off into the player, which
+                // renders them from the same `SourceFacts` rather than from its
+                // own re-parse of the display title.
+                facts = activeCandidateFacts,
+                // Identical to what `PlayerDestination` hands the player, so
+                // the backdrop and the logo do not re-decode at the route
+                // change. Diverging these is the one way to make the hand-off
+                // visible again without changing anything else.
+                artwork = launch.background,
+                logo = launch.logo,
+                title = launch.title,
+                formatSize = ::formatFileSize,
+                onBack = { leaveToDetails() },
                 // The blank reason is the point: `giveUpToSourceList` toasts
                 // whatever it is given, and the user who just pressed this
                 // button already knows why they are looking at the list.

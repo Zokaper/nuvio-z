@@ -42,6 +42,10 @@ data class SourceFacts(
     val providerName: String? = null,
     val debridService: String? = null,
     val isDebridReady: Boolean? = null,
+    // The release name. Added when the playback loading screen started printing it, which is
+    // how a wrong-show pick becomes visible before it plays - so it is now load-bearing rather
+    // than incidental, and the stub has to carry it.
+    val filename: String? = null,
 )
 
 object SourceFactsExtractor {

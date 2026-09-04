@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
+import com.nuvio.app.core.ui.NuvioSkeletonBlock
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.updater.formatFileSize
@@ -723,15 +724,6 @@ private fun ConnectionMeter(fit: PlaybackQualityOptions.ConnectionFit) {
 @Composable
 private fun QualitySkeletonGrid(gridMaxHeight: Dp) {
     val tokens = MaterialTheme.nuvio
-    val transition = rememberInfiniteTransition()
-    val alpha by transition.animateFloat(
-        initialValue = SKELETON_MIN_ALPHA,
-        targetValue = SKELETON_MAX_ALPHA,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = SKELETON_PULSE_MILLIS, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-    )
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = QUALITY_CARD_MIN_WIDTH),
         modifier = Modifier
@@ -741,16 +733,20 @@ private fun QualitySkeletonGrid(gridMaxHeight: Dp) {
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
     ) {
         items(SKELETON_CARD_COUNT) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(SKELETON_CARD_HEIGHT)
-                    .clip(tokens.shapes.card)
-                    .background(tokens.colors.skeleton.copy(alpha = alpha)),
+            // The shared sweep, not the alpha pulse this used to run. Nuvio had four different
+            // indeterminate motions on the path to a frame - this pulse, the sheet's spinner,
+            // the list's spinner and the player overlay's logo throb - so the *shape* of the
+            // waiting changed two or three times on a journey where nothing had gone wrong.
+            NuvioSkeletonBlock(
+                modifier = Modifier.fillMaxWidth(),
+                height = SKELETON_CARD_HEIGHT,
+                cornerRadius = SKELETON_CARD_CORNER_RADIUS,
             )
         }
     }
 }
+
+private val SKELETON_CARD_CORNER_RADIUS = 12.dp
 
 @Composable
 private fun ResolutionBadge(text: String) {
@@ -887,9 +883,6 @@ private val ESTIMATE_MARKER_FRACTION =
 private val CONNECTION_LINE_TAP_PADDING = NuvioTokens.Space.s8
 
 private const val SKELETON_CARD_COUNT = 3
-private const val SKELETON_PULSE_MILLIS = 900
-private const val SKELETON_MIN_ALPHA = 0.4f
-private const val SKELETON_MAX_ALPHA = 1f
 
 /**
  * Card width below which the over-connection warning stops fitting on two lines - still the

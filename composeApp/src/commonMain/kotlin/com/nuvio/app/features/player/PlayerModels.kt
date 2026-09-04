@@ -56,6 +56,15 @@ data class PlayerLaunch(
      * be a surprise, not a recovery.
      */
     val autoPickedWithFailureChain: Boolean = false,
+    /**
+     * The structured facts for this source, so the player's loading screen can name it.
+     *
+     * The route already parsed these to rank the candidate; carrying them across means the
+     * band the user is reading does not change its mind about the file at the route change.
+     */
+    val sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
+    /** The route's attempt counter, so "attempt 2 of 3" survives the hand-off. */
+    val playbackAttempt: Int = 1,
 )
 
 object PlayerLaunchStore {
