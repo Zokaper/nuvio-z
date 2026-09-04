@@ -17,6 +17,56 @@ Last updated: 2026-09-04
 > 48 sections, kept whole and in order. This file is the live handoff only: the
 > state table above, the work since the last release, and what is still open below.
 
+## Phase 2 Playback: in progress (2026-09-04)
+
+Branch `claude/phase-2-playback`, cut from the Phase 1 sync branch - **not** from trunk, which is
+362 commits behind. Full handoff: `../HANDOFF-phase-2-playback.md`.
+
+**Stages 0-3 done, both repos. Stage 4 (P7), 5 (review + watched run) and 6 (docs) open.**
+
+### The finding that matters most
+
+**The `0.1.22-alpha` sync silently disabled desktop's whole playback recovery path.** The App.kt
+dissolution recorded above moved `MainAppContent`'s `onFatalPlaybackError`/`onPlaybackStarted`
+handler nowhere: `PlayerDestination` stopped passing them, while `PlayerScreen` still declared
+both. Nothing was deleted, everything compiled, and the deletion check the sync brief mandates
+could not see it - a lambda simply stopped being passed.
+
+Three things were dead in production until this phase:
+
+- `PlaybackStartupWatchdog` arms only when `onFatalPlaybackError != null`, so **it never ran**;
+- the post-playback-started failover chain never advanced;
+- `consumeFailoverRetry()` always answered false, so every return from the player read as a back
+  press.
+
+`nuvio-z` kept its copy, which is exactly why the loading loop was reported on desktop only.
+**Worth a rule for the next sync: a lambda that stops being passed is invisible to both the
+conflict list and the deletion sweep.** Grep the callers of anything the dissolution moved.
+
+### What landed
+
+- **One loading surface** from chosen source to first frame, rendered by both the route overlay
+  and the player's opening overlay from one state object. Three loading surfaces and four
+  indeterminate motions became one.
+- **Every duration-derived position bounded** through pure `PlaybackPosition`. The watchdog's
+  baseline ignored the fraction-only resume path, so a dead source could be declared Started -
+  bugs 1 and 2 shared that root.
+- **`AddonStreamGroup.error` stops being discarded**, in the list and as the failure reason.
+- **Content-identity gate**, auto modes only, a partition rather than a filter.
+- **All 13 ways into the source list named and logged**, with `hasSilentUncover` making a
+  reasonless uncover a failing test.
+
+### Verified, and not
+
+Suites green: pure 388 desktop / 337 mobile, Android host 1,339, zero failures.
+`:composeApp:desktopTest` **not yet run this phase**.
+
+⚠ **Nothing here has been exercised against real playback.** Hot reload cannot reach a first
+frame on this machine - the native bridge fails to attach (`java.desktop does not "opens
+java.awt"`), so the player route opens to an empty surface that looks exactly like a hang. That
+is a second, separate reason for the debug-MSI rule already recorded below. The watched run is
+the exit gate and it has not happened.
+
 ## Mobile is synced to vanilla 0.4.13 (2026-09-04)
 
 Phase 1 of `ROADMAP.md`, on `nuvio-z` branch `claude/upstream-sync-0.4.13`, merged in `bacb3a23`.
