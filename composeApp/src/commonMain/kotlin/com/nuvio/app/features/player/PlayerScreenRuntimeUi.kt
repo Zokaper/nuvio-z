@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
@@ -34,6 +35,9 @@ import com.nuvio.app.features.watchparty.SourceFingerprint
 import com.nuvio.app.features.watchparty.normalizeReleaseFingerprint
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.nuvio.app.features.playback.PlaybackHandover
+import com.nuvio.app.features.playback.PlaybackLoadingActions
+import com.nuvio.app.features.playback.PlaybackLoadingController
 import com.nuvio.app.features.playback.PlaybackLoadingState
 import com.nuvio.app.features.playback.PlaybackProgressStep
 import com.nuvio.app.features.updater.formatFileSize
@@ -191,6 +195,17 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (snapshot.isPlaying) {
                             completeNextEpisodeTransitionIfStarted()
                         }
+                    }
+                    if (
+                        PlaybackHandover.hasFirstFrame(
+                            isLoading = snapshot.isLoading,
+                            isPlaying = snapshot.isPlaying,
+                            positionMs = snapshot.positionMs,
+                            videoWidth = snapshot.videoWidth,
+                            videoHeight = snapshot.videoHeight,
+                        )
+                    ) {
+                        firstFrameReached = true
                     }
                     if (snapshot.isEnded) {
                         shouldPlay = false
@@ -420,6 +435,50 @@ private fun BoxScope.RenderPlaybackOverlays(
             ?.targetVideoId
             ?.let { targetId -> playerMetaVideos.firstOrNull { it.id == targetId } }
         val playerClipboardManager = LocalClipboardManager.current
+
+        // ⚠ **`initialLoadCompleted` is not a first frame.** The engine drops `isLoading` once it
+        // has opened the media, which is before it has decoded anything, so an overlay that left
+        // on this signal alone dissolved onto a black video plane. `firstFrameReached` is the
+        // stronger one - see `PlaybackHandover.hasFirstFrame`. `initialLoadCompleted` is left
+        // exactly as it was because the seek, subtitle and watchdog paths all read it and mean
+        // the weaker thing.
+        val openingOverlayWanted = playerSettingsUiState.showLoadingOverlay &&
+            !firstFrameReached &&
+            errorMessage == null
+
+        // The loading surface is drawn by `PlaybackLoadingHost`, above `NavDisplay`. In the
+        // automatic modes the stream route already opened the session and handed it over, and
+        // this must not disturb it - re-opening would restart the entrance and the escape clock
+        // at exactly the route change the whole design exists to make invisible. Opening here
+        // covers the paths that reach the player with no stream route behind them at all:
+        // Continue Watching, the next episode, and a resumed download.
+        LaunchedEffect(openingOverlayWanted, args.sourceUrl) {
+            if (openingOverlayWanted) {
+                if (PlaybackLoadingController.activeToken == null) {
+                    val token = PlaybackLoadingController.open(
+                        step = PlaybackProgressStep.StartingPlayback,
+                        artwork = startingEpisode?.thumbnail ?: background ?: poster,
+                        logo = if (startingEpisode != null) null else logo,
+                        title = startingEpisode?.title ?: title,
+                        attempt = args.playbackAttempt,
+                        facts = args.sourceFacts,
+                    )
+                    PlaybackLoadingController.handOff(token)
+                    PlaybackLoadingController.registerActions(
+                        token = token,
+                        actions = PlaybackLoadingActions(
+                            onBack = {
+                                flushWatchProgress()
+                                args.onBack()
+                            },
+                        ),
+                    )
+                }
+            } else {
+                PlaybackLoadingController.closeAfterHandOff()
+            }
+        }
+
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             lockedOverlayVisible = lockedOverlayVisible,
@@ -428,7 +487,10 @@ private fun BoxScope.RenderPlaybackOverlays(
         metrics = metrics,
         horizontalSafePadding = horizontalSafePadding,
         onUnlock = { unlockPlayerControls() },
-        showOpeningOverlay = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null,
+        // ⚠ **Always false: `PlaybackLoadingHost` draws this now**, above `NavDisplay`, so that
+        // the same screen spans the route change and every failover. Rendering it here as well
+        // would put a second, shorter-lived copy directly over the first.
+        showOpeningOverlay = false,
         backdropArtwork = startingEpisode?.thumbnail ?: background ?: poster,
         logo = if (startingEpisode != null) null else logo,
         title = startingEpisode?.title ?: title,

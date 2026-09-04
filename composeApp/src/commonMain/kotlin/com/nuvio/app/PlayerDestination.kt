@@ -140,6 +140,7 @@ internal fun PlayerDestination(
         contentLanguage = launch.contentLanguage,
         sourceFacts = launch.sourceFacts,
         playbackAttempt = launch.playbackAttempt,
+        expectedRuntimeMinutes = launch.expectedRuntimeMinutes,
         onBack = onBackToDetails,
         onStartWatchTogether = { content, fingerprint ->
             navController.navigate(

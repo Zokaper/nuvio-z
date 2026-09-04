@@ -43,14 +43,19 @@ import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.playback.ConnectionProbeSettlement
 import com.nuvio.app.features.playback.PLAYBACK_PROGRESS_STALL_GRACE_MS
+import com.nuvio.app.features.playback.PlaybackLoadingActions
+import com.nuvio.app.features.playback.PlaybackLoadingController
+import com.nuvio.app.features.playback.PlaybackLoadingState
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeRouter
 import com.nuvio.app.features.playback.PlaybackPreferencesDialog
 import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressFailure
 import com.nuvio.app.features.playback.PlaybackProgressInputs
-import com.nuvio.app.features.playback.PlaybackProgressOverlay
 import com.nuvio.app.features.playback.PlaybackProgressStep
+import com.nuvio.app.features.playback.PlaybackProbeVerdict
+import com.nuvio.app.features.playback.logKey
+import com.nuvio.app.features.playback.probePlaybackSource
 import com.nuvio.app.features.playback.PlaybackQualityOption
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
@@ -280,6 +285,13 @@ internal fun StreamDestination(
     var lastHandedOffFacts by remember(route.launchId) {
         mutableStateOf<SourceFacts?>(null)
     }
+    /**
+     * The user backed out of the player themselves, rather than a source failing.
+     *
+     * Read only by the stall backstop, to keep it from reporting a deliberate exit as a dead end.
+     * Saveable because the exit happens on the far side of a route change.
+     */
+    var userAbandonedPlayback by rememberSaveable(route.launchId) { mutableStateOf(false) }
     // Set at *every* exit to playback, not just the reuse-last-link one.
     // Instant deliberately leaves StreamRoute on the back stack so the failure
     // chain survives, so without this, backing out of the player lands on an
@@ -412,6 +424,7 @@ internal fun StreamDestination(
             // 3" - went blank at exactly the route change this screen exists to make invisible.
             sourceFacts = SourceFactsExtractor.extract(stream),
             playbackAttempt = autoPickAttempt,
+            expectedRuntimeMinutes = launch.runtimeMinutes,
         )
 
         val launchId = PlayerLaunchStore.put(playerLaunch)
@@ -527,11 +540,18 @@ internal fun StreamDestination(
                 attempt = autoPickAttempt,
                 maxAttempts = PLAYBACK_MAX_ATTEMPTS,
                 candidate = lastHandedOffLabel,
-                addonId = streamsUiState.autoPlayStream?.addonId,
+                // ⚠ **Read from what was handed off, not from what is armed now.** By the time a
+                // give-up is logged the chain has already moved on - or been consumed entirely -
+                // so `autoPlayStream` is usually null and these printed `addon=unknown
+                // cached=unknown` on exactly the lines that needed them most. `lastHandedOffFacts`
+                // is the candidate this give-up is actually about.
+                addonId = lastHandedOffFacts?.providerId
+                    ?: streamsUiState.autoPlayStream?.addonId,
                 addonErrored = streamsUiState.groups.any { !it.error.isNullOrBlank() },
-                cached = streamsUiState.autoPlayStream?.let { armed ->
-                    playbackCandidates.firstOrNull { it.stream === armed }?.facts?.isDebridReady
-                },
+                cached = lastHandedOffFacts?.isDebridReady
+                    ?: streamsUiState.autoPlayStream?.let { armed ->
+                        playbackCandidates.firstOrNull { it.stream === armed }?.facts?.isDebridReady
+                    },
                 outcome = "gave_up",
                 uncoverReason = path,
             )
@@ -635,7 +655,7 @@ internal fun StreamDestination(
      * candidate over a progress overlay already counting attempts - two answers
      * to one question, stacking on a deep chain, and outliving the wait they
      * described: after a successful third attempt the last thing on screen was
-     * a complaint about the second. [PlaybackProgressOverlay] renders it
+     * a complaint about the second. The loading surface renders it
      * instead, so it lives and dies with the wait. The terminal case still
      * toasts, through `giveUpToSourceList`, because by then the overlay is gone.
      *
@@ -707,6 +727,7 @@ internal fun StreamDestination(
                 // list is where backing out belongs.
                 playbackHandedOff = false
                 lastHandedOffFacts = null
+                userAbandonedPlayback = true
                 return@LaunchedEffect
             }
             // Streamlined did not, and must not end up there: this route is
@@ -717,6 +738,7 @@ internal fun StreamDestination(
             // the gesture through to the details screen instead, which is what
             // backing out of the quality sheet already does - and through the
             // same exit, so the no-op guard exists once.
+            userAbandonedPlayback = true
             leaveToDetails()
             return@LaunchedEffect
         }
@@ -872,6 +894,7 @@ internal fun StreamDestination(
             sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
                 ?: SourceFactsExtractor.extract(stream),
             playbackAttempt = autoPickAttempt,
+            expectedRuntimeMinutes = launch.runtimeMinutes,
         )
         if (playerSettings.playbackMode == PlaybackMode.INSTANT) {
             val openedFacts = playbackCandidates
@@ -902,6 +925,46 @@ internal fun StreamDestination(
         // complaint about the previous candidate into the overlay of the one
         // that is now working.
         autoPickFailure = null
+
+        // ⚠ **One request, before a frame is ever attached.** See `PlaybackSourceProbe` for the
+        // session this came from: a source marked cached that produced nothing for twenty
+        // seconds, then a provider's two-minute "being prepared" slate that *played* and so was
+        // scored as a success. Both are visible in the response and neither was visible to the
+        // app. Running it here, under a loading screen that is already up and before the player
+        // route exists, means a rejected source never opens the player at all - so the chain
+        // steps with nothing on screen changing but the attempt number.
+        //
+        // A null result means the probe did not apply (a torrent, a local file); a failure or a
+        // timeout inside it answers `Pass`. Neither may block a play.
+        val probe = probePlaybackSource(
+            url = playerLaunch.sourceUrl,
+            headers = playerLaunch.sourceHeaders,
+            expectedBytes = playerLaunch.sourceFacts?.sizeBytes,
+        )
+        if (probe != null) {
+            streamLog.i { "probe ${probe.toLogFields()} verdict=${probe.verdict.logKey()}" }
+        }
+        val probeRejection = when (probe?.verdict) {
+            is PlaybackProbeVerdict.Dead -> getString(Res.string.playback_source_unreachable)
+            is PlaybackProbeVerdict.Placeholder -> getString(Res.string.playback_source_not_ready)
+            // `Pass`, and the two ways there is no verdict at all: a protocol the probe does not
+            // apply to, and a probe that failed or timed out. All three play the source.
+            else -> null
+        }
+        if (probeRejection != null) {
+            if (hasFailureChain && StreamsRepository.skipAutoPlayStream(stream)) {
+                autoPickAttempt += 1
+                noteSourceFailure(stream, probeRejection)
+            } else if (hasFailureChain) {
+                giveUpToSourceList(reason = probeRejection, path = "probe_chain_spent")
+            } else {
+                StreamsRepository.consumeAutoPlay()
+                giveUpToSourceList(reason = probeRejection, path = "probe_rejected")
+            }
+            StreamsRepository.cancelLoading()
+            return@LaunchedEffect
+        }
+
         if (playerSettings.externalPlayerEnabled) {
             lastHandedOffFacts = playerLaunch.sourceFacts
             playbackHandedOff = true
@@ -1051,6 +1114,7 @@ internal fun StreamDestination(
             sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
                 ?: SourceFactsExtractor.extract(stream),
             playbackAttempt = autoPickAttempt,
+            expectedRuntimeMinutes = launch.runtimeMinutes,
         )
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
@@ -1551,6 +1615,13 @@ internal fun StreamDestination(
         // asked to choose. The non-remembered path resolves to QualitySheet and
         // was already skipped by the surface check above.
         if (awaitingUserAnswer) return@LaunchedEffect
+        // ⚠ **The user leaving is not a dead end.** Backing out of the player retires the chain
+        // and, in Streamlined, pops this route - but `leaveToDetails` can no-op, and then this
+        // route is left exactly in the shape the backstop is looking for. It fired six seconds
+        // after a Back in the 2026-09-05 session and logged `uncover=dead_end_backstop` against a
+        // playback the user had already abandoned, which is a false entry in the one log that
+        // exists to explain why the source list appeared.
+        if (userAbandonedPlayback) return@LaunchedEffect
         // ⚠ **Instant is waiting on the connection probe here, and that wait
         // routinely outlasts the 1.5 s grace.** Every other state this backstop
         // sees is transient by construction; this one is a deliberate pause with
@@ -1615,7 +1686,7 @@ internal fun StreamDestination(
         )
         // StreamsScreen owns the fetch, but its list is an implementation
         // detail in Streamlined and Instant. Paint an opaque hand-off surface
-        // from the first frame; sheets and PlaybackProgressOverlay render above
+        // from the first frame; the sheet and `PlaybackLoadingHost` render above
         // it, while every bail-out removes it - see `streamRouteSurface`.
         //
         // It consumes pointer input on purpose. Without that it painted over a
@@ -1791,52 +1862,108 @@ internal fun StreamDestination(
                 },
             )
         }
-        val showProgressOverlay = streamSurface == StreamRouteSurface.ProgressOverlay ||
+        val showLoadingSurface = streamSurface == StreamRouteSurface.ProgressOverlay ||
             (streamSurface == StreamRouteSurface.HandOff && playbackHandedOff)
-        if (showProgressOverlay) {
-            PlaybackProgressOverlay(
-                step = if (playbackHandedOff) {
-                    PlaybackProgressStep.StartingPlayback
-                } else {
-                    PlaybackProgress.step(
-                        PlaybackProgressInputs(
-                            isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
-                                streamsUiState.isAnyLoading,
-                            hasChosenSource = autoPlaybackStarting,
-                            isResolvingLink = resolvingDebridStream,
-                            attempt = autoPickAttempt,
-                            // Instant only. The remembered-band path is also covered
-                            // by this overlay and does not need an estimate - its
-                            // band is exact - so it must not claim to be waiting for
-                            // one.
-                            isMeasuringConnection = !connectionSettled &&
-                                playbackRouteDecision is PlaybackRouteDecision.AutoPick,
-                        ),
-                    )
-                },
-                attempt = autoPickAttempt,
-                failure = autoPickFailure,
-                // The structured facts for whatever is actually armed, so the
-                // band names the release the user is about to receive - and so
-                // the same figures survive the hand-off into the player, which
-                // renders them from the same `SourceFacts` rather than from its
-                // own re-parse of the display title.
-                facts = activeCandidateFacts,
-                // Identical to what `PlayerDestination` hands the player, so
-                // the backdrop and the logo do not re-decode at the route
-                // change. Diverging these is the one way to make the hand-off
-                // visible again without changing anything else.
-                artwork = launch.background,
-                logo = launch.logo,
-                title = launch.title,
-                formatSize = ::formatFileSize,
-                onBack = { leaveToDetails() },
-                // The blank reason is the point: `giveUpToSourceList` toasts
-                // whatever it is given, and the user who just pressed this
-                // button already knows why they are looking at the list.
-                onChooseManually = { giveUpToSourceList(reason = "", path = "manual_escape") },
+        // ⚠ **This route no longer draws the loading screen; it publishes to it.**
+        // `PlaybackLoadingHost` renders it above `NavDisplay` - see the block comment there for
+        // why. Everything below is the same state that used to be passed as arguments, sent to
+        // the same screen through `PlaybackLoadingController` instead, so that the screen
+        // survives the hand-off to the player and the pop back from a failover without being
+        // destroyed and re-created in between.
+        val loadingStep = if (playbackHandedOff) {
+            PlaybackProgressStep.StartingPlayback
+        } else {
+            PlaybackProgress.step(
+                PlaybackProgressInputs(
+                    isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
+                        streamsUiState.isAnyLoading,
+                    hasChosenSource = autoPlaybackStarting,
+                    isResolvingLink = resolvingDebridStream,
+                    attempt = autoPickAttempt,
+                    // Instant only. The remembered-band path is also covered
+                    // by this overlay and does not need an estimate - its
+                    // band is exact - so it must not claim to be waiting for
+                    // one.
+                    isMeasuringConnection = !connectionSettled &&
+                        playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                ),
             )
-        } else if (resolvingDebridStream) {
+        }
+        val loadingState = PlaybackLoadingState(
+            step = loadingStep,
+            attempt = autoPickAttempt,
+            // The structured facts for whatever is actually armed, so the band names the release
+            // the user is about to receive - and so the same figures survive the hand-off into
+            // the player, which renders them from the same `SourceFacts` rather than from its own
+            // re-parse of the display title.
+            facts = activeCandidateFacts,
+            failure = autoPickFailure,
+        )
+
+        // ⚠ **`rememberSaveable`, not `remember`.** In the automatic modes this entry stays on
+        // the back stack while the player is on top, stops composing, and is composed again by
+        // the failover's pop. A plain `remember` would lose the token there, the route would open
+        // a *second* session on top of its own, and the screen would re-enter - which is exactly
+        // the "Attempt 2 reloads the loading screen" fault. `autoPickAttempt` above is saveable
+        // for the same reason.
+        var loadingToken by rememberSaveable(route.launchId) { mutableStateOf<Long?>(null) }
+
+        LaunchedEffect(showLoadingSurface) {
+            if (showLoadingSurface) {
+                if (loadingToken == null) {
+                    loadingToken = PlaybackLoadingController.open(
+                        step = loadingStep,
+                        // Identical to what `PlayerDestination` hands the player, so the backdrop
+                        // and the logo do not re-decode at the route change. Diverging these is
+                        // the one way to make the hand-off visible again without changing
+                        // anything else.
+                        artwork = launch.background,
+                        logo = launch.logo,
+                        title = launch.title,
+                        attempt = autoPickAttempt,
+                        facts = activeCandidateFacts,
+                    )
+                }
+            } else {
+                loadingToken?.let(PlaybackLoadingController::close)
+                loadingToken = null
+            }
+        }
+
+        // Revisions, including the attempt counter. A running session is never re-opened, so a
+        // failover reaches the user as the stage line changing under a screen that has not moved.
+        LaunchedEffect(loadingToken, loadingState) {
+            loadingToken?.let { token -> PlaybackLoadingController.revise(token, loadingState) }
+        }
+
+        // The player now owns the playback. Nothing visible changes - that is the point - but the
+        // session records it, so a player being torn down cannot close a session a *newer* play
+        // has already opened. See `PlaybackLoadingController.closeAfterHandOff`.
+        LaunchedEffect(loadingToken, playbackHandedOff) {
+            if (playbackHandedOff) {
+                loadingToken?.let(PlaybackLoadingController::handOff)
+            }
+        }
+
+        // The surface's two buttons. Registered rather than passed because the screen is no
+        // longer this route's child - see `PlaybackLoadingController.actions`.
+        LaunchedEffect(loadingToken) {
+            val token = loadingToken ?: return@LaunchedEffect
+            PlaybackLoadingController.registerActions(
+                token = token,
+                actions = PlaybackLoadingActions(
+                    onBack = { leaveToDetails() },
+                    // The blank reason is the point: `giveUpToSourceList` toasts whatever it is
+                    // given, and the user who just pressed this button already knows why they
+                    // are looking at the list.
+                    onChooseManually = {
+                        giveUpToSourceList(reason = "", path = "manual_escape")
+                    },
+                ),
+            )
+        }
+
+        if (resolvingDebridStream && !showLoadingSurface) {
             // Classic and every manual path keep the lighter scrim: the source
             // list behind it is what the user chose from and is worth keeping
             // visible.

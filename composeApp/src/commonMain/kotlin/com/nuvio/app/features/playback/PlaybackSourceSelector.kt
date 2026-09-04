@@ -401,11 +401,22 @@ object PlaybackSourceSelector {
         return candidate.facts.isDebridReady == null && isDebridBacked(candidate)
     }
 
-    /** Positive evidence that a debrid provider stands behind this candidate. */
+    /**
+     * Positive evidence that a debrid provider stands behind this candidate.
+     *
+     * ⚠ **`isAioStreams` is on this list because leaving it off cost a play.** AIOStreams hands
+     * back an ordinary `https://` link to its own proxy, so a candidate coming through it has no
+     * `debridService`, no `clientResolve` and is not an `isDirectDebridStream` - it matched none
+     * of the three tests below, [isUncachedDebrid] therefore did not apply, and a source with
+     * *unknown* cache state was auto-played. What came back was the provider's two-minute
+     * "being prepared" slate, which played happily and ended the chain. Every AIOStreams stream
+     * is debrid-backed by construction; the aggregator exists to front one.
+     */
     private fun isDebridBacked(candidate: PlaybackSourceCandidate): Boolean =
         candidate.facts.debridService != null ||
             candidate.stream.clientResolve != null ||
-            candidate.stream.isDirectDebridStream
+            candidate.stream.isDirectDebridStream ||
+            candidate.facts.isAioStreams
 }
 
 /**

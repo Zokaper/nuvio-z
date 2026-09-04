@@ -48,6 +48,7 @@ fun PlayerScreen(
     contentLanguage: String? = null,
     sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
     playbackAttempt: Int = 1,
+    expectedRuntimeMinutes: Int? = null,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -92,6 +93,7 @@ fun PlayerScreen(
             contentLanguage = contentLanguage,
             sourceFacts = sourceFacts,
             playbackAttempt = playbackAttempt,
+            expectedRuntimeMinutes = expectedRuntimeMinutes,
         )
     )
 }

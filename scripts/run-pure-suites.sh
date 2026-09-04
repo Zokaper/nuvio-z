@@ -118,6 +118,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$M/features/playback/PlaybackModeRouter.kt" \
   "$M/features/playback/ContentIdentityGuard.kt" \
   "$M/features/playback/PlaybackLoadingState.kt" \
+  "$M/features/playback/PlaybackLoadingSession.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
   "$T/core/media/ReleaseTagsTest.kt" \
   "$T/features/downloads/SourceRankingTest.kt" \
@@ -128,6 +129,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$T/features/playback/StickySourcePinTest.kt" \
   "$T/features/playback/PlaybackLoadingStateTest.kt" \
   "$T/features/playback/ContentIdentityGuardTest.kt" \
+  "$T/features/playback/PlaybackLoadingSessionTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
@@ -140,6 +142,7 @@ java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.PlaybackModeAvailabilityTest \
   com.nuvio.app.features.playback.StickySourcePinTest \
   com.nuvio.app.features.playback.PlaybackLoadingStateTest \
+  com.nuvio.app.features.playback.PlaybackLoadingSessionTest \
   com.nuvio.app.features.playback.ContentIdentityGuardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 2: files with no dependencies at all, so no stubs are involved --------------------
@@ -153,6 +156,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/playback/PlaybackStartupWatchdog.kt" \
   "$M/features/playback/PlaybackAttemptLog.kt" \
   "$M/features/playback/PlaybackPosition.kt" \
+  "$M/features/playback/PlaybackSourceProbe.kt" \
   "$T/features/downloads/DownloadTransferTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
@@ -161,6 +165,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
   "$T/features/playback/PlaybackAttemptLogTest.kt" \
   "$T/features/playback/PlaybackPositionTest.kt" \
+  "$T/features/playback/PlaybackSourceProbeTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
@@ -171,7 +176,8 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.ConnectionProbeSettlementTest \
   com.nuvio.app.features.playback.PlaybackStartupWatchdogTest \
   com.nuvio.app.features.playback.PlaybackAttemptLogTest \
-  com.nuvio.app.features.playback.PlaybackPositionTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.playback.PlaybackPositionTest \
+  com.nuvio.app.features.playback.PlaybackSourceProbeTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
 # Both files are import-free, so this group needs no stubs at all. The wizard itself is a Compose

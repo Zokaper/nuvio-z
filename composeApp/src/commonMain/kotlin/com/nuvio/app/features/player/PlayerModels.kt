@@ -65,6 +65,16 @@ data class PlayerLaunch(
     val sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
     /** The route's attempt counter, so "attempt 2 of 3" survives the hand-off. */
     val playbackAttempt: Int = 1,
+    /**
+     * What the catalogue says this should run for, so the player can tell a feature from a
+     * provider's two-minute "being prepared" slate.
+     *
+     * Already known at the route as `StreamRoute.runtimeMinutes` and already used there to size
+     * a download; it simply never crossed the hand-off. Null on the paths that have no metadata -
+     * Continue Watching without a fetched meta, most notably - and a null disables the check
+     * rather than guessing. See `PlaybackDurationPlausibility`.
+     */
+    val expectedRuntimeMinutes: Int? = null,
 )
 
 object PlayerLaunchStore {

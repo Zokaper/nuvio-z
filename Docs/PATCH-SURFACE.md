@@ -50,8 +50,17 @@ Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syn
 >
 > The widening that did happen is *within* those files rather than across new ones: three of the
 > `PlayerScreenRuntime*` cluster gained two optional trailing fields each (`sourceFacts`,
-> `playbackAttempt`) at their existing seams. Rule 6 territory, added at the seam rather than by
-> extracting a new extension point, because the Phase 1 sync did not conflict in them.
+> `playbackAttempt`) at their existing seams, and a third (`expectedRuntimeMinutes`) followed when
+> the duration backstop needed the catalogue's runtime on the player side. Rule 6 territory, added
+> at the seam rather than by extracting a new extension point, because the Phase 1 sync did not
+> conflict in them.
+>
+> **The 2026-09-05 round narrowed the surface rather than widening it.** Moving the loading screen
+> above `NavDisplay` took the rendering *out* of `StreamDestination.kt` and `PlayerScreenRuntimeUi.kt`
+> - both upstream-owned, both high on this list - and into `features/playback/**`, which is
+> entirely ours. Those two files now publish state to `PlaybackLoadingController` instead of
+> composing a screen, so the Z code inside them shrank. `MainAppContent.kt` gained one line
+> (`PlaybackLoadingHost`) and an explicit desktop transition spec on `entry<PlayerRoute>`.
 >
 > Phase 2 also **removed** surface: deleting P7 took `AutoDownshiftDetector`, `SwapDiagnosticsLog`
 > and the `playback_auto_downshift` key out of four `PlayerSettingsStorage` actuals, the settings
@@ -148,9 +157,16 @@ These nine files are the structural problem, and naming them is the point of thi
 Rewriting all nine in advance is speculative work against a merge that has not happened yet.
 
 Phase 2 added one deliberate Rule 6 seam across `PlayerScreenArgs.kt`, `PlayerScreen.kt` and
-`PlayerModels.kt`: two optional trailing values, `sourceFacts` and `playbackAttempt`, carry the
-structured loading state across the route-to-player handoff. Keeping that state at the boundary
-avoids rebuilding it independently in two loading surfaces.
+`PlayerModels.kt`: three optional trailing values - `sourceFacts`, `playbackAttempt` and
+`expectedRuntimeMinutes` - carry the structured loading state and the catalogue's runtime across the
+route-to-player handoff. Keeping that state at the boundary avoids rebuilding it independently on
+each side.
+
+The 2026-09-05 round went further in the right direction: the loading screen is no longer *rendered*
+by either upstream-owned file. `PlaybackLoadingController` and `PlaybackLoadingHost` live in
+`features/playback/**` and are drawn from `MainAppContent.kt` in one line, so both destinations
+publish state rather than composing UI. That is precisely the shape the paragraph below asks for,
+arrived at because the lifetime bug forced it.
 
 The right shape, when the time comes, is the one the playback package already has: Z logic lives in
 `features/playback/**` (100% ours, zero conflict risk) and the upstream file holds one call.

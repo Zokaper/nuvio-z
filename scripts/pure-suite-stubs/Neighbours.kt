@@ -42,6 +42,12 @@ data class SourceFacts(
     val providerName: String? = null,
     val debridService: String? = null,
     val isDebridReady: Boolean? = null,
+    // ⚠ **Load-bearing since the cache gate started reading it.** AIOStreams hands back a plain
+    // `https://` proxy link, so a candidate through it matched none of `isDebridBacked`'s other
+    // tests and an unknown cache state was auto-played - which is how a provider's two-minute
+    // "being prepared" slate reached a user. `PlaybackSourceSelector.isDebridBacked` now reads
+    // this, so the stub has to carry it.
+    val isAioStreams: Boolean = false,
     // The release name. Added when the playback loading screen started printing it, which is
     // how a wrong-show pick becomes visible before it plays - so it is now load-bearing rather
     // than incidental, and the stub has to carry it.

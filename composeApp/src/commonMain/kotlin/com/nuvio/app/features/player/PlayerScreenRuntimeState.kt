@@ -156,6 +156,20 @@ internal class PlayerScreenRuntime(
     var seekProgressSyncJob by mutableStateOf<Job?>(null)
     var accumulatedSeekState by mutableStateOf<PlayerAccumulatedSeekState?>(null)
     var initialLoadCompleted by mutableStateOf(false)
+
+    /**
+     * A frame has actually been decoded - the stronger sibling of [initialLoadCompleted].
+     *
+     * ⚠ **Deliberately a second flag rather than a redefinition.** [initialLoadCompleted] means
+     * "the engine has opened the media" and the seek, subtitle and startup-watchdog paths all
+     * depend on that weaker meaning; tightening it in place would silently move all of them. Only
+     * the loading surface reads this one, because it is the only thing that must not give way
+     * until there is a picture behind it. See `PlaybackHandover.hasFirstFrame`.
+     *
+     * Cleared alongside [initialLoadCompleted] on every source change, so a failover puts the
+     * surface back up.
+     */
+    var firstFrameReached by mutableStateOf(false)
     var speedBoostRestoreSpeed by mutableStateOf<Float?>(null)
     var isHoldToSpeedGestureActive by mutableStateOf(false)
     var initialSeekApplied by mutableStateOf(

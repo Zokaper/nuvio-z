@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 | | |
 | --- | --- |
@@ -16,6 +16,121 @@ Last updated: 2026-09-04
 > **The history moved.** Everything before 2026-08-24 is in [`Docs/STATUS-ARCHIVE.md`](Docs/STATUS-ARCHIVE.md) -
 > 48 sections, kept whole and in order. This file is the live handoff only: the
 > state table above, the work since the last release, and what is still open below.
+
+## Phase 2 Playback: the hand-off made seamless, and a source that is actually there (2026-09-05)
+
+Branch `claude/phase-2-playback`, continuing the work below. Three agents have now worked this
+branch; **the previous round was left entirely uncommitted** - 18 modified files on desktop and 11
+on mobile, with nothing written down anywhere. It is committed now, split by concern: `72029b43`
+(the twelve code-review findings) and `ef5e209d` (the desktop native loading band). See the rule
+about this added to the new parent `AGENTS.md`.
+
+### What was reported
+
+1. Choosing a source produced a UI stutter, then a black screen, then the loading screen popping
+   in. The previous round shortened it but could not remove it.
+2. *The Secret Woman*, 4K High: attempt 1 never produced a frame and cost 20 s; attempt 2 played
+   the debrid provider's "being prepared" slate and the chain stopped there, satisfied. The
+   loading screen also visibly **reloaded** to say "Attempt 2".
+
+### Why the hand-off was not seamless
+
+The pixels were already shared - Phase 2 made both sides render one `PlaybackLoadingState`. **The
+lifetime was not.** A route entry stops composing when it is not on top and is re-created by a pop,
+so the surface was destroyed and rebuilt at every hand-off and every failover. On desktop that
+window contained four further faults, in this order:
+
+| # | What | Where |
+| --- | --- | --- |
+| 1 | `entry<StreamRoute>` fades out over 160 ms while `entry<PlayerRoute>` had **no desktop spec** and fell through to `NavDisplay`'s much longer default - two crossfades running against each other | `MainAppContent.kt` |
+| 2 | the player's root was `Color.Black` under a loading screen painted on `#0D0D0D` | `PlayerEngine.desktop.kt` |
+| 3 | the AWT canvas filled `Color.BLACK` and, being heavyweight, painted over every Compose layer the instant the `SwingPanel` was promoted | `NativePlayerHost.kt` |
+| 4 | the JCEF overlay then faded its artwork in over 260/520/620 ms - a re-entrance of a screen already at rest | `controls.css` |
+
+**The fix is one move: the surface is owned above the navigator.** `PlaybackLoadingController` holds
+one session; `PlaybackLoadingHost` draws it as a sibling of `NavDisplay` at `zIndex(18f)`. The
+navigation now happens *underneath* a screen that never stops drawing, so there is nothing left to
+animate or re-enter - and a failover becomes a state change, which is what "it should just say
+attempt 2 of 3" asks for. `entry<PlayerRoute>` is given an explicit `EnterTransition.None` on
+desktop (an `emptyMap()` is not "no animation"), the native canvas and the JCEF overlay are painted
+the app's own background, and the JCEF artwork intro is gone.
+
+Motion is now exactly two beats, both defined in `PlaybackLoadingMotion`: a 220 ms entrance when the
+source list is replaced (backdrop first, band on an 80 ms stagger) and a 300 ms exit into the first
+frame. **Everything between them is zero-duration by construction.**
+
+### Why a placeholder played
+
+`%APPDATA%\Nuvio Z\logs\nuvio-debug-20260905-005434.log`:
+
+```
+00:55:02.905  attach created  length=3092   <- [TB(bolt)] MediaFusion 2160p, marked cached
+00:55:22.614  abandoning ...: reason=NeverStarted elapsed=20240ms duration=0ms engine=Unknown
+00:55:24.418  attach created  length=1395
+00:55:31.613  updateControls  pos=10160 duration=120960   <- 2:01, for a feature film
+```
+
+**Cache detection was not the fault, and mostly already worked.** `parseDebridCacheMarker` read the
+cached marker correctly. Two other things were true:
+
+- `PlaybackSourceSelector.isDebridBacked` did not recognise AIOStreams. It hands back a plain
+  `https://` link to its own proxy, so a candidate through it had no `debridService`, no
+  `clientResolve` and was not an `isDirectDebridStream` - `isUncachedDebrid` therefore never
+  applied and an **unknown** cache state was auto-played. `isAioStreams` is now on that list.
+- Nothing ever checked what the URL actually *returned*. A stale cached marker was
+  indistinguishable from a true one, and nothing logged the response to a URL handed to the
+  engine - which is why attempt 1's twenty seconds are, in that log, unexplainable after the fact.
+
+So: **one `Range: bytes=0-1` before any frame is attached** (`PlaybackSourceProbe`). Status, content
+type, and the served total against the release's claim. A rejected source never opens the player, so
+the chain steps with nothing on screen changing but the attempt number. Every unknown passes, and a
+failed or timed-out probe passes - it must never block a working play. `PlaybackDurationPlausibility`
+is the backstop for what the probe cannot judge, and is deliberately conservative: both a
+fifth-of-expected ratio **and** an absolute duration under ten minutes.
+
+### Also fixed
+
+- `PlaybackAttemptLog`'s give-up line read `streamsUiState.autoPlayStream` *after* the chain had
+  moved on, so it printed `addon=unknown cached=unknown` on exactly the lines that needed them.
+  It reads `lastHandedOffFacts` now.
+- The stall backstop logged `uncover=dead_end_backstop` six seconds after the user pressed Back -
+  a false entry in the one log that exists to explain why the source list appeared.
+- The loading surface's exit is gated on a **decoded frame** (`videoWidth`/`videoHeight`, or real
+  advancing playback), not on `isLoading` going false, which the engine drops before it has decoded
+  anything. `firstFrameReached` is a second flag rather than a redefinition of
+  `initialLoadCompleted`, which the seek, subtitle and watchdog paths all read and mean the weaker
+  thing by.
+
+### Verified
+
+| | |
+| --- | --- |
+| Pure suites, desktop | **417** (from 397) |
+| Pure suites, mobile | **365** (from 345) |
+| `:composeApp:compileKotlinDesktop` | clean |
+| `:androidApp:compileFullDebugKotlin` | clean |
+| `NativePlayerControlsPageTest` | passes |
+| **Watched run** | **not done - still the exit gate** |
+
+New pure files, both wired into `scripts/run-pure-suites.sh`: `PlaybackLoadingSession.kt` (group 1,
+it reads `SourceFacts`) and `PlaybackSourceProbe.kt` (group 2).
+`scripts/pure-suite-stubs/Neighbours.kt` gained `SourceFacts.isAioStreams` - the stub had drifted
+again, and per the script's own doctrine a failing compile is the alarm and the stub gets fixed.
+
+### Still open
+
+- **Nothing here has been watched.** The whole point is a transition, and a transition cannot be
+  verified by a test or a compiler. It needs a debug MSI - Compose Hot Reload cannot attach the
+  native player bridge, so the player route opens to an empty surface that looks exactly like the
+  bug being fixed.
+- **The remaining desktop hand-over gap is now measurable but has not been measured.** `controls.js`
+  reports `didPaintOpening` and `NativePlayerController` logs `afterAttachMs=`. Read that figure on
+  the first real run before deciding whether anything more is needed there; WebView2 is already
+  warmed at process start, so there may be nothing left to win.
+- The probe adds one round trip to every automatic play. It runs under a loading screen that is
+  already up, so it should be invisible - but it is a real cost and worth watching on a slow
+  connection.
+- Mobile still has no debug build on the post-sync base.
 
 ## Phase 2 Playback: implementation complete, watched exit gate open (2026-09-04)
 

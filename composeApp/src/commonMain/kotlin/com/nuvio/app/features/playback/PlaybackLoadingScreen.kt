@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontWeight
@@ -112,10 +113,25 @@ fun PlaybackLoadingScreen(
     message: String? = null,
     /** A real buffered fraction, or null for the indeterminate line. P2P only. */
     progress: Float? = null,
+    /**
+     * The one entrance, 0f at the tap and 1f once the screen has arrived.
+     *
+     * ⚠ **This is not a general-purpose animation hook.** It is driven only by
+     * `PlaybackLoadingHost`, only once per session, and is 1f for the entire rest of the flow -
+     * including the hand-off to the player and every failover. See [PlaybackLoadingMotion] for
+     * why the moment the list is replaced is the single exception to the no-motion rule above.
+     */
+    entryProgress: Float = 1f,
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
+            .graphicsLayer {
+                alpha = PlaybackLoadingMotion.surfaceAlpha(entryProgress)
+                val settle = PlaybackLoadingMotion.surfaceScale(entryProgress)
+                scaleX = settle
+                scaleY = settle
+            }
             .background(MaterialTheme.nuvio.colors.background)
             .nuvioConsumePointerEvents(),
     ) {
@@ -152,6 +168,7 @@ fun PlaybackLoadingScreen(
             progress = progress,
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .graphicsLayer { alpha = PlaybackLoadingMotion.bandAlpha(entryProgress) }
                 .padding(horizontal = horizontalPadding)
                 .padding(bottom = 48.dp),
         )

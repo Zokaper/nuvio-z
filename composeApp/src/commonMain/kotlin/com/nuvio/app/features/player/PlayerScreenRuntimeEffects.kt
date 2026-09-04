@@ -18,6 +18,7 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.playback.PlaybackAttemptLog
+import com.nuvio.app.features.playback.PlaybackDurationPlausibility
 import com.nuvio.app.features.playback.PlaybackPosition
 import com.nuvio.app.features.playback.PlaybackStartupWatchdog
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
@@ -124,7 +125,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // user sees before a debrid stream begins. The controller above genuinely must be torn
         // down - the URL is different and a new engine instance is coming - but the *presentation*
         // should not start over for a file that never changed.
-        if (!isContinuation) initialLoadCompleted = false
+        if (!isContinuation) {
+            initialLoadCompleted = false
+            // A new source means a new wait; the surface must come back up for it.
+            firstFrameReached = false
+        }
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
         pendingSeekScrobbleRestart = false
@@ -182,6 +187,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()
         initialLoadCompleted = false
+        firstFrameReached = false
 
         try {
             val localUrl = P2pStreamingEngine.startStream(
@@ -386,6 +392,31 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                     durationMs = snapshot.durationMs,
                 ) ?: activeInitialPositionMs.coerceAtLeast(0L),
             )
+            // ⚠ **Checked before the watchdog's verdict, because the watchdog would say Started.**
+            // A provider's "being prepared" slate plays perfectly: position advances, the buffer
+            // fills, and every signal the watchdog reads says this source is healthy. It is - it
+            // is just not the film. *The Secret Woman* reported `duration=120960` against a
+            // feature and the chain stopped there, satisfied. The only fact that disagrees is the
+            // duration, so it has to be read before "it is playing" is allowed to end the check.
+            if (
+                PlaybackDurationPlausibility.isImplausiblyShort(
+                    reportedDurationMs = snapshot.durationMs,
+                    expectedRuntimeMinutes = args.expectedRuntimeMinutes,
+                )
+            ) {
+                startupLog.w {
+                    "abandoning $activeStreamTitle: reason=ImplausibleDuration " +
+                        "duration=${snapshot.durationMs}ms " +
+                        "expectedMinutes=${args.expectedRuntimeMinutes} " +
+                        "engine=${snapshot.engineName}"
+                }
+                StreamsRepository.noteAutoPickFailureReason(
+                    getString(Res.string.playback_startup_wrong_length),
+                )
+                if (tryNextEpisodeFallback()) return@LaunchedEffect
+                args.onFatalPlaybackError?.invoke()
+                return@LaunchedEffect
+            }
             watch = PlaybackStartupWatchdog.observe(watch, sample)
             when (watch.verdict) {
                 PlaybackStartupWatchdog.Verdict.Waiting -> Unit

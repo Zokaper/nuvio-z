@@ -55,4 +55,11 @@ internal data class PlayerScreenArgs(
     val sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
     /** 1-based, from the route's `autoPickAttempt`, so the band keeps counting across the trip. */
     val playbackAttempt: Int = 1,
+    /**
+     * The catalogue's runtime, for `PlaybackDurationPlausibility`.
+     *
+     * Null disables the check. Never a default guess: a wrong expectation here abandons a source
+     * the user is already watching.
+     */
+    val expectedRuntimeMinutes: Int? = null,
 )
