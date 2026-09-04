@@ -44,7 +44,7 @@ in Phase 0 of `ROADMAP.md`. The State column says what exists; this column says 
 | | |
 | --- | --- |
 | ships | in v1 |
-| **held** | built, deliberately off, and a decision is owed before release. Only **P7**, which Phase 2 must either ship or delete - it cannot stay held through a release |
+| **held** | built, deliberately off, and a decision is owed before release. No feature is currently held |
 | dropped | not in v1. The reason is in the row and in §11 |
 
 **v1 means all six platforms in one release** - Android, iOS, Windows, macOS, Tizen, webOS - so a
@@ -140,15 +140,19 @@ always reaches the Classic source list. The player keeps a "Change source" actio
 | **P4** | **Mode-aware download entry point** - the mode changes where a download *starts*, not the engine. Classic downloading a single item opens the source list and downloads the release you tap, but a whole season still gets the preset dialog. Streamlined keeps the dialog. Instant starts with no dialog, on the preset matching the connection tier. | **branch** | ships | yes | yes | yes | **no** |
 | **P5** | **Progress overlay and the covered-screen rules** - Instant and Streamlined no longer make you watch a wall of releases populate and get replaced. Named steps - Finding sources, Choosing source, Checking connection, Resolving link, Starting playback - every one mapped to state that already existed rather than a timed fake, plus an "Attempt 2 of 3" counter naming the source that died and a **Choose source manually** escape after the first failure or 5 s. A pure function decides the whole stack in one place, and **every bail-out uncovers the list**: a spinner over a screen the user has to answer is worse than never covering it. | **branch** | ships | yes | yes | yes | **port**, wired but not in the player |
 | **P6** | **Startup watchdog** - the old rule waited 8 s and asked "is it playing yet", which cannot see a filling buffer, so Streamlined and Instant were discarding perfectly healthy sources - a debrid mint, a cold provider, a 60 GB remux seeking a keyframe - and then blaming the catalogue. Replaced by a progress-measuring watchdog with three clocks: 20 s for a source that has produced nothing, 12 s since last advance for one that stalled, 60 s hard ceiling. Failures log the reason, elapsed time, best progress and engine. | **branch** | ships | yes | yes | yes | **wired**, auto picks |
-| **P7** | **Auto source-swap / automatic downshift** - a mid-playback swap to a cheaper source in the same release group when the buffer starves. Position-preserving, one per session, never upward, manifests exempt, never onto an uncached debrid candidate. | **held** | **held** | held | held | held | **no** |
+| **P7** | **Auto source-swap / automatic downshift** - the proposed mid-playback swap was never enabled or run on a device. Phase 2 deleted the detector, candidate builder, setting/storage/sync key, forced-swap HUD controls and swap log after confirming that null direct URLs made its identity check discard every unresolved alternative. Manual in-player source switching remains. | removed | dropped | - | - | - | **no** |
 | **P8** | **First-launch mode selector** - originally a standalone full-screen question; now step 2 of the setup wizard on the KMPs. On TV it stays standalone, because the TV has no wizard. | removed as standalone | via wizard | via wizard | via wizard | via wizard | **port** |
 | **P9** | **Sticky season pin** - release group, then binge group, then addon/provider/resolution, with a scored match. | removed | dropped | - | - | - | **no** |
 | **P10** | **`PlaybackQualityTier`** - the original preset-shaped bandwidth budget, replaced by catalogue-derived options and then deleted outright with its storage key and all four actuals. | removed | dropped | - | - | - | **no** |
 | **P11** | **Desktop player Next Episode control** (desktop only) - the desktop player had no Next Episode button. The Compose player has had one all along, but desktop does not render that control bar: the desktop player moved to a native HTML overlay and its action row was never given a next-episode entry. `controls.html` / `controls.js` / `NativePlayerController` gain a `nextEpisode` command wired to the same `playNextEpisode()` the Compose pill calls, reusing the existing `#icon-skip-next` symbol and the `player_next_episode` string - no new icon, no new string key. The `!isDesktop` guards on the Compose next-episode card and skip prompt are deliberate and stay: the HTML layer owns both. ⚠ `controls.js` has no automated coverage and **the button has never been clicked**. | **branch** | ships | n/a | n/a | yes | n/a |
 | **P12** | **Coordinated in-player next-episode transition** - manual actions follow the active mode (Classic list, Streamlined sheet, Instant auto-pick), while automatic transitions resolve without interrupting the current episode, count down with cancellation, reject stale results and remain covered until the next episode's first playable frame. Repeated taps cannot create a second request or player swap. | **branch** | ships | yes | yes | yes | n/a |
+| **P14** | **One loading surface, from chosen source to first frame** - `PlaybackLoadingScreen` is rendered by both the route's `PlaybackProgressOverlay` and the player's `OpeningOverlay` from one `PlaybackLoadingState`, so the handoff does not move the UI. It names the stage and carries structured source facts through the player boundary. | **branch** | ships | yes | yes | yes | **port**, adapt to web player |
+| **P15** | **Content-identity gate** - `ContentIdentityGuard` demotes confidently wrong season/episode/year candidates in auto modes. It partitions rather than filters, so a bad catalogue cannot create a dead end, and every demotion is logged. | **branch** | ships | yes | yes | yes | **port**, Phase 8 |
 
-**P7 is held by a constant checked before the setting**, deliberately, so it did not ride back in
-when Instant returned. The settings row is greyed and says why. It has never run on a device.
+**P7 was deleted rather than promoted.** It had been held since `0.4.9`, had never run on a
+device, and Phase 2 confirmed a catalogue-wide failure for unresolved sources. Mid-playback source
+replacement is too invasive to keep as dormant release code without evidence that it is clearly
+better than the manual action already available.
 
 **P9 was withdrawn for cause**: reachable only from the escape hatch, invisible once set, and it
 silently suppressed the quality sheet for a whole season with no way to see or clear it. The model
@@ -156,6 +160,11 @@ survives in code with no readers.
 
 **Do not reset the "Instant selection handled" latch.** Resetting it re-seeds the failure chain and
 loops forever. Recorded here because it is a trap, not an implementation detail.
+
+**Phase 8 web drift:** NuvioZWeb reimplements the Kotlin playback decisions rather than sharing
+them. Its port must explicitly pick up P14/P15 and `PlaybackPosition`: the web loading screen still
+has separate ownership, the content gate is absent, and duration-derived seeks do not yet share the
+KMP plausibility/clamping policy.
 
 ---
 
@@ -261,7 +270,7 @@ argument is true and it was still the wrong trade.
 | **C17** | **Adjustable interface size** (desktop only) - the automatic UI scale clamped at 1.18x, so a 3840x2160 window asked for 2.63 and was handed 1.18, laying the app out into a 3254x1831 dp space and drawing every fixed dp at roughly a third of its intended size. Nothing was broken; there was simply no headroom, and on a 4K panel it read as tiny. The automatic ceiling is raised to 2.2 and an explicit setting sits on top of it, with Ctrl +, Ctrl - and Ctrl 0. The stored value is a zoom **percentage of the automatic scale**, not an absolute density, so 100% means the same thing on a laptop and on a 4K panel and Ctrl 0 is simply "reset". At the default, 1280x820 is unchanged at 1.00, 1920x1080 goes 1.18 -> 1.32, 2560x1440 -> 1.76, 3840x2160 -> 2.20. The 1080p change is the one worth watching. | **branch** | ships | n/a | yes | n/a |
 
 **C1's advanced tagging is deliberately small** - the Advanced page row, torrent auto-pick,
-auto-downshift, decoder priority, and two playback compatibility switches. Nothing a normal user
+decoder priority, and two playback compatibility switches. Nothing a normal user
 changes is tagged.
 
 **The Advanced nav row is no longer tagged advanced.** Playback Engine lives there now and it is
@@ -337,9 +346,9 @@ and nothing on the TV has been watched running yet. Revisit after Phase E.
 
 | # | Feature | State | **v1** | AND | iOS | DSK | TV |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **C8** | **Playback diagnostics HUD** - debug-gated and off by default. Real buffer-ahead, position and duration **labelled with the live engine**, source resolution / release group / provider / addon, the provider-keyed network estimate and its confidence, and every state-machine field with time remaining to its trigger. It can force one safe step down or up within the same release group and reset the swap budget. It warns explicitly when libmpv is live, because the ExoPlayer throttle cannot reach it. | **branch** | ships | yes | yes | yes | log lines only |
+| **C8** | **Playback diagnostics HUD** - debug-gated and off by default. Real buffer-ahead, position and duration **labelled with the live engine**, source resolution / release group / provider / addon, the provider-keyed network estimate and its confidence, attempt state, and the last failure. It warns explicitly when libmpv is live, because the ExoPlayer throttle cannot reach it. P7's forced-swap controls were deleted with automatic downshift. | **branch** | ships | yes | yes | yes | log lines only |
 | **C9** | **Debug bandwidth throttle** - live throttling of the player's download speed to off / 20 / 10 / 5 / 2 Mb/s, so "I walked downstairs" becomes a button and buffering behaviour can be reproduced on demand. | **branch** | ships | yes | **no** | **no** | **no** |
-| **C10** | **Swap log** - every automatic or forced source swap recorded in a bounded, in-memory, copyable log: elapsed timestamp, reason, from/to quality, group, provider, addon, buffer at trigger, position before and after, and the gap until the replacement actually plays. Automatic downshift raises a user-facing toast rather than changing quality silently; manual picks are neither logged nor toasted. | **branch** | ships | yes | yes | yes | **port** |
+| **C10** | **Swap log** - the bounded diagnostic log for automatic or forced P7 swaps. | removed with P7 | dropped | - | - | - | **no** |
 | **C11** | **Desktop self-test harness** - one debug-only button (or a keyboard shortcut, or a build flag) that runs the device script against **real services** and writes a report plus screenshots. Suites: environment, real source fan-out with per-addon latency, debrid resolve plus a 1 MiB range GET proving the link serves bytes, real playback read straight out of mpv, settings and sync round-trip, and a screen-grabbing UI walk **with a network** so the artwork is real. | **branch** | ships | n/a | n/a | yes | n/a |
 | **C18** | **Desktop debug run mode and session log** (desktop only) - a desktop playback failure gets reported as "it just stopped", and a packaged build has no console, so the evidence is gone. `DesktopDebugLog` tees stdout and stderr into a timestamped file under the app data dir, beside the state it explains, plus a default uncaught-exception handler - the AWT event thread is how a desktop playback crash normally presents, and it would otherwise vanish with the window. Capture is via the stream tee, deliberately **not** a Kermit `LogWriter`: Kermit's JVM writer already prints to stdout, so a file writer on top wrote every line twice. The tee buffers to the newline before stamping, because print-without-terminator shredded single log lines across several entries. Both observed, not theorised. Gated by `-Pnuvio.desktop.debugTools=true`, the same flag as the HUD, so both stay out of the shipped app. | **branch** | ships | n/a | yes | n/a |
 | **C19** | **Z-revision ordering in the web updater** - a Nuvio Z version is a vanilla version plus a Z revision, and the web comparison could not see the revision at all: `parseAppVersionParts` splits on `-` and keeps only leading digits, so `z2` yielded nothing and `0.3.40-z2` parsed to the same `[0, 3, 40]` as `0.3.40-z1`. The *first* `-z1` release would have shipped fine, because the base moves forward from `0.3.37`; every release after it on that base would silently never have been offered. `parseZRevision` reads the suffix and the comparison uses it as a tie-break **after** the vanilla base, so the base decides first (which is what lets the revision reset), a suffix-less build is revision 0, and the debug counter does not hide it (`0.3.40-z1.3` is revision 1). Known limit, pinned by a test: a base going *backwards* still cannot be ordered by the string - that is what `RELEASE_SERIAL` is for on the KMP apps. | **branch** | ships | n/a | n/a | yes |
@@ -399,15 +408,13 @@ the mode-availability rule and would have gone on asserting a withdrawn one.
 
 ---
 
-## 11. Removed and held - do not re-derive as missing work
+## 11. Removed - do not re-derive as missing work
 
 | | What | Why |
 | --- | --- | --- |
-| **P7** | Auto source-swap | Built and held behind `AUTO_DOWNSHIFT_AVAILABLE = false`. **Phase 2 did not clear it, and found a defect in it.** `AutoDownshiftDetector.kt:236` and `:269` use `filterNot { it.stream.playableDirectUrl == current.stream.playableDirectUrl }` as an identity check; when the current source has no direct URL - any unresolved debrid/`clientResolve` candidate - that matches `null == null` and discards **every** other unresolved candidate, so `select` returns null for a whole class of catalogues. Masked today by the constant. The decision the roadmap requires needs the deliberate-starvation run (Android debug throttle, C9) and the HUD's forced swap (C8), neither of which can be driven without a device build - so it is sequenced into Phase 2's watched run rather than guessed at. **Standing prejudice remains deletion**; the bar is "clearly good", not "no worse". |
+| **P7** | Auto source-swap | Deleted in Phase 2 after being held since `0.4.9` and never device-run. Its direct-URL equality check treated `null == null` as source identity and removed every unresolved alternative from some catalogues. The detector, candidate builder, setting/storage/sync key, forced-swap HUD controls, strings and swap log were removed from both KMP repositories. Passive network measurement and manual in-player source switching remain. |
 | **P9** | Sticky season pin | Withdrawn. Reachable only from the escape hatch, invisible once set, and it silently suppressed the quality sheet for a whole season with no way to clear it. |
 | **P10** | `PlaybackQualityTier` | Removed entirely, with its storage key and all four actuals. Replaced by catalogue-derived options. |
-| **P14** | **One loading surface, from chosen source to first frame** - `PlaybackLoadingScreen` is rendered by both the route's `PlaybackProgressOverlay` and the player's `OpeningOverlay` from a single `PlaybackLoadingState`, so crossing between them moves nothing on screen. Bottom-anchored band: derived stage line, metadata chips from `SourceFacts`, provider and cache state, and the full release name small and dimmed - the last so a wrong-show pick is visible *before* it plays. Replaced three loading surfaces and four different indeterminate motions with one. Navigation is untouched. | **branch** | ships | yes | yes | yes | n/a |
-| **P15** | **Content-identity gate** - `ContentIdentityGuard` rejects a candidate that is confidently different content: a season/episode that disagrees, or a parsed year outside a one-year tolerance. **Auto modes only** - a manual pick is the user reading the release name themselves. **A partition, never a filter**, following `byLanguage`: demoted candidates sit behind the rest and are still reachable, so an addon returning only mislabelled entries cannot produce a dead end. ⚠ **Catches the symptom, not the cause** - the addon is very likely matching on release names too, and a correct-looking wrong name still passes. The requested year is best-effort from `MetaDetailsRepository.releaseInfo` and is often absent. Every rejection is logged so the false-positive rate is measurable before this is trusted. | **branch** | ships | yes | yes | yes | n/a |
 | **P8** | Standalone mode-selector screen | Deleted on the KMPs, replaced by wizard step 2. Still the right shape on TV, which has no wizard. |
 | **P2-web** | The remembered quality band, on the web port | Removed 2026-09-04, bringing the web port into line with the decision the KMPs had already taken. A band chosen earlier in the sitting silently answered the sheet, which reads as the app deciding for you with nothing on screen to disagree with. It also forced a second mechanism to exist - `hasRememberedBand`, which suppressed a skeleton grid that would otherwise be drawn and withdrawn on every episode. Both are gone; `streamPreferencesStore.js` was deleted outright with its settings row, its profile sync key and its player wiring. |
 | - | The ranking helper on the source selector | Deleted; it had no production callers. The comparator survives only inside its own test. |
@@ -438,7 +445,9 @@ used for weeks. The testing had happened; the write-up had not.
 
 | What | Where it was seen | Caveat |
 | --- | --- | --- |
-| **Instant** | On the debug line, in normal use. | *Usually* works; it sometimes does not, and nobody has characterised when. That is Phase 2's problem, not a blocker here. |
+| **Instant** | On the debug line, in normal use. | Baseline behaviour is real-use evidence. Phase 2's repaired recovery wiring and unified loading handoff still need the deliberate watched exit gate. |
+| **Debrid playback** | In normal use, including resolver-backed streams. | Phase 2's external-player rejection and failover changes have automated coverage but have not been watched. |
+| **The startup watchdog** | In normal use under real playback load. | Phase 2 restored its dropped desktop callback wiring; that repaired desktop path still needs the deliberate watched exit gate. |
 | **The setup wizard** | Rendered on a real screen, not only in CI. | - |
 | **The settings reorganisation** | Playback, Advanced and Subtitles walked on a real screen. | - |
 | **The web port on a television** | It ran on a TV. | Buggy. Phase 8 owns the bugs; the claim being settled here is only that it runs at all. |
@@ -453,7 +462,6 @@ had its specific check run.
 | What | The check that would settle it |
 | --- | --- |
 | **The nine review-pass fixes** | The three device checks in the 2026-08-22 review-pass entry, now in `Docs/STATUS-ARCHIVE.md`. |
-| **The startup watchdog** | The startup log line, under load - watching the retry loop *not* happen. |
 | **Downloads across a connectivity transition** | Item 4 of the downloads follow-up in `STATUS.md`. The link-expiry half has been run; this half has not. |
 
 **Why these stay listed.** When something does break in this area, the failure is rarely

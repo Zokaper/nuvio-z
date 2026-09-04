@@ -48,9 +48,8 @@ enum class PlaybackMode {
      *  - a dead source dead-ended the mode. The capped failure chain, the overlay that names
      *    the dead source, `shouldOfferManualEscape` and `giveUpToSourceList` are all shared.
      *
-     * ⚠ **Automatic downshift is withheld separately, by `AUTO_DOWNSHIFT_AVAILABLE` in
-     * [AutoDownshiftDetector].** It used to be gated on `INSTANT.isSelectable` and would have
-     * ridden back in on this line for free, having never once run on a device.
+     * Automatic selection chooses a source once; mid-playback automatic source swapping was
+     * removed after its hold period and is not part of Instant mode.
      */
     val isSelectable: Boolean
         get() = true

@@ -22,7 +22,7 @@ import com.nuvio.app.features.downloads.VideoResolution
  * `bandBoundariesMbps`. Deriving them from each title's own spread made every label a
  * statement about one catalogue and about nothing else.
  *
- * Pure and repository-free, like [PlaybackModeRouter] and [AutoDownshiftDetector], so the
+ * Pure and repository-free, like [PlaybackModeRouter], so the
  * shipped code can be exercised outside Gradle.
  */
 data class PlaybackQualityOption(
@@ -110,7 +110,7 @@ object PlaybackQualityOptions {
      * The old tier value was 0.6, which demanded a 1.67x margin: a 19 Mbps 4K release read as
      * needing 31 Mbps and was refused on a connection comfortably streaming it. That margin
      * suits a live ladder with no buffer, not a VOD player that buffers seconds ahead and has
-     * [AutoDownshiftDetector] behind it. A third over the file's own bitrate is the honest
+     * automatic selection behind it. A third over the file's own bitrate is the honest
      * number to quote and the one to judge by.
      */
     const val HEADROOM = 0.75

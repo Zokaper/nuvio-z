@@ -4,25 +4,27 @@ Last updated: 2026-09-04
 
 | | |
 | --- | --- |
-| Active branch | `claude/upstream-sync-0.4.13` in **nuvio-z**, carrying the vanilla `0.4.13` merge. `claude/watch-together-sync-7ceki1` in **NuvioZDesktop**, off `codex/next-episode-debug-hotfix`, carrying the Watch Together sync rework and, since 2026-09-03, the social/lobby/player UI rebuild. `nuvio-z` stays on `codex/next-episode-debug-hotfix`; the branch of the same name here is this documentation only, because both are deliberately desktop-first until verified on two machines. |
-| Version in the files | mobile **`0.4.13-z1`** with release serial **127** as of the sync below; desktop still `0.5.0-beta` (`VERSION_CODE=39`). `CURRENT_PROJECT_VERSION` stays 125 until a build is published. The two repositories deliberately disagree until the desktop sync lands. |
+| Active branch | `claude/phase-2-playback` in both KMP repositories, based on the completed mobile `0.4.13` and desktop `0.1.22-alpha` sync branches. |
+| Version in the files | mobile **`0.4.13-z1`** and desktop **`0.1.22-alpha-z1`**, both with release serial **127**. |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | mobile has adopted `0.4.13-z1`. Desktop adopts `<vanilla>-z1` when its own sync to `0.1.22-alpha` lands. Note that the debug channel carries no serial, so a debug install on `0.5.0-beta.25` will not be offered a `0.4.13-z1` debug build - it needs one manual sideload. |
 | Verified | the Z backend is deployed and live: 8 migrations applied to `pzbpghmmordvzcfbayoh`, `get_social_capabilities()` now returns both flags **true** - `202609010009_enable_social.sql` enabled them, and the desktop client renders the invite-code field and the Watch Together action, which it only does when `watchPartyEnabled` is set, so the earlier "both flags false" reading in this table predates that migration - direct table reads return 401, the `z-session` function is deployed and rejects every unauthenticated path correctly, and 61 pgTAP assertions pass on matching Postgres 17. Both standalone suites pass (290 tests each); focused Android host and desktop Gradle runs compile the real source sets and pass all 16 next-episode tests. Desktop Watch Together propagation measured about 225 ms in a real two-client session; the buffering-race follow-up compiles and all 1,318 desktop tests pass. Mobile CI `33327792025`, repaired desktop CI `33328140034`, mobile debug publish `33328752860` and desktop debug publish `33615211655` all pass. For the sync rework: `scripts/run-pure-suites.sh` passes all six groups (131, 64, 49, 17, 29, 42) with the new group 6 compiling the shipped sync sources and no stubs, and desktop CI `33627311248` passes the full `:composeApp:desktopTest` run and the Windows MSI build. For the UI rebuild: 1,360/1,360 desktop tests pass locally, and the social tab and the party lobby were both driven in the running app over Compose Hot Reload - the lobby across three live stage transitions. |
 | **Not** verified | **Nothing in the Watch Together sync rework has run against a live party.** It compiles and both suites pass, and that is all: the party clock, the tick, the barriers and the wait-for-everyone policy have never had two machines on them. The matrix is cold start; pause and resume ten times, measuring the spread; seek ten times; a real host rebuffer; a real guest rebuffer with the toggle on and off; host migration; the socket killed mid-film; and a `debug-v0.5.0-beta.36` client against a `.35` one, which must degrade to the old five-second behaviour rather than break. Carried forward from `debug-v0.5.0-beta.35` and still open independently of the rework: every host transport action must bump `sequence`, offline Leave/End must permit a new party immediately, and the corrected next-episode transition and the desktop HTML button still need a device/install pass. Mobile is still not wired to the Z backend and has none of this; manual iOS verification remains outstanding. From the UI rebuild: the **in-player Watch Together panel has never been seen** - reaching it needs playback, and its CSS and JS are desktop resources that a Compose reload does not pick up, so it wants a deliberate restart. Nor has any **multi-member lobby state**: a one-person party cannot produce a green `ready` tile, a red `failed` tile with its error text, the alternate-source chip, or the dimming of a disconnected member, and a still cannot judge the resolving ring's animation. All of those fall out of the two-desktop matrix. |
-| Next work | Run the two-desktop Watch Together matrix against `debug-v0.5.0-beta.36` with the playback HUD on, and read `errMs` off the screen rather than diffing two logs; it is also the only run that can show the lobby's multi-member tiles and the in-player panel. Nothing in the rework has been measured between two machines. Port to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
+| Next work | Build/install Phase 2 and run its watched playback matrix before release; then run the two-desktop Watch Together matrix against the current debug line with the playback HUD on. Port Watch Together to mobile only after that passes and after mobile reaches `ZSupabaseProvider`/`ZSessionBridge`; stable `0.5.0-beta+126` remains untouched. |
 | Debug channel | desktop `debug-v0.5.0-beta.36` carries the sync rework, published 2026-09-02 from `claude/watch-together-sync-7ceki1`; `debug-v0.5.0-beta.35` from `f0aef43f` is the build the current sync report came from. Mobile `debug-v0.5.0-beta.25` was published 2026-08-30. Stale pre-sync desktop `debug-v0.4.14-beta.18` and mobile `debug-v0.4.14-beta.25` are superseded. |
 
 > **The history moved.** Everything before 2026-08-24 is in [`Docs/STATUS-ARCHIVE.md`](Docs/STATUS-ARCHIVE.md) -
 > 48 sections, kept whole and in order. This file is the live handoff only: the
 > state table above, the work since the last release, and what is still open below.
 
-## Phase 2 Playback: in progress (2026-09-04)
+## Phase 2 Playback: implementation complete, watched exit gate open (2026-09-04)
 
 Branch `claude/phase-2-playback`, cut from the Phase 1 sync branch - **not** from trunk, which is
 362 commits behind. Full handoff: `../HANDOFF-phase-2-playback.md`.
 
-**Stages 0-3 done, both repos. Stage 4 (P7), 5 (review + watched run) and 6 (docs) open.**
+**Stages 0-4 and 6 are complete in both repos.** The code review and automated verification pass
+are complete. Stage 5's installed playback matrix remains the release exit gate; Compose Hot
+Reload cannot exercise the native player bridge on this machine.
 
 ### The finding that matters most
 
@@ -55,17 +57,27 @@ conflict list and the deletion sweep.** Grep the callers of anything the dissolu
 - **Content-identity gate**, auto modes only, a partition rather than a filter.
 - **All 13 ways into the source list named and logged**, with `hasSilentUncover` making a
   reasonless uncover a failing test.
+- **The route audit is closed**: download launches cannot enter auto playback, P2P consent no
+  longer destroys an untried failure chain, rejected external-player launches advance or uncover
+  honestly, and process restoration cannot preserve a phantom in-flight debrid resolve.
+- **P7 automatic source-swap was deleted**, including its setting/storage/sync key, detector,
+  candidates, forced-swap HUD controls and swap log. It had been held since `0.4.9`, had never run
+  on a device, and Phase 2 confirmed that null direct URLs discarded every unresolved alternative.
+  Passive network measurement and manual in-player source switching remain.
 
 ### Verified, and not
 
-Suites green: pure 388 desktop / 337 mobile, Android host 1,339, zero failures.
-`:composeApp:desktopTest` **not yet run this phase**.
+Suites green: pure 389 desktop / 337 mobile; Android host 1,312; desktop 1,518. All runs have zero
+failures, errors or skips. Desktop compiled the native bridge and real desktop source set; its one
+reported configuration-cache problem is the existing non-serializable bridge `Exec` task, and
+Gradle discarded that cache entry after the successful run.
 
 ⚠ **Nothing here has been exercised against real playback.** Hot reload cannot reach a first
 frame on this machine - the native bridge fails to attach (`java.desktop does not "opens
 java.awt"`), so the player route opens to an empty surface that looks exactly like a hang. That
-is a second, separate reason for the debug-MSI rule already recorded below. The watched run is
-the exit gate and it has not happened.
+is a second, separate reason for the debug-MSI rule already recorded below. The watched matrix is
+still the exit gate: Classic manual selection, Streamlined selection, Instant failover, P2P
+consent/decline, external-player reject, debrid resolution, next episode, and back navigation.
 
 ## Mobile is synced to vanilla 0.4.13 (2026-09-04)
 

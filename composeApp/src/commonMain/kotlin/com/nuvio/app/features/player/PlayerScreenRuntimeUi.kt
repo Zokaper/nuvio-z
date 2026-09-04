@@ -23,7 +23,6 @@ import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
-import com.nuvio.app.features.playback.SwapDiagnosticsLog
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackSelectionContext
@@ -192,19 +191,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (snapshot.isPlaying) {
                             completeNextEpisodeTransitionIfStarted()
                         }
-                        // A swap is only over when the replacement actually renders. This is
-                        // the measurement that decides whether automatic quality switching is
-                        // worth its interruption; nothing else in the app times it.
-                        swapStartedAt?.takeIf {
-                            snapshot.isPlaying && playerSurfaceSourceUrl ==
-                                (if (activeTorrentInfoHash != null) p2pResolvedSourceUrl else activeSourceUrl)
-                        }?.let { startedAt ->
-                            SwapDiagnosticsLog.completePending(
-                                startedAt.elapsedNow().inWholeMilliseconds,
-                                positionMsAfter = snapshot.positionMs,
-                            )
-                            swapStartedAt = null
-                        }
                     }
                     if (snapshot.isEnded) {
                         shouldPlay = false
@@ -212,7 +198,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     }
                     observePlaybackForNetworkEstimate()
                     observePlaybackForThroughput()
-                    observePlaybackForAutoDownshift()
                 },
                 onError = { message ->
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {

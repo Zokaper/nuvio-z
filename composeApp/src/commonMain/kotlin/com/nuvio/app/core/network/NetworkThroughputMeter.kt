@@ -21,7 +21,7 @@ package com.nuvio.app.core.network
  * Unlike the sustained-bitrate path this can read *below* the current estimate, which is the
  * whole point: it is the only thing in the app that can tell a 50 Mbps preset it was wrong.
  *
- * Pure and clock-free, like [com.nuvio.app.features.playback.AutoDownshiftDetector] and
+ * Pure and clock-free, like the other playback decision helpers and
  * `PlaybackModeRouter`: the caller supplies a monotonic timestamp with every sample, so the
  * shipped code runs in tests outside Gradle.
  */
@@ -39,7 +39,7 @@ object NetworkThroughputMeter {
     /**
      * A position jump beyond the window's own duration by more than this is a seek.
      *
-     * Matched to [com.nuvio.app.features.playback.AutoDownshiftDetector]'s seek tolerance
+     * Matched to the player's seek tolerance
      * rather than re-derived: a jump either is a seek for both of them or for neither.
      */
     private const val SEEK_TOLERANCE_MS = 3_000L

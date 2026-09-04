@@ -112,8 +112,6 @@ internal expect object PlayerSettingsStorage {
     fun saveShowAdvancedSettings(enabled: Boolean)
     fun loadPlaybackMeteredCapHeight(): Int?
     fun savePlaybackMeteredCapHeight(height: Int)
-    fun loadPlaybackAutoDownshift(): Boolean?
-    fun savePlaybackAutoDownshift(enabled: Boolean)
 
     /**
      * Whether the mode selector has been shown, tracked separately from the mode itself.

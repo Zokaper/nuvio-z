@@ -34,23 +34,23 @@ Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syn
 
 | | `nuvio-z` | `NuvioZDesktop` | `NuvioZWeb` |
 | --- | --- | --- | --- |
-| files we created | 166 | 192 | 33 |
-| **patch surface** - files upstream owns that we modified | **166** | **176** | **20** |
-| **conflict surface** - of those, upstream has also moved | **14** | **0** | **18** |
-| total changed | 332 | 368 | 53 |
-| commits behind upstream | **27** | **0** | **143** |
+| files we created | 172 | 198 | 33 |
+| **patch surface** - files upstream owns that we modified | **167** | **177** | **20** |
+| **conflict surface** - of those, upstream has also moved | **0** | **0** | **18** |
+| total changed | 339 | 375 | 53 |
+| commits behind the named sync base | **0** | **0** | **143** |
 
 **The mobile patch surface went up, not down, and that is the sync working as intended.** Upstream
 dissolved `App.kt` into a 98-line shell plus 13 new files, so the Z decisions that used to sit in
 one 5,436-line file we modified now sit in ten upstream-owned files we modify. One row became ten.
-The conflict surface is the number that improved - 27 files before the merge, 14 after - and 
+The conflict surface is the number that improved - 27 files before the merge, zero after - and
 125-hunk monolith that made every previous sync expensive no longer exists.
 
 **Read the conflict surface, not the patch surface.** The patch surface is what we own jointly; the
 *conflict surface* is the subset upstream has actually touched since our fork base, and it is what
 predicts the cost of the next merge. `scripts/upstream-drift.sh` prints both.
 
-Of the mobile tree's 275 changed files, 137 are entirely ours and carry zero conflict risk. That
+Of the mobile tree's 339 changed files, 172 are entirely ours and carry zero conflict risk. That
 ratio - roughly half - is the number to improve, and rule 1 in `Docs/UPSTREAM.md` is how.
 
 **`NuvioZWeb` is the target shape, and it is now proven rather than asserted.** It merged upstream
@@ -126,16 +126,21 @@ These nine files are the structural problem, and naming them is the point of thi
 **Rule 6 applies: refactor a file into a seam the first time a sync conflicts in it**, not before.
 Rewriting all nine in advance is speculative work against a merge that has not happened yet.
 
+Phase 2 added one deliberate Rule 6 seam across `PlayerScreenArgs.kt`, `PlayerScreen.kt` and
+`PlayerModels.kt`: two optional trailing values, `sourceFacts` and `playbackAttempt`, carry the
+structured loading state across the route-to-player handoff. Keeping that state at the boundary
+avoids rebuilding it independently in two loading surfaces.
+
 The right shape, when the time comes, is the one the playback package already has: Z logic lives in
 `features/playback/**` (100% ours, zero conflict risk) and the upstream file holds one call.
 
 ## What is entirely ours - zero conflict risk
 
-133 files on mobile, concentrated in whole packages:
+172 files on mobile, concentrated in whole packages:
 
 | Package | New files | Notes |
 | --- | --- | --- |
-| `features/playback/**` | 13 main + 14 test | The mode router, models, quality options, source selector, startup watchdog, route surface, progress overlay, downshift detector, swap log. |
+| `features/playback/**` | 17 main + 16 test | The mode router, models, quality options, source selector, startup watchdog, route surface, unified loading state, attempt log, position policy and content-identity gate. |
 | `features/downloads/**` (new files only) | 13 main + 9 test | Presets, coordinator, dialog, labels, source facts, ranking, batches, transfer, queue planner, presence, discovery, formatting, settings screen. |
 | `features/setup/**` | 10 | The whole wizard. |
 | `core/network/**` | 6 + 4 actuals + 4 test | Probe, throughput window, meter, repository, storage, platform. |

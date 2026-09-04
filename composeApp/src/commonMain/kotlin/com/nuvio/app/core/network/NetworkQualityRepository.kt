@@ -433,7 +433,7 @@ object NetworkQualityRepository {
      * the quality sheet says it is still checking rather than quoting one of these - because a
      * preset printed as "your connection" is a claim the app has not earned.
      *
-     * Erring high is the safer error for the ordering they still do: `AutoDownshiftDetector`
+     * Erring high is the safer error for the ordering they still do: playback selection
      * catches an over-reach mid-playback, whereas an under-reach is invisible. One measurement
      * of any kind replaces them.
      */

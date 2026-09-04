@@ -7,6 +7,15 @@ executable by a cold agent (Claude or Codex) with no access to this conversation
 repositories. Everything below assumes the two-repository mirroring rule: edit in `nuvio-z`,
 `diff -q` and `cp` across, hand-port anything that already differs.
 
+> **Phase 2 playback closeout (2026-09-04): code complete; installed-playback exit gate open.**
+> The recovery callbacks dropped by the desktop `0.1.22-alpha` sync are restored; route and player
+> share one loading state; duration-derived positions are bounded; catalogue errors and every
+> source-list uncover are named; content identity is gated in auto modes; and the remaining route
+> audit defects are fixed. P7 automatic downshift and its diagnostics were deleted from both KMP
+> repositories after a confirmed unresolved-source identity defect and no device evidence since
+> it was held in `0.4.9`. Full host/desktop suites pass. The historical implementation ledger below
+> records how the subsystem was built; it does not override this closeout decision.
+
 ---
 
 ## START HERE (handoff, 2026-08-06)

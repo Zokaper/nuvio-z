@@ -17,7 +17,6 @@ import com.nuvio.app.features.p2p.P2pStreamRequest
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.core.network.NetworkThroughputMeter
-import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.PlaybackAttemptLog
 import com.nuvio.app.features.playback.PlaybackPosition
 import com.nuvio.app.features.playback.PlaybackStartupWatchdog
@@ -318,14 +317,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
-    // A new source - whether the user picked it or a downshift did - starts its own settle
-    // window. Without this, a position-preserving switch inherits the previous source's
-    // "already settled" state and its perfectly normal startup buffering reads as
-    // starvation. The swap budget deliberately does *not* reset here.
+    // A different file starts fresh passive network measurements.
     LaunchedEffect(activeSourceUrl) {
-        autoDownshiftState = AutoDownshiftDetector.initial(autoDownshiftState.swapsUsed)
-        autoDownshiftClock = TimeSource.Monotonic.markNow()
-        autoDownshiftSourcesRequested = false
+        playbackObservationClock = TimeSource.Monotonic.markNow()
         // A different file is a different bitrate, so the measurement starts over.
         networkEstimateStartPositionMs = null
         networkEstimateStalled = false
@@ -338,7 +332,6 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     // on the source URL, because re-minting changes the URL and would otherwise refund the
     // budget it just spent.
     LaunchedEffect(activeVideoId) {
-        autoDownshiftState = AutoDownshiftDetector.initial()
         credentialRefreshesUsed = 0
         credentialRefreshAttemptedSourceUrl = null
     }

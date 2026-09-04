@@ -40,7 +40,7 @@ package com.nuvio.app.features.playback
  * away after [MANUAL_ESCAPE_DELAY_MS], so a longer deadline costs a wait somebody can already
  * walk out of, where the old one cost the source itself.
  *
- * Pure and clock-free, exactly as [AutoDownshiftDetector] is: the caller supplies the elapsed
+ * Pure and clock-free: the caller supplies the elapsed
  * wall-clock with each sample. **Wall-clock, never a sample count** - Android polls the player
  * every ~250 ms and desktop every 500 ms, so a count means two different things.
  */
