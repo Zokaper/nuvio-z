@@ -40,6 +40,27 @@ Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syn
 | total changed | 339 | 375 | 53 |
 | commits behind the named sync base | **0** | **0** | **143** |
 
+> **Re-measured after Phase 2 (2026-09-04), and the patch surface did not move: still 167 / 177.**
+> That is the result Rule 4 asks for. Phase 2's new code went into files Z owns outright -
+> `PlaybackLoadingScreen`, `PlaybackLoadingState`, `PlaybackPosition`, `ContentIdentityGuard`,
+> `PlaybackAttemptLog`, `core/ui/Skeleton.kt` - and the upstream-owned files it did touch
+> (`PlayerScreen`, `PlayerScreenArgs`, `PlayerModels`, `PlayerDestination`, `PlayerOverlays`,
+> `PlayerPlaybackOverlays`, `PlayerScreenRuntime{Effects,Ui}`, `StreamsScreen`) were **already**
+> in the surface, so no new file was added to it.
+>
+> The widening that did happen is *within* those files rather than across new ones: three of the
+> `PlayerScreenRuntime*` cluster gained two optional trailing fields each (`sourceFacts`,
+> `playbackAttempt`) at their existing seams. Rule 6 territory, added at the seam rather than by
+> extracting a new extension point, because the Phase 1 sync did not conflict in them.
+>
+> Phase 2 also **removed** surface: deleting P7 took `AutoDownshiftDetector`, `SwapDiagnosticsLog`
+> and the `playback_auto_downshift` key out of four `PlayerSettingsStorage` actuals, the settings
+> page and the diagnostics HUD.
+>
+> ⚠ **The "behind" row is now stale.** Both repos have drifted since the Phase 1 base: `nuvio-z` is
+> **27** behind and `NuvioZDesktop` **9** behind as of this measurement. That is upstream moving,
+> not Phase 2's doing, and it is Phase 3's inheritance.
+
 **The mobile patch surface went up, not down, and that is the sync working as intended.** Upstream
 dissolved `App.kt` into a 98-line shell plus 13 new files, so the Z decisions that used to sit in
 one 5,436-line file we modified now sit in ten upstream-owned files we modify. One row became ten.
