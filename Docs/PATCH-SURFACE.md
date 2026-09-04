@@ -23,19 +23,28 @@ entry is inserted into both. Desktop's `iosApp/` is vestigial (the repository ha
 and its Swift tab enum was left alone; `NativeNavigationTab.Social` simply has no native counterpart
 there.
 
-Regenerated 2026-08-24 against `claude/upstream-doctrine-stage0`, after the first named KMP
-syncs. Bases: `nuvio-z` `e27b9195` (Nuvio `0.4.8`), `NuvioZDesktop` `b32dd57b`
-(`0.1.20-alpha`), and `NuvioZWeb` **Nuvio 0.3.40** (synced, 0 behind).
+Previously regenerated 2026-08-24 against `claude/upstream-doctrine-stage0`, after the first named
+KMP syncs, with `nuvio-z` at `e27b9195` (Nuvio `0.4.8`). `NuvioZWeb` was recorded there as "synced,
+0 behind"; it had never had an upstream remote fetched, and is in fact 143 behind vanilla `1.0.x`.
 
 ## The shape of it
 
+Regenerated 2026-09-04, after the mobile `0.4.13` sync. Bases: `nuvio-z` `42a9febf`
+(Nuvio **0.4.13**), `NuvioZDesktop` `b32dd57b` (`0.1.20-alpha`), `NuvioZWeb` `f9a546a`.
+
 | | `nuvio-z` | `NuvioZDesktop` | `NuvioZWeb` |
 | --- | --- | --- | --- |
-| files we created | 137 | 153 | 32 |
-| **patch surface** - files upstream owns that we modified | **138** | **144** | **13** |
-| **conflict surface** - of those, upstream has also moved | **7** | **44** | **1** |
-| total changed | 275 | 297 | 45 |
-| commits behind upstream | **21** | **162** | **2** |
+| files we created | 166 | 190 | 33 |
+| **patch surface** - files upstream owns that we modified | **166** | **164** | **20** |
+| **conflict surface** - of those, upstream has also moved | **14** | **65** | **18** |
+| total changed | 332 | 354 | 53 |
+| commits behind upstream | **27** | **366** | **143** |
+
+**The mobile patch surface went up, not down, and that is the sync working as intended.** Upstream
+dissolved `App.kt` into a 98-line shell plus 13 new files, so the Z decisions that used to sit in
+one 5,436-line file we modified now sit in ten upstream-owned files we modify. One row became ten.
+The conflict surface is the number that improved - 27 files before the merge, 14 after - and 
+125-hunk monolith that made every previous sync expensive no longer exists.
 
 **Read the conflict surface, not the patch surface.** The patch surface is what we own jointly; the
 *conflict surface* is the subset upstream has actually touched since our fork base, and it is what
@@ -81,7 +90,7 @@ The count is how many **of our** commits touched the file. The top three carry 1
 | Our commits | File | Why we are in it | Policy |
 | --- | --- | --- | --- |
 | **46** | `commonMain/composeResources/values/strings.xml` | Every Z string. | **Rule 5** - one appended block behind a marker comment, never interleaved. Upstream churns this file with every locale. Mechanically resolvable once the block is contiguous. |
-| **40** | `commonMain/.../App.kt` | The DI and navigation graph, and where the stream route decides which mode is in play. | **The hard one.** Rule 2: every Z decision here must be one call into the playback package, never inline logic. Refactor on first conflict. |
+| **40** | `commonMain/.../App.kt` | ~~The DI and navigation graph, and where the stream route decides which mode is in play.~~ **Gone as of the 0.4.13 sync.** Upstream split it; `App.kt` is a 98-line shell we barely touch. Its 40 commits' worth of Z code now lives in `MainAppContent.kt`, `StreamDestination.kt` and the other destination files, each an upstream-owned file in its own right. | Rule 6 was paid here, and it is the reason this sync cost what it did. The successor rows have the same duty: a Z decision in a destination file is one call into the playback package, never inline logic. |
 | **39** | `iosApp/Configuration/Version.xcconfig` | Version bumps. | `merge=ours` via `.gitattributes`. **Pure noise** - it should never appear in a conflict again. |
 | 16 | `commonMain/.../features/settings/PlaybackSettingsPage.kt` | The mode row, source preferences, audio, and the reorganisation. | The reorganisation (C2) is the single worst-shaped change we have made. Do not add more of it. |
 | 13 | `iosMain/.../PlayerSettingsStorage.ios.kt` | Every new synced key needs all actuals. | Part of the **`PlayerSettings*` cluster: 4 files, 49 commits.** Refactor on first conflict. |
