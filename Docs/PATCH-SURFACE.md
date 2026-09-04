@@ -29,16 +29,16 @@ KMP syncs, with `nuvio-z` at `e27b9195` (Nuvio `0.4.8`). `NuvioZWeb` was recorde
 
 ## The shape of it
 
-Regenerated 2026-09-04, after the mobile `0.4.13` sync. Bases: `nuvio-z` `42a9febf`
-(Nuvio **0.4.13**), `NuvioZDesktop` `b32dd57b` (`0.1.20-alpha`), `NuvioZWeb` `f9a546a`.
+Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
+(Nuvio **0.4.13**), `NuvioZDesktop` `5aca4f3f` (**0.1.22-alpha**), `NuvioZWeb` `f9a546a`.
 
 | | `nuvio-z` | `NuvioZDesktop` | `NuvioZWeb` |
 | --- | --- | --- | --- |
-| files we created | 166 | 190 | 33 |
-| **patch surface** - files upstream owns that we modified | **166** | **164** | **20** |
-| **conflict surface** - of those, upstream has also moved | **14** | **65** | **18** |
-| total changed | 332 | 354 | 53 |
-| commits behind upstream | **27** | **366** | **143** |
+| files we created | 166 | 192 | 33 |
+| **patch surface** - files upstream owns that we modified | **166** | **176** | **20** |
+| **conflict surface** - of those, upstream has also moved | **14** | **0** | **18** |
+| total changed | 332 | 368 | 53 |
+| commits behind upstream | **27** | **0** | **143** |
 
 **The mobile patch surface went up, not down, and that is the sync working as intended.** Upstream
 dissolved `App.kt` into a 98-line shell plus 13 new files, so the Z decisions that used to sit in
