@@ -62,8 +62,15 @@ jobs:
       - name: Configure runtime properties
         if: env.RELEASE_PROPERTIES_BASE64 != ''
         run: |
-          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
-          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" \
+            | tr '_-' '/+' \
+            | LC_ALL=C tr -cd 'A-Za-z0-9+/=' \
+            | base64 --decode > local.properties
+          if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' local.properties; then
+            echo "NUVIO_LOCAL_PROPERTIES_BASE64 did not yield a properties file." >&2
+            exit 1
+          fi
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
