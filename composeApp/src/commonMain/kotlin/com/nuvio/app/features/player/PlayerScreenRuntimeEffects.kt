@@ -487,8 +487,13 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                         refusedReason = refusal,
                     )
                 }
-                // Deliberately *not* latching `initialSeekApplied`: the duration may still
-                // arrive, and refusing once must not cost the user their resume position.
+                // ⚠ **Latch only the refusals that no later duration can fix.** A duration
+                // that is unknown, implausible or shorter than the resume point may all be
+                // corrected on the next snapshot, so those keep retrying and must not cost the
+                // user their position. A non-finite fraction is not going to become finite, and
+                // because this effect is keyed on `durationMs`, leaving it unlatched re-entered
+                // and re-logged on every duration revision for a seek that can never happen.
+                if (refusal == "non_finite_fraction") initialSeekApplied = true
                 return@LaunchedEffect
             }
             initialSeekApplied = true

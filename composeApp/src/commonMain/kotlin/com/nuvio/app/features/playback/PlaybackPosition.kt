@@ -76,7 +76,18 @@ object PlaybackPosition {
         progressFraction: Float?,
         durationMs: Long,
     ): Long? {
-        if (initialPositionMs > 0L) return clampSeekTarget(initialPositionMs, durationMs)
+        if (initialPositionMs > 0L) {
+            // ⚠ **An explicit position is never rewritten against a duration that contradicts
+            // it.** Clamping used to run unconditionally, and the caller latches on the result:
+            // an engine reporting a small-but-positive duration on the first non-loading
+            // snapshot - a rolling/DVR window, or a header parsed before the index - dragged a
+            // 22-minute resume down to `duration - 10s`, frequently 0, seeked there and latched,
+            // so the correct duration arriving a moment later could not recover it. A duration
+            // shorter than the position we were handed is evidence the *duration* is wrong, not
+            // the position, so this refuses and waits for a better one.
+            if (isDurationUsable(durationMs) && durationMs <= initialPositionMs) return null
+            return clampSeekTarget(initialPositionMs, durationMs)
+        }
         val fraction = progressFraction?.takeIf { it > 0f && it.isFinite() }?.coerceIn(0f, 1f)
             ?: return null
         if (!isDurationUsable(durationMs)) return null
@@ -97,7 +108,12 @@ object PlaybackPosition {
         progressFraction: Float?,
         durationMs: Long,
     ): String? = when {
-        initialPositionMs > 0L -> null
+        initialPositionMs > 0L ->
+            if (isDurationUsable(durationMs) && durationMs <= initialPositionMs) {
+                "duration_shorter_than_resume"
+            } else {
+                null
+            }
         progressFraction == null || progressFraction <= 0f -> null
         !progressFraction.isFinite() -> "non_finite_fraction"
         durationMs <= 0L -> "unknown_duration"

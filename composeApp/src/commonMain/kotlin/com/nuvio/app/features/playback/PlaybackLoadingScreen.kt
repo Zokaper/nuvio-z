@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage as AppAsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.downloads.SourceFacts
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_attempt
@@ -112,7 +113,12 @@ fun PlaybackLoadingScreen(
     /** A real buffered fraction, or null for the indeterminate line. P2P only. */
     progress: Float? = null,
 ) {
-    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.nuvio.colors.background)) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.nuvio.colors.background)
+            .nuvioConsumePointerEvents(),
+    ) {
         PlaybackLoadingBackdrop(artwork = artwork)
 
         if (onBack != null) {

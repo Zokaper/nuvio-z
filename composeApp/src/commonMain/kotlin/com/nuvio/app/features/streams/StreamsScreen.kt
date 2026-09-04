@@ -1035,7 +1035,12 @@ private fun LazyListScope.streamSection(
     resumePositionMs: Long?,
     resumeProgressFraction: Float?,
 ) {
-    if (group.streams.isEmpty() && !group.isLoading) return
+    // ⚠ **An errored group must still draw its header.** `AddonStreamGroup.error` is only ever
+    // set *alongside* an empty stream list - both in the fetch failure arm and in the plugin
+    // merge, which only keeps an error when nothing merged - so this early return used to skip
+    // the one row that had something to say. An addon replying "stream not found" rendered
+    // exactly nothing: no name, no reason, just an absence the user had to infer.
+    if (group.streams.isEmpty() && !group.isLoading && group.error.isNullOrBlank()) return
 
     if (showHeader) {
         item(key = "header_$sectionKey") {

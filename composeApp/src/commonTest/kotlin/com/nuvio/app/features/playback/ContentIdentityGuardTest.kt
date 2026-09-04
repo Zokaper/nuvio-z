@@ -17,20 +17,96 @@ class ContentIdentityGuardTest {
     // --- The reported case ---------------------------------------------------------------
 
     /**
-     * Captured from a real profile: asking for Daredevil S2E6 returns Born Again releases
-     * ranked *above* the correct ones. Both are genuinely S02E06, so season and episode agree -
-     * only the year separates them, which is why the year signal earns its place.
+     * ⚠ **The reported case is deliberately NOT rejected any more, and this test pins that.**
+     *
+     * Both Daredevil entries are genuinely S02E06, so only the year separated them - and a code
+     * review showed the year check was unsafe for series: the requested year comes from the
+     * show's *first-air* date while the release name carries the year that *episode* shipped.
+     * Grey's Anatomy (first air 2005) would have had every correct `…2024.S20E01…` release
+     * demoted. That false positive is silent and looks like "the good sources are missing",
+     * which is strictly worse than the bug it was catching.
+     *
+     * The release name printed on the loading screen is what catches this now.
      */
     @Test
-    fun `a Born Again release is rejected for a Daredevil season two request`() {
-        assertEquals(
-            ContentIdentityGuard.Rejection.WRONG_YEAR,
+    fun `a wrong-show release with matching numbering is no longer rejected on year`() {
+        assertNull(
             ContentIdentityGuard.evaluate(
                 releaseName = "Daredevil.Born.Again.2026.S02E06.Requiem.2160p.DSNP.WEB-DL.mkv",
                 requestedSeason = 2,
                 requestedEpisode = 6,
                 requestedYear = 2016,
             ),
+        )
+    }
+
+    /**
+     * The false positive that forced the rule above. A correct release of a long-running show,
+     * where the show's first-air year and the episode's year are two decades apart.
+     */
+    @Test
+    fun `a long-running show's current season is not rejected on year`() {
+        assertNull(
+            ContentIdentityGuard.evaluate(
+                releaseName = "Greys.Anatomy.2024.S20E01.2160p.WEB-DL.mkv",
+                requestedSeason = 20,
+                requestedEpisode = 1,
+                requestedYear = 2005,
+            ),
+        )
+    }
+
+    /** For a film the two years describe the same thing, so the check still stands there. */
+    @Test
+    fun `a film with a disagreeing year is still rejected`() {
+        assertEquals(
+            ContentIdentityGuard.Rejection.WRONG_YEAR,
+            ContentIdentityGuard.evaluate(
+                releaseName = "The.Thing.1982.2160p.BluRay.REMUX.mkv",
+                requestedSeason = null,
+                requestedEpisode = null,
+                requestedYear = 2011,
+            ),
+        )
+    }
+
+    /** `1920x1080` is a resolution, not a year. It used to parse as 1920 and reject outright. */
+    @Test
+    fun `a WxH resolution token is not read as a year`() {
+        assertNull(ContentIdentityGuard.parseYear("Film.Name.1920x1080.x264.mkv"))
+        assertNull(
+            ContentIdentityGuard.evaluate(
+                releaseName = "Film.Name.1920x1080.x264.mkv",
+                requestedSeason = null,
+                requestedEpisode = null,
+                requestedYear = 2019,
+            ),
+        )
+    }
+
+    /**
+     * A season pack contains the requested episode, and in a mixed list these are exactly the
+     * releases a debrid user is most likely to have cached already.
+     */
+    @Test
+    fun `a season pack covering the requested episode passes`() {
+        assertNull(ContentIdentityGuard.evaluate("Daredevil.S02E01-E13.COMPLETE.1080p.mkv", 2, 6))
+        assertNull(ContentIdentityGuard.evaluate("Show.S02E01-13.1080p.mkv", 2, 6))
+    }
+
+    @Test
+    fun `a season pack that does not cover the requested episode is still rejected`() {
+        assertEquals(
+            ContentIdentityGuard.Rejection.WRONG_EPISODE,
+            ContentIdentityGuard.evaluate("Show.S02E01-E05.1080p.mkv", 2, 6),
+        )
+    }
+
+    @Test
+    fun `a pack from the wrong season is rejected on the season`() {
+        assertEquals(
+            ContentIdentityGuard.Rejection.WRONG_SEASON,
+            ContentIdentityGuard.evaluate("Show.S03E01-E13.1080p.mkv", 2, 6),
         )
     }
 
@@ -124,8 +200,8 @@ class ContentIdentityGuardTest {
      */
     @Test
     fun `a year one out is within tolerance`() {
-        assertNull(ContentIdentityGuard.evaluate("Show.2017.S02E06.mkv", 2, 6, 2016))
-        assertNull(ContentIdentityGuard.evaluate("Show.2015.S02E06.mkv", 2, 6, 2016))
+        assertNull(ContentIdentityGuard.evaluate("Film.2017.mkv", null, null, 2016))
+        assertNull(ContentIdentityGuard.evaluate("Film.2015.mkv", null, null, 2016))
     }
 
     /**

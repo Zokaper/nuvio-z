@@ -11,6 +11,14 @@ package com.nuvio.app.features.playback
  * the user on a good source rather than on a dead end**. That is what makes this worth doing at
  * all; a guard that only ever produced failures would not be.
  *
+ * ⚠ **That particular case is no longer caught here, and the reason is worth reading.** Both
+ * entries are genuinely `S02E06`, so only the year separated them - and the year check turned
+ * out to be unsafe for series: the requested year is the show's *first-air* year while a release
+ * name carries the year that *episode* shipped, so it rejected every correct release of any show
+ * past its second season. Correctness against the whole catalogue beats catching one reported
+ * title, so the year check is now films-only and the release name printed on the loading screen
+ * is what catches the Daredevil case.
+ *
  * ⚠ **Auto modes only.** A manual pick is the user reading the release name themselves and
  * choosing anyway, and second-guessing that is a refusal wearing a helper's name.
  *
@@ -46,8 +54,20 @@ object ContentIdentityGuard {
     const val YEAR_TOLERANCE: Int = 1
 
     private val SEASON_EPISODE = Regex("""(?:^|[^a-z0-9])s(\d{1,2})[ ._-]?e(\d{1,3})(?:[^0-9]|$)""", RegexOption.IGNORE_CASE)
+    /**
+     * `S02E01-E13`, `S02E01-13`, `S02E01E13` - a pack covering a span of episodes.
+     *
+     * Without this a pack read as its *first* episode, so a request for S02E06 rejected a
+     * release that contains S02E06. In a mixed list that demotes exactly the season packs a
+     * debrid user is most likely to already have cached.
+     */
+    private val EPISODE_RANGE = Regex("""(?:^|[^a-z0-9])s(\d{1,2})[ ._-]?e(\d{1,3})[ ._-]?(?:-|e)[ ._-]?e?(\d{1,3})(?:[^0-9]|$)""", RegexOption.IGNORE_CASE)
     private val SEASON_X_EPISODE = Regex("""(?:^|[^a-z0-9])(\d{1,2})x(\d{2,3})(?:[^0-9]|$)""", RegexOption.IGNORE_CASE)
-    private val YEAR = Regex("""(?:^|[^0-9])((?:19|20)\d{2})(?:[^0-9]|$)""")
+    // ⚠ `[^0-9]` on the right is not enough: in `1920x1080` the `x` satisfies it, so a
+    // common resolution token parsed as the year 1920 and rejected the candidate outright.
+    // Excluding a following `x<digit>` and a preceding `<digit>x` kills the `WxH` form,
+    // which really does appear in debrid and AIOStreams filenames.
+    private val YEAR = Regex("""(?:^|[^0-9x])((?:19|20)\d{2})(?![0-9])(?!x\d)""", RegexOption.IGNORE_CASE)
 
     /** `S02E06` or `2x06`, or null when the name says nothing about it. */
     fun parseSeasonEpisode(releaseName: String): Pair<Int, Int>? {
@@ -58,6 +78,16 @@ object ContentIdentityGuard {
             return m.groupValues[1].toInt() to m.groupValues[2].toInt()
         }
         return null
+    }
+
+    /** The span an `S02E01-E13`-style pack covers, or null when the name is not a pack. */
+    fun parseEpisodeRange(releaseName: String): Pair<Int, IntRange>? {
+        val m = EPISODE_RANGE.find(releaseName) ?: return null
+        val season = m.groupValues[1].toInt()
+        val first = m.groupValues[2].toInt()
+        val last = m.groupValues[3].toInt()
+        if (last < first) return null
+        return season to (first..last)
     }
 
     /**
@@ -88,17 +118,35 @@ object ContentIdentityGuard {
         // Season and episode first: it is the cheapest signal, the most reliably encoded, and
         // the only one a season pack and a single episode disagree about in a useful way.
         if (requestedSeason != null && requestedEpisode != null) {
-            parseSeasonEpisode(name)?.let { (season, episode) ->
+            val range = parseEpisodeRange(name)
+            if (range != null) {
+                val (season, span) = range
                 if (season != requestedSeason) return Rejection.WRONG_SEASON
-                if (episode != requestedEpisode) return Rejection.WRONG_EPISODE
+                if (requestedEpisode !in span) return Rejection.WRONG_EPISODE
+            } else {
+                parseSeasonEpisode(name)?.let { (season, episode) ->
+                    if (season != requestedSeason) return Rejection.WRONG_SEASON
+                    if (episode != requestedEpisode) return Rejection.WRONG_EPISODE
+                }
             }
         }
 
-        if (requestedYear != null) {
+        // ⚠ **Films only, and this is the whole of the reasoning.** The requested year reaches
+        // this function from `MetaDetailsRepository.releaseInfo`, which for a series is the
+        // show's **first-air** year - while the year in a release name is the year *that
+        // episode* was published. Comparing the two rejected every correct release of any show
+        // past its second season: Grey's Anatomy carries `2005`, so a perfectly good
+        // `Greys.Anatomy.2024.S20E01` parsed 2024 and was demoted behind untagged, lower-quality
+        // releases. That is the exact false positive this guard must never produce, and it is
+        // silent - it presents as "the good sources are missing".
+        //
+        // For a film the two numbers genuinely describe the same thing, so the check stands
+        // there. The cost is that the Daredevil / Born Again case - both truly S02E06, separated
+        // only by year - is no longer caught by this guard; the release name printed on the
+        // loading screen remains the backstop for it, which is why that line exists.
+        val isEpisodeRequest = requestedSeason != null || requestedEpisode != null
+        if (requestedYear != null && !isEpisodeRequest) {
             parseYear(name)?.let { year ->
-                // ⚠ Only for the *episode* case does a year disagreement mean wrong content in
-                // the way this guard cares about; for a film the requested year is the film's
-                // own and the same tolerance applies. Either way, both numbers must exist.
                 if (kotlin.math.abs(year - requestedYear) > YEAR_TOLERANCE) {
                     return Rejection.WRONG_YEAR
                 }

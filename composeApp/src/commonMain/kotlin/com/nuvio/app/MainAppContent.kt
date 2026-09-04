@@ -123,6 +123,7 @@ import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
+import com.nuvio.app.features.player.ExternalPlaybackOutcome
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
@@ -848,7 +849,7 @@ internal fun MainAppContent(
             }
         }
 
-        suspend fun openExternalPlayback(launch: PlayerLaunch): Boolean {
+        suspend fun openExternalPlayback(launch: PlayerLaunch): ExternalPlaybackOutcome {
             lastExternalPlayerLaunch = launch
 
             val bingeGroup = launch.bingeGroup
@@ -887,15 +888,19 @@ internal fun MainAppContent(
                 if (!launched) {
                     NuvioToastController.show(externalPlayerFailedText)
                 }
-                launched
+                if (launched) {
+                    ExternalPlaybackOutcome.Opened
+                } else {
+                    ExternalPlaybackOutcome.SourceRejected
+                }
             }
             ExternalPlayerIntentResult.NotConfigured -> {
                 NuvioToastController.show(externalPlayerNotConfiguredText)
-                false
+                ExternalPlaybackOutcome.PlayerUnavailable
             }
             ExternalPlayerIntentResult.Failed -> {
                 NuvioToastController.show(externalPlayerFailedText)
-                false
+                ExternalPlaybackOutcome.PlayerUnavailable
             }
         }
     }

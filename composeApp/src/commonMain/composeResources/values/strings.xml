@@ -1279,6 +1279,7 @@
     <string name="playback_progress_source_failed">%1$s did not start</string>
     <string name="playback_progress_source_failed_reason">%1$s: %2$s</string>
     <string name="playback_error_copy_details">Copy error details</string>
+    <string name="playback_external_player_rejected">The external player would not open this source</string>
     <string name="playback_startup_never_started">no response from the host</string>
     <string name="playback_startup_stalled">stopped part way through loading</string>
     <string name="playback_startup_too_slow">too slow to start on this connection</string>

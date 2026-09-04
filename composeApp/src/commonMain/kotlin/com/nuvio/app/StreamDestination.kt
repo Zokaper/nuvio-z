@@ -37,6 +37,7 @@ import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
@@ -49,6 +50,7 @@ import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressFailure
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressOverlay
+import com.nuvio.app.features.playback.PlaybackProgressStep
 import com.nuvio.app.features.playback.PlaybackQualityOption
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
@@ -71,6 +73,7 @@ import com.nuvio.app.features.playback.playbackChain
 import com.nuvio.app.features.playback.playbackQualityOptionLabel
 import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.playback.streamRouteSurface
+import com.nuvio.app.features.player.ExternalPlaybackOutcome
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -112,7 +115,7 @@ internal fun StreamDestination(
     route: StreamRoute,
     navController: NuvioNavigator,
     p2pEnabled: Boolean,
-    openExternalPlayback: suspend (PlayerLaunch) -> Boolean,
+    openExternalPlayback: suspend (PlayerLaunch) -> ExternalPlaybackOutcome,
     openExternalStreamUrl: (String) -> Boolean,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
@@ -173,7 +176,13 @@ internal fun StreamDestination(
      * [reason] null means "say the generic thing"; blank means say nothing,
      * which is what the explicit user actions want - they already know why.
      */
-    fun giveUpToSourceList(reason: String? = null, path: String = "unspecified") {
+    /**
+     * ⚠ **[path] has no default on purpose.** It used to default to `"unspecified"`, which meant
+     * a new dead end that forgot to say why still produced a non-null `uncoverReason` and sailed
+     * past [hasSilentUncover] unnoticed - the invariant was unenforceable at the one place it was
+     * supposed to bite. A required parameter turns that into a compile error instead.
+     */
+    fun giveUpToSourceList(reason: String? = null, path: String) {
         qualitySheetDismissed = true
         manualSourceListRequested = true
         // ⚠ **Which of the eight ways in this was.** The maintainer could not name the
@@ -267,6 +276,9 @@ internal fun StreamDestination(
     // survive process death anyway.
     var lastHandedOffLabel by rememberSaveable(route.launchId) {
         mutableStateOf<String?>(null)
+    }
+    var lastHandedOffFacts by remember(route.launchId) {
+        mutableStateOf<SourceFacts?>(null)
     }
     // Set at *every* exit to playback, not just the reuse-last-link one.
     // Instant deliberately leaves StreamRoute on the back stack so the failure
@@ -394,10 +406,17 @@ internal fun StreamDestination(
             torrentTrackers = stream.p2pTrackers,
             initialPositionMs = resolvedResumePositionMs ?: 0L,
             initialProgressFraction = resolvedResumeProgressFraction,
+            // The third hand-off site, and the one that was missed. Without these a torrent
+            // taken in an automatic mode handed the player `sourceFacts = null, attempt = 1`,
+            // so the band the route was drawing - chips, provider, release name, "attempt 2 of
+            // 3" - went blank at exactly the route change this screen exists to make invisible.
+            sourceFacts = SourceFactsExtractor.extract(stream),
+            playbackAttempt = autoPickAttempt,
         )
 
         val launchId = PlayerLaunchStore.put(playerLaunch)
         StreamsRepository.cancelLoading()
+        lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
             if (replaceStreamRoute) {
@@ -488,11 +507,11 @@ internal fun StreamDestination(
      * Null is an ordinary answer. Before anything is armed, and for a stream no candidate row
      * matches, the band simply has no chips.
      */
-    val activeCandidateFacts = remember(streamsUiState.autoPlayStream, playbackCandidates) {
+    val activeCandidateFacts = remember(streamsUiState.autoPlayStream, playbackCandidates, lastHandedOffFacts) {
         streamsUiState.autoPlayStream?.let { armed ->
             playbackCandidates.firstOrNull { it.stream === armed }?.facts
                 ?: SourceFactsExtractor.extract(armed)
-        }
+        } ?: lastHandedOffFacts
     }
     // ⚠ **Which of the ways into the list this was.** The maintainer could not name the
     // conditions under which the list appears in Streamlined or Instant, and that is the
@@ -636,23 +655,21 @@ internal fun StreamDestination(
     }
 
     /**
-     * Names a dead candidate, falling back to **the addon's own words** when the caller has none.
+     * Names a dead candidate.
      *
-     * `AddonStreamGroup.error` has always held what the provider actually said and every reader
-     * reduced it to a boolean, so an addon answering "stream not found" and an addon answering
-     * nothing produced the same silent step to the next candidate. That is bug 3's whole
-     * symptom, and the evidence for it was already in memory.
+     * ⚠ **There is deliberately no fallback to `AddonStreamGroup.error` here.** An earlier pass
+     * added one, and it was dead by construction: the group only carries an `error` when its
+     * stream list is empty, and a stream being reported dead necessarily came *from* that group,
+     * so the group is non-empty and its error is always null. The addon's own words reach the
+     * user through the group header in the list instead, which is where they can actually be
+     * read - see `StreamsScreen.streamSection`.
      *
-     * The caller's reason still wins where there is one - a resolve failure knows more than the
-     * group does. This only fills the gap that used to be filled with nothing.
+     * For the failures that happen *after* a stream exists - a resolve that returns nothing, a
+     * link that will not open - the reason comes from the caller, which knows more than the
+     * group ever did.
      */
     fun noteSourceFailure(stream: StreamItem, reason: String?) {
-        val addonMessage = reason?.takeIf { it.isNotBlank() }
-            ?: streamsUiState.groups
-                .firstOrNull { group -> group.addonId == stream.addonId }
-                ?.error
-                ?.takeIf { it.isNotBlank() }
-        noteSourceFailureByLabel(sourceFailureLabel(stream), addonMessage)
+        noteSourceFailureByLabel(sourceFailureLabel(stream), reason?.takeIf { it.isNotBlank() })
     }
 
     // Coming back from the player with a candidate still armed. Two very
@@ -688,6 +705,8 @@ internal fun StreamDestination(
             ) {
                 // Classic and the manual paths came *from* the list, so the
                 // list is where backing out belongs.
+                playbackHandedOff = false
+                lastHandedOffFacts = null
                 return@LaunchedEffect
             }
             // Streamlined did not, and must not end up there: this route is
@@ -702,6 +721,7 @@ internal fun StreamDestination(
             return@LaunchedEffect
         }
         playbackHandedOff = false
+        lastHandedOffFacts = null
         autoPickAttempt += 1
         // The third failure route, and the only one that used to say nothing.
         // The source opened, played, and died - the most visible failure there
@@ -883,20 +903,32 @@ internal fun StreamDestination(
         // that is now working.
         autoPickFailure = null
         if (playerSettings.externalPlayerEnabled) {
+            lastHandedOffFacts = playerLaunch.sourceFacts
             playbackHandedOff = true
-            val opened = openExternalPlayback(playerLaunch)
-            if (!opened) {
+            val outcome = openExternalPlayback(playerLaunch)
+            if (outcome != ExternalPlaybackOutcome.Opened) {
+                lastHandedOffFacts = null
                 playbackHandedOff = false
-                if (hasFailureChain && StreamsRepository.skipAutoPlayStream(stream)) {
-                    autoPickAttempt += 1
-                    noteSourceFailure(stream, "External player did not accept the source")
-                } else if (hasFailureChain) {
-                    giveUpToSourceList(
-                        reason = "External player did not accept the source",
+                val rejectedText = getString(Res.string.playback_external_player_rejected)
+                when {
+                    // ⚠ **A configuration problem is not a source problem.** Every candidate
+                    // will fail the same way, so stepping the chain here spent the whole retry
+                    // budget on it - three toasts of "external player not configured" and a
+                    // failure finally blamed on three innocent sources. The user has already
+                    // been told what is actually wrong by the toast this outcome produced.
+                    outcome == ExternalPlaybackOutcome.PlayerUnavailable -> {
+                        StreamsRepository.consumeAutoPlay()
+                        giveUpToSourceList(reason = "", path = "external_player_unavailable")
+                    }
+                    hasFailureChain && StreamsRepository.skipAutoPlayStream(stream) -> {
+                        autoPickAttempt += 1
+                        noteSourceFailure(stream, rejectedText)
+                    }
+                    hasFailureChain -> giveUpToSourceList(
+                        reason = rejectedText,
                         path = "external_player_chain_spent",
                     )
-                } else {
-                    StreamsRepository.consumeAutoPlay()
+                    else -> StreamsRepository.consumeAutoPlay()
                 }
                 StreamsRepository.cancelLoading()
                 return@LaunchedEffect
@@ -908,6 +940,7 @@ internal fun StreamDestination(
         if (!hasFailureChain) StreamsRepository.consumeAutoPlay()
         StreamsRepository.cancelLoading()
         val launchId = PlayerLaunchStore.put(playerLaunch)
+        lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
         // A mode with a chain keeps StreamRoute on the back stack: that route
         // owns the auto-play effect, the attempt counter and the overlay, so
@@ -1022,8 +1055,10 @@ internal fun StreamDestination(
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
             streamRouteScope.launch {
+                lastHandedOffFacts = playerLaunch.sourceFacts
                 playbackHandedOff = true
-                if (!openExternalPlayback(playerLaunch)) {
+                if (openExternalPlayback(playerLaunch) != ExternalPlaybackOutcome.Opened) {
+                    lastHandedOffFacts = null
                     playbackHandedOff = false
                 }
                 StreamsRepository.cancelLoading()
@@ -1038,6 +1073,7 @@ internal fun StreamDestination(
         // which reaches the player through here and leaves StreamRoute on the
         // stack: coming back, nothing knew playback had ever been handed off, so
         // the opaque surface kept painting over a list nobody could see.
+        lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
         navController.navigate(
             PlayerRoute(launchId = launchId, title = playerLaunch.title)
@@ -1755,23 +1791,29 @@ internal fun StreamDestination(
                 },
             )
         }
-        if (streamSurface == StreamRouteSurface.ProgressOverlay) {
+        val showProgressOverlay = streamSurface == StreamRouteSurface.ProgressOverlay ||
+            (streamSurface == StreamRouteSurface.HandOff && playbackHandedOff)
+        if (showProgressOverlay) {
             PlaybackProgressOverlay(
-                step = PlaybackProgress.step(
-                    PlaybackProgressInputs(
-                        isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
-                            streamsUiState.isAnyLoading,
-                        hasChosenSource = autoPlaybackStarting,
-                        isResolvingLink = resolvingDebridStream,
-                        attempt = autoPickAttempt,
-                        // Instant only. The remembered-band path is also covered
-                        // by this overlay and does not need an estimate - its
-                        // band is exact - so it must not claim to be waiting for
-                        // one.
-                        isMeasuringConnection = !connectionSettled &&
-                            playbackRouteDecision is PlaybackRouteDecision.AutoPick,
-                    ),
-                ),
+                step = if (playbackHandedOff) {
+                    PlaybackProgressStep.StartingPlayback
+                } else {
+                    PlaybackProgress.step(
+                        PlaybackProgressInputs(
+                            isLoadingSources = streamsUiState.requestToken != expectedStreamsRequestToken ||
+                                streamsUiState.isAnyLoading,
+                            hasChosenSource = autoPlaybackStarting,
+                            isResolvingLink = resolvingDebridStream,
+                            attempt = autoPickAttempt,
+                            // Instant only. The remembered-band path is also covered
+                            // by this overlay and does not need an estimate - its
+                            // band is exact - so it must not claim to be waiting for
+                            // one.
+                            isMeasuringConnection = !connectionSettled &&
+                                playbackRouteDecision is PlaybackRouteDecision.AutoPick,
+                        ),
+                    )
+                },
                 attempt = autoPickAttempt,
                 failure = autoPickFailure,
                 // The structured facts for whatever is actually armed, so the

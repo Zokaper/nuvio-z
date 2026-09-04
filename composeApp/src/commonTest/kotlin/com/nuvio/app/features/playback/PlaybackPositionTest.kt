@@ -133,4 +133,36 @@ class PlaybackPositionTest {
     fun `a negative position floors at zero`() {
         assertEquals(0L, PlaybackPosition.clampSeekTarget(-5_000L, HOUR_MS))
     }
+
+    /**
+     * ⚠ **The unrecoverable case.** An engine can report a small-but-positive duration on the
+     * first non-loading snapshot - a rolling window, or a header parsed before the index. This
+     * used to clamp a 22-minute resume to `duration - 10s`, frequently 0, seek there, and latch,
+     * so the correct duration arriving a moment later could not undo it. A duration shorter than
+     * the position we were handed is evidence the *duration* is wrong.
+     */
+    @Test
+    fun `an explicit resume is refused rather than clamped by a shorter duration`() {
+        assertNull(
+            PlaybackPosition.resolveStartPositionMs(
+                initialPositionMs = 22 * 60 * 1000L,
+                progressFraction = null,
+                durationMs = 30_000L,
+            ),
+        )
+        assertEquals(
+            "duration_shorter_than_resume",
+            PlaybackPosition.refusalReason(22 * 60 * 1000L, null, 30_000L),
+        )
+    }
+
+    /** A resume comfortably inside a sane duration is still honoured untouched. */
+    @Test
+    fun `an explicit resume inside the duration is unaffected`() {
+        assertEquals(
+            22 * 60 * 1000L,
+            PlaybackPosition.resolveStartPositionMs(22 * 60 * 1000L, null, HOUR_MS),
+        )
+        assertNull(PlaybackPosition.refusalReason(22 * 60 * 1000L, null, HOUR_MS))
+    }
 }
