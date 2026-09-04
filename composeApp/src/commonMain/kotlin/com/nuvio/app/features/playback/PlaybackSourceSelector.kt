@@ -58,6 +58,14 @@ data class PlaybackSelectionContext(
      * as well as the banded rows.
      */
     val qualityCeilingMbps: Double? = null,
+    /**
+     * What was actually asked for, so a source for a different show can be spotted.
+     *
+     * ⚠ **Set by the automatic modes only.** A manual pick is the user reading the release name
+     * and choosing anyway; overriding that is a refusal wearing a helper's name. Left null,
+     * every candidate passes untouched, which is what Classic and every manual path want.
+     */
+    val identity: RequestedContent? = null,
     val secondaryAudioLanguage: String? = null,
     val languageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
 ) {
@@ -133,6 +141,7 @@ object PlaybackSourceSelector {
         val eligible = candidates
             .filter { candidate -> isPlaybackProtocolEligible(candidate, context.allowTorrentSources) }
             .let { byLanguage(it, context) }
+            .let { byContentIdentity(it, context) }
         val playable = eligible.filterNot(::isUncachedDebrid)
         playable.firstOrNull()?.let { selected ->
             return PlaybackSelectionResult.Play(
@@ -164,6 +173,7 @@ object PlaybackSourceSelector {
     ): PlaybackSourceCandidate? = option.candidates
         .filter { isPlaybackProtocolEligible(it, context.allowTorrentSources) }
         .let { byLanguage(it, context) }
+        .let { byContentIdentity(it, context) }
         .let { eligible -> eligible.firstOrNull { !isUncachedDebrid(it) } ?: eligible.firstOrNull() }
 
     /**
@@ -190,6 +200,58 @@ object PlaybackSourceSelector {
             SourceRanking.isLanguageWatchable(it.facts, preferences)
         }
         return if (watchable.isEmpty()) candidates else watchable + rest
+    }
+
+    /**
+     * Moves anything that is confidently the wrong content behind everything that is not.
+     *
+     * **A partition, never a filter** - the same shape, and the same argument, as [byLanguage]
+     * directly above. Deleting these candidates would be simpler and would reintroduce a dead
+     * end: an addon that returns *only* mislabelled entries would leave nothing to play, the
+     * chain would have nothing to run, and the user would land on the source list having asked
+     * for a quality. Demoting costs nothing when a correct source exists - which, in the
+     * reported Daredevil case, it did, ranked third and fourth behind two wrong ones - and
+     * saves the play when none does.
+     *
+     * A stable partition, so the ranking inside each half is exactly the one the caller built.
+     */
+    private fun byContentIdentity(
+        candidates: List<PlaybackSourceCandidate>,
+        context: PlaybackSelectionContext,
+    ): List<PlaybackSourceCandidate> {
+        val identity = context.identity ?: return candidates
+        val (right, wrong) = candidates.partition { candidate ->
+            ContentIdentityGuard.evaluate(
+                releaseName = candidate.facts.filename ?: candidate.stream.name,
+                requestedSeason = identity.season,
+                requestedEpisode = identity.episode,
+                requestedYear = identity.year,
+            ) == null
+        }
+        return if (right.isEmpty()) candidates else right + wrong
+    }
+
+    /**
+     * Why each candidate was demoted, for the log. Empty when nothing was.
+     *
+     * Separate from [byContentIdentity] because the rejection has to be *countable* before it
+     * is trusted: the addon is very likely matching on release names too, so this guard catches
+     * a symptom whose cause is upstream, and the false-positive rate is the only thing that
+     * says whether it is helping.
+     */
+    fun contentIdentityRejections(
+        candidates: List<PlaybackSourceCandidate>,
+        context: PlaybackSelectionContext,
+    ): List<Pair<PlaybackSourceCandidate, ContentIdentityGuard.Rejection>> {
+        val identity = context.identity ?: return emptyList()
+        return candidates.mapNotNull { candidate ->
+            ContentIdentityGuard.evaluate(
+                releaseName = candidate.facts.filename ?: candidate.stream.name,
+                requestedSeason = identity.season,
+                requestedEpisode = identity.episode,
+                requestedYear = identity.year,
+            )?.let { candidate to it }
+        }
     }
 
     /**
@@ -345,6 +407,18 @@ object PlaybackSourceSelector {
             candidate.stream.clientResolve != null ||
             candidate.stream.isDirectDebridStream
 }
+
+/**
+ * The requested title's identity, for [ContentIdentityGuard].
+ *
+ * Every field is nullable and a null always passes: the guard can only reject on two facts that
+ * both exist and disagree.
+ */
+data class RequestedContent(
+    val season: Int? = null,
+    val episode: Int? = null,
+    val year: Int? = null,
+)
 
 /**
  * Whether the stream request has settled enough to decide on.

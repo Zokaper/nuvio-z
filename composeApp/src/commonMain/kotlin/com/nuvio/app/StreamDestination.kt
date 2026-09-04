@@ -54,6 +54,12 @@ import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackRouteDecision
 import com.nuvio.app.features.playback.PlaybackRouteInputs
+import com.nuvio.app.features.playback.ContentIdentityGuard
+import com.nuvio.app.features.playback.RequestedContent
+import co.touchlab.kermit.Logger
+import com.nuvio.app.features.playback.PlaybackAttemptLog
+import com.nuvio.app.features.playback.PLAYBACK_MAX_ATTEMPTS
+import com.nuvio.app.features.playback.hasSilentUncover
 import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
@@ -91,6 +97,15 @@ private data class PendingP2pStreamOpen(
     val forceInternal: Boolean,
     val isAutoPlay: Boolean,
 )
+
+/**
+ * The stream route's own line in the playback story.
+ *
+ * Same tag as `PlayerScreenRuntimeEffects`' startup log on purpose: an attempt starts
+ * here and ends there, and one `adb logcat -s PlaybackStartup` should read both halves
+ * without the reader having to know the code is split across two files.
+ */
+private val streamLog = Logger.withTag("PlaybackStartup")
 
 @Composable
 internal fun StreamDestination(
@@ -136,6 +151,14 @@ internal fun StreamDestination(
     val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
 
     /**
+     * Which of the ways into the source list was taken, or null while none has been.
+     *
+     * Feeds `streamRouteSurface`, whose [hasSilentUncover] makes "the list appeared and nothing
+     * said why" a failing test rather than a thing users have to notice and report.
+     */
+    var uncoverPath by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
+
+    /**
      * Gives the screen back to the user, with a reason.
      *
      * Every automatic path can end without a source: the chain runs out, a
@@ -148,9 +171,16 @@ internal fun StreamDestination(
      * [reason] null means "say the generic thing"; blank means say nothing,
      * which is what the explicit user actions want - they already know why.
      */
-    fun giveUpToSourceList(reason: String? = null) {
+    fun giveUpToSourceList(reason: String? = null, path: String = "unspecified") {
         qualitySheetDismissed = true
         manualSourceListRequested = true
+        // ⚠ **Which of the eight ways in this was.** The maintainer could not name the
+        // conditions under which the list appears in Streamlined or Instant, and that is the
+        // finding: every path here was silent, so there was nothing to notice at the time.
+        // Recorded per attempt under the same tag as the rest of the startup story, so a few
+        // days of ordinary use turns "for whatever reason" into a ranked list of real causes -
+        // which is something no amount of reading the code produces.
+        uncoverPath = path
         // Arriving here means the app could not choose, so the user is about to
         // do it by hand - and `StreamsScreen` auto-filters to whichever addon
         // last served this show. That filter is a convenience when the list is
@@ -183,7 +213,7 @@ internal fun StreamDestination(
         if (navController.currentRoute == route) {
             // The pop no-oped. Uncovering is a poor outcome, but an opaque
             // nothing is a worse one, and it leaves the user able to act.
-            giveUpToSourceList(reason = "")
+            giveUpToSourceList(reason = "", path = "back_from_quality_sheet")
         }
     }
 
@@ -241,6 +271,8 @@ internal fun StreamDestination(
     // chain survives, so without this, backing out of the player lands on an
     // opaque overlay with nothing to interact with.
     var playbackHandedOff by rememberSaveable(route.launchId) { mutableStateOf(false) }
+    /** The requested title's year, once the meta answers. Null until then, and often for good. */
+    var requestedYear by remember(route.launchId) { mutableStateOf<Int?>(null) }
     val shouldResolveEpisodeVideoId =
         launch.parentMetaId != null &&
             launch.seasonNumber != null &&
@@ -287,9 +319,14 @@ internal fun StreamDestination(
         hasResolvedVideoId = false
         val metaType = launch.parentMetaType ?: launch.type
         val metaId = launch.parentMetaId ?: return@LaunchedEffect
-        val resolvedVideoId = runCatching {
+        val meta = runCatching {
             MetaDetailsRepository.fetch(metaType, metaId)
         }.getOrNull()
+        // The title's own year, for the content-identity guard. Best-effort and often absent -
+        // the guard treats a null as "not known", which always passes, so an addon that reports
+        // no release info simply gets no year check rather than a wrong one.
+        requestedYear = meta?.releaseInfo?.let(ContentIdentityGuard::parseYear)
+        val resolvedVideoId = meta
         ?.videos
         ?.firstOrNull { video ->
             video.season == launch.seasonNumber &&
@@ -381,13 +418,13 @@ internal fun StreamDestination(
         // with no candidate left to take it down.
         if (stream.p2pInfoHash == null) {
             if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
-                giveUpToSourceList()
+                giveUpToSourceList(path = "p2p_no_infohash_chain_spent")
             }
             return
         }
         if (!P2pSettingsRepository.isVisible) {
             if (isAutoPlay && !StreamsRepository.skipAutoPlayStream(stream)) {
-                giveUpToSourceList()
+                giveUpToSourceList(path = "p2p_hidden_chain_spent")
             }
             return
         }
@@ -454,7 +491,33 @@ internal fun StreamDestination(
                 ?: SourceFactsExtractor.extract(armed)
         }
     }
+    // ⚠ **Which of the ways into the list this was.** The maintainer could not name the
+    // conditions under which the list appears in Streamlined or Instant, and that is the
+    // finding: every path was silent, so there was nothing to notice at the time. Logged from
+    // an effect rather than from `giveUpToSourceList` because the figures below it - the
+    // attempt counter, the armed candidate, the addon's error state - are declared after that
+    // function and a local cannot reach forward.
+    LaunchedEffect(uncoverPath) {
+        val path = uncoverPath ?: return@LaunchedEffect
+        streamLog.i {
+            PlaybackAttemptLog.attempt(
+                mode = playerSettings.playbackMode.name.lowercase(),
+                attempt = autoPickAttempt,
+                maxAttempts = PLAYBACK_MAX_ATTEMPTS,
+                candidate = lastHandedOffLabel,
+                addonId = streamsUiState.autoPlayStream?.addonId,
+                addonErrored = streamsUiState.groups.any { !it.error.isNullOrBlank() },
+                cached = streamsUiState.autoPlayStream?.let { armed ->
+                    playbackCandidates.firstOrNull { it.stream === armed }?.facts?.isDebridReady
+                },
+                outcome = "gave_up",
+                uncoverReason = path,
+            )
+        }
+    }
+
     val playbackSelectionContext = remember(
+        requestedYear,
         launch.runtimeMinutes,
         launch.seasonNumber,
         launch.episodeNumber,
@@ -478,6 +541,22 @@ internal fun StreamDestination(
             languageStrictness = playerSettings.playbackLanguageStrictness,
             qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps
                 .takeIf { it > 0 }?.toDouble(),
+            // ⚠ **Automatic modes only.** Classic and every manual path leave this null, so the
+            // guard is inert for them: a manual pick is the user reading the release name and
+            // choosing anyway, and overriding that would be a refusal wearing a helper's name.
+            identity = if (
+                playerSettings.playbackMode != PlaybackMode.CLASSIC &&
+                !launch.manualSelection &&
+                !launch.downloadIntent
+            ) {
+                RequestedContent(
+                    season = launch.seasonNumber,
+                    episode = launch.episodeNumber,
+                    year = requestedYear,
+                )
+            } else {
+                null
+            },
             codecPreference = playerSettings.playbackCodecPreference,
             dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
             audioPreference = playerSettings.playbackAudioPreference,
@@ -697,7 +776,7 @@ internal fun StreamDestination(
                         // this the progress overlay keeps covering the source
                         // list with "Starting playback" for a playback that is
                         // never going to start - a hang wearing a spinner.
-                        giveUpToSourceList(resolved.toastMessage())
+                        giveUpToSourceList(resolved.toastMessage(), path = "debrid_resolve_failed")
                     }
                     if (!hasNextCandidate && resolved == DirectDebridPlayableResult.Stale) {
                         StreamsRepository.reload(
@@ -738,7 +817,7 @@ internal fun StreamDestination(
             } else if (hasFailureChain) {
                 // Same reasoning as the resolve-failure arm: an exhausted chain
                 // must uncover the list rather than leave the overlay up.
-                giveUpToSourceList()
+                giveUpToSourceList(path = "no_playable_url_chain_spent")
             }
             return@LaunchedEffect
         }
@@ -1003,7 +1082,8 @@ internal fun StreamDestination(
             is PlaybackSelectionResult.AskUncached -> {
                 pendingUncachedStream = result.stream
             }
-            is PlaybackSelectionResult.NeedsManual -> giveUpToSourceList(result.reason)
+            is PlaybackSelectionResult.NeedsManual ->
+                giveUpToSourceList(result.reason, path = "no_selectable_candidate")
         }
     }
 
@@ -1226,7 +1306,7 @@ internal fun StreamDestination(
         delay(STREAMLINED_SELECTION_TIMEOUT_MS)
         streamlinedSelectionPending = false
         pendingStreamlinedOptionId = null
-        giveUpToSourceList(getString(Res.string.playback_sources_timed_out))
+        giveUpToSourceList(getString(Res.string.playback_sources_timed_out), path = "selection_timeout")
     }
 
     LaunchedEffect(
@@ -1260,7 +1340,7 @@ internal fun StreamDestination(
         // stranding a user who has already chosen.
             ?: playbackQualityOptions.firstOrNull()
         if (option == null) {
-            giveUpToSourceList()
+            giveUpToSourceList(path = "streamlined_no_option")
             return@LaunchedEffect
         }
         startAutoSelectedPlayback(option)
@@ -1341,7 +1421,7 @@ internal fun StreamDestination(
             maxHeight = meteredCapHeight,
         )
         if (option == null) {
-            giveUpToSourceList()
+            giveUpToSourceList(path = "instant_no_option")
             return@LaunchedEffect
         }
         startAutoSelectedPlayback(option)
@@ -1366,6 +1446,7 @@ internal fun StreamDestination(
             isManualLaunch = launch.manualSelection || launch.downloadIntent,
             manualSourceListRequested = manualSourceListRequested,
             hasNavigatedAway = playbackHandedOff,
+            uncoverReason = uncoverPath,
             isQualitySheetRoute =
                 playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet,
             qualitySheetDismissed = qualitySheetDismissed,
@@ -1435,7 +1516,7 @@ internal fun StreamDestination(
             streamsUiState.isAnyLoading
         ) return@LaunchedEffect
         delay(PLAYBACK_PROGRESS_STALL_GRACE_MS)
-        giveUpToSourceList()
+        giveUpToSourceList(path = "dead_end_backstop")
     }
 
 
@@ -1652,7 +1733,7 @@ internal fun StreamDestination(
                         // on "Starting playback" for a playback that had just
                         // been called off.
                         StreamsRepository.consumeAutoPlay()
-                        giveUpToSourceList()
+                        giveUpToSourceList(path = "p2p_consent_declined")
                     }
                     pendingP2pStreamOpen = null
                 },
@@ -1695,7 +1776,7 @@ internal fun StreamDestination(
                 // The blank reason is the point: `giveUpToSourceList` toasts
                 // whatever it is given, and the user who just pressed this
                 // button already knows why they are looking at the list.
-                onChooseManually = { giveUpToSourceList(reason = "") },
+                onChooseManually = { giveUpToSourceList(reason = "", path = "manual_escape") },
             )
         } else if (resolvingDebridStream) {
             // Classic and every manual path keep the lighter scrim: the source

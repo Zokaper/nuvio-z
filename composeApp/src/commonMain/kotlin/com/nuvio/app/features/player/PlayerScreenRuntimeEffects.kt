@@ -18,6 +18,8 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.playback.AutoDownshiftDetector
+import com.nuvio.app.features.playback.PlaybackAttemptLog
+import com.nuvio.app.features.playback.PlaybackPosition
 import com.nuvio.app.features.playback.PlaybackStartupWatchdog
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
@@ -378,7 +380,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 // position immediately, so without this a resumed episode looked like 22
                 // minutes of progress on its first sample and any dead source was declared
                 // started - see `PlaybackStartupSample.baselineMs`.
-                baselineMs = activeInitialPositionMs.coerceAtLeast(0L),
+                // ⚠ **The fraction path counts too.** This read `activeInitialPositionMs`
+                // alone, so a resume carrying only a percentage - which `resolveEpisodeResume`
+                // really can return - gave a baseline of 0 while the seek above jumped to
+                // `duration × fraction`. The engine reports a pending seek target immediately,
+                // so the first sample then read enormous progress against a baseline of zero,
+                // `hasEvidenceOfLife` was true, and **a dead source was declared Started** -
+                // the startup overlay up forever with the chain unrun.
+                baselineMs = PlaybackPosition.resolveStartPositionMs(
+                    initialPositionMs = activeInitialPositionMs,
+                    progressFraction = activeInitialProgressFraction,
+                    durationMs = snapshot.durationMs,
+                ) ?: activeInitialPositionMs.coerceAtLeast(0L),
             )
             watch = PlaybackStartupWatchdog.observe(watch, sample)
             when (watch.verdict) {
@@ -452,22 +465,52 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         if (playerControllerSourceUrl != activeSourceUrl) return@LaunchedEffect
         if (initialSeekApplied || playbackSnapshot.isLoading) return@LaunchedEffect
 
-        val progressFraction = activeInitialProgressFraction
-            ?.takeIf { it > 0f }
-            ?.coerceIn(0f, 1f)
-        val targetPositionMs = when {
-            activeInitialPositionMs > 0L -> activeInitialPositionMs
-            progressFraction != null && playbackSnapshot.durationMs > 0L -> {
-                (playbackSnapshot.durationMs.toDouble() * progressFraction.toDouble()).toLong()
+        // ⚠ **Bounded, and gated on a duration worth believing.** This used to be
+        // `durationMs * fraction` with no ceiling, while `PlayerScreenRuntimeUi` bounds the
+        // identical computation with `coerceAtMost(durationMs - 1)` two files away. Because the
+        // effect is keyed on `durationMs`, a duration that *changes* after playback began fires
+        // this mid-play - which is "it plays, then it jumps to the end and sticks".
+        val targetPositionMs = PlaybackPosition.resolveStartPositionMs(
+            initialPositionMs = activeInitialPositionMs,
+            progressFraction = activeInitialProgressFraction,
+            durationMs = playbackSnapshot.durationMs,
+        )
+        if (targetPositionMs == null) {
+            val refusal = PlaybackPosition.refusalReason(
+                initialPositionMs = activeInitialPositionMs,
+                progressFraction = activeInitialProgressFraction,
+                durationMs = playbackSnapshot.durationMs,
+            )
+            if (refusal != null) {
+                // Refused, and named. A seek silently not happening and a seek landing on the
+                // credits look the same from outside the device.
+                startupLog.w {
+                    PlaybackAttemptLog.seek(
+                        source = "resume",
+                        positionMs = 0L,
+                        durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                        fraction = activeInitialProgressFraction,
+                        accepted = false,
+                        refusedReason = refusal,
+                    )
+                }
+                // Deliberately *not* latching `initialSeekApplied`: the duration may still
+                // arrive, and refusing once must not cost the user their resume position.
+                return@LaunchedEffect
             }
-            progressFraction != null -> return@LaunchedEffect
-            else -> 0L
-        }
-        if (targetPositionMs <= 0L) {
             initialSeekApplied = true
             return@LaunchedEffect
         }
 
+        startupLog.i {
+            PlaybackAttemptLog.seek(
+                source = "resume",
+                positionMs = targetPositionMs,
+                durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                fraction = activeInitialProgressFraction,
+                accepted = true,
+            )
+        }
         controller.seekTo(targetPositionMs)
         initialSeekApplied = true
     }

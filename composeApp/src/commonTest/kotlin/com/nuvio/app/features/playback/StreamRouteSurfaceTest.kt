@@ -2,6 +2,8 @@ package com.nuvio.app.features.playback
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * The stream route's covering rules.
@@ -279,6 +281,107 @@ class StreamRouteSurfaceTest {
                 ),
             ),
         )
+    }
+
+    // --- The no-silent-uncover invariant (Phase 2) ---------------------------------------
+
+    /**
+     * **The rule bug 5 turns into a test.** Streamlined and Instant exist to avoid the source
+     * list, and the list appeared anyway under conditions nobody could name - because every one
+     * of the eight ways in was silent. A reason is now mandatory, and this is what makes that
+     * enforceable rather than a convention somebody will forget at the ninth dead end.
+     */
+    @Test
+    fun `an automatic mode may not uncover the list without a reason`() {
+        val silent = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = false,
+            manualSourceListRequested = true,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = true,
+            qualitySheetDismissed = false,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = false,
+            uncoverReason = null,
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(silent))
+        assertTrue(hasSilentUncover(silent), "a reasonless uncover must be detectable")
+
+        val named = silent.copy(uncoverReason = "chain_spent")
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(named))
+        assertFalse(hasSilentUncover(named), "a named uncover is not silent")
+    }
+
+    /** Classic's list is the destination the user asked for, so it needs no explanation. */
+    @Test
+    fun `classic never counts as a silent uncover`() {
+        val classic = StreamRouteSurfaceInputs(
+            isClassic = true,
+            isManualLaunch = false,
+            manualSourceListRequested = false,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = false,
+            qualitySheetDismissed = false,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = false,
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(classic))
+        assertFalse(hasSilentUncover(classic))
+    }
+
+    /** Neither does a launch that explicitly asked for the list. */
+    @Test
+    fun `an explicit manual launch never counts as a silent uncover`() {
+        val manual = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = true,
+            manualSourceListRequested = false,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = true,
+            qualitySheetDismissed = false,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = false,
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(manual))
+        assertFalse(hasSilentUncover(manual))
+    }
+
+    /**
+     * The dialog path uncovers the list too (rule 5), so it is bound by the same rule - this is
+     * the one that would have been missed, because nothing there calls `giveUpToSourceList`.
+     */
+    @Test
+    fun `a question that uncovers the list is bound by the rule too`() {
+        val awaiting = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = false,
+            manualSourceListRequested = false,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = false,
+            qualitySheetDismissed = true,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = true,
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(awaiting))
+        assertTrue(hasSilentUncover(awaiting))
+    }
+
+    /** Nothing that is not the list can be a silent uncover, whatever else is set. */
+    @Test
+    fun `a covered screen is never a silent uncover`() {
+        val overlay = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = false,
+            manualSourceListRequested = false,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = false,
+            qualitySheetDismissed = false,
+            isAutoPickRoute = true,
+            isAutoPlaybackStarting = true,
+            awaitingUserAnswer = false,
+        )
+        assertEquals(StreamRouteSurface.ProgressOverlay, streamRouteSurface(overlay))
+        assertFalse(hasSilentUncover(overlay))
     }
 }
 

@@ -136,6 +136,22 @@ object PlaybackStartupWatchdog {
          * apart from "it answered and then stopped" from outside a device.
          */
         val hasEvidenceOfLife: Boolean get() = progressMs > 0L || durationMs > 0L
+
+        /**
+         * Whether this play has actually moved.
+         *
+         * ⚠ **Only this may end the watchdog.** [hasEvidenceOfLife] used to be the sole gate on
+         * [Verdict.Started], which contradicted its own documentation: a known duration is not
+         * a quantity of progress, it is proof a header was parsed. A source that reads its
+         * container header and then delivers nothing - while the engine reports `isPlaying` at
+         * position zero with an empty buffer - was therefore declared Started on the first
+         * poll. That is precisely the dead-link shape this watchdog exists to catch, and only
+         * `progressMs` distinguishes it.
+         *
+         * Costs at most one extra sampling interval on a healthy start, because a source that
+         * is really playing advances between polls by definition.
+         */
+        val hasAdvanced: Boolean get() = progressMs > 0L
     }
 
     /** What the watchdog has concluded so far. */
@@ -194,7 +210,7 @@ object PlaybackStartupWatchdog {
         // Started, and *only* this. `isPlaying` on its own is true for an engine that reports
         // itself playing while stuck at zero with an empty buffer, which is precisely the shape
         // of the dead debrid link this watchdog exists for.
-        if (sample.isPlaying && sample.hasEvidenceOfLife) {
+        if (sample.isPlaying && sample.hasAdvanced) {
             return state.copy(verdict = Verdict.Started)
         }
 
