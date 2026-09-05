@@ -28,12 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -57,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
@@ -69,10 +69,7 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_quality_best
 import nuvio.composeapp.generated.resources.playback_quality_checking_connection
-import nuvio.composeapp.generated.resources.playback_quality_column_fit
 import nuvio.composeapp.generated.resources.playback_quality_column_needs
-import nuvio.composeapp.generated.resources.playback_quality_column_quality
-import nuvio.composeapp.generated.resources.playback_quality_column_release
 import nuvio.composeapp.generated.resources.playback_quality_column_size
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_estimated_connection
@@ -95,6 +92,8 @@ import nuvio.composeapp.generated.resources.playback_quality_variant_high
 import nuvio.composeapp.generated.resources.playback_quality_variant_low
 import nuvio.composeapp.generated.resources.playback_quality_variant_max
 import nuvio.composeapp.generated.resources.playback_quality_variant_mid
+import nuvio.composeapp.generated.resources.playback_quality_variant_only
+import nuvio.composeapp.generated.resources.playback_quality_variant_tops_resolution
 import nuvio.composeapp.generated.resources.playback_quality_your_connection
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.ceil
@@ -242,9 +241,6 @@ fun PlaybackQualitySheet(
         val gridMaxHeight = (maxHeight - GRID_HEIGHT_INSET)
             .coerceAtLeast(GRID_MIN_HEIGHT)
             .coerceAtMost(GRID_MAX_HEIGHT)
-        val tableMaxHeight = (maxHeight - TABLE_HEIGHT_INSET)
-            .coerceAtLeast(TABLE_MIN_HEIGHT)
-            .coerceAtMost(TABLE_MAX_HEIGHT)
 
         if (isWide) {
             val entry = remember { Animatable(0f) }
@@ -291,7 +287,7 @@ fun PlaybackQualitySheet(
                     shape = tokens.shapes.dialog,
                     color = tokens.colors.surfaceDialog,
                 ) {
-                    QualityTableBody(
+                    QualityColumnsBody(
                         options = options,
                         isLoading = isLoading,
                         isSelecting = isSelecting,
@@ -300,7 +296,6 @@ fun PlaybackQualitySheet(
                         isConnectionMeasured = shownMeasured,
                         isConnectionStale = isConnectionStale,
                         isMeasuringConnection = isMeasuringConnection,
-                        tableMaxHeight = tableMaxHeight,
                         onOptionSelected = onOptionSelected,
                         onRetestConnection = onRetestConnection,
                         onChooseManually = onChooseManually,
@@ -843,7 +838,10 @@ fun playbackQualityOptionLabel(option: PlaybackQualityOption): String {
  * no name: its card's badge *is* its name, since it has no resolution to put there.
  */
 @Composable
-private fun variantLabel(option: PlaybackQualityOption): String = when (option.variant) {
+private fun variantLabel(option: PlaybackQualityOption): String = variantLabel(option.variant)
+
+@Composable
+private fun variantLabel(variant: PlaybackQualityOption.Variant): String = when (variant) {
     PlaybackQualityOption.Variant.BEST -> ""
     PlaybackQualityOption.Variant.MAX -> stringResource(Res.string.playback_quality_variant_max)
     PlaybackQualityOption.Variant.HIGH -> stringResource(Res.string.playback_quality_variant_high)
@@ -945,21 +943,35 @@ private val GRID_MIN_HEIGHT = NuvioTokens.Space.s96 * 2
 private val GRID_MAX_HEIGHT = NuvioTokens.Space.s96 * 6
 
 private val PANEL_PADDING = NuvioTokens.Space.s24
-private val ROW_HEIGHT = NuvioTokens.Space.s56
-private val SECTION_HEADER_HEIGHT = NuvioTokens.Space.s40
+private val COLUMN_GAP = NuvioTokens.Space.s16
+private val CELL_GAP = NuvioTokens.Space.s8
 private val COLUMN_HEADER_HEIGHT = NuvioTokens.Space.s32
-private val QUALITY_COLUMN_WIDTH = 168.dp
-private val NEEDS_COLUMN_WIDTH = 96.dp
-private val SIZE_COLUMN_WIDTH = 88.dp
-private val FIT_COLUMN_WIDTH = 88.dp
-private const val SKELETON_ROW_COUNT = 6
-private val TABLE_HEIGHT_INSET = NuvioTokens.Space.s96 * 3
-private val TABLE_MIN_HEIGHT = NuvioTokens.Space.s96 * 2
-private val TABLE_MAX_HEIGHT = NuvioTokens.Space.s96 * 5
-private const val UNKNOWN_VALUE = "\u2014"
+private val CHIP_ROW_HEIGHT = NuvioTokens.Space.s20
+private val PROVENANCE_ROW_HEIGHT = NuvioTokens.Space.s16
+private val HERO_METER_WIDTH = NuvioTokens.Space.s96
+private val HERO_SKELETON_HEIGHT = NuvioTokens.Space.s80
+private val CELL_SKELETON_HEIGHT = NuvioTokens.Space.s80
+private const val SKELETON_COLUMN_COUNT = 4
+private const val SKELETON_CELL_COUNT = 3
+private const val ACCENT_BORDER_ALPHA = 0.45f
+private const val UNKNOWN_VALUE = "—"
+private const val FIGURE_SEPARATOR = "·"
 
+/**
+ * The wide branch: the recommended option as a strip, then one column per resolution.
+ *
+ * **Nothing here scrolls, and that is the design rather than an omission.** The catalogue is
+ * bounded by construction - `VideoResolution` has six members and `optionsForBucket` emits at
+ * most four bands each - so the whole offer fits a desktop window if it is spent across the
+ * width instead of down a single column. The table this replaced was capped at 480 dp and cut
+ * its last row through the middle of the glyphs, with no scrollbar to say there was more; a
+ * layout that cannot overflow cannot do that.
+ *
+ * ⚠ **The phone branch keeps [QualitySheetBody] and its card grid**, unedited. It also serves
+ * tablets under 768 dp, where there is no width to spend.
+ */
 @Composable
-private fun QualityTableBody(
+private fun QualityColumnsBody(
     options: List<PlaybackQualityOption>,
     isLoading: Boolean,
     isSelecting: Boolean,
@@ -968,7 +980,6 @@ private fun QualityTableBody(
     isConnectionMeasured: Boolean,
     isConnectionStale: Boolean,
     isMeasuringConnection: Boolean,
-    tableMaxHeight: Dp,
     onOptionSelected: (PlaybackQualityOption) -> Unit,
     onRetestConnection: (() -> Unit)?,
     onChooseManually: () -> Unit,
@@ -993,9 +1004,13 @@ private fun QualityTableBody(
                 modifier = Modifier.weight(1f),
             )
             if (onAdjustPreferences != null) {
-                TextButton(onClick = onAdjustPreferences) {
-                    Text(stringResource(Res.string.playback_quality_preferences))
-                }
+                // ⚠ Muted, like every other button on this panel. They are all secondary to
+                // picking a row, and rendering them at full strength made the loudest things
+                // on the sheet the three things nobody came here to do.
+                QuietTextButton(
+                    text = stringResource(Res.string.playback_quality_preferences),
+                    onClick = onAdjustPreferences,
+                )
             }
         }
         Text(
@@ -1010,6 +1025,9 @@ private fun QualityTableBody(
 
         val connectionLine = when {
             isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
+            // A non-breaking space, matching the phone branch: the strip keeps its height
+            // before a figure exists, so the columns under it do not start high and then
+            // drop when the probe lands.
             estimatedMbps == null || estimatedMbps <= 0.0 -> "\u00A0"
             isConnectionStale -> stringResource(
                 Res.string.playback_quality_last_measured_short,
@@ -1036,91 +1054,20 @@ private fun QualityTableBody(
             )
             Spacer(Modifier.weight(1f))
             if (onRetestConnection != null) {
-                TextButton(
+                QuietTextButton(
+                    text = stringResource(Res.string.playback_quality_retest),
                     onClick = onRetestConnection,
                     enabled = !isMeasuringConnection,
-                ) {
-                    Text(stringResource(Res.string.playback_quality_retest))
-                }
+                )
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(tokens.borders.hairline)
-                .background(tokens.colors.borderSubtle),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(COLUMN_HEADER_HEIGHT)
-                .padding(horizontal = NuvioTokens.Space.s12),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-        ) {
-            Text(
-                text = stringResource(Res.string.playback_quality_column_quality).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tokens.colors.textMuted,
-                letterSpacing = NuvioTokens.LetterSpacing.label,
-                maxLines = 1,
-                modifier = Modifier.width(QUALITY_COLUMN_WIDTH),
-            )
-            Text(
-                text = stringResource(Res.string.playback_quality_column_release).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tokens.colors.textMuted,
-                letterSpacing = NuvioTokens.LetterSpacing.label,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = stringResource(Res.string.playback_quality_column_needs).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tokens.colors.textMuted,
-                letterSpacing = NuvioTokens.LetterSpacing.label,
-                textAlign = TextAlign.End,
-                maxLines = 1,
-                modifier = Modifier.width(NEEDS_COLUMN_WIDTH),
-            )
-            Text(
-                text = stringResource(Res.string.playback_quality_column_size).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tokens.colors.textMuted,
-                letterSpacing = NuvioTokens.LetterSpacing.label,
-                textAlign = TextAlign.End,
-                maxLines = 1,
-                modifier = Modifier.width(SIZE_COLUMN_WIDTH),
-            )
-            Text(
-                text = stringResource(Res.string.playback_quality_column_fit).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = tokens.colors.textMuted,
-                letterSpacing = NuvioTokens.LetterSpacing.label,
-                textAlign = TextAlign.End,
-                maxLines = 1,
-                modifier = Modifier.width(FIT_COLUMN_WIDTH),
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(tokens.borders.hairline)
-                .background(tokens.colors.borderSubtle),
-        )
-
         when {
-            isLoading -> QualityTableSkeleton(tableMaxHeight)
+            isLoading -> QualityColumnsSkeleton()
             options.isEmpty() -> Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(TABLE_MIN_HEIGHT),
+                    .height(NuvioTokens.Space.s96 * 2),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -1132,63 +1079,68 @@ private fun QualityTableBody(
             }
             else -> {
                 val groups = remember(options) { PlaybackQualityOptions.group(options) }
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = tableMaxHeight),
+                val best = groups.firstOrNull { it.resolution == null }?.options?.firstOrNull()
+                // Which banded row Best available actually resolves to, so that row can be
+                // marked rather than the panel stating one file twice, side by side.
+                val bestSourceKey = remember(best, selectionContext) {
+                    best?.let { PlaybackSourceSelector.previewSelection(it, selectionContext) }
+                        ?.let(PlaybackQualityOptions::sourceKey)
+                }
+                best?.let {
+                    BestAvailableHero(
+                        option = it,
+                        selectionContext = selectionContext,
+                        estimatedMbps = estimatedMbps,
+                        isConnectionMeasured = isConnectionMeasured,
+                        enabled = !isSelecting,
+                        onClick = { onOptionSelected(it) },
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(COLUMN_GAP),
+                    verticalAlignment = Alignment.Top,
                 ) {
-                    groups.forEach { group ->
-                        if (group.resolution == null) {
-                            group.options.forEach { option ->
-                                item(key = option.id) {
-                                    QualityTableRow(
+                    groups.filter { it.resolution != null }.forEach { group ->
+                        // Equal weights rather than measured widths: the columns are being
+                        // compared across, and a 4K column wider than the 1080p one because
+                        // its release names are longer would put that comparison on a slant.
+                        Column(modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(COLUMN_HEADER_HEIGHT)
+                                    .padding(horizontal = NuvioTokens.Space.s12),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Text(
+                                    text = group.resolutionLabel,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = tokens.colors.textPrimary,
+                                    maxLines = 1,
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(tokens.borders.hairline)
+                                    .background(tokens.colors.borderSubtle),
+                            )
+                            Spacer(Modifier.height(CELL_GAP))
+                            Column(verticalArrangement = Arrangement.spacedBy(CELL_GAP)) {
+                                group.options.forEach { option ->
+                                    QualityColumnCell(
+                                        group = group,
                                         option = option,
-                                        leading = stringResource(Res.string.playback_quality_best),
                                         selectionContext = selectionContext,
                                         estimatedMbps = estimatedMbps,
                                         isConnectionMeasured = isConnectionMeasured,
+                                        bestSourceKey = bestSourceKey,
                                         enabled = !isSelecting,
                                         onClick = { onOptionSelected(option) },
                                     )
                                 }
-                            }
-                        } else {
-                            item(key = "header:" + group.resolutionLabel) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(SECTION_HEADER_HEIGHT),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-                                ) {
-                                    Text(
-                                        text = group.resolutionLabel,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = tokens.colors.textPrimary,
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(tokens.borders.hairline)
-                                            .background(tokens.colors.borderSubtle),
-                                    )
-                                }
-                            }
-                            items(
-                                items = group.options,
-                                key = { it.id },
-                            ) { option ->
-                                val optionLeading = variantLabel(option).ifBlank { group.resolutionLabel }
-                                QualityTableRow(
-                                    option = option,
-                                    leading = optionLeading,
-                                    selectionContext = selectionContext,
-                                    estimatedMbps = estimatedMbps,
-                                    isConnectionMeasured = isConnectionMeasured,
-                                    enabled = !isSelecting,
-                                    onClick = { onOptionSelected(option) },
-                                )
                             }
                         }
                     }
@@ -1231,35 +1183,81 @@ private fun QualityTableBody(
                 )
             }
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onChooseManually) {
-                Text(stringResource(Res.string.playback_quality_manual))
-            }
+            QuietTextButton(
+                text = stringResource(Res.string.playback_quality_manual),
+                onClick = onChooseManually,
+            )
         }
     }
 }
 
+/**
+ * A `TextButton` that does not outshout the thing it sits beside.
+ *
+ * Preferences, Re-test and Choose source manually all rendered in the same bright weight as the
+ * options themselves, which left the panel's three least likely actions louder than its
+ * fourteen most likely ones.
+ */
 @Composable
-private fun QualityTableRow(
+private fun QuietTextButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
+    val tokens = MaterialTheme.nuvio
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = tokens.colors.textSecondary),
+    ) {
+        Text(text = text, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/**
+ * Everything a cell or the hero prints about one option, derived once.
+ *
+ * Both surfaces quote the same figures off the same preview, so deriving them twice is how the
+ * hero and the column under it start disagreeing about the same file.
+ */
+private data class QualityFigures(
+    val provenance: String,
+    val dynamicRange: String?,
+    val audio: String?,
+    val resolutionLabel: String,
+    val size: String,
+    val isSizeKnown: Boolean,
+    val needs: String,
+    val isNeedsKnown: Boolean,
+    val fit: PlaybackQualityOptions.ConnectionFit?,
+    val sourceKey: String?,
+)
+
+/**
+ * ⚠ Every part of this is an already-tested pure function. Nothing here ranks, groups, bands or
+ * formats anything of its own - if a new one is needed it belongs in `PlaybackQualityOptions.kt`
+ * or `PlaybackSourceSelector.kt` with a case in their tests, because this file is Compose and
+ * the pure suite cannot reach it.
+ */
+@Composable
+private fun qualityFigures(
     option: PlaybackQualityOption,
-    leading: String,
     selectionContext: PlaybackSelectionContext,
     estimatedMbps: Double?,
     isConnectionMeasured: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
+): QualityFigures {
     val preview = remember(option, selectionContext) {
         PlaybackSourceSelector.previewSelection(option, selectionContext)
     }
-    val isBest = option.variant == PlaybackQualityOption.Variant.BEST
     val requiredMbps = option.requiredMbps
         ?: preview?.let { PlaybackQualityOptions.requiredMbpsFor(it, selectionContext) }
     val fit = PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps, isConnectionMeasured)
 
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
+    // ⚠ Falls through to the preview's own size. `representativeSizeBytes` is null by
+    // construction on Best available, so reading only that printed an em-dash for a file whose
+    // size was sitting in the candidate it had already resolved to - and the column beside it
+    // printed the figure. One panel, two answers about one file.
+    val sizeBytes = option.representativeSizeBytes?.takeIf { it > 0L }
+        ?: preview?.facts?.sizeBytes?.takeIf { it > 0L }
 
+    // ⚠ Rounded up. Quoting 4 for something that needs 4.6 is the one direction that turns an
+    // informed choice into a stall.
     val needs = if (requiredMbps == null) {
         UNKNOWN_VALUE
     } else {
@@ -1270,103 +1268,395 @@ private fun QualityTableRow(
             stringResource(Res.string.playback_quality_needs_value, rounded)
         }
     }
-    val needsColor = when {
-        requiredMbps == null -> tokens.colors.textMuted
-        fit?.isOverConnection == true -> tokens.colors.warning
-        else -> tokens.colors.textPrimary
-    }
 
-    val size = option.representativeSizeBytes?.takeIf { it > 0L }?.let(::formatFileSize)
-        ?: UNKNOWN_VALUE
-    val sizeColor = if (size == UNKNOWN_VALUE) tokens.colors.textMuted else tokens.colors.textSecondary
+    return QualityFigures(
+        provenance = PlaybackSourceSelector.describeProvenance(preview?.facts),
+        // ⚠ `dynamicRangeSlot`, not `dynamicRangeLabel`: it answers `SDR` for a release that
+        // named no range, and null only when there is no release yet. The bare label left every
+        // cell of an SDR column with an empty mark row, which reads as a fact that failed to
+        // load rather than as a release that is simply not HDR. The default is earned - the
+        // loading band already reads silence this way, because release names carry dynamic
+        // range reliably and audio only sometimes.
+        dynamicRange = PlaybackLoadingFacts.dynamicRangeSlot(preview?.facts),
+        audio = PlaybackLoadingFacts.audioLabel(preview?.facts),
+        resolutionLabel = preview?.facts?.resolution.qualityLabel,
+        size = sizeBytes?.let(::formatFileSize) ?: UNKNOWN_VALUE,
+        isSizeKnown = sizeBytes != null,
+        needs = needs,
+        isNeedsKnown = requiredMbps != null,
+        fit = fit,
+        sourceKey = PlaybackQualityOptions.sourceKey(preview),
+    )
+}
+
+/**
+ * `Max`, `Mid (Max)`, or `Only option`.
+ *
+ * The parenthetical is the answer to a real complaint: a title whose 1080p releases all sit
+ * under the Max boundary offers "High" as its ceiling at that resolution, and a lone "High"
+ * reads as a middling pick rather than as the best 1080p this title has. The band word itself
+ * is never rewritten - the bands are absolute, and relabelling one would be exactly the
+ * catalogue-relative naming [PlaybackQualityOption.Variant] exists to end.
+ */
+@Composable
+private fun columnBandLabel(
+    group: PlaybackQualityGroup,
+    option: PlaybackQualityOption,
+): String {
+    // ⚠ The *derived* band, not `option.variant`. A bucket that collapsed to one row carries
+    // Variant.SINGLE and so had no word at all - it read "Only option", which told the reader
+    // nothing about what they would get. `bandFor` gives it the class it would have been banded
+    // as, off the same absolute boundaries every other row uses, so "1440p Low" means the same
+    // thing whether it arrived as a band or as the only release there was.
+    val band = PlaybackQualityOptions.bandFor(option)
+        ?: return stringResource(Res.string.playback_quality_variant_only)
+    val word = variantLabel(band)
+    if (!PlaybackQualityOptions.isTopBandBelowMax(group, option)) return word
+    return stringResource(
+        Res.string.playback_quality_variant_tops_resolution,
+        word,
+        stringResource(Res.string.playback_quality_variant_max),
+    )
+}
+
+/**
+ * What a release does to your screen and to your speakers, as two marks rather than as words
+ * inside a sentence.
+ *
+ * ⚠ **These are the facts that separate one row from its neighbours**, and they were buried:
+ * `describeRelease` folded dynamic range into a run of text whose loudest tokens were the rip
+ * type and the host, and audio was not shown at all. Down a column, `BLURAY` repeats and
+ * `DV · Atmos 7.1` does not - so the repeating part was the part being read.
+ *
+ * Outlined rather than filled, at label scale: a filled accent pill is what made the card grid
+ * this panel replaced read as a phone screen.
+ */
+@Composable
+private fun FeatureChips(
+    dynamicRange: String?,
+    audio: String?,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    // ⚠ Fixed height whether or not there is anything to draw. A release that names neither
+    // fact must leave its neighbours where they are.
+    Row(
+        modifier = modifier.height(CHIP_ROW_HEIGHT),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+    ) {
+        dynamicRange?.let {
+            // ⚠ Accent is for a release that does something extra to your screen. `SDR` is the
+            // absence of that, and giving it the same mark spends the panel's one emphasis on
+            // the ordinary case - the 4K column's `DV` only reads as special while the columns
+            // beside it read as plain.
+            val isPlain = it == PlaybackLoadingFacts.SDR
+            FeatureChip(
+                text = it,
+                color = if (isPlain) tokens.colors.textMuted else tokens.colors.accent,
+            )
+        }
+        audio?.let { FeatureChip(text = it, color = tokens.colors.textSecondary) }
+    }
+}
+
+@Composable
+private fun FeatureChip(text: String, color: Color) {
+    val tokens = MaterialTheme.nuvio
+    Box(
+        modifier = Modifier
+            .clip(tokens.shapes.chip)
+            .border(tokens.borders.hairline, color.copy(alpha = ACCENT_BORDER_ALPHA), tokens.shapes.chip)
+            .padding(horizontal = NuvioTokens.Space.s6, vertical = NuvioTokens.Space.s2),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = NuvioTokens.LetterSpacing.label,
+            color = color,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * The recommended option, given the weight it earns.
+ *
+ * It is what most plays take and it used to be the first row of a table, indistinguishable from
+ * the five under it. A panel whose default choice looks exactly like its alternatives is a list;
+ * one that leads with the answer is a layout.
+ */
+@Composable
+private fun BestAvailableHero(
+    option: PlaybackQualityOption,
+    selectionContext: PlaybackSelectionContext,
+    estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val figures = qualityFigures(option, selectionContext, estimatedMbps, isConnectionMeasured)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(ROW_HEIGHT)
-            .clip(tokens.shapes.compactCard)
-            .background(if (hovered && enabled) tokens.colors.overlayHover else Color.Transparent)
+            .clip(tokens.shapes.card)
+            .background(
+                if (hovered && enabled) tokens.colors.overlayHover else tokens.colors.surfaceElevated,
+            )
+            .border(
+                width = tokens.borders.hairline,
+                color = tokens.colors.accent.copy(alpha = ACCENT_BORDER_ALPHA),
+                shape = tokens.shapes.card,
+            )
             .hoverable(interaction, enabled = enabled)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = NuvioTokens.Space.s12),
+            .padding(horizontal = NuvioTokens.Space.s20, vertical = NuvioTokens.Space.s16),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s24),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+        ) {
+            Text(
+                text = stringResource(Res.string.playback_quality_best).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                color = tokens.colors.accent,
+                maxLines = 1,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
+            ) {
+                Text(
+                    text = listOf(figures.resolutionLabel, figures.provenance)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" $FIGURE_SEPARATOR ")
+                        .ifBlank { UNKNOWN_VALUE },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tokens.colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                FeatureChips(dynamicRange = figures.dynamicRange, audio = figures.audio)
+            }
+        }
+        HeroFigure(
+            label = stringResource(Res.string.playback_quality_column_size),
+            value = figures.size,
+            valueColor = if (figures.isSizeKnown) tokens.colors.textPrimary else tokens.colors.textMuted,
+        )
+        HeroFigure(
+            label = stringResource(Res.string.playback_quality_column_needs),
+            value = figures.needs,
+            valueColor = needsColor(figures),
+        )
+        // ⚠ Reserved whether or not there is a figure for it. The estimate lands seconds after
+        // the panel opens, and a meter that appeared then would shift the two figures beside it
+        // at exactly the moment they are being read.
+        Box(
+            modifier = Modifier.width(HERO_METER_WIDTH),
+            contentAlignment = Alignment.Center,
+        ) {
+            figures.fit?.let { ConnectionMeter(it) }
+        }
+    }
+}
+
+@Composable
+private fun HeroFigure(label: String, value: String, valueColor: Color) {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
     ) {
         Text(
-            text = leading,
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = NuvioTokens.LetterSpacing.label,
+            color = tokens.colors.textMuted,
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            color = valueColor,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * One option inside its resolution's column: what band it is, what it will give you, what it
+ * costs.
+ *
+ * Drawn on its own tinted block rather than as three lines of text in a run. Fourteen cells
+ * with identical treatment and no edges between them read as a wall however carefully the
+ * words inside them are chosen; the block is what makes a cell a thing you can point at.
+ *
+ * ⚠ [enabled] is `!isSelecting`. **Disabled, not removed and not greyed** - a second click while
+ * the first is being acted on would re-arm the selection effect against a different option, and
+ * a body that changed shape mid-selection would be the sheet moving under the user.
+ */
+@Composable
+private fun QualityColumnCell(
+    group: PlaybackQualityGroup,
+    option: PlaybackQualityOption,
+    selectionContext: PlaybackSelectionContext,
+    estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
+    bestSourceKey: String?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val figures = qualityFigures(option, selectionContext, estimatedMbps, isConnectionMeasured)
+    val label = columnBandLabel(group, option)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    // The row Best available resolves to. Marked rather than repeated: the hero above states
+    // the same file, and two identical offers side by side read as two files.
+    val isRecommended = figures.sourceKey != null && figures.sourceKey == bestSourceKey
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(tokens.shapes.compactCard)
+            // ⚠ `surfaceCard`, and the hover wash layered over it rather than replacing it.
+            // `surface`, `surfaceElevated` and `surfaceDialog` are all the same colour in this
+            // theme, so tinting the panel's own surface over itself drew nothing at all and the
+            // cells stayed a run of text with no edges. `surfaceCard` is the one token that is
+            // actually a block on a surface.
+            .background(tokens.colors.surfaceCard)
+            .background(if (hovered && enabled) tokens.colors.overlayHover else Color.Transparent)
+            .then(
+                if (isRecommended) {
+                    Modifier.border(
+                        width = tokens.borders.hairline,
+                        color = tokens.colors.accent.copy(alpha = ACCENT_BORDER_ALPHA),
+                        shape = tokens.shapes.compactCard,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .hoverable(interaction, enabled = enabled)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s10),
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+    ) {
+        Text(
+            text = label,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
             color = tokens.colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(QUALITY_COLUMN_WIDTH),
         )
-        Text(
-            text = releaseCell(option, preview),
-            style = MaterialTheme.typography.bodySmall,
-            color = tokens.colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = needs,
-            style = MaterialTheme.typography.bodySmall,
-            color = needsColor,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            modifier = Modifier.width(NEEDS_COLUMN_WIDTH),
-        )
-        Text(
-            text = size,
-            style = MaterialTheme.typography.bodySmall,
-            color = sizeColor,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            modifier = Modifier.width(SIZE_COLUMN_WIDTH),
-        )
-        Box(
-            modifier = Modifier.width(FIT_COLUMN_WIDTH),
-            contentAlignment = Alignment.CenterEnd,
+        FeatureChips(dynamicRange = figures.dynamicRange, audio = figures.audio)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
         ) {
-            fit?.let { ConnectionMeter(it) }
+            Text(
+                text = figures.size,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = if (figures.isSizeKnown) tokens.colors.textSecondary else tokens.colors.textMuted,
+                maxLines = 1,
+            )
+            Text(
+                text = FIGURE_SEPARATOR,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+            Text(
+                text = figures.needs,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = needsColor(figures),
+                maxLines = 1,
+            )
         }
-    }
-}
-
-private fun releaseCell(
-    option: PlaybackQualityOption,
-    preview: PlaybackSourceCandidate?,
-): String {
-    val release = preview?.let { PlaybackSourceSelector.describeRelease(it.facts) }.orEmpty()
-    if (option.variant != PlaybackQualityOption.Variant.BEST) return release
-    val resolution = preview?.facts?.resolution.qualityLabel.orEmpty()
-    return listOf(resolution, release).filter { it.isNotBlank() }.joinToString(" · ")
-}
-
-@Composable
-private fun QualityTableSkeleton(tableMaxHeight: Dp) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = tableMaxHeight),
-    ) {
-        repeat(SKELETON_ROW_COUNT) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(ROW_HEIGHT)
-                    .padding(horizontal = NuvioTokens.Space.s12),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-            ) {
-                NuvioSkeletonBlock(modifier = Modifier.width(120.dp), height = 16.dp)
-                NuvioSkeletonBlock(modifier = Modifier.weight(1f), height = 12.dp)
-                NuvioSkeletonBlock(modifier = Modifier.width(64.dp), height = 12.dp)
-                NuvioSkeletonBlock(modifier = Modifier.width(56.dp), height = 12.dp)
-                NuvioSkeletonBlock(modifier = Modifier.width(72.dp), height = 6.dp)
+        // ⚠ Reserved, but blank rather than dashed when the source named neither a rip type nor
+        // a host. The height has to stay so a band lines up with the same band in the column
+        // beside it - reading across is the comparison this layout exists for - but an em-dash
+        // as the last line of a cell reads as a broken field, and this is the least important
+        // line in the cell. The dash is for a fact that was asked for and missing; nothing here
+        // asked.
+        Box(
+            modifier = Modifier.fillMaxWidth().height(PROVENANCE_ROW_HEIGHT),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            if (figures.provenance.isNotBlank()) {
+                Text(
+                    text = figures.provenance,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
+/**
+ * Amber when the line will not carry it, muted when nothing said, otherwise plain.
+ *
+ * ⚠ `warning`, not `danger`, because [ConnectionMeter] fills in `warning` past the estimate
+ * marker and the footer legend names that colour. Three ways of saying "this is the expensive
+ * one" have to be one colour or none of them mean anything.
+ */
+@Composable
+private fun needsColor(figures: QualityFigures): Color {
+    val tokens = MaterialTheme.nuvio
+    return when {
+        !figures.isNeedsKnown -> tokens.colors.textMuted
+        figures.fit?.isOverConnection == true -> tokens.colors.warning
+        else -> tokens.colors.textPrimary
+    }
+}
+
+/**
+ * The same footprint as the real thing, so nothing jumps when the figures arrive.
+ *
+ * That is the entire purpose of a skeleton; a decorative one is worse than none.
+ */
+@Composable
+private fun QualityColumnsSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16)) {
+        NuvioSkeletonBlock(
+            modifier = Modifier.fillMaxWidth(),
+            height = HERO_SKELETON_HEIGHT,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(COLUMN_GAP)) {
+            repeat(SKELETON_COLUMN_COUNT) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(CELL_GAP),
+                ) {
+                    NuvioSkeletonBlock(modifier = Modifier.width(64.dp), height = 14.dp)
+                    repeat(SKELETON_CELL_COUNT) {
+                        NuvioSkeletonBlock(
+                            modifier = Modifier.fillMaxWidth(),
+                            height = CELL_SKELETON_HEIGHT,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

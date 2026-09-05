@@ -806,6 +806,130 @@ class PlaybackQualityOptionsTest {
         assertEquals(emptyList<PlaybackQualityGroup>(), PlaybackQualityOptions.group(emptyList()))
     }
 
+    @Test
+    fun theTopBandOfAResolutionIsMarkedWhenItIsNotMax() {
+        // Three 1080p releases, none of them over the 16 Mb/s Max boundary, so the bucket bands
+        // into High/Mid/Low and offers no Max at all. Its High row is this title's ceiling at
+        // 1080p and has to say so.
+        val options = build(
+            candidate("high", VideoResolution.FULL_HD_1080, gigabytes = 6.0),
+            candidate("mid", VideoResolution.FULL_HD_1080, gigabytes = 3.0),
+            candidate("low", VideoResolution.FULL_HD_1080, gigabytes = 1.0),
+        )
+        val group = PlaybackQualityOptions.group(options)
+            .first { it.resolution == VideoResolution.FULL_HD_1080 }
+
+        val top = group.options.first()
+        assertEquals(PlaybackQualityOption.Variant.HIGH, top.variant)
+        assertTrue(PlaybackQualityOptions.isTopBandBelowMax(group, top))
+        group.options.drop(1).forEach {
+            assertFalse(PlaybackQualityOptions.isTopBandBelowMax(group, it))
+        }
+    }
+
+    @Test
+    fun aBucketThatReachesMaxIsNotMarked() {
+        // A 1080p remux clears the 16 Mb/s Max boundary, so the top row is already called Max
+        // and appending "(Max)" to it would say the same word twice.
+        val options = build(
+            candidate("remux", VideoResolution.FULL_HD_1080, gigabytes = 20.0),
+            candidate("web", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            candidate("small", VideoResolution.FULL_HD_1080, gigabytes = 1.0),
+        )
+        val group = PlaybackQualityOptions.group(options)
+            .first { it.resolution == VideoResolution.FULL_HD_1080 }
+
+        assertEquals(PlaybackQualityOption.Variant.MAX, group.options.first().variant)
+        group.options.forEach {
+            assertFalse(PlaybackQualityOptions.isTopBandBelowMax(group, it))
+        }
+    }
+
+    @Test
+    fun aCollapsedBucketStillGetsTheClassItWouldHaveBeen() {
+        // One release means one SINGLE row, which carries no band of its own - banding needs
+        // two sized sources to compare. The file is still a class of file: 2.2 GB an hour is
+        // 4.9 Mbps, under the 5.0 Mbps Mid boundary at 1440p, so it is a Low. The row used to
+        // read "Only option", which said nothing about what you would get.
+        val options = build(candidate("only", VideoResolution.QHD_1440, gigabytes = 2.2))
+        val group = PlaybackQualityOptions.group(options)
+            .first { it.resolution == VideoResolution.QHD_1440 }
+        val single = group.options.single()
+
+        assertEquals(PlaybackQualityOption.Variant.SINGLE, single.variant)
+        assertEquals(PlaybackQualityOption.Variant.LOW, PlaybackQualityOptions.bandFor(single))
+        // And it tops its resolution trivially, being the whole of it - so it reads "Low (Max)".
+        assertTrue(PlaybackQualityOptions.isTopBandBelowMax(group, single))
+    }
+
+    @Test
+    fun aCollapsedBucketThatIsAlreadyMaxClassIsNotMarked() {
+        // 15 GB an hour at 1440p is 33 Mbps: past the 25 Mbps Max boundary, and still under the
+        // 80 Mbps plausibility ceiling, so it keeps a credible bitrate to be banded by. The row
+        // reads "Max", not "Max (Max)".
+        val options = build(candidate("huge", VideoResolution.QHD_1440, gigabytes = 15.0))
+        val group = PlaybackQualityOptions.group(options)
+            .first { it.resolution == VideoResolution.QHD_1440 }
+        val single = group.options.single()
+
+        assertEquals(PlaybackQualityOption.Variant.MAX, PlaybackQualityOptions.bandFor(single))
+        assertFalse(PlaybackQualityOptions.isTopBandBelowMax(group, single))
+    }
+
+    @Test
+    fun aReleaseNobodySizedIsGivenNoClassAtAll() {
+        // ⚠ The one case that keeps its fallback label. There is no bitrate to band by, and
+        // inventing a class for an unmeasurable release is exactly what banding on sized
+        // sources alone exists to prevent.
+        val options = build(candidate("sizeless", VideoResolution.QHD_1440, gigabytes = null))
+        val group = PlaybackQualityOptions.group(options)
+            .first { it.resolution == VideoResolution.QHD_1440 }
+        val single = group.options.single()
+
+        assertNull(PlaybackQualityOptions.bandFor(single))
+        assertFalse(PlaybackQualityOptions.isTopBandBelowMax(group, single))
+    }
+
+    @Test
+    fun aSourceIsKeyedByWhereItActuallyComesFrom() {
+        assertEquals(
+            "https://cdn.example/web.mkv",
+            PlaybackQualityOptions.sourceKey(
+                candidate("web", VideoResolution.FULL_HD_1080, gigabytes = 4.0),
+            ),
+        )
+        assertEquals(
+            "abc123",
+            PlaybackQualityOptions.sourceKey(
+                candidate("torrent", VideoResolution.FULL_HD_1080, gigabytes = 4.0, infoHash = "abc123"),
+            ),
+        )
+    }
+
+    @Test
+    fun anUnidentifiableSourceMatchesNothing() {
+        // The wide sheet marks the banded row Best available resolves to by comparing keys. Two
+        // sources that cannot be identified are not thereby the same source, so a null must
+        // never compare equal to a null - it would put the mark on an arbitrary row.
+        assertNull(PlaybackQualityOptions.sourceKey(null))
+        assertNull(
+            PlaybackQualityOptions.sourceKey(
+                candidate("blank", VideoResolution.FULL_HD_1080, gigabytes = 4.0, infoHash = ""),
+            ),
+        )
+    }
+
+    @Test
+    fun bestAvailableIsNeverMarked() {
+        // It claims no resolution, so it is not the top band of one.
+        val options = build(
+            candidate("high", VideoResolution.FULL_HD_1080, gigabytes = 6.0),
+            candidate("low", VideoResolution.FULL_HD_1080, gigabytes = 1.0),
+        )
+        val best = PlaybackQualityOptions.group(options).first { it.resolution == null }
+        assertFalse(PlaybackQualityOptions.isTopBandBelowMax(best, best.options.single()))
+    }
+
     private fun option(requiredMbps: Double?) = PlaybackQualityOption(
         id = "test",
         resolution = VideoResolution.FULL_HD_1080,

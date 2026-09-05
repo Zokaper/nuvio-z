@@ -280,6 +280,20 @@ object PlaybackSourceSelector {
     ).joinToString(" · ")
 
     /**
+     * `BLURAY · TorBox` - [describeRelease] with the dynamic range left out.
+     *
+     * For a surface that shows dynamic range and audio as their own marks rather than folded
+     * into a sentence. Rolling `DV` into the release string put the two facts that actually
+     * separate one release from another - what it does to your screen and to your speakers -
+     * inside a run of text whose loudest tokens were the rip type and the host, which are the
+     * two least useful things on offer. A caller that badges them must not print them twice.
+     */
+    fun describeProvenance(facts: SourceFacts?): String = listOfNotNull(
+        facts?.releaseQuality?.takeIf { it.isNotBlank() },
+        (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    /**
      * What the file *is*: `4K · DV · 18.2 GB`.
      *
      * For the Best available card, which has no resolution badge above it and quotes no

@@ -186,6 +186,16 @@ object PlaybackLoadingFacts {
     const val UNKNOWN: String = "\u2014"
 
     /**
+     * What [dynamicRangeSlot] answers for a release that named no dynamic range.
+     *
+     * Named rather than inlined because two surfaces have to agree on it: the loading band
+     * prints it, and the quality sheet has to recognise it to *avoid* giving it the accent
+     * colour. SDR is the absence of a feature, and a surface that highlights it the way it
+     * highlights Dolby Vision has spent its one emphasis on the ordinary case.
+     */
+    const val SDR: String = "SDR"
+
+    /**
      * Always five entries, always in [PlaybackFactSlot] order, whatever the source reported.
      *
      * The band used to omit a fact it did not have, so its shape changed per source and there
@@ -224,7 +234,7 @@ object PlaybackLoadingFacts {
      */
     fun dynamicRangeSlot(facts: SourceFacts?): String? {
         if (facts == null) return null
-        return PlaybackSourceSelector.dynamicRangeLabel(facts) ?: "SDR"
+        return PlaybackSourceSelector.dynamicRangeLabel(facts) ?: SDR
     }
 
     /**

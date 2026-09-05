@@ -233,6 +233,99 @@ object PlaybackQualityOptions {
     }
 
     /**
+     * True when [option] is the best band its resolution actually offers, yet is not
+     * [PlaybackQualityOption.Variant.MAX].
+     *
+     * A bucket whose releases all fall under `bandBoundariesMbps.max` produces no Max row, so
+     * its top row reads "Mid" - and a lone "Mid" with nothing above it reads as a middling
+     * choice rather than as the ceiling this title has at that resolution. The sheet says which
+     * it is by appending "(Max)". The band word is not rewritten, because the bands are
+     * absolute: this title's best 1080p really is a Mid-class file, and calling it Max would be
+     * the relative labelling that [PlaybackQualityOption.Variant] exists to end.
+     *
+     * [PlaybackQualityOption.Variant.SINGLE] is included, through [bandFor]: a bucket that
+     * collapsed to one row is trivially the top of its resolution, and the class it would have
+     * been banded as is derivable from its own bitrate. A single release nobody reported a size
+     * for is not marked, because there is no class to mark it as.
+     *
+     * ⚠ **Reads [build]'s order rather than re-deriving it.** `optionsForBucket` emits Max,
+     * High, Mid, Low and drops the empty ones, so the first surviving entry *is* the top band.
+     * Re-sorting here would be a second opinion on an ordering that is already decided, and the
+     * two would drift.
+     */
+    /**
+     * The source a row would actually start, as a key two rows can be compared on.
+     *
+     * Best available is a pointer into the same catalogue the banded rows are drawn from, so it
+     * regularly resolves to the very row beneath it - and a panel that leads with it then states
+     * one file twice, side by side, as though it were two offers. The wide sheet marks that row
+     * instead of repeating it.
+     *
+     * Null when there is nothing identifying to compare on, which must never match: two sources
+     * that are both unidentifiable are not thereby the same source.
+     */
+    fun sourceKey(candidate: PlaybackSourceCandidate?): String? {
+        val stream = candidate?.stream ?: return null
+        return (stream.url ?: stream.infoHash)?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * The band [bitrateMbps] falls in at [resolution], on the same absolute scale [build] uses.
+     *
+     * Null when there is no resolution or no credible bitrate to judge by. ⚠ An unmeasurable
+     * release must not be handed a class it did not earn - that is the whole reason
+     * `optionsForBucket` bands on sized sources alone.
+     */
+    fun bandFor(
+        resolution: VideoResolution?,
+        bitrateMbps: Double?,
+    ): PlaybackQualityOption.Variant? {
+        if (resolution == null) return null
+        val bitrate = bitrateMbps?.takeIf { it > 0.0 && it.isFinite() } ?: return null
+        val bounds = bandBoundariesMbps(resolution)
+        return when {
+            bitrate >= bounds.max -> PlaybackQualityOption.Variant.MAX
+            bitrate >= bounds.high -> PlaybackQualityOption.Variant.HIGH
+            bitrate >= bounds.mid -> PlaybackQualityOption.Variant.MID
+            else -> PlaybackQualityOption.Variant.LOW
+        }
+    }
+
+    /**
+     * The band word a row should wear, including for a bucket that collapsed to one row.
+     *
+     * [PlaybackQualityOption.Variant.SINGLE] carries no band because banding needs two sized
+     * sources to compare - but the *file* is still a class of file, and a row reading "Only
+     * option" told the reader nothing about which. The class is derived here from the same
+     * absolute boundaries every other row is banded against, so "1440p Low" means the same
+     * thing whether it arrived as a band or as the only release there was.
+     *
+     * Null for Best available, which claims no resolution, and for a single release whose size
+     * nobody reported.
+     */
+    fun bandFor(option: PlaybackQualityOption): PlaybackQualityOption.Variant? =
+        when (option.variant) {
+            PlaybackQualityOption.Variant.BEST -> null
+            PlaybackQualityOption.Variant.SINGLE ->
+                bandFor(option.resolution, option.representativeBitrateMbps)
+            else -> option.variant
+        }
+
+    fun isTopBandBelowMax(
+        group: PlaybackQualityGroup,
+        option: PlaybackQualityOption,
+    ): Boolean {
+        if (group.resolution == null) return false
+        val band = bandFor(option) ?: return false
+        if (band == PlaybackQualityOption.Variant.MAX) return false
+        // A collapsed bucket is the whole of what its resolution offers, so it always tops it.
+        // A banded row has to actually head its bucket - `build` emits Max first and drops the
+        // empty bands, so the first surviving entry is the top one.
+        if (option.variant == PlaybackQualityOption.Variant.SINGLE) return true
+        return group.options.firstOrNull()?.id == option.id
+    }
+
+    /**
      * The option Instant should play on a connection estimated at [estimatedMbps].
      *
      * Returns the highest-resolution option the line can sustain, and when it can sustain

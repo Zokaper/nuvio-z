@@ -278,6 +278,25 @@ class PlaybackSourceSelectorTest {
         // The caption keeps the provider and gains the range; the resolution stays out of it
         // because the badge above already carries it on every card that has one.
         assertEquals("WEB-DL · DV · TorBox", PlaybackSourceSelector.describeRelease(facts))
+        // The same caption for a surface that marks dynamic range separately. It must not print
+        // DV twice, and it must not quietly drop the rip type or the host to make room.
+        assertEquals("WEB-DL · TorBox", PlaybackSourceSelector.describeProvenance(facts))
+    }
+
+    @Test
+    fun provenanceOmitsWhatWasNeverStated() {
+        // Same rule as every other describe* here: an unknown part is left out, not
+        // placeholdered. A release naming neither a rip type nor a host has nothing to say.
+        assertEquals(
+            "BLURAY",
+            PlaybackSourceSelector.describeProvenance(SourceFacts(releaseQuality = "BLURAY")),
+        )
+        assertEquals(
+            "Torrentio",
+            PlaybackSourceSelector.describeProvenance(SourceFacts(providerName = "Torrentio")),
+        )
+        assertEquals("", PlaybackSourceSelector.describeProvenance(SourceFacts()))
+        assertEquals("", PlaybackSourceSelector.describeProvenance(null))
     }
 
     @Test

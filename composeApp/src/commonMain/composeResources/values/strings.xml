@@ -1258,11 +1258,14 @@
     <string name="playback_quality_variant_low">Low</string>
     <string name="playback_quality_over_connection">May be more than your connection carries</string>
     <string name="playback_quality_over_connection_legend">Amber rows may need more than your connection carries</string>
-    <string name="playback_quality_column_quality">Quality</string>
-    <string name="playback_quality_column_release">Release</string>
     <string name="playback_quality_column_needs">Needs</string>
     <string name="playback_quality_column_size">Size</string>
-    <string name="playback_quality_column_fit">Fit</string>
+    <!-- A band that is the best its resolution offers without reaching the Max boundary:
+         "High (Max)". %1$s is the band, %2$s is playback_quality_variant_max. -->
+    <string name="playback_quality_variant_tops_resolution">%1$s (%2$s)</string>
+    <!-- Last resort for a lone release whose size nobody reported, so no band can be derived
+         for it. Every other single-release row is labelled with its derived band instead. -->
+    <string name="playback_quality_variant_only">Only release</string>
     <string name="playback_quality_needs">Needs %1$d Mb/s</string>
     <string name="playback_quality_needs_estimated">Needs about %1$d Mb/s</string>
     <string name="playback_quality_needs_value">%1$d Mb/s</string>
