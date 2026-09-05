@@ -384,4 +384,3 @@ class StreamRouteSurfaceTest {
         assertFalse(hasSilentUncover(overlay))
     }
 }
-

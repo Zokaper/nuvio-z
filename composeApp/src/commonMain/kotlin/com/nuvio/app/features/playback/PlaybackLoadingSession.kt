@@ -139,8 +139,11 @@ object PlaybackLoadingSessions {
  */
 object PlaybackLoadingMotion {
 
-    /** Long enough to read as deliberate, short enough not to delay a fast start. */
-    const val ENTRY_DURATION_MS: Int = 220
+    /** Was 220. Long enough that the scrim and the band read as arriving rather than cutting. */
+    const val ENTRY_DURATION_MS: Int = 260
+
+    /** The logo leads the band, so the two do not land together and read as one hard swap. */
+    const val TITLE_STAGGER_MS: Int = 40
 
     /**
      * The band waits this long behind the backdrop.
@@ -150,20 +153,29 @@ object PlaybackLoadingMotion {
      */
     const val BAND_STAGGER_MS: Int = 80
 
-    /** 0f at the tap, 1f when the entrance is done. Everything below is derived from it. */
-    fun surfaceAlpha(entryProgress: Float): Float = entryProgress.coerceIn(0f, 1f)
-
     /**
-     * A 1% settle, not a zoom.
+     * ⚠ **The backdrop does not animate, and must not be made to.**
      *
-     * Large enough to give the entrance a direction, small enough that the backdrop's crop does
-     * not visibly change - the crop has to match the player's at rest or the hand-off flickers.
+     * The first version faded and scaled the whole surface, which forced Compose to composite a
+     * full-screen offscreen layer every frame for 220 ms - on a large window at a 1.4x UI scale,
+     * the stutter reported immediately after choosing a source. Both are kept as identities rather
+     * than deleted so the intent is explicit at the call site: the surface arrives at rest.
      */
-    fun surfaceScale(entryProgress: Float): Float = 1.01f - 0.01f * entryProgress.coerceIn(0f, 1f)
+    fun surfaceAlpha(entryProgress: Float): Float = 1f
 
-    /** The staggered half, remapped so the band still finishes with the surface. */
-    fun bandAlpha(entryProgress: Float): Float {
-        val start = BAND_STAGGER_MS.toFloat() / ENTRY_DURATION_MS.toFloat()
+    /** See [surfaceAlpha]. The surface never scales. */
+    fun surfaceScale(entryProgress: Float): Float = 1f
+
+    /** The scrim, delegated so the sheet and this screen ramp on one curve. */
+    fun scrimAlpha(entryProgress: Float): Float =
+        PlaybackEntranceMotion.scrimAlpha(entryProgress)
+
+    fun titleAlpha(entryProgress: Float): Float = staggered(entryProgress, TITLE_STAGGER_MS)
+
+    fun bandAlpha(entryProgress: Float): Float = staggered(entryProgress, BAND_STAGGER_MS)
+
+    private fun staggered(entryProgress: Float, staggerMs: Int): Float {
+        val start = staggerMs.toFloat() / ENTRY_DURATION_MS.toFloat()
         return ((entryProgress.coerceIn(0f, 1f) - start) / (1f - start)).coerceIn(0f, 1f)
     }
 }

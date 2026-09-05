@@ -12,8 +12,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.debug.isDebugBuild
 import com.nuvio.app.features.updater.formatFileSize
+import co.touchlab.kermit.Logger
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 
 /**
@@ -63,6 +67,53 @@ fun PlaybackLoadingHost(modifier: Modifier = Modifier) {
         // One entrance per session. Keyed on the token and nothing else, so a revision, a
         // hand-off and a failover all leave it finished at 1f.
         val entry = remember { Animatable(0f) }
+        // ⚠ **Measuring the surface's own lifetime.** On desktop this screen is replaced by the
+        // native canvas the moment the player route composes, so it may live only a few hundred
+        // milliseconds - in which case a 220 ms entrance is most of its life and reads as a
+        // flicker rather than a transition. That is a guess until this number exists.
+        LaunchedEffect(rendered.token) {
+            val shownAt = kotlin.time.TimeSource.Monotonic.markNow()
+            loadingLog.i { "loading surface token=${rendered.token} opened" }
+            try {
+                awaitCancellation()
+            } finally {
+                loadingLog.i {
+                    "loading surface token=${rendered.token} " +
+                        "visibleMs=${shownAt.elapsedNow().inWholeMilliseconds}"
+                }
+            }
+        }
+
+        // ⚠ **The stutter, measured as the user sees it.** Everything else here reports what the
+        // surface *intended*; this reports what was actually presented. A frame gap is the only
+        // honest description of a stutter, and pairing one against the `EdtStall` report at the
+        // same timestamp says both that it happened and what was holding the thread. Debug builds
+        // only, and it stops on its own once the entrance is well past.
+        LaunchedEffect(rendered.token) {
+            if (!isDebugBuild) return@LaunchedEffect
+            val start = withFrameNanos { it }
+            var previous = start
+            var frames = 0
+            var worstGapMs = 0L
+            val dropped = StringBuilder()
+            while (true) {
+                val now = withFrameNanos { it }
+                val gapMs = (now - previous) / 1_000_000L
+                val sinceStartMs = (now - start) / 1_000_000L
+                previous = now
+                frames++
+                if (gapMs >= FRAME_GAP_REPORT_MS) {
+                    if (gapMs > worstGapMs) worstGapMs = gapMs
+                    dropped.append(" +${sinceStartMs}ms/${gapMs}ms")
+                }
+                if (sinceStartMs >= FRAME_PROBE_WINDOW_MS) break
+            }
+            loadingLog.i {
+                "loading entrance token=${rendered.token} frames=$frames " +
+                    "worstGapMs=$worstGapMs gaps=[${dropped.toString().trim()}]"
+            }
+        }
+
         LaunchedEffect(rendered.token) {
             entry.snapTo(0f)
             entry.animateTo(
@@ -107,3 +158,11 @@ private const val EXIT_DURATION_MS: Int = 300
  * tick is a state write that recomposes the surface.
  */
 private const val ESCAPE_CLOCK_TICK_MS: Long = 250L
+
+/** Two dropped frames at 60 Hz - the point at which a gap stops being scheduler noise. */
+private const val FRAME_GAP_REPORT_MS: Long = 34L
+
+/** Long enough to cover the entrance, the navigation and the native player being built. */
+private const val FRAME_PROBE_WINDOW_MS: Long = 2_500L
+
+private val loadingLog = Logger.withTag("PlaybackStartup")

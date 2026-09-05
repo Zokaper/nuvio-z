@@ -1,5 +1,6 @@
 package com.nuvio.app.features.playback
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -9,20 +10,26 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -43,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,16 +69,26 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_quality_best
 import nuvio.composeapp.generated.resources.playback_quality_checking_connection
+import nuvio.composeapp.generated.resources.playback_quality_column_fit
+import nuvio.composeapp.generated.resources.playback_quality_column_needs
+import nuvio.composeapp.generated.resources.playback_quality_column_quality
+import nuvio.composeapp.generated.resources.playback_quality_column_release
+import nuvio.composeapp.generated.resources.playback_quality_column_size
 import nuvio.composeapp.generated.resources.playback_quality_description
 import nuvio.composeapp.generated.resources.playback_quality_estimated_connection
 import nuvio.composeapp.generated.resources.playback_quality_last_measured
+import nuvio.composeapp.generated.resources.playback_quality_last_measured_short
 import nuvio.composeapp.generated.resources.playback_quality_loading
 import nuvio.composeapp.generated.resources.playback_quality_manual
 import nuvio.composeapp.generated.resources.playback_quality_needs
 import nuvio.composeapp.generated.resources.playback_quality_needs_estimated
+import nuvio.composeapp.generated.resources.playback_quality_needs_value
+import nuvio.composeapp.generated.resources.playback_quality_needs_value_estimated
 import nuvio.composeapp.generated.resources.playback_quality_no_match
 import nuvio.composeapp.generated.resources.playback_quality_preferences
 import nuvio.composeapp.generated.resources.playback_quality_over_connection
+import nuvio.composeapp.generated.resources.playback_quality_over_connection_legend
+import nuvio.composeapp.generated.resources.playback_quality_retest
 import nuvio.composeapp.generated.resources.playback_quality_summary_with_size
 import nuvio.composeapp.generated.resources.playback_quality_title
 import nuvio.composeapp.generated.resources.playback_quality_variant_high
@@ -223,15 +242,27 @@ fun PlaybackQualitySheet(
         val gridMaxHeight = (maxHeight - GRID_HEIGHT_INSET)
             .coerceAtLeast(GRID_MIN_HEIGHT)
             .coerceAtMost(GRID_MAX_HEIGHT)
+        val tableMaxHeight = (maxHeight - TABLE_HEIGHT_INSET)
+            .coerceAtLeast(TABLE_MIN_HEIGHT)
+            .coerceAtMost(TABLE_MAX_HEIGHT)
 
         if (isWide) {
-            // A centred panel, not a bottom sheet: `usesNativeNuvioBottomSheet` is false on
-            // desktop, so NuvioModalBottomSheet would fall through to Material's
-            // ModalBottomSheet and pin a phone sheet to the bottom of a 1080p window.
+            val entry = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                entry.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = PlaybackEntranceMotion.DURATION_MS,
+                        easing = NuvioTokens.Motion.emphasized,
+                    ),
+                )
+            }
+            val entered = entry.value
+            val scrim = tokens.colors.overlayScrim
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(tokens.colors.overlayScrim)
+                    .background(scrim.copy(alpha = scrim.alpha * PlaybackEntranceMotion.scrimAlpha(entered)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -243,6 +274,13 @@ fun PlaybackQualitySheet(
                     modifier = Modifier
                         .widthIn(max = tokens.components.wideDialogMaxWidth)
                         .padding(tokens.spacing.dialogPadding)
+                        .graphicsLayer {
+                            alpha = PlaybackEntranceMotion.panelAlpha(entered)
+                            val s = PlaybackEntranceMotion.panelScale(entered)
+                            scaleX = s
+                            scaleY = s
+                            translationY = PlaybackEntranceMotion.panelRiseDp(entered) * density
+                        }
                         // Swallows the scrim's dismiss click; the panel itself is not a
                         // dismiss target.
                         .clickable(
@@ -253,7 +291,7 @@ fun PlaybackQualitySheet(
                     shape = tokens.shapes.dialog,
                     color = tokens.colors.surfaceDialog,
                 ) {
-                    QualitySheetBody(
+                    QualityTableBody(
                         options = options,
                         isLoading = isLoading,
                         isSelecting = isSelecting,
@@ -262,10 +300,9 @@ fun PlaybackQualitySheet(
                         isConnectionMeasured = shownMeasured,
                         isConnectionStale = isConnectionStale,
                         isMeasuringConnection = isMeasuringConnection,
-                        onRetestConnection = onRetestConnection,
-                        gridMaxHeight = gridMaxHeight,
-                        contentBottomPadding = tokens.spacing.dialogPadding,
+                        tableMaxHeight = tableMaxHeight,
                         onOptionSelected = onOptionSelected,
+                        onRetestConnection = onRetestConnection,
                         onChooseManually = onChooseManually,
                         onAdjustPreferences = onAdjustPreferences,
                     )
@@ -906,3 +943,430 @@ private val SKELETON_CARD_HEIGHT = NuvioTokens.Space.s96 * 2 + NuvioTokens.Space
 private val GRID_HEIGHT_INSET = NuvioTokens.Space.s96 * 2
 private val GRID_MIN_HEIGHT = NuvioTokens.Space.s96 * 2
 private val GRID_MAX_HEIGHT = NuvioTokens.Space.s96 * 6
+
+private val PANEL_PADDING = NuvioTokens.Space.s24
+private val ROW_HEIGHT = NuvioTokens.Space.s56
+private val SECTION_HEADER_HEIGHT = NuvioTokens.Space.s40
+private val COLUMN_HEADER_HEIGHT = NuvioTokens.Space.s32
+private val QUALITY_COLUMN_WIDTH = 168.dp
+private val NEEDS_COLUMN_WIDTH = 96.dp
+private val SIZE_COLUMN_WIDTH = 88.dp
+private val FIT_COLUMN_WIDTH = 88.dp
+private const val SKELETON_ROW_COUNT = 6
+private val TABLE_HEIGHT_INSET = NuvioTokens.Space.s96 * 3
+private val TABLE_MIN_HEIGHT = NuvioTokens.Space.s96 * 2
+private val TABLE_MAX_HEIGHT = NuvioTokens.Space.s96 * 5
+private const val UNKNOWN_VALUE = "\u2014"
+
+@Composable
+private fun QualityTableBody(
+    options: List<PlaybackQualityOption>,
+    isLoading: Boolean,
+    isSelecting: Boolean,
+    selectionContext: PlaybackSelectionContext,
+    estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
+    isConnectionStale: Boolean,
+    isMeasuringConnection: Boolean,
+    tableMaxHeight: Dp,
+    onOptionSelected: (PlaybackQualityOption) -> Unit,
+    onRetestConnection: (() -> Unit)?,
+    onChooseManually: () -> Unit,
+    onAdjustPreferences: (() -> Unit)?,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(PANEL_PADDING),
+        verticalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.playback_quality_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            if (onAdjustPreferences != null) {
+                TextButton(onClick = onAdjustPreferences) {
+                    Text(stringResource(Res.string.playback_quality_preferences))
+                }
+            }
+        }
+        Text(
+            text = when {
+                isLoading -> stringResource(Res.string.playback_quality_loading)
+                isSelecting -> stringResource(Res.string.playback_progress_choosing)
+                else -> stringResource(Res.string.playback_quality_description)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textSecondary,
+        )
+
+        val connectionLine = when {
+            isMeasuringConnection -> stringResource(Res.string.playback_quality_checking_connection)
+            estimatedMbps == null || estimatedMbps <= 0.0 -> "\u00A0"
+            isConnectionStale -> stringResource(
+                Res.string.playback_quality_last_measured_short,
+                estimatedMbps.roundToInt(),
+            )
+            isConnectionMeasured -> stringResource(
+                Res.string.playback_quality_your_connection,
+                estimatedMbps.roundToInt(),
+            )
+            else -> stringResource(
+                Res.string.playback_quality_estimated_connection,
+                estimatedMbps.roundToInt(),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = connectionLine,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            if (onRetestConnection != null) {
+                TextButton(
+                    onClick = onRetestConnection,
+                    enabled = !isMeasuringConnection,
+                ) {
+                    Text(stringResource(Res.string.playback_quality_retest))
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(tokens.borders.hairline)
+                .background(tokens.colors.borderSubtle),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(COLUMN_HEADER_HEIGHT)
+                .padding(horizontal = NuvioTokens.Space.s12),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        ) {
+            Text(
+                text = stringResource(Res.string.playback_quality_column_quality).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textMuted,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                maxLines = 1,
+                modifier = Modifier.width(QUALITY_COLUMN_WIDTH),
+            )
+            Text(
+                text = stringResource(Res.string.playback_quality_column_release).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textMuted,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = stringResource(Res.string.playback_quality_column_needs).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textMuted,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                modifier = Modifier.width(NEEDS_COLUMN_WIDTH),
+            )
+            Text(
+                text = stringResource(Res.string.playback_quality_column_size).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textMuted,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                modifier = Modifier.width(SIZE_COLUMN_WIDTH),
+            )
+            Text(
+                text = stringResource(Res.string.playback_quality_column_fit).uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.colors.textMuted,
+                letterSpacing = NuvioTokens.LetterSpacing.label,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                modifier = Modifier.width(FIT_COLUMN_WIDTH),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(tokens.borders.hairline)
+                .background(tokens.colors.borderSubtle),
+        )
+
+        when {
+            isLoading -> QualityTableSkeleton(tableMaxHeight)
+            options.isEmpty() -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TABLE_MIN_HEIGHT),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(Res.string.playback_quality_no_match),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            else -> {
+                val groups = remember(options) { PlaybackQualityOptions.group(options) }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = tableMaxHeight),
+                ) {
+                    groups.forEach { group ->
+                        if (group.resolution == null) {
+                            group.options.forEach { option ->
+                                item(key = option.id) {
+                                    QualityTableRow(
+                                        option = option,
+                                        leading = stringResource(Res.string.playback_quality_best),
+                                        selectionContext = selectionContext,
+                                        estimatedMbps = estimatedMbps,
+                                        isConnectionMeasured = isConnectionMeasured,
+                                        enabled = !isSelecting,
+                                        onClick = { onOptionSelected(option) },
+                                    )
+                                }
+                            }
+                        } else {
+                            item(key = "header:" + group.resolutionLabel) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(SECTION_HEADER_HEIGHT),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                                ) {
+                                    Text(
+                                        text = group.resolutionLabel,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = tokens.colors.textPrimary,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(tokens.borders.hairline)
+                                            .background(tokens.colors.borderSubtle),
+                                    )
+                                }
+                            }
+                            items(
+                                items = group.options,
+                                key = { it.id },
+                            ) { option ->
+                                val optionLeading = variantLabel(option).ifBlank { group.resolutionLabel }
+                                QualityTableRow(
+                                    option = option,
+                                    leading = optionLeading,
+                                    selectionContext = selectionContext,
+                                    estimatedMbps = estimatedMbps,
+                                    isConnectionMeasured = isConnectionMeasured,
+                                    enabled = !isSelecting,
+                                    onClick = { onOptionSelected(option) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val anyOverConnection = remember(options, estimatedMbps, isConnectionMeasured, selectionContext) {
+            options.any { option ->
+                val requiredMbps = option.requiredMbps
+                    ?: PlaybackSourceSelector.previewSelection(option, selectionContext)?.let {
+                        PlaybackQualityOptions.requiredMbpsFor(it, selectionContext)
+                    }
+                PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps, isConnectionMeasured)
+                    ?.isOverConnection == true
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(tokens.borders.hairline)
+                .background(tokens.colors.borderSubtle),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        ) {
+            if (anyOverConnection) {
+                Box(
+                    modifier = Modifier
+                        .size(NuvioTokens.Space.s8)
+                        .clip(tokens.shapes.chip)
+                        .background(tokens.colors.warning),
+                )
+                Text(
+                    text = stringResource(Res.string.playback_quality_over_connection_legend),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.warning,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onChooseManually) {
+                Text(stringResource(Res.string.playback_quality_manual))
+            }
+        }
+    }
+}
+
+@Composable
+private fun QualityTableRow(
+    option: PlaybackQualityOption,
+    leading: String,
+    selectionContext: PlaybackSelectionContext,
+    estimatedMbps: Double?,
+    isConnectionMeasured: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val preview = remember(option, selectionContext) {
+        PlaybackSourceSelector.previewSelection(option, selectionContext)
+    }
+    val isBest = option.variant == PlaybackQualityOption.Variant.BEST
+    val requiredMbps = option.requiredMbps
+        ?: preview?.let { PlaybackQualityOptions.requiredMbpsFor(it, selectionContext) }
+    val fit = PlaybackQualityOptions.connectionFit(requiredMbps, estimatedMbps, isConnectionMeasured)
+
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+
+    val needs = if (requiredMbps == null) {
+        UNKNOWN_VALUE
+    } else {
+        val rounded = ceil(requiredMbps).roundToInt()
+        if (option.isEstimateApproximate) {
+            stringResource(Res.string.playback_quality_needs_value_estimated, rounded)
+        } else {
+            stringResource(Res.string.playback_quality_needs_value, rounded)
+        }
+    }
+    val needsColor = when {
+        requiredMbps == null -> tokens.colors.textMuted
+        fit?.isOverConnection == true -> tokens.colors.warning
+        else -> tokens.colors.textPrimary
+    }
+
+    val size = option.representativeSizeBytes?.takeIf { it > 0L }?.let(::formatFileSize)
+        ?: UNKNOWN_VALUE
+    val sizeColor = if (size == UNKNOWN_VALUE) tokens.colors.textMuted else tokens.colors.textSecondary
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ROW_HEIGHT)
+            .clip(tokens.shapes.compactCard)
+            .background(if (hovered && enabled) tokens.colors.overlayHover else Color.Transparent)
+            .hoverable(interaction, enabled = enabled)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = NuvioTokens.Space.s12),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+    ) {
+        Text(
+            text = leading,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = tokens.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(QUALITY_COLUMN_WIDTH),
+        )
+        Text(
+            text = releaseCell(option, preview),
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = needs,
+            style = MaterialTheme.typography.bodySmall,
+            color = needsColor,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier.width(NEEDS_COLUMN_WIDTH),
+        )
+        Text(
+            text = size,
+            style = MaterialTheme.typography.bodySmall,
+            color = sizeColor,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier.width(SIZE_COLUMN_WIDTH),
+        )
+        Box(
+            modifier = Modifier.width(FIT_COLUMN_WIDTH),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            fit?.let { ConnectionMeter(it) }
+        }
+    }
+}
+
+private fun releaseCell(
+    option: PlaybackQualityOption,
+    preview: PlaybackSourceCandidate?,
+): String {
+    val release = preview?.let { PlaybackSourceSelector.describeRelease(it.facts) }.orEmpty()
+    if (option.variant != PlaybackQualityOption.Variant.BEST) return release
+    val resolution = preview?.facts?.resolution.qualityLabel.orEmpty()
+    return listOf(resolution, release).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+@Composable
+private fun QualityTableSkeleton(tableMaxHeight: Dp) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = tableMaxHeight),
+    ) {
+        repeat(SKELETON_ROW_COUNT) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ROW_HEIGHT)
+                    .padding(horizontal = NuvioTokens.Space.s12),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+            ) {
+                NuvioSkeletonBlock(modifier = Modifier.width(120.dp), height = 16.dp)
+                NuvioSkeletonBlock(modifier = Modifier.weight(1f), height = 12.dp)
+                NuvioSkeletonBlock(modifier = Modifier.width(64.dp), height = 12.dp)
+                NuvioSkeletonBlock(modifier = Modifier.width(56.dp), height = 12.dp)
+                NuvioSkeletonBlock(modifier = Modifier.width(72.dp), height = 6.dp)
+            }
+        }
+    }
+}
+

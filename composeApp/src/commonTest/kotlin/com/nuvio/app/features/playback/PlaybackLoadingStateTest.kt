@@ -20,55 +20,106 @@ class PlaybackLoadingStateTest {
     private fun size(bytes: Long): String = "${bytes / 1_000_000_000}.0 GB"
 
     @Test
-    fun `chips read resolution, dynamic range, audio, language and size`() {
+    fun `five slots always in order`() {
+        val slots = PlaybackLoadingFacts.facts(null, ::size) { it.uppercase() }.map { it.slot }
+        assertEquals(PlaybackFactSlot.entries, slots)
+    }
+
+    @Test
+    fun `a full source fills every slot`() {
         val facts = SourceFacts(
             resolution = VideoResolution.UHD_2160,
-            dynamicRange = setOf("HDR10"),
-            audioCodecs = setOf("DD_PLUS"),
-            audioChannels = 6,
+            dynamicRange = emptySet(),
+            audioCodecs = setOf("TRUEHD", "ATMOS"),
+            audioChannels = 8,
             languages = setOf("en"),
-            sizeBytes = 8_000_000_000L,
+            subtitleLanguages = setOf("en"),
+            sizeBytes = 14_500_000_000L,
         )
+        val result = PlaybackLoadingFacts.facts(facts, { "14.5 GB" }) { "English" }
         assertEquals(
-            listOf("4K", "HDR10", "DD+ 5.1", "EN", "8.0 GB"),
-            PlaybackLoadingFacts.chips(facts, ::size).map { it.label },
+            listOf(
+                PlaybackLoadingFact(PlaybackFactSlot.RESOLUTION, "4K"),
+                PlaybackLoadingFact(PlaybackFactSlot.LANGUAGE, "English / English"),
+                PlaybackLoadingFact(PlaybackFactSlot.DYNAMIC_RANGE, "SDR"),
+                PlaybackLoadingFact(PlaybackFactSlot.AUDIO, "Atmos 7.1"),
+                PlaybackLoadingFact(PlaybackFactSlot.SIZE, "14.5 GB"),
+            ),
+            result,
         )
     }
 
-    /**
-     * A source nothing could be parsed from still renders a screen.
-     *
-     * Not a nicety: the releases most likely to be malformed are the ones most likely to be
-     * failing, so a band that only works with full metadata is a band that goes blank precisely
-     * when the user needs to know which source just died.
-     */
     @Test
-    fun `no facts yields no chips rather than placeholders`() {
-        assertTrue(PlaybackLoadingFacts.chips(null, ::size).isEmpty())
-        assertTrue(PlaybackLoadingFacts.chips(SourceFacts(), ::size).isEmpty())
-    }
-
-    /**
-     * `SourceFacts.languages` documents that an empty set is *unstated*, not "no English".
-     * Drawing "EN" from silence would invent a claim the release never made.
-     */
-    @Test
-    fun `an unstated language draws no chip`() {
-        assertNull(PlaybackLoadingFacts.languageLabel(SourceFacts()))
-    }
-
-    @Test
-    fun `a multi-language release with no named tracks says MULTi`() {
+    fun `a bare source keeps the slots and nulls the values`() {
+        val result = PlaybackLoadingFacts.facts(SourceFacts(), ::size) { it.uppercase() }
         assertEquals(
-            "MULTi",
-            PlaybackLoadingFacts.languageLabel(SourceFacts(isMultiLanguage = true)),
+            listOf(
+                PlaybackLoadingFact(PlaybackFactSlot.RESOLUTION, null),
+                PlaybackLoadingFact(PlaybackFactSlot.LANGUAGE, null),
+                PlaybackLoadingFact(PlaybackFactSlot.DYNAMIC_RANGE, "SDR"),
+                PlaybackLoadingFact(PlaybackFactSlot.AUDIO, null),
+                PlaybackLoadingFact(PlaybackFactSlot.SIZE, null),
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `no source at all leaves the range slot null too`() {
+        val result = PlaybackLoadingFacts.facts(null, ::size) { it.uppercase() }
+        assertEquals(
+            listOf(
+                PlaybackLoadingFact(PlaybackFactSlot.RESOLUTION, null),
+                PlaybackLoadingFact(PlaybackFactSlot.LANGUAGE, null),
+                PlaybackLoadingFact(PlaybackFactSlot.DYNAMIC_RANGE, null),
+                PlaybackLoadingFact(PlaybackFactSlot.AUDIO, null),
+                PlaybackLoadingFact(PlaybackFactSlot.SIZE, null),
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `an untagged release reads SDR`() {
+        assertEquals("SDR", PlaybackLoadingFacts.dynamicRangeSlot(SourceFacts()))
+    }
+
+    @Test
+    fun `a tagged release keeps its tag`() {
+        val facts = SourceFacts(dynamicRange = setOf("HDR10_PLUS"))
+        assertEquals("HDR10+", PlaybackLoadingFacts.dynamicRangeSlot(facts))
+    }
+
+    @Test
+    fun `an unstated language yields a null slot`() {
+        assertNull(PlaybackLoadingFacts.languagePairLabel(SourceFacts()) { it.uppercase() })
+    }
+
+    @Test
+    fun `a subtitle-only claim does not become an audio claim`() {
+        val facts = SourceFacts(subtitleLanguages = setOf("en"))
+        assertEquals(
+            "— / English",
+            PlaybackLoadingFacts.languagePairLabel(facts) { "English" },
+        )
+    }
+
+    @Test
+    fun `MULTi survives`() {
+        val facts = SourceFacts(isMultiLanguage = true)
+        assertEquals(
+            "MULTi / —",
+            PlaybackLoadingFacts.languagePairLabel(facts) { it.uppercase() },
         )
     }
 
     @Test
     fun `extra languages are counted, not listed`() {
         val facts = SourceFacts(languages = setOf("en", "it", "fr"))
-        assertEquals("EN +2", PlaybackLoadingFacts.languageLabel(facts))
+        assertEquals(
+            "English +2 / —",
+            PlaybackLoadingFacts.languagePairLabel(facts) { if (it == "en") "English" else it.uppercase() },
+        )
     }
 
     /**
@@ -82,7 +133,7 @@ class PlaybackLoadingStateTest {
     }
 
     @Test
-    fun `channels alone are still worth a chip`() {
+    fun `channels alone are still reported`() {
         assertEquals("5.1", PlaybackLoadingFacts.audioLabel(SourceFacts(audioChannels = 6)))
     }
 

@@ -103,17 +103,17 @@ class PlaybackLoadingSessionTest {
     }
 
     @Test
-    fun `the entrance runs once and reaches rest`() {
-        assertEquals(0f, PlaybackLoadingMotion.surfaceAlpha(0f))
-        assertEquals(1f, PlaybackLoadingMotion.surfaceAlpha(1f))
-        // At rest the surface must be exactly 1f: the backdrop's crop has to match the player's
-        // or the hand-off flickers.
-        assertEquals(1f, PlaybackLoadingMotion.surfaceScale(1f))
-        assertTrue(PlaybackLoadingMotion.surfaceScale(0f) > 1f)
-        // The band trails the backdrop, then catches up exactly.
+    fun `the backdrop never animates and the band carries the entrance`() {
+        // ⚠ The surface is at rest from the first frame, at every point of the entrance. Fading a
+        // full-screen layer forced an offscreen composite per frame and was the reported stutter;
+        // asserting the identity is what stops it coming back.
+        for (progress in listOf(0f, 0.25f, 0.5f, 1f)) {
+            assertEquals(1f, PlaybackLoadingMotion.surfaceAlpha(progress), "alpha at $progress")
+            assertEquals(1f, PlaybackLoadingMotion.surfaceScale(progress), "scale at $progress")
+        }
         assertEquals(0f, PlaybackLoadingMotion.bandAlpha(0f))
-        assertTrue(PlaybackLoadingMotion.bandAlpha(0.2f) < PlaybackLoadingMotion.surfaceAlpha(0.2f))
         assertEquals(1f, PlaybackLoadingMotion.bandAlpha(1f))
+        assertTrue(PlaybackLoadingMotion.bandAlpha(0.5f) > 0f)
     }
 
     @Test

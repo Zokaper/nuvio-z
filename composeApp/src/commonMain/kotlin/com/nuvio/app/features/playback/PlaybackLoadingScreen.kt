@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 // The one line that differs between nuvio-z and nuviozdesktop.
 //
 // Desktop wraps coil3 in an expect/actual doing Skia-side downsampling; mobile calls coil3
@@ -51,10 +54,17 @@ import androidx.compose.ui.unit.dp
 // must decode the backdrop exactly the way its local player does.
 import coil3.compose.AsyncImage as AppAsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.downloads.SourceFacts
+import com.nuvio.app.features.player.languageLabelForCode
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.playback_fact_audio
+import nuvio.composeapp.generated.resources.playback_fact_language
+import nuvio.composeapp.generated.resources.playback_fact_range
+import nuvio.composeapp.generated.resources.playback_fact_resolution
+import nuvio.composeapp.generated.resources.playback_fact_size
 import nuvio.composeapp.generated.resources.playback_progress_attempt
 import nuvio.composeapp.generated.resources.playback_progress_choosing
 import nuvio.composeapp.generated.resources.playback_progress_finding
@@ -64,6 +74,8 @@ import nuvio.composeapp.generated.resources.playback_progress_source_failed_reas
 import nuvio.composeapp.generated.resources.playback_progress_starting
 import nuvio.composeapp.generated.resources.playback_quality_checking_connection
 import nuvio.composeapp.generated.resources.playback_quality_manual
+import nuvio.composeapp.generated.resources.subtitle_language_unknown
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -123,19 +135,22 @@ fun PlaybackLoadingScreen(
      */
     entryProgress: Float = 1f,
 ) {
+    // ⚠ **No `graphicsLayer` on this Box, and it must not gain one.** It used to fade and scale
+    // the whole surface for the entrance, which meant Compose rendered a full-screen layer -
+    // backdrop included - to an offscreen buffer and composited it every frame. On a large window
+    // at a 1.4x UI scale that is a very large allocation per frame, and it is the stutter the
+    // maintainer reported immediately after choosing a source. The band below carries the
+    // entrance instead: it is small, so its layer is cheap.
     Box(
         modifier = modifier
             .fillMaxSize()
-            .graphicsLayer {
-                alpha = PlaybackLoadingMotion.surfaceAlpha(entryProgress)
-                val settle = PlaybackLoadingMotion.surfaceScale(entryProgress)
-                scaleX = settle
-                scaleY = settle
-            }
             .background(MaterialTheme.nuvio.colors.background)
             .nuvioConsumePointerEvents(),
     ) {
-        PlaybackLoadingBackdrop(artwork = artwork)
+        PlaybackLoadingBackdrop(
+            artwork = artwork,
+            scrimProgress = PlaybackLoadingMotion.scrimAlpha(entryProgress),
+        )
 
         if (onBack != null) {
             NuvioBackButton(
@@ -157,6 +172,7 @@ fun PlaybackLoadingScreen(
         PlaybackLoadingTitle(
             logo = logo,
             title = title,
+            entryProgress = entryProgress,
             modifier = Modifier.align(Alignment.Center),
         )
 
@@ -178,12 +194,18 @@ fun PlaybackLoadingScreen(
 /**
  * Backdrop and scrim.
  *
+ * ⚠ **Also drawn by `StreamDestination`'s opaque hand-off surface**, which is why this is
+ * `internal` rather than private. That surface covers the source list from the moment a source is
+ * chosen until this screen's session opens, and while it was a flat `nuvio.colors.background` fill
+ * it was a grey frame between a list showing the artwork and a loading screen showing the artwork.
+ * Every surface on this path has to draw the same picture; a flat one is a flash by definition.
+ *
  * Cropped, full-bleed and unanimated. The gradient is the player's, kept verbatim so the two
  * sides of the hand-off scrim the same artwork to the same values - a scrim that differs by
  * even one stop reads as a flash at the route change.
  */
 @Composable
-private fun PlaybackLoadingBackdrop(artwork: String?) {
+internal fun PlaybackLoadingBackdrop(artwork: String?, scrimProgress: Float = 1f) {
     if (artwork.isNullOrBlank()) return
     AppAsyncImage(
         model = artwork,
@@ -197,10 +219,10 @@ private fun PlaybackLoadingBackdrop(artwork: String?) {
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.3f),
-                        Color.Black.copy(alpha = 0.6f),
-                        Color.Black.copy(alpha = 0.8f),
-                        Color.Black.copy(alpha = 0.9f),
+                        Color.Black.copy(alpha = 0.3f * scrimProgress),
+                        Color.Black.copy(alpha = 0.6f * scrimProgress),
+                        Color.Black.copy(alpha = 0.8f * scrimProgress),
+                        Color.Black.copy(alpha = 0.9f * scrimProgress),
                     ),
                 ),
             ),
@@ -218,12 +240,18 @@ private fun PlaybackLoadingBackdrop(artwork: String?) {
 private fun PlaybackLoadingTitle(
     logo: String?,
     title: String?,
+    entryProgress: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     var logoLoadError by remember(logo) { mutableStateOf(false) }
     val logoUrl = logo?.takeIf { it.isNotBlank() }
 
-    Box(modifier = modifier.padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .padding(horizontal = 24.dp)
+            .graphicsLayer { alpha = PlaybackLoadingMotion.titleAlpha(entryProgress) },
+        contentAlignment = Alignment.Center,
+    ) {
         when {
             logoUrl != null && !logoLoadError -> AppAsyncImage(
                 model = logoUrl,
@@ -244,6 +272,8 @@ private fun PlaybackLoadingTitle(
     }
 }
 
+private val ESCAPE_ROW_HEIGHT = 36.dp
+
 /**
  * The band: what is happening, to what, on whose behalf.
  *
@@ -261,7 +291,10 @@ private fun PlaybackLoadingBand(
     progress: Float?,
     modifier: Modifier = Modifier,
 ) {
-    val chips = remember(state.facts) { PlaybackLoadingFacts.chips(state.facts, formatSize) }
+    val namer = rememberLanguageNamer(state.facts)
+    val facts = remember(state.facts, namer) {
+        PlaybackLoadingFacts.facts(state.facts, formatSize, namer)
+    }
     val providerLine = remember(state.facts) { PlaybackLoadingFacts.providerLine(state.facts) }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -278,9 +311,7 @@ private fun PlaybackLoadingBand(
             PlaybackLoadingStageLine(state)
         }
 
-        if (chips.isNotEmpty()) {
-            ChipFlowRow(chips = chips)
-        }
+        MetadataRail(facts = facts)
 
         providerLine?.let {
             Text(
@@ -292,27 +323,34 @@ private fun PlaybackLoadingBand(
             )
         }
 
-        // Small, dimmed, ellipsised - and kept, deliberately. This is how a wrong-show pick
-        // ("Daredevil" answered with "Daredevil: Born Again") is visible before it plays,
-        // which is the half of the content-identity guard the user performs.
-        state.releaseName?.let {
+        // ⚠ **Always present, always this height.** The escape hatch used to sit below the progress
+        // line and appear at five seconds, which grew the band and moved the rail under the reader
+        // at exactly the moment they were reading it. Reserving the row means the button arriving
+        // changes one cell, not the layout. The release name shares the row because the two are
+        // opposite ends of the same line and neither needs the width.
+        Row(
+            modifier = Modifier.fillMaxWidth().height(ESCAPE_ROW_HEIGHT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = it,
+                text = state.releaseName.orEmpty(),
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.45f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-        ThinProgressLine(fraction = progress)
-
-        if (onChooseManually != null && state.offerManualEscape) {
-            TextButton(onClick = onChooseManually) {
-                Text(stringResource(Res.string.playback_quality_manual))
+            if (onChooseManually != null && state.offerManualEscape) {
+                TextButton(
+                    onClick = onChooseManually,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.nuvio.colors.accent,
+                    ),
+                ) { Text(stringResource(Res.string.playback_quality_manual)) }
             }
         }
+
+        ThinProgressLine(fraction = progress)
     }
 }
 
@@ -373,15 +411,36 @@ private fun PlaybackLoadingStageLine(state: PlaybackLoadingState) {
 }
 
 /**
- * The chips, wrapping.
+ * Display names for exactly the codes this source names, resolved in composition.
  *
- * A hand-rolled flow rather than `FlowRow` because that is still experimental in this Compose
- * version and this is two lines of measurement.
+ * `languageLabelForCode` is `@Composable` (it reads the resource bundle) so it cannot be handed
+ * to `PlaybackLoadingFacts.facts` as a lambda. It also answers "Unknown" for a code it does not
+ * carry, which is worse than the code itself in a four-character slot - hence the fallback.
  */
 @Composable
-private fun ChipFlowRow(chips: List<PlaybackLoadingChip>, spacing: Dp = 8.dp) {
+internal fun rememberLanguageNamer(facts: SourceFacts?): (String) -> String {
+    val codes = remember(facts) {
+        (facts?.languages.orEmpty() + facts?.subtitleLanguages.orEmpty()).toList()
+    }
+    val unknown = stringResource(Res.string.subtitle_language_unknown)
+    val names = codes.associateWith { code ->
+        languageLabelForCode(code).takeIf { it != unknown } ?: code.uppercase()
+    }
+    return remember(names) { { code -> names[code] ?: code.uppercase() } }
+}
+
+/**
+ * The five facts, always all five, laid out as a spec strip.
+ *
+ * Wrapping is hand-rolled rather than `FlowRow`, which is still experimental in this Compose
+ * version. ⚠ **No dividers between cells and no pill backgrounds.** The pills are most of what
+ * made this band read as a phone screen; the label-over-value stack carries the rhythm on its
+ * own, and a divider that has to survive a wrap is three times the code for less.
+ */
+@Composable
+private fun MetadataRail(facts: List<PlaybackLoadingFact>, spacing: Dp = 24.dp) {
     Layout(
-        content = { chips.forEach { MetadataChip(it.label) } },
+        content = { facts.forEach { FactCell(it) } },
     ) { measurables, constraints ->
         val gap = spacing.roundToPx()
         val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0)) }
@@ -412,18 +471,36 @@ private fun ChipFlowRow(chips: List<PlaybackLoadingChip>, spacing: Dp = 8.dp) {
 }
 
 @Composable
-private fun MetadataChip(label: String) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = Color.White.copy(alpha = 0.92f),
-        maxLines = 1,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.White.copy(alpha = 0.14f))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
+private fun FactCell(fact: PlaybackLoadingFact) {
+    val known = fact.value != null
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = stringResource(playbackFactSlotLabelRes(fact.slot)).uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = NuvioTokens.LetterSpacing.label,
+            color = Color.White.copy(alpha = 0.45f),
+            maxLines = 1,
+        )
+        Text(
+            text = fact.value ?: PlaybackLoadingFacts.UNKNOWN,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White.copy(alpha = if (known) 0.92f else 0.35f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+internal fun playbackFactSlotLabelRes(slot: PlaybackFactSlot): StringResource = when (slot) {
+    PlaybackFactSlot.RESOLUTION -> Res.string.playback_fact_resolution
+    PlaybackFactSlot.LANGUAGE -> Res.string.playback_fact_language
+    PlaybackFactSlot.DYNAMIC_RANGE -> Res.string.playback_fact_range
+    PlaybackFactSlot.AUDIO -> Res.string.playback_fact_audio
+    PlaybackFactSlot.SIZE -> Res.string.playback_fact_size
 }
 
 /**

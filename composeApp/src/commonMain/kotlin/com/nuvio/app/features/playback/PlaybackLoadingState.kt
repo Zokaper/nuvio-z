@@ -168,39 +168,90 @@ data class PlaybackLoadingState(
     val releaseName: String? get() = facts?.filename?.takeIf { it.isNotBlank() }
 }
 
+/** The five slots the loading band always shows, in the order it shows them. */
+enum class PlaybackFactSlot { RESOLUTION, LANGUAGE, DYNAMIC_RANGE, AUDIO, SIZE }
+
 /**
- * One chip: a single fact about the file, or nothing.
+ * One slot and what is known about it.
  *
- * A list of these rather than a formatted string so the screen can lay them out and a test can
- * assert on them without parsing text back apart.
+ * ⚠ [value] is null when the source never said, and the screen draws [PlaybackLoadingFacts.UNKNOWN]
+ * for it. The *slot* is fixed so there is a fixed place to look; the *value* is still derived,
+ * never faked - a release that named no language has not told you it is English.
  */
-data class PlaybackLoadingChip(val label: String)
+data class PlaybackLoadingFact(val slot: PlaybackFactSlot, val value: String?)
 
 object PlaybackLoadingFacts {
 
+    /** Drawn in place of a value the source never reported. Punctuation, not a localized word. */
+    const val UNKNOWN: String = "\u2014"
+
     /**
-     * The chips, in the order the maintainer asked for them: resolution and dynamic range,
-     * then audio and language, then size.
+     * Always five entries, always in [PlaybackFactSlot] order, whatever the source reported.
      *
-     * **Every part is omitted when unknown rather than placeholdered**, the same rule
-     * [PlaybackSourceSelector.describeBestRelease] carries. An empty list is a valid answer and
-     * the screen is required to render correctly for it.
+     * The band used to omit a fact it did not have, so its shape changed per source and there
+     * was no fixed place to look for the size. A fixed rail with an honest gap in it is the
+     * answer to both: the slot is always there, and an absent value says so.
      *
-     * [formatSize] is passed rather than called: this file is reachable from the pure suite,
-     * and `formatFileSize` reaches the generated resource bundle.
+     * [formatSize] and [languageName] are passed rather than called - this file is compiled and
+     * executed outside Gradle by `scripts/run-pure-suites.sh`, where the generated Compose
+     * resource bundle does not exist.
      */
-    fun chips(
+    fun facts(
         facts: SourceFacts?,
         formatSize: (Long) -> String,
-    ): List<PlaybackLoadingChip> {
-        if (facts == null) return emptyList()
-        return listOfNotNull(
-            facts.resolution.qualityLabel.takeIf { it.isNotBlank() },
-            PlaybackSourceSelector.dynamicRangeLabel(facts),
-            audioLabel(facts),
-            languageLabel(facts),
-            facts.sizeBytes?.takeIf { it > 0L }?.let(formatSize),
-        ).map(::PlaybackLoadingChip)
+        languageName: (String) -> String,
+    ): List<PlaybackLoadingFact> = listOf(
+        PlaybackLoadingFact(
+            PlaybackFactSlot.RESOLUTION,
+            facts?.resolution.qualityLabel.takeIf { it.isNotBlank() },
+        ),
+        PlaybackLoadingFact(PlaybackFactSlot.LANGUAGE, languagePairLabel(facts, languageName)),
+        PlaybackLoadingFact(PlaybackFactSlot.DYNAMIC_RANGE, dynamicRangeSlot(facts)),
+        PlaybackLoadingFact(PlaybackFactSlot.AUDIO, audioLabel(facts)),
+        PlaybackLoadingFact(
+            PlaybackFactSlot.SIZE,
+            facts?.sizeBytes?.takeIf { it > 0L }?.let(formatSize),
+        ),
+    )
+
+    /**
+     * `SDR` when a release named no dynamic range, and null only when there is no release yet.
+     *
+     * ⚠ The one slot with a real default, and it is earned rather than assumed: `SourceFacts`
+     * records that release names carry dynamic range **reliably** and audio format only
+     * sometimes, which is why silence is read here and nowhere else. Before a source is chosen
+     * there is nothing to call SDR, so a null [facts] still yields null.
+     */
+    fun dynamicRangeSlot(facts: SourceFacts?): String? {
+        if (facts == null) return null
+        return PlaybackSourceSelector.dynamicRangeLabel(facts) ?: "SDR"
+    }
+
+    /**
+     * `English / English`, `English / —`, `MULTi / —`, or null when neither side is known.
+     *
+     * The pair is what the maintainer asked to see - what you will hear and what you can read -
+     * and it is the one slot where half the answer is common. An em-dash on one side is honest;
+     * a slot that silently collapses to one name would let a subtitle-only claim read as an
+     * audio one.
+     *
+     * ⚠ **Empty is not a language claim.** `SourceFacts.languages` documents it: most English
+     * releases say nothing at all, so silence on both sides draws the unknown slot, never "EN".
+     */
+    fun languagePairLabel(facts: SourceFacts?, languageName: (String) -> String): String? {
+        val audio = namedLanguages(facts?.languages.orEmpty(), languageName)
+            ?: "MULTi".takeIf { facts?.isMultiLanguage == true }
+        val subtitles = namedLanguages(facts?.subtitleLanguages.orEmpty(), languageName)
+        if (audio == null && subtitles == null) return null
+        return "${audio ?: UNKNOWN} / ${subtitles ?: UNKNOWN}"
+    }
+
+    /** `English`, `English +2`, or null. One name plus a count - a list would not fit the slot. */
+    private fun namedLanguages(codes: Set<String>, languageName: (String) -> String): String? {
+        val first = codes.firstOrNull() ?: return null
+        val rest = codes.size - 1
+        val name = languageName(first)
+        return if (rest > 0) "$name +$rest" else name
     }
 
     /**
@@ -241,24 +292,6 @@ object PlaybackLoadingFacts {
         6 -> "5.1"
         2 -> "2.0"
         else -> null
-    }
-
-    /**
-     * `EN`, `EN +2`, or null.
-     *
-     * **Empty is not a language claim.** Most English releases say nothing about language at
-     * all, so an absent set draws no chip rather than a chip reading "EN" the release never
-     * earned - the rule `SourceFacts.languages` documents and the ranking already honours.
-     *
-     * A multi-language release with no named tracks says so, because that is the one thing
-     * `MULTi` actually tells you.
-     */
-    fun languageLabel(facts: SourceFacts?): String? {
-        val languages = facts?.languages.orEmpty()
-        if (languages.isEmpty()) return if (facts?.isMultiLanguage == true) "MULTi" else null
-        val first = languages.first().uppercase()
-        val rest = languages.size - 1
-        return if (rest > 0) "$first +$rest" else first
     }
 
     /**

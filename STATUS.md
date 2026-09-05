@@ -2,6 +2,10 @@
 
 Last updated: 2026-09-05
 
+Desktop source-to-player jank investigation continues on `claude/phase-2-playback`.
+The native bridge now builds locally; a fresh run confirmed the loading scale is clamped to 1
+by the controls JSON writer. See `nuviozdesktop/STATUS.md` for measurements and verification.
+
 | | |
 | --- | --- |
 | Active branch | `claude/phase-2-playback` in both KMP repositories, based on the completed mobile `0.4.13` and desktop `0.1.22-alpha` sync branches. |
@@ -16,6 +20,19 @@ Last updated: 2026-09-05
 > **The history moved.** Everything before 2026-08-24 is in [`Docs/STATUS-ARCHIVE.md`](Docs/STATUS-ARCHIVE.md) -
 > 48 sections, kept whole and in order. This file is the live handoff only: the
 > state table above, the work since the last release, and what is still open below.
+
+## Phase 2 closing polish (2026-09-05)
+
+Branch `claude/phase-2-playback`. Three closing polish designs address presentation feedback on the surfaces built in Phase 2, preparing the branch for Ultra 1 review:
+
+1. **Desktop Streamlined Quality Table:** The wide-window branch of `PlaybackQualitySheet` (`isWide`, ≥768 dp) replaces the scaled-up phone card grid with a compact, structured quality table. Each candidate option is rendered as a clean row grouped by resolution, aligning `Needs`, `Size`, and connection fit across columns sharing a consistent baseline. A matching skeleton shimmer renders before figures settle.
+2. **Fixed 5-Slot Loading Metadata Rail:** The loading band across Compose (`PlaybackLoadingScreen`) and desktop JCEF/HTML (`controls.html`, `controls.css`, `controls.js`) now renders a fixed five-slot spec strip: Resolution, Audio/Subs, Range, Audio, and Size. Absent metadata displays an honest em-dash (`—`) rather than phantom guesses; dynamic range safely falls back to `SDR`; the "Choose source manually" escape hatch resides in a reserved 36 dp row above the progress line so its appearance at 5 seconds never shifts the layout under the reader.
+3. **Seamless Entrance Motion:** Pop and dip artifacts entering playback are resolved via `PlaybackEntranceMotion` (260 ms coordinated curve: color-alpha scrim, logo, and band arrival) and a desktop navigator fade-through on `entry<StreamRoute>` (220 ms in with 90 ms delay + 90 ms out).
+
+**Deliberately NOT changed:**
+- **Phone Card Grid:** The narrow branch of `PlaybackQualitySheet` (<768 dp) retains its proven touch-card layout and bottom sheet mechanics for phones and small tablets.
+- **`entry<PlayerRoute>` No-Transition Rule:** Retains `EnterTransition.None`. Because `PlaybackLoadingHost` draws the identical loading surface across the entire route crossing at `zIndex(18f)`, adding any transition here would create a redundant crossfade between two identical frames.
+- **Connection Figure Latch:** The bandwidth measurement figure and verdict remain latched upon initial determination; late background probes never cause figures or column alignments to jump under the reader.
 
 ## Phase 2 Playback: the hand-off made seamless, and a source that is actually there (2026-09-05)
 

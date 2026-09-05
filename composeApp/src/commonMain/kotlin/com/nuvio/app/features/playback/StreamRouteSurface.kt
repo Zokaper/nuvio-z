@@ -214,4 +214,3 @@ fun hasSilentUncover(inputs: StreamRouteSurfaceInputs): Boolean =
         !inputs.isClassic &&
         !inputs.isManualLaunch &&
         inputs.uncoverReason == null
-

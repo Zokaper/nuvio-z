@@ -119,6 +119,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$M/features/playback/ContentIdentityGuard.kt" \
   "$M/features/playback/PlaybackLoadingState.kt" \
   "$M/features/playback/PlaybackLoadingSession.kt" \
+  "$M/features/playback/PlaybackEntranceMotion.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
   "$T/core/media/ReleaseTagsTest.kt" \
   "$T/features/downloads/SourceRankingTest.kt" \
@@ -130,6 +131,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$T/features/playback/PlaybackLoadingStateTest.kt" \
   "$T/features/playback/ContentIdentityGuardTest.kt" \
   "$T/features/playback/PlaybackLoadingSessionTest.kt" \
+  "$T/features/playback/PlaybackEntranceMotionTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
@@ -143,6 +145,7 @@ java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.StickySourcePinTest \
   com.nuvio.app.features.playback.PlaybackLoadingStateTest \
   com.nuvio.app.features.playback.PlaybackLoadingSessionTest \
+  com.nuvio.app.features.playback.PlaybackEntranceMotionTest \
   com.nuvio.app.features.playback.ContentIdentityGuardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 2: files with no dependencies at all, so no stubs are involved --------------------

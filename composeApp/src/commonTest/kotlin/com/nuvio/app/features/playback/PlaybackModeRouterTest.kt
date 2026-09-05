@@ -10,10 +10,12 @@ class PlaybackModeRouterTest {
         mode: PlaybackMode = PlaybackMode.CLASSIC,
         manualSelection: Boolean = false,
         hasCompletedLocalDownload: Boolean = false,
+        isPartyResolvePlayback: Boolean = false,
     ) = PlaybackRouteInputs(
         mode = mode,
         manualSelection = manualSelection,
         hasCompletedLocalDownload = hasCompletedLocalDownload,
+        isPartyResolvePlayback = isPartyResolvePlayback,
     )
 
     @Test
@@ -67,6 +69,24 @@ class PlaybackModeRouterTest {
         }
     }
 
+    @Test
+    fun partyResolveBeatsLocalDownloadAndPlaybackMode() {
+        PlaybackMode.entries.forEach { mode ->
+            val decision = PlaybackModeRouter.decide(
+                inputs(
+                    mode = mode,
+                    hasCompletedLocalDownload = true,
+                    isPartyResolvePlayback = true,
+                ),
+            )
+            assertEquals(
+                PlaybackRouteDecision.AutoPick("party member resolving the host's source"),
+                decision,
+                "party playback must resolve the host source in $mode",
+            )
+        }
+    }
+
     /**
      * Every branch survives a save/restore round trip.
      *
@@ -104,4 +124,3 @@ class PlaybackModeRouterTest {
         assertEquals(PlaybackMode.STREAMLINED, PlaybackMode.fromStorage(" STREAMLINED "))
     }
 }
-

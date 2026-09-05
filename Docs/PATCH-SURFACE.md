@@ -66,6 +66,13 @@ Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syn
 > and the `playback_auto_downshift` key out of four `PlayerSettingsStorage` actuals, the settings
 > page and the diagnostics HUD.
 >
+> **The closing polish round (2026-09-05)** refined the shared playback interfaces and UI seams:
+> `PlayerControlsState` gained three fields (`openingFacts`, `openingOffersManualEscape`,
+> `openingManualEscapeLabel`) for the native player overlay and escape hatch wiring, while
+> `PlaybackLoadingFacts` evolved its public shape to output the fixed 5-slot rail (`PlaybackFactSlot`,
+> `PlaybackLoadingFact`, `dynamicRangeSlot`, `languagePairLabel`) with honest unknown indicators.
+> Both are Rule 6 seam refinements within already-tracked playback files.
+>
 > ⚠ **The "behind" row is now stale.** Both repos have drifted since the Phase 1 base: `nuvio-z` is
 > **27** behind and `NuvioZDesktop` **9** behind as of this measurement. That is upstream moving,
 > not Phase 2's doing, and it is Phase 3's inheritance.
