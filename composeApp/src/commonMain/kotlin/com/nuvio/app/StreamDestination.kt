@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -220,6 +221,17 @@ internal fun StreamDestination(
      * grew their own copy; this is the one copy.
      */
     fun leaveToDetails() {
+        // ⚠ **The automatic play ends here, not at the pop.** "Back takes you out and stops
+        // whatever is running" is one action, and splitting it left the stopping half unwritten:
+        // the pop tore this route down while the chain stayed armed in the repository, so the
+        // auto-play effect relaunched the source on the way out, and the next visit to the same
+        // title was handed the same chain again by `carriedAutoPlayChain`.
+        //
+        // The fetch goes with it. A user who has left is not waiting on a source list, and an
+        // addon still answering into a route nobody is looking at is the "finding" half of what
+        // backing out is supposed to terminate.
+        StreamsRepository.abandonAutoPlay()
+        StreamsRepository.cancelLoading()
         exitRequested = true
         onBack()
     }
@@ -288,8 +300,9 @@ internal fun StreamDestination(
     /**
      * The user backed out of the player themselves, rather than a source failing.
      *
-     * Read only by the stall backstop, to keep it from reporting a deliberate exit as a dead end.
-     * Saveable because the exit happens on the far side of a route change.
+     * Read by the stall backstop, to keep it from reporting a deliberate exit as a dead end, and
+     * by the auto-play effect, which must not answer a back press with another play. Saveable
+     * because the exit happens on the far side of a route change.
      */
     var userAbandonedPlayback by rememberSaveable(route.launchId) { mutableStateOf(false) }
     // Set at *every* exit to playback, not just the reuse-last-link one.
@@ -774,6 +787,15 @@ internal fun StreamDestination(
     ) {
         if (!routeDecisionHandled) return@LaunchedEffect
         if (launch.manualSelection) return@LaunchedEffect
+        // ⚠ **The user leaving outranks an armed chain, and this line is the whole of "back
+        // means stop".** On the pop back from the player this effect and the retry effect above
+        // both wake on the same `autoPlayStream`, and whichever ran first decided what happened.
+        // When this one won it relaunched the source the user had just left: measured on desktop
+        // at 2.4 s after the back press, re-attaching at the position they left it
+        // (`initialPositionMs=361499` against a `pos=360902` exit), which is why back had to be
+        // out-pressed rather than pressed. Ordering the two effects is not a fix - the abandon
+        // is a fact, and a fact outranks a race.
+        if (userAbandonedPlayback) return@LaunchedEffect
         val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
         // Streamlined runs the chain from the moment a tier is chosen, Instant
@@ -1927,6 +1949,27 @@ internal fun StreamDestination(
             } else {
                 loadingToken?.let(PlaybackLoadingController::close)
                 loadingToken = null
+            }
+        }
+
+        // ⚠ **The "or the user leaves" arm of the session's lifetime, ported from
+        // `nuviozdesktop` where it was written after the surface was found outliving the route.**
+        //
+        // `PlaybackLoadingController.close` is reachable from exactly one place - the `else`
+        // above - and an effect does not run its `else` when the composition is torn down. So
+        // popping this route left the session **running**, and `PlaybackLoadingHost` draws above
+        // `NavDisplay` and stops for nothing. It also left the chain armed, which is the half
+        // that outlived the screen: the next visit to the same title was handed it back.
+        //
+        // A handed-off session is deliberately exempt: from that point the player owns it and
+        // `closeAfterHandOff` ends it, which is the entire reason the surface outlives this
+        // route.
+        DisposableEffect(Unit) {
+            onDispose {
+                if (PlaybackLoadingController.session?.handedOff == true) return@onDispose
+                loadingToken?.let { token -> PlaybackLoadingController.close(token) }
+                StreamsRepository.abandonAutoPlay()
+                StreamsRepository.cancelLoading()
             }
         }
 

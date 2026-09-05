@@ -2,6 +2,70 @@
 
 Last updated: 2026-09-05
 
+## Back was taken, then answered with another play (2026-09-05)
+
+Branch `claude/phase-2-playback`. Reported as "pressing Escape mid-loading or mid-player is
+jank - I had to spam it a few times to get out", plus a second report that sounded unrelated:
+after escaping an Instant play, switching to Classic and returning to the same title started
+the source Instant had picked. One bug, both faces.
+
+**Escape was working. The app was restarting the source behind it.** From the z1.44 debug log:
+
+```
+22:03:54.697  PlayerControls action=Back   pos=360902        <- the Escape
+22:03:55.116  loading surface token=2 closed (visibleMs=19229)
+22:03:56.934  StreamsRepo Found 1 addons  (same title)
+22:03:56.938  StreamsRepo Fetching streams ...               <- catalogue request starts
+22:03:57.195  loading surface token=3 opened                 <- 257 ms later, already playing
+22:03:57.326  attach requested ... initialPositionMs=361499
+22:03:58.006  probe total=47595678623 host=store-071...      <- same file as token=2
+22:03:58.578  PlayerControls action=Back   pos=0             <- the second Escape
+```
+
+⚠ **That fetch never logs a `Got ... streams` line - it was cancelled.** So the source that
+relaunched came entirely from state held in `StreamsRepository`, with no catalogue in hand, and
+it re-attached at 361499 ms against the 360902 ms the user had just exited at. Every press was
+answered by a fresh play of the thing being escaped, which is what "spam it a few times" was.
+
+### What was wrong
+
+On the pop back from the player, two effects in `StreamDestination` wake on the same
+`autoPlayStream`: the retry effect, which decides the user left and exits, and the auto-play
+effect, which starts whatever is armed. **Whichever ran first decided what happened.**
+`userAbandonedPlayback` already existed for exactly this distinction and its own KDoc said
+"Read only by the stall backstop" - which was the fault, because the effect that *starts
+playback* never consulted it.
+
+The second face is `consumeAutoPlay`, which **retires** the chain into `retiredAutoPlayStream`
+rather than dropping it. That is right for a source dying after the first frame and wrong for a
+back press: it left the retained chain for `failOverAfterPlaybackStarted` and the live one for
+`carriedAutoPlayChain`, which hands a chain back to the next load of the same request token.
+
+### The fix
+
+- `StreamsRepository.abandonAutoPlay()` - drops the live chain, the retired chain, and the
+  pending retry signal. Deliberately not `consumeAutoPlay`; the difference is the bug.
+- The auto-play effect returns early on `userAbandonedPlayback`. ⚠ Ordering two effects is not
+  a fix - the abandon is a fact, and a fact outranks a race.
+- `leaveToDetails()` abandons the chain and cancels the in-flight fetch, so "takes you back"
+  and "stops what is running" are one action rather than two halves with one written.
+- The route's `onDispose` does the same for exits the route does not own - the window closing,
+  a deep link - keeping the hand-off exemption that lets the surface outlive the route.
+- ⚠ **On this repo that `onDispose` had to be written, not extended: it did not exist.** The
+  "or the user leaves" arm was added to `nuviozdesktop` in `0dc5776d` and never ported, so
+  backing out of a loading play here left the chain armed *and* the loading session running
+  above `NavDisplay` - the stuck-behind-the-loading-screen fault desktop had already closed.
+  Both are closed here now.
+
+**Verified:** `AutoPlayFailoverTest` passes on both repos - 14 tests, 0 failures - including two
+new cases: an abandon leaves nothing for either mechanism, and an abandoned chain is not carried
+into the next load of the same title. ⚠ The existing `a reload for the same video keeps a
+re-armed chain` still passes, so the legitimate carry is intact and only the abandoned case is
+cut.
+
+**Not** verified: not yet watched on a packaged build. The effect race and the route teardown
+are precisely what a hot run cannot exercise; z1.45 / mobile build 28 are cut for this.
+
 Desktop source-to-player jank investigation continues on `claude/phase-2-playback`.
 The native bridge now builds locally; a fresh run confirmed the loading scale is clamped to 1
 by the controls JSON writer. See `nuviozdesktop/STATUS.md` for measurements and verification.

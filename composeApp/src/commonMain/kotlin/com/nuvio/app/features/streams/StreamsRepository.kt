@@ -859,6 +859,37 @@ object StreamsRepository {
     }
 
     /**
+     * Ends the automatic play because the user left, rather than because a source failed.
+     *
+     * ⚠ **Not [consumeAutoPlay], and the difference is the whole bug.** That one *retires* the
+     * chain into [retiredAutoPlayStream] so a source that dies after playback started can still
+     * fail over - which is exactly what must not survive a deliberate exit. The retained chain
+     * is what let a back press be answered by the next candidate, and the live one is what
+     * [carriedAutoPlayChain] handed straight back to the next visit to the same title: leaving
+     * a play and returning to it re-attached the same file at the position it was left at, with
+     * no catalogue in hand at all - the fetch for that visit was still in flight, and was
+     * cancelled before it ever answered.
+     *
+     * Every piece of chain state goes, the retry signal included. A signal that outlives the
+     * chain it belongs to is how a back press starts reading as a retry in the first place.
+     */
+    fun abandonAutoPlay() {
+        activeRequestKey = null
+        failoverRetryPending = false
+        retiredAutoPlayStream = null
+        retiredAutoPlayCandidates = emptyList()
+        pendingFailureReason = null
+        _uiState.update {
+            it.copy(
+                autoPlayStream = null,
+                autoPlayCandidates = emptyList(),
+                isDirectAutoPlayFlow = false,
+                showDirectAutoPlayOverlay = false,
+            )
+        }
+    }
+
+    /**
      * Re-arms the chain [consumeAutoPlay] retired, then advances past the source that just died.
      *
      * Only for the case where playback genuinely started and then failed. Returns whether a next
