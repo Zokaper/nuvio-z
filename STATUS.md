@@ -2,6 +2,24 @@
 
 Last updated: 2026-09-05
 
+## Ultra 1 goes to the desktop repo; this one takes the `high` (2026-09-05)
+
+Branch `claude/phase-2-playback`, open as [nuvio-z#1](https://github.com/Zokaper/nuvio-z/pull/1)
+against `claude/upstream-sync-0.4.13` - 73 files, +6,110/−1,790. ⚠ **Not `main`**, which does not
+carry the upstream sync; based there the PR would bundle 104 commits of it.
+
+`ROADMAP.md` puts Ultra 1 on whichever repo holds the more divergent mode router, and the answer
+was measured rather than argued: `PlaybackModeRouter.kt`, `PlaybackModeModels.kt`,
+`PlaybackSourceSelector.kt`, `PlaybackQualityOptions.kt` and `StreamRouteSurface.kt` are
+**byte-identical** to `nuviozdesktop`, and no file in `features/playback/` is unique to either
+repo. All divergence is in `StreamDestination.kt` - 132 differing lines, 86 desktop-only against
+46 mobile-only. So the shared logic is covered by the desktop run, and this repo's companion is a
+`/code-review high` aimed at that 46-line delta and the Android-specific surfaces around it.
+
+⚠ **The `high` draws on the weekly limit**, so it can wait for the ultra's findings - anything it
+turns up in shared code applies here unchanged, and running the two together would spend the
+weekly budget re-reading code that is byte-identical to what the ultra already read.
+
 ## Back was taken, then answered with another play (2026-09-05)
 
 Branch `claude/phase-2-playback`. Reported as "pressing Escape mid-loading or mid-player is
