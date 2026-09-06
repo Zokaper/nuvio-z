@@ -77,6 +77,7 @@ object DownloadsRepository {
     private val transferSamples = mutableMapOf<String, TransferSample>()
     private var hasLoaded = false
     private var networkObserverStarted = false
+    private var networkObserverJob: Job? = null
     private var connectivityRefreshJob: Job? = null
     private var nextDownloadOrdinal = 0L
     private var lastPersistAtEpochMs = 0L
@@ -105,7 +106,7 @@ object DownloadsRepository {
         if (networkObserverStarted) return
         networkObserverStarted = true
         connectivityFeed.ensureStarted()
-        scope.launch {
+        networkObserverJob = scope.launch {
             var wasBlocked = connectivityFeed.states.value.blocksMediaDownloads()
             connectivityFeed.states.collect { state ->
                 val blocked = state.blocksMediaDownloads()
@@ -114,6 +115,24 @@ object DownloadsRepository {
                 wasBlocked = blocked
             }
         }
+    }
+
+    /** Replaces the app feed without leaking the previous collector into queue tests. */
+    internal fun installConnectivityFeedForTests(feed: DownloadConnectivityFeed) {
+        synchronized(stateLock) {
+            networkObserverJob?.cancel()
+            networkObserverJob = null
+            connectivityRefreshJob?.cancel()
+            connectivityRefreshJob = null
+            connectivityFeed = feed
+            networkObserverStarted = false
+            startNetworkObserverLocked()
+        }
+        startPendingTransfers()
+    }
+
+    internal fun restoreConnectivityFeedAfterTests() {
+        installConnectivityFeedForTests(AppDownloadConnectivityFeed)
     }
 
     private fun pauseForConnectionLoss() {
