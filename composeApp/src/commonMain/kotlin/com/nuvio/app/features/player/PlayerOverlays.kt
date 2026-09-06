@@ -67,7 +67,11 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.nuvioTypeScale
+import com.nuvio.app.features.playback.PlaybackLoadingScreen
+import com.nuvio.app.features.playback.PlaybackLoadingState
+import com.nuvio.app.features.playback.PlaybackProgressStep
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.playback_error_copy_details
 import nuvio.composeapp.generated.resources.compose_player_close
 import nuvio.composeapp.generated.resources.compose_player_episode_code_full
 import nuvio.composeapp.generated.resources.compose_player_go_back
@@ -98,6 +102,23 @@ internal data class GestureFeedbackState(
     val secondaryMessageColor: Color? = null,
 )
 
+/**
+ * The player's half of the one loading surface.
+ *
+ * **This is the same screen the stream route was drawing a frame ago.** It used to be its own
+ * design - backdrop, a pulsing title logo, and for every non-torrent source nothing else at
+ * all - so the moment playback was handed off the wording, the motion and the layout all
+ * changed at once, on a path where nothing had gone wrong. Worse, it said nothing: a chain
+ * quietly stepping past a dead candidate looked identical to a hang.
+ *
+ * It now builds a [PlaybackLoadingState] from what the route carried across in
+ * `PlayerScreenArgs` and hands it to [PlaybackLoadingScreen], which the route's
+ * [PlaybackProgressOverlay] renders too. Nothing on the shared layers moves across the
+ * hand-off; only the band's contents change.
+ *
+ * [message] and [progress] stay, and stay ahead of the derived stage line, because the P2P path
+ * is the one case with an honest completion figure - a real buffered fraction, not a timer.
+ */
 @Composable
 internal fun OpeningOverlay(
     artwork: String?,
@@ -108,188 +129,23 @@ internal fun OpeningOverlay(
     modifier: Modifier = Modifier,
     message: String? = null,
     progress: Float? = null,
+    state: PlaybackLoadingState = PlaybackLoadingState(
+        step = PlaybackProgressStep.StartingPlayback,
+    ),
+    formatSize: (Long) -> String = { it.toString() },
 ) {
-    val contentAlpha by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
-        label = "openingOverlayContentAlpha",
+    PlaybackLoadingScreen(
+        state = state,
+        artwork = artwork,
+        logo = logo,
+        title = title,
+        formatSize = formatSize,
+        modifier = modifier,
+        horizontalPadding = horizontalSafePadding.coerceAtLeast(24.dp),
+        onBack = onBack,
+        message = message,
+        progress = progress,
     )
-    val pulse = rememberInfiniteTransition(label = "openingOverlayContentPulse")
-    val contentScale by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "openingOverlayContentScale",
-    )
-    var logoLoadError by remember(logo) { mutableStateOf(false) }
-    val logoUrl = logo?.takeIf { it.isNotBlank() }
-
-    Box(
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.85f)),
-    ) {
-        if (artwork != null) {
-            AsyncImage(
-                model = artwork,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.3f),
-                                Color.Black.copy(alpha = 0.6f),
-                                Color.Black.copy(alpha = 0.8f),
-                                Color.Black.copy(alpha = 0.9f),
-                            ),
-                        ),
-                    ),
-            )
-        }
-
-        NuvioBackButton(
-            onClick = onBack,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
-                .padding(top = 20.dp, start = horizontalSafePadding, end = horizontalSafePadding + 20.dp)
-                ,
-            containerColor = Color.Black.copy(alpha = 0.3f),
-            contentColor = Color.White,
-            buttonSize = 44.dp,
-            iconSize = 24.dp,
-            contentDescription = stringResource(Res.string.compose_player_close),
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            val targetProgress = progress?.coerceIn(0f, 1f)
-            val animatedProgress by animateFloatAsState(
-                targetValue = targetProgress ?: 0f,
-                animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-                label = "openingOverlayP2pProgress",
-            )
-            val progressActive = targetProgress != null
-            if (logoUrl != null && !logoLoadError) {
-                Box(
-                    modifier = Modifier
-                        .width(300.dp)
-                        .height(180.dp),
-                ) {
-                    AsyncImage(
-                        model = logoUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = if (progressActive) 0.25f else contentAlpha
-                                if (!progressActive) {
-                                    scaleX = contentScale
-                                    scaleY = contentScale
-                                }
-                            },
-                        contentScale = ContentScale.Fit,
-                        onError = { logoLoadError = true },
-                    )
-                    if (progressActive) {
-                        AsyncImage(
-                            model = logoUrl,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .drawWithContent {
-                                    clipRect(right = size.width * animatedProgress) {
-                                        this@drawWithContent.drawContent()
-                                    }
-                                },
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
-                }
-            } else if (!title.isNullOrBlank()) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    style = MaterialTheme.nuvioTypeScale.displayMd.copy(
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    ),
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp)
-                        .graphicsLayer {
-                            alpha = contentAlpha
-                            scaleX = contentScale
-                            scaleY = contentScale
-                        },
-                )
-            } else {
-                NuvioLoadingIndicator(
-                    color = Color(0xFFE50914),
-                    modifier = Modifier.size(54.dp),
-                )
-            }
-
-            val showHorizontalProgress = progressActive && logo == null
-            if (!message.isNullOrBlank() || showHorizontalProgress) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    message?.takeIf { it.isNotBlank() }?.let { loadingMessage ->
-                        Text(
-                            text = loadingMessage,
-                            color = Color.White.copy(alpha = 0.72f),
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp),
-                        )
-                    }
-                }
-                if (showHorizontalProgress) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .width(240.dp)
-                            .height(4.dp)
-                            .background(
-                                color = Color.White.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(2.dp),
-                            ),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(animatedProgress)
-                                .height(4.dp)
-                                .background(
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    shape = RoundedCornerShape(2.dp),
-                                ),
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -497,6 +353,17 @@ internal fun PauseMetadataOverlay(
 internal fun ErrorModal(
     message: String,
     onDismiss: () -> Unit,
+    /**
+     * Which source produced this, as `PlaybackSourceSelector.describe` renders it elsewhere.
+     *
+     * This modal is the terminal surface of every failure the playback work touches, and it
+     * used to show the engine's raw message and one "Go back" - so a user who watched three
+     * sources get tried could not say which one had just died, and neither could anyone reading
+     * a screenshot of it. Null for the paths that genuinely have no source to name.
+     */
+    sourceLabel: String? = null,
+    /** Copies label and message together. A raw engine string is not something to transcribe. */
+    onCopyDetails: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -525,6 +392,27 @@ internal fun ErrorModal(
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
+            sourceLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.nuvioTypeScale.bodyLg.copy(lineHeight = 24.sp),
+                    color = Color.White.copy(alpha = 0.55f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (onCopyDetails != null) {
+                Text(
+                    text = stringResource(Res.string.playback_error_copy_details),
+                    modifier = Modifier
+                        .clickable(onClick = onCopyDetails)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    style = MaterialTheme.nuvioTypeScale.bodyLg,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Surface(
                 modifier = Modifier
                     .padding(top = 4.dp)

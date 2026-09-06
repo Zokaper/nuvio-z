@@ -29,28 +29,65 @@ KMP syncs, with `nuvio-z` at `e27b9195` (Nuvio `0.4.8`). `NuvioZWeb` was recorde
 
 ## The shape of it
 
-Regenerated 2026-09-04, after the mobile `0.4.13` sync. Bases: `nuvio-z` `42a9febf`
-(Nuvio **0.4.13**), `NuvioZDesktop` `b32dd57b` (`0.1.20-alpha`), `NuvioZWeb` `f9a546a`.
+Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
+(Nuvio **0.4.13**), `NuvioZDesktop` `5aca4f3f` (**0.1.22-alpha**), `NuvioZWeb` `f9a546a`.
 
 | | `nuvio-z` | `NuvioZDesktop` | `NuvioZWeb` |
 | --- | --- | --- | --- |
-| files we created | 166 | 190 | 33 |
-| **patch surface** - files upstream owns that we modified | **166** | **164** | **20** |
-| **conflict surface** - of those, upstream has also moved | **14** | **65** | **18** |
-| total changed | 332 | 354 | 53 |
-| commits behind upstream | **27** | **366** | **143** |
+| files we created | 172 | 198 | 33 |
+| **patch surface** - files upstream owns that we modified | **167** | **177** | **20** |
+| **conflict surface** - of those, upstream has also moved | **0** | **0** | **18** |
+| total changed | 339 | 375 | 53 |
+| commits behind the named sync base | **0** | **0** | **143** |
+
+> **Re-measured after Phase 2 (2026-09-04), and the patch surface did not move: still 167 / 177.**
+> That is the result Rule 4 asks for. Phase 2's new code went into files Z owns outright -
+> `PlaybackLoadingScreen`, `PlaybackLoadingState`, `PlaybackPosition`, `ContentIdentityGuard`,
+> `PlaybackAttemptLog`, `core/ui/Skeleton.kt` - and the upstream-owned files it did touch
+> (`PlayerScreen`, `PlayerScreenArgs`, `PlayerModels`, `PlayerDestination`, `PlayerOverlays`,
+> `PlayerPlaybackOverlays`, `PlayerScreenRuntime{Effects,Ui}`, `StreamsScreen`) were **already**
+> in the surface, so no new file was added to it.
+>
+> The widening that did happen is *within* those files rather than across new ones: three of the
+> `PlayerScreenRuntime*` cluster gained two optional trailing fields each (`sourceFacts`,
+> `playbackAttempt`) at their existing seams, and a third (`expectedRuntimeMinutes`) followed when
+> the duration backstop needed the catalogue's runtime on the player side. Rule 6 territory, added
+> at the seam rather than by extracting a new extension point, because the Phase 1 sync did not
+> conflict in them.
+>
+> **The 2026-09-05 round narrowed the surface rather than widening it.** Moving the loading screen
+> above `NavDisplay` took the rendering *out* of `StreamDestination.kt` and `PlayerScreenRuntimeUi.kt`
+> - both upstream-owned, both high on this list - and into `features/playback/**`, which is
+> entirely ours. Those two files now publish state to `PlaybackLoadingController` instead of
+> composing a screen, so the Z code inside them shrank. `MainAppContent.kt` gained one line
+> (`PlaybackLoadingHost`) and an explicit desktop transition spec on `entry<PlayerRoute>`.
+>
+> Phase 2 also **removed** surface: deleting P7 took `AutoDownshiftDetector`, `SwapDiagnosticsLog`
+> and the `playback_auto_downshift` key out of four `PlayerSettingsStorage` actuals, the settings
+> page and the diagnostics HUD.
+>
+> **The closing polish round (2026-09-05)** refined the shared playback interfaces and UI seams:
+> `PlayerControlsState` gained three fields (`openingFacts`, `openingOffersManualEscape`,
+> `openingManualEscapeLabel`) for the native player overlay and escape hatch wiring, while
+> `PlaybackLoadingFacts` evolved its public shape to output the fixed 5-slot rail (`PlaybackFactSlot`,
+> `PlaybackLoadingFact`, `dynamicRangeSlot`, `languagePairLabel`) with honest unknown indicators.
+> Both are Rule 6 seam refinements within already-tracked playback files.
+>
+> ⚠ **The "behind" row is now stale.** Both repos have drifted since the Phase 1 base: `nuvio-z` is
+> **27** behind and `NuvioZDesktop` **9** behind as of this measurement. That is upstream moving,
+> not Phase 2's doing, and it is Phase 3's inheritance.
 
 **The mobile patch surface went up, not down, and that is the sync working as intended.** Upstream
 dissolved `App.kt` into a 98-line shell plus 13 new files, so the Z decisions that used to sit in
 one 5,436-line file we modified now sit in ten upstream-owned files we modify. One row became ten.
-The conflict surface is the number that improved - 27 files before the merge, 14 after - and 
+The conflict surface is the number that improved - 27 files before the merge, zero after - and
 125-hunk monolith that made every previous sync expensive no longer exists.
 
 **Read the conflict surface, not the patch surface.** The patch surface is what we own jointly; the
 *conflict surface* is the subset upstream has actually touched since our fork base, and it is what
 predicts the cost of the next merge. `scripts/upstream-drift.sh` prints both.
 
-Of the mobile tree's 275 changed files, 137 are entirely ours and carry zero conflict risk. That
+Of the mobile tree's 339 changed files, 172 are entirely ours and carry zero conflict risk. That
 ratio - roughly half - is the number to improve, and rule 1 in `Docs/UPSTREAM.md` is how.
 
 **`NuvioZWeb` is the target shape, and it is now proven rather than asserted.** It merged upstream
@@ -126,16 +163,28 @@ These nine files are the structural problem, and naming them is the point of thi
 **Rule 6 applies: refactor a file into a seam the first time a sync conflicts in it**, not before.
 Rewriting all nine in advance is speculative work against a merge that has not happened yet.
 
+Phase 2 added one deliberate Rule 6 seam across `PlayerScreenArgs.kt`, `PlayerScreen.kt` and
+`PlayerModels.kt`: three optional trailing values - `sourceFacts`, `playbackAttempt` and
+`expectedRuntimeMinutes` - carry the structured loading state and the catalogue's runtime across the
+route-to-player handoff. Keeping that state at the boundary avoids rebuilding it independently on
+each side.
+
+The 2026-09-05 round went further in the right direction: the loading screen is no longer *rendered*
+by either upstream-owned file. `PlaybackLoadingController` and `PlaybackLoadingHost` live in
+`features/playback/**` and are drawn from `MainAppContent.kt` in one line, so both destinations
+publish state rather than composing UI. That is precisely the shape the paragraph below asks for,
+arrived at because the lifetime bug forced it.
+
 The right shape, when the time comes, is the one the playback package already has: Z logic lives in
 `features/playback/**` (100% ours, zero conflict risk) and the upstream file holds one call.
 
 ## What is entirely ours - zero conflict risk
 
-133 files on mobile, concentrated in whole packages:
+172 files on mobile, concentrated in whole packages:
 
 | Package | New files | Notes |
 | --- | --- | --- |
-| `features/playback/**` | 13 main + 14 test | The mode router, models, quality options, source selector, startup watchdog, route surface, progress overlay, downshift detector, swap log. |
+| `features/playback/**` | 17 main + 16 test | The mode router, models, quality options, source selector, startup watchdog, route surface, unified loading state, attempt log, position policy and content-identity gate. |
 | `features/downloads/**` (new files only) | 13 main + 9 test | Presets, coordinator, dialog, labels, source facts, ranking, batches, transfer, queue planner, presence, discovery, formatting, settings screen. |
 | `features/setup/**` | 10 | The whole wizard. |
 | `core/network/**` | 6 + 4 actuals + 4 test | Probe, throughput window, meter, repository, storage, platform. |

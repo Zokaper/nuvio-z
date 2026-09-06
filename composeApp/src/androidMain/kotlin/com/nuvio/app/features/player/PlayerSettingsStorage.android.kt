@@ -65,7 +65,6 @@ actual object PlayerSettingsStorage {
     private const val playbackQualityCeilingMbpsKey = "playback_quality_ceiling_mbps"
     private const val showAdvancedSettingsKey = "settings_show_advanced"
     private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
-    private const val playbackAutoDownshiftKey = "playback_auto_downshift"
     private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
     private const val setupWizardCompletedRevisionKey = "setup_wizard_completed_revision"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
@@ -147,7 +146,6 @@ actual object PlayerSettingsStorage {
         playbackQualityCeilingMbpsKey,
         showAdvancedSettingsKey,
         playbackMeteredCapHeightKey,
-        playbackAutoDownshiftKey,
         playbackModeSelectorSeenKey,
         setupWizardCompletedRevisionKey,
         streamAutoPlayModeKey,
@@ -778,16 +776,6 @@ actual object PlayerSettingsStorage {
         preferences?.edit()?.putInt(ProfileScopedKey.of(setupWizardCompletedRevisionKey), revision)?.apply()
     }
 
-    actual fun loadPlaybackAutoDownshift(): Boolean? =
-        preferences?.let { sharedPreferences ->
-            val key = ProfileScopedKey.of(playbackAutoDownshiftKey)
-            if (sharedPreferences.contains(key)) sharedPreferences.getBoolean(key, false) else null
-        }
-
-    actual fun savePlaybackAutoDownshift(enabled: Boolean) {
-        preferences?.edit()?.putBoolean(ProfileScopedKey.of(playbackAutoDownshiftKey), enabled)?.apply()
-    }
-
     actual fun loadPlaybackModeSelectorSeen(): Boolean? =
         preferences?.let { sharedPreferences ->
             val key = ProfileScopedKey.of(playbackModeSelectorSeenKey)
@@ -1272,7 +1260,6 @@ actual object PlayerSettingsStorage {
             put(playbackQualityCeilingMbpsKey, encodeSyncInt(it))
         }
         loadPlaybackMeteredCapHeight()?.let { put(playbackMeteredCapHeightKey, encodeSyncInt(it)) }
-        loadPlaybackAutoDownshift()?.let { put(playbackAutoDownshiftKey, encodeSyncBoolean(it)) }
         loadPlaybackModeSelectorSeen()?.let {
             put(playbackModeSelectorSeenKey, encodeSyncBoolean(it))
         }
@@ -1378,7 +1365,6 @@ actual object PlayerSettingsStorage {
             ?.let(::savePlaybackLanguageStrictness)
         payload.decodeSyncInt(playbackQualityCeilingMbpsKey)?.let(::savePlaybackQualityCeilingMbps)
         payload.decodeSyncInt(playbackMeteredCapHeightKey)?.let(::savePlaybackMeteredCapHeight)
-        payload.decodeSyncBoolean(playbackAutoDownshiftKey)?.let(::savePlaybackAutoDownshift)
         payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
             ?.let(::savePlaybackModeSelectorSeen)
         mergeMonotonicSyncInt(

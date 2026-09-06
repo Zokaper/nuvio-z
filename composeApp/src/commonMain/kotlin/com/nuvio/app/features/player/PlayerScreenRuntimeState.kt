@@ -14,7 +14,6 @@ import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
-import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamItem
@@ -131,25 +130,8 @@ internal class PlayerScreenRuntime(
     var layoutSize by mutableStateOf(IntSize.Zero)
     var playbackSnapshot by mutableStateOf(PlayerPlaybackSnapshot())
 
-    /**
-     * Instant's auto source-swap trigger state, carried across snapshots.
-     *
-     * The swap budget lives here rather than in the detector so it survives a source
-     * change: one swap per playback session, not one per source.
-     */
-    var autoDownshiftState by mutableStateOf(AutoDownshiftDetector.initial())
-    var autoDownshiftClock by mutableStateOf(TimeSource.Monotonic.markNow())
-    var autoDownshiftSourcesRequested by mutableStateOf(false)
-
-    /**
-     * When the in-flight source swap was requested, or null when none is.
-     *
-     * Set by `switchToSource` and cleared when the replacement produces its first frame, so
-     * the difference is the visible interruption a quality change actually costs. That number
-     * is the evidence for whether automatic downshift is worth turning on by default; it is
-     * null during normal startup because only a swap sets it.
-     */
-    var swapStartedAt by mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null)
+    /** Monotonic clock shared by the passive playback network measurements. */
+    var playbackObservationClock by mutableStateOf(TimeSource.Monotonic.markNow())
     var debugStatusMessage by mutableStateOf<String?>(null)
 
     /** Per-source state for the passive network measurement; see `observePlaybackForNetworkEstimate`. */
@@ -174,6 +156,20 @@ internal class PlayerScreenRuntime(
     var seekProgressSyncJob by mutableStateOf<Job?>(null)
     var accumulatedSeekState by mutableStateOf<PlayerAccumulatedSeekState?>(null)
     var initialLoadCompleted by mutableStateOf(false)
+
+    /**
+     * A frame has actually been decoded - the stronger sibling of [initialLoadCompleted].
+     *
+     * ⚠ **Deliberately a second flag rather than a redefinition.** [initialLoadCompleted] means
+     * "the engine has opened the media" and the seek, subtitle and startup-watchdog paths all
+     * depend on that weaker meaning; tightening it in place would silently move all of them. Only
+     * the loading surface reads this one, because it is the only thing that must not give way
+     * until there is a picture behind it. See `PlaybackHandover.hasFirstFrame`.
+     *
+     * Cleared alongside [initialLoadCompleted] on every source change, so a failover puts the
+     * surface back up.
+     */
+    var firstFrameReached by mutableStateOf(false)
     var speedBoostRestoreSpeed by mutableStateOf<Float?>(null)
     var isHoldToSpeedGestureActive by mutableStateOf(false)
     var initialSeekApplied by mutableStateOf(

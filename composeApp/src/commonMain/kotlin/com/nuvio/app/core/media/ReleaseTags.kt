@@ -224,7 +224,13 @@ object ReleaseTags {
         QualityToken("webrip", tokenBounded = false),
         QualityToken("hdtv", tokenBounded = false),
         QualityToken("dvdrip", tokenBounded = false),
+        QualityToken("hdcam", tokenBounded = false),
+        QualityToken("camrip", tokenBounded = false),
+        QualityToken("telesync", tokenBounded = false),
+        QualityToken("telecine", tokenBounded = false),
         QualityToken("cam", tokenBounded = true),
+        QualityToken("ts", tokenBounded = true),
+        QualityToken("tc", tokenBounded = true),
     )
 
     /** Release-quality tokens, best first. */
@@ -237,6 +243,40 @@ object ReleaseTags {
         return QUALITY_TOKEN_RULES.firstOrNull { rule ->
             if (rule.tokenBounded) hasReleaseToken(lower, rule.token) else rule.token in lower
         }?.token?.uppercase()
+    }
+
+    /**
+     * True when [releaseQuality] indicates a poor theatrical capture (CAM, HDCAM, CAMRip,
+     * TS, Telesync, TC, Telecine).
+     */
+    fun isTheatricalCapture(releaseQuality: String?): Boolean {
+        val normalized = releaseQuality?.uppercase()?.trim() ?: return false
+        return normalized == "CAM" ||
+            normalized == "HDCAM" ||
+            normalized == "CAMRIP" ||
+            normalized == "TS" ||
+            normalized == "TELESYNC" ||
+            normalized == "TC" ||
+            normalized == "TELECINE" ||
+            "CAM" in normalized ||
+            "TELESYNC" in normalized
+    }
+
+    /**
+     * True when the release claims or exhibits explicit textual evidence of AI upscaling
+     * (e.g. "AI Upscale", "Topaz", "Upscaled", "AI").
+     *
+     * Conservative: requires explicit textual evidence; an 8K resolution alone is never
+     * treated as AI-upscaled without a text marker.
+     */
+    fun isAiUpscaled(text: String): Boolean {
+        if (text.isBlank()) return false
+        val lower = text.lowercase()
+        if (AI_UPSCALE_PATTERN.containsMatchIn(lower)) return true
+        if (hasReleaseToken(lower, "topaz")) return true
+        if (hasReleaseToken(lower, "upscale") || hasReleaseToken(lower, "upscaled")) return true
+        if (hasReleaseToken(lower, "ai") && !lower.contains("artificial intelligence")) return true
+        return false
     }
 
     /**
@@ -267,4 +307,5 @@ object ReleaseTags {
 
     private val DOLBY_VISION_REGEX = Regex("(^|[^a-z0-9])(dv|dovi|dolby[ ._-]?vision)([^a-z0-9]|\$)")
     private val HDR_FAMILY_REGEX = Regex("(^|[^a-z0-9])(hdr|hdr10|hdr10p|hdr10plus|hdr10\\+|hlg)([^a-z0-9]|\$)")
+    private val AI_UPSCALE_PATTERN = Regex("""(^|[^a-z0-9])(ai[-._ ]?upscal(?:e|ed)|ai[-._ ]?(?:enhanced|remaster(?:ed)?))([^a-z0-9]|$)""")
 }

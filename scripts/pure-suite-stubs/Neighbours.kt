@@ -42,7 +42,16 @@ data class SourceFacts(
     val providerName: String? = null,
     val debridService: String? = null,
     val isDebridReady: Boolean? = null,
-)
+    val isAioStreams: Boolean = false,
+    // The release name. Added when the playback loading screen started printing it, which is
+    // how a wrong-show pick becomes visible before it plays - so it is now load-bearing rather
+    // than incidental, and the stub has to carry it.
+    val filename: String? = null,
+    val isAiUpscaled: Boolean = false,
+) {
+    val isTheatricalCapture: Boolean
+        get() = com.nuvio.app.core.media.ReleaseTags.isTheatricalCapture(releaseQuality)
+}
 
 object SourceFactsExtractor {
     fun extract(stream: com.nuvio.app.features.streams.StreamItem): SourceFacts = SourceFacts()

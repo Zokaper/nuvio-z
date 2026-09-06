@@ -46,6 +46,9 @@ fun PlayerScreen(
     initialPositionMs: Long = 0L,
     initialProgressFraction: Float? = null,
     contentLanguage: String? = null,
+    sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
+    playbackAttempt: Int = 1,
+    expectedRuntimeMinutes: Int? = null,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -88,6 +91,9 @@ fun PlayerScreen(
             initialPositionMs = initialPositionMs,
             initialProgressFraction = initialProgressFraction,
             contentLanguage = contentLanguage,
+            sourceFacts = sourceFacts,
+            playbackAttempt = playbackAttempt,
+            expectedRuntimeMinutes = expectedRuntimeMinutes,
         )
     )
 }

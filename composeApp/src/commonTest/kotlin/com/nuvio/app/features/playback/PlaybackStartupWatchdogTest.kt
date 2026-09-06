@@ -192,13 +192,158 @@ class PlaybackStartupWatchdogTest {
         // source that buffered once was given *less* patience than one that answered nothing.
         val stall = PlaybackStartupWatchdog.STALL_DEADLINE_MS
         val noProgress = PlaybackStartupWatchdog.NO_PROGRESS_DEADLINE_MS
+        val evidenceOfLife = PlaybackStartupWatchdog.EVIDENCE_OF_LIFE_DEADLINE_MS
         val ceiling = PlaybackStartupWatchdog.MAX_STARTUP_MS
         assertTrue(stall < noProgress, "stall deadline must be under the no-progress one")
-        assertTrue(noProgress < ceiling, "the ceiling must be past both deadlines")
+        assertTrue(noProgress < evidenceOfLife, "no-progress deadline must be under the evidence-of-life one")
+        assertTrue(evidenceOfLife < ceiling, "the ceiling must be past all startup deadlines")
         assertTrue(
             PlaybackStartupWatchdog.POLL_INTERVAL_MS < stall,
             "a verdict must never be a whole poll late",
         )
+    }
+
+    @Test
+    fun `completely dead source is abandoned on the 20s deadline without evidence of life`() {
+        var state = PlaybackStartupWatchdog.initial()
+        state = PlaybackStartupWatchdog.observe(state, sample(elapsedMs = 19_000L))
+        assertEquals(Verdict.Waiting, state.verdict)
+        assertNull(state.reason)
+
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = PlaybackStartupWatchdog.NO_PROGRESS_DEADLINE_MS),
+        )
+        assertEquals(Verdict.Abandon, state.verdict)
+        assertEquals(Reason.NeverStarted, state.reason)
+    }
+
+    @Test
+    fun `alive-but-slow source with duration or probe evidence is not abandoned at 20s`() {
+        var stateWithDuration = PlaybackStartupWatchdog.initial()
+        stateWithDuration = PlaybackStartupWatchdog.observe(
+            stateWithDuration,
+            sample(elapsedMs = 5_000L, durationMs = 7_200_000L),
+        )
+        stateWithDuration = PlaybackStartupWatchdog.observe(
+            stateWithDuration,
+            sample(elapsedMs = PlaybackStartupWatchdog.NO_PROGRESS_DEADLINE_MS, durationMs = 7_200_000L),
+        )
+        assertEquals(Verdict.Waiting, stateWithDuration.verdict)
+        assertNull(stateWithDuration.reason)
+
+        var stateWithProbe = PlaybackStartupWatchdog.initial()
+        stateWithProbe = PlaybackStartupWatchdog.observe(
+            stateWithProbe,
+            sample(elapsedMs = 5_000L, hasExternalEvidenceOfLife = true),
+        )
+        stateWithProbe = PlaybackStartupWatchdog.observe(
+            stateWithProbe,
+            sample(
+                elapsedMs = PlaybackStartupWatchdog.NO_PROGRESS_DEADLINE_MS,
+                hasExternalEvidenceOfLife = true,
+            ),
+        )
+        assertEquals(Verdict.Waiting, stateWithProbe.verdict)
+        assertNull(stateWithProbe.reason)
+    }
+
+    @Test
+    fun `alive-but-slow source starting at 24s succeeds`() {
+        val resumeMs = 359_818L
+        var state = PlaybackStartupWatchdog.initial()
+        // Container duration read early
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = 5_000L, durationMs = 7_094_176L, baselineMs = resumeMs),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        // Still waiting past the dead-source 20s deadline
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = 20_000L, durationMs = 7_094_176L, baselineMs = resumeMs),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        // At 24s, keyframes finish buffering and playback advances past resume point
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(
+                elapsedMs = 24_000L,
+                isPlaying = true,
+                positionMs = resumeMs + 100L,
+                bufferedPositionMs = resumeMs + 2_000L,
+                durationMs = 7_094_176L,
+                baselineMs = resumeMs,
+            ),
+        )
+        assertEquals(Verdict.Started, state.verdict)
+        assertNull(state.reason)
+    }
+
+    @Test
+    fun `alive source still not starting by 35s is abandoned`() {
+        var state = PlaybackStartupWatchdog.initial()
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = 2_000L, durationMs = 7_200_000L),
+        )
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = PlaybackStartupWatchdog.EVIDENCE_OF_LIFE_DEADLINE_MS - 1L, durationMs = 7_200_000L),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(
+                elapsedMs = PlaybackStartupWatchdog.EVIDENCE_OF_LIFE_DEADLINE_MS,
+                durationMs = 7_200_000L,
+            ),
+        )
+        assertEquals(Verdict.Abandon, state.verdict)
+        assertEquals(Reason.NeverStarted, state.reason)
+    }
+
+    @Test
+    fun `actual progress followed by stall abandons on existing 12s stall deadline even with evidence of life`() {
+        var state = PlaybackStartupWatchdog.initial()
+        // Starts with progress and duration
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(elapsedMs = 2_000L, bufferedPositionMs = 4_000L, durationMs = 7_200_000L),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        // 11.9s later, still waiting
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(
+                elapsedMs = 2_000L + PlaybackStartupWatchdog.STALL_DEADLINE_MS - 1L,
+                bufferedPositionMs = 4_000L,
+                durationMs = 7_200_000L,
+            ),
+        )
+        assertEquals(Verdict.Waiting, state.verdict)
+
+        // Exactly at stall deadline, abandons with Reason.Stalled
+        state = PlaybackStartupWatchdog.observe(
+            state,
+            sample(
+                elapsedMs = 2_000L + PlaybackStartupWatchdog.STALL_DEADLINE_MS,
+                bufferedPositionMs = 4_000L,
+                durationMs = 7_200_000L,
+            ),
+        )
+        assertEquals(Verdict.Abandon, state.verdict)
+        assertEquals(Reason.Stalled, state.reason)
+    }
+
+    @Test
+    fun `candidate handoff or url existence alone does not count as evidence of life`() {
+        val sampleWithoutEvidence = sample(elapsedMs = 1_000L)
+        assertEquals(false, sampleWithoutEvidence.hasEvidenceOfLife)
     }
 
     @Test
@@ -285,6 +430,7 @@ class PlaybackStartupWatchdogTest {
         bufferedPositionMs: Long = 0L,
         durationMs: Long = 0L,
         baselineMs: Long = 0L,
+        hasExternalEvidenceOfLife: Boolean = false,
     ) = PlaybackStartupSample(
         elapsedMs = elapsedMs,
         isPlaying = isPlaying,
@@ -292,5 +438,6 @@ class PlaybackStartupWatchdogTest {
         bufferedPositionMs = bufferedPositionMs,
         durationMs = durationMs,
         baselineMs = baselineMs,
+        hasExternalEvidenceOfLife = hasExternalEvidenceOfLife,
     )
 }

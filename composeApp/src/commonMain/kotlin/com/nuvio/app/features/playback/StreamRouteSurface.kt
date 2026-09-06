@@ -104,6 +104,19 @@ data class StreamRouteSurfaceInputs(
     val isManualLaunch: Boolean,
     /** Set by every path that gives up on choosing automatically. */
     val manualSourceListRequested: Boolean,
+    /**
+     * **Why** the list was uncovered, for the paths that uncover it automatically.
+     *
+     * The maintainer's report of the list appearing uninvited in Streamlined and Instant came
+     * with no reproduction, and that is the finding rather than a gap in it: there are eight
+     * ways into the list and **every one of them was silent**, so there was nothing to notice
+     * at the time and nothing to remember afterwards.
+     *
+     * Null is legitimate only where the list is the destination the user asked for - Classic, a
+     * manual launch, an explicit "choose manually". Everywhere else a null here is the bug, and
+     * [hasSilentUncover] is what makes that statement executable rather than a convention.
+     */
+    val uncoverReason: String? = null,
     /** `reuseNavigated || playbackHandedOff` - playback has been handed off at least once. */
     val hasNavigatedAway: Boolean,
     /** The route decision is `ShowQualitySheet`. */
@@ -181,3 +194,23 @@ fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = w
     else -> StreamRouteSurface.HandOff
 }
 
+/**
+ * Whether the list has been uncovered in an automatic mode with nothing to say about why.
+ *
+ * **The invariant this phase adds:** in Streamlined or Instant the source list may not appear
+ * without a reason attached. Those two modes exist precisely to avoid the list, so the list
+ * turning up is either a failure the user should be told about or a bug - and for as long as
+ * both looked identical, neither could be investigated.
+ *
+ * Expressed here, in the same import-free file as [streamRouteSurface], because this is the one
+ * function that decides what covers the screen and the only place the rule can be enforced
+ * rather than merely intended. A new dead end that forgets its reason is now a failing test.
+ *
+ * Classic and an explicit manual launch are excluded by definition: there the list is the
+ * destination the user asked for, not a fallback anybody needs explaining.
+ */
+fun hasSilentUncover(inputs: StreamRouteSurfaceInputs): Boolean =
+    streamRouteSurface(inputs) == StreamRouteSurface.SourceList &&
+        !inputs.isClassic &&
+        !inputs.isManualLaunch &&
+        inputs.uncoverReason == null

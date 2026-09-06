@@ -40,7 +40,7 @@ package com.nuvio.app.features.playback
  * away after [MANUAL_ESCAPE_DELAY_MS], so a longer deadline costs a wait somebody can already
  * walk out of, where the old one cost the source itself.
  *
- * Pure and clock-free, exactly as [AutoDownshiftDetector] is: the caller supplies the elapsed
+ * Pure and clock-free: the caller supplies the elapsed
  * wall-clock with each sample. **Wall-clock, never a sample count** - Android polls the player
  * every ~250 ms and desktop every 500 ms, so a count means two different things.
  */
@@ -56,6 +56,17 @@ object PlaybackStartupWatchdog {
      * that has not moved a single millisecond, and it can afford to be patient.
      */
     const val NO_PROGRESS_DEADLINE_MS = 20_000L
+
+    /**
+     * How long a source with credible evidence of life (e.g. parsed media duration, successful
+     * HTTP probe, demuxer buffer, etc.) may take to begin rendering or advancing playback.
+     *
+     * Needed for large (e.g. 50-70 GB remux) remote media files streaming over HTTP with an initial
+     * seek to a resume point, where fetching container headers, cues index, and initial keyframes
+     * can take 20-30 seconds on cold CDN edges.
+     */
+    const val EVIDENCE_OF_LIFE_DEADLINE_MS = 35_000L
+    const val SLOW_STARTUP_DEADLINE_MS = EVIDENCE_OF_LIFE_DEADLINE_MS
 
     /**
      * How long a source that *was* progressing may sit without advancing.
@@ -106,6 +117,11 @@ object PlaybackStartupWatchdog {
          * has no resume point to declare should leave it at.
          */
         val baselineMs: Long = 0L,
+        /**
+         * External evidence that the remote source responded successfully (e.g. HTTP 200/206 probe).
+         * Simple candidate handoff or URL existence is NOT evidence of life.
+         */
+        val hasExternalEvidenceOfLife: Boolean = false,
     ) {
         /**
          * How far this play has moved **from where it started**.
@@ -126,16 +142,34 @@ object PlaybackStartupWatchdog {
             }
 
         /**
-         * Whether anything at all has come back from the host.
+         * Whether credible evidence of life has come back from the host or player.
          *
-         * A known duration counts, and it is the one signal here that is not a *quantity*: it
-         * means the container header was read, so bytes arrived and were parsed. Deliberately
-         * **not** used to shorten any deadline - a source stuck with a header and an empty buffer
-         * is exactly a big file seeking out its first keyframe, so it keeps the patient clock.
-         * It is here for the log line, which is the only thing that can tell "nothing answered"
-         * apart from "it answered and then stopped" from outside a device.
+         * A known duration counts (container headers were parsed), buffered bytes count (data
+         * reached the player demuxer), and external proof such as a successful HTTP probe counts.
+         *
+         * Simple candidate handoff or URL existence is NOT evidence of life.
          */
-        val hasEvidenceOfLife: Boolean get() = progressMs > 0L || durationMs > 0L
+        val hasEvidenceOfLife: Boolean
+            get() = progressMs > 0L ||
+                durationMs > 0L ||
+                bufferedPositionMs > 0L ||
+                hasExternalEvidenceOfLife
+
+        /**
+         * Whether this play has actually moved.
+         *
+         * ⚠ **Only this may end the watchdog.** [hasEvidenceOfLife] used to be the sole gate on
+         * [Verdict.Started], which contradicted its own documentation: a known duration is not
+         * a quantity of progress, it is proof a header was parsed. A source that reads its
+         * container header and then delivers nothing - while the engine reports `isPlaying` at
+         * position zero with an empty buffer - was therefore declared Started on the first
+         * poll. That is precisely the dead-link shape this watchdog exists to catch, and only
+         * `progressMs` distinguishes it.
+         *
+         * Costs at most one extra sampling interval on a healthy start, because a source that
+         * is really playing advances between polls by definition.
+         */
+        val hasAdvanced: Boolean get() = progressMs > 0L
     }
 
     /** What the watchdog has concluded so far. */
@@ -177,6 +211,7 @@ object PlaybackStartupWatchdog {
         val lastAdvanceMs: Long = 0L,
         val verdict: Verdict = Verdict.Waiting,
         val reason: Reason? = null,
+        val hasEvidenceOfLife: Boolean = false,
     )
 
     fun initial(): State = State()
@@ -191,11 +226,16 @@ object PlaybackStartupWatchdog {
      */
     fun observe(state: State, sample: PlaybackStartupSample): State {
         if (state.verdict != Verdict.Waiting) return state
+        val evidenceOfLife = state.hasEvidenceOfLife || sample.hasEvidenceOfLife
+
         // Started, and *only* this. `isPlaying` on its own is true for an engine that reports
         // itself playing while stuck at zero with an empty buffer, which is precisely the shape
         // of the dead debrid link this watchdog exists for.
-        if (sample.isPlaying && sample.hasEvidenceOfLife) {
-            return state.copy(verdict = Verdict.Started)
+        if (sample.isPlaying && sample.hasAdvanced) {
+            return state.copy(
+                verdict = Verdict.Started,
+                hasEvidenceOfLife = true,
+            )
         }
 
         val advanced = sample.progressMs > state.bestProgressMs
@@ -207,6 +247,7 @@ object PlaybackStartupWatchdog {
             lastAdvanceMs = lastAdvanceMs,
             verdict = Verdict.Abandon,
             reason = reason,
+            hasEvidenceOfLife = evidenceOfLife,
         )
 
         // Ordered dearest-first: a transfer that has run past the ceiling is [Reason.TooSlow]
@@ -215,13 +256,26 @@ object PlaybackStartupWatchdog {
         // than about the source.
         if (sample.elapsedMs >= MAX_STARTUP_MS) return abandon(Reason.TooSlow)
         if (bestProgressMs <= 0L) {
-            return if (sample.elapsedMs >= NO_PROGRESS_DEADLINE_MS) {
+            val deadlineMs = if (evidenceOfLife) {
+                EVIDENCE_OF_LIFE_DEADLINE_MS
+            } else {
+                NO_PROGRESS_DEADLINE_MS
+            }
+            return if (sample.elapsedMs >= deadlineMs) {
                 abandon(Reason.NeverStarted)
             } else {
-                State(bestProgressMs = 0L, lastAdvanceMs = lastAdvanceMs)
+                State(
+                    bestProgressMs = 0L,
+                    lastAdvanceMs = lastAdvanceMs,
+                    hasEvidenceOfLife = evidenceOfLife,
+                )
             }
         }
         if (sample.elapsedMs - lastAdvanceMs >= STALL_DEADLINE_MS) return abandon(Reason.Stalled)
-        return State(bestProgressMs = bestProgressMs, lastAdvanceMs = lastAdvanceMs)
+        return State(
+            bestProgressMs = bestProgressMs,
+            lastAdvanceMs = lastAdvanceMs,
+            hasEvidenceOfLife = evidenceOfLife,
+        )
     }
 }

@@ -81,7 +81,6 @@ import com.nuvio.app.features.p2p.P2pCacheSize
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pTorrentProfile
-import com.nuvio.app.features.playback.AutoDownshiftDetector
 import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
@@ -389,7 +388,7 @@ private fun PlaybackSettingsSection(
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = "Playback diagnostics HUD",
-                        description = "Show live buffer, engine, source, network, throttle, and swap controls.",
+                        description = "Show live buffer, engine, source, network, and throttle controls.",
                         checked = PlaybackDebugSettings.hudEnabled,
                         isTablet = isTablet,
                         onCheckedChange = { PlaybackDebugSettings.hudEnabled = it },
@@ -496,11 +495,6 @@ private fun PlaybackSettingsSection(
             val classicOnlyReason = stringResource(Res.string.settings_playback_classic_only)
             fun withClassicReason(description: String): String =
                 if (isClassicMode) description + "\n" + classicOnlyReason else description
-            // Automatic source swapping is withheld on its own terms now. It used to ride on
-            // `PlaybackMode.INSTANT.isSelectable`, which was true enough while Instant was
-            // withdrawn and would have handed a never-once-observed mid-playback source swap
-            // to users in the same release that brought the mode back.
-            val autoDownshiftAvailable = AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE
             SettingsGroup(isTablet = isTablet) {
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_language_strictness),
@@ -572,22 +566,6 @@ private fun PlaybackSettingsSection(
                     isAdvanced = true,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPlaybackAllowTorrentAutopick,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_auto_downshift),
-                    description = if (autoDownshiftAvailable) {
-                        stringResource(Res.string.settings_playback_auto_downshift_description)
-                    } else {
-                        stringResource(Res.string.settings_playback_auto_downshift_description) +
-                            "\n" + stringResource(Res.string.playback_mode_unavailable)
-                    },
-                    checked = autoDownshiftAvailable && autoPlayPlayerSettings.playbackAutoDownshift,
-                    enabled = autoDownshiftAvailable &&
-                        autoPlayPlayerSettings.playbackMode == PlaybackMode.INSTANT,
-                    isAdvanced = !isDebugBuild,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setPlaybackAutoDownshift,
                 )
             }
         }

@@ -123,6 +123,8 @@ import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
+import com.nuvio.app.features.playback.PlaybackLoadingHost
+import com.nuvio.app.features.player.ExternalPlaybackOutcome
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
@@ -848,7 +850,7 @@ internal fun MainAppContent(
             }
         }
 
-        suspend fun openExternalPlayback(launch: PlayerLaunch): Boolean {
+        suspend fun openExternalPlayback(launch: PlayerLaunch): ExternalPlaybackOutcome {
             lastExternalPlayerLaunch = launch
 
             val bingeGroup = launch.bingeGroup
@@ -887,15 +889,19 @@ internal fun MainAppContent(
                 if (!launched) {
                     NuvioToastController.show(externalPlayerFailedText)
                 }
-                launched
+                if (launched) {
+                    ExternalPlaybackOutcome.Opened
+                } else {
+                    ExternalPlaybackOutcome.SourceRejected
+                }
             }
             ExternalPlayerIntentResult.NotConfigured -> {
                 NuvioToastController.show(externalPlayerNotConfiguredText)
-                false
+                ExternalPlaybackOutcome.PlayerUnavailable
             }
             ExternalPlayerIntentResult.Failed -> {
                 NuvioToastController.show(externalPlayerFailedText)
-                false
+                ExternalPlaybackOutcome.PlayerUnavailable
             }
         }
     }
@@ -2133,6 +2139,19 @@ internal fun MainAppContent(
                     .align(Alignment.BottomCenter)
                     .zIndex(15f),
             )
+
+            // ⚠ **Above `NavDisplay`, and that placement is the whole point.** The loading
+            // surface has to outlive `entry<StreamRoute>`, `entry<PlayerRoute>` and the pop
+            // between them; owned by either route it was destroyed and re-created at every
+            // hand-off and every failover, which is what made the source list flash back in
+            // before the player appeared and made a failover visibly reload the screen.
+            //
+            // Below the toast host on purpose: a toast over this surface is legitimate and is
+            // sometimes the only thing that can report a background failure.
+            //
+            // The player route keeps its iOS transition. Unlike desktop there is no heavyweight
+            // native surface here, so this host covers the crossfade for its whole duration.
+            PlaybackLoadingHost(modifier = Modifier.zIndex(18f))
 
             NuvioToastHost(
                 modifier = Modifier

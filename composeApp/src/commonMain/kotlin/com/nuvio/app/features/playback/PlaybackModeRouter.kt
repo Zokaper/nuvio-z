@@ -85,6 +85,17 @@ data class PlaybackRouteInputs(
     /** `StreamLaunch.manualSelection` - the long-press / right-click / "Select source" path. */
     val manualSelection: Boolean,
     val hasCompletedLocalDownload: Boolean,
+    /**
+     * A party member resolving the host's already-chosen fingerprint, not picking anything.
+     *
+     * `launch.partyContext?.purpose == RESOLVE_PLAYBACK && targetFingerprint != null`. Nobody
+     * is being asked a question here - the exact-match effect in `entry<StreamRoute>` is the
+     * only thing deciding what plays - so Streamlined's quality sheet has no question to put
+     * in front of a party guest and no user to answer it. Left to the mode branches below, it
+     * appeared anyway and stranded the guest reading it while the match effect that was
+     * actually going to open their player ran on regardless, unseen behind it.
+     */
+    val isPartyResolvePlayback: Boolean = false,
 )
 
 /**
@@ -117,6 +128,9 @@ object PlaybackModeRouter {
         inputs.manualSelection ->
             PlaybackRouteDecision.ShowSourceList("manual selection requested")
 
+        inputs.isPartyResolvePlayback ->
+            PlaybackRouteDecision.AutoPick("party member resolving the host's source")
+
         inputs.hasCompletedLocalDownload ->
             PlaybackRouteDecision.PlayLocalDownload("a completed download exists on this device")
 
@@ -129,4 +143,3 @@ object PlaybackModeRouter {
         else -> PlaybackRouteDecision.ShowSourceList("classic mode")
     }
 }
-

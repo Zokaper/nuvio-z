@@ -1,10 +1,7 @@
 package com.nuvio.app.features.streams
 
 import com.nuvio.app.core.build.AppFeaturePolicy
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import nuvio.composeapp.generated.resources.*
-import org.jetbrains.compose.resources.getString
 
 @Serializable
 data class StreamSubtitle(
@@ -38,8 +35,15 @@ data class StreamItem(
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
 ) {
+    companion object {
+        const val DEFAULT_STREAM_NAME: String = "Stream"
+    }
+
+    fun streamLabel(defaultName: String = DEFAULT_STREAM_NAME): String =
+        name ?: defaultName
+
     val streamLabel: String
-        get() = name ?: runBlocking { getString(Res.string.stream_default_name) }
+        get() = streamLabel()
 
     val streamSubtitle: String?
         get() = description
@@ -176,6 +180,13 @@ data class AioParsedFile(
 
 fun normalizeStreamType(raw: String?): String? =
     raw?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
+/**
+ * Canonical constructor for the P2P / torrent sentinel URL consumed by the player runtime.
+ * Format: `torrent://$infoHash` or `torrent://$infoHash?index=$fileIdx`.
+ */
+fun p2pSentinelUrl(infoHash: String, fileIdx: Int? = null): String =
+    "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
 
 private fun String?.isMagnetLink(): Boolean =
     this?.trimStart()?.startsWith("magnet:", ignoreCase = true) == true

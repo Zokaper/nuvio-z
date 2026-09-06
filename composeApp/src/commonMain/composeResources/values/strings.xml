@@ -1257,15 +1257,32 @@
     <string name="playback_quality_variant_mid">Mid</string>
     <string name="playback_quality_variant_low">Low</string>
     <string name="playback_quality_over_connection">May be more than your connection carries</string>
+    <string name="playback_quality_over_connection_legend">Amber rows may need more than your connection carries</string>
+    <string name="playback_quality_column_needs">Needs</string>
+    <string name="playback_quality_column_size">Size</string>
+    <!-- A band that is the best its resolution offers without reaching the Max boundary:
+         "High (Max)". %1$s is the band, %2$s is playback_quality_variant_max. -->
+    <string name="playback_quality_variant_tops_resolution">%1$s (%2$s)</string>
+    <!-- Last resort for a lone release whose size nobody reported, so no band can be derived
+         for it. Every other single-release row is labelled with its derived band instead. -->
+    <string name="playback_quality_variant_only">Only release</string>
     <string name="playback_quality_needs">Needs %1$d Mb/s</string>
     <string name="playback_quality_needs_estimated">Needs about %1$d Mb/s</string>
+    <string name="playback_quality_needs_value">%1$d Mb/s</string>
+    <string name="playback_quality_needs_value_estimated">~%1$d Mb/s</string>
     <string name="playback_quality_summary_with_size">%1$s · %2$s</string>
     <string name="playback_quality_manual">Choose source manually</string>
     <string name="playback_quality_your_connection">Your connection: about %1$d Mb/s</string>
     <string name="playback_quality_checking_connection">Checking your connection…</string>
     <string name="playback_quality_estimated_connection">Estimated ~%1$d Mb/s for this connection</string>
     <string name="playback_quality_last_measured">Last measured: about %1$d Mb/s · tap to re-test</string>
-    <string name="player_source_switched">Connection dropped - switched to %1$s</string>
+    <string name="playback_quality_last_measured_short">Last measured: about %1$d Mb/s</string>
+    <string name="playback_quality_retest">Re-test</string>
+    <string name="playback_fact_resolution">Resolution</string>
+    <string name="playback_fact_language">Audio / Subs</string>
+    <string name="playback_fact_range">Range</string>
+    <string name="playback_fact_audio">Audio</string>
+    <string name="playback_fact_size">Size</string>
     <string name="playback_instant_selected">Playing %1$s</string>
     <string name="playback_quality_no_match">No safe automatic source matched. Choose a source manually.</string>
     <string name="playback_sources_timed_out">Sources are taking too long. Choose one manually.</string>
@@ -1279,6 +1296,11 @@
     <string name="playback_progress_attempt">Attempt %1$d of %2$d</string>
     <string name="playback_progress_source_failed">%1$s did not start</string>
     <string name="playback_progress_source_failed_reason">%1$s: %2$s</string>
+    <string name="playback_error_copy_details">Copy error details</string>
+    <string name="playback_external_player_rejected">The external player would not open this source</string>
+    <string name="playback_source_unreachable">the host would not serve this source</string>
+    <string name="playback_source_not_ready">not ready on your debrid yet</string>
+    <string name="playback_startup_wrong_length">too short to be this title</string>
     <string name="playback_startup_never_started">no response from the host</string>
     <string name="playback_startup_stalled">stopped part way through loading</string>
     <string name="playback_startup_too_slow">too slow to start on this connection</string>
@@ -1329,8 +1351,6 @@
     <string name="settings_playback_dynamic_range_prefer">Prefer HDR</string>
     <string name="settings_playback_dynamic_range_require">Require HDR</string>
     <string name="settings_playback_dynamic_range_require_dv">Require Dolby Vision</string>
-    <string name="settings_playback_auto_downshift">Switch source when buffering persists</string>
-    <string name="settings_playback_auto_downshift_description">In Instant mode, moves to a lower-quality release from the same group after several seconds of sustained buffering. Costs a brief pause and happens at most once per episode. Off by default.</string>
     <string name="settings_playback_section_player">PLAYER</string>
     <string name="settings_playback_section_skip_segments">SKIP SEGMENTS</string>
     <string name="settings_playback_section_stream_auto_play">STREAM AUTO-PLAY</string>
