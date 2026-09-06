@@ -93,11 +93,6 @@ data class PlayerSettingsUiState(
     val playbackQualityCeilingMbps: Int = 0,
     val showAdvancedSettings: Boolean = false,
     val playbackMeteredCapHeight: Int = 720,
-    /**
-     * Instant's opt-in automatic source downshift. Off by default: it trades a visible
-     * 1-3s hiccup for avoiding a stall, which is only worth it under sustained starvation.
-     */
-    val playbackAutoDownshift: Boolean = false,
     /** False until the first-launch mode selector has been answered or dismissed. */
     val playbackModeSelectorSeen: Boolean = false,
     /**
@@ -206,7 +201,6 @@ object PlayerSettingsRepository {
     private var playbackQualityCeilingMbps = 0
     private var showAdvancedSettings = false
     private var playbackMeteredCapHeight = 720
-    private var playbackAutoDownshift = false
     private var playbackModeSelectorSeen = false
     private var setupWizardCompletedRevision = 0
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
@@ -288,7 +282,6 @@ object PlayerSettingsRepository {
         playbackQualityCeilingMbps = 0
         showAdvancedSettings = false
         playbackMeteredCapHeight = 720
-        playbackAutoDownshift = false
         playbackModeSelectorSeen = false
         setupWizardCompletedRevision = 0
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
@@ -423,7 +416,6 @@ object PlayerSettingsRepository {
         showAdvancedSettings = PlayerSettingsStorage.loadShowAdvancedSettings()
             ?: hasTunedAnAdvancedSetting(
                 allowTorrentAutopick = PlayerSettingsStorage.loadPlaybackAllowTorrentAutopick(),
-                autoDownshift = PlayerSettingsStorage.loadPlaybackAutoDownshift(),
                 meteredCapHeight = PlayerSettingsStorage.loadPlaybackMeteredCapHeight(),
                 streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode(),
                 streamAutoPlayRegex = PlayerSettingsStorage.loadStreamAutoPlayRegex(),
@@ -432,7 +424,6 @@ object PlayerSettingsRepository {
             )
         playbackMeteredCapHeight = PlayerSettingsStorage.loadPlaybackMeteredCapHeight()
             ?.takeIf { it in 360..2160 } ?: 720
-        playbackAutoDownshift = PlayerSettingsStorage.loadPlaybackAutoDownshift() ?: false
         playbackModeSelectorSeen =
             PlayerSettingsStorage.loadPlaybackModeSelectorSeen() ?: false
         setupWizardCompletedRevision =
@@ -794,14 +785,6 @@ object PlayerSettingsRepository {
         playbackMeteredCapHeight = normalized
         publish()
         PlayerSettingsStorage.savePlaybackMeteredCapHeight(normalized)
-    }
-
-    fun setPlaybackAutoDownshift(enabled: Boolean) {
-        ensureLoaded()
-        if (playbackAutoDownshift == enabled) return
-        playbackAutoDownshift = enabled
-        publish()
-        PlayerSettingsStorage.savePlaybackAutoDownshift(enabled)
     }
 
     /**
@@ -1195,7 +1178,6 @@ object PlayerSettingsRepository {
             playbackQualityCeilingMbps = playbackQualityCeilingMbps,
             showAdvancedSettings = showAdvancedSettings,
             playbackMeteredCapHeight = playbackMeteredCapHeight,
-            playbackAutoDownshift = playbackAutoDownshift,
             playbackModeSelectorSeen = playbackModeSelectorSeen,
             setupWizardCompletedRevision = setupWizardCompletedRevision,
             streamAutoPlayMode = streamAutoPlayMode,

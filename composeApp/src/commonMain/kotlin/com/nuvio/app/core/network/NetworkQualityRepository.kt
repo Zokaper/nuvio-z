@@ -305,7 +305,7 @@ object NetworkQualityRepository {
             else -> VideoResolution.UHD_2160
         }
         // Erring high is right for streaming - a stream that over-reaches is caught by
-        // downshift and costs nothing but a hiccup. It is not right for disk. Instant's
+        // ranked failover and costs nothing but a hiccup. It is not right for disk. Instant's
         // download button never asks, so an unmeasured platform guess must not silently
         // start a 4K download; a real measurement unlocks it.
         return if (
@@ -433,7 +433,7 @@ object NetworkQualityRepository {
      * the quality sheet says it is still checking rather than quoting one of these - because a
      * preset printed as "your connection" is a claim the app has not earned.
      *
-     * Erring high is the safer error for the ordering they still do: `AutoDownshiftDetector`
+     * Erring high is the safer error for the ordering they still do: playback selection
      * catches an over-reach mid-playback, whereas an under-reach is invisible. One measurement
      * of any kind replaces them.
      */

@@ -102,6 +102,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.NuvioSkeletonStreamRow
+import com.nuvio.app.core.ui.nuvio
 
 // ---------------------------------------------------------------------------
 // Streams Screen
@@ -1033,13 +1035,19 @@ private fun LazyListScope.streamSection(
     resumePositionMs: Long?,
     resumeProgressFraction: Float?,
 ) {
-    if (group.streams.isEmpty() && !group.isLoading) return
+    // ⚠ **An errored group must still draw its header.** `AddonStreamGroup.error` is only ever
+    // set *alongside* an empty stream list - both in the fetch failure arm and in the plugin
+    // merge, which only keeps an error when nothing merged - so this early return used to skip
+    // the one row that had something to say. An addon replying "stream not found" rendered
+    // exactly nothing: no name, no reason, just an absence the user had to infer.
+    if (group.streams.isEmpty() && !group.isLoading && group.error.isNullOrBlank()) return
 
     if (showHeader) {
         item(key = "header_$sectionKey") {
             StreamSectionHeader(
                 addonName = group.addonName,
                 isLoading = group.isLoading,
+                error = group.error,
             )
         }
     }
@@ -1127,14 +1135,25 @@ internal fun streamCardRenderKey(
 // Stream Section Header
 // ---------------------------------------------------------------------------
 
+/**
+ * The addon's name, whether it is still answering, and **what it said when it failed**.
+ *
+ * [error] is the addon's own words. `AddonStreamGroup` has captured it all along and every
+ * reader threw it away, reducing it to a `hasError` boolean for a chip - so an addon that
+ * replied "stream not found" produced a screen indistinguishable from one that replied
+ * nothing, and the automatic modes stepped past its candidates with no account of why.
+ * Printing it costs one line and is the whole evidence base for the AIO failures.
+ */
 @Composable
 private fun StreamSectionHeader(
     addonName: String,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
+    error: String? = null,
 ) {
+    Column(modifier = modifier.fillMaxWidth()) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1161,6 +1180,17 @@ private fun StreamSectionHeader(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+        }
+    }
+        error?.takeIf { it.isNotBlank() }?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.nuvio.colors.danger,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            )
         }
     }
 }
@@ -1217,7 +1247,7 @@ private fun StreamActionsSheet(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = stream.streamLabel,
+                    text = stream.streamLabel(stringResource(Res.string.stream_default_name)),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
@@ -1350,29 +1380,31 @@ private fun Long.toPlaybackClock(): String {
 // State blocks
 // ---------------------------------------------------------------------------
 
+/**
+ * The list, loading - not a spinner over the space where the list will be.
+ *
+ * Results arrive one addon group at a time, so this block is on screen while real rows are
+ * landing beneath it. A centred spinner in that situation says "wait" about a screen that is
+ * already filling in, and gives no sense of how much is still to come; skeleton rows in the
+ * shape of stream rows say both, and nothing jumps when they are replaced.
+ */
 @Composable
 private fun LoadingStateBlock(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        NuvioLoadingIndicator(
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp),
-        )
-        Text(
-            text = stringResource(Res.string.streams_finding_streams),
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            ),
-            color = MaterialTheme.colorScheme.primary,
-        )
+        repeat(SKELETON_ROW_COUNT) { NuvioSkeletonStreamRow() }
     }
 }
+
+/**
+ * Enough rows to read as a list rather than as one placeholder, and few enough that a fast
+ * addon does not replace a screenful of ghosts with two real results.
+ */
+private const val SKELETON_ROW_COUNT = 3
 
 @Composable
 private fun EmptyStateBlock(
@@ -1449,27 +1481,30 @@ private fun EmptyStateBlock(
     }
 }
 
+/**
+ * More addons still answering, below results that have already arrived.
+ *
+ * One skeleton row rather than a spinner, for the same reason as [LoadingStateBlock]: what is
+ * coming is another row, so the placeholder is another row. The label stays - here it is
+ * saying something a skeleton cannot, namely *why* there is more to come.
+ */
 @Composable
 private fun FooterLoadingBlock(modifier: Modifier = Modifier) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        NuvioLoadingIndicator(
-            modifier = Modifier.size(14.dp),
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = stringResource(Res.string.streams_checking_more_addons),
             style = MaterialTheme.typography.bodySmall.copy(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
             ),
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.nuvio.colors.textMuted,
         )
+        NuvioSkeletonStreamRow()
     }
 }
+

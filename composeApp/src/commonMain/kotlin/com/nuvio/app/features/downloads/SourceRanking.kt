@@ -23,13 +23,44 @@ data class SourceRankingPreferences(
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
     val audioPreference: AudioPreference = AudioPreference.ANY,
     val sizePreference: SizePreference = SizePreference.LARGEST_UNDER_CAP,
-)
+    val displayMaxHeight: Int? = null,
+) {
+    val is8kDisplay: Boolean
+        get() = (displayMaxHeight ?: 0) >= VideoResolution.UHD_4320.height
+}
 
 /**
  * The common source comparator. Callers keep their own eligibility and protocol rules;
  * only ordering belongs here.
  */
 object SourceRanking {
+    const val THEATRICAL_CAPTURE_TIER = -1
+    const val UNKNOWN_RESOLUTION_TIER = 0
+
+    /**
+     * The resolution tier for automatic ordering.
+     *
+     * Rules:
+     * - Theatrical captures (CAM, TS, etc.) are sorted to the lowest tier [THEATRICAL_CAPTURE_TIER] (-1),
+     *   ensuring proper releases always win, but remain selectable if CAM is the only stream.
+     * - On displays < 8K: 8K and 4K receive the SAME resolution tier (5). The rest of the quality model
+     *   (HDR, audio, bitrate, confidence, AI-upscale status) decides.
+     * - On an 8K display: native 8K retains normal resolution advantage (tier 6) over 4K (tier 5).
+     *   An 8K AI upscale on an 8K display does not gain this advantage and stays at tier 5.
+     */
+    fun resolutionTier(facts: SourceFacts, preferences: SourceRankingPreferences): Int {
+        if (facts.isTheatricalCapture) return THEATRICAL_CAPTURE_TIER
+        val resolution = facts.resolution ?: return UNKNOWN_RESOLUTION_TIER
+        return when (resolution) {
+            VideoResolution.UHD_4320 -> if (preferences.is8kDisplay && !facts.isAiUpscaled) 6 else 5
+            VideoResolution.UHD_2160 -> 5
+            VideoResolution.QHD_1440 -> 4
+            VideoResolution.FULL_HD_1080 -> 3
+            VideoResolution.HD_720 -> 2
+            VideoResolution.SD -> 1
+        }
+    }
+
     fun midRangeTarget(facts: List<SourceFacts>, capBytes: Long): Long? {
         val fittingSizes = facts.mapNotNull(SourceFacts::sizeBytes)
             .filter { it <= capBytes }
@@ -46,7 +77,7 @@ object SourceRanking {
         stableUrlOf: (T) -> String,
     ): Comparator<T> {
         val qualityComparator = compareByDescending<T> {
-            factsOf(it).resolution?.height ?: Int.MIN_VALUE
+            resolutionTier(factsOf(it), preferences)
         }.thenByDescending {
             languageScore(factsOf(it), preferences)
         }.thenByDescending {
@@ -166,7 +197,9 @@ object SourceRanking {
             audioScore(facts, preferences.audioPreference) +
             channelScore(facts, preferences.audioPreference) +
             codecScore(facts, preferences.codecPreference) +
-            releaseQualityScore(facts.releaseQuality)
+            releaseQualityScore(facts.releaseQuality) +
+            aiUpscaleScore(facts) +
+            theatricalCaptureScore(facts)
 
     /**
      * Whether the release claims any HDR-family range or Dolby Vision.
@@ -273,6 +306,14 @@ object SourceRanking {
      * that the candidate keeps its place in the ordering below everything that qualifies.
      */
     const val UNSATISFIED_REQUIREMENT = -100
+    const val AI_UPSCALE_PENALTY = -8
+    const val CAM_TS_PENALTY = -20
+
+    fun aiUpscaleScore(facts: SourceFacts): Int =
+        if (facts.isAiUpscaled) AI_UPSCALE_PENALTY else 0
+
+    fun theatricalCaptureScore(facts: SourceFacts): Int =
+        if (facts.isTheatricalCapture) CAM_TS_PENALTY else 0
 
     fun releaseQualityScore(value: String?): Int {
         val normalized = value?.uppercase().orEmpty()
@@ -282,7 +323,7 @@ object SourceRanking {
             "WEB-DL" in normalized -> 4
             "WEBRIP" in normalized -> 3
             "HDTV" in normalized -> 2
-            "CAM" in normalized -> 0
+            "CAM" in normalized || "TS" in normalized || "TELESYNC" in normalized || "TC" in normalized || "TELECINE" in normalized -> 0
             else -> 1
         }
     }

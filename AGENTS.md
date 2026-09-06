@@ -11,8 +11,9 @@ completed, verified, deferred, or blocked.
 - Android release application ID: `com.nuvio.app.z`
 - Android debug application ID: `com.nuvio.app.z.debug`
 - Kotlin namespace remains `com.nuvio.app`.
-- The project is based on NuvioMobile commit
-  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71`.
+- The project forked from NuvioMobile commit
+  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and is synced to upstream tag `0.4.13`
+  (`42a9febf`), merged 2026-09-04.
 - `upstream` must continue to point to
   `https://github.com/NuvioMedia/NuvioMobile.git`.
 - The private personal fork should use the `origin` remote.
@@ -554,7 +555,6 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
   `features/playback/PlaybackModeModels.kt`, `PlaybackModeRouter.kt`,
   `PlaybackSourceSelector.kt`, `PlaybackQualityOptions.kt`, `StreamRouteSurface.kt`,
   `features/downloads/SourceRanking.kt`, `core/network/NetworkQualityPlatform.kt`,
-  `features/playback/AutoDownshiftDetector.kt`,
   `features/playback/PlaybackStartupWatchdog.kt` (**import-free**, group 2 of
   `scripts/run-pure-suites.sh`), consumed by `features/player/PlayerScreenRuntimeEffects.kt`,
   `features/playback/PlaybackProgressOverlay.kt`,
@@ -562,9 +562,8 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
   ⚠ **All three modes ship.** `PlaybackMode.isSelectable` is still the *only* availability
   test and `coerceSelectable` is still applied at read time; both are now no-ops, kept
   because they are the withdrawal mechanism and it has been used twice. Automatic downshift
-  is withheld **separately**, by `AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE` - it used
-  to ride on `INSTANT.isSelectable` and would otherwise have shipped a never-once-observed
-  mid-playback source swap in the same release the mode returned.
+  was deleted in Phase 2 after a confirmed unresolved-source identity defect and no device
+  evidence since it was held in `0.4.9`; do not re-derive its missing detector or setting.
   There is no `PlaybackModeRepository.kt` - the mode lives in `PlayerSettingsRepository`.
 - **Instant is not a third selection mechanism; it is Streamlined with the quality sheet
   auto-answered by the connection.** One effect in `entry<StreamRoute>` picks an option with

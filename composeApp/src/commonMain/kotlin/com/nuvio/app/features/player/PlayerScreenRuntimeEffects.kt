@@ -17,7 +17,9 @@ import com.nuvio.app.features.p2p.P2pStreamRequest
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.core.network.NetworkThroughputMeter
-import com.nuvio.app.features.playback.AutoDownshiftDetector
+import com.nuvio.app.features.playback.PlaybackAttemptLog
+import com.nuvio.app.features.playback.PlaybackDurationPlausibility
+import com.nuvio.app.features.playback.PlaybackPosition
 import com.nuvio.app.features.playback.PlaybackStartupWatchdog
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
@@ -123,7 +125,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // user sees before a debrid stream begins. The controller above genuinely must be torn
         // down - the URL is different and a new engine instance is coming - but the *presentation*
         // should not start over for a file that never changed.
-        if (!isContinuation) initialLoadCompleted = false
+        if (!isContinuation) {
+            initialLoadCompleted = false
+            // A new source means a new wait; the surface must come back up for it.
+            firstFrameReached = false
+        }
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
         pendingSeekScrobbleRestart = false
@@ -135,6 +141,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         speedBoostRestoreSpeed = null
         preferredAudioSelectionApplied = false
         preferredSubtitleSelectionApplied = false
+        isUserExplicitSubtitleSelection = false
+        hasScannedTextTracksOnce = false
+        selectedSubtitleIndex = -1
+        selectedAddonSubtitleId = null
+        useCustomSubtitles = false
         showSourcesPanel = false
         showEpisodesPanel = false
         episodeStreamsPanelState = EpisodeStreamsPanelState()
@@ -176,6 +187,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()
         initialLoadCompleted = false
+        firstFrameReached = false
 
         try {
             val localUrl = P2pStreamingEngine.startStream(
@@ -234,6 +246,41 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController?.applySubtitleStyle(subtitleStyle)
     }
 
+    val subtitlePreferenceKey = listOf(
+        playerSettingsUiState.preferredSubtitleLanguage,
+        playerSettingsUiState.secondaryPreferredSubtitleLanguage.orEmpty(),
+        subtitleStyle.useForcedSubtitles,
+    ).joinToString("|")
+    var lastSubtitlePreferenceKey by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(
+        playerController,
+        subtitlePreferenceKey,
+        preferredSubtitleSelectionApplied,
+        selectedSubtitleIndex,
+        selectedAddonSubtitleId,
+        useCustomSubtitles,
+    ) {
+        val controller = playerController ?: return@LaunchedEffect
+        val preferenceChanged = lastSubtitlePreferenceKey != null &&
+            lastSubtitlePreferenceKey != subtitlePreferenceKey
+        lastSubtitlePreferenceKey = subtitlePreferenceKey
+
+        controller.applySubtitlePreferences(
+            preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
+            secondaryPreferredLanguage = playerSettingsUiState.secondaryPreferredSubtitleLanguage,
+            useForcedSubtitles = subtitleStyle.useForcedSubtitles,
+            autoSelectionApplied = preferredSubtitleSelectionApplied,
+            hasActiveSubtitle = selectedSubtitleIndex >= 0 || selectedAddonSubtitleId != null,
+            useCustomSubtitles = useCustomSubtitles,
+        )
+
+        if (preferenceChanged) {
+            preferredSubtitleSelectionApplied = false
+            refreshTracks()
+        }
+    }
+
     LaunchedEffect(
         playerController,
         playerControllerSourceUrl,
@@ -276,14 +323,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
-    // A new source - whether the user picked it or a downshift did - starts its own settle
-    // window. Without this, a position-preserving switch inherits the previous source's
-    // "already settled" state and its perfectly normal startup buffering reads as
-    // starvation. The swap budget deliberately does *not* reset here.
+    // A different file starts fresh passive network measurements.
     LaunchedEffect(activeSourceUrl) {
-        autoDownshiftState = AutoDownshiftDetector.initial(autoDownshiftState.swapsUsed)
-        autoDownshiftClock = TimeSource.Monotonic.markNow()
-        autoDownshiftSourcesRequested = false
+        playbackObservationClock = TimeSource.Monotonic.markNow()
         // A different file is a different bitrate, so the measurement starts over.
         networkEstimateStartPositionMs = null
         networkEstimateStalled = false
@@ -296,7 +338,6 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     // on the source URL, because re-minting changes the URL and would otherwise refund the
     // budget it just spent.
     LaunchedEffect(activeVideoId) {
-        autoDownshiftState = AutoDownshiftDetector.initial()
         credentialRefreshesUsed = 0
         credentialRefreshAttemptedSourceUrl = null
     }
@@ -325,6 +366,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // catalogue. See `PlaybackStartupWatchdog` for the whole argument.
         val startedAt = TimeSource.Monotonic.markNow()
         var watch = PlaybackStartupWatchdog.initial()
+        var wasEvidenceOfLifeLogged = false
         while (true) {
             delay(PlaybackStartupWatchdog.POLL_INTERVAL_MS)
             val snapshot = playbackSnapshot
@@ -338,9 +380,53 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 // position immediately, so without this a resumed episode looked like 22
                 // minutes of progress on its first sample and any dead source was declared
                 // started - see `PlaybackStartupSample.baselineMs`.
-                baselineMs = activeInitialPositionMs.coerceAtLeast(0L),
+                // ⚠ **The fraction path counts too.** This read `activeInitialPositionMs`
+                // alone, so a resume carrying only a percentage - which `resolveEpisodeResume`
+                // really can return - gave a baseline of 0 while the seek above jumped to
+                // `duration × fraction`. The engine reports a pending seek target immediately,
+                // so the first sample then read enormous progress against a baseline of zero,
+                // `hasEvidenceOfLife` was true, and **a dead source was declared Started** -
+                // the startup overlay up forever with the chain unrun.
+                baselineMs = PlaybackPosition.resolveStartPositionMs(
+                    initialPositionMs = activeInitialPositionMs,
+                    progressFraction = activeInitialProgressFraction,
+                    durationMs = snapshot.durationMs,
+                ) ?: activeInitialPositionMs.coerceAtLeast(0L),
             )
+            // ⚠ **Checked before the watchdog's verdict, because the watchdog would say Started.**
+            // A provider's "being prepared" slate plays perfectly: position advances, the buffer
+            // fills, and every signal the watchdog reads says this source is healthy. It is - it
+            // is just not the film. *The Secret Woman* reported `duration=120960` against a
+            // feature and the chain stopped there, satisfied. The only fact that disagrees is the
+            // duration, so it has to be read before "it is playing" is allowed to end the check.
+            if (
+                PlaybackDurationPlausibility.isImplausiblyShort(
+                    reportedDurationMs = snapshot.durationMs,
+                    expectedRuntimeMinutes = args.expectedRuntimeMinutes,
+                )
+            ) {
+                startupLog.w {
+                    "abandoning $activeStreamTitle: reason=ImplausibleDuration " +
+                        "duration=${snapshot.durationMs}ms " +
+                        "expectedMinutes=${args.expectedRuntimeMinutes} " +
+                        "engine=${snapshot.engineName}"
+                }
+                StreamsRepository.noteAutoPickFailureReason(
+                    getString(Res.string.playback_startup_wrong_length),
+                )
+                if (tryNextEpisodeFallback()) return@LaunchedEffect
+                args.onFatalPlaybackError?.invoke()
+                return@LaunchedEffect
+            }
             watch = PlaybackStartupWatchdog.observe(watch, sample)
+            if (!wasEvidenceOfLifeLogged && watch.hasEvidenceOfLife) {
+                wasEvidenceOfLifeLogged = true
+                startupLog.i {
+                    "watchdog evidence of life: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                        "elapsed=${sample.elapsedMs}ms duration=${sample.durationMs}ms " +
+                        "buffered=${sample.bufferedPositionMs}ms"
+                }
+            }
             when (watch.verdict) {
                 PlaybackStartupWatchdog.Verdict.Waiting -> Unit
                 PlaybackStartupWatchdog.Verdict.Started -> return@LaunchedEffect
@@ -354,6 +440,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                         "abandoning $activeStreamTitle: reason=$reason " +
                             "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                             "lastAdvance=${watch.lastAdvanceMs}ms duration=${sample.durationMs}ms " +
+                            "evidenceOfLife=${watch.hasEvidenceOfLife} " +
                             "engine=${snapshot.engineName}"
                     }
                     StreamsRepository.noteAutoPickFailureReason(
@@ -380,6 +467,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playbackSnapshot.isLoading,
         preferredAudioSelectionApplied,
         preferredSubtitleSelectionApplied,
+        addonSubtitles,
+        isLoadingAddonSubtitles,
     ) {
         if (playerController == null || playbackSnapshot.isLoading) {
             return@LaunchedEffect
@@ -410,22 +499,57 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         if (playerControllerSourceUrl != activeSourceUrl) return@LaunchedEffect
         if (initialSeekApplied || playbackSnapshot.isLoading) return@LaunchedEffect
 
-        val progressFraction = activeInitialProgressFraction
-            ?.takeIf { it > 0f }
-            ?.coerceIn(0f, 1f)
-        val targetPositionMs = when {
-            activeInitialPositionMs > 0L -> activeInitialPositionMs
-            progressFraction != null && playbackSnapshot.durationMs > 0L -> {
-                (playbackSnapshot.durationMs.toDouble() * progressFraction.toDouble()).toLong()
+        // ⚠ **Bounded, and gated on a duration worth believing.** This used to be
+        // `durationMs * fraction` with no ceiling, while `PlayerScreenRuntimeUi` bounds the
+        // identical computation with `coerceAtMost(durationMs - 1)` two files away. Because the
+        // effect is keyed on `durationMs`, a duration that *changes* after playback began fires
+        // this mid-play - which is "it plays, then it jumps to the end and sticks".
+        val targetPositionMs = PlaybackPosition.resolveStartPositionMs(
+            initialPositionMs = activeInitialPositionMs,
+            progressFraction = activeInitialProgressFraction,
+            durationMs = playbackSnapshot.durationMs,
+        )
+        if (targetPositionMs == null) {
+            val refusal = PlaybackPosition.refusalReason(
+                initialPositionMs = activeInitialPositionMs,
+                progressFraction = activeInitialProgressFraction,
+                durationMs = playbackSnapshot.durationMs,
+            )
+            if (refusal != null) {
+                // Refused, and named. A seek silently not happening and a seek landing on the
+                // credits look the same from outside the device.
+                startupLog.w {
+                    PlaybackAttemptLog.seek(
+                        source = "resume",
+                        positionMs = 0L,
+                        durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                        fraction = activeInitialProgressFraction,
+                        accepted = false,
+                        refusedReason = refusal,
+                    )
+                }
+                // ⚠ **Latch only the refusals that no later duration can fix.** A duration
+                // that is unknown, implausible or shorter than the resume point may all be
+                // corrected on the next snapshot, so those keep retrying and must not cost the
+                // user their position. A non-finite fraction is not going to become finite, and
+                // because this effect is keyed on `durationMs`, leaving it unlatched re-entered
+                // and re-logged on every duration revision for a seek that can never happen.
+                if (refusal == "non_finite_fraction") initialSeekApplied = true
+                return@LaunchedEffect
             }
-            progressFraction != null -> return@LaunchedEffect
-            else -> 0L
-        }
-        if (targetPositionMs <= 0L) {
             initialSeekApplied = true
             return@LaunchedEffect
         }
 
+        startupLog.i {
+            PlaybackAttemptLog.seek(
+                source = "resume",
+                positionMs = targetPositionMs,
+                durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                fraction = activeInitialProgressFraction,
+                accepted = true,
+            )
+        }
         controller.seekTo(targetPositionMs)
         initialSeekApplied = true
     }

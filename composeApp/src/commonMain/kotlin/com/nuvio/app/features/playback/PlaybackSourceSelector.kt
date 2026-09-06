@@ -58,13 +58,26 @@ data class PlaybackSelectionContext(
      * as well as the banded rows.
      */
     val qualityCeilingMbps: Double? = null,
+    /**
+     * What was actually asked for, so a source for a different show can be spotted.
+     *
+     * ⚠ **Set by the automatic modes only.** A manual pick is the user reading the release name
+     * and choosing anyway; overriding that is a refusal wearing a helper's name. Left null,
+     * every candidate passes untouched, which is what Classic and every manual path want.
+     */
+    val identity: RequestedContent? = null,
     val secondaryAudioLanguage: String? = null,
     val languageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
+    val displayMaxHeight: Int? = null,
 ) {
     internal val rankingPreferences: SourceRankingPreferences
         get() = SourceRankingPreferences(
             preferredAudioLanguage = preferredAudioLanguage,
             secondaryAudioLanguage = secondaryAudioLanguage,
+            codecPreference = codecPreference,
+            dynamicRangePolicy = dynamicRangePolicy,
+            audioPreference = audioPreference,
+            displayMaxHeight = displayMaxHeight,
         )
 }
 
@@ -133,6 +146,7 @@ object PlaybackSourceSelector {
         val eligible = candidates
             .filter { candidate -> isPlaybackProtocolEligible(candidate, context.allowTorrentSources) }
             .let { byLanguage(it, context) }
+            .let { byContentIdentity(it, context) }
         val playable = eligible.filterNot(::isUncachedDebrid)
         playable.firstOrNull()?.let { selected ->
             return PlaybackSelectionResult.Play(
@@ -164,6 +178,7 @@ object PlaybackSourceSelector {
     ): PlaybackSourceCandidate? = option.candidates
         .filter { isPlaybackProtocolEligible(it, context.allowTorrentSources) }
         .let { byLanguage(it, context) }
+        .let { byContentIdentity(it, context) }
         .let { eligible -> eligible.firstOrNull { !isUncachedDebrid(it) } ?: eligible.firstOrNull() }
 
     /**
@@ -193,6 +208,58 @@ object PlaybackSourceSelector {
     }
 
     /**
+     * Moves anything that is confidently the wrong content behind everything that is not.
+     *
+     * **A partition, never a filter** - the same shape, and the same argument, as [byLanguage]
+     * directly above. Deleting these candidates would be simpler and would reintroduce a dead
+     * end: an addon that returns *only* mislabelled entries would leave nothing to play, the
+     * chain would have nothing to run, and the user would land on the source list having asked
+     * for a quality. Demoting costs nothing when a correct source exists - which, in the
+     * reported Daredevil case, it did, ranked third and fourth behind two wrong ones - and
+     * saves the play when none does.
+     *
+     * A stable partition, so the ranking inside each half is exactly the one the caller built.
+     */
+    private fun byContentIdentity(
+        candidates: List<PlaybackSourceCandidate>,
+        context: PlaybackSelectionContext,
+    ): List<PlaybackSourceCandidate> {
+        val identity = context.identity ?: return candidates
+        val (right, wrong) = candidates.partition { candidate ->
+            ContentIdentityGuard.evaluate(
+                releaseName = candidate.facts.filename ?: candidate.stream.name,
+                requestedSeason = identity.season,
+                requestedEpisode = identity.episode,
+                requestedYear = identity.year,
+            ) == null
+        }
+        return if (right.isEmpty()) candidates else right + wrong
+    }
+
+    /**
+     * Why each candidate was demoted, for the log. Empty when nothing was.
+     *
+     * Separate from [byContentIdentity] because the rejection has to be *countable* before it
+     * is trusted: the addon is very likely matching on release names too, so this guard catches
+     * a symptom whose cause is upstream, and the false-positive rate is the only thing that
+     * says whether it is helping.
+     */
+    fun contentIdentityRejections(
+        candidates: List<PlaybackSourceCandidate>,
+        context: PlaybackSelectionContext,
+    ): List<Pair<PlaybackSourceCandidate, ContentIdentityGuard.Rejection>> {
+        val identity = context.identity ?: return emptyList()
+        return candidates.mapNotNull { candidate ->
+            ContentIdentityGuard.evaluate(
+                releaseName = candidate.facts.filename ?: candidate.stream.name,
+                requestedSeason = identity.season,
+                requestedEpisode = identity.episode,
+                requestedYear = identity.year,
+            )?.let { candidate to it }
+        }
+    }
+
+    /**
      * A short human description of a source: `1080p · WEB-DL · TorBox`.
      *
      * Used by the quality sheet to say what a row would open and by the failure chain to say
@@ -214,6 +281,20 @@ object PlaybackSourceSelector {
     fun describeRelease(facts: SourceFacts?): String = listOfNotNull(
         facts?.releaseQuality?.takeIf { it.isNotBlank() },
         dynamicRangeLabel(facts),
+        (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    /**
+     * `BLURAY · TorBox` - [describeRelease] with the dynamic range left out.
+     *
+     * For a surface that shows dynamic range and audio as their own marks rather than folded
+     * into a sentence. Rolling `DV` into the release string put the two facts that actually
+     * separate one release from another - what it does to your screen and to your speakers -
+     * inside a run of text whose loudest tokens were the rip type and the host, which are the
+     * two least useful things on offer. A caller that badges them must not print them twice.
+     */
+    fun describeProvenance(facts: SourceFacts?): String = listOfNotNull(
+        facts?.releaseQuality?.takeIf { it.isNotBlank() },
         (facts?.debridService ?: facts?.providerName)?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
 
@@ -339,12 +420,35 @@ object PlaybackSourceSelector {
         return candidate.facts.isDebridReady == null && isDebridBacked(candidate)
     }
 
-    /** Positive evidence that a debrid provider stands behind this candidate. */
+    /**
+     * Positive evidence that a debrid provider stands behind this candidate.
+     *
+     * ⚠ **`isAioStreams` is on this list because leaving it off cost a play.** AIOStreams hands
+     * back an ordinary `https://` link to its own proxy, so a candidate coming through it has no
+     * `debridService`, no `clientResolve` and is not an `isDirectDebridStream` - it matched none
+     * of the three tests below, [isUncachedDebrid] therefore did not apply, and a source with
+     * *unknown* cache state was auto-played. What came back was the provider's two-minute
+     * "being prepared" slate, which played happily and ended the chain. Every AIOStreams stream
+     * is debrid-backed by construction; the aggregator exists to front one.
+     */
     private fun isDebridBacked(candidate: PlaybackSourceCandidate): Boolean =
         candidate.facts.debridService != null ||
             candidate.stream.clientResolve != null ||
-            candidate.stream.isDirectDebridStream
+            candidate.stream.isDirectDebridStream ||
+            candidate.facts.isAioStreams
 }
+
+/**
+ * The requested title's identity, for [ContentIdentityGuard].
+ *
+ * Every field is nullable and a null always passes: the guard can only reject on two facts that
+ * both exist and disagree.
+ */
+data class RequestedContent(
+    val season: Int? = null,
+    val episode: Int? = null,
+    val year: Int? = null,
+)
 
 /**
  * Whether the stream request has settled enough to decide on.

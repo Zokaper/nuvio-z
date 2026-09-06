@@ -101,7 +101,11 @@ data class SourceFacts(
     val isAioStreams: Boolean = false,
     val debridService: String? = null,
     val isDebridReady: Boolean? = null,
+    val isAiUpscaled: Boolean = false,
 ) {
+    val isTheatricalCapture: Boolean
+        get() = ReleaseTags.isTheatricalCapture(releaseQuality)
+
     fun withVerifiedSize(actualBytes: Long): SourceFacts {
         val normalized = actualBytes.takeIf { it > 0L } ?: return this
         val sizes = (reportedSizes + normalized).distinct().sorted()
@@ -329,6 +333,7 @@ object SourceFactsExtractor {
                 ?: parseDebridCacheMarker(
                     listOfNotNull(stream.name, stream.description).joinToString(" "),
                 ),
+            isAiUpscaled = ReleaseTags.isAiUpscaled(releaseText),
         )
         return if (verifiedSizeBytes?.positive() != null) {
             facts.withVerifiedSize(verifiedSizeBytes)

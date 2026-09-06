@@ -200,6 +200,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 codecPreference = settings.playbackCodecPreference,
                 dynamicRangePolicy = settings.playbackDynamicRangePolicy,
                 audioPreference = settings.playbackAudioPreference,
+                displayMaxHeight = com.nuvio.app.platformDisplayMaxHeight(),
             )
             val candidates = streams.mapIndexed { index, stream ->
                 PlaybackSourceCandidate(
@@ -215,6 +216,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 options = options,
                 pinnedHeight = null,
                 estimatedMbps = NetworkQualityRepository.current().estimatedMbps,
+                context = selectionContext,
             ) ?: return null
             return when (val result = PlaybackSourceSelector.select(option, selectionContext)) {
                 is PlaybackSelectionResult.Play -> {

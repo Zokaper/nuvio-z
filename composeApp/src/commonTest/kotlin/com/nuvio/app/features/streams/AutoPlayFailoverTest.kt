@@ -190,5 +190,49 @@ class AutoPlayFailoverTest {
         StreamsRepository.seedAutoPlayCandidates(listOf(stream("new-a"), stream("new-b")))
         assertFalse(StreamsRepository.consumeFailoverRetry())
     }
+    /**
+     * The user leaving is not a failure, and must leave nothing behind for either mechanism.
+     *
+     * `consumeAutoPlay` deliberately retires the chain so a source dying after the first frame
+     * can still fail over. That is right for a failure and wrong for a back press: it left the
+     * retained chain armed for `failOverAfterPlaybackStarted`, and the live one for
+     * `carriedAutoPlayChain` to hand back on the next visit to the same title.
+     */
+    @Test
+    fun `abandoning leaves nothing for a failover or a revisit`() {
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b"), stream("c")))
+        StreamsRepository.consumeAutoPlay()
+        StreamsRepository.signalFailoverRetry()
+
+        StreamsRepository.abandonAutoPlay()
+
+        assertNull(StreamsRepository.uiState.value.autoPlayStream)
+        assertTrue(StreamsRepository.uiState.value.autoPlayCandidates.isEmpty())
+        assertFalse(StreamsRepository.uiState.value.isDirectAutoPlayFlow)
+        assertFalse(StreamsRepository.uiState.value.showDirectAutoPlayOverlay)
+        // The retained half, which is the one a back press used to be answered by.
+        assertFalse(StreamsRepository.failOverAfterPlaybackStarted())
+        // And the signal, so the next return from the player cannot read as a retry.
+        assertFalse(StreamsRepository.consumeFailoverRetry())
+    }
+
+    /**
+     * The revisit half, stated against the rule that actually carries a chain.
+     *
+     * `carriedAutoPlayChain` answers non-null for the same request while something is armed -
+     * that is what re-attached the escaped source with no catalogue in hand.
+     */
+    @Test
+    fun `an abandoned chain is not carried into the next load of the same title`() {
+        val token = StreamsRepository.requestToken(type = "movie", videoId = "tt1", manualSelection = true)
+        StreamsRepository.seedAutoPlayCandidates(listOf(stream("a"), stream("b")))
+        val armed = StreamsRepository.uiState.value.copy(requestToken = token)
+        assertTrue(carriedAutoPlayChain(armed, token) != null)
+
+        StreamsRepository.abandonAutoPlay()
+
+        val abandoned = StreamsRepository.uiState.value.copy(requestToken = token)
+        assertNull(carriedAutoPlayChain(abandoned, token))
+    }
 
 }

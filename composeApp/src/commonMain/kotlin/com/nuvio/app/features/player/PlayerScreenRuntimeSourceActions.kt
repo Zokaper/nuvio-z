@@ -12,22 +12,15 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkThroughputMeter
-import com.nuvio.app.features.playback.AutoDownshiftCandidates
-import com.nuvio.app.features.playback.AutoDownshiftDetector
-import com.nuvio.app.features.playback.PlaybackMode
-import com.nuvio.app.features.playback.PlaybackSourceCandidate
-import com.nuvio.app.features.playback.SwapDiagnosticsLog
-import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.p2pSentinelUrl
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_source_failed_advancing
 import nuvio.composeapp.generated.resources.playback_source_failed_advancing_unnamed
-import nuvio.composeapp.generated.resources.player_source_switched
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
-import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     stream: StreamItem,
@@ -55,9 +48,6 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     }
     return true
 }
-
-internal fun PlayerScreenRuntime.p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
-    "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
 
 internal fun PlayerScreenRuntime.isP2pStream(stream: StreamItem): Boolean =
     stream.needsLocalDebridResolve && stream.p2pInfoHash != null
@@ -222,14 +212,13 @@ internal fun PlayerScreenRuntime.observePlaybackForNetworkEstimate() {
 
     // Startup buffering is not starvation, and judging it as such would disqualify every
     // source before it ever settled: `PlayerPlaybackSnapshot` starts with `isLoading = true`
-    // and the buffer is empty by definition. This is the same reason
-    // [AutoDownshiftDetector.SETTLE_GRACE_MS] exists, and it is the same grace.
-    if (played < AutoDownshiftDetector.SETTLE_GRACE_MS) return
+    // and the buffer is empty by definition.
+    if (played < NETWORK_ESTIMATE_SETTLE_GRACE_MS) return
 
     // Past the grace, a stall disqualifies this source for the rest of the session: a file
     // that starts fine and starves two minutes in is not evidence the line can carry it.
     if (snapshot.isLoading ||
-        snapshot.bufferedPositionMs - snapshot.positionMs <= AutoDownshiftDetector.STARVED_BUFFER_MS
+        snapshot.bufferedPositionMs - snapshot.positionMs <= NETWORK_ESTIMATE_STARVED_BUFFER_MS
     ) {
         networkEstimateStalled = true
         NetworkQualityRepository.cancelPlaybackObservation()
@@ -242,6 +231,8 @@ internal fun PlayerScreenRuntime.observePlaybackForNetworkEstimate() {
 
 /** One minute of playback, the settle grace included, before a bitrate counts as sustained. */
 private const val NETWORK_ESTIMATE_CLEAN_PLAYBACK_MS = 60_000L
+private const val NETWORK_ESTIMATE_SETTLE_GRACE_MS = 12_000L
+private const val NETWORK_ESTIMATE_STARVED_BUFFER_MS = 750L
 
 /**
  * Measures what the connection is actually delivering, from the buffer the player already has.
@@ -261,9 +252,7 @@ internal fun PlayerScreenRuntime.observePlaybackForThroughput() {
     val outcome = NetworkThroughputMeter.observe(
         state = networkThroughputState,
         sample = NetworkThroughputMeter.Sample(
-            // The same monotonic clock the downshift detector folds, for the same reason: a
-            // window measured in snapshots means 2 s on Android and 4 s on desktop.
-            elapsedRealtimeMs = autoDownshiftClock.elapsedNow().inWholeMilliseconds,
+            elapsedRealtimeMs = playbackObservationClock.elapsedNow().inWholeMilliseconds,
             positionMs = snapshot.positionMs,
             bufferedPositionMs = snapshot.bufferedPositionMs,
             isPlaying = snapshot.isPlaying,
@@ -276,164 +265,6 @@ internal fun PlayerScreenRuntime.observePlaybackForThroughput() {
     outcome.measuredMbps?.let { mbps ->
         NetworkQualityRepository.recordMeasuredThroughput(mbps, armed.providerId)
     }
-}
-
-/**
- * Instant's automatic source downshift, folded once per playback snapshot.
- *
- * Everything that decides *whether* to swap is in [AutoDownshiftDetector] and
- * [AutoDownshiftCandidates], both pure and both tested; this function only supplies the
- * clock, the candidate list and the existing position-preserving [switchToSource] path.
- *
- * The session's one swap is charged only when a swap actually happens. Identifying the
- * currently playing candidate is the fiddly part and it must not be done by URL alone:
- * `switchToSource` re-enters with the *debrid-resolved* stream, so `activeSourceUrl` holds
- * a minted URL that no candidate in the source list carries, and a P2P source holds a
- * sentinel URL that matches nothing at all. Instant's users are mostly on debrid, so URL
- * matching would make this a silent no-op on the main path.
- */
-internal fun PlayerScreenRuntime.observePlaybackForAutoDownshift() {
-    val settings = playerSettingsUiState
-    // The availability test comes first and is not the mode's. `playbackAutoDownshift` could
-    // have been stored true by a profile that was on Instant in `0.4.9-beta`, and bringing
-    // Instant back must not silently wake a mid-playback source swap nobody has watched.
-    if (!AutoDownshiftDetector.AUTO_DOWNSHIFT_AVAILABLE) return
-    if (!settings.playbackAutoDownshift || settings.playbackMode != PlaybackMode.INSTANT) return
-
-    val sample = AutoDownshiftDetector.Sample(
-        elapsedRealtimeMs = autoDownshiftClock.elapsedNow().inWholeMilliseconds,
-        positionMs = playbackSnapshot.positionMs,
-        bufferedPositionMs = playbackSnapshot.bufferedPositionMs,
-        isPlaying = playbackSnapshot.isPlaying,
-        isLoading = playbackSnapshot.isLoading,
-        isEnded = playbackSnapshot.isEnded,
-    )
-
-    // Warm the source list while the run is still building, so a fired trigger has
-    // something to choose from without waiting on a fetch mid-stall.
-    if (sample.isStarved && sample.isActive && !autoDownshiftSourcesRequested) {
-        autoDownshiftSourcesRequested = true
-        val videoId = activeVideoId
-        if (videoId != null) {
-            scope.launch {
-                PlayerStreamsRepository.loadSources(
-                    type = contentType ?: parentMetaType,
-                    videoId = videoId,
-                    season = activeSeasonNumber,
-                    episode = activeEpisodeNumber,
-                )
-            }
-        }
-    }
-
-    val outcome = AutoDownshiftDetector.observe(autoDownshiftState, sample, enabled = true)
-    autoDownshiftState = outcome.state
-    if (!outcome.shouldDownshift) return
-
-    val streams = PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams }
-    val candidates = streams.map { PlaybackSourceCandidate(stream = it) }
-    val current = candidates.firstOrNull { matchesActiveSource(it.stream) } ?: return
-    val replacement = AutoDownshiftCandidates.select(current, candidates) ?: return
-    autoDownshiftState = AutoDownshiftDetector.consumeSwap(autoDownshiftState)
-    beginDiagnosedSwap(
-        trigger = SwapDiagnosticsLog.Trigger.AUTO_DOWNSHIFT,
-        current = current,
-        replacement = replacement,
-        bufferAheadMs = sample.bufferedAheadMs,
-    )
-    switchToSource(replacement.stream)
-}
-
-/**
- * Logs a swap, starts its clock, and tells the user, then leaves the caller to perform it.
- *
- * The announcement is deliberately *not* inside `switchToSource`: that path also serves the
- * user picking a source by hand, where a toast saying what they just chose is noise. It is an
- * automatic change of quality that is indistinguishable from a bug when it happens silently.
- *
- * **The clock starts here rather than in `switchToSource`, and both reasons matter.**
- * `switchToSource` re-enters itself for debrid - the first call kicks off an async link mint
- * and returns, the resolved stream comes back through a second call - so starting it there
- * would exclude the minting wait on exactly the path Instant users are almost always on, and
- * understate what they sit through. And because `switchToSource` also serves manual picks, a
- * mark set there could be closed by a hand-picked source's first frame and credited to an
- * earlier automatic swap that never rendered at all. Pairing the mark with the record makes
- * both impossible: no record, no clock.
- */
-internal fun PlayerScreenRuntime.beginDiagnosedSwap(
-    trigger: SwapDiagnosticsLog.Trigger,
-    current: PlaybackSourceCandidate,
-    replacement: PlaybackSourceCandidate,
-    bufferAheadMs: Long,
-) {
-    SwapDiagnosticsLog.record(
-        SwapDiagnosticsLog.SwapRecord(
-            trigger = trigger,
-            fromLabel = current.stream.streamLabel,
-            toLabel = replacement.stream.streamLabel,
-            fromHeight = current.facts.resolution?.height,
-            toHeight = replacement.facts.resolution?.height,
-            fromReleaseGroup = current.facts.releaseGroup,
-            toReleaseGroup = replacement.facts.releaseGroup,
-            fromProvider = current.facts.providerName ?: current.facts.providerId,
-            toProvider = replacement.facts.providerName ?: replacement.facts.providerId,
-            fromAddon = current.stream.addonName,
-            toAddon = replacement.stream.addonName,
-            bufferAheadMsAtTrigger = bufferAheadMs,
-            positionMsBefore = playbackSnapshot.positionMs.coerceAtLeast(0L),
-        ),
-    )
-    swapStartedAt = TimeSource.Monotonic.markNow()
-    val label = replacement.facts.resolution.qualityLabel
-    if (label.isNotBlank()) {
-        scope.launch {
-            NuvioToastController.show(getString(Res.string.player_source_switched, label))
-        }
-    }
-}
-
-internal fun PlayerScreenRuntime.forceDebugSourceSwap(upshift: Boolean) {
-    val candidates = PlayerStreamsRepository.sourceState.value.groups
-        .flatMap { it.streams }
-        .map { PlaybackSourceCandidate(stream = it) }
-    val current = candidates.firstOrNull { matchesActiveSource(it.stream) }
-    if (current == null) {
-        debugStatusMessage = "Current source is not in the loaded catalogue."
-        return
-    }
-    val replacement = if (upshift) {
-        AutoDownshiftCandidates.selectUpshift(current, candidates)
-    } else {
-        AutoDownshiftCandidates.select(current, candidates)
-    }
-    if (replacement == null) {
-        debugStatusMessage = if (upshift) {
-            "No safe higher source in the same release group."
-        } else {
-            "No safe lower source in the same release group."
-        }
-        return
-    }
-    debugStatusMessage = "Forcing ${if (upshift) "upshift" else "downshift"}…"
-    beginDiagnosedSwap(
-        trigger = if (upshift) {
-            SwapDiagnosticsLog.Trigger.FORCED_UPSHIFT
-        } else {
-            SwapDiagnosticsLog.Trigger.FORCED_DOWNSHIFT
-        },
-        current = current,
-        replacement = replacement,
-        bufferAheadMs = (playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs)
-            .coerceAtLeast(0L),
-    )
-    switchToSource(replacement.stream)
-}
-
-internal fun PlayerScreenRuntime.resetDebugSwapBudget() {
-    autoDownshiftState = AutoDownshiftDetector.initial()
-    autoDownshiftClock = TimeSource.Monotonic.markNow()
-    autoDownshiftSourcesRequested = false
-    debugStatusMessage = "Automatic swap budget reset."
 }
 
 /**
@@ -465,9 +296,9 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
  * A source the *user* picked from the sources panel.
  *
  * Only this refunds the credential-refresh budget. [switchToSource] itself must not: it also
- * serves automatic downshifts, the debug forced swap, and its own re-entrant debrid resolve, so
- * refunding there would hand an automatic retry of a dying source a fresh budget every swap -
- * which is the shape of the loop this budget exists to stop.
+ * serves in-player source changes and re-entrant debrid resolution, so refunding there would hand
+ * an automatic retry of a dying source a fresh budget every attempt - which is the shape of the
+ * loop this budget exists to stop.
  */
 internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
     credentialRefreshesUsed = 0

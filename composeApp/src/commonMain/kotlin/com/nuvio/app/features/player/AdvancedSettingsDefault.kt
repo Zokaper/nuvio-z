@@ -18,7 +18,6 @@ package com.nuvio.app.features.player
  */
 internal fun hasTunedAnAdvancedSetting(
     allowTorrentAutopick: Boolean?,
-    autoDownshift: Boolean?,
     meteredCapHeight: Int?,
     streamAutoPlayMode: String?,
     streamAutoPlayRegex: String?,
@@ -26,11 +25,9 @@ internal fun hasTunedAnAdvancedSetting(
     decoderPriority: Int?,
 ): Boolean = listOf(
     allowTorrentAutopick,
-    autoDownshift,
     meteredCapHeight,
     streamAutoPlayMode,
     streamAutoPlayRegex,
     androidPlaybackEngine,
     decoderPriority,
 ).any { it != null }
-

@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
@@ -23,7 +24,6 @@ import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
-import com.nuvio.app.features.playback.SwapDiagnosticsLog
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
 import com.nuvio.app.features.playback.PlaybackSelectionContext
@@ -33,6 +33,14 @@ import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.watchparty.SourceFingerprint
 import com.nuvio.app.features.watchparty.normalizeReleaseFingerprint
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.nuvio.app.features.playback.PlaybackHandover
+import com.nuvio.app.features.playback.PlaybackLoadingActions
+import com.nuvio.app.features.playback.PlaybackLoadingController
+import com.nuvio.app.features.playback.PlaybackLoadingState
+import com.nuvio.app.features.playback.PlaybackProgressStep
+import com.nuvio.app.features.updater.formatFileSize
 
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
@@ -187,19 +195,17 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (snapshot.isPlaying) {
                             completeNextEpisodeTransitionIfStarted()
                         }
-                        // A swap is only over when the replacement actually renders. This is
-                        // the measurement that decides whether automatic quality switching is
-                        // worth its interruption; nothing else in the app times it.
-                        swapStartedAt?.takeIf {
-                            snapshot.isPlaying && playerSurfaceSourceUrl ==
-                                (if (activeTorrentInfoHash != null) p2pResolvedSourceUrl else activeSourceUrl)
-                        }?.let { startedAt ->
-                            SwapDiagnosticsLog.completePending(
-                                startedAt.elapsedNow().inWholeMilliseconds,
-                                positionMsAfter = snapshot.positionMs,
-                            )
-                            swapStartedAt = null
-                        }
+                    }
+                    if (
+                        PlaybackHandover.hasFirstFrame(
+                            isLoading = snapshot.isLoading,
+                            isPlaying = snapshot.isPlaying,
+                            positionMs = snapshot.positionMs,
+                            videoWidth = snapshot.videoWidth,
+                            videoHeight = snapshot.videoHeight,
+                        )
+                    ) {
+                        firstFrameReached = true
                     }
                     if (snapshot.isEnded) {
                         shouldPlay = false
@@ -207,7 +213,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     }
                     observePlaybackForNetworkEstimate()
                     observePlaybackForThroughput()
-                    observePlaybackForAutoDownshift()
                 },
                 onError = { message ->
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
@@ -429,6 +434,51 @@ private fun BoxScope.RenderPlaybackOverlays(
             .takeIf { it.phase == PlayerNextEpisodePhase.STARTING }
             ?.targetVideoId
             ?.let { targetId -> playerMetaVideos.firstOrNull { it.id == targetId } }
+        val playerClipboardManager = LocalClipboardManager.current
+
+        // ⚠ **`initialLoadCompleted` is not a first frame.** The engine drops `isLoading` once it
+        // has opened the media, which is before it has decoded anything, so an overlay that left
+        // on this signal alone dissolved onto a black video plane. `firstFrameReached` is the
+        // stronger one - see `PlaybackHandover.hasFirstFrame`. `initialLoadCompleted` is left
+        // exactly as it was because the seek, subtitle and watchdog paths all read it and mean
+        // the weaker thing.
+        val openingOverlayWanted = playerSettingsUiState.showLoadingOverlay &&
+            !firstFrameReached &&
+            errorMessage == null
+
+        // The loading surface is drawn by `PlaybackLoadingHost`, above `NavDisplay`. In the
+        // automatic modes the stream route already opened the session and handed it over, and
+        // this must not disturb it - re-opening would restart the entrance and the escape clock
+        // at exactly the route change the whole design exists to make invisible. Opening here
+        // covers the paths that reach the player with no stream route behind them at all:
+        // Continue Watching, the next episode, and a resumed download.
+        LaunchedEffect(openingOverlayWanted, args.sourceUrl) {
+            if (openingOverlayWanted) {
+                if (PlaybackLoadingController.activeToken == null) {
+                    val token = PlaybackLoadingController.open(
+                        step = PlaybackProgressStep.StartingPlayback,
+                        artwork = startingEpisode?.thumbnail ?: background ?: poster,
+                        logo = if (startingEpisode != null) null else logo,
+                        title = startingEpisode?.title ?: title,
+                        attempt = args.playbackAttempt,
+                        facts = args.sourceFacts,
+                    )
+                    PlaybackLoadingController.handOff(token)
+                    PlaybackLoadingController.registerActions(
+                        token = token,
+                        actions = PlaybackLoadingActions(
+                            onBack = {
+                                flushWatchProgress()
+                                args.onBack()
+                            },
+                        ),
+                    )
+                }
+            } else {
+                PlaybackLoadingController.closeAfterHandOff()
+            }
+        }
+
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             lockedOverlayVisible = lockedOverlayVisible,
@@ -437,7 +487,10 @@ private fun BoxScope.RenderPlaybackOverlays(
         metrics = metrics,
         horizontalSafePadding = horizontalSafePadding,
         onUnlock = { unlockPlayerControls() },
-        showOpeningOverlay = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null,
+        // ⚠ **Always false: `PlaybackLoadingHost` draws this now**, above `NavDisplay`, so that
+        // the same screen spans the route change and every failover. Rendering it here as well
+        // would put a second, shorter-lived copy directly over the first.
+        showOpeningOverlay = false,
         backdropArtwork = startingEpisode?.thumbnail ?: background ?: poster,
         logo = if (startingEpisode != null) null else logo,
         title = startingEpisode?.title ?: title,
@@ -491,6 +544,27 @@ private fun BoxScope.RenderPlaybackOverlays(
                 flushWatchProgress()
                 args.onBack()
             },
+            // The route's own state, carried through `PlayerScreenArgs` rather than rebuilt:
+            // the band must say the same thing on both sides of the hand-off, and a second
+            // derivation here is a second thing to drift.
+            loadingState = PlaybackLoadingState(
+                step = PlaybackProgressStep.StartingPlayback,
+                attempt = args.playbackAttempt,
+                facts = args.sourceFacts,
+            ),
+            formatSize = ::formatFileSize,
+            onCopyErrorDetails = errorMessage?.let { message ->
+                {
+                    val label = PlaybackSourceSelector.describe(args.sourceFacts)
+                    playerClipboardManager.setText(
+                        AnnotatedString(
+                            listOf(label, args.streamTitle, message)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" - "),
+                        ),
+                    )
+                }
+            },
         )
     }
 }
@@ -532,6 +606,8 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         subtitleAutoSyncState = subtitleAutoSyncState,
         onBuiltInSubtitleTrackSelected = { index ->
             val wasCustom = useCustomSubtitles
+            isUserExplicitSubtitleSelection = true
+            preferredSubtitleSelectionApplied = true
             selectedSubtitleIndex = index
             selectedAddonSubtitleId = null
             useCustomSubtitles = false
@@ -543,9 +619,11 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             }
         },
         onAddonSubtitleSelected = { addon ->
+            isUserExplicitSubtitleSelection = true
             selectedAddonSubtitleId = addon.id
             selectedSubtitleIndex = -1
             useCustomSubtitles = true
+            preferredSubtitleSelectionApplied = true
             persistAddonSubtitlePreference(addon)
             playerController?.setSubtitleUri(addon.url)
         },

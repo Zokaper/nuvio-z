@@ -44,4 +44,22 @@ internal data class PlayerScreenArgs(
     val initialPositionMs: Long,
     val initialProgressFraction: Float?,
     val contentLanguage: String? = null,
+    /**
+     * What the route chose, structured, for the loading screen's band.
+     *
+     * Carried rather than re-derived: the player has `activeStreamTitle` and
+     * `activeProviderName` but nothing structured, and re-parsing the display title here would
+     * give the two sides of the hand-off two different answers about the same file - which is
+     * exactly the flicker this screen exists to remove.
+     */
+    val sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
+    /** 1-based, from the route's `autoPickAttempt`, so the band keeps counting across the trip. */
+    val playbackAttempt: Int = 1,
+    /**
+     * The catalogue's runtime, for `PlaybackDurationPlausibility`.
+     *
+     * Null disables the check. Never a default guess: a wrong expectation here abandons a source
+     * the user is already watching.
+     */
+    val expectedRuntimeMinutes: Int? = null,
 )

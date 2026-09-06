@@ -44,4 +44,4 @@
 # serial-only commit sitting between two releases would silently truncate the
 # next release's notes. That has already happened once with the debug counter.
 # See the note in DebugVersion.xcconfig.
-RELEASE_SERIAL=126
+RELEASE_SERIAL=127

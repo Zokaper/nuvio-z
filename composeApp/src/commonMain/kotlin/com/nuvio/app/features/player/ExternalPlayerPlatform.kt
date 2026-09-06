@@ -47,6 +47,31 @@ enum class ExternalPlayerOpenResult {
     Failed,
 }
 
+/**
+ * What happened when playback was handed to an external player.
+ *
+ * ⚠ **A `Boolean` was not enough, and the difference is a real bug.** "The player refused this
+ * source" and "no external player is configured" both used to answer `false`, so an automatic
+ * mode treated a *configuration* problem as a *source* problem: it stepped to the next
+ * candidate, hit the identical failure, and burned the whole retry budget - toasting "external
+ * player not configured" three times and finally blaming three innocent sources.
+ */
+enum class ExternalPlaybackOutcome {
+    /** Handed off. */
+    Opened,
+
+    /** The player exists and would not take this source. Trying the next candidate is sensible. */
+    SourceRejected,
+
+    /**
+     * No player is configured, or the intent could not be built at all.
+     *
+     * **Not retryable**: every candidate will fail the same way, so the chain must not be spent
+     * on it. The user has already been told what is wrong by the toast this produces.
+     */
+    PlayerUnavailable,
+}
+
 sealed interface ExternalPlayerIntentResult {
     data class Success(val intent: Any) : ExternalPlayerIntentResult
     data object NotConfigured : ExternalPlayerIntentResult

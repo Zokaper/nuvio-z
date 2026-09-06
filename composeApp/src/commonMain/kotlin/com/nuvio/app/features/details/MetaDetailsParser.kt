@@ -40,7 +40,7 @@ internal object MetaDetailsParser {
             lastAirDate = meta.string("lastAirDate"),
             status = meta.string("status"),
             imdbRating = meta.string("imdbRating"),
-            ageRating = meta.string("ageRating"),
+            ageRating = meta.ageRating(),
             runtime = meta.string("runtime"),
             genres = meta.stringList("genres"),
             director = meta.directors(links),
@@ -54,6 +54,7 @@ internal object MetaDetailsParser {
             defaultVideoId = meta.behaviorHints().string("defaultVideoId"),
             trailers = meta.trailers(),
             links = links,
+            seasonPosters = meta.seasonPosters(),
             videos = meta.videos(),
         )
     }
@@ -114,6 +115,17 @@ internal object MetaDetailsParser {
 
     private fun JsonObject.looksLikeMetaObject(): Boolean =
         string("id") != null && string("type") != null && string("name") != null
+
+    private fun JsonObject.ageRating(): String? {
+        val appExtras = this["app_extras"] as? JsonObject
+        return listOf(
+            string("ageRating"),
+            appExtras?.string("certificationLocal"),
+            appExtras?.string("certification"),
+        ).firstNotNullOfOrNull { value ->
+            value?.trim()?.takeIf(String::isNotBlank)
+        }
+    }
 
     private fun JsonObject.directors(links: List<MetaLink>): List<String> {
         val appExtras = this["app_extras"] as? JsonObject
@@ -235,9 +247,21 @@ internal object MetaDetailsParser {
                 episode = video.int("episode"),
                 overview = video.string("overview") ?: video.string("description"),
                 runtime = video.int("runtime"),
+                rating = video.string("rating")?.trim()?.toDoubleOrNull()?.takeIf { it > 0.0 },
                 streams = video.embeddedStreams(),
             )
         }
+
+    private fun JsonObject.seasonPosters(): Map<Int, String> {
+        val appExtras = this["app_extras"] as? JsonObject ?: return emptyMap()
+        val posters = appExtras["seasonPosters"] as? JsonArray ?: return emptyMap()
+        return posters.mapIndexedNotNull { index, element ->
+            (element as? JsonPrimitive)?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let { index + 1 to it }
+        }.toMap()
+    }
 
     private fun JsonObject.trailers(): List<MetaTrailer> =
         array("trailers").mapNotNull { element ->

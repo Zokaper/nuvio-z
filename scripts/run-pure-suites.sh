@@ -37,7 +37,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 WORK="${2:-/tmp/nuvio-pure-suites}"
-KOTLIN_VERSION="2.3.0"
+KOTLIN_VERSION="2.4.10"
 
 mkdir -p "$WORK"
 cd "$WORK"
@@ -62,10 +62,26 @@ fi
 # it, so unlike group 4 this one needs the serialization *compiler plugin*, which the kotlinc
 # distribution does not carry - only the runtime jars are in it. The coroutines runtime the
 # repository's StateFlow needs does ship inside kotlinc/lib.
-[ -f serialization-plugin.jar ] || curl -sSL -o serialization-plugin.jar \
-  https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/2.3.0/kotlin-serialization-compiler-plugin-2.3.0.jar
+# The plugin version MUST track KOTLIN_VERSION. A plugin built against an older compiler dies
+# at registration with `NoSuchMethodError: ...ExtensionStorage.registerExtension` - not a
+# compile error, so it scrolls past as a stack trace while the run carries on regardless.
+[ -f serialization-plugin-${KOTLIN_VERSION}.jar ] || curl -sSL -o serialization-plugin-${KOTLIN_VERSION}.jar \
+  https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/${KOTLIN_VERSION}/kotlin-serialization-compiler-plugin-${KOTLIN_VERSION}.jar
 
 export PATH="$WORK/kotlinc/bin:$PATH"
+
+# kotlinc and the JUnit runner both need a JVM. On a machine whose only JDK is Android
+# Studio's bundled runtime there is no `java` on PATH, and every `java` line below then
+# failed with "command not found" while the script still exited 0 - a run that tested
+# nothing and said so only in the scrollback.
+if ! command -v java >/dev/null 2>&1; then
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+  else
+    echo "no java on PATH and JAVA_HOME is unset or has no bin/java - nothing would run" >&2
+    exit 1
+  fi
+fi
 KTJ="$WORK/kotlinc/lib/kotlin-test-junit.jar:$WORK/kotlinc/lib/kotlin-test.jar"
 CP_BUILD="$WORK/junit.jar:$WORK/hamcrest.jar:$KTJ"
 CP_RUN="$CP_BUILD:$WORK/kotlinc/lib/kotlin-stdlib.jar"
@@ -89,7 +105,7 @@ rm -rf "$WORK/out-selection"
 # it must be the only availability test in the codebase - so bringing Instant back would have
 # flipped the shipped rule while the suite went on asserting the withdrawn one. Its only
 # obstacle was `@Serializable`, hence the plugin and the JSON runtime below.
-kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.jar" \
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-selection" \
   "$STUBS"/*.kt \
   "$M/core/language/LanguageCodes.kt" \
@@ -100,6 +116,10 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.ja
   "$M/features/playback/PlaybackQualityOptions.kt" \
   "$M/features/playback/StreamRouteSurface.kt" \
   "$M/features/playback/PlaybackModeRouter.kt" \
+  "$M/features/playback/ContentIdentityGuard.kt" \
+  "$M/features/playback/PlaybackLoadingState.kt" \
+  "$M/features/playback/PlaybackLoadingSession.kt" \
+  "$M/features/playback/PlaybackEntranceMotion.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
   "$T/core/media/ReleaseTagsTest.kt" \
   "$T/features/downloads/SourceRankingTest.kt" \
@@ -108,6 +128,10 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin.ja
   "$T/features/playback/PlaybackModeRouterTest.kt" \
   "$T/features/playback/PlaybackModeAvailabilityTest.kt" \
   "$T/features/playback/StickySourcePinTest.kt" \
+  "$T/features/playback/PlaybackLoadingStateTest.kt" \
+  "$T/features/playback/ContentIdentityGuardTest.kt" \
+  "$T/features/playback/PlaybackLoadingSessionTest.kt" \
+  "$T/features/playback/PlaybackEntranceMotionTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
@@ -118,7 +142,11 @@ java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
   com.nuvio.app.features.playback.PlaybackModeRouterTest \
   com.nuvio.app.features.playback.PlaybackModeAvailabilityTest \
-  com.nuvio.app.features.playback.StickySourcePinTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.playback.StickySourcePinTest \
+  com.nuvio.app.features.playback.PlaybackLoadingStateTest \
+  com.nuvio.app.features.playback.PlaybackLoadingSessionTest \
+  com.nuvio.app.features.playback.PlaybackEntranceMotionTest \
+  com.nuvio.app.features.playback.ContentIdentityGuardTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 2: files with no dependencies at all, so no stubs are involved --------------------
 rm -rf "$WORK/out-standalone"
@@ -129,12 +157,18 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/core/build/NuvioZVersion.kt" \
   "$M/features/playback/ConnectionProbeSettlement.kt" \
   "$M/features/playback/PlaybackStartupWatchdog.kt" \
+  "$M/features/playback/PlaybackAttemptLog.kt" \
+  "$M/features/playback/PlaybackPosition.kt" \
+  "$M/features/playback/PlaybackSourceProbe.kt" \
   "$T/features/downloads/DownloadTransferTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
   "$T/core/build/NuvioZVersionTest.kt" \
   "$T/features/playback/ConnectionProbeSettlementTest.kt" \
   "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
+  "$T/features/playback/PlaybackAttemptLogTest.kt" \
+  "$T/features/playback/PlaybackPositionTest.kt" \
+  "$T/features/playback/PlaybackSourceProbeTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
@@ -143,7 +177,10 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.core.network.ThroughputWindowTest \
   com.nuvio.app.core.build.NuvioZVersionTest \
   com.nuvio.app.features.playback.ConnectionProbeSettlementTest \
-  com.nuvio.app.features.playback.PlaybackStartupWatchdogTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.playback.PlaybackStartupWatchdogTest \
+  com.nuvio.app.features.playback.PlaybackAttemptLogTest \
+  com.nuvio.app.features.playback.PlaybackPositionTest \
+  com.nuvio.app.features.playback.PlaybackSourceProbeTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 3: the setup wizard's ordering, its show-once rule and its animation --------------
 # Both files are import-free, so this group needs no stubs at all. The wizard itself is a Compose
@@ -183,7 +220,7 @@ java -cp "$WORK/out-sync:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
 # connected, and must still leave a plain addon row's own name alone.
 rm -rf "$WORK/out-debrid"
 kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" \
-  -Xplugin="$WORK/serialization-plugin.jar" \
+  -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
   -d "$WORK/out-debrid" \
   "$STUBS"/debrid/*.kt \
   "$M/core/media/ReleaseTags.kt" \

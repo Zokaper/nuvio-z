@@ -8,7 +8,6 @@ class AdvancedSettingsDefaultTest {
 
     private fun untouched(
         allowTorrentAutopick: Boolean? = null,
-        autoDownshift: Boolean? = null,
         meteredCapHeight: Int? = null,
         streamAutoPlayMode: String? = null,
         streamAutoPlayRegex: String? = null,
@@ -16,7 +15,6 @@ class AdvancedSettingsDefaultTest {
         decoderPriority: Int? = null,
     ) = hasTunedAnAdvancedSetting(
         allowTorrentAutopick = allowTorrentAutopick,
-        autoDownshift = autoDownshift,
         meteredCapHeight = meteredCapHeight,
         streamAutoPlayMode = streamAutoPlayMode,
         streamAutoPlayRegex = streamAutoPlayRegex,
@@ -34,7 +32,6 @@ class AdvancedSettingsDefaultTest {
         // The case this function exists for: hiding a row the user deliberately turned on
         // would read as the setting having been lost, not as a tidier screen.
         assertTrue(untouched(allowTorrentAutopick = true))
-        assertTrue(untouched(autoDownshift = false))
         assertTrue(untouched(meteredCapHeight = 1080))
         assertTrue(untouched(streamAutoPlayRegex = "1080p"))
         assertTrue(untouched(decoderPriority = 2))
@@ -45,6 +42,5 @@ class AdvancedSettingsDefaultTest {
         // "Never written" is null. An explicit false means the user went in and turned
         // something off, which is every bit as deliberate as turning it on.
         assertTrue(untouched(allowTorrentAutopick = false))
-        assertTrue(untouched(autoDownshift = false))
     }
 }
