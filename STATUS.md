@@ -1,6 +1,13 @@
-# Nuvio Z Status
+# Nuvio Z Status
 
 Last updated: 2026-09-06
+
+## Phase 2 follow-up: Seamless desktop player handoff (2026-09-06)
+
+Desktop-only follow-up in repository `nuviozdesktop` on branch `claude/phase-2-desktop-handoff`:
+- **Part A (Source → Player Startup):** Elevated existing Phase 2 loading surface across Classic, Streamlined, and Instant modes so it renders immediately upon candidate selection (before route change or debrid link resolution), persisting through automatic failovers without attempt 2 reload stutter, and dismissing only on first rendered video frame.
+- **Part B (Player → Previous Screen Exit):** Instrumented timestamped diagnostics (`T0`–`T4`), decoupled navigation pop from native player teardown so previous screen appears immediately (~16 ms) while native player releases asynchronously in a background thread, eliminating the momentary `#0D0D0D` dark gray frame on exit. Offloaded snapshot polling from EDT to `Dispatchers.IO` with adaptive polling, and added native video dimensions querying via JNI bridge.
+- **Verification:** Pure test suites passed (459 tests), `NativePlayerControllerTeardownTest` passed (23 tests), `PlayerExitOrderingTest` passed (4 tests), desktop compilation clean.
 
 ## Phase 2 manual-verification finding: Startup watchdog evidence-of-life deadline (2026-09-06)
 
