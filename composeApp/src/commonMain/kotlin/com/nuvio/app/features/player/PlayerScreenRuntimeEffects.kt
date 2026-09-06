@@ -366,6 +366,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         // catalogue. See `PlaybackStartupWatchdog` for the whole argument.
         val startedAt = TimeSource.Monotonic.markNow()
         var watch = PlaybackStartupWatchdog.initial()
+        var wasEvidenceOfLifeLogged = false
         while (true) {
             delay(PlaybackStartupWatchdog.POLL_INTERVAL_MS)
             val snapshot = playbackSnapshot
@@ -418,6 +419,14 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 return@LaunchedEffect
             }
             watch = PlaybackStartupWatchdog.observe(watch, sample)
+            if (!wasEvidenceOfLifeLogged && watch.hasEvidenceOfLife) {
+                wasEvidenceOfLifeLogged = true
+                startupLog.i {
+                    "watchdog evidence of life: attempt=${args.playbackAttempt} candidate=$activeStreamTitle " +
+                        "elapsed=${sample.elapsedMs}ms duration=${sample.durationMs}ms " +
+                        "buffered=${sample.bufferedPositionMs}ms"
+                }
+            }
             when (watch.verdict) {
                 PlaybackStartupWatchdog.Verdict.Waiting -> Unit
                 PlaybackStartupWatchdog.Verdict.Started -> return@LaunchedEffect
@@ -431,6 +440,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                         "abandoning $activeStreamTitle: reason=$reason " +
                             "elapsed=${sample.elapsedMs}ms progress=${watch.bestProgressMs}ms " +
                             "lastAdvance=${watch.lastAdvanceMs}ms duration=${sample.durationMs}ms " +
+                            "evidenceOfLife=${watch.hasEvidenceOfLife} " +
                             "engine=${snapshot.engineName}"
                     }
                     StreamsRepository.noteAutoPickFailureReason(

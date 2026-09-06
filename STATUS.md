@@ -2,6 +2,31 @@
 
 Last updated: 2026-09-06
 
+## Phase 2 manual-verification finding: Startup watchdog evidence-of-life deadline (2026-09-06)
+
+Branch `claude/phase-2-playback`.
+
+Following Phase 2 manual/diagnostic verification of playback failover, resolved false-positive timeouts where healthy-but-slow sources were prematurely abandoned at 20s despite showing credible evidence of life (parsed container duration, HTTP probe response, demuxer buffer):
+
+1. **Two-Tier Startup Deadline (`PlaybackStartupWatchdog.kt`):**
+   - Retained `NO_PROGRESS_DEADLINE_MS = 20_000L` for completely dead sources with no evidence of life.
+   - Added `EVIDENCE_OF_LIFE_DEADLINE_MS = 35_000L` (`SLOW_STARTUP_DEADLINE_MS`) for slow-starting sources that have demonstrated credible evidence of life but have not yet advanced playback position.
+   - Preserved `STALL_DEADLINE_MS = 12_000L` and `MAX_STARTUP_MS = 60_000L`.
+2. **Evidence-of-Life Signals (`PlaybackStartupWatchdog.kt`, `PlayerScreenRuntimeEffects.kt`):**
+   - Candidate handoff or URL existence alone explicitly does not constitute evidence of life.
+   - Evidence of life is credited when `durationMs > 0L`, `bufferedPositionMs > 0L`, `progressMs > 0L`, or `hasExternalEvidenceOfLife` (successful HTTP probe `PlaybackProbeVerdict.Pass`).
+   - Sticky state in `PlaybackStartupWatchdog.State`: once credible life is established, the 35s deadline protects the startup until first position advance or 35s timeout.
+   - Added diagnostic logging for evidence-of-life transitions and watchdog abandon events.
+3. **Regression Tests (`PlaybackStartupWatchdogTest.kt`):**
+   - Dead sources abandoned at 20s.
+   - Slow-but-alive sources with duration or probe evidence not abandoned at 20s.
+   - Slow-but-alive sources starting between 22–30s succeed without false failover.
+   - Sources with evidence of life that fail to advance by 35s properly abandon.
+   - Stall deadline (12s) preserved after initial progress.
+   - Strict deadline hierarchy enforced: `STALL_DEADLINE_MS < NO_PROGRESS_DEADLINE_MS < EVIDENCE_OF_LIFE_DEADLINE_MS < MAX_STARTUP_MS`.
+4. **Verification:**
+   - Pure test suites and mobile tests passed clean (`:androidApp:testFullDebugUnitTest`).
+
 ## Phase 2 manual-verification finding: 8K AI upscale & CAM/TS ranking and presentation (2026-09-06)
 
 Branch `claude/phase-2-playback`.
