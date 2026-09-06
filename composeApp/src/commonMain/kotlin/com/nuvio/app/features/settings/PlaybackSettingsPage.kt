@@ -388,7 +388,7 @@ private fun PlaybackSettingsSection(
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = "Playback diagnostics HUD",
-                        description = "Show live buffer, engine, source, network, throttle, and swap controls.",
+                        description = "Show live buffer, engine, source, network, and throttle controls.",
                         checked = PlaybackDebugSettings.hudEnabled,
                         isTablet = isTablet,
                         onCheckedChange = { PlaybackDebugSettings.hudEnabled = it },

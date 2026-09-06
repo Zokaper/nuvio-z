@@ -305,7 +305,7 @@ object NetworkQualityRepository {
             else -> VideoResolution.UHD_2160
         }
         // Erring high is right for streaming - a stream that over-reaches is caught by
-        // downshift and costs nothing but a hiccup. It is not right for disk. Instant's
+        // ranked failover and costs nothing but a hiccup. It is not right for disk. Instant's
         // download button never asks, so an unmeasured platform guess must not silently
         // start a 4K download; a real measurement unlocks it.
         return if (

@@ -1,8 +1,33 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
-## Ultra 1 goes to the desktop repo; this one takes the `high` (2026-09-05)
+## UltraReview #1 remediation integrated & P7 deleted (2026-09-06)
+
+Branch `claude/phase-2-playback`.
+
+### UltraReview #1 remediation
+All six review findings from UltraReview #1 are integrated on mobile, alongside the mobile-specific back-press lifecycle fix:
+1. **Finding 1 (P2P auto-play failover):** Propagated `autoPickedWithFailureChain` for P2P auto-play in `StreamDestination`, kept `StreamRoute` on back stack during active failure chain, updated `lastHandedOffLabel`, and reset `autoPickFailure`.
+2. **Finding 2 (P2P external subtitles):** Propagated `stream.externalSubtitles` into `buildP2pPlayerLaunch` so P2P retains external subtitles into `PlayerLaunch`.
+3. **Finding 3 (Manual choice routing):** Routed choose-manually paths in quality sheet and uncached stream dialog through canonical `giveUpToSourceList` to preserve provenance and surface rules.
+4. **Finding 4 (Loading escape clock guard):** Added token guard to `PlaybackLoadingSessions.tick` so superseded session escape clock coroutines cannot contaminate subsequent sessions.
+5. **Finding 5 (Pure stream label fallback):** Removed `runBlocking` and Compose resource lookup from `StreamModels.kt`, providing pure stream label fallback and passing localized strings at Compose call sites.
+6. **Finding 6 (Canonical P2P sentinel helper):** Extracted canonical `p2pSentinelUrl` helper to `StreamModels.kt` and eliminated duplicate definitions.
+7. **Mobile Back-Press Lifecycle Fix:** Moved `autoPlayStream` null check in `StreamDestination` down into the retry branch so user back presses with spent/null `autoPlayStream` properly abandon auto-play and navigate out to details instead of being silently dropped.
+
+### Product decision: P7 deleted
+**P7 (auto source-swap / automatic downshift)** will not ship and is completely removed:
+- Detector (`AutoDownshiftDetector.kt`), candidate builder (`AutoDownshiftCandidates`), and 334-line test suite removed.
+- Diagnostic swap log (`SwapDiagnosticsLog.kt`, `SwapDiagnosticsLogTest.kt`) and HUD forced-swap controls removed.
+- Setting keys (`playback_auto_downshift`), storage actuals, repository state, and settings page UI removed; leftover descriptions cleaned up.
+- **Normal ranked-candidate failover remains completely intact**: automatic candidate failover across Classic/Streamlined/Instant, P2P failure chains, fatal playback error handling, manual fallback, and dead-source reporting are all preserved.
+
+### Verification status
+- Non-device verification (pure test suites, Android compilation, testAndroidHostTest) passes clean.
+- **Final real-device/manual observation on packaged builds remains pending** (watched run on APK/device required before Phase 2 sign-off; Phase 2 not yet claimed complete).
+
+## Ultra 1 review record (2026-09-05)
 
 Branch `claude/phase-2-playback`, open as [nuvio-z#1](https://github.com/Zokaper/nuvio-z/pull/1)
 against `claude/upstream-sync-0.4.13` - 73 files, +6,110/−1,790. ⚠ **Not `main`**, which does not

@@ -296,9 +296,9 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
  * A source the *user* picked from the sources panel.
  *
  * Only this refunds the credential-refresh budget. [switchToSource] itself must not: it also
- * serves automatic downshifts, the debug forced swap, and its own re-entrant debrid resolve, so
- * refunding there would hand an automatic retry of a dying source a fresh budget every swap -
- * which is the shape of the loop this budget exists to stop.
+ * serves in-player source changes and re-entrant debrid resolution, so refunding there would hand
+ * an automatic retry of a dying source a fresh budget every attempt - which is the shape of the
+ * loop this budget exists to stop.
  */
 internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
     credentialRefreshesUsed = 0
