@@ -1,7 +1,6 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
@@ -124,46 +123,22 @@ object PresetDownloadCoordinator {
                 addons = addons,
                 policySnapshot = policy,
             )
-            // Keyed by the URL the selector will hand back, so the entry can carry the
-            // pre-resolution stream that minted it.
-            val originsByResolvedUrl = mutableMapOf<String, DownloadSourceOrigin>()
-            val resolved = discovered.mapNotNull { candidate ->
-                if (!DirectDebridPlaybackResolver.shouldResolveToPlayableStream(candidate.stream)) {
-                    candidate
+            val selectable = discovered.map { candidate ->
+                if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(candidate.stream)) {
+                    candidate.copy(
+                        resolvedUrl = null,
+                        sourceOrigin = DownloadSourceOrigin(
+                            stream = candidate.stream,
+                            season = target.season,
+                            episode = target.episode,
+                        ),
+                    )
                 } else {
-                    when (
-                        val result = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                            candidate.stream,
-                            target.season,
-                            target.episode,
-                        )
-                    ) {
-                        is DirectDebridPlayableResult.Success -> {
-                            val context = AioDetectionContext(
-                                manifestId = candidate.addonKey.manifestId,
-                                manifestName = candidate.stream.addonName,
-                                manifestUrl = candidate.addonKey.manifestUrl,
-                                treatAsAioStreams = candidate.addonKey in policy.aioOverrides,
-                            )
-                            result.stream.playableDirectUrl?.let { resolvedUrl ->
-                                originsByResolvedUrl[resolvedUrl] = DownloadSourceOrigin(
-                                    stream = candidate.stream,
-                                    season = target.season,
-                                    episode = target.episode,
-                                )
-                            }
-                            candidate.copy(
-                                stream = result.stream,
-                                resolvedUrl = result.stream.playableDirectUrl,
-                                facts = SourceFactsExtractor.extract(result.stream, context),
-                            )
-                        }
-                        else -> null
-                    }
+                    candidate
                 }
             }
             val initial = PresetSourceSelector.select(
-                candidates = resolved,
+                candidates = selectable,
                 preset = preset,
                 policy = policy,
                 runtimeMinutes = target.runtimeMinutes,
@@ -173,20 +148,29 @@ object PresetDownloadCoordinator {
                 is SourceSelectionResult.Selected,
                 is SourceSelectionResult.ApprovalNeeded,
                 -> {
-                    val url = when (initial) {
+                    val selectedOrigin = when (initial) {
+                        is SourceSelectionResult.Selected -> initial.sourceOrigin
+                        is SourceSelectionResult.ApprovalNeeded -> initial.sourceOrigin
+                        else -> null
+                    }
+                    val selectedUrl = when (initial) {
                         is SourceSelectionResult.Selected -> initial.streamUrl
                         is SourceSelectionResult.ApprovalNeeded -> initial.streamUrl
-                        else -> ""
+                        else -> null
                     }
-                    resolved.map { candidate ->
-                        if (candidate.resolvedUrl == url) {
+                    selectable.map { candidate ->
+                        if (
+                            candidate.sourceOrigin == selectedOrigin &&
+                            candidate.resolvedUrl == selectedUrl &&
+                            candidate.sourceOrigin == null
+                        ) {
                             AutomaticDownloadDiscovery.verifyCandidateSize(candidate)
                         } else {
                             candidate
                         }
                     }
                 }
-                is SourceSelectionResult.NoMatch -> resolved
+                is SourceSelectionResult.NoMatch -> selectable
             }
             val selection = PresetSourceSelector.select(
                 candidates = verifiedCandidates,
@@ -197,9 +181,13 @@ object PresetDownloadCoordinator {
             )
             val selectedCandidate = when (selection) {
                 is SourceSelectionResult.Selected ->
-                    verifiedCandidates.firstOrNull { it.resolvedUrl == selection.streamUrl }
+                    verifiedCandidates.firstOrNull {
+                        it.resolvedUrl == selection.streamUrl && it.sourceOrigin == selection.sourceOrigin
+                    }
                 is SourceSelectionResult.ApprovalNeeded ->
-                    verifiedCandidates.firstOrNull { it.resolvedUrl == selection.streamUrl }
+                    verifiedCandidates.firstOrNull {
+                        it.resolvedUrl == selection.streamUrl && it.sourceOrigin == selection.sourceOrigin
+                    }
                 is SourceSelectionResult.NoMatch -> null
             }
             DownloadBatchEntry(
@@ -220,9 +208,17 @@ object PresetDownloadCoordinator {
                 providerName = selectedCandidate?.stream?.addonName,
                 providerAddonId = selectedCandidate?.stream?.addonId,
                 sourceHeaders = selectedCandidate?.stream?.behaviorHints?.proxyHeaders?.request.orEmpty(),
-                sourceOrigin = selectedCandidate?.resolvedUrl?.let(originsByResolvedUrl::get),
+                sourceOrigin = selectedCandidate?.sourceOrigin,
                 failureMessage = (selection as? SourceSelectionResult.NoMatch)?.reason,
-            )
+            ).also { entry ->
+                DownloadDiagnostics.selection(
+                    provider = entry.providerName,
+                    season = entry.season,
+                    episode = entry.episode,
+                    lazy = entry.sourceOrigin != null,
+                    outcome = entry.state.name,
+                )
+            }
         }.getOrElse { error ->
             DownloadBatchEntry(
                 id = "${target.videoId}|${target.season ?: -1}|${target.episode ?: -1}",

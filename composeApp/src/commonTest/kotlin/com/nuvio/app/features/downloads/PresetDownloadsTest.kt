@@ -100,6 +100,125 @@ class PresetDownloadsTest {
     }
 
     @Test
+    fun unresolvedDebridCandidateIsSelectedWithoutMintingAUrl() {
+        val original = StreamItem(
+            name = "Episode.Release.1080p.mkv",
+            infoHash = "0123456789abcdef0123456789abcdef01234567",
+            addonName = "Torrentio",
+            addonId = addonA.manifestId,
+        )
+        val origin = DownloadSourceOrigin(original, season = 1, episode = 2)
+        val result = PresetSourceSelector.select(
+            candidates = listOf(
+                DownloadSourceCandidate(
+                    stream = original,
+                    addonKey = addonA,
+                    facts = SourceFacts(
+                        resolution = VideoResolution.FULL_HD_1080,
+                        sizeBytes = 500_000_000L,
+                        reportedSizes = listOf(500_000_000L),
+                        codec = "HEVC",
+                        isDebridReady = true,
+                    ),
+                    resolvedUrl = null,
+                    sourceOrigin = origin,
+                ),
+            ),
+            preset = DownloadPreset.Balanced,
+            policy = DownloadSourcePolicy(),
+            runtimeMinutes = 45,
+            isEpisode = true,
+        )
+
+        val selected = assertIs<SourceSelectionResult.Selected>(result)
+        assertEquals(null, selected.streamUrl)
+        assertEquals(origin, selected.sourceOrigin)
+    }
+
+    @Test
+    fun codecKeepsBothLegacyEagerAndNewLazySelections() {
+        val facts = SourceFacts(
+            resolution = VideoResolution.FULL_HD_1080,
+            sizeBytes = 500_000_000L,
+            reportedSizes = listOf(500_000_000L),
+            codec = "HEVC",
+        )
+        val original = StreamItem(
+            name = "Episode.Release.1080p.mkv",
+            infoHash = "0123456789abcdef0123456789abcdef01234567",
+            addonName = "Torrentio",
+            addonId = addonA.manifestId,
+        )
+        val origin = DownloadSourceOrigin(original, 1, 1)
+        val batch = DownloadBatch(
+            id = "compat",
+            scope = DownloadScope.Season(1),
+            presetSnapshot = DownloadPreset.Balanced,
+            sourcePolicySnapshot = DownloadSourcePolicy(),
+            entries = listOf(
+                DownloadBatchEntry(
+                    id = "legacy",
+                    videoId = "legacy",
+                    title = "Legacy",
+                    state = DownloadBatchEntryState.READY,
+                    selection = SourceSelectionResult.Selected(
+                        streamUrl = "https://cdn.example/legacy.mkv",
+                        facts = facts,
+                        addonKey = addonA,
+                        calculatedCapBytes = 1_000_000_000L,
+                        sourceOrigin = origin,
+                    ),
+                    sourceOrigin = origin,
+                ),
+                DownloadBatchEntry(
+                    id = "lazy",
+                    videoId = "lazy",
+                    title = "Lazy",
+                    state = DownloadBatchEntryState.READY,
+                    selection = SourceSelectionResult.Selected(
+                        facts = facts,
+                        addonKey = addonA,
+                        calculatedCapBytes = 1_000_000_000L,
+                        sourceOrigin = origin.copy(episode = 2),
+                    ),
+                    sourceOrigin = origin.copy(episode = 2),
+                ),
+            ),
+            createdAtEpochMs = 1L,
+        )
+
+        val decoded = DownloadsCodec.decode(
+            DownloadsCodec.encode(emptyList(), DownloadSourcePolicy(), listOf(batch), DownloadPreset.BuiltIns),
+        ).batches.single()
+        val legacy = assertIs<SourceSelectionResult.Selected>(decoded.entries[0].selection)
+        val lazy = assertIs<SourceSelectionResult.Selected>(decoded.entries[1].selection)
+        assertEquals("https://cdn.example/legacy.mkv", legacy.streamUrl)
+        assertEquals(null, lazy.streamUrl)
+        assertEquals(2, lazy.sourceOrigin?.episode)
+    }
+
+    @Test
+    fun codecDoesNotDiscardPayloadWhenSourceUrlAndActivityAreAbsent() {
+        val payload = """
+            {
+              "items": [{
+                "id":"lazy-item","contentType":"series","parentMetaId":"show",
+                "parentMetaType":"series","videoId":"show:1:1","title":"Show",
+                "streamTitle":"Episode.Release.mkv","providerName":"Addon",
+                "fileName":"Show.S01E01.mkv","status":"Queued",
+                "createdAtEpochMs":1,"updatedAtEpochMs":1
+              }]
+            }
+        """.trimIndent()
+
+        val decoded = DownloadsCodec.decode(payload)
+
+        assertEquals(1, decoded.items.size)
+        assertEquals(null, decoded.items.single().sourceUrl)
+        assertEquals(null, decoded.items.single().activity)
+    }
+
+    @Test
     fun disallowedAddonsAreRemovedBeforeDiscoveryRequests() {
         val targets = listOf(
             AutomaticAddonTarget("a", "Allowed", addonA.manifestUrl),

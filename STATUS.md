@@ -164,7 +164,7 @@ by the controls JSON writer. See `nuviozdesktop/STATUS.md` for measurements and 
 
 | | |
 | --- | --- |
-| Active branch | `claude/phase-2-playback` in both KMP repositories, based on the completed mobile `0.4.13` and desktop `0.1.22-alpha` sync branches. |
+| Active branch | `codex/phase-3-downloads` in both KMP repositories, cut from mobile `main` and desktop `Dev` after Phase 2 merged. Phase 3 implements reliable downloads with lazy source resolution. |
 | Version in the files | mobile **`0.4.13-z1`** and desktop **`0.1.22-alpha-z1`**, both with release serial **127**. |
 | Released | bridge `0.5.0-beta+126`, published in both KMP repositories on 2026-08-24 |
 | Next version | mobile has adopted `0.4.13-z1`. Desktop adopts `<vanilla>-z1` when its own sync to `0.1.22-alpha` lands. Note that the debug channel carries no serial, so a debug install on `0.5.0-beta.25` will not be offered a `0.4.13-z1` debug build - it needs one manual sideload. |

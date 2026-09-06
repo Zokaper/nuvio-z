@@ -36,6 +36,20 @@ enum class DownloadPauseReason {
     SizeApproval,
 }
 
+/** Persisted explanation for what owns a download while no bytes are moving. */
+@Serializable
+enum class DownloadActivity {
+    QUEUED_FOR_SLOT,
+    RESOLVING_SOURCE,
+    WAITING_FOR_PROVIDER,
+    WAITING_FOR_CONNECTION,
+    RETRY_BACKOFF,
+    TRANSFERRING,
+    USER_PAUSED,
+    SYSTEM_PAUSED,
+    SIZE_APPROVAL,
+}
+
 /**
  * What a download needs in order to ask for its source URL again.
  *
@@ -75,7 +89,8 @@ data class DownloadItem(
     val streamSubtitle: String? = null,
     val providerName: String,
     val providerAddonId: String? = null,
-    val sourceUrl: String,
+    /** Null until an unresolved debrid source reaches a transfer slot. */
+    val sourceUrl: String? = null,
     val sourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
     /** Everything needed to mint [sourceUrl] again once it expires. */
@@ -112,6 +127,8 @@ data class DownloadItem(
     /** Queue rank; lower runs sooner. Assigned on enqueue, rewritten by reordering. */
     val queuePosition: Long = 0L,
     val pauseReason: DownloadPauseReason? = null,
+    /** Why this item is active but not necessarily receiving bytes. */
+    val activity: DownloadActivity? = null,
     /** `ETag` from the first response, sent back as `If-Range` when resuming. */
     val resumeEtag: String? = null,
     /** `Last-Modified` fallback validator for sources that send no `ETag`. */

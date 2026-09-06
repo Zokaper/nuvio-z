@@ -70,6 +70,9 @@ internal fun downloadStatusText(item: DownloadItem): String {
 
     return when (item.status) {
         DownloadStatus.Queued -> {
+            if (item.activity == DownloadActivity.WAITING_FOR_CONNECTION) {
+                return stringResource(Res.string.downloads_status_waiting_connection)
+            }
             val retryAtEpochMs = item.nextRetryAtEpochMs
             val nowEpochMs = tickingNowEpochMs(
                 active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),
@@ -95,18 +98,27 @@ internal fun downloadStatusText(item: DownloadItem): String {
                 }
                 // A bare countdown does not say why. When something explained the wait -
                 // a source still preparing the file, most often - lead with that.
-                restarting + (item.errorMessage?.takeIf { it.isNotBlank() }?.let { "$it $countdown" } ?: countdown)
+                val reason = when (item.activity) {
+                    DownloadActivity.WAITING_FOR_PROVIDER -> stringResource(Res.string.downloads_status_waiting_provider)
+                    DownloadActivity.RETRY_BACKOFF -> stringResource(Res.string.downloads_status_retry_backoff)
+                    else -> item.errorMessage?.takeIf { it.isNotBlank() }
+                }
+                restarting + (reason?.let { "$it · $countdown" } ?: countdown)
             } else {
                 stringResource(Res.string.downloads_status_queued_position, item.queuePosition + 1L)
             }
         }
-        DownloadStatus.Downloading -> if (item.downloadedBytes <= 0L && item.totalBytes == null) {
+        DownloadStatus.Downloading -> if (item.activity == DownloadActivity.RESOLVING_SOURCE) {
+            stringResource(Res.string.downloads_status_resolving_source)
+        } else if (item.downloadedBytes <= 0L && item.totalBytes == null) {
             stringResource(Res.string.downloads_status_waiting_to_start)
         } else {
             stringResource(Res.string.downloads_status_downloading, size) + overCapNote
         }
         DownloadStatus.Paused -> if (item.sizeApprovalRequired) {
             item.errorMessage ?: stringResource(Res.string.downloads_status_paused, size)
+        } else if (item.activity == DownloadActivity.SYSTEM_PAUSED) {
+            stringResource(Res.string.downloads_status_system_paused)
         } else {
             stringResource(Res.string.downloads_status_paused, size) + overCapNote
         }

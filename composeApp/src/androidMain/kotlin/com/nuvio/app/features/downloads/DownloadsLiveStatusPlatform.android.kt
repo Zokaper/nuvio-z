@@ -64,6 +64,7 @@ internal actual object DownloadsLiveStatusPlatform {
                 totalBytes = item.totalBytes,
                 errorMessage = item.errorMessage,
                 sizeApprovalRequired = item.sizeApprovalRequired,
+                activity = item.activity,
             )
 
             val existingState = lastRenderStateById[item.id]
@@ -261,8 +262,16 @@ internal actual object DownloadsLiveStatusPlatform {
     private fun buildSubtitle(item: DownloadItem): String {
         val detail = item.displaySubtitle
         return when (item.status) {
-            DownloadStatus.Queued -> runBlocking { getString(Res.string.downloads_live_queued, detail) }
+            DownloadStatus.Queued -> when (item.activity) {
+                DownloadActivity.WAITING_FOR_CONNECTION -> runBlocking { getString(Res.string.downloads_status_waiting_connection) }
+                DownloadActivity.WAITING_FOR_PROVIDER -> runBlocking { getString(Res.string.downloads_status_waiting_provider) }
+                DownloadActivity.RETRY_BACKOFF -> runBlocking { getString(Res.string.downloads_status_retry_backoff) }
+                else -> runBlocking { getString(Res.string.downloads_live_queued, detail) }
+            }
             DownloadStatus.Downloading -> {
+                if (item.activity == DownloadActivity.RESOLVING_SOURCE) {
+                    return runBlocking { getString(Res.string.downloads_status_resolving_source) }
+                }
                 val downloaded = formatBytes(item.downloadedBytes)
                 val total = item.totalBytes?.let(::formatBytes)
                 if (total != null) {
@@ -393,5 +402,6 @@ internal actual object DownloadsLiveStatusPlatform {
         val totalBytes: Long?,
         val errorMessage: String?,
         val sizeApprovalRequired: Boolean,
+        val activity: DownloadActivity?,
     )
 }

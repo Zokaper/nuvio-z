@@ -1,6 +1,5 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
@@ -39,6 +38,7 @@ internal sealed interface DownloadSourceResolution {
 
 private sealed interface RefreshedDownloadSource {
     data class Ready(val item: DownloadItem) : RefreshedDownloadSource
+    data class NeedsApproval(val item: DownloadItem, val message: String) : RefreshedDownloadSource
     data class Failed(val resolution: DownloadSourceResolution) : RefreshedDownloadSource
 }
 
@@ -77,11 +77,14 @@ object DownloadsRepository {
     private val transferSamples = mutableMapOf<String, TransferSample>()
     private var hasLoaded = false
     private var networkObserverStarted = false
+    private var connectivityRefreshJob: Job? = null
     private var nextDownloadOrdinal = 0L
     private var lastPersistAtEpochMs = 0L
     private var hasPendingPersist = false
     private var retryWakeJob: Job? = null
     private var nextTransferGeneration = 0L
+
+    internal var connectivityFeed: DownloadConnectivityFeed = AppDownloadConnectivityFeed
 
     fun ensureLoaded() {
         synchronized(stateLock) {
@@ -101,15 +104,72 @@ object DownloadsRepository {
     private fun startNetworkObserverLocked() {
         if (networkObserverStarted) return
         networkObserverStarted = true
+        connectivityFeed.ensureStarted()
         scope.launch {
-            var wasOnline = NetworkStatusRepository.uiState.value.isOnline
-            NetworkStatusRepository.uiState.collect { state ->
-                val isOnline = state.isOnline
-                if (isOnline && !wasOnline) {
-                    resumeSystemPausedDownloads()
-                    startPendingTransfers()
-                }
-                wasOnline = isOnline
+            var wasBlocked = connectivityFeed.states.value.blocksMediaDownloads()
+            connectivityFeed.states.collect { state ->
+                val blocked = state.blocksMediaDownloads()
+                if (blocked && !wasBlocked) pauseForConnectionLoss()
+                if (!blocked && wasBlocked) resumeAfterConnectivityRecovery()
+                wasBlocked = blocked
+            }
+        }
+    }
+
+    private fun pauseForConnectionLoss() {
+        synchronized(stateLock) {
+            val affected = _uiState.value.items.filter {
+                it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
+            }
+            affected.forEach { item ->
+                activeHandles.remove(item.id)?.cancel()
+                DownloadDiagnostics.connectivity(item, recovered = false)
+            }
+            if (affected.isNotEmpty()) {
+                val ids = affected.mapTo(mutableSetOf()) { it.id }
+                publishLocked(
+                    _uiState.value.items.map { item ->
+                        if (item.id !in ids) item else item.copy(
+                            status = DownloadStatus.Queued,
+                            activity = DownloadActivity.WAITING_FOR_CONNECTION,
+                            nextRetryAtEpochMs = null,
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        )
+                    },
+                    immediate = true,
+                )
+            }
+            scheduleConnectivityRefreshLocked()
+        }
+    }
+
+    private fun resumeAfterConnectivityRecovery() {
+        synchronized(stateLock) {
+            connectivityRefreshJob?.cancel()
+            connectivityRefreshJob = null
+            val now = DownloadsClock.nowEpochMs()
+            publishLocked(
+                _uiState.value.items.map { item ->
+                    if (item.activity != DownloadActivity.WAITING_FOR_CONNECTION) item else {
+                        DownloadDiagnostics.connectivity(item, recovered = true)
+                        item.copy(
+                            activity = DownloadActivity.QUEUED_FOR_SLOT,
+                            updatedAtEpochMs = now,
+                        )
+                    }
+                },
+                immediate = true,
+            )
+        }
+        startPendingTransfers()
+    }
+
+    private fun scheduleConnectivityRefreshLocked() {
+        if (connectivityRefreshJob?.isActive == true) return
+        connectivityRefreshJob = scope.launch {
+            while (connectivityFeed.states.value.blocksMediaDownloads()) {
+                delay(DownloadsTiming.connectivityRefreshIntervalMs)
+                connectivityFeed.requestRefresh()
             }
         }
     }
@@ -125,6 +185,8 @@ object DownloadsRepository {
             activeHandles.clear()
             retryWakeJob?.cancel()
             retryWakeJob = null
+            connectivityRefreshJob?.cancel()
+            connectivityRefreshJob = null
             hasLoaded = false
             hasPendingPersist = false
             _uiState.value = DownloadsUiState()
@@ -226,9 +288,8 @@ object DownloadsRepository {
         val sourceUrl = stream.playableDirectUrl
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?: return DownloadEnqueueResult.MissingUrl
-
-        if (!sourceUrl.isSupportedDownloadUrl()) {
+        if (sourceUrl == null && sourceOrigin == null) return DownloadEnqueueResult.MissingUrl
+        if (sourceUrl != null && !sourceUrl.isSupportedDownloadUrl()) {
             return DownloadEnqueueResult.UnsupportedFormat
         }
         val freeStorageBytes = DownloadsPlatformDownloader.freeStorageBytes()
@@ -297,6 +358,7 @@ object DownloadsRepository {
                 localFileUri = null,
                 fileName = fileName,
                 status = DownloadStatus.Queued,
+                activity = DownloadActivity.QUEUED_FOR_SLOT,
                 downloadedBytes = 0L,
                 totalBytes = null,
                 sourceOrigin = sourceOrigin,
@@ -339,6 +401,7 @@ object DownloadsRepository {
                 current.copy(
                     status = DownloadStatus.Paused,
                     pauseReason = DownloadPauseReason.User,
+                    activity = DownloadActivity.USER_PAUSED,
                     nextRetryAtEpochMs = null,
                     updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                     errorMessage = null,
@@ -372,6 +435,7 @@ object DownloadsRepository {
                         item.copy(
                             status = DownloadStatus.Paused,
                             pauseReason = DownloadPauseReason.System,
+                            activity = DownloadActivity.SYSTEM_PAUSED,
                             updatedAtEpochMs = now,
                         )
                     }
@@ -403,6 +467,7 @@ object DownloadsRepository {
                         item.copy(
                             status = DownloadStatus.Queued,
                             pauseReason = null,
+                            activity = DownloadActivity.QUEUED_FOR_SLOT,
                             errorMessage = null,
                             updatedAtEpochMs = now,
                         )
@@ -429,6 +494,7 @@ object DownloadsRepository {
                 current.copy(
                     status = DownloadStatus.Queued,
                     pauseReason = null,
+                    activity = DownloadActivity.QUEUED_FOR_SLOT,
                     errorMessage = null,
                     localFileUri = null,
                     downloadedBytes = partialBytes,
@@ -641,6 +707,7 @@ object DownloadsRepository {
                 current.copy(
                     status = DownloadStatus.Queued,
                     pauseReason = null,
+                    activity = DownloadActivity.QUEUED_FOR_SLOT,
                     sizeApprovalRequired = false,
                     sizeCapOverrideApproved = true,
                     errorMessage = null,
@@ -723,7 +790,8 @@ object DownloadsRepository {
                         )
             if (!canQueue) return@map entry
 
-            val streamUrl: String
+            val streamUrl: String?
+            val sourceOrigin: DownloadSourceOrigin?
             val addonKey: AddonSourceKey
             val calculatedCapBytes: Long
             val expectedSizeBytes: Long?
@@ -735,12 +803,14 @@ object DownloadsRepository {
             when (selection) {
                 is SourceSelectionResult.Selected -> {
                     streamUrl = selection.streamUrl
+                    sourceOrigin = selection.sourceOrigin ?: entry.sourceOrigin
                     addonKey = selection.addonKey
                     calculatedCapBytes = selection.calculatedCapBytes
                     expectedSizeBytes = selection.facts.sizeBytes
                 }
                 is SourceSelectionResult.ApprovalNeeded -> {
                     streamUrl = selection.streamUrl
+                    sourceOrigin = selection.sourceOrigin ?: entry.sourceOrigin
                     addonKey = selection.addonKey
                     calculatedCapBytes = selection.calculatedCapBytes
                     expectedSizeBytes = selection.facts.sizeBytes
@@ -748,7 +818,7 @@ object DownloadsRepository {
                 }
                 else -> return@map entry
             }
-            val stream = StreamItem(
+            val stream = sourceOrigin?.stream ?: StreamItem(
                 name = entry.streamTitle,
                 description = entry.streamSubtitle,
                 url = streamUrl,
@@ -776,9 +846,10 @@ object DownloadsRepository {
                 calculatedCapBytes = calculatedCapBytes,
                 allowMeteredNetwork = batch.allowMeteredNetwork,
                 expectedSizeBytes = expectedSizeBytes,
-                sourceOrigin = entry.sourceOrigin,
-                // Preparation minted this link; the queue may not reach it for hours.
-                sourceUrlResolvedAtEpochMs = batch.createdAtEpochMs,
+                sourceOrigin = sourceOrigin,
+                // Lazy sources have never been minted. Legacy eager selections keep
+                // their URL but are force-refreshed because an origin is present.
+                sourceUrlResolvedAtEpochMs = null,
                 sizeCapOverrideApproved = sizeApproved,
             )
             if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) {
@@ -815,6 +886,9 @@ object DownloadsRepository {
     ) {
         synchronized(stateLock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
+            _uiState.value.items.firstOrNull { it.id == downloadId }?.let {
+                DownloadDiagnostics.transferOpen(it, resumedFromBytes, totalBytes)
+            }
             transferSamples[downloadId] = TransferSample(
                 bytes = resumedFromBytes.coerceAtLeast(0L),
                 atEpochMs = DownloadsClock.nowEpochMs(),
@@ -826,6 +900,7 @@ object DownloadsRepository {
                     current.copy(
                         downloadedBytes = resumedFromBytes.coerceAtLeast(0L),
                         totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                        activity = DownloadActivity.TRANSFERRING,
                         // Kept so the next resume can prove, via If-Range, that the bytes
                         // on disk still belong to the file the server is serving.
                         resumeEtag = etag?.trim()?.takeIf { it.isNotBlank() } ?: current.resumeEtag,
@@ -939,6 +1014,7 @@ object DownloadsRepository {
             transferSamples.remove(downloadId)
             activeHandles.remove(downloadId)
             mutateLocked(downloadId, immediate = true) { current ->
+                DownloadDiagnostics.completion(current, totalBytes)
                 current.copy(
                     status = DownloadStatus.Completed,
                     pauseReason = null,
@@ -950,6 +1026,7 @@ object DownloadsRepository {
                     errorMessage = null,
                     attemptCount = 0,
                     nextRetryAtEpochMs = null,
+                    activity = null,
                     updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                 )
             }
@@ -998,6 +1075,20 @@ object DownloadsRepository {
             if (!isCurrentTransferLocked(downloadId, generation)) return
             transferSamples.remove(downloadId)
             activeHandles.remove(downloadId)
+            if (connectivityFeed.states.value.blocksMediaDownloads()) {
+                mutateLocked(downloadId, immediate = true) { current ->
+                    DownloadDiagnostics.connectivity(current, recovered = false)
+                    current.copy(
+                        status = DownloadStatus.Queued,
+                        downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                        activity = DownloadActivity.WAITING_FOR_CONNECTION,
+                        nextRetryAtEpochMs = null,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+                scheduleConnectivityRefreshLocked()
+                return
+            }
             if (discardFiles) {
                 _uiState.value.items.firstOrNull { it.id == downloadId }?.let { item ->
                     DownloadsPlatformDownloader.removeFile(
@@ -1014,6 +1105,7 @@ object DownloadsRepository {
                     current.copy(downloadedBytes = downloadedBytes.coerceAtLeast(0L))
                 } else {
                     val attempt = current.attemptCount + 1
+                    DownloadDiagnostics.failure(current, reason.name, attempt, downloadedBytes)
                     val now = DownloadsClock.nowEpochMs()
                     // Entering the retry cycle. From here the budget is only refreshed by
                     // real progress measured against this mark - see `onTransferProgress`.
@@ -1030,6 +1122,8 @@ object DownloadsRepository {
                         downloadedBytes > 0L
                     if (!shouldRetry(reason, attempt, current.canReresolveSource) && canRestartFromZero) {
                         DownloadsPlatformDownloader.removePartialFile(current.fileName)
+                        val retryAt = now + retryBackoffMs(attempt, reason)
+                        DownloadDiagnostics.retry(current, reason.name, attempt, retryAt)
                         return@mutateLocked current.copy(
                             status = DownloadStatus.Queued,
                             pauseReason = null,
@@ -1042,7 +1136,8 @@ object DownloadsRepository {
                             sourceUrlResolvedAtEpochMs = null,
                             resumeEtag = null,
                             resumeLastModified = null,
-                            nextRetryAtEpochMs = now + retryBackoffMs(attempt, reason),
+                            nextRetryAtEpochMs = retryAt,
+                            activity = DownloadActivity.RETRY_BACKOFF,
                             errorMessage = fallbackMessage,
                             updatedAtEpochMs = now,
                         )
@@ -1050,6 +1145,8 @@ object DownloadsRepository {
                     if (shouldRetry(reason, attempt, current.canReresolveSource)) {
                         // Backed off rather than retried on the spot: a dead network used
                         // to burn every attempt within milliseconds of the first failure.
+                        val retryAt = now + retryBackoffMs(attempt, reason)
+                        DownloadDiagnostics.retry(current, reason.name, attempt, retryAt)
                         current.copy(
                             status = DownloadStatus.Queued,
                             pauseReason = null,
@@ -1065,7 +1162,12 @@ object DownloadsRepository {
                                 } else {
                                     current.sourceUrlResolvedAtEpochMs
                                 },
-                            nextRetryAtEpochMs = now + retryBackoffMs(attempt, reason),
+                            nextRetryAtEpochMs = retryAt,
+                            activity = if (reason == DownloadFailureReason.SourceNotReady) {
+                                DownloadActivity.WAITING_FOR_PROVIDER
+                            } else {
+                                DownloadActivity.RETRY_BACKOFF
+                            },
                             errorMessage = fallbackMessage,
                             updatedAtEpochMs = now,
                         )
@@ -1086,6 +1188,7 @@ object DownloadsRepository {
                             localFileUri = if (discardFiles) null else current.localFileUri,
                             attemptCount = attempt,
                             nextRetryAtEpochMs = null,
+                            activity = null,
                             errorMessage = stalledMessage,
                             updatedAtEpochMs = now,
                         )
@@ -1101,6 +1204,25 @@ object DownloadsRepository {
     private fun startPendingTransfers() {
         synchronized(stateLock) {
             reclaimLostTransfersLocked()
+            if (connectivityFeed.states.value.blocksMediaDownloads()) {
+                val waiting = _uiState.value.items.filter { it.status == DownloadStatus.Queued }
+                if (waiting.isNotEmpty()) {
+                    val waitingIds = waiting.mapTo(mutableSetOf()) { it.id }
+                    publishLocked(
+                        _uiState.value.items.map { item ->
+                            if (item.id !in waitingIds) item else item.copy(
+                                activity = DownloadActivity.WAITING_FOR_CONNECTION,
+                                nextRetryAtEpochMs = null,
+                                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                            )
+                        },
+                        immediate = true,
+                    )
+                    waiting.forEach { DownloadDiagnostics.connectivity(it, recovered = false) }
+                }
+                scheduleConnectivityRefreshLocked()
+                return@synchronized
+            }
             val now = DownloadsClock.nowEpochMs()
             val startable = DownloadQueuePlanner.startable(
                 items = _uiState.value.items,
@@ -1119,6 +1241,11 @@ object DownloadsRepository {
                             item.copy(
                                 status = DownloadStatus.Downloading,
                                 pauseReason = null,
+                                activity = if (item.sourceOrigin != null) {
+                                    DownloadActivity.RESOLVING_SOURCE
+                                } else {
+                                    DownloadActivity.TRANSFERRING
+                                },
                                 nextRetryAtEpochMs = null,
                                 updatedAtEpochMs = now,
                             )
@@ -1130,6 +1257,7 @@ object DownloadsRepository {
                 startable.forEach { queuedItem ->
                     val current = _uiState.value.items.firstOrNull { it.id == queuedItem.id }
                         ?: queuedItem
+                    DownloadDiagnostics.slot(current)
                     startDownloadLocked(current)
                 }
             }
@@ -1216,6 +1344,7 @@ object DownloadsRepository {
             return
         }
 
+        DownloadDiagnostics.resolving(item)
         scope.launch {
             val refreshed = refreshSourceUrl(item)
             synchronized(stateLock) {
@@ -1249,15 +1378,22 @@ object DownloadsRepository {
                         resolution !is DownloadSourceResolution.SourceChanged &&
                         shouldRetry(reason, attempt, current.canReresolveSource)
                     val sourceChanged = resolution is DownloadSourceResolution.SourceChanged
+                    DownloadDiagnostics.failure(current, reason.name, attempt, current.downloadedBytes)
                     if (sourceChanged) DownloadsPlatformDownloader.removePartialFile(current.fileName)
                     mutateLocked(item.id, immediate = true) { latest ->
                         if (retryable) {
+                            val retryAt = now + retryBackoffMs(attempt, reason)
+                            DownloadDiagnostics.retry(latest, reason.name, attempt, retryAt)
                             latest.copy(
                                 status = DownloadStatus.Queued,
                                 pauseReason = null,
                                 attemptCount = attempt,
-                                nextRetryAtEpochMs = now +
-                                    retryBackoffMs(attempt, reason),
+                                nextRetryAtEpochMs = retryAt,
+                                activity = if (resolution is DownloadSourceResolution.NotReady) {
+                                    DownloadActivity.WAITING_FOR_PROVIDER
+                                } else {
+                                    DownloadActivity.RETRY_BACKOFF
+                                },
                                 errorMessage = message,
                                 updatedAtEpochMs = now,
                             )
@@ -1271,10 +1407,23 @@ object DownloadsRepository {
                                 resumeLastModified = if (sourceChanged) null else latest.resumeLastModified,
                                 attemptCount = attempt,
                                 nextRetryAtEpochMs = null,
+                                activity = null,
                                 errorMessage = message,
                                 updatedAtEpochMs = now,
                             )
                         }
+                    }
+                } else if (refreshed is RefreshedDownloadSource.NeedsApproval) {
+                    activeHandles.remove(item.id)
+                    mutateLocked(item.id, immediate = true) { latest ->
+                        latest.copy(
+                            status = DownloadStatus.Paused,
+                            pauseReason = DownloadPauseReason.SizeApproval,
+                            activity = DownloadActivity.SIZE_APPROVAL,
+                            sizeApprovalRequired = true,
+                            errorMessage = refreshed.message,
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        )
                     }
                 } else if (refreshed is RefreshedDownloadSource.Ready) {
                     startResolvedDownloadLocked(refreshed.item, transfer)
@@ -1343,9 +1492,16 @@ object DownloadsRepository {
             return RefreshedDownloadSource.Failed(resolution)
         }
         val stream = resolution.stream
-        val refreshedSize = stream.behaviorHints.videoSize?.takeIf { it > 0L }
+        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: return RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.RetryableFailure(fallbackMessage),
+            )
+        val refreshedHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request)
+        val refreshedSize = AutomaticDownloadDiscovery.verifyHttpSize(sourceUrl, refreshedHeaders)
+            ?: stream.behaviorHints.videoSize?.takeIf { it > 0L }
         val expectedSize = item.expectedSizeBytes?.takeIf { it > 0L }
         if (
+            item.downloadedBytes > 0L &&
             expectedSize != null &&
             refreshedSize != null &&
             sizesMateriallyConflict(listOf(expectedSize, refreshedSize))
@@ -1356,10 +1512,18 @@ object DownloadsRepository {
                 ),
             )
         }
-        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() }
-            ?: return RefreshedDownloadSource.Failed(
-                DownloadSourceResolution.RetryableFailure(fallbackMessage),
+        val freeStorage = DownloadsPlatformDownloader.freeStorageBytes()
+        if (
+            refreshedSize != null &&
+            freeStorage > 0L &&
+            refreshedSize - item.downloadedBytes.coerceAtLeast(0L) > freeStorage
+        ) {
+            return RefreshedDownloadSource.Failed(
+                DownloadSourceResolution.FatalFailure(
+                    getString(Res.string.downloads_enqueue_insufficient_storage),
+                ),
             )
+        }
 
         val now = DownloadsClock.nowEpochMs()
         var updated: DownloadItem? = null
@@ -1370,7 +1534,17 @@ object DownloadsRepository {
                     sourceHeaders = sanitizeRequestHeaders(
                         stream.behaviorHints.proxyHeaders?.request,
                     ).ifEmpty { current.sourceHeaders },
+                    sourceResponseHeaders = sanitizeResponseHeaders(
+                        stream.behaviorHints.proxyHeaders?.response,
+                    ).ifEmpty { current.sourceResponseHeaders },
                     sourceUrlResolvedAtEpochMs = now,
+                    expectedSizeBytes = refreshedSize ?: current.expectedSizeBytes,
+                    totalBytes = refreshedSize ?: current.totalBytes,
+                    exceedsSizeCap = current.exceedsSizeCap ||
+                        (
+                            current.calculatedCapBytes != null && refreshedSize != null &&
+                                refreshedSize > current.calculatedCapBytes
+                            ),
                     // Keep the validator from the bytes already on disk. If the fresh
                     // URL now points at a different object, If-Range makes a compliant
                     // host answer with 200 and the platform replaces the partial file.
@@ -1380,7 +1554,22 @@ object DownloadsRepository {
             updated = _uiState.value.items.firstOrNull { it.id == item.id }
         }
         return updated
-            ?.let { RefreshedDownloadSource.Ready(it) }
+            ?.let { refreshed ->
+                DownloadDiagnostics.resolved(refreshed, refreshedSize)
+                if (
+                    refreshedSize != null &&
+                    refreshed.calculatedCapBytes != null &&
+                    refreshedSize > refreshed.calculatedCapBytes &&
+                    !refreshed.sizeCapOverrideApproved
+                ) {
+                    RefreshedDownloadSource.NeedsApproval(
+                        refreshed,
+                        getString(Res.string.download_size_approval_message),
+                    )
+                } else {
+                    RefreshedDownloadSource.Ready(refreshed)
+                }
+            }
             ?: RefreshedDownloadSource.Failed(
                 DownloadSourceResolution.RetryableFailure(fallbackMessage),
             )
@@ -1392,8 +1581,20 @@ object DownloadsRepository {
     }
 
     private fun startResolvedDownloadLocked(item: DownloadItem, transfer: ActiveTransfer) {
+        val sourceUrl = item.sourceUrl ?: run {
+            activeHandles.remove(item.id)
+            mutateLocked(item.id, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Failed,
+                    activity = null,
+                    errorMessage = runBlocking { getString(Res.string.downloads_enqueue_missing_url) },
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+            return
+        }
         val request = DownloadPlatformRequest(
-            sourceUrl = item.sourceUrl,
+            sourceUrl = sourceUrl,
             sourceHeaders = item.sourceHeaders,
             destinationFileName = item.fileName,
             allowMeteredNetwork = item.allowMeteredNetwork,
@@ -1424,10 +1625,14 @@ object DownloadsRepository {
                     attemptCount = attempt,
                     nextRetryAtEpochMs = now +
                         retryBackoffMs(attempt, DownloadFailureReason.Transient),
+                    activity = DownloadActivity.RETRY_BACKOFF,
                     updatedAtEpochMs = now,
                 )
             }
             return
+        }
+        mutateLocked(item.id, immediate = true) { current ->
+            current.copy(activity = DownloadActivity.TRANSFERRING)
         }
         transfer.attach(handle)
     }
@@ -1604,11 +1809,13 @@ object DownloadsRepository {
                 withLocalUri.status == DownloadStatus.Downloading -> withLocalUri.copy(
                     status = DownloadStatus.Queued,
                     nextRetryAtEpochMs = null,
+                    activity = DownloadActivity.QUEUED_FOR_SLOT,
                     updatedAtEpochMs = now,
                 )
                 withLocalUri.isSystemPaused -> withLocalUri.copy(
                     status = DownloadStatus.Queued,
                     pauseReason = null,
+                    activity = DownloadActivity.QUEUED_FOR_SLOT,
                     updatedAtEpochMs = now,
                 )
                 // Downloads the old mid-transfer cap check stopped are sitting paused
@@ -1619,6 +1826,7 @@ object DownloadsRepository {
                     status = DownloadStatus.Queued,
                     pauseReason = null,
                     sizeApprovalRequired = false,
+                    activity = DownloadActivity.QUEUED_FOR_SLOT,
                     sizeCapOverrideApproved = true,
                     exceedsSizeCap = true,
                     errorMessage = null,
@@ -1645,6 +1853,7 @@ object DownloadsRepository {
                     withLocalUri.copy(
                         status = DownloadStatus.Queued,
                         pauseReason = null,
+                        activity = DownloadActivity.QUEUED_FOR_SLOT,
                         localFileUri = null,
                         downloadedBytes = 0L,
                         totalBytes = null,
@@ -1653,7 +1862,7 @@ object DownloadsRepository {
                         updatedAtEpochMs = now,
                     )
                 }
-                else -> withLocalUri
+                else -> withLocalUri.withInferredActivity(now)
             }
         }
 
@@ -1792,6 +2001,25 @@ object DownloadsRepository {
                 localFileUri = localFileUri,
                 destinationFileName = fileName,
             ) != null
+
+    private fun DownloadItem.withInferredActivity(nowEpochMs: Long): DownloadItem {
+        if (activity != null) return this
+        val inferred = when (status) {
+            DownloadStatus.Queued -> if (isWaitingForRetry(nowEpochMs)) {
+                DownloadActivity.RETRY_BACKOFF
+            } else {
+                DownloadActivity.QUEUED_FOR_SLOT
+            }
+            DownloadStatus.Downloading -> DownloadActivity.TRANSFERRING
+            DownloadStatus.Paused -> when (pauseReason) {
+                DownloadPauseReason.User -> DownloadActivity.USER_PAUSED
+                DownloadPauseReason.SizeApproval -> DownloadActivity.SIZE_APPROVAL
+                else -> DownloadActivity.SYSTEM_PAUSED
+            }
+            DownloadStatus.Completed, DownloadStatus.Failed -> null
+        }
+        return copy(activity = inferred)
+    }
 }
 
 @Serializable
@@ -1878,7 +2106,7 @@ private fun buildFileName(
     episodeNumber: Int?,
     episodeTitle: String?,
     fallbackTitle: String,
-    sourceUrl: String,
+    sourceUrl: String?,
     nowEpochMs: Long,
 ): String {
     val baseTitle = if (seasonNumber != null && episodeNumber != null) {
@@ -1897,7 +2125,7 @@ private fun buildFileName(
         title.ifBlank { fallbackTitle }
     }
 
-    val extension = sourceUrl.fileExtensionFromUrl()
+    val extension = (sourceUrl ?: fallbackTitle).fileExtensionFromUrl()
     return buildString {
         append(baseTitle.sanitizeFileName().ifBlank { "download" }.take(92))
         append('_')
