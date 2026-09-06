@@ -68,11 +68,16 @@ data class PlaybackSelectionContext(
     val identity: RequestedContent? = null,
     val secondaryAudioLanguage: String? = null,
     val languageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
+    val displayMaxHeight: Int? = null,
 ) {
     internal val rankingPreferences: SourceRankingPreferences
         get() = SourceRankingPreferences(
             preferredAudioLanguage = preferredAudioLanguage,
             secondaryAudioLanguage = secondaryAudioLanguage,
+            codecPreference = codecPreference,
+            dynamicRangePolicy = dynamicRangePolicy,
+            audioPreference = audioPreference,
+            displayMaxHeight = displayMaxHeight,
         )
 }
 

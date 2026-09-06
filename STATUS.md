@@ -2,7 +2,31 @@
 
 Last updated: 2026-09-06
 
-## UltraReview #1 remediation integrated & P7 deleted (2026-09-06)
+## Phase 2 manual-verification finding: 8K AI upscale & CAM/TS ranking and presentation (2026-09-06)
+
+Branch `claude/phase-2-playback`.
+
+Following Phase 2 manual/watched playback verification, corrected the selector and presentation logic for AI-upscaled releases (particularly nominal 8K streams) and theatrical captures (CAM/TS):
+
+1. **AI Upscale Classification (`ReleaseTags.kt`, `SourceFacts.kt`):**
+   - Added conservative `isAiUpscaled` detection for release title tokens (`AI Upscale`, `AI-Upscaled`, `AI Enhanced`, `AI Remastered`, `Topaz`, `Upscaled`, etc.).
+   - Exposed on `SourceFacts` and pure-suite neighbour stubs.
+2. **Display Capability Propagation (`Platform.kt`, `Platform.android.kt`, `Platform.ios.kt`):**
+   - Added `platformDisplayMaxHeight()` to detect device display height (e.g. 1080/2160) and passed through `PlaybackSelectionContext` into `SourceRankingPreferences`.
+3. **Automatic Ranking (`SourceRanking.kt`):**
+   - `resolutionTier`: When display max height is below 8K (< 4320p), 8K and 4K fold into the same resolution tier (tier 5). On displays >= 8K, 8K native retains tier 6.
+   - `mediaScore`: Added `AI_UPSCALE_PENALTY` (-8) and `CAM_TS_PENALTY` (-20).
+   - Both Instant and Best Available inherit the model; proper 4K releases now comfortably beat nominal 8K AI upscales on 4K-or-lower displays.
+4. **CAM/TS Demotion and Restrained Treatment:**
+   - CAM/TS releases assigned `THEATRICAL_CAPTURE_TIER = -1`, ensuring any standard release (even SD) wins over CAM/TS, while preserving selectability if CAM is the sole available source.
+5. **Restrained UI Presentation (`PlaybackQualitySheet.kt`):**
+   - Added `AI Upscale` chip with restrained danger styling (`tokens.colors.danger` at 12% alpha bg, 35% hairline border) without interfering with HDR/DV/Atmos feature chips.
+   - Set CAM/TS provenance text to restrained danger color without adding duplicate badges.
+6. **Verification & Packages:**
+   - Passed regression test Cases A through G (`SourceRankingTest.kt`), `ReleaseTagsTest.kt`, and `PlaybackQualityOptionsTest.kt`.
+   - Pure test suites (402 tests) passed clean outside Gradle.
+   - `:composeApp:testAndroidHostTest` passed clean (107 tests).
+   - Packaged Android full debug APK: `androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk` (151,080,900 bytes).
 
 Branch `claude/phase-2-playback`.
 

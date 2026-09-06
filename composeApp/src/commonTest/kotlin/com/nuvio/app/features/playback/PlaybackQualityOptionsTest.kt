@@ -1071,6 +1071,64 @@ class PlaybackQualityOptionsTest {
         assertEquals("english", best.candidates.first().stream.name)
     }
 
+    @Test
+    fun bestAvailableSelects4kNativeOver8kAiUpscaleOn4kDisplay() {
+        val eightKAi = candidate("8k-ai", VideoResolution.UHD_4320, gigabytes = 30.0, isAiUpscaled = true)
+        val fourKNative = candidate("4k-native", VideoResolution.UHD_2160, gigabytes = 20.0, isAiUpscaled = false, releaseQuality = "REMUX")
+
+        val context = PlaybackSelectionContext(isEpisode = true, displayMaxHeight = 2160)
+        val options = PlaybackQualityOptions.build(listOf(eightKAi, fourKNative), context)
+        val best = options.first { it.variant == PlaybackQualityOption.Variant.BEST }
+        assertEquals("4k-native", best.candidates.first().stream.name)
+    }
+
+    @Test
+    fun instantSelects4kNativeOver8kAiUpscaleOn4kDisplay() {
+        val eightKAi = candidate("8k-ai", VideoResolution.UHD_4320, gigabytes = 30.0, isAiUpscaled = true)
+        val fourKNative = candidate("4k-native", VideoResolution.UHD_2160, gigabytes = 20.0, isAiUpscaled = false, releaseQuality = "REMUX")
+
+        val context = PlaybackSelectionContext(isEpisode = true, displayMaxHeight = 2160)
+        val options = PlaybackQualityOptions.build(listOf(eightKAi, fourKNative), context)
+        val chosen = PlaybackQualityOptions.highestAffordable(options, 500.0, context = context)
+        assertEquals(VideoResolution.UHD_2160, chosen?.resolution)
+        assertEquals("4k-native", chosen?.candidates?.first()?.stream?.name)
+    }
+
+    @Test
+    fun instantSelects8kNativeOver4kNativeOn8kDisplay() {
+        val eightKNative = candidate("8k-native", VideoResolution.UHD_4320, gigabytes = 40.0, isAiUpscaled = false)
+        val fourKNative = candidate("4k-native", VideoResolution.UHD_2160, gigabytes = 20.0, isAiUpscaled = false)
+
+        val context = PlaybackSelectionContext(isEpisode = true, displayMaxHeight = 4320)
+        val options = PlaybackQualityOptions.build(listOf(eightKNative, fourKNative), context)
+        val chosen = PlaybackQualityOptions.highestAffordable(options, 500.0, context = context)
+        assertEquals(VideoResolution.UHD_4320, chosen?.resolution)
+        assertEquals("8k-native", chosen?.candidates?.first()?.stream?.name)
+    }
+
+    @Test
+    fun instantNeverSelectsCamTsWhenProperReleaseAvailable() {
+        val cam = candidate("1080p-cam", VideoResolution.FULL_HD_1080, gigabytes = 3.0, releaseQuality = "CAM")
+        val sd = candidate("sd-proper", VideoResolution.SD, gigabytes = 1.0, releaseQuality = "WEBDL")
+
+        val context = PlaybackSelectionContext(isEpisode = true)
+        val options = PlaybackQualityOptions.build(listOf(cam, sd), context)
+        val chosen = PlaybackQualityOptions.highestAffordable(options, 500.0, context = context)
+        assertEquals(VideoResolution.SD, chosen?.resolution)
+        assertEquals("sd-proper", chosen?.candidates?.first()?.stream?.name)
+    }
+
+    @Test
+    fun instantSelectsCamTsWhenOnlyStreamAvailable() {
+        val cam = candidate("1080p-cam", VideoResolution.FULL_HD_1080, gigabytes = 3.0, releaseQuality = "CAM")
+
+        val context = PlaybackSelectionContext(isEpisode = true)
+        val options = PlaybackQualityOptions.build(listOf(cam), context)
+        val chosen = PlaybackQualityOptions.highestAffordable(options, 500.0, context = context)
+        assertEquals(VideoResolution.FULL_HD_1080, chosen?.resolution)
+        assertEquals("1080p-cam", chosen?.candidates?.first()?.stream?.name)
+    }
+
     private fun candidate(
         name: String,
         resolution: VideoResolution?,
@@ -1081,6 +1139,8 @@ class PlaybackQualityOptionsTest {
         isDebridReady: Boolean? = null,
         hdr: Boolean = false,
         languages: Set<String> = emptySet(),
+        isAiUpscaled: Boolean = false,
+        releaseQuality: String? = null,
     ) = PlaybackSourceCandidate(
         stream = StreamItem(
             name = name,
@@ -1097,6 +1157,8 @@ class PlaybackQualityOptionsTest {
             isDebridReady = isDebridReady,
             dynamicRange = if (hdr) setOf("HDR10") else emptySet(),
             languages = languages,
+            isAiUpscaled = isAiUpscaled,
+            releaseQuality = releaseQuality,
         ),
     )
 }

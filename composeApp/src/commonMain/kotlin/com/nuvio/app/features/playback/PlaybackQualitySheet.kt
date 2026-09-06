@@ -658,6 +658,9 @@ private fun QualityTierRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (preview?.facts?.isAiUpscaled == true) {
+                AiUpscaleChip()
+            }
             if (figures != null) {
                 // Trailing, so the figures line up down a card whose band words differ in
                 // width. Carries the whole row for Variant.SINGLE, which has no band word.
@@ -682,7 +685,13 @@ private fun QualityTierRow(
                 } else {
                     MaterialTheme.typography.labelSmall
                 },
-                color = if (isOnlyContent) tokens.colors.textPrimary else tokens.colors.textMuted,
+                color = if (preview?.facts?.isTheatricalCapture == true) {
+                    tokens.colors.danger
+                } else if (isOnlyContent) {
+                    tokens.colors.textPrimary
+                } else {
+                    tokens.colors.textMuted
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1227,6 +1236,8 @@ private data class QualityFigures(
     val isNeedsKnown: Boolean,
     val fit: PlaybackQualityOptions.ConnectionFit?,
     val sourceKey: String?,
+    val isAiUpscaled: Boolean = false,
+    val isTheatricalCapture: Boolean = false,
 )
 
 /**
@@ -1286,6 +1297,8 @@ private fun qualityFigures(
         isNeedsKnown = requiredMbps != null,
         fit = fit,
         sourceKey = PlaybackQualityOptions.sourceKey(preview),
+        isAiUpscaled = preview?.facts?.isAiUpscaled == true,
+        isTheatricalCapture = preview?.facts?.isTheatricalCapture == true,
     )
 }
 
@@ -1335,6 +1348,7 @@ private fun columnBandLabel(
 private fun FeatureChips(
     dynamicRange: String?,
     audio: String?,
+    isAiUpscaled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -1345,6 +1359,9 @@ private fun FeatureChips(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
     ) {
+        if (isAiUpscaled) {
+            AiUpscaleChip()
+        }
         dynamicRange?.let {
             // ⚠ Accent is for a release that does something extra to your screen. `SDR` is the
             // absence of that, and giving it the same mark spends the panel's one emphasis on
@@ -1357,6 +1374,30 @@ private fun FeatureChips(
             )
         }
         audio?.let { FeatureChip(text = it, color = tokens.colors.textSecondary) }
+    }
+}
+
+@Composable
+private fun AiUpscaleChip() {
+    val tokens = MaterialTheme.nuvio
+    val dangerColor = tokens.colors.danger
+    Box(
+        modifier = Modifier
+            .clip(tokens.shapes.chip)
+            .background(dangerColor.copy(alpha = 0.12f))
+            .border(tokens.borders.hairline, dangerColor.copy(alpha = 0.35f), tokens.shapes.chip)
+            .padding(horizontal = NuvioTokens.Space.s6, vertical = NuvioTokens.Space.s2),
+    ) {
+        Text(
+            text = "AI Upscale",
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = NuvioTokens.LetterSpacing.label,
+            color = dangerColor,
+            maxLines = 1,
+        )
     }
 }
 
@@ -1444,11 +1485,15 @@ private fun BestAvailableHero(
                         .ifBlank { UNKNOWN_VALUE },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = tokens.colors.textPrimary,
+                    color = if (figures.isTheatricalCapture) tokens.colors.danger else tokens.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                FeatureChips(dynamicRange = figures.dynamicRange, audio = figures.audio)
+                FeatureChips(
+                    dynamicRange = figures.dynamicRange,
+                    audio = figures.audio,
+                    isAiUpscaled = figures.isAiUpscaled,
+                )
             }
         }
         HeroFigure(
@@ -1565,7 +1610,11 @@ private fun QualityColumnCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        FeatureChips(dynamicRange = figures.dynamicRange, audio = figures.audio)
+        FeatureChips(
+            dynamicRange = figures.dynamicRange,
+            audio = figures.audio,
+            isAiUpscaled = figures.isAiUpscaled,
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
@@ -1604,7 +1653,7 @@ private fun QualityColumnCell(
                 Text(
                     text = figures.provenance,
                     style = MaterialTheme.typography.labelSmall,
-                    color = tokens.colors.textMuted,
+                    color = if (figures.isTheatricalCapture) tokens.colors.danger else tokens.colors.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

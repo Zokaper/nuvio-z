@@ -122,4 +122,44 @@ class ReleaseTagsTest {
         )
         assertEquals(null, ReleaseTags.bestDynamicRange(emptySet()))
     }
+
+    @Test
+    fun detectsAiUpscaledReleasesFromText() {
+        assertTrue(ReleaseTags.isAiUpscaled("Movie.2024.4320p.8K.AI.Upscale.HEVC-GRP"))
+        assertTrue(ReleaseTags.isAiUpscaled("Movie.2024.8K.AI-Upscaled.DDP5.1-GRP"))
+        assertTrue(ReleaseTags.isAiUpscaled("Movie.1080p.Topaz.AI.Enhanced.x265"))
+        assertTrue(ReleaseTags.isAiUpscaled("Movie.2160p.Upscaled.HDR.HEVC-GRP"))
+        assertTrue(ReleaseTags.isAiUpscaled("Classic.Film.1980.AI-Remastered.4K"))
+        assertTrue(ReleaseTags.isAiUpscaled("movie.2024.8k.ai.upscaled.hevc"))
+        assertTrue(ReleaseTags.isAiUpscaled("Some.Show.S01E01.4K.Topaz.x265"))
+
+        // Negative cases: native releases without AI claims
+        assertFalse(ReleaseTags.isAiUpscaled("Movie.2024.4320p.8K.UHD.BluRay.x265-GRP"))
+        assertFalse(ReleaseTags.isAiUpscaled("Movie.2024.2160p.4K.Remux.TrueHD.Atmos-GRP"))
+        assertFalse(ReleaseTags.isAiUpscaled("The.Daily.Show.2024.1080p.WEB-DL.x264"))
+        assertFalse(ReleaseTags.isAiUpscaled("Captain.America.2011.1080p.BluRay.x264"))
+        assertFalse(ReleaseTags.isAiUpscaled("Official.Trailer.1080p.H264"))
+        assertFalse(ReleaseTags.isAiUpscaled(""))
+    }
+
+    @Test
+    fun detectsTheatricalCaptures() {
+        assertTrue(ReleaseTags.isTheatricalCapture("CAM"))
+        assertTrue(ReleaseTags.isTheatricalCapture("HDCAM"))
+        assertTrue(ReleaseTags.isTheatricalCapture("CAMRip"))
+        assertTrue(ReleaseTags.isTheatricalCapture("TS"))
+        assertTrue(ReleaseTags.isTheatricalCapture("Telesync"))
+        assertTrue(ReleaseTags.isTheatricalCapture("TC"))
+        assertTrue(ReleaseTags.isTheatricalCapture("Telecine"))
+        assertTrue(ReleaseTags.isTheatricalCapture("hdcam"))
+        assertTrue(ReleaseTags.isTheatricalCapture("telesync"))
+
+        // Negative cases
+        assertFalse(ReleaseTags.isTheatricalCapture("BLURAY"))
+        assertFalse(ReleaseTags.isTheatricalCapture("REMUX"))
+        assertFalse(ReleaseTags.isTheatricalCapture("WEB-DL"))
+        assertFalse(ReleaseTags.isTheatricalCapture("WEBRIP"))
+        assertFalse(ReleaseTags.isTheatricalCapture("HDTV"))
+        assertFalse(ReleaseTags.isTheatricalCapture(null))
+    }
 }

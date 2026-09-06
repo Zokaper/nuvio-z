@@ -4,6 +4,7 @@ import com.nuvio.app.features.downloads.AudioPreference
 import com.nuvio.app.features.downloads.CodecPreference
 import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.SizePreference
+import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceRanking
 import com.nuvio.app.features.downloads.SourceRankingPreferences
 import com.nuvio.app.features.downloads.VideoResolution
@@ -338,6 +339,7 @@ object PlaybackQualityOptions {
         options: List<PlaybackQualityOption>,
         estimatedMbps: Double,
         maxHeight: Int? = null,
+        context: PlaybackSelectionContext? = null,
     ): PlaybackQualityOption? {
         val derived = options
             .filter { it.variant != PlaybackQualityOption.Variant.BEST }
@@ -349,7 +351,7 @@ object PlaybackQualityOptions {
             return if (maxHeight != null) null else options.firstOrNull()
         }
         val affordable = derived.filter { (it.requiredMbps ?: Double.MAX_VALUE) <= estimatedMbps }
-        return affordable.maxWithOrNull(qualityOrder) ?: derived.minWithOrNull(costOrder)
+        return affordable.maxWithOrNull(qualityOrder(context)) ?: derived.minWithOrNull(costOrder)
     }
 
     /**
@@ -374,11 +376,13 @@ object PlaybackQualityOptions {
         pinnedHeight: Int?,
         estimatedMbps: Double,
         maxHeight: Int? = null,
+        context: PlaybackSelectionContext? = null,
     ): PlaybackQualityOption? {
         val fallback = highestAffordable(
             options = options,
             estimatedMbps = estimatedMbps,
             maxHeight = maxHeight,
+            context = context,
         )
         if (pinnedHeight == null || fallback == null) return fallback
         if (maxHeight != null && pinnedHeight > maxHeight) return fallback
@@ -386,7 +390,7 @@ object PlaybackQualityOptions {
             .filter { it.variant != PlaybackQualityOption.Variant.BEST }
             .filter { it.resolution?.height == pinnedHeight }
             .filter { (it.requiredMbps ?: Double.MAX_VALUE) <= estimatedMbps }
-            .maxWithOrNull(qualityOrder)
+            .maxWithOrNull(qualityOrder(context))
             ?: fallback
     }
 
@@ -497,10 +501,27 @@ object PlaybackQualityOptions {
      */
     const val OVER_CONNECTION_MARGIN = 1.15
 
-    private val qualityOrder = compareBy<PlaybackQualityOption>(
-        { it.resolution?.height ?: 0 },
-        { it.requiredMbps ?: 0.0 },
-    )
+    fun qualityOrder(context: PlaybackSelectionContext? = null): Comparator<PlaybackQualityOption> {
+        val prefs = context?.let { preferencesFor(null, it) } ?: SourceRankingPreferences()
+        return compareBy<PlaybackQualityOption>(
+            { option ->
+                val rep = option.candidates.firstOrNull()
+                val facts = rep?.facts ?: SourceFacts(resolution = option.resolution)
+                SourceRanking.resolutionTier(facts, prefs)
+            },
+            { option ->
+                val rep = option.candidates.firstOrNull()
+                if (rep != null) {
+                    SourceRanking.mediaScore(rep.facts, prefs)
+                } else {
+                    0
+                }
+            },
+            { it.requiredMbps ?: 0.0 },
+        )
+    }
+
+    private val qualityOrder: Comparator<PlaybackQualityOption> get() = qualityOrder(null)
 
     private val costOrder = compareBy<PlaybackQualityOption>(
         { it.requiredMbps ?: Double.MAX_VALUE },
@@ -715,6 +736,7 @@ object PlaybackQualityOptions {
                 else -> DynamicRangePolicy.ANY
             },
             sizePreference = SizePreference.LARGEST_UNDER_CAP,
+            displayMaxHeight = context.displayMaxHeight,
         )
 
     /**

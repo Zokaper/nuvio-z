@@ -9,3 +9,8 @@ class AndroidPlatform : Platform {
 actual fun getPlatform(): Platform = AndroidPlatform()
 
 internal actual val isIos: Boolean = false
+actual fun platformDisplayMaxHeight(): Int? = runCatching {
+    android.content.res.Resources.getSystem().displayMetrics.let {
+        minOf(it.widthPixels, it.heightPixels)
+    }
+}.getOrNull()
