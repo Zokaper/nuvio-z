@@ -58,6 +58,17 @@ object AutomaticDownloadDiscovery {
     suspend fun verifyCandidateSize(candidate: DownloadSourceCandidate): DownloadSourceCandidate {
         val url = candidate.resolvedUrl ?: return candidate
         val requestHeaders = candidate.stream.behaviorHints.proxyHeaders?.request.orEmpty()
+        val verifiedSize = verifyHttpSize(url, requestHeaders)
+
+        return if (verifiedSize != null) {
+            candidate.copy(facts = candidate.facts.withVerifiedSize(verifiedSize))
+        } else {
+            candidate
+        }
+    }
+
+    /** HEAD/range preflight used after a lazy source is minted and before bytes move. */
+    internal suspend fun verifyHttpSize(url: String, requestHeaders: Map<String, String>): Long? {
         val head = runCatching {
             httpRequestRaw(
                 method = "HEAD",
@@ -72,7 +83,7 @@ object AutomaticDownloadDiscovery {
             ?.headers
             ?.headerLong("content-length")
 
-        val verifiedSize = headSize ?: runCatching {
+        return headSize ?: runCatching {
             httpRequestRaw(
                 method = "GET",
                 url = url,
@@ -92,11 +103,6 @@ object AutomaticDownloadDiscovery {
                     ?: headers.headerLong("content-length")
             }
 
-        return if (verifiedSize != null) {
-            candidate.copy(facts = candidate.facts.withVerifiedSize(verifiedSize))
-        } else {
-            candidate
-        }
     }
 
     private suspend fun fetchAddon(

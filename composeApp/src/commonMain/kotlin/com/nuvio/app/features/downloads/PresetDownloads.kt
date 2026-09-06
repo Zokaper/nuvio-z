@@ -188,8 +188,9 @@ data class DownloadSourceCandidate(
     val stream: StreamItem,
     val addonKey: AddonSourceKey,
     val facts: SourceFacts,
-    /** URL after any direct-debrid resolution. */
+    /** Direct HTTP URL. Debrid candidates deliberately keep this null until transfer time. */
     val resolvedUrl: String? = stream.playableDirectUrl,
+    val sourceOrigin: DownloadSourceOrigin? = null,
     val addonOrder: Int = 0,
 )
 
@@ -198,20 +199,22 @@ sealed class SourceSelectionResult {
     @Serializable
     @SerialName("selected")
     data class Selected(
-        val streamUrl: String,
+        val streamUrl: String? = null,
         val facts: SourceFacts,
         val addonKey: AddonSourceKey,
         val calculatedCapBytes: Long,
+        val sourceOrigin: DownloadSourceOrigin? = null,
     ) : SourceSelectionResult()
 
     @Serializable
     @SerialName("approval_needed")
     data class ApprovalNeeded(
-        val streamUrl: String,
+        val streamUrl: String? = null,
         val facts: SourceFacts,
         val addonKey: AddonSourceKey,
         val calculatedCapBytes: Long,
         val reason: String,
+        val sourceOrigin: DownloadSourceOrigin? = null,
     ) : SourceSelectionResult()
 
     @Serializable
@@ -230,7 +233,7 @@ object PresetSourceSelector {
         val cap = preset.sizeCapBytes(runtimeMinutes, isEpisode)
         val matching = candidates
             .filter { policy.allowsResult(it.addonKey, it.facts) }
-            .filter { isAutomaticProtocol(it.resolvedUrl) }
+            .filter { isAutomaticCandidate(it) }
             .filter { candidate ->
                 candidate.facts.resolution?.height?.let { it <= preset.targetResolution.height } ?: true
             }
@@ -247,7 +250,7 @@ object PresetSourceSelector {
                 factsOf = DownloadSourceCandidate::facts,
                 isDirectOf = { it.stream.playableDirectUrl != null },
                 addonOrderOf = DownloadSourceCandidate::addonOrder,
-                stableUrlOf = { it.resolvedUrl.orEmpty() },
+                stableUrlOf = { it.resolvedUrl ?: it.sourceOrigin?.stream?.streamLabel.orEmpty() },
             ),
         )
 
@@ -318,19 +321,21 @@ object PresetSourceSelector {
 
     private fun DownloadSourceCandidate.selected(cap: Long) =
         SourceSelectionResult.Selected(
-            streamUrl = requireNotNull(resolvedUrl),
+            streamUrl = resolvedUrl,
             facts = facts,
             addonKey = addonKey,
             calculatedCapBytes = cap,
+            sourceOrigin = sourceOrigin,
         )
 
     private fun DownloadSourceCandidate.approval(cap: Long, reason: String) =
         SourceSelectionResult.ApprovalNeeded(
-            streamUrl = requireNotNull(resolvedUrl),
+            streamUrl = resolvedUrl,
             facts = facts,
             addonKey = addonKey,
             calculatedCapBytes = cap,
             reason = reason,
+            sourceOrigin = sourceOrigin,
         )
 
     private fun isAutomaticProtocol(url: String?): Boolean {
@@ -338,5 +343,8 @@ object PresetSourceSelector {
         if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) return false
         return ".m3u8" !in normalized && ".mpd" !in normalized && ".torrent" !in normalized
     }
+
+    private fun isAutomaticCandidate(candidate: DownloadSourceCandidate): Boolean =
+        candidate.sourceOrigin != null || isAutomaticProtocol(candidate.resolvedUrl)
 
 }
