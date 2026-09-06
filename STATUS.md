@@ -73,8 +73,8 @@ All six review findings from UltraReview #1 are integrated on mobile, alongside 
 - **Normal ranked-candidate failover remains completely intact**: automatic candidate failover across Classic/Streamlined/Instant, P2P failure chains, fatal playback error handling, manual fallback, and dead-source reporting are all preserved.
 
 ### Verification status
-- Non-device verification (pure test suites, Android compilation, testAndroidHostTest) passes clean.
-- **Final real-device/manual observation on packaged builds remains pending** (watched run on APK/device required before Phase 2 sign-off; Phase 2 not yet claimed complete).
+- Non-device verification (pure test suites: 408 passed, Android compilation, testAndroidHostTest: 107 passed, testFullDebugUnitTest passed) passes clean.
+- **Manual verification passed on packaged builds** (2026-09-06) following the two-tier startup watchdog evidence-of-life fix. Exit gate passed; Phase 2 closed.
 
 ## Ultra 1 review record (2026-09-05)
 
