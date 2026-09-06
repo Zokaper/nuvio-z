@@ -106,9 +106,26 @@ object PlaybackLoadingSessions {
         return current.copy(handedOff = true)
     }
 
-    /** Wall-clock, fed by the host's ticker. */
-    fun tick(current: PlaybackLoadingSession?, elapsedMs: Long): PlaybackLoadingSession? =
-        current?.copy(elapsedMs = elapsedMs)
+    /**
+     * Wall-clock, fed by the host's ticker.
+     *
+     * Stale ticks quoting a superseded [token] are ignored so an escape-clock coroutine from
+     * session A cannot write its accumulated elapsed time into a newly opened session B.
+     */
+    fun tick(
+        current: PlaybackLoadingSession?,
+        token: Long,
+        elapsedMs: Long,
+    ): PlaybackLoadingSession? {
+        if (current == null || current.token != token) return current
+        return current.copy(elapsedMs = elapsedMs)
+    }
+
+    /** Wall-clock convenience when the token is known to match [current]. */
+    fun tick(current: PlaybackLoadingSession?, elapsedMs: Long): PlaybackLoadingSession? {
+        val token = current?.token ?: return current
+        return tick(current, token, elapsedMs)
+    }
 
     /**
      * Whether moving from [previous] to [next] is a **new entrance**.

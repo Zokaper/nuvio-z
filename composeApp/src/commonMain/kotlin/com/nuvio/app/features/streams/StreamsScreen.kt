@@ -1247,7 +1247,7 @@ private fun StreamActionsSheet(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = stream.streamLabel,
+                    text = stream.streamLabel(stringResource(Res.string.stream_default_name)),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,

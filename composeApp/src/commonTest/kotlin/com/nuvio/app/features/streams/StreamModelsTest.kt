@@ -308,6 +308,41 @@ class StreamModelsTest {
     }
 
     // -----------------------------------------------------------------------
+    // streamLabel pure fallback
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `streamLabel uses name when present`() {
+        val withName = stream(name = "1080p WebRip")
+        assertEquals("1080p WebRip", withName.streamLabel)
+        assertEquals("1080p WebRip", withName.streamLabel("Custom Fallback"))
+    }
+
+    @Test
+    fun `streamLabel falls back to pure default when name is null`() {
+        val unnamed = stream(name = null)
+        assertEquals(StreamItem.DEFAULT_STREAM_NAME, unnamed.streamLabel)
+        assertEquals("Custom Fallback", unnamed.streamLabel("Custom Fallback"))
+    }
+
+    // -----------------------------------------------------------------------
+    // p2pSentinelUrl canonical helper & round-trip
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `p2pSentinelUrl constructs canonical sentinel and round-trips through p2pInfoHash`() {
+        val withIndex = p2pSentinelUrl(hexHash, 2)
+        assertEquals("torrent://$hexHash?index=2", withIndex)
+        val streamWithIndex = stream(url = withIndex)
+        assertEquals(hexHash, streamWithIndex.p2pInfoHash)
+
+        val withoutIndex = p2pSentinelUrl(hexHash, null)
+        assertEquals("torrent://$hexHash", withoutIndex)
+        val streamWithoutIndex = stream(url = withoutIndex)
+        assertEquals(hexHash, streamWithoutIndex.p2pInfoHash)
+    }
+
+    // -----------------------------------------------------------------------
     // Helper
     // -----------------------------------------------------------------------
 
@@ -316,11 +351,13 @@ class StreamModelsTest {
         infoHash: String? = null,
         fileIdx: Int? = null,
         externalUrl: String? = null,
+        name: String? = null,
     ): StreamItem = StreamItem(
         url = url,
         infoHash = infoHash,
         fileIdx = fileIdx,
         externalUrl = externalUrl,
+        name = name,
         addonName = "TestAddon",
         addonId = "test.addon",
     )

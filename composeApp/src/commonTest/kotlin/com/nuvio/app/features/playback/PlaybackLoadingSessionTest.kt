@@ -72,6 +72,32 @@ class PlaybackLoadingSessionTest {
     }
 
     @Test
+    fun `a tick quoting a superseded token is ignored`() {
+        val sessionA = open(token = 1L)
+        val sessionB = open(token = 2L)
+
+        // Stale tick from session A delivered to session B
+        val unchanged = PlaybackLoadingSessions.tick(
+            current = sessionB,
+            token = sessionA.token,
+            elapsedMs = MANUAL_ESCAPE_DELAY_MS,
+        )
+        assertNotNull(unchanged)
+        assertEquals(0L, unchanged.elapsedMs)
+        assertFalse(unchanged.offersManualEscape)
+
+        // Valid tick from session B updates normally
+        val updated = PlaybackLoadingSessions.tick(
+            current = sessionB,
+            token = sessionB.token,
+            elapsedMs = MANUAL_ESCAPE_DELAY_MS,
+        )
+        assertNotNull(updated)
+        assertEquals(MANUAL_ESCAPE_DELAY_MS, updated.elapsedMs)
+        assertTrue(updated.offersManualEscape)
+    }
+
+    @Test
     fun `the escape clock belongs to the session and survives a retry`() {
         val opened = open()
         assertFalse(opened.offersManualEscape)

@@ -13,6 +13,7 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.p2pSentinelUrl
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import nuvio.composeapp.generated.resources.Res
@@ -47,9 +48,6 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     }
     return true
 }
-
-internal fun PlayerScreenRuntime.p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
-    "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
 
 internal fun PlayerScreenRuntime.isP2pStream(stream: StreamItem): Boolean =
     stream.needsLocalDebridResolve && stream.p2pInfoHash != null

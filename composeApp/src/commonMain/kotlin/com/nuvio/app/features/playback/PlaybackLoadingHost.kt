@@ -129,11 +129,12 @@ fun PlaybackLoadingHost(modifier: Modifier = Modifier) {
         // wait the user is actually having - across the hand-off and across every retry - instead
         // of restarting each time some route below re-composed.
         LaunchedEffect(rendered.token) {
+            val token = rendered.token
             var elapsedMs = 0L
             while (true) {
                 delay(ESCAPE_CLOCK_TICK_MS)
                 elapsedMs += ESCAPE_CLOCK_TICK_MS
-                PlaybackLoadingController.tick(elapsedMs)
+                PlaybackLoadingController.tick(token, elapsedMs)
             }
         }
 

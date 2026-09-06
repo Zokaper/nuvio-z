@@ -87,6 +87,8 @@ import com.nuvio.app.features.player.sanitizePlaybackHeaders
 import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.p2pSentinelUrl
+import com.nuvio.app.features.streams.StreamLaunch
 import com.nuvio.app.features.streams.StreamLaunchStore
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
@@ -115,6 +117,54 @@ private data class PendingP2pStreamOpen(
  * without the reader having to know the code is split across two files.
  */
 private val streamLog = Logger.withTag("PlaybackStartup")
+
+internal fun buildP2pPlayerLaunch(
+    launch: StreamLaunch,
+    stream: StreamItem,
+    infoHash: String,
+    sentinelUrl: String,
+    effectiveVideoId: String,
+    pauseDescription: String?,
+    resolvedResumePositionMs: Long?,
+    resolvedResumeProgressFraction: Float?,
+    autoPickedWithFailureChain: Boolean,
+    autoPickAttempt: Int,
+): PlayerLaunch = PlayerLaunch(
+    profileId = launch.profileId,
+    title = launch.title,
+    sourceUrl = sentinelUrl,
+    sourceHeaders = emptyMap(),
+    sourceResponseHeaders = emptyMap(),
+    externalSubtitles = stream.externalSubtitles,
+    streamType = stream.streamType,
+    logo = launch.logo,
+    poster = launch.poster,
+    background = launch.background,
+    seasonNumber = launch.seasonNumber,
+    episodeNumber = launch.episodeNumber,
+    episodeTitle = launch.episodeTitle,
+    episodeThumbnail = launch.episodeThumbnail,
+    streamTitle = stream.streamLabel,
+    streamSubtitle = stream.streamSubtitle,
+    bingeGroup = stream.behaviorHints.bingeGroup,
+    pauseDescription = pauseDescription,
+    providerName = stream.addonName,
+    providerAddonId = stream.addonId,
+    contentType = launch.type,
+    videoId = effectiveVideoId,
+    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+    parentMetaType = launch.parentMetaType ?: launch.type,
+    torrentInfoHash = infoHash,
+    torrentFileIdx = stream.p2pFileIdx,
+    torrentFilename = stream.behaviorHints.filename,
+    torrentTrackers = stream.p2pTrackers,
+    initialPositionMs = resolvedResumePositionMs ?: 0L,
+    initialProgressFraction = resolvedResumeProgressFraction,
+    autoPickedWithFailureChain = autoPickedWithFailureChain,
+    sourceFacts = SourceFactsExtractor.extract(stream),
+    playbackAttempt = autoPickAttempt,
+    expectedRuntimeMinutes = launch.runtimeMinutes,
+)
 
 @Composable
 internal fun StreamDestination(
@@ -390,9 +440,6 @@ internal fun StreamDestination(
         launch.downloadIntent ||
         playerSettings.playbackMode != PlaybackMode.CLASSIC
 
-    fun p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
-        "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
-
     fun openP2pStream(
         stream: StreamItem,
         resolvedResumePositionMs: Long?,
@@ -401,55 +448,34 @@ internal fun StreamDestination(
     ) {
         val infoHash = stream.p2pInfoHash ?: return
         val sentinelUrl = p2pSentinelUrl(infoHash, stream.p2pFileIdx)
-        val playerLaunch = PlayerLaunch(
-            profileId = launch.profileId,
-            title = launch.title,
-            sourceUrl = sentinelUrl,
-            sourceHeaders = emptyMap(),
-            sourceResponseHeaders = emptyMap(),
-            streamType = stream.streamType,
-            logo = launch.logo,
-            poster = launch.poster,
-            background = launch.background,
-            seasonNumber = launch.seasonNumber,
-            episodeNumber = launch.episodeNumber,
-            episodeTitle = launch.episodeTitle,
-            episodeThumbnail = launch.episodeThumbnail,
-            streamTitle = stream.streamLabel,
-            streamSubtitle = stream.streamSubtitle,
-            bingeGroup = stream.behaviorHints.bingeGroup,
+        val hasFailureChain = replaceStreamRoute && playerSettings.playbackMode != PlaybackMode.CLASSIC
+        val playerLaunch = buildP2pPlayerLaunch(
+            launch = launch,
+            stream = stream,
+            infoHash = infoHash,
+            sentinelUrl = sentinelUrl,
+            effectiveVideoId = effectiveVideoId,
             pauseDescription = pauseDescription,
-            providerName = stream.addonName,
-            providerAddonId = stream.addonId,
-            contentType = launch.type,
-            videoId = effectiveVideoId,
-            parentMetaId = launch.parentMetaId ?: effectiveVideoId,
-            parentMetaType = launch.parentMetaType ?: launch.type,
-            torrentInfoHash = infoHash,
-            torrentFileIdx = stream.p2pFileIdx,
-            torrentFilename = stream.behaviorHints.filename,
-            torrentTrackers = stream.p2pTrackers,
-            initialPositionMs = resolvedResumePositionMs ?: 0L,
-            initialProgressFraction = resolvedResumeProgressFraction,
-            // The third hand-off site, and the one that was missed. Without these a torrent
-            // taken in an automatic mode handed the player `sourceFacts = null, attempt = 1`,
-            // so the band the route was drawing - chips, provider, release name, "attempt 2 of
-            // 3" - went blank at exactly the route change this screen exists to make invisible.
-            sourceFacts = SourceFactsExtractor.extract(stream),
-            playbackAttempt = autoPickAttempt,
-            expectedRuntimeMinutes = launch.runtimeMinutes,
+            resolvedResumePositionMs = resolvedResumePositionMs,
+            resolvedResumeProgressFraction = resolvedResumeProgressFraction,
+            autoPickedWithFailureChain = hasFailureChain,
+            autoPickAttempt = autoPickAttempt,
         )
 
         val launchId = PlayerLaunchStore.put(playerLaunch)
         StreamsRepository.cancelLoading()
         lastHandedOffFacts = playerLaunch.sourceFacts
+        if (hasFailureChain) {
+            lastHandedOffLabel = stream.streamLabel
+            autoPickFailure = null
+        }
         playbackHandedOff = true
         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-            if (replaceStreamRoute) {
+            if (replaceStreamRoute && !hasFailureChain) {
                 popUpTo<StreamRoute> { inclusive = true }
             }
         }
-        if (replaceStreamRoute) StreamsRepository.consumeAutoPlay()
+        if (replaceStreamRoute && !hasFailureChain) StreamsRepository.consumeAutoPlay()
     }
 
     fun requestOrOpenP2pStream(
@@ -726,7 +752,6 @@ internal fun StreamDestination(
     LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute) {
         if (navController.currentRoute != route) return@LaunchedEffect
         if (!playbackHandedOff) return@LaunchedEffect
-        if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
         if (!StreamsRepository.consumeFailoverRetry()) {
             // The user came back on their own. Retire the chain first, so
             // nothing relaunches behind them.
@@ -755,6 +780,7 @@ internal fun StreamDestination(
             leaveToDetails()
             return@LaunchedEffect
         }
+        if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
         playbackHandedOff = false
         lastHandedOffFacts = null
         autoPickAttempt += 1
@@ -1751,8 +1777,7 @@ internal fun StreamDestination(
                 onChooseManually = {
                     streamlinedSelectionPending = false
                     pendingStreamlinedOptionId = null
-                    qualitySheetDismissed = true
-                    manualSourceListRequested = true
+                    giveUpToSourceList(reason = "", path = "quality_sheet_choose_manually")
                 },
                 onAdjustPreferences = { showPlaybackPreferences = true },
                 onDismiss = {
@@ -1849,8 +1874,7 @@ internal fun StreamDestination(
                     TextButton(
                         onClick = {
                             pendingUncachedStream = null
-                            qualitySheetDismissed = true
-                            manualSourceListRequested = true
+                            giveUpToSourceList(reason = "", path = "uncached_stream_choose_manually")
                         },
                     ) { Text(stringResource(Res.string.playback_quality_manual)) }
                 },

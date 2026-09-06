@@ -70,8 +70,14 @@ object PlaybackLoadingController {
     }
 
     /** Wall-clock, driven by the host so the escape hatch spans route changes. */
+    fun tick(token: Long, elapsedMs: Long) {
+        session = PlaybackLoadingSessions.tick(session, token, elapsedMs)
+    }
+
+    /** Wall-clock convenience when token is implicit from active session. */
     fun tick(elapsedMs: Long) {
-        session = PlaybackLoadingSessions.tick(session, elapsedMs)
+        val token = session?.token ?: return
+        session = PlaybackLoadingSessions.tick(session, token, elapsedMs)
     }
 
     /**

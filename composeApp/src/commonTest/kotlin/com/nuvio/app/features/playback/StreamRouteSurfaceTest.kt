@@ -383,4 +383,38 @@ class StreamRouteSurfaceTest {
         assertEquals(StreamRouteSurface.ProgressOverlay, streamRouteSurface(overlay))
         assertFalse(hasSilentUncover(overlay))
     }
+
+    @Test
+    fun `quality sheet manual selection uncovers the list with provenance and is not silent`() {
+        val inputs = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = false,
+            manualSourceListRequested = true,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = true,
+            qualitySheetDismissed = true,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = false,
+            uncoverReason = "quality_sheet_choose_manually",
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(inputs))
+        assertFalse(hasSilentUncover(inputs))
+    }
+
+    @Test
+    fun `uncached stream manual fallback uncovers the list with provenance and is not silent`() {
+        val inputs = StreamRouteSurfaceInputs(
+            isClassic = false,
+            isManualLaunch = false,
+            manualSourceListRequested = true,
+            hasNavigatedAway = false,
+            isQualitySheetRoute = false,
+            qualitySheetDismissed = true,
+            isAutoPlaybackStarting = false,
+            awaitingUserAnswer = false,
+            uncoverReason = "uncached_stream_choose_manually",
+        )
+        assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(inputs))
+        assertFalse(hasSilentUncover(inputs))
+    }
 }
