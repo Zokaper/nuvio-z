@@ -270,14 +270,13 @@ class PlaybackSourceSelectorTest {
         )
 
         assertEquals(
-            "4K · DV · 18.2 GB",
+            "4K · HDR10/DV · 18.2 GB",
             PlaybackSourceSelector.describeBestRelease(facts) { "18.2 GB" },
         )
-        // One word, never a list: a Dolby Vision release routinely carries an HDR10 base layer.
-        assertEquals("DV", PlaybackSourceSelector.dynamicRangeLabel(facts))
+        assertEquals("HDR10/DV", PlaybackSourceSelector.dynamicRangeLabel(facts))
         // The caption keeps the provider and gains the range; the resolution stays out of it
         // because the badge above already carries it on every card that has one.
-        assertEquals("WEB-DL · DV · TorBox", PlaybackSourceSelector.describeRelease(facts))
+        assertEquals("WEB-DL · HDR10/DV · TorBox", PlaybackSourceSelector.describeRelease(facts))
         // The same caption for a surface that marks dynamic range separately. It must not print
         // DV twice, and it must not quietly drop the rip type or the host to make room.
         assertEquals("WEB-DL · TorBox", PlaybackSourceSelector.describeProvenance(facts))
@@ -314,7 +313,9 @@ class PlaybackSourceSelectorTest {
         fun label(vararg ranges: String) =
             PlaybackSourceSelector.dynamicRangeLabel(SourceFacts(dynamicRange = ranges.toSet()))
 
-        assertEquals("DV", label("HLG", "HDR10", "DOLBY_VISION"))
+        assertEquals("HDR10/DV", label("HLG", "HDR10", "DOLBY_VISION"))
+        assertEquals("HDR/DV", label("HDR", "DOLBY_VISION"))
+        assertEquals("DV", label("DOLBY_VISION"))
         assertEquals("HDR10", label("HDR", "HDR10"))
         assertEquals("HDR", label("HDR"))
         assertEquals("HLG", label("HLG"))

@@ -332,6 +332,8 @@ class SourceFactsExtractorTest {
 
         assertTrue("DOLBY_VISION" in facts.dynamicRange)
         assertTrue("HDR" in facts.dynamicRange)
+        assertTrue(SourceRanking.claimsHdr(facts))
+        assertTrue(SourceRanking.claimsDolbyVision(facts))
     }
 
     @Test

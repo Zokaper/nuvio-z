@@ -72,6 +72,15 @@ class ReleaseTagsTest {
     }
 
     @Test
+    fun mixedHdrAndDolbyVisionSyntaxesKeepBothCapabilities() {
+        listOf("HDR10 DV", "HDR10.DV", "DV HDR10", "DoVi HDR").forEach { syntax ->
+            val ranges = ReleaseTags.dynamicRanges(text = "Movie.2160p.$syntax.WEB-DL")
+            assertTrue(ReleaseDynamicRange.DOLBY_VISION in ranges, syntax)
+            assertTrue(ReleaseTags.claimsHdrFamily(ranges), syntax)
+        }
+    }
+
+    @Test
     fun losslessAndImmersiveAudioAreDistinguished() {
         val codecs = ReleaseTags.audioCodecs(text = "Movie.2160p.Remux.TrueHD.7.1.Atmos-FGT")
 

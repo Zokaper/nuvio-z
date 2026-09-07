@@ -322,24 +322,21 @@ object PlaybackSourceSelector {
         facts?.sizeBytes?.takeIf { it > 0L }?.let(formatSize),
     ).joinToString(" · ")
 
-    /**
-     * One dynamic-range word, best first, or null.
-     *
-     * Never a list. `SourceFacts.dynamicRange` is a set and a Dolby Vision release routinely
-     * carries an HDR10 base layer too, so joining it would spend a 280 dp single-line row on
-     * `DV · HDR10` - two ways of saying the same file is the good one.
-     */
+    /** One compact, non-lossy dynamic-range label, or null. */
     fun dynamicRangeLabel(facts: SourceFacts?): String? {
         val ranges = facts?.dynamicRange.orEmpty()
-        return when {
-            "DOLBY_VISION" in ranges -> "DV"
-            // HDR10+ is its own member now, and exclusive with HDR10 - without this row an
-            // HDR10+ release would draw no dynamic-range word at all.
+        val hasDv = "DOLBY_VISION" in ranges
+        val hdrLabel = when {
             "HDR10_PLUS" in ranges -> "HDR10+"
             "HDR10" in ranges -> "HDR10"
             "HDR" in ranges -> "HDR"
             "HLG" in ranges -> "HLG"
             else -> null
+        }
+        return when {
+            hasDv && hdrLabel != null -> "$hdrLabel/DV"
+            hasDv -> "DV"
+            else -> hdrLabel
         }
     }
 
