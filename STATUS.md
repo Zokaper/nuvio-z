@@ -1,13 +1,13 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
 
-## Phase 2 follow-up: Seamless desktop player handoff (2026-09-06)
+## Phase 2 follow-up: Seamless desktop player handoff (2026-09-07)
 
 Desktop-only follow-up in repository `nuviozdesktop` on branch `claude/phase-2-desktop-handoff`:
-- **Part A (Source → Player Startup):** Elevated existing Phase 2 loading surface across Classic, Streamlined, and Instant modes so it renders immediately upon candidate selection (before route change or debrid link resolution), persisting through automatic failovers without attempt 2 reload stutter, and dismissing only on first rendered video frame.
-- **Part B (Player → Previous Screen Exit):** Instrumented timestamped diagnostics (`T0`–`T4`), decoupled navigation pop from native player teardown so previous screen appears immediately (~16 ms) while native player releases asynchronously in a background thread, eliminating the momentary `#0D0D0D` dark gray frame on exit. Offloaded snapshot polling from EDT to `Dispatchers.IO` with adaptive polling, and added native video dimensions querying via JNI bridge.
-- **Verification:** Pure test suites passed (459 tests), `NativePlayerControllerTeardownTest` passed (23 tests), `PlayerExitOrderingTest` passed (4 tests), desktop compilation clean.
+- **Part A (Source → Player Startup & Airspace Gating):** Elevated existing Phase 2 loading surface across Classic, Streamlined, and Instant modes so it renders immediately upon candidate selection (before route change or debrid link resolution), persisting through automatic failovers without attempt 2 reload stutter. Added Win32 native airspace gating: `NativePlayerHost` HWND is kept concealed (`isVisible = false`) across source resolution, player initialization, and retries (attempt N -> N+1) without occluding Compose, and is promoted (`promoteNativeSurface`) only when the first real video frame is decoded (`PlaybackHandover.hasFirstFrame`).
+- **Part B (Player → Previous Screen Exit & EDT Probe):** Instrumented timestamped diagnostics (`T0`–`T4`). Concealed native surface synchronously on Swing EDT at `T0` inside `releaseBeforeNavigation`, ensuring `T3` (0 ms) occurs before `T1` (pop) and `T2` (previous destination paint at ~16 ms), completely eliminating the ~1.5s `#0D0D0D` dark gray frame on exit while teardown proceeds in background thread (`T4`). Eliminated ~891 ms Swing EDT stall by offloading the Windows PowerShell network probe to a background daemon executor.
+- **Verification & Artifacts:** Pure test suites passed (459 tests), `NativePlayerAirspaceGateTest` passed (4 tests), `NetworkQualityPlatformDesktopTest` passed (3 tests), `NativePlayerControllerTeardownTest` passed (23 tests), `PlayerExitOrderingTest` passed (4 tests). Packaged Windows release MSI with debug tools: `composeApp/build/compose/release-msis/Nuvio-Z-Windows-x64-0.1.22-alpha-z1.msi` (258,291,488 bytes).
 
 ## Phase 2 manual-verification finding: Startup watchdog evidence-of-life deadline (2026-09-06)
 
