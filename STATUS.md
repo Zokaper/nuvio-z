@@ -1,6 +1,12 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
+
+## Phase 4 desktop: automated gate green; watched matrix pending (2026-09-08)
+
+Desktop Stages 1-13 are implemented in `nuviozdesktop`. Stage 12 now uses the shared title presentation on both Home and Social surfaces and retires `SocialActivityChip`. Verification passes: native controls 7/7, pure suites 481/481, desktop compilation, targeted player/navigation/social/watchparty tests, and full desktop tests 1,647/1,647 with zero failures/errors/skips. A release-style debug-tools MSI was built (252,670,144 bytes; SHA-256 `CEAC1492575A1B399A4ECAF534573B200A5153B9393F92CBCE08BCDC9D4215A0`). Backend pgTAP remains 130/130 locally; no backend SQL changed during this continuation.
+
+Phase 4 is **not complete**: the exact two-client physical matrix is prepared in `nuviozdesktop/PHASE-4-TWO-CLIENT-VERIFICATION.md` with every result marked `NOT RUN`, and the Phase 4 backend migrations are not deployed to project `pzbpghmmordvzcfbayoh`. `ROADMAP.md` and feature-completion docs remain unchanged until that real matrix passes.
 
 ## Phase 2 follow-up: Seamless desktop player handoff (2026-09-07)
 
