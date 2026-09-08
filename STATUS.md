@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-08
 
+## Phase 4 Stage 14 live source-selection hotfix (2026-09-08)
+
+The first physical two-client run exposed a backend contract bug: desktop's repository serializer legitimately emitted nullable `info_hash` and `file_index` properties as JSON `null`, but `sanitize_source_descriptor_v2` treated the presence of the `file_index` key as a supplied integer and raised `invalid_file_index` for a normal non-torrent source. Additive migration `202609080001_accept_null_party_file_index.sql` now treats explicit JSON null like an omitted unknown index while retaining rejection of negative indices and real indices without an info hash. It is deployed and recorded only on Nuvio Z project `pzbpghmmordvzcfbayoh`; live behavioral probes pass.
+
+Desktop production code and the Stage 14 MSI are unchanged. Focused descriptor/source tests pass, pure suites pass 484/484, and the reset-backed backend suite passes 142/142. The physical two-client source-selection scenario remains pending maintainer retest and is not marked PASS.
+
 ## Phase 4 desktop: automated gate green; watched matrix pending (2026-09-08)
 
 Desktop Stages 1-13 are implemented in `nuviozdesktop`. Stage 12 now uses the shared title presentation on both Home and Social surfaces and retires `SocialActivityChip`. Verification passes: native controls 7/7, pure suites 481/481, desktop compilation, targeted player/navigation/social/watchparty tests, and full desktop tests 1,647/1,647 with zero failures/errors/skips. A release-style debug-tools MSI with a freshly rebuilt Windows native player bridge was built (252,670,144 bytes; SHA-256 `9083BFE6B7A2C1C579475635CE532612EF1CD1CCA27C4475DB8C568BF1B7A4B9`). Backend pgTAP passes 130/130 after the reconciliation migration was updated to preserve `party_member_broadcast_update` across the live `source_match` type conversion (`nuvio-z-backend` commit `3ddc6eb`).
