@@ -28,6 +28,16 @@ physical-test artifact is
 published MSI copies are byte-identical. This verifies packaging only; Stage 0 remains blocked on
 the physical run.
 
+A partial two-client run on one physical Windows machine now reproduces the reported delay. Five
+pauses, four resumes, and three seeks show every host T2 broadcast returning success while the guest
+receives zero timing-plane commands, clocks, or ticks despite both clients reporting
+`realtime=subscribed`. The guest instead follows durable state after 1,045–6,097 ms (3,560 ms median
+across 11 observed user sequences); one short pause is coalesced before guest observation. This
+attributes the symptom to absent peer live delivery plus durable fallback, but does not yet establish
+why the private channel delivers nothing. Seven more seeks and the controlled Realtime
+interruption/recovery segment remain outstanding, so Stage 0 remains active and Stage 1 remains
+blocked. Detailed evidence is in desktop `WATCH-TOGETHER-STAGE0-TRACE.md`.
+
 ## Phase 4 follow-up hardening: lifecycle resilience, truthful presence & UI fidelity (2026-09-08)
 
 Completed an ironclad hardening pass for Watch Together covering disconnects, app exits, stale parties, reconnects, lobby/player transitions, truthful presence, and remaining Phase 4 UI issues:
