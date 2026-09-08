@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-08
 
+## Phase 4 Stage 14 desktop lifecycle correction ready for physical retest (2026-09-08)
+
+The desktop PlayerRoute/lobby failure was a client lifecycle conflation, not a backend-contract defect. Player disposal downgraded durable readiness to `resolving`, while lobby Start invoked `party_begin_source_selection` again; that correctly advanced `source_generation`, cleared the selected descriptor, and reset members to `waiting_for_host`, but was wrong for a route-only detach/reattach. Desktop commit `25e8508b` now preserves party/content/source authority across lobby transitions, reuses the exact process-local resolved launch when valid, locally rematches the same authoritative descriptor when needed, rejects delayed older snapshots, serializes member location/readiness mutations, and prevents party resolution from entering the ordinary source-list surface. Real content/source generations still invalidate local realization and staged picks.
+
+Desktop verification passes: pure suites 495/495, focused lifecycle/player/navigation/surface tests, full desktop tests 1,672/1,672, and desktop compilation. Replacement debug-tools MSI: `nuviozdesktop/composeApp/build/compose/release-msis/Nuvio-Z-Windows-x64-0.1.22-alpha-z1.msi` (258,590,495 bytes; SHA-256 `67C32A059D7866A21B478AC46A5FD346CA551825F46BD794B506DA5D744796D6`). The native bridge was unchanged and reused. No backend code/schema was changed or deployed. Stage 14 remains pending maintainer physical retest and is not marked PASS; Phase 4 remains incomplete.
+
 ## Phase 4 Stage 14 live source-selection hotfix (2026-09-08)
 
 The first physical two-client run exposed a backend contract bug: desktop's repository serializer legitimately emitted nullable `info_hash` and `file_index` properties as JSON `null`, but `sanitize_source_descriptor_v2` treated the presence of the `file_index` key as a supplied integer and raised `invalid_file_index` for a normal non-torrent source. Additive migration `202609080001_accept_null_party_file_index.sql` now treats explicit JSON null like an omitted unknown index while retaining rejection of negative indices and real indices without an info hash. It is deployed and recorded only on Nuvio Z project `pzbpghmmordvzcfbayoh`; live behavioral probes pass.
