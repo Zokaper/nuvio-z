@@ -8,7 +8,7 @@ Last updated: 2026-09-08
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
 | Current work | Watch Together deterministic architecture, Stage 0 instrumentation only. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
-| Verified | No new verification yet. Existing automated desktop gate is 1,674/1,674; the required physical two-client latency matrix remains outstanding. |
+| Verified | Desktop instrumentation commit `dd3e2b4f`; compile and focused tests 96/96 pass, with the preceding complete instrumentation revision at 1,674/1,674. Verified debug-tools MSI is packaged; the required physical two-client latency matrix remains outstanding. |
 | Constraint | No behavioral correction or Stage 1 work begins until T0–T4 evidence attributes the reported roughly three-second delay, unless the maintainer explicitly directs otherwise. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
 
@@ -19,6 +19,14 @@ passes; focused Watch Together/player-launch tests pass 96/96; the preceding com
 revision passed the full desktop suite 1,674/1,674. Physical two-client evidence remains **NOT RUN**,
 so Stage 0 remains active and behavioral work is blocked by design. See desktop
 `WATCH-TOGETHER-STAGE0-TRACE.md` for the exact matrix.
+
+The Gradle-managed JetBrains JDK completed release-style packaging with debug tools enabled. The
+physical-test artifact is
+`nuviozdesktop/composeApp/build/compose/release-msis/Nuvio-Z-Windows-x64-0.1.22-alpha-z1.msi`
+(258,631,455 bytes; SHA-256
+`133AEEA118C756CC326DD4EC33CA85B7F84A1C7513DED44476176DBC92E63F25`). All three generated and
+published MSI copies are byte-identical. This verifies packaging only; Stage 0 remains blocked on
+the physical run.
 
 ## Phase 4 follow-up hardening: lifecycle resilience, truthful presence & UI fidelity (2026-09-08)
 
