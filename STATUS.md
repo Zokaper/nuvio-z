@@ -38,6 +38,11 @@ why the private channel delivers nothing. Seven more seeks and the controlled Re
 interruption/recovery segment remain outstanding, so Stage 0 remains active and Stage 1 remains
 blocked. Detailed evidence is in desktop `WATCH-TOGETHER-STAGE0-TRACE.md`.
 
+The maintainer explicitly accepted the attribution and closed Stage 0 without the remaining five
+ordinary seeks or controlled interruption/recovery segment; those cases are **SKIPPED**, not passed.
+Stage 1 is now `IN_PROGRESS`. The absent private-channel delivery remains unsolved and Stage 1/2
+must diagnose and correct the live transport/health architecture, not hide it with faster polling.
+
 ## Phase 4 follow-up hardening: lifecycle resilience, truthful presence & UI fidelity (2026-09-08)
 
 Completed an ironclad hardening pass for Watch Together covering disconnects, app exits, stale parties, reconnects, lobby/player transitions, truthful presence, and remaining Phase 4 UI issues:
