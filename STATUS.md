@@ -2,6 +2,32 @@
 
 Last updated: 2026-09-08
 
+## Phase 4 follow-up hardening: lifecycle resilience, truthful presence & UI fidelity (2026-09-08)
+
+Completed an ironclad hardening pass for Watch Together covering disconnects, app exits, stale parties, reconnects, lobby/player transitions, truthful presence, and remaining Phase 4 UI issues:
+
+1. **Friends Recently Watched Presentation Fidelity:**
+   - Unified `TitlePresentationCard` with Continue Watching presentation modes: `Card` (landscape artwork with dark gradient overlay, top-right duration badge, bottom-left title/episode metadata, bottom progress bar), `Wide` (horizontal split card with fixed-width artwork strip and structured metadata block), and `Poster` (vertical 2:3 poster card with title block below).
+   - In `HomeSocialSections.kt`, wrapped `SocialHomeRow` in `BoxWithConstraints` to dynamically evaluate layout style and card metrics (`continueWatchingLandscapeCardMetrics`), eliminating fixed 310.dp sizing and matching Continue Watching styling across all viewports.
+2. **Notification Card Differentiation & Metadata Projection:**
+   - Social notifications now render with contextual headers ("Watch Together", "Friend Request") and distinct social icons (`Icons.Filled.People`), dropping the misleading playback-resume header/icon.
+   - Fixed backend `social_get_state_v2` and `SocialNotifications.kt` to project complete `content_summary` (`content_id`, `content_type`, `video_id`, `title`, `poster`, `release_year`, etc.), ensuring Watch Together invitation/join prompts display the target media's artwork and title.
+   - Progress bar is suppressed on notification prompts (`showProgress = false`).
+3. **Truthful Disconnect & Offline Presence:**
+   - Expanded member status model (`DerivedMemberStatus` & `PartyReadyTone`: Ready, Working, Paused, Buffering, Reconnecting, Failed, Offline) across lobby tiles, player pills, and CEF HTML controls.
+   - Reconnecting or disconnected members are honestly reported as "Reconnecting..." or "Offline" rather than claiming "Ready" or "Playing Together".
+   - Local playback continues uninterrupted during network outages while honest offline banners and member statuses reflect actual connection state.
+   - Reconnect heartbeat and epoch recovery restore live membership without duplicate entries.
+4. **Stale Party & Content Guarding:**
+   - Added content-identity guard in `resolveWatchPartyEntry`: entering a watch party for a specific target content verifies whether any held or active party matches the exact content; mismatched parties are automatically departed/closed first.
+   - Backend migration `202609080002_party_lifecycle_and_notification_hardening.sql` deployed and recorded on Supabase project `pzbpghmmordvzcfbayoh`: provides `party_set_client_location` (updates `last_seen_at` and presence), automated stale reap (`party_reap_stale`), and snake_case `content_summary` projection in `social_get_state_v2`.
+5. **Verification & Artifacts:**
+   - Backend pgTAP tests pass: 153/153 tests green across all 6 test files (`stage14_lifecycle_hardening.sql` included).
+   - Pure test suites pass: 495/495 tests green across all 8 groups.
+   - Desktop test suite passes: 1,674/1,674 tests green in `:composeApp:desktopTest` with zero failures, errors, or skips.
+   - Release-style debug-tools MSI packaged: `nuviozdesktop/composeApp/build/compose/release-msis/Nuvio-Z-Windows-x64-0.1.22-alpha-z1.msi` (258,619,167 bytes; SHA-256 `935F0A239BA845AE714B50BF7F056B519A716028BB3E85B293FE792CDA29D937`).
+   - All physical verification scenarios in `PHASE-4-TWO-CLIENT-VERIFICATION.md` remain marked **NOT RUN** for physical maintainer validation; Phase 4 is not complete.
+
 ## Phase 4 Stage 14 desktop lifecycle correction ready for physical retest (2026-09-08)
 
 The desktop PlayerRoute/lobby failure was a client lifecycle conflation, not a backend-contract defect. Player disposal downgraded durable readiness to `resolving`, while lobby Start invoked `party_begin_source_selection` again; that correctly advanced `source_generation`, cleared the selected descriptor, and reset members to `waiting_for_host`, but was wrong for a route-only detach/reattach. Desktop commit `25e8508b` now preserves party/content/source authority across lobby transitions, reuses the exact process-local resolved launch when valid, locally rematches the same authoritative descriptor when needed, rejects delayed older snapshots, serializes member location/readiness mutations, and prevents party resolution from entering the ordinary source-list surface. Real content/source generations still invalidate local realization and staged picks.
