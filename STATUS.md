@@ -8,10 +8,25 @@ Last updated: 2026-09-09
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture. Stage 4's route-independent source realizer is `DONE`; Stage 5 backend cleanup is next. Stages 2 and 3 remain formally open only for their recorded physical gates. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Current work | Watch Together deterministic architecture. Stage 4 is `DONE` and Stage 5 is at an automated checkpoint; Stage 6 active source switching is next. Stages 2, 3 and 5 remain open only for recorded physical gates, and the Stage 5 migration awaits `supabase db push`. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
 | Verified | Desktop `7365d45`: compile passes, focused Stage 2 tests 32/32, and mandatory full `desktopTest` 1,687/1,687. Debug-tools MSI is packaged; physical Stage 2 timing and recovery evidence is not run. |
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 5 pairs desktop `ca8677a4` with backend `b681c45` and is deliberately the minimum the Stage
+1-4 client evidence proved necessary. The party state broadcast now carries `authority_epoch`, which
+a transfer bumps alongside the sequence - without it a client installed the new host under the epoch
+that transfer replaced and then rejected every command that host sent. The member broadcast fires on
+`client_location`, the one member field the presentation reads that nothing announced, while a bare
+`last_seen_at` write stays silent. Liveness has one owner per question: 15 seconds is host-transfer
+grace only, a member is offline at 20 in both the heartbeat and the reaper, and a party is abandoned
+at 60. Host transfer has a single implementation - `party_transfer_stale_host`, restricted to live
+members - and the client's duplicate grace-and-claim race is deleted; `party_claim_or_transfer_host`
+survives as a delegating RPC because mobile still calls it. On the client, broadcast application is
+now a pure typed function that treats an authority advance as an invalidation. pgTAP 165/165 on a
+fresh local database, focused desktop tests 280/280, desktop compilation green. **The migration is
+committed but not deployed:** `supabase db push` against `pzbpghmmordvzcfbayoh` is the maintainer's
+to run, and both directions are compatible so client and backend may land in either order.
 
 Stage 4 desktop implementation `3940ddb0` moves party source realization out of navigation and into
 a process-scoped `PartySourceRealizer` keyed on `(partyId, contentGeneration, sourceGeneration,
