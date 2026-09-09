@@ -7,10 +7,21 @@ Last updated: 2026-09-09
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture. Stage 1 PartySession ownership and health split is `DONE`; Stage 2 has not begun. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
-| Verified | Stage 1 final source: focused desktop tests 64/64 and `:composeApp:compileKotlinDesktop` pass. The earlier 1,679-test full run failed only an untouched download stall harness test, which passed 1/1 in isolation; the next policy-required full desktop suite is after Stage 2. |
-| Constraint | Missing private-channel delivery remains a Stage 2 transport defect; do not hide it with faster durable polling. Full desktop suites run after Stages 2, 4, and 7/final, or earlier only for changes whose breadth defeats focused coverage. |
+| Current work | Watch Together deterministic architecture. Stage 2 Realtime transport and unified presentation is `IN_PROGRESS`; desktop implementation is automated-green and awaits the physical two-client latency/telemetry exit gate. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Verified | Desktop `7365d45`: compile passes, focused Stage 2 tests 32/32, and mandatory full `desktopTest` 1,687/1,687. Debug-tools MSI is packaged; physical Stage 2 timing and recovery evidence is not run. |
+| Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 2 desktop implementation commit `7365d45` moves authenticated private-channel lifecycle,
+reconnect, protocol collectors, acknowledged broadcast sends, generation invalidation, and live
+health reporting into the Realtime transport. Accepted local directives now precede both
+asynchronous Realtime send and asynchronous durable persistence. Fresh peer telemetry is projected
+per member on every client while only the host consumes it for the unchanged wait-for-everyone
+hold logic. A pure presentation projector now supplies shared connection banners, fresh host state,
+and participant labels to the lobby and native player surface; global durable party status is no
+longer used as a participant engine proxy. Desktop handoff commit `a5aba1a0` records the full
+verification and MSI hash. Backend authorization fix `67d4ced` was already deployed and its live
+migration history repaired; no backend work was repeated in this checkpoint.
 
 Stage 1 introduces domain-only durable/live seams and a serialized process-scoped session reducer,
 with attachment loss distinct from lobby entry and a shadow comparison against the legacy
