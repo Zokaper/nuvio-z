@@ -1,16 +1,26 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 ## Active work
 
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture, Stage 0 instrumentation only. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
-| Verified | Desktop instrumentation commit `dd3e2b4f`; compile and focused tests 96/96 pass, with the preceding complete instrumentation revision at 1,674/1,674. Verified debug-tools MSI is packaged; the required physical two-client latency matrix remains outstanding. |
-| Constraint | No behavioral correction or Stage 1 work begins until T0–T4 evidence attributes the reported roughly three-second delay, unless the maintainer explicitly directs otherwise. |
+| Current work | Watch Together deterministic architecture. Stage 1 PartySession ownership and health split is `DONE`; Stage 2 has not begun. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Verified | Stage 1 final source: focused desktop tests 64/64 and `:composeApp:compileKotlinDesktop` pass. The earlier 1,679-test full run failed only an untouched download stall harness test, which passed 1/1 in isolation; the next policy-required full desktop suite is after Stage 2. |
+| Constraint | Missing private-channel delivery remains a Stage 2 transport defect; do not hide it with faster durable polling. Full desktop suites run after Stages 2, 4, and 7/final, or earlier only for changes whose breadth defeats focused coverage. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 1 introduces domain-only durable/live seams and a serialized process-scoped session reducer,
+with attachment loss distinct from lobby entry and a shadow comparison against the legacy
+repository snapshot. Health now separates API reachability, polling/heartbeat, Realtime channel
+lifecycle, send outcomes, peer freshness, and clock freshness; subscription/send success alone does
+not claim live delivery. Durable heartbeat moved out of player composition into the process-scoped
+poll and uses only fresh exact-generation player telemetry. Existing backend RPC/broadcast
+contracts, generation validation, fallback cadence, and wait behavior are unchanged; no backend
+deployment occurred. Detailed implementation and verification evidence is in the desktop handoff.
+Desktop implementation and handoff commit: `2a05e116`.
 
 Stage 0 instrumentation is implemented on the desktop branch: privacy-safe debug traces cover
 T0–T4, Realtime send outcomes, channel instances, durable poll/broadcast arrival, independent
