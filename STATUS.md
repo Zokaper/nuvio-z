@@ -8,10 +8,24 @@ Last updated: 2026-09-09
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture. Stage 4 is `DONE` and Stage 5 is at an automated checkpoint; Stage 6 active source switching is next. Stages 2, 3 and 5 remain open only for recorded physical gates, and the Stage 5 migration awaits `supabase db push`. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Current work | Watch Together deterministic architecture. Stage 4 is `DONE`; Stages 5 and 6 are at automated checkpoints; Stage 7 legacy deletion is next. Stages 2, 3, 5 and 6 remain open only for recorded physical gates, and the Stage 5 migration awaits `supabase db push`. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
 | Verified | Desktop `7365d45`: compile passes, focused Stage 2 tests 32/32, and mandatory full `desktopTest` 1,687/1,687. Debug-tools MSI is packaged; physical Stage 2 timing and recovery evidence is not run. |
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 6 desktop implementation `f98adb69` makes an active party source switch in-route. A member
+picking from the player's own sources panel moves the whole party, gated on matching content, on
+permission - host always, guest only while collaborative - and on the pick not being the source the
+party is already on; the advance names the generation it expects, so simultaneous picks produce one
+advance and one rejection, and a local latch prevents a retry advancing it twice. Every other member
+adopts it in place: the player loads its own catalogue, runs the Stage 4 strict matcher over it and
+hands off with the same `switchToSource` an in-player pick uses, with the old source playing
+throughout and route, controller and HWND untouched. A member who cannot realize the new pick reports
+`choosing_fallback` and keeps playing what they have - no silent generation rollback, and no retry
+against a catalogue that has already answered. The player's party identity key now carries the whole
+authority tuple rather than party and content generation alone, and an active player spends the
+automatic-launch claim for the authority it is playing. Focused party/player tests 289/289 and
+desktop compilation pass; the two-client switch gate is physical and outstanding.
 
 Stage 5 pairs desktop `ca8677a4` with backend `b681c45` and is deliberately the minimum the Stage
 1-4 client evidence proved necessary. The party state broadcast now carries `authority_epoch`, which
