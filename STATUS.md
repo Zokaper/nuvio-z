@@ -1,4 +1,5 @@
-# Nuvio Z Status
+
+# Nuvio Z Status
 
 Last updated: 2026-09-09
 
@@ -7,10 +8,25 @@ Last updated: 2026-09-09
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture. Stage 2 Realtime transport and unified presentation is `IN_PROGRESS`; desktop implementation is automated-green and awaits the physical two-client latency/telemetry exit gate. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Current work | Watch Together deterministic architecture. Stage 4's route-independent source realizer is `DONE`; Stage 5 backend cleanup is next. Stages 2 and 3 remain formally open only for their recorded physical gates. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
 | Verified | Desktop `7365d45`: compile passes, focused Stage 2 tests 32/32, and mandatory full `desktopTest` 1,687/1,687. Debug-tools MSI is packaged; physical Stage 2 timing and recovery evidence is not run. |
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 4 desktop implementation `3940ddb0` moves party source realization out of navigation and into
+a process-scoped `PartySourceRealizer` keyed on `(partyId, contentGeneration, sourceGeneration,
+descriptor)`. It owns the work states, the one-shot automatic-launch claim, and the sensitive
+resolved `PlayerLaunch`, of which only an opaque realization ID is ever exposed; every entry point
+is rejected unless it names the current authority, so work that completes after a source change can
+neither report into nor resolve for the party as it now is. The repository launch latch, the
+party-launch retention methods on `PlayerLaunchStore`, and the composition-local strict-match rule
+are all removed - matching and the settle gate are now pure functions that need no composition to
+exercise. Readiness is published from realizer transitions rather than from route lifecycle, so the
+matching and resolving window the host's wait gate reads is finally reported. Realization is dropped
+on generation advance, leave, end, profile change and account wipe; returning from the player to the
+lobby reuses the retained realization without a `StreamRoute` and cannot re-arm the automatic launch.
+Focused party/player tests 270/270, the mandatory Stage 4 full `desktopTest` gate 1,708/1,708 with
+zero failures, and desktop compilation pass. Stage 4 has no physical gate of its own.
 
 Stage 3 desktop architecture is now at an automated checkpoint: the active player owns Party Room
 open/closed state, Back/Escape closes it before player exit, the destructive active-player lobby
