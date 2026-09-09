@@ -12,6 +12,13 @@ Last updated: 2026-09-09
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
 
+The pending desktop Stage 2 stabilization checkpoint fixes the physical-test auth/Realtime race
+without changing mobile code: rejected Z sessions are replaced atomically without publishing an
+intermediate unauthenticated state; only HTTP 401 triggers re-exchange; platform auth auto-setup is
+disabled; Realtime close/send cancellation is lifecycle-safe; and player removal no longer mutates
+Swing visibility after Compose has disposed its `SkiaLayer`. Focused auth/transport/airspace tests
+and desktop compilation pass. The physical two-client sync/leave gate remains outstanding.
+
 Stage 2 desktop implementation commit `7365d45` moves authenticated private-channel lifecycle,
 reconnect, protocol collectors, acknowledged broadcast sends, generation invalidation, and live
 health reporting into the Realtime transport. Accepted local directives now precede both
