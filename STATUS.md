@@ -12,6 +12,13 @@ Last updated: 2026-09-09
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
 
+Stage 3 desktop architecture is now at an automated checkpoint: the active player owns Party Room
+open/closed state, Back/Escape closes it before player exit, the destructive active-player lobby
+command is gone, and a typed Kotlin view state drives native participants, health/sync, content,
+invitations, settings, lifecycle, and recovery UI. Existing-party joins use an explicit
+`OpenPrePlaybackLobby` outcome and never promote the current player. Focused tests, JavaScript
+syntax validation, and desktop compilation pass; physical UI/controller/HWND verification remains.
+
 The pending desktop Stage 2 stabilization checkpoint fixes the physical-test auth/Realtime race
 without changing mobile code: rejected Z sessions are replaced atomically without publishing an
 intermediate unauthenticated state; only HTTP 401 triggers re-exchange; platform auth auto-setup is
