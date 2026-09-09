@@ -8,10 +8,20 @@ Last updated: 2026-09-09
 | | |
 | --- | --- |
 | Active branch | `codex/watch-together-architecture` in both KMP repositories. |
-| Current work | Watch Together deterministic architecture. Stage 4 is `DONE`; Stages 5 and 6 are at automated checkpoints; Stage 7 legacy deletion is next. Stages 2, 3, 5 and 6 remain open only for recorded physical gates, and the Stage 5 migration awaits `supabase db push`. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
+| Current work | Watch Together deterministic architecture. Stage 4 is `DONE`; Stages 5 and 6 are at automated checkpoints and Stage 7's deletions are begun. Stages 2, 3, 5 and 6 remain open only for recorded physical gates, Stage 7 on the full physical matrix, and the Stage 5 migration awaits `supabase db push`. Persistent ledger: workspace-root `PLAN-watch-together-architecture.md`. |
 | Verified | Desktop `7365d45`: compile passes, focused Stage 2 tests 32/32, and mandatory full `desktopTest` 1,687/1,687. Debug-tools MSI is packaged; physical Stage 2 timing and recovery evidence is not run. |
 | Constraint | Do not start Stage 3 until Stage 2 proves p95 command delivery below 500 ms/no sample above 1 s, local directive below 50 ms, truthful degradation/recovery, and per-member labels on two clients. Faster durable polling remains out of scope. |
 | Join invariant | Joining an existing party always exits any active player through Phase 2F and launches a fresh party attachment/`PlayerRoute`; only explicit creation around current playback may promote in place. |
+
+Stage 7 begins at desktop `5ba9858b` with the deletions that are provably safe. `WatchPartyUiState`
+no longer caches `connection` or `connectionBannerMessage`: both were copies of projector output that
+made the repository a second presentation authority, and the banner field had no reader at all. The
+Stage 1 shadow comparison against the legacy snapshot is gone, having had no reader since the
+switchover. Four further Stage 7 targets were checked and need nothing: location publishing is
+already intent-driven rather than disposal-driven, and Stages 3, 4 and 5 removed the destructive
+lobby flow, the repository launch latch and the duplicate host claim. v2 contract removal is
+deliberately not started - mobile still calls the v2 party RPCs, so it waits on the Phase 5
+repointing. Stage 7's exit is the full physical matrix and remains open.
 
 Stage 6 desktop implementation `f98adb69` makes an active party source switch in-route. A member
 picking from the player's own sources panel moves the whole party, gated on matching content, on
