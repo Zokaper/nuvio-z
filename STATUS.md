@@ -1,7 +1,35 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## Desktop Phase 5 changed the shared setup model — mobile is now behind (2026-09-10)
+
+**No mobile code was touched, deliberately.** Desktop's `claude/phase-5-onboarding` rebuilt the
+setup wizard as revision 7, and `features/setup/SetupWizardSteps.kt` — until now byte-identical
+across both repositories — has diverged. Mirroring it here on its own **breaks this build**: this
+repo's `SetupWizardScreen.kt` and `SetupDiagram.kt` reference `SetupStep.Cards`, `Home` and
+`Details` in nine places, and revision 7 deletes all three. Reconciling means porting the wizard
+body, which is Phase 6 work rather than a merge.
+
+What Phase 6 can take wholesale, all of it import-free or platform-neutral:
+
+- `features/setup/SetupWizardSteps.kt` **entire** — the nine-step model, `SetupWizardPlan`,
+  `PlaybackSetupVariant` + `playbackSetupVariant` (the playback branch rule), `SocialIdentityProbe`
+  + `resolveSocialFeaturesEnabled` (the social migration rule), and `SETUP_WIZARD_REVISION = 7`.
+- `features/social/SocialFeaturePreferences{Repository,Storage}` — the app-level social preference.
+  ⚠ Its own repository with its own `ProfileSettingsSync` payload, **not** a field on
+  `PlayerSettingsStorage`; the android and ios `actual`s are already written on the desktop branch.
+- `SocialFeatureGate`, `SocialFeatureShutdown`, `SocialIdentityBody`, `coerceAvailableTab`.
+
+What needs a phone design rather than a port: the wizard body and the Settings social page.
+
+Still identical and to be left alone: `SetupModeStoryboard.kt`, `SetupSampleTitle.kt`.
+Still divergent by design: `SetupHomeStill.kt` — its header forbids `cp`.
+
+⚠ **Roadmap renumbering.** Onboarding took the Phase 5 slot on 2026-09-10, so "Social to mobile" is
+**Phase 6** now. Anything in this repo or in the handoffs that says "Phase 5 repointing" means
+Phase 6.
 
 ## Active work
 
