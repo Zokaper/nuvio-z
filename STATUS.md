@@ -1,7 +1,37 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
+
+## A desktop stabilization pass changed what Phase 6 inherits (2026-09-11)
+
+**No mobile code was touched.** Desktop ran a **Desktop Social + Watch Together Stabilization Pass**
+- a named pre-Phase-6 release gate, **not** a numbered phase; Phases 6-9 are unchanged. Ledger:
+workspace-root `PLAN-social-watch-together-stabilization.md`. Stages 0-11 are code complete on
+`claude/phase-5-onboarding`; the physical matrix is **not** run and the pass is **not closed**.
+
+⚠ **One backend change is already deployed and Phase 6 depends on it.**
+`202609110002_json_null_is_an_absent_payload.sql` makes `sanitize_source_descriptor_v2`,
+`sanitize_party_track_intent` and `sanitize_party_content` treat an explicit JSON `null` exactly as
+they treat an absent key. **Mobile would have hit this the moment it was repointed at the Z
+backend**: kotlinx defaults `explicitNulls` to true, and a nullable field serialized as an explicit
+null was aborting `social_publish_presence` outright - which is why Watching Now showed nobody on
+desktop for three days. Desktop also fixed it at its encoder (`explicitNulls = false` on
+`SocialRepository`'s Json); **mobile should do the same rather than rely on the backend alone.**
+
+What Phase 6 inherits beyond the Phase 5 list below, all of it platform-neutral:
+
+- `features/watchparty/PartyContentSwitch.kt` - the host-only next-episode content change,
+  `decidePartyContentHandoff`, and `ownsNextEpisodeChoice` (guests get no countdown).
+- `features/watchparty/PartyLaunchArtwork.kt` - local artwork hydration, because the party wire
+  carries identity and not presentation. **Do not widen the wire to ship artwork URLs.**
+- `features/social/SocialCards.kt` - `SocialActivityCard` and `SocialWatchingNowCard` over shared
+  primitives. ⚠ **Do not reuse `TitlePresentationCard` for social content**; that is the mistake
+  this file exists to undo, and a phone has even less room to spare for it.
+- The `PlaybackModeRouter` rule that a party host's source choice is routed by the *host's* mode,
+  with no party-specific input on `PlaybackRouteInputs`.
+
+⚠ Watch Together itself remains **desktop-only**; mobile still points at `api.nuvio.tv`.
 
 ## Desktop Phase 5 changed the shared setup model — mobile is now behind (2026-09-10)
 

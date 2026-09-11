@@ -87,7 +87,16 @@ working". See §12 and Phase 7 of `ROADMAP.md`.
 | **S2** | **Watching Now and Friends Recently Watched** — sanitized 20-second playback presence with a 90-second server TTL, permanent idempotent watched events, consecutive episode runs, Home rows and the Social tab. Provider imports never create activity. | **branch** | ships | yes | yes* | yes | **no** |
 | **S3** | **Watch Together** — private eight-profile lobby, invite codes, independent source fingerprints, host/collaborative commands, deterministic host transfer, and a timing plane carried between clients over the party channel: positions paired with the instant they were read, a host-anchored clock, and play and seek scheduled at a shared instant. The host picks a source and then starts the party as two separate presses, so nobody leaves the lobby until the host says so. Desktop only so far; verified 2026-09-03 against a live two-profile party (both members reached `ready` on one source, `status=playing`). | **branch** | ships, **desktop** | yes | yes* | yes | **no** |
 
+| **S4** | **Party episode handoff** *(desktop branch, unverified on hardware)* - the host advances the party to the next episode through the existing `party_change_content_v2`, one accepted content generation at a time; every client matches the equivalent source locally, publishes readiness and passes the existing barrier, then swaps episode **in place** with no route, controller or HWND teardown. Manual next, autoplay-next and the episode picker converge on one content-change path. The countdown is **host-only** - guests follow rather than choosing. The host's `PlaybackMode` decides how the *host* picks the source; guests never get an ordinary chooser. | **branch** | ships, **desktop** | port | port | yes | **no** |
+| **S5** | **Social presentation of its own** *(desktop branch, unverified on hardware)* - Watching Now and Friends Recently Watched are two distinct components over shared low-level primitives rather than reuses of `TitlePresentationCard`, so a friend's history reads as ambient social activity and stays visibly subordinate to the viewer's own Continue Watching. Compact 16:9 stills, identity outside the artwork, one metadata line carrying the episode count, a responsive 1-3 column Social tab, and a Watching Now action that follows the effective join policy - Join, Ask to join, or nothing at all. | **branch** | ships, **desktop** | port | port | yes | **no** |
+
 Both capabilities default off in the backend and must be enabled independently after migrations and staging checks. Letterboxd, provider-history ingestion, OS push and NuvioZWeb are intentionally outside this release. `yes*` retains the standing manual-iOS verification caveat.
+
+⚠ **Every client publishing presence must omit nulls rather than serialize them.** The backend's
+payload sanitizers now treat an explicit JSON `null` as absent (`202609110002`), but kotlinx defaults
+`explicitNulls` to **true**, and before both halves landed a nullable field serialized as an explicit
+null aborted `social_publish_presence` outright - S2 showed nobody at all. Desktop sets
+`explicitNulls = false` on `SocialRepository`'s Json; a port must do the same.
 
 ---
 
