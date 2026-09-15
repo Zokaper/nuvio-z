@@ -1,7 +1,30 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-11
+Last updated: 2026-09-15
+
+## The stabilization pass's second hardware run changed shared rules Phase 6 inherits (2026-09-15)
+
+**No mobile code was touched.** Desktop fixed six hardware defects on `claude/phase-5-onboarding`
+(ledger: workspace-root `PLAN-social-watch-together-stabilization.md`, Stage 16). The platform-neutral
+parts a Phase 6 merge must carry, and must not "fix back":
+
+- `PartyContentSwitch.kt` - `ownsNextEpisodeChoice` is read against the party's **title**, not
+  `matchesPlayback`; a guest behind the host mid-transition does not own its next episode. And
+  `decidePartyContentHandoff` takes the host's in-flight publish latch, or the host is pulled back to
+  the episode it just left.
+- The guest content handoff realizes from the **episode** streams catalogue it requested
+  (`partyEpisodeCatalogueFor`), never from the sources panel's.
+- `PartyTermination.kt` - a guest is **never** sent "ended": `party_close_ended` stamps every member
+  `left_at`, so every member RPC afterwards raises `party_membership_required`. Confirm through
+  `party_get_active` and conclude locally. `observePartySnapshot` owns the terminal transition.
+- `WatchPartyLobbyExit.kt` - the lobby is on the back stack exactly as long as its party; a system
+  back (Android Back, desktop Escape) asks to leave, never pops.
+- `WatchingNowJoin.kt` - nothing on the backend tells a requester it was accepted or a host that a
+  direct join promoted its playback; both are discovered through `party_get_active`.
+- `playerOpeningPresentation` - a next episode draws the show logo like a first launch.
+- `PlayerEpisodeModeRouter` changed for **desktop only**: Streamlined auto-picks within its
+  preferences in the player. Mobile Streamlined still opens the quality sheet.
 
 ## A desktop stabilization pass changed what Phase 6 inherits (2026-09-11)
 
