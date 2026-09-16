@@ -3,6 +3,48 @@
 
 Last updated: 2026-09-16
 
+## Desktop is consolidated and closed for feature work; Phase 6 is next (2026-09-16)
+
+**No mobile code was touched.**
+
+Desktop's completed work had split across two branches that both forked from the same commit and
+**neither of which contained the other** - the 2,016-vs-1,990 desktop test counts were the symptom.
+They are now merged onto one canonical branch, `nuviozdesktop`'s **`claude/desktop-consolidation`**,
+and gated there: `compileKotlinDesktop` green, `desktopTest` **2,050 tests / 0 failures** with results
+cleared first, all eight pure-suite groups green, backend pgTAP 12 files / 286 tests PASS. Detail and
+the merge-conflict reasoning are in `nuviozdesktop/STATUS.md`.
+
+**Desktop feature development through the current roadmap work is complete enough to move on.** What
+is included: Phase 5 onboarding, Social + Watch Together stabilization and the UX pass, the later
+Direct Join / Next Episode / party-lifecycle fixes, the friend-machine playback fixes, source-language
+inference and "Prefer built-in subtitles", and the unified playback-preferences pass. Remaining desktop
+issues are **backlog and QA debt, not an active development phase**.
+
+⚠ **Broad physical QA is deferred, and nothing on the consolidated branch has been on hardware.** The
+friend's previously reproducible playback failures *did* pass on his dedicated test build, but that
+build was `01524bb1` - before the built-in-subtitle work and on the other side of the merge from the
+preferences pass. A short checklist covering only the changed seams is at the workspace root
+(`HANDOFF-desktop-consolidation.md`).
+
+### What Phase 6 inherits that the earlier entries do not already list
+
+Two feature areas landed on the branch the previous desktop write-ups never saw, so they are new rows
+in `Docs/Z-FEATURES.md` (**S15**, **S16**, **P18**) and new porting work for mobile:
+
+- **S15 - the language slot tells the truth or says nothing.** The band printed a release-name claim
+  verbatim, and a release name can only ever *confirm* a language, never deny one. English is the
+  unmarked case, so English releases showed nothing and the blank read as "no language". Audio evidence
+  and subtitle evidence are now split; the title's own language is read **synchronously from already-
+  loaded meta** so the band cannot change under the reader; and a production country is never read as a
+  language on this path, because this value is displayed.
+- **S16 - Prefer built-in subtitles.** Off by default, automatic picks only, nothing fetched or probed
+  before open, and post-open verification against mpv's `track-list`. Mobile's player will need its own
+  answer to the verification half. **The quality panel deliberately says nothing about subtitles** - a
+  chip was built and reverted the same day on hardware evidence; do not re-derive it as missing work.
+- **P18 - premature EOF and probing after the player opens.** The preflight probe ran from the app's
+  own connection, so an AIOStreams link bound to the *player's* egress IP failed as **Wrong IP** on a
+  source that would have played. Mobile shares the probe (P16) and so shares the trap.
+
 ## The desktop preference pass changes shared playback rules Phase 6 inherits (2026-09-16)
 
 **No mobile code was touched.** Desktop landed the playback-preferences cleanup on
