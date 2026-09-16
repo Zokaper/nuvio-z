@@ -1,8 +1,46 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
+## The desktop preference pass changes shared playback rules Phase 6 inherits (2026-09-16)
+
+**No mobile code was touched.** Desktop landed the playback-preferences cleanup on
+`claude/social-wt-ux-pass` (ledger: `nuviozdesktop/STATUS.md`, 2026-09-16). Mobile has the same defect,
+the same files and the same sentinels, so this is a port rather than a desktop quirk.
+
+**The defect.** `preferredAudioLanguage` ships as the sentinel `device`, and `rankableAudioLanguage`
+stripped `device`/`default`/`original` to null before `SourceRanking` saw it. `LanguageStrictness.REQUIRE`
+- the shipped default - was therefore **inert for every profile that had never opened the language
+dialog**, and "original audio, subtitles in my language" could never influence which file opened.
+
+What a Phase 6 merge must carry, and must not "fix back":
+
+- `features/playback/PlaybackLanguageResolution.kt` is **new, pure and import-free** - copy it. It is the
+  only place the sentinels are interpreted for ranking: `device` to the OS locale, `original` to the
+  title's own language, everything else that names no language to **no opinion rather than a guess**.
+  `rankableAudioLanguage` / `rankableSecondaryAudioLanguage` are deleted.
+- `features/playback/PlaybackSelectionContextFactory.kt` is **new** - one builder for every
+  `PlaybackSelectionContext`. Three hand-built copies had drifted; the in-player next-episode one set 6
+  of 13 fields, so episode 2 was chosen without the ceiling or the language rule episode 1 honoured.
+- `SourceRanking` gains `subtitleLanguageBonus`: a separate comparator key below `languageScore`,
+  **promoting only**. Source names carry subtitle metadata far less reliably than audio, so a release
+  that names nothing must score the same as one that names the wrong thing.
+- **`playbackLanguageStrictness` now defaults to `PREFER`, not `REQUIRE`.** Deliberate and paired: the
+  sentinel fix makes the setting live for the first time, and shipping it live *and* strict in one change
+  would alter what plays for every existing install on a preference none of them stated.
+- A one-shot migration keyed on `playback_language_migrated_v1` (synced) writes the resolved device code
+  over the sentinel. It must run **before** the first sync import - on desktop it lives in `loadFromDisk`,
+  which `ProfileSettingsSync.ensureRepositoriesLoaded()` calls first. The subtitle preference is **not**
+  migrated: `none` is a deliberate answer, not an unanswered question.
+- `playback_mode_selector_seen` is **deleted** as a preference and kept in `syncKeys` as a tombstone, so
+  an older client's payload still clears the orphaned local value. `intro_submit_enabled` was decoded on
+  import, never exported and missing from `syncKeys`; it now round-trips.
+- Settings IA: one **Language** section holding all four language rows, never greyed on playback mode
+  (they drive the player's own track selection, which runs in Classic too). Mobile's Subtitles page keeps
+  the appearance rows and a pointer.
+- The setup wizard is **revision 8** on desktop with a new `SetupStep.Language` shown in all three mode
+  branches. Mobile is still on revision 6; adopting the step means adopting 7 and 8 together.
 ## The stabilization pass's second hardware run changed shared rules Phase 6 inherits (2026-09-15)
 
 **No mobile code was touched.** Desktop fixed six hardware defects on `claude/phase-5-onboarding`
