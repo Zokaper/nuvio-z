@@ -22,7 +22,7 @@
 set -euo pipefail
 
 # The counterpart repository's branch, as this clone sees it.
-DEFAULT_OTHER_REF="desktop/claude/upstream-doctrine-stage0"
+DEFAULT_OTHER_REF="desktop/Dev"
 OTHER_NAME="desktop"
 
 # Shared source sets. `desktopMain` is deliberately absent: it is this repo's own,
@@ -88,7 +88,36 @@ declare -a counts_out=()
 declare -a report_body=()
 
 for set_name in "${SOURCE_SETS[@]}"; do
-  files="$(git diff --name-only "HEAD" "${OTHER_REF}" -- "composeApp/src/${set_name}" || true)"
+  # Take the candidate list from git, then keep only files that still differ once
+  # line endings and trailing blank lines are normalized.
+  #
+  # Both repos are CRLF in the *working tree* but `.gitattributes` normalizes to LF
+  # in the index, so blob-to-blob comparison is not actually where CRLF bites --
+  # measured 2026-09-17, no file differed by line endings alone. What it does catch
+  # is the whitespace class: three files (CardDepthEffect.kt,
+  # BingeGroupCacheRepository.kt, StreamAutoPlayPolicy.kt) differ only by a blank
+  # line at EOF. Those are noise, and reporting them as drift sends a reader to diff
+  # a file that is identical. --strip-trailing-cr stays for the day someone commits
+  # from a tree without the attributes applied.
+  candidates="$(git diff --name-only "HEAD" "${OTHER_REF}" -- "composeApp/src/${set_name}" || true)"
+  files=""
+  while IFS= read -r candidate; do
+    [ -z "$candidate" ] && continue
+    mine="$(git rev-parse --quiet --verify "HEAD:${candidate}" || true)"
+    other="$(git rev-parse --quiet --verify "${OTHER_REF}:${candidate}" || true)"
+    # Added or deleted on one side only: real, and nothing to normalize.
+    if [ -z "$mine" ] || [ -z "$other" ]; then
+      files+="${candidate}"$'\n'
+      continue
+    fi
+    if ! diff -q --strip-trailing-cr \
+           <(git cat-file blob "$mine" | sed -e 's/[[:space:]]*$//' -e '/./,$!d' | tac | sed -e '/./,$!d' | tac) \
+           <(git cat-file blob "$other" | sed -e 's/[[:space:]]*$//' -e '/./,$!d' | tac | sed -e '/./,$!d' | tac) \
+           >/dev/null 2>&1; then
+      files+="${candidate}"$'\n'
+    fi
+  done <<<"$candidates"
+  files="${files%$'\n'}"
   n=0
   [ -n "$files" ] && n="$(printf '%s\n' "$files" | wc -l | tr -d ' ')"
   total=$((total + n))
