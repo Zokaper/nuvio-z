@@ -37,6 +37,15 @@ exercise official-token exchange, profile/social calls, and an authenticated Rea
 to end. Windows cannot compile the cinterop-backed iOS targets; the iOS workflow is the compiler
 gate, and physical iOS behavior remains unverified until Apple signing/device access exists.
 
+The feature branch is committed locally but cannot yet be pushed to GitHub. Although the controlled
+merge's final tree contains no LFS pointers, its `desktop/Dev` second-parent history makes 142 old
+desktop LFS objects reachable; GitHub rejects the ref because those objects do not exist in the
+mobile LFS store. Both the ordinary LFS upload and a refs-only push were rejected. Resolving this
+requires an explicit topology choice: retain the true merge locally, or reproduce the exact final
+tree as a single-parent convergence commit that does not import desktop history. Until that choice
+is made, mobile CI—including the manually dispatched macOS/iOS compiler gate—cannot run on this
+branch. No LFS checks were disabled persistently and no missing binary was added to mobile.
+
 ## Phase 6 convergence implementation verified and committed (2026-09-18)
 
 The controlled `desktop/Dev` merge is committed as `45ab72994` on
@@ -51,6 +60,10 @@ now use `PlatformPointerBackNavigation`: desktop retains mouse Back/Forward guar
 dismissal, while Android/iOS actuals deliberately do nothing because system Back remains handled by
 `PlatformBackHandler`. The matching desktop change is isolated on
 `claude/phase-6-pointer-seam` as `2b8b8708`; local `Dev` still equals `origin/Dev`.
+That branch is pushed. Its Windows CI MSI build passed, which compiles the desktop seam; the Linux
+test job stopped earlier in the vendored compose-media-player native `frame_copy_test`
+(`player != NULL`), before Kotlin desktop tests, and is unrelated to the pointer-only diff. Local
+desktop compilation, all 695 pure tests, and 14 focused player navigation tests pass.
 
 Verification on the committed mobile tree: all pure-suite groups pass (695 tests); Android full
 debug compilation passes; the Android host suite reports **2,060/2,060** with zero failures, errors,
