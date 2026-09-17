@@ -3,6 +3,8 @@ package com.nuvio.app.core.network
 import com.nuvio.app.core.build.AppVersionConfig
 import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.MemoryCodeVerifierCache
+import io.github.jan.supabase.auth.MemorySessionManager
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
@@ -44,6 +46,11 @@ object ZSupabaseProvider {
             // be wrong. Refreshing is likewise the bridge's job, because recovering from an expired
             // Z session means re-presenting the official token.
             install(Auth) {
+                // The Z session is derived from the official session and must never outlive it.
+                // Make that in-memory lifetime explicit instead of asking every target (and JVM
+                // host tests) to manufacture a persistent Settings implementation we never use.
+                sessionManager = MemorySessionManager()
+                codeVerifierCache = MemoryCodeVerifierCache()
                 autoLoadFromStorage = false
                 autoSaveToStorage = false
                 alwaysAutoRefresh = false

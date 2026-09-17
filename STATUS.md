@@ -1,12 +1,47 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
-## Phase 6 convergence implementation verified (2026-09-18)
+## Phase 6 Stage B client configuration landed (2026-09-18)
 
-The controlled `desktop/Dev` merge is staged on `claude/phase-6-convergence`, with no unresolved
-index entries and no `desktopMain` import. The first compile corrected two Stage A classifications:
+The mobile client now has an explicit, secret-free configuration path for the Nuvio Z Supabase
+project (`pzbpghmmordvzcfbayoh`). `NUVIO_Z_SUPABASE_URL` and
+`NUVIO_Z_SUPABASE_PUBLISHABLE_KEY` are read from ignored `local.properties` first and the process
+environment second; blank configuration leaves the Social/Watch Together runtime unavailable and
+never falls back to the official `api.nuvio.tv` client. The repository Actions secret
+`NUVIO_LOCAL_PROPERTIES_BASE64` was updated out of band to include the two publishable-client
+properties. No credential value was written to Git, and no backend deployment occurred.
+
+`ZSupabaseProvider` installs Auth, PostgREST and Realtime and now explicitly keeps its derived Z
+session and PKCE verifier in memory. `ZSessionBridge` remains the only bridge from the official
+session. The application exposes an active profile to the Social repositories only while the
+profile-scoped Social preference is enabled, so disabled mode cannot begin capability discovery,
+session exchange or Realtime startup. `SocialRepository` retains `explicitNulls = false`, matching
+the deployed `202609110002` JSON-null contract.
+
+Read-only production checks reached the canonical Z host and returned both Social and Watch Party
+capabilities enabled with party contract version 2. A linked schema query confirmed the current
+`party_*`, `social_get_state_v2`, `social_publish_presence`, and `social_upsert_profile` RPCs. The
+current party client still sends `authority_epoch`, matching production; the legacy compatibility
+window is therefore retained rather than removed while older clients remain in circulation.
+
+Verification: configured Android full-debug compilation passes; blank-config and configured-client
+tests both pass; the complete Android host suite is **2,063/2,063** with zero failures, errors or
+skips; and all pure suites pass (**695 tests**). The increase from the convergence baseline of
+2,060 is exactly three new Stage B tests: configured Z-client initialization plus the disabled and
+enabled runtime-gate cases.
+
+Remaining verification debt is explicit. A real signed-in handset session is still needed to
+exercise official-token exchange, profile/social calls, and an authenticated Realtime channel end
+to end. Windows cannot compile the cinterop-backed iOS targets; the iOS workflow is the compiler
+gate, and physical iOS behavior remains unverified until Apple signing/device access exists.
+
+## Phase 6 convergence implementation verified and committed (2026-09-18)
+
+The controlled `desktop/Dev` merge is committed as `45ab72994` on
+`claude/phase-6-convergence`, with no unresolved index entries and no `desktopMain` import. The
+first compile corrected two Stage A classifications:
 `AppFeaturePolicy.kt` is a shared contract rather than a whole-file mobile divergence, and
 `strings.xml` must converge shared resource keys while preserving mobile-only values additively.
 Keeping the old mobile files caused roughly 40 policy errors and 335 unresolved resource errors.
@@ -15,9 +50,9 @@ Shared Compose UI had also leaked JVM mouse APIs into `commonMain`. The three af
 now use `PlatformPointerBackNavigation`: desktop retains mouse Back/Forward guarding and hover-wheel
 dismissal, while Android/iOS actuals deliberately do nothing because system Back remains handled by
 `PlatformBackHandler`. The matching desktop change is isolated on
-`claude/phase-6-pointer-seam`; local `Dev` still equals `origin/Dev`.
+`claude/phase-6-pointer-seam` as `2b8b8708`; local `Dev` still equals `origin/Dev`.
 
-Verification on the staged mobile tree: all seven pure-suite groups pass (695 tests); Android full
+Verification on the committed mobile tree: all pure-suite groups pass (695 tests); Android full
 debug compilation passes; the Android host suite reports **2,060/2,060** with zero failures, errors,
 or skips; `git lfs fsck` passes; and every current common expect has an Android and iOS actual by
 static inspection. The handoff's 2,059 figure was one lower, but no test source changed during the

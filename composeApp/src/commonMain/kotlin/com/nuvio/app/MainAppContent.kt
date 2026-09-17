@@ -154,6 +154,7 @@ import com.nuvio.app.features.settings.SupportersContributorsSettingsScreen
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.social.rememberSocialEnabled
+import com.nuvio.app.features.social.socialRuntimeProfileId
 import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
@@ -680,9 +681,10 @@ internal fun MainAppContent(
     // a session tears the layer down through the same code a profile switch uses. The ordered
     // teardown for a *live party* is `shutdownSocialLayer`, which the settings toggle runs before
     // it writes the flag - by the time this effect sees `false` there is nothing left to depart.
-    val activeSocialProfileId = profileState.activeProfile?.id
-        ?.takeIf(String::isNotBlank)
-        ?.takeIf { socialEnabled }
+    val activeSocialProfileId = socialRuntimeProfileId(
+        profileId = profileState.activeProfile?.id,
+        socialEnabled = socialEnabled,
+    )
     LaunchedEffect(ownsAppRuntime, activeSocialProfileId) {
         if (!ownsAppRuntime) return@LaunchedEffect
         OutgoingJoinRequestStore.start()

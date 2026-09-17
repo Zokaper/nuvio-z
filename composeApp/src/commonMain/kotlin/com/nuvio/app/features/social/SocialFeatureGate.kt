@@ -57,6 +57,16 @@ object SocialFeatureGate {
 }
 
 /**
+ * The only profile identity allowed to start the Z social runtime.
+ *
+ * Keeping this decision pure makes the lifecycle guarantee testable: when Social is disabled the
+ * shell passes `null` to both repositories, so neither capability discovery, session exchange nor
+ * Realtime startup can begin for the otherwise-active profile.
+ */
+internal fun socialRuntimeProfileId(profileId: String?, socialEnabled: Boolean): String? =
+    profileId?.takeIf(String::isNotBlank)?.takeIf { socialEnabled }
+
+/**
  * [SocialFeatureGate.enabled], for a composable.
  *
  * A named function rather than sixteen copies of the same `collectAsStateWithLifecycle` call, so

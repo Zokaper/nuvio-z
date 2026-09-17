@@ -7,10 +7,18 @@ what is still unverified.
 
 Base: NuvioMobile `979d5680` (2026-07-29), which is **205 commits behind** `upstream/cmp-rewrite`
 as of 2026-08-23 - run `scripts/upstream-drift.sh` for the current distance. 245 commits in
-`nuvio-z`, 176 in `NuvioZDesktop`, 12 in `NuvioZWeb`. Last updated 2026-09-17 — **revision 9**.
+`nuvio-z`, 176 in `NuvioZDesktop`, 12 in `NuvioZWeb`. Last updated 2026-09-18 — **revision 10**.
 Revision 8 set the Android, iOS and TV **targets** for Phase 6 and Phase 9 and left the state column
 stale, because desktop had since shipped `0.1.23-alpha-z2` and hotfixed through `z6` while 57 rows
 still read `**branch**`.
+
+**Revision 10 records Phase 6 Stage B without promoting a target to verified.** Mobile now has the
+canonical Z Supabase configuration, separate in-memory Z session client, Social-off runtime gate,
+and the converged Social/Watch Together core. Android compilation and host tests are green and the
+public client reached the canonical capability RPC. The `port` cells below deliberately remain
+targets: authenticated profile/session/Realtime behavior and the mobile product surfaces still
+need device verification and later Phase 6 stages; iOS has neither compiled in macOS CI nor run on
+hardware for this branch yet.
 
 **Revision 9 is that sweep, done in Phase 6 Stage A.** Every `**branch**` row whose `DSK` cell reads
 `yes` is, by construction, in the `z6` build — desktop's `Dev` tip *is* the `z6` version bump, so
@@ -152,6 +160,14 @@ working". See §12 and Phase 7 of `ROADMAP.md`.
 | **S8** | **Party status pill** *(desktop branch, unverified on hardware)* - one debounced line over the video about what the party is waiting on, with at most one action, projected by a pure priority table: a guest's own source or episode handoff (Choose source), a too-short version, the host choosing, the start gate (Start anyway), a stall hold seen from both sides (Don't wait), host buffering, catching up, an incoming request (Let in / Decline), an outgoing request (Cancel), reconnecting, offline, and **Paused by**. Pause is a condition, not a toast, and a host stall hold travels on the timeline tick (`PartyTick.hold`) so it is never read as a person pausing. Compacts rather than hiding when the chrome fades. | shipped **DSK** | ships | **port** | **port** | yes | **no** |
 
 Both capabilities default off in the backend and must be enabled independently after migrations and staging checks. Letterboxd, provider-history ingestion, OS push and NuvioZWeb are intentionally outside this release. `yes*` retains the standing manual-iOS verification caveat.
+
+> **Stage B foundation, 2026-09-18:** mobile now reads ignored/CI-provided
+> `NUVIO_Z_SUPABASE_URL` and `NUVIO_Z_SUPABASE_PUBLISHABLE_KEY`, initializes only the canonical Z
+> Auth/PostgREST/Realtime client, keeps its derived session in memory, gates runtime startup on the
+> Social preference, and serializes repository JSON with `explicitNulls = false`. This is plumbing,
+> not completion of S1-S8: the Android client compile and host tests pass and the public capability
+> RPC is reachable, while signed-in profile exchange, authenticated Realtime, device behavior and
+> every iOS claim remain unverified.
 
 ⚠ **Every client publishing presence must omit nulls rather than serialize them.** The backend's
 payload sanitizers now treat an explicit JSON `null` as absent (`202609110002`), but kotlinx defaults
