@@ -3,6 +3,76 @@
 
 Last updated: 2026-09-17
 
+## Phase 6 Stage A closed: the convergence is a merge, not a port (2026-09-17)
+
+Branch `claude/phase-6-stage-a`, commit `a6a78669`. Deliverable:
+`Docs/PHASE-6-CONVERGENCE-INVENTORY.md`. **No product code was touched** — Stage A is a measurement
+gate. Desktop received one docs commit on its own branch
+(`nuviozdesktop` `claude/phase-6-stage-a-verification-record`, `5fd878a6`); `Dev` is untouched.
+
+### The finding that resizes the phase
+
+`nuvio-z` has **35 commits `desktop/Dev` does not contain, and 34 are documentation.** The one code
+commit already landed on desktop as `276489e5`. So the 203 desktop-only and 286 differing shared
+files are **desktop moving ahead of a static mobile**, not two-way divergence — there are no
+competing mobile edits to reconcile against. A trial merge gives **0 conflicts in `composeApp/src`**
+(2 total, both docs) and leaves `commonMain`/`commonTest`/`androidMain`/`iosMain` **byte-identical
+to `desktop/Dev`**.
+
+Stage A and Stage D are therefore **one mechanical merge**, and the plan's "repo topology — High,
+and the real cost" is downgraded. Mobile's stale watchparty trio is overwritten as ordinary
+content; "delete, do not reconcile" needs no deletion commit. `nuvio-z` now has `desktop` as a
+remote, mirroring desktop's `mobile`.
+
+### The merge is clean, which is exactly what makes it dangerous
+
+Five silent reverts, **none of which git reports as a conflict**:
+
+1. It reverts **all four documented-deliberate divergences** — `SetupHomeStill.kt` included, which
+   has broken the setup wizard before.
+2. It **deletes** the Android launcher icons, `nuvio-debug.keystore`, `.github/workflows/ios-build.yml`
+   (the iOS CI Stage G depends on) and `Docs/UPSTREAM.md`/`PATCH-SURFACE.md`/`VANILLA-BUGS.md` —
+   the docs `AGENTS.md` says govern every repo.
+3. It imports 324 `desktopMain` files and **141 LFS pointers whose objects are not on mobile's LFS
+   remote**. This aborted the first trial merge outright and forecloses the full-tree merge.
+4. `samplePositionMs()` and `seekToExact()` arrive as **no-op defaults** (`= null`,
+   `= seekTo(...)`) that **no** mobile engine overrides — media3, libmpv and iOS all inherit them.
+   Compiles, runs, never converges.
+5. ⚠ **Desktop declares no `androidTarget` at all.** Its `androidMain` is dead source no compiler in
+   that repo has ever read — and it has already rotted: `c9e47509` ("add NVIDIA RTX VSR support", a
+   desktop-only feature) deleted the `platformDisplayMaxHeight` actuals from `Platform.android.kt`
+   *and* `Platform.ios.kt`, while `commonMain` still declares the `expect` and calls it. Taking
+   desktop's platform source sets wholesale **breaks the Android and iOS builds**, silently.
+
+So "byte-identical to desktop" is the right goal for `commonMain`/`commonTest` and **not** for the
+66 `androidMain`/`iosMain` files, which stay a reviewed subset. `Docs/PHASE-6-CONVERGENCE-INVENTORY.md`
+§5 is the executable procedure, with assertions rather than eyeballs.
+
+**Standing rule this exposes:** desktop can silently break mobile's platform source sets, because
+nothing in its CI compiles them. Every desktop→mobile sync must gate on the *mobile* compile.
+
+### Also corrected
+
+- **`scripts/shared-code-drift.sh`** pointed at `desktop/claude/upstream-doctrine-stage0`, deleted
+  long ago, so it exited 2 rather than reporting. Now `desktop/Dev`, and it no longer counts
+  whitespace-only drift (498 → **495**, agreeing exactly with an independent measurement).
+- **`AGENTS.md` rule 5's CRLF warning does not apply to blob comparison.** `.gitattributes`
+  normalizes to LF in the index; across all 495 differing files **not one** differs by line endings
+  alone. The 3 phantoms are a trailing blank line. The warning remains true for working-tree diffs.
+- **`Z-FEATURES.md` revision 9** — the state sweep revision 8 asked Stage A for. 54 rows move from
+  `**branch**` to a new `shipped **DSK**` (desktop's `Dev` tip *is* the `z6` bump, so everything
+  before it shipped). Shipping is not verification: rows saying *unverified on hardware* keep saying
+  it. Three rows carried the missing-cell defect the Phase 2 audit fixed for **P11**; on **C19** the
+  shifted column was one step from recording a web-only fix as a desktop release.
+- **`PHASE-4-TWO-CLIENT-VERIFICATION.md`** — its header claimed it "records no manual result", which
+  stopped being true when the 2026-09-10 retest was appended below it. Phase 6 planning read the
+  blanket `NOT RUN` as "never worked". Added: three-user field use with host transfer through
+  `z2`..`z6`, recorded as weaker evidence than the 2026-09-10 run, with every table row still
+  `NOT RUN`. Consequence: **desktop is a trusted reference peer** for Android↔desktop testing.
+
+**Stage B (backend repointing) is next.**
+
+
 ## Phase 6 opened and rescoped: Social **+ Watch Together** to mobile (2026-09-17)
 
 **Planning only. No code was touched in any repo.** Deliverables: `ROADMAP.md` (Phase 6 rescoped,
