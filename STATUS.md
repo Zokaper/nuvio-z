@@ -1,7 +1,103 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
+
+## Phase 6 opened and rescoped: Social **+ Watch Together** to mobile (2026-09-17)
+
+**Planning only. No code was touched in any repo.** Deliverables: `ROADMAP.md` (Phase 6 rescoped,
+Phase 9 TV target set, stale ordering/review-budget text corrected), `Docs/Z-FEATURES.md` revision 8
+(Android/iOS/TV targets), and `PLAN-phase-6-social-watch-together-mobile.md` at the workspace root.
+
+⚠ **`ROADMAP.md` and the `PLAN-*.md` files are not under version control** - the workspace root has
+no `.git`. Only `Docs/Z-FEATURES.md` and this file are committed. Anyone reading a Phase 6 commit
+should not expect to find the roadmap or the plan in its diff.
+
+### The rescope, and what it rests on
+
+Phase 6 was "Social to mobile", with Watch Together deliberately staying desktop-only. It now
+carries **both** to Android and iOS. That was not assumed - the load-bearing question was whether
+Phase 4 genuinely separated the party architecture from desktop player ownership, and it was checked
+against the code:
+
+- **All 35 Watch Together files are in `commonMain`. Zero in `desktopMain`.**
+- `features/watchparty` and the party player glue contain **no** `java.*`, `javax.*`, AWT, Swing or
+  `System.getProperty` reference at all. `WatchPartyBarrier.kt` is deliberately import-free.
+- Party code reaches the player **only** through `PlayerEngineController`, whose `samplePositionMs()`
+  and `seekToExact()` exist purely for sync and whose documentation already reasons about Android's
+  250ms polling and mpv's keyframe under-shoot.
+
+So the durable model, membership, invites, join requests, Direct/Ask/Off, authority, host transfer,
+lifecycle, transport, sync, drift, source descriptors, matching, readiness, recovery and episode
+handoff are **reused unchanged**, and the platform work is the player adapter, lifecycle, navigation,
+source realization, phone UI and QA.
+
+### Four findings the plan has to absorb
+
+- **The obstacle is repo topology, not architecture.** No shared module - two forks kept in step by
+  merge. 690 desktop vs 587 mobile `commonMain` files, **103 desktop-only, 204 shared files already
+  differing**, 383 byte-identical. `nuviozdesktop` has `mobile` as a remote; **`nuvio-z` has no
+  `desktop` remote** - adding it is Stage A step one. Measure with `scripts/shared-code-drift.sh`.
+- **Mobile's party code is a stub to delete.** Three files from 2026-09-01/02 against desktop's 35,
+  with no barrier, clock, drift, protocol, transport, coordinator, session state or realizer - and
+  it calls the *official* `SupabaseProvider`, which hosts none of the `party_*` RPCs. It cannot ever
+  have worked. Delete, do not reconcile.
+- **Mobile's `PlayerEngineController` is an older fork** - no `samplePositionMs`, `seekToExact`,
+  `trySeekTo` or `releaseBeforeNavigation`, and neither repo's `androidMain`/`iosMain` implements the
+  two sync methods. Android carries **two** engines (media3 + `NuvioLibmpvView`), so the mpv seek
+  trap applies there too, not only on iOS.
+- **Background lifecycle is genuinely new.** Desktop never backgrounds, dozes, loses cellular or
+  takes a phone call mid-party. None of its experience transfers.
+
+### Ledger corrections made while doing this
+
+- **S1, S2 and S3 read `yes`/`yes*` on AND/iOS. That was false** - the code is present but points at
+  `api.nuvio.tv`, which hosts no `social_*` or `party_*` RPCs, so it has never functioned on a
+  handset. Corrected to targets.
+- **W10 added.** The built-in Z source setup (AIOStreams + TorBox) shipped on desktop in
+  `0.1.23-alpha-z4` **with no ledger row at all**. It is `iOS = **defer**`, to minimise App Store
+  review risk - deferred and unresolved, not solved, with no workaround and nothing designed to hide
+  functionality from review. It costs iOS nothing architecturally: addons are per-profile and sync
+  through the official backend, so iOS inherits a source set configured on Android or desktop.
+- Two new legend markers, `**defer**` and `**publish**`, so a *planned* state is expressible without
+  corrupting current-state columns. `port`, `defer` and `publish` are all targets; a row becomes
+  `yes` only in the commit that makes it true.
+- **§12 gained the iOS physical-verification debt entry**, and a correction to the desktop Watch
+  Together entry (below).
+
+### Verification ground truth (standing rule, from the maintainer)
+
+Recent desktop builds have had **real three-user party use, host transfer included**, and it held up.
+No formal matrix has been walked. So `PHASE-4-TWO-CLIENT-VERIFICATION.md`'s blanket `NOT RUN`
+**understates** reality; what is genuinely open is that the untested edges are unknown rather than
+known-good. Practical consequence: **desktop is a trusted reference peer** for Android↔desktop
+testing. Stage A records what has actually been observed beside the still-unwalked table.
+
+### Decisions
+
+- **Ultra 2 is held for Phase 8 (iOS).** It is the last non-renewable run. The roadmap contained
+  contradictory history - an allocation table saying #2 was banked on 2026-09-06, and a prose
+  paragraph saying all three were spent by Phase 4. The table and the dated decision win; the prose
+  is corrected in place rather than quietly overwritten. Phase 6 uses `/code-review high --fix` per
+  stage and `/security-review` on Stage B.
+- **Hardware: Galaxy S20+, S25+, desktop.** Android↔Android is not redundant with Android↔desktop -
+  two mobile peers is the only pair exercising both ends backgrounding, both on cellular, and two
+  doze timers at once.
+- **iOS is implemented in Phase 6, and honestly unverified.** No Apple Developer account, so no
+  device run. Phase 6 maximizes shared code, compiles in CI, leans on pure tests, and keeps a precise
+  **physical-verification debt checklist** for Phase 8 to discharge. Nothing untested is called
+  verified, and no iOS row becomes `yes` on the strength of a compile.
+
+### Two risks worth stating outside the plan
+
+- **The Android seek-landing check (Stage E) is the highest-value single test in the phase.** An
+  under-shooting `seekToExact` is re-measured as the same gap and **the guest never converges** - it
+  presents as "sync is broken" and costs days if it is not caught at the seam.
+- **Mobile has no FCM/APNs.** In-app notification state ports without push, but a party invite has
+  **no delivery path while the app is backgrounded**. Open product question, to settle in Stage C
+  rather than discover in Stage F.
+
+**Nothing in Phase 6 has started. Stage A is next.**
 
 ## Desktop is consolidated and closed for feature work; Phase 6 is next (2026-09-16)
 
