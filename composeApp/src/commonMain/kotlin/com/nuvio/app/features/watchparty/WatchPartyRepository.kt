@@ -3,6 +3,7 @@ package com.nuvio.app.features.watchparty
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.ZSessionBridge
 import com.nuvio.app.core.network.ZSupabaseProvider
+import com.nuvio.app.core.network.runWithZSession
 import com.nuvio.app.core.network.shouldReexchangeZSession
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.exception.PostgrestRestException
@@ -800,8 +801,13 @@ object WatchPartyRepository {
                     runCatching { measureClockOffset() }
                 }
                 // Deliberately not routed through call(): a background poll must not flip the
-                // working flag or overwrite an error the user is still reading.
-                runCatching {
+                // working flag or overwrite an error the user is still reading. It does need what
+                // call() does for the session, though: without it an expired Z token failed every
+                // heartbeat from then on, and the server read the silence as the host leaving.
+                runWithZSession(
+                    ensure = { ZSessionBridge.ensureSession(profileId) },
+                    reexchange = { ZSessionBridge.reexchange(profileId) },
+                ) {
                     // `party_heartbeat` with no position is `party_snapshot` plus a liveness stamp:
                     // it refreshes last_seen_at for this member and expires anyone who has stopped
                     // reporting. Only the player used to heartbeat, so a member sitting in the lobby

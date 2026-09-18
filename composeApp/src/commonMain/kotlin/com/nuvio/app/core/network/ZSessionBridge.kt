@@ -4,6 +4,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.exceptions.RestException
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -18,6 +19,9 @@ import kotlinx.atomicfu.atomic
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 /**
  * Turns a live official Nuvio session into a Nuvio Z session.
@@ -39,7 +43,15 @@ import kotlinx.serialization.json.jsonPrimitive
 object ZSessionBridge {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val http = HttpClient()
+    // Bounded, because the Watch Together heartbeat now waits on this exchange when the token has
+    // expired, and an unbounded request here would silence the heartbeat for as long as it hung.
+    private val http = HttpClient {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 10_000
+            requestTimeoutMillis = 15_000
+            socketTimeoutMillis = 15_000
+        }
+    }
     private val mutex = Mutex()
 
     private var boundProfileId: String? = null
@@ -75,13 +87,48 @@ object ZSessionBridge {
             lastFailure = "This build has no Nuvio Z backend configured."
             return false
         }
-        if (hasSessionFor(profileId)) return true
+        // The common case costs one in-memory comparison: no lock, no request.
+        when (sessionFreshness(profileId)) {
+            ZSessionFreshness.Fresh -> return true
+            ZSessionFreshness.RenewSoon -> {
+                // The installed token still works, so nobody waits for its replacement: whoever
+                // finds the lock free renews, everyone else carries on with the current token. A
+                // renewal that fails costs nothing yet and is retried after the spacing, not on
+                // every call in between.
+                if (!mutex.tryLock()) return true
+                try {
+                    val now = Clock.System.now()
+                    val last = lastRenewalAttemptAt
+                    if (sessionFreshness(profileId) == ZSessionFreshness.RenewSoon &&
+                        (last == null || now - last >= RENEWAL_RETRY_SPACING)
+                    ) {
+                        lastRenewalAttemptAt = now
+                        exchange(profileId)
+                    }
+                } finally {
+                    mutex.unlock()
+                }
+                return true
+            }
+            ZSessionFreshness.Expired, null -> Unit
+        }
         return mutex.withLock {
             // Another caller may have completed the exchange while this one waited for the lock.
-            if (hasSessionFor(profileId)) return@withLock true
-            exchange(profileId)
+            when (sessionFreshness(profileId)) {
+                ZSessionFreshness.Fresh, ZSessionFreshness.RenewSoon -> true
+                ZSessionFreshness.Expired, null -> exchange(profileId)
+            }
         }
     }
+
+    /** Null when no session is installed for [profileId]. */
+    private fun sessionFreshness(profileId: String): ZSessionFreshness? {
+        if (boundProfileId != profileId) return null
+        val session = ZSupabaseProvider.client.auth.currentSessionOrNull() ?: return null
+        return zSessionFreshness(session.expiresAt, Clock.System.now())
+    }
+
+    private var lastRenewalAttemptAt: Instant? = null
 
     /**
      * Drops the current Z session so the next call exchanges a fresh one.
@@ -193,12 +240,14 @@ object ZSessionBridge {
             setBody("""{"profile_id":"$profileId"}""")
         }
 
-    private fun currentEpochSeconds(): Long = kotlin.time.Clock.System.now().epochSeconds
+    private fun currentEpochSeconds(): Long = Clock.System.now().epochSeconds
 
     private const val HTTP_CONFLICT = 409
     private const val CONCURRENT_RETRY_DELAY_MS = 600L
 
     private const val DEFAULT_EXPIRY_SECONDS = 3600L
+
+    private val RENEWAL_RETRY_SPACING = 15.seconds
 }
 
 /**
