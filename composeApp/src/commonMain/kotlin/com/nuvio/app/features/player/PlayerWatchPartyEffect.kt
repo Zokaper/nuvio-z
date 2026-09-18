@@ -38,6 +38,7 @@ import com.nuvio.app.features.watchparty.WatchPartyPausedAlignToleranceMs
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.watchparty.WatchPartySeekLandingPollMs
+import com.nuvio.app.features.watchparty.partyCorrectionNominalSpeed
 import com.nuvio.app.features.watchparty.WatchPartySnapshotIntervalMs
 import com.nuvio.app.features.watchparty.WatchPartyStallWatchPollMs
 import com.nuvio.app.features.watchparty.WatchPartyStatusSettleMs
@@ -223,9 +224,25 @@ private suspend fun PlayerScreenRuntime.awaitPartySeekLanded() {
  * to a polling interval stale, which costs at worst an occasional redundant call - the case this
  * exists to remove is the steady one, not the racing one.
  */
-private fun PlayerScreenRuntime.applyPartySpeed(speed: Float) {
+private fun PlayerScreenRuntime.applyPartySpeed(speed: Float, nominal: Float = speed) {
+    notePartyNominalSpeed(actual = speed, nominal = nominal)
     if (abs(playbackSnapshot.playbackSpeed - speed) < 0.001f) return
     playerController?.setPlaybackSpeed(speed)
+}
+
+/**
+ * Sets the engine's rate for the party, recording what the party's own speed is while it differs.
+ *
+ * Every party write of a rate goes through here or [applyPartySpeed], because a correction is only
+ * invisible to the rest of the player if something remembers what it is correcting around.
+ */
+private fun PlayerScreenRuntime.setPartyEngineSpeed(actual: Float, nominal: Float = actual) {
+    notePartyNominalSpeed(actual = actual, nominal = nominal)
+    playerController?.setPlaybackSpeed(actual)
+}
+
+private fun PlayerScreenRuntime.notePartyNominalSpeed(actual: Float, nominal: Float) {
+    partyNominalSpeedDuringCorrection = partyCorrectionNominalSpeed(actual = actual, nominal = nominal)
 }
 
 /** Same argument as [applyPartySpeed]: a player that is already playing does not need telling. */
@@ -404,6 +421,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 partyReportedPeerStatus = null
                 partyHoldingForBarrier = false
                 partyPendingSeek = null
+                partyNominalSpeedDuringCorrection = null
                 partyPositionUnreachable = false
                 // Per content generation: a new episode is a new stream, and it deserves the
                 // benefit of the doubt rather than inheriting the previous one's exhausted budget.
@@ -496,7 +514,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         generationKey,
         playbackSnapshot.positionMs,
         playbackSnapshot.durationMs,
-        playbackSnapshot.playbackSpeed,
+        nominalPlaybackSpeed,
         playbackSnapshot.isPlaying,
         playbackSnapshot.isLoading,
         shouldPlay,
@@ -511,7 +529,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 positionMs = sample.positionMs,
                 capturedAtMs = sample.atEpochMs,
                 durationMs = snapshot.durationMs,
-                playbackSpeed = snapshot.playbackSpeed,
+                playbackSpeed = nominalPlaybackSpeed,
                 status = partyStatusFor(snapshot, shouldPlay, partyHoldingForBarrier),
             ),
         )
@@ -537,7 +555,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     status = status,
                     positionMs = sample.positionMs,
                     capturedAtPartyMs = partyInstantOf(sample.atEpochMs),
-                    playbackSpeed = snapshot.playbackSpeed,
+                    playbackSpeed = nominalPlaybackSpeed,
                     durationMs = snapshot.durationMs,
                     hold = partyAutoPausedForGuests,
                 )
@@ -569,7 +587,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             status = partyStatusFor(snapshot, shouldPlay, partyHoldingForBarrier),
             positionMs = sample.positionMs,
             capturedAtPartyMs = partyInstantOf(sample.atEpochMs),
-            playbackSpeed = snapshot.playbackSpeed,
+            playbackSpeed = nominalPlaybackSpeed,
             durationMs = snapshot.durationMs,
             hold = partyAutoPausedForGuests,
         )
@@ -586,6 +604,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     LaunchedEffect(generationKey, isHost, peerStatus, partyHoldingForBarrier) {
         if (generationKey == null || isHost) return@LaunchedEffect
         if (partyHoldingForBarrier) return@LaunchedEffect
+        val edgeAtMs = currentEpochMs()
         // Keyed on the status, so a flap cancels the pending publish rather than adding to it - the
         // same debounce the host's status gets, and for a sharper reason here: the snapshot poll is
         // up to a full interval behind the player, so the first read after a hold ends still says
@@ -597,6 +616,10 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         val settled = partyStatusFor(playbackSnapshot, shouldPlay)
         if (partyReportedPeerStatus == settled) return@LaunchedEffect
         partyReportedPeerStatus = settled
+        // The first leg of "a guest buffered and the host waited": from this player's own edge to
+        // the report. The host's `peer status` line carries the transit, and its `waiting for` line
+        // the grace, so the whole delay can be read off the two logs.
+        partyLog.i { "peer status settled=$settled afterEdgeMs=${currentEpochMs() - edgeAtMs}" }
         WatchPartySync.publishPeerStatus(settled)
     }
 
@@ -691,7 +714,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     "offsetMs=${partyUi.serverClockOffsetMs}"
             }
             when (correction.kind) {
-                DriftCorrectionKind.NONE -> controller.setPlaybackSpeed(state.playbackSpeed)
+                DriftCorrectionKind.NONE -> setPartyEngineSpeed(state.playbackSpeed)
                 DriftCorrectionKind.SEEK -> {
                     partyHoldingForBarrier = true
                     try {
@@ -708,10 +731,10 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     } finally {
                         partyHoldingForBarrier = false
                     }
-                    controller.setPlaybackSpeed(state.playbackSpeed)
+                    setPartyEngineSpeed(state.playbackSpeed)
                 }
                 DriftCorrectionKind.TEMPORARY_SPEED ->
-                    controller.setPlaybackSpeed(correction.temporarySpeed ?: state.playbackSpeed)
+                    setPartyEngineSpeed(correction.temporarySpeed ?: state.playbackSpeed, nominal = state.playbackSpeed)
             }
             shouldPlay = true
             controller.play()
@@ -723,7 +746,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             // `buffering` is the host stalling, not a position anyone chose, and the position it
             // froze at is stale by construction.
             // A nudge left running into a pause would drift the guest right back out again.
-            controller.setPlaybackSpeed(state.playbackSpeed)
+            setPartyEngineSpeed(state.playbackSpeed)
             shouldPlay = false
             controller.pause()
             if (state.status != WatchPartyStatus.buffering && abs(local - expected) > 500L) {
@@ -1040,12 +1063,12 @@ private suspend fun PlayerScreenRuntime.executePartyBarrier(command: PartyComman
                 // failures this feature can have.
                 controller.pause()
             }
-            controller.setPlaybackSpeed(plan.speed)
+            setPartyEngineSpeed(plan.speed)
             WatchPartyDiagnostics.applied(command, partyId, outcome = "pause")
         }
         PartyCommandKind.speed -> {
             if (clockUsable) awaitPartyInstant(command.startAtPartyMs)
-            controller.setPlaybackSpeed(plan.speed)
+            setPartyEngineSpeed(plan.speed)
             WatchPartyDiagnostics.applied(command, partyId, outcome = "speed")
         }
         PartyCommandKind.play, PartyCommandKind.seek -> {
@@ -1064,7 +1087,7 @@ private suspend fun PlayerScreenRuntime.executePartyBarrier(command: PartyComman
                 } else if (plan.holdMs > 0L) {
                     controller.pause()
                 }
-                controller.setPlaybackSpeed(plan.speed)
+                setPartyEngineSpeed(plan.speed)
                 if (plan.playAfter && clockUsable) awaitPartyInstant(command.startAtPartyMs)
             } finally {
                 partyHoldingForBarrier = false
@@ -1156,7 +1179,7 @@ private suspend fun PlayerScreenRuntime.followPartyTick(tick: PartyTick, tracker
         when (outcome.correction.kind) {
             DriftCorrectionKind.NONE -> applyPartySpeed(tick.playbackSpeed)
             DriftCorrectionKind.TEMPORARY_SPEED ->
-                applyPartySpeed(outcome.correction.temporarySpeed ?: tick.playbackSpeed)
+                applyPartySpeed(outcome.correction.temporarySpeed ?: tick.playbackSpeed, nominal = tick.playbackSpeed)
             DriftCorrectionKind.SEEK -> {
                 // Scheduled, like a host's seek: park on where the party *will* be and start when
                 // it gets there. Nothing has to predict the reload cost, so being wrong about it
@@ -1445,7 +1468,7 @@ private fun PlayerScreenRuntime.startPartyPlayback(
         kind = PartyCommandKind.play,
         startPositionMs = positionMs,
         startAtPartyMs = startAt,
-        playbackSpeed = playbackSnapshot.playbackSpeed,
+        playbackSpeed = nominalPlaybackSpeed,
         diagnosticInputId = inputId,
         submitDurable = { accepted -> scope.launch { WatchPartyRepository.submitAccepted(accepted) } },
     )
@@ -1476,7 +1499,7 @@ private fun PlayerScreenRuntime.pausePartyPlayback(
         // than zero so the `leadMs` beside it is a number a person can read - the plan is what
         // ignores the instant for a pause, not the sender.
         startAtPartyMs = WatchPartySync.partyNowMs(),
-        playbackSpeed = playbackSnapshot.playbackSpeed,
+        playbackSpeed = nominalPlaybackSpeed,
         diagnosticInputId = inputId,
         submitDurable = { accepted -> scope.launch { WatchPartyRepository.submitAccepted(accepted) } },
     )
@@ -1557,7 +1580,7 @@ internal fun PlayerScreenRuntime.submitPartySeek(positionMs: Long): Boolean {
         kind = PartyCommandKind.seek,
         startPositionMs = targetMs,
         startAtPartyMs = startAt,
-        playbackSpeed = playbackSnapshot.playbackSpeed,
+        playbackSpeed = nominalPlaybackSpeed,
         playAfter = resumeAfter,
         diagnosticInputId = inputId,
         submitDurable = { accepted -> scope.launch { WatchPartyRepository.submitAccepted(accepted) } },

@@ -361,3 +361,17 @@ fun partyFallbackDriftCorrection(
         )
     }
 }
+
+/**
+ * The party's nominal speed while the engine runs at [actual] to close a drift gap, or null when
+ * the two are the same - that is, when there is no correction for the rest of the player to hide.
+ *
+ * Anything that shows or shares a speed reads the nominal one. On 2026-09-18 the engine's corrected
+ * rate reached the S25's speed control as `1.0035x`, and the same value went out as the party speed
+ * on any command a guest sent mid-correction.
+ */
+fun partyCorrectionNominalSpeed(actual: Float, nominal: Float): Float? =
+    nominal.takeIf { kotlin.math.abs(actual - nominal) >= PartySpeedEpsilon }
+
+/** Rates closer than this are the same rate. */
+const val PartySpeedEpsilon = 0.001f

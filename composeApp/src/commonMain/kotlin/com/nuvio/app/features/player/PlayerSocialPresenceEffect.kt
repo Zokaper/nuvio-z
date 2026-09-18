@@ -94,7 +94,7 @@ internal fun PlayerScreenRuntime.BindSocialPresenceEffect() {
                 episodeTitle = activeEpisodeTitle,
                 positionMs = snapshot.positionMs.coerceAtLeast(0L),
                 durationMs = snapshot.durationMs,
-                playbackSpeed = snapshot.playbackSpeed,
+                playbackSpeed = nominalPlaybackSpeed,
                 state = if (snapshot.isPlaying) SocialPlaybackState.playing else SocialPlaybackState.paused,
                 effectiveJoinPolicy = SocialPresenceSession.state.value.effectivePolicy,
                 sourceFingerprint = activePartySourceDescriptor,
@@ -107,13 +107,13 @@ internal fun PlayerScreenRuntime.BindSocialPresenceEffect() {
         if (result.isSuccess) deliverJoinsToHost()
     }
 
-    LaunchedEffect(videoKey,activePartySourceDescriptor,playbackSnapshot.positionMs,playbackSnapshot.durationMs,playbackSnapshot.playbackSpeed) {
+    LaunchedEffect(videoKey,activePartySourceDescriptor,playbackSnapshot.positionMs,playbackSnapshot.durationMs,nominalPlaybackSpeed) {
         activePartySourceDescriptor?.let { descriptor ->
             WatchPartySessionCoordinator.registerPlayback(
                 ActivePlaybackContext(
                     attachmentId=attachmentId,contentId=parentMetaId,videoId=playbackSession.videoId,
                     descriptor=descriptor,positionMs=playbackSnapshot.positionMs,durationMs=playbackSnapshot.durationMs,
-                    playbackSpeed=playbackSnapshot.playbackSpeed,
+                    playbackSpeed=nominalPlaybackSpeed,
                 ),sessionId,deviceId,
             )
         }

@@ -860,7 +860,8 @@ internal object WatchPartySync : PartyRealtimeTransport {
         if (guestStatus.put(message.fromProfileId, message.status) != message.status || before != after) {
             log.i {
                 "peer status from=${message.fromProfileId.shortId()} status=${message.status} " +
-                    "rttMs=${message.rttMs} holding=[${after.joinToString { it.shortId() }}]"
+                    "rttMs=${message.rttMs} transitMs=${partyNowMs() - message.atPartyMs} " +
+                    "holding=[${after.joinToString { it.shortId() }}]"
             }
         }
         publishState()

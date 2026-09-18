@@ -54,6 +54,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -682,6 +683,14 @@ private fun ExoPlayerSurface(
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                // Watch Together drives the rate to close drift, and a rate change is one of the two
+                // candidates for the picture freezing under running audio after a party resync
+                // (2026-09-18 S25 run). Logged so a trace can say which.
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "speed=${playbackParameters.speed} positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)} " +
+                        "isPlaying=${exoPlayer.isPlaying}",
+                )
                 dispatchExoPlayerSnapshot()
             }
 
@@ -718,7 +727,25 @@ private fun ExoPlayerSurface(
 
         }
         exoPlayer.addListener(listener)
+        // A frozen picture over running audio is the video renderer dropping late frames to catch
+        // the audio clock - which is exactly what this reports. Batched by ExoPlayer, so it costs a
+        // line per burst, not per frame.
+        val droppedFramesListener = object : AnalyticsListener {
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "droppedFrames=$droppedFrames overMs=$elapsedMs " +
+                        "positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)} speed=${exoPlayer.playbackParameters.speed}",
+                )
+            }
+        }
+        exoPlayer.addAnalyticsListener(droppedFramesListener)
         onDispose {
+            exoPlayer.removeAnalyticsListener(droppedFramesListener)
             PlayerPictureInPictureManager.registerPausePlaybackCallback(null)
             PlayerPictureInPictureManager.registerTogglePlaybackCallback(null)
             exoPlayer.removeListener(listener)

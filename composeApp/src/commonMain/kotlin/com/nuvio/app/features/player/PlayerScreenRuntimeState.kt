@@ -472,6 +472,23 @@ internal class PlayerScreenRuntime(
     /** The seek this client has issued and is waiting to see land, or null. Expires on its own. */
     var partyPendingSeek: PendingPartySeek? = null
 
+    /**
+     * The speed the party is nominally playing at, while Watch Together is running the engine at a
+     * slightly different one to close a drift gap; null the rest of the time.
+     *
+     * The engine's own rate is the wrong answer to "what speed is this" during a correction: it read
+     * `1.0035x` on the S25's speed control on 2026-09-18, and - worse than the label - every party
+     * command a guest sent while one was running carried that rate as the party's new speed.
+     */
+    var partyNominalSpeedDuringCorrection by mutableStateOf<Float?>(null)
+
+    /**
+     * The playback speed as the person watching chose it: what the controls show, what a speed
+     * gesture steps from, and what this client tells anybody else. Never a transient correction.
+     */
+    val nominalPlaybackSpeed: Float
+        get() = partyNominalSpeedDuringCorrection ?: playbackSnapshot.playbackSpeed
+
     /** How often this host has held the party for a stalled guest, per content generation. */
     var partyStallHoldBudget: StallHoldBudget = StallHoldBudget()
 

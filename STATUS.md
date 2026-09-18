@@ -3,7 +3,83 @@
 
 Last updated: 2026-09-18
 
-## INCIDENT: host moved to the phone mid-party without anyone leaving (2026-09-18, open)
+## Host-authority incident: root cause, fixes, and the handset findings (2026-09-18)
+
+**Timeline, from `realtime.messages`** (party-row broadcasts carry each host position heartbeat):
+the desktop host's heartbeats land every ~5.2 s until **10:31:37.166**, then stop. At 10:31:50.968 the
+phone pauses (seq 19). At **10:31:54.969** host moves to the phone (epoch 0→1). The desktop had been
+silent for 17.8 s. At 10:32:00.208 the phone's heartbeat marks the desktop disconnected (20 s). At
+**10:32:48.938** the desktop's first heartbeat back takes host again (epoch 1→2), because by then the
+phone had been silent for more than 15 s. The desktop was silent for **~71 s**.
+
+**Ruled out:** Z-token expiry. `auth.sessions` shows the desktop exchanged once, at 10:22:24, and
+not again on recovery. The laptop's Windows System, WLAN, NCSI and DHCP logs show no sleep, power
+or connectivity event between 13:28 and 13:37 local. The installed release (2.0.131) writes no
+debug log, so why its requests stopped landing for 71 s is still **unknown**.
+
+**Fixed:**
+
+- **Backend** `nuvio-z-backend` `claude/host-authority-grace` (`cc81430`), migration
+  `202609180001_host_authority_grace.sql`:
+  - Host moves only after **60 s of continuous absence**.
+  - An Away host (new nullable `away_since`) is never replaced for being silent.
+  - The successor prefers a member who is watching.
+  - Explicit leave is still immediate, and a completed transfer is still permanent.
+  - Test suite `host_authority_grace.sql`: 25 assertions; 12 of them fail on the old body.
+    Backend suite **323/323**.
+  - **Not yet deployed:** the classifier blocks `supabase db push`, so the maintainer runs it.
+    Production is still at `202609170001`.
+- **Client, both repos** (mobile `575f27af7`, `313a96910`; desktop `claude/heartbeat-session-renewal`
+  off `Dev`):
+  - `ZSessionBridge.ensureSession` renews a Z token within 2 min of its expiry. A token that is
+    still fresh costs one in-memory comparison and takes no lock.
+  - A token in its renewal window never blocks a caller, and a failed renewal is retried after 15 s.
+  - The exchange HTTP client is now bounded.
+  - The poll heartbeat runs through `runWithZSession`: it makes sure a session exists first, and
+    re-exchanges once on a 401.
+  - Each heartbeat attempt is capped at 10 s end to end, and a failed one is retried after 2 s.
+  - One `poll silent` / `poll recovered` warning pair per silence of 15 s or more, with failure
+    class, attempt duration and loop lag.
+
+**Next occurrence of the 71 s gap:** reproduce it on the desktop **debug** build. Its log now names
+whether requests failed, timed out, or were never run.
+
+**Handset findings (S25, same run):**
+
+1. **Tiny speeds such as `1.0035x` shown on the speed control: confirmed and fixed.**
+   - Cause: drift correction wrote the corrected rate to the engine, and every reader used the
+     engine rate.
+   - It was also a correctness bug. `startPartyPlayback`, `pausePartyPlayback` and
+     `submitPartySeek` stamped that rate on commands as the party's speed, and host ticks and
+     presence published it.
+   - Fix: every party rate write records the nominal speed alongside it
+     (`partyNominalSpeedDuringCorrection`). Controls, the speed sheet, speed gestures, presence,
+     commands and ticks all read `nominalPlaybackSpeed`.
+   - The lock-screen media session keeps the real engine rate, because it uses it to extrapolate
+     position.
+2. **Frozen picture under running audio after a resync (#2), and after pause → play (#4): two
+   hypotheses, not a diagnosis.**
+   - (a) `seekPartyToExact` treats a seek as landed once the engine's position reaches the
+     target. ExoPlayer reports the target position immediately, so `play()` can arrive while the
+     decoder is still working forward from a keyframe up to ~9 s back.
+   - (b) Every barrier and drift correction calls `setPlaybackSpeed` right before `play()`.
+   - (b) fits #4, where an aligned pause → play needs no seek; (a) does not.
+   - Engine diagnostics added (`NuvioPlayerDiag`: `speed=`, `droppedFrames=` bursts, alongside the
+     existing `firstFrame`/`state` lines). One logcat reproduction will separate the two.
+     **Not fixed yet.**
+3. **Buffering hold ~3 s late: cause measured statically.**
+   - Pipeline: snapshot ~250 ms + settle 200 ms + transit ~0.2 s + **`WatchPartyGuestBufferingGraceMs`
+     2,500 ms** + stall poll 150 ms ≈ 3.3 s.
+   - The grace has two stated reasons:
+     - a guest's own corrective hold, now covered by status silence while
+       `partyHoldingForBarrier` is set (also in released z6);
+     - brief torrent rebuffers.
+   - A shorter grace needs one measurement first: how long the post-barrier refill on the S25
+     reports `buffering`.
+   - The grace runs on the **host**, so for a desktop host only a desktop build changes it.
+   - Timing fields added: guest `peer status settled=… afterEdgeMs=`, host `peer status … transitMs=`.
+
+## INCIDENT: host moved to the phone mid-party without anyone leaving (2026-09-18, evidence as captured)
 
 First S25 handset run on `debug-v0.4.13-z1.29` (commit `1f159e76f`). Android (Big Z, profile
 `d3397924…`, handle `zokaper`) and desktop (debugmain, `11cee346…`, the installed **release**
