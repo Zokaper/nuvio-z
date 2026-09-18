@@ -144,6 +144,16 @@ actual fun PlatformPlayerSurface(
     var activeEngine by remember(playerSourceKey, playerSettings.androidPlaybackEngine) {
         mutableStateOf(playerSettings.androidPlaybackEngine.initialAndroidEngine())
     }
+    val latestPartyOwnsTransport = rememberUpdatedState(playerControlsState.partyOwnsExternalTransport())
+    val latestOnPlayerControlsEvent = rememberUpdatedState(onPlayerControlsEvent)
+    val latestOnPlayerControlsScrubFinished = rememberUpdatedState(onPlayerControlsScrubFinished)
+    val externalTransport = remember {
+        PlayerExternalTransport(
+            partyActive = { latestPartyOwnsTransport.value },
+            onEvent = { type, value -> latestOnPlayerControlsEvent.value(type, value) },
+            onSeek = { positionMs -> latestOnPlayerControlsScrubFinished.value(positionMs) },
+        )
+    }
 
     when (activeEngine) {
         ResolvedAndroidPlaybackEngine.ExoPlayer -> ExoPlayerSurface(
@@ -160,6 +170,7 @@ actual fun PlatformPlayerSurface(
             initialPositionRequestKey = initialPositionRequestKey,
             resizeMode = resizeMode,
             useNativeController = useNativeController,
+            externalTransport = externalTransport,
             onInitialPositionHandled = onInitialPositionHandled,
             onControllerReady = onControllerReady,
             onSnapshot = onSnapshot,
@@ -193,6 +204,7 @@ actual fun PlatformPlayerSurface(
                 videoOutput = playerSettings.androidLibmpvVideoOutput,
                 hardwareDecodingEnabled = playerSettings.androidLibmpvHardwareDecodingEnabled,
                 yuv420pEnabled = playerSettings.androidLibmpvYuv420pEnabled,
+                externalTransport = externalTransport,
                 onControllerReady = onControllerReady,
                 onSnapshot = onSnapshot,
                 onError = onError,
@@ -229,6 +241,7 @@ private fun ExoPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
+    externalTransport: PlayerExternalTransport,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
@@ -456,14 +469,14 @@ private fun ExoPlayerSurface(
             context = context,
             controls = AndroidPlayerNowPlayingController.PlaybackControls(
                 play = {
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
+                    externalTransport.play {
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    }
                 },
-                pause = exoPlayer::pause,
-                seekTo = { positionMs -> exoPlayer.seekTo(positionMs.coerceAtLeast(0L)) },
-                seekBy = { offsetMs ->
-                    exoPlayer.seekTo((exoPlayer.currentPosition + offsetMs).coerceAtLeast(0L))
-                },
+                pause = { externalTransport.pause(exoPlayer::pause) },
+                seekTo = { positionMs -> externalTransport.seekTo(positionMs) },
+                seekBy = { offsetMs -> externalTransport.seekTo(exoPlayer.currentPosition + offsetMs) },
             ),
         )
     }
@@ -534,12 +547,14 @@ private fun ExoPlayerSurface(
         }
         PlayerPictureInPictureManager.registerTogglePlaybackCallback {
             if (exoPlayer.isPlaying) {
-                exoPlayer.pause()
+                externalTransport.pause(exoPlayer::pause)
             } else {
-                if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
-                    exoPlayer.seekTo(0L)
+                externalTransport.play {
+                    if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                        exoPlayer.seekTo(0L)
+                    }
+                    exoPlayer.play()
                 }
-                exoPlayer.play()
             }
         }
 
@@ -1030,6 +1045,7 @@ private fun LibmpvPlayerSurface(
     videoOutput: AndroidLibmpvVideoOutput,
     hardwareDecodingEnabled: Boolean,
     yuv420pEnabled: Boolean,
+    externalTransport: PlayerExternalTransport,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
@@ -1051,10 +1067,14 @@ private fun LibmpvPlayerSurface(
             AndroidPlayerNowPlayingController(
                 context = context,
                 controls = AndroidPlayerNowPlayingController.PlaybackControls(
-                    play = { view.setPaused(false) },
-                    pause = { view.setPaused(true) },
-                    seekTo = { positionMs -> view.seekToMs(positionMs) },
-                    seekBy = { offsetMs -> view.seekByMs(offsetMs) },
+                    play = { externalTransport.play { view.setPaused(false) } },
+                    pause = { externalTransport.pause { view.setPaused(true) } },
+                    seekTo = { positionMs -> externalTransport.seekTo(positionMs) },
+                    seekBy = { offsetMs ->
+                        coroutineScope.launch {
+                            externalTransport.seekTo(view.snapshot().positionMs + offsetMs)
+                        }
+                    },
                 ),
             )
         }
@@ -1208,12 +1228,14 @@ private fun LibmpvPlayerSurface(
             coroutineScope.launch {
                 val snapshot = view.snapshot()
                 if (snapshot.isPlaying) {
-                    view.setPaused(true)
+                    externalTransport.pause { view.setPaused(true) }
                 } else {
-                    if (snapshot.isEnded) {
-                        view.seekToMs(0L)
+                    externalTransport.play {
+                        if (snapshot.isEnded) {
+                            view.seekToMs(0L)
+                        }
+                        view.setPaused(false)
                     }
-                    view.setPaused(false)
                 }
             }
         }

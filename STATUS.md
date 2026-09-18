@@ -3,6 +3,47 @@
 
 Last updated: 2026-09-18
 
+## Phase 6: Android system transport now goes through the party (2026-09-18)
+
+The media notification, the lock screen, headset and Bluetooth buttons, and the picture-in-picture
+play/pause button all moved the Android engine **directly** (`exoPlayer.pause()` and
+`view.setPaused(true)`), bypassing the runtime. That produced two defects:
+
+- **In a party**, a lock-screen pause never became a party command. From a host it read as
+  "buffering" to every guest. A guest without control could stop their own player, and drift
+  correction would then restart it behind their back.
+- **Outside a party**, `shouldPlay` never learned about the pause. `ON_START` restores
+  `playWhenReady` from it, so a film paused from the notification **started again when the app
+  came back to the foreground**.
+
+`PlayerExternalTransport` (`commonMain`, 4 tests) now sends these requests through
+`setPlaybackStateQuiet` and the finished-scrub seek, the same events desktop's controls page uses.
+So the party's permission check, refusal and barrier apply as they do for an on-screen button. With
+no party active the engine is also moved directly, because the runtime reaches the engine only
+through recomposition, and nothing recomposes while the app is in the background. PiP **dismissal**
+is unchanged: it is still a local pause (see the open decision below).
+Android host **2,081/2,081**; pure 695/695.
+
+**iOS has the same bypass, and it is left unfixed.** `iosApp/Player/NowPlayingController.swift`
+calls `owner.pausePlayback()` and its siblings directly. The fix needs the Swift bridge to call back
+into Kotlin's `onPlayerControlsEvent`, and without a local iOS compiler that should not be written
+blind. **It is an iOS adapter item**: route the remote-command targets through the same
+`PlayerExternalTransport` semantics.
+
+### ⚠ Open product decision: what a party member's phone does when it leaves the foreground
+
+The current behaviour is inherited, not designed. On Android the Now Playing session is normally
+active, so backgrounding does **not** pause: the film keeps playing (with its audio) under the
+media foreground service, and the party carries on. A client whose session is inactive pauses on
+`ON_STOP`, and in a party that pause reads as buffering. Dismissing PiP pauses locally. Nothing
+marks a backgrounded member as "away". Invites still have **no delivery path while the app is in
+the background** (there is no FCM/APNs, as recorded at Stage C). Choosing among "keep playing in
+the background", "pause yourself and show as away" and "pause the whole party" changes what every
+peer sees, so it needs the maintainer's call rather than an agent's. Physical testing on the
+S20+/S25+ should record what actually happens first: screen lock, home button, PiP
+dismiss, an incoming call, doze after 10+ minutes, and Wi-Fi↔cellular handover, each with the
+host and then a guest backgrounded.
+
 ## Phase 6: the mobile in-player Watch Together surface (2026-09-18)
 
 Branch `claude/phase-6-convergence-linear`. **The push blocker recorded below is resolved.** The
