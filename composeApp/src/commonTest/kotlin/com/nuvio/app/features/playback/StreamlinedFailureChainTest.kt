@@ -1,6 +1,7 @@
 package com.nuvio.app.features.playback
 
 import com.nuvio.app.features.downloads.SourceFacts
+import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.downloads.VideoResolution
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsRepository
@@ -40,6 +41,26 @@ class StreamlinedFailureChainTest {
         // The whole point: a resolve failure on the winner has somewhere to go.
         assertTrue(StreamsRepository.skipAutoPlayStream(play.stream))
         assertEquals(play.fallbacks.first(), StreamsRepository.uiState.value.autoPlayStream)
+    }
+
+    @Test
+    fun `automatic failover walks the canonical ranked order without rebuilding it`() {
+        val sdr = rankedCandidate("sdr", setOf("SDR"), 8_000_000_000L)
+        val hdr = rankedCandidate("hdr", setOf("HDR10"), 6_000_000_000L)
+        val mixed = rankedCandidate("mixed", setOf("HDR10", "DOLBY_VISION"), 4_000_000_000L)
+        val context = CONTEXT.copy(dynamicRangePolicy = DynamicRangePolicy.PREFER_HDR)
+        val best = PlaybackQualityOptions.build(listOf(sdr, hdr, mixed), context)
+            .first { it.variant == PlaybackQualityOption.Variant.BEST }
+        val play = assertIs<PlaybackSelectionResult.Play>(PlaybackSourceSelector.select(best, context))
+        val canonical = playbackChain(play.stream, play.fallbacks)
+
+        assertEquals(listOf("mixed", "hdr", "sdr"), canonical.map { it.name })
+        StreamsRepository.seedAutoPlayCandidates(canonical)
+        assertEquals("mixed", StreamsRepository.uiState.value.autoPlayStream?.name)
+        assertTrue(StreamsRepository.skipAutoPlayStream(canonical[0]))
+        assertEquals("hdr", StreamsRepository.uiState.value.autoPlayStream?.name)
+        assertTrue(StreamsRepository.skipAutoPlayStream(canonical[1]))
+        assertEquals("sdr", StreamsRepository.uiState.value.autoPlayStream?.name)
     }
 
     @Test
@@ -220,6 +241,17 @@ class StreamlinedFailureChainTest {
         facts = SourceFacts(
             resolution = VideoResolution.FULL_HD_1080,
             sizeBytes = SIZE,
+            isDebridReady = true,
+            debridService = "torbox",
+        ),
+    )
+
+    private fun rankedCandidate(id: String, ranges: Set<String>, size: Long) = PlaybackSourceCandidate(
+        stream = StreamItem(name = id, url = "https://example.com/$id.mkv", addonName = "Addon", addonId = "addon"),
+        facts = SourceFacts(
+            resolution = VideoResolution.UHD_2160,
+            sizeBytes = size,
+            dynamicRange = ranges,
             isDebridReady = true,
             debridService = "torbox",
         ),

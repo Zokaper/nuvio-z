@@ -32,4 +32,3 @@ object BingeGroupCacheRepository {
         return "binge_group_$hash"
     }
 }
-

@@ -40,7 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
+import com.nuvio.app.core.ui.PlatformBackHandler
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_episode_title_format
 import nuvio.composeapp.generated.resources.compose_player_close
@@ -71,6 +72,7 @@ fun NextEpisodeCard(
 ) {
     if (nextEpisode == null) return
 
+    PlatformBackHandler(enabled = visible, onBack = onDismiss)
     val isPlayable = nextEpisode.hasAired
 
     AnimatedVisibility(

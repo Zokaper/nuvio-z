@@ -9,44 +9,23 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
-private const val gitHubOwner = "Zokaper"
-private const val gitHubRepo = "nuvio-z"
 private const val gitHubApiBase = "https://api.github.com"
-private const val gitHubUserAgent = "NuvioZ"
-
-// Releases are created with an explicit commit as the target, so a release's
-// targetCommitish is a SHA rather than a branch name. Filtering by branch would
-// therefore reject every release; leave the channel unset to accept them all.
-private val releaseChannelBranch: String? = null
-
-/**
- * The debug update line.
- *
- * Debug builds install under their own applicationId, so they can never be updated by the
- * stable channel's APKs - and without a channel of their own, testing a fix meant sideloading
- * a file by hand every time. Debug builds are published as GitHub **prereleases** tagged
- * `debug-v<version>`; the stable channel already discards prereleases, so the two lines cannot
- * see each other and nothing about the release flow changes.
- *
- * Whether the install actually succeeds is a signing question, not an updater one: every debug
- * APK must be signed with the committed `androidApp/nuvio-debug.keystore`, or Android refuses
- * the upgrade.
- */
-private const val debugChannelTagPrefix = "debug-"
 
 data class AppUpdate(
     val tag: String,
@@ -64,9 +43,9 @@ data class AppUpdaterUiState(
     val isUpdateAvailable: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgress: Float? = null,
-    val downloadedApkPath: String? = null,
+    val downloadedUpdatePath: String? = null,
     val showDialog: Boolean = false,
-    val showUnknownSourcesDialog: Boolean = false,
+    val showInstallPermissionDialog: Boolean = false,
     val errorMessage: String? = null,
     val isDebugTest: Boolean = false,
 )
@@ -100,12 +79,15 @@ private class NoChannelReleaseException : IllegalStateException(
     runBlocking { getString(Res.string.updates_no_channel_release) },
 )
 
+/** Tag prefix that marks a release as belonging to the debug update channel. */
+internal const val debugChannelTagPrefix = "debug-"
+
 internal object VersionUtils {
     fun normalize(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
         // The debug prefix has to come off before the "v", and both before parsing: left on,
-        // "debug-v0.4.9-beta.2" tokenises to [4, 9, 2] - the leading 0 lost with the "v0" token -
-        // and every debug release would read as newer than every local version forever.
+        // "debug-v0.4.14-beta.2" tokenises to [4, 14, 2] - the leading 0 lost with the "v0"
+        // token - and every debug release would read as newer than every local version forever.
         return raw.trim()
             .removePrefix(debugChannelTagPrefix)
             .removePrefix("v")
@@ -127,10 +109,6 @@ internal object VersionUtils {
      * The release serial carried in a tag as "+<serial>", or null when there is none.
      *
      * v0.6.0-z1+127 -> 127, debug-v0.6.0-z1.3+128 -> 128, v0.4.14-beta -> null.
-     *
-     * Read off the raw tag rather than the normalized version, because normalize()
-     * only strips prefixes and the serial is a suffix; either would work, but the
-     * raw tag is what GitHub gives us and what the release workflows write.
      */
     fun parseReleaseSerial(raw: String?): Int? {
         if (raw.isNullOrBlank()) return null
@@ -154,11 +132,10 @@ internal object VersionUtils {
      * Nuvio Z version is a vanilla version plus a Z revision, so adopting vanilla's
      * numbering makes the next release 0.4.9-z1 while installs sit on 0.4.14-beta -
      * numerically lower, and the string comparison refuses it. See the bridge release
-     * described in ReleaseSerial.xcconfig.
+     * described in DesktopReleaseSerial.properties.
      *
      * @param localSerial AppVersionConfig.RELEASE_SERIAL, or null/0 for a build that
-     *   has none. Defaulted so the existing string-only behaviour is still reachable,
-     *   which is what the pre-serial tests exercise.
+     *   has none. Defaulted so the existing string-only behaviour is still reachable.
      */
     fun isRemoteNewer(remote: String?, local: String?, localSerial: Int? = null): Boolean {
         val remoteSerial = parseReleaseSerial(remote)
@@ -203,8 +180,16 @@ data class AppReleaseNotes(
  * kind of request.
  */
 suspend fun fetchRecentReleaseNotes(limit: Int = 5): Result<List<AppReleaseNotes>> = runCatching {
+    val source = AppUpdaterPlatform.releaseSource
     AppUpdaterRepository.fetchReleases()
-        .filter { !it.draft && !it.prerelease }
+        // Debug releases are excluded on both channels, including from a debug build's own
+        // history. What's New is the product's version history; a debug build is a copy of one
+        // of those versions, and its notes say only which branch it was cut from.
+        .filter { release ->
+            !release.draft &&
+                release.tagName?.trim()?.startsWith(debugChannelTagPrefix, ignoreCase = true) != true &&
+                (source.includePrereleases || !release.prerelease)
+        }
         .take(limit)
         .mapNotNull { release ->
             val tag = release.tagName?.takeIf { it.isNotBlank() }
@@ -221,12 +206,13 @@ suspend fun fetchRecentReleaseNotes(limit: Int = 5): Result<List<AppReleaseNotes
 private object AppUpdaterRepository {
 
     suspend fun fetchReleases(): List<GitHubReleaseDto> {
+        val source = AppUpdaterPlatform.releaseSource
         val response = httpRequestRaw(
             method = "GET",
-            url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
+            url = "$gitHubApiBase/repos/${source.owner}/${source.repo}/releases?per_page=20",
             headers = mapOf(
                 "Accept" to "application/vnd.github+json",
-                "User-Agent" to gitHubUserAgent,
+                "User-Agent" to source.userAgent,
             ),
             body = "",
         )
@@ -236,13 +222,25 @@ private object AppUpdaterRepository {
         return appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
     }
 
-    suspend fun getLatestChannelUpdate(): Result<AppUpdate> = runCatching {
-        val releases = fetchReleases()
-        val release = if (AppUpdaterPlatform.isDebugBuild) {
+    suspend fun getLatestChannelUpdate(): Result<AppUpdate> = withContext(Dispatchers.Default) {
+        runCatching {
+            val source = AppUpdaterPlatform.releaseSource
+            val releases = fetchReleases()
+        // The two channels cannot see each other, and each half of that matters. A debug build
+        // takes only `debug-v*` prereleases, so it never installs the release app over itself.
+        // A release build rejects them outright rather than relying on `includePrereleases`,
+        // because this repository's Android build sets that flag true and would otherwise be
+        // offered a desktop MSI it has no asset for.
+        val release = if (source.debugChannel) {
             releases.firstOrNull { !it.draft && it.prerelease && it.isDebugChannelRelease() }
                 ?: throw NoChannelReleaseException()
         } else {
-            releases.firstOrNull { it.matchesRequestedChannel() && !it.draft && !it.prerelease }
+            releases.firstOrNull { release ->
+                release.matchesRequestedChannel() &&
+                    !release.draft &&
+                    !release.isDebugChannelRelease() &&
+                    (source.includePrereleases || !release.prerelease)
+            }
                 ?: throw NoChannelReleaseException()
         }
 
@@ -250,25 +248,38 @@ private object AppUpdaterRepository {
             ?: release.name?.takeIf { it.isNotBlank() }
             ?: error(getString(Res.string.updates_release_missing_title))
 
-        val asset = chooseBestApkAsset(release.assets)
-            ?: error(getString(Res.string.updates_apk_asset_missing))
-
-        AppUpdate(
-            tag = tag,
-            title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-            notes = release.body.orEmpty(),
-            releaseUrl = release.htmlUrl,
-            assetName = asset.name,
-            assetUrl = asset.browserDownloadUrl,
-            assetSizeBytes = asset.size,
+        val asset = selectBestUpdateAsset(
+            assets = release.assets.map { asset ->
+                AppUpdateAssetCandidate(
+                    name = asset.name,
+                    downloadUrl = asset.browserDownloadUrl,
+                    size = asset.size,
+                    contentType = asset.contentType,
+                )
+            },
+            selector = AppUpdaterPlatform.assetSelector,
         )
+            ?: error(getString(Res.string.updates_update_asset_missing))
+
+            AppUpdate(
+                tag = tag,
+                title = release.name?.takeIf { it.isNotBlank() } ?: tag,
+                notes = release.body.orEmpty(),
+                releaseUrl = release.htmlUrl,
+                assetName = asset.name,
+                assetUrl = asset.downloadUrl,
+                assetSizeBytes = asset.size,
+            )
+        }
     }
 
     private fun GitHubReleaseDto.isDebugChannelRelease(): Boolean =
         tagName?.trim()?.startsWith(debugChannelTagPrefix, ignoreCase = true) == true
 
     private fun GitHubReleaseDto.matchesRequestedChannel(): Boolean {
-        val channel = releaseChannelBranch?.takeIf { it.isNotBlank() } ?: return true
+        val channel = AppUpdaterPlatform.releaseSource.channelBranch
+            ?.takeIf { it.isNotBlank() }
+            ?: return true
         if (targetCommitish?.trim()?.equals(channel, ignoreCase = true) == true) {
             return true
         }
@@ -278,28 +289,39 @@ private object AppUpdaterRepository {
             .any { value -> value.contains(channel, ignoreCase = true) }
     }
 
-    private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
-        val apkAssets = assets.filter { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
-                asset.contentType == "application/vnd.android.package-archive"
-        }
-        if (apkAssets.isEmpty()) return null
-        if (apkAssets.size == 1) return apkAssets.first()
-
-        val supportedAbis = AppUpdaterPlatform.getSupportedAbis()
-        for (abi in supportedAbis) {
-            val candidate = apkAssets.firstOrNull { asset ->
-                asset.name.contains(abi, ignoreCase = true)
-            }
-            if (candidate != null) return candidate
-        }
-
-        return apkAssets.firstOrNull { asset ->
-            val name = asset.name.lowercase()
-            name.contains("universal") || name.contains("all")
-        } ?: apkAssets.first()
-    }
 }
+
+internal data class AppUpdateAssetCandidate(
+    val name: String,
+    val downloadUrl: String,
+    val size: Long? = null,
+    val contentType: String? = null,
+)
+
+internal fun selectBestUpdateAsset(
+    assets: List<AppUpdateAssetCandidate>,
+    selector: AppUpdateAssetSelector,
+): AppUpdateAssetCandidate? {
+    val updateAssets = assets.filter { asset -> asset.matches(selector) }
+    if (updateAssets.isEmpty()) return null
+    if (updateAssets.size == 1) return updateAssets.first()
+
+    for (fragment in selector.preferredNameFragments) {
+        val candidate = updateAssets.firstOrNull { asset ->
+            asset.name.contains(fragment, ignoreCase = true)
+        }
+        if (candidate != null) return candidate
+    }
+
+    return updateAssets.firstOrNull { asset ->
+        val name = asset.name.lowercase()
+        selector.fallbackNameFragments.any { fragment -> name.contains(fragment.lowercase()) }
+    } ?: updateAssets.first()
+}
+
+private fun AppUpdateAssetCandidate.matches(selector: AppUpdateAssetSelector): Boolean =
+    selector.fileExtensions.any { extension -> name.endsWith(extension, ignoreCase = true) } ||
+        selector.contentTypes.any { contentType -> contentType.equals(this.contentType, ignoreCase = true) }
 
 class AppUpdaterController internal constructor(
     private val scope: CoroutineScope,
@@ -332,25 +354,20 @@ class AppUpdaterController internal constructor(
                 state.copy(
                     isChecking = true,
                     errorMessage = null,
-                    showUnknownSourcesDialog = false,
+                    showInstallPermissionDialog = false,
                     isDebugTest = false,
                 )
             }
 
-            val ignoredTag = AppUpdaterPlatform.getIgnoredTag()
+            val ignoredTag = withContext(Dispatchers.Default) {
+                AppUpdaterPlatform.getIgnoredTag()
+            }
             val result = AppUpdaterRepository.getLatestChannelUpdate()
 
             result.onSuccess { update ->
-                // A debug build compares against its own four-component version, or every debug
-                // release cut from the same release version would look identical to it.
-                val localVersion = if (AppUpdaterPlatform.isDebugBuild) {
-                    AppVersionConfig.DEBUG_VERSION_NAME
-                } else {
-                    AppVersionConfig.VERSION_NAME
-                }
                 val remoteNewer = VersionUtils.isRemoteNewer(
                     remote = update.tag,
-                    local = localVersion,
+                    local = AppUpdaterPlatform.currentVersionName,
                     localSerial = AppVersionConfig.RELEASE_SERIAL,
                 )
                 val ignored = ignoredTag != null && ignoredTag == update.tag
@@ -363,9 +380,9 @@ class AppUpdaterController internal constructor(
                         isUpdateAvailable = remoteNewer,
                         isDownloading = false,
                         downloadProgress = null,
-                        downloadedApkPath = state.downloadedApkPath.takeIf { remoteNewer },
+                        downloadedUpdatePath = state.downloadedUpdatePath.takeIf { remoteNewer },
                         showDialog = shouldShowDialog,
-                        showUnknownSourcesDialog = false,
+                        showInstallPermissionDialog = false,
                         errorMessage = null,
                     )
                 }
@@ -379,11 +396,11 @@ class AppUpdaterController internal constructor(
                         isChecking = false,
                         isDownloading = false,
                         downloadProgress = null,
-                        downloadedApkPath = null,
+                        downloadedUpdatePath = null,
                         update = null,
                         isUpdateAvailable = false,
                         showDialog = force && error !is NoChannelReleaseException,
-                        showUnknownSourcesDialog = false,
+                        showInstallPermissionDialog = false,
                         errorMessage = if (force && error !is NoChannelReleaseException) {
                             error.message ?: getString(Res.string.updates_check_failed)
                         } else {
@@ -392,13 +409,7 @@ class AppUpdaterController internal constructor(
                     )
                 }
 
-                // "No release on this channel" was effectively unreachable on the stable channel,
-                // so toasting it unconditionally cost nothing. On the debug channel it is a
-                // normal state - no debug prerelease published yet - and the silent auto-check at
-                // app start would then toast on every single launch.
-                val announceMissingChannel = error is NoChannelReleaseException &&
-                    !AppUpdaterPlatform.isDebugBuild
-                if (showNoUpdateFeedback || announceMissingChannel) {
+                if (showNoUpdateFeedback) {
                     NuvioToastController.show(error.message ?: getString(Res.string.updates_check_failed))
                 }
             }
@@ -409,7 +420,7 @@ class AppUpdaterController internal constructor(
         _uiState.update { state ->
             state.copy(
                 showDialog = false,
-                showUnknownSourcesDialog = false,
+                showInstallPermissionDialog = false,
                 errorMessage = null,
             )
         }
@@ -437,7 +448,7 @@ class AppUpdaterController internal constructor(
                 )
             }
 
-            AppUpdaterPlatform.downloadApk(
+            AppUpdaterPlatform.downloadUpdateAsset(
                 assetUrl = update.assetUrl,
                 assetName = update.assetName,
             ) { downloadedBytes, totalBytes ->
@@ -451,8 +462,8 @@ class AppUpdaterController internal constructor(
                 _uiState.update { state ->
                     state.copy(
                         isDownloading = false,
-                        downloadProgress = null,
-                        downloadedApkPath = path,
+                        downloadProgress = 1f,
+                        downloadedUpdatePath = path,
                         errorMessage = null,
                     )
                 }
@@ -462,7 +473,7 @@ class AppUpdaterController internal constructor(
                     state.copy(
                         isDownloading = false,
                         downloadProgress = null,
-                        downloadedApkPath = null,
+                        downloadedUpdatePath = null,
                         errorMessage = error.message ?: getString(Res.string.updates_download_failed),
                         showDialog = true,
                     )
@@ -472,14 +483,14 @@ class AppUpdaterController internal constructor(
     }
 
     fun installDownloadedUpdate() {
-        val apkPath = _uiState.value.downloadedApkPath ?: return
-        if (!AppUpdaterPlatform.canRequestPackageInstalls()) {
-            _uiState.update { state -> state.copy(showUnknownSourcesDialog = true, showDialog = true) }
+        val updatePath = _uiState.value.downloadedUpdatePath ?: return
+        if (!AppUpdaterPlatform.canInstallDownloadedUpdate()) {
+            _uiState.update { state -> state.copy(showInstallPermissionDialog = true, showDialog = true) }
             return
         }
 
-        AppUpdaterPlatform.installDownloadedApk(apkPath).onSuccess {
-            _uiState.update { state -> state.copy(showUnknownSourcesDialog = false) }
+        AppUpdaterPlatform.installDownloadedUpdate(updatePath).onSuccess {
+            _uiState.update { state -> state.copy(showInstallPermissionDialog = false) }
         }.onFailure { error ->
             scope.launch {
                 val fallbackMessage = error.message ?: getString(Res.string.updates_install_failed)
@@ -494,10 +505,10 @@ class AppUpdaterController internal constructor(
     }
 
     fun resumeInstallation() {
-        if (AppUpdaterPlatform.canRequestPackageInstalls()) {
+        if (AppUpdaterPlatform.canInstallDownloadedUpdate()) {
             installDownloadedUpdate()
         } else {
-            AppUpdaterPlatform.openUnknownSourcesSettings()
+            AppUpdaterPlatform.openInstallPermissionSettings()
         }
     }
 

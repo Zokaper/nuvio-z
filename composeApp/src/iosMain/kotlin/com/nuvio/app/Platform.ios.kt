@@ -9,4 +9,6 @@ class IOSPlatform: Platform {
 actual fun getPlatform(): Platform = IOSPlatform()
 
 internal actual val isIos: Boolean = true
-actual fun platformDisplayMaxHeight(): Int? = null
+internal actual val isDesktop: Boolean = false
+internal actual val isWindows: Boolean = false
+actual fun platformDisplayMaxHeight(): Int? = null

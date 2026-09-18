@@ -3,6 +3,28 @@
 
 Last updated: 2026-09-17
 
+## Phase 6 convergence implementation verified (2026-09-18)
+
+The controlled `desktop/Dev` merge is staged on `claude/phase-6-convergence`, with no unresolved
+index entries and no `desktopMain` import. The first compile corrected two Stage A classifications:
+`AppFeaturePolicy.kt` is a shared contract rather than a whole-file mobile divergence, and
+`strings.xml` must converge shared resource keys while preserving mobile-only values additively.
+Keeping the old mobile files caused roughly 40 policy errors and 335 unresolved resource errors.
+
+Shared Compose UI had also leaked JVM mouse APIs into `commonMain`. The three affected call sites
+now use `PlatformPointerBackNavigation`: desktop retains mouse Back/Forward guarding and hover-wheel
+dismissal, while Android/iOS actuals deliberately do nothing because system Back remains handled by
+`PlatformBackHandler`. The matching desktop change is isolated on
+`claude/phase-6-pointer-seam`; local `Dev` still equals `origin/Dev`.
+
+Verification on the staged mobile tree: all seven pure-suite groups pass (695 tests); Android full
+debug compilation passes; the Android host suite reports **2,060/2,060** with zero failures, errors,
+or skips; `git lfs fsck` passes; and every current common expect has an Android and iOS actual by
+static inspection. The handoff's 2,059 figure was one lower, but no test source changed during the
+pointer cleanup and a fresh generated JUnit report contains 2,060 tests. iOS native compilation is
+disabled on Windows because of its cinterop targets, so CI/macOS compilation remains required and
+no iOS runtime behaviour is claimed verified.
+
 ## Phase 6 Stage A closed: the convergence is a merge, not a port (2026-09-17)
 
 Branch `claude/phase-6-stage-a`, commit `a6a78669`. Deliverable:

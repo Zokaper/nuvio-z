@@ -10,6 +10,10 @@ actual fun HeroTrailerPlayerSurface(
     sourceAudioUrl: String?,
     playWhenReady: Boolean,
     muted: Boolean,
+    // Accepted to satisfy the shared contract. This flavour has no trailer playback at all --
+    // it reports failure immediately -- so there is no position to seek to and no frame to fill.
+    startPositionMillis: Long,
+    fillFrame: Boolean,
     modifier: Modifier,
     onReady: () -> Unit,
     onEnded: () -> Unit,

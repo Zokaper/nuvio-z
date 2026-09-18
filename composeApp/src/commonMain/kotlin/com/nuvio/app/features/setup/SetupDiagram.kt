@@ -21,11 +21,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +43,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -87,7 +93,25 @@ fun SetupDiagram(
     step: SetupStep,
     playbackMode: PlaybackMode,
     modifier: Modifier = Modifier,
+    scale: Float = 1f,
 ) {
+    // ⚠ **A density override rather than `scale` parameters threaded through the file, and rather
+    // than `Modifier.scale`.** Every metric below is a hand-fitted constant (see the block at the
+    // bottom) and this drawing has no desktop *layout* - it is an illustration that simply needs
+    // to be bigger on a big screen. Multiplying the density gets the whole thing, text included,
+    // laid out and rasterised at the larger size, so the labels stay crisp; `Modifier.scale` or a
+    // `graphicsLayer` would draw them at 1x and stretch the pixels.
+    //
+    // Deriving from `LocalDensity.current` rather than the platform density is correct here: the
+    // theme's own desktop scale should still apply, and this compounds on top of it. `fontScale`
+    // is copied across explicitly - `Density(x)` would silently reset it to 1f and shrink every
+    // label.
+    val density = LocalDensity.current
+    val scaled = remember(density, scale) {
+        Density(density = density.density * scale, fontScale = density.fontScale)
+    }
+
+    CompositionLocalProvider(LocalDensity provides scaled) {
     Box(
         modifier = modifier.padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center,
@@ -96,22 +120,38 @@ fun SetupDiagram(
             // The step asks how much of the choosing Nuvio does, so the drawing has to answer
             // that differently for each mode - otherwise it is decoration on the one step where
             // it could be doing work.
-            SetupStep.PlaybackMode -> DiagramModeStoryboard(playbackMode)
+            // ⚠ **The same loop keeps running on the configuration step that follows.** The
+            // mode step asks how much of the choosing Nuvio does; the next step asks how it
+            // should choose. Swapping the drawing between them would break the one thread the
+            // two screens share, and the storyboard is the only thing on screen that has
+            // already explained what a quality band is for.
+            SetupStep.PlaybackMode,
+            SetupStep.PlaybackSetup,
+            -> DiagramModeStoryboard(playbackMode)
+
+            // What comes out of a film, in the two forms the language step asks about.
+            SetupStep.Language -> DiagramLanguage()
 
             // An addon on the left filling catalog rows on the right.
             SetupStep.Sources -> DiagramAddonFeed()
+
+            // Two people and something being watched between them. Static: the storyboard is
+            // the one animated drawing in the flow and it earns that by carrying an argument
+            // no still picture can make. A second animation would just be motion.
+            SetupStep.SocialOptIn,
+            SetupStep.SocialIdentity,
+            -> DiagramSocial()
 
             SetupStep.Done -> DiagramDone()
 
             // Never reached - these steps have a real specimen - but enumerated rather than
             // defaulted so that adding a step is a compile error here instead of a blank band.
             SetupStep.Welcome,
-            SetupStep.Cards,
-            SetupStep.Home,
-            SetupStep.Details,
+            SetupStep.Look,
             SetupStep.Theme,
             -> Unit
         }
+    }
     }
 }
 
@@ -387,6 +427,74 @@ private fun DiagramAddonFeed() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(3) { DiagramBlock(width = 44.dp, height = 34.dp, alpha = 0.5f) }
             }
+        }
+    }
+}
+
+/**
+ * Two people with something playing between them.
+ *
+ * The social steps are the one place in the flow where the question is "should this exist at
+ * all", and the answer has no settings screen to preview - so the band shows the shape of the
+ * feature rather than a mock of a surface. Two avatars, a play tile between them, and one
+ * shared row underneath: friends, something being watched, and the activity it produces.
+ *
+ * Built from the same primitives as the other two diagrams so it inherits their sizing, their
+ * density override on desktop and their disposability. Nothing here is a string resource, for
+ * the same reason nothing in [DiagramAddonFeed] is.
+ */
+@Composable
+private fun DiagramSocial() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DiagramCircle(icon = Icons.Rounded.Person, size = 48.dp)
+            DiagramBlock(width = 62.dp, height = 44.dp, alpha = 1f)
+            DiagramCircle(icon = Icons.Rounded.Person, size = 48.dp)
+        }
+        // The activity the two of them produce, fading out to the right the way a feed does.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DiagramBlock(width = 44.dp, height = 26.dp)
+            DiagramBlock(width = 44.dp, height = 26.dp, alpha = 0.65f)
+            DiagramBlock(width = 44.dp, height = 26.dp, alpha = 0.35f)
+        }
+    }
+}
+
+/**
+ * Sound on one side of the picture, subtitles on the other.
+ *
+ * The step sets two preferences that do their work in two different places - which release
+ * gets chosen, and which tracks play inside it - and neither has a surface to preview. So the
+ * band shows what the answer is *about*: one film, audio coming out of it, text under it.
+ *
+ * Same primitives, same sizes and the same two-row shape as [DiagramSocial], which is what
+ * keeps the flow from reading as a set of unrelated drawings. Nothing here is a string
+ * resource, for the reason given on [DiagramAddonFeed].
+ */
+@Composable
+private fun DiagramLanguage() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DiagramCircle(icon = Icons.Rounded.VolumeUp, size = 48.dp)
+            DiagramBlock(width = 62.dp, height = 44.dp, alpha = 1f)
+            DiagramCircle(icon = Icons.Rounded.Subtitles, size = 48.dp)
+        }
+        // A caption line, centred and uneven the way a line of dialogue is.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DiagramBlock(width = 56.dp, height = 10.dp)
+            DiagramBlock(width = 32.dp, height = 10.dp, alpha = 0.65f)
         }
     }
 }

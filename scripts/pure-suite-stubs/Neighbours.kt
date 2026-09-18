@@ -34,7 +34,14 @@ data class SourceFacts(
     val audioChannels: Int? = null,
     val languages: Set<String> = emptySet(),
     val isMultiLanguage: Boolean = false,
+    // The audio/subtitle split and the "Prefer built-in subtitles" hint: read by SourceRanking's
+    // language and embedded-subtitle scores and by SourceLanguageInference.
+    val hasStructuredLanguages: Boolean = false,
     val subtitleLanguages: Set<String> = emptySet(),
+    val releaseSubtitleLanguages: Set<String> = emptySet(),
+    val claimsMultiSubtitles: Boolean = false,
+    val claimsDubbedAudio: Boolean = false,
+    val isHardSubbed: Boolean = false,
     val releaseQuality: String? = null,
     val releaseGroup: String? = null,
     val seeders: Int? = null,
@@ -42,6 +49,11 @@ data class SourceFacts(
     val providerName: String? = null,
     val debridService: String? = null,
     val isDebridReady: Boolean? = null,
+    // ⚠ **Load-bearing since the cache gate started reading it.** AIOStreams hands back a plain
+    // `https://` proxy link, so a candidate through it matched none of `isDebridBacked`'s other
+    // tests and an unknown cache state was auto-played - which is how a provider's two-minute
+    // "being prepared" slate reached a user. `PlaybackSourceSelector.isDebridBacked` now reads
+    // this, so the stub has to carry it.
     val isAioStreams: Boolean = false,
     // The release name. Added when the playback loading screen started printing it, which is
     // how a wrong-show pick becomes visible before it plays - so it is now load-bearing rather

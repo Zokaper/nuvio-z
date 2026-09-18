@@ -19,4 +19,3 @@ object StreamAutoPlayPolicy {
         return runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.isSuccess
     }
 }
-

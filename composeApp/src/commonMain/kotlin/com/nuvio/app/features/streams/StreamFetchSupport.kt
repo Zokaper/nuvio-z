@@ -116,6 +116,9 @@ internal fun PluginRuntimeResult.toStreamItem(
         sourceName = scraper.name,
         addonName = addonName,
         addonId = addonId,
+        partyOriginKind = "plugin",
+        partyOriginId = scraper.id,
+        partyOriginVersion = scraper.version,
         streamType = normalizeStreamType(type),
         pluginMeta = PluginStreamMeta(
             quality = quality.normalizedPluginValue(),

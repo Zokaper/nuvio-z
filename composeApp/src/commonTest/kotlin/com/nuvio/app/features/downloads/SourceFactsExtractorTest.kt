@@ -407,6 +407,40 @@ class SourceFactsExtractorTest {
         assertTrue(SourceRanking.claimsHdr(facts))
     }
 
+    @Test
+    fun releaseSubtitleClaimsAreKeptApartFromAudio() {
+        val facts = SourceFactsExtractor.extract(
+            stream(behaviorHints = StreamBehaviorHints(filename = "Movie.2024.1080p.WEB-DL.HINDI.ENG.SUBS.mkv")),
+        )
+
+        assertEquals(setOf("hi"), facts.languages)
+        assertFalse(facts.hasStructuredLanguages)
+        assertEquals(setOf("en"), facts.releaseSubtitleLanguages)
+        // Sidecar subtitles are the addon's own list, and there is none.
+        assertTrue(facts.subtitleLanguages.isEmpty())
+    }
+
+    @Test
+    fun subtitleLanguagesNoLongerMirrorTheAudioLanguages() {
+        // The old fallback copied `nuvioParsed.languages` - audio - into the subtitle set, so a
+        // Hindi-only release printed `Hindi / Hindi`.
+        val facts = SourceFactsExtractor.extract(
+            stream(
+                clientResolve = StreamClientResolve(
+                    stream = StreamClientResolveStream(
+                        raw = StreamClientResolveRaw(
+                            parsed = StreamClientResolveParsed(languages = listOf("hi")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(setOf("hi"), facts.languages)
+        assertTrue(facts.hasStructuredLanguages)
+        assertTrue(facts.subtitleLanguages.isEmpty())
+    }
+
     private fun stream(
         name: String? = null,
         description: String? = null,

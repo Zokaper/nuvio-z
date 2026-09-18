@@ -19,11 +19,30 @@ data class SourceRankingPreferences(
     val preferredAudioLanguage: String? = null,
     /** The user's "also accept" language. Stored for years; never read by ranking until now. */
     val secondaryAudioLanguage: String? = null,
+    /**
+     * The subtitle language the user reads, or null.
+     *
+     * Deliberately **not** folded into [preferredAudioLanguage]'s tiers: that scale is about
+     * whether a release is watchable at all, and it already treats subtitles as the rescue case
+     * for an audio language it could not satisfy ([SUBTITLES_ONLY]). This is the separate,
+     * additive question of whether the release also carries the subtitles the user actually
+     * wants - "Japanese audio, English subs" being the ordinary way to watch anime, and a pairing
+     * the audio scale cannot express.
+     */
+    val preferredSubtitleLanguage: String? = null,
+    val secondarySubtitleLanguage: String? = null,
     val codecPreference: CodecPreference = CodecPreference.ANY,
     val dynamicRangePolicy: DynamicRangePolicy = DynamicRangePolicy.ANY,
     val audioPreference: AudioPreference = AudioPreference.ANY,
     val sizePreference: SizePreference = SizePreference.LARGEST_UNDER_CAP,
     val displayMaxHeight: Int? = null,
+    /**
+     * Streamlined/Instant "Prefer built-in subtitles": the subtitle language to look for, or null.
+     *
+     * Null everywhere else - Classic, manual picks, downloads - so [embeddedSubtitleScore] is zero
+     * for every candidate and the ordering is exactly what it was.
+     */
+    val preferredEmbeddedSubtitleLanguage: String? = null,
 ) {
     val is8kDisplay: Boolean
         get() = (displayMaxHeight ?: 0) >= VideoResolution.UHD_4320.height
@@ -80,6 +99,8 @@ object SourceRanking {
             resolutionTier(factsOf(it), preferences)
         }.thenByDescending {
             languageScore(factsOf(it), preferences)
+        }.thenByDescending {
+            subtitleLanguageBonus(factsOf(it), preferences)
         }.thenByDescending {
             mediaScore(factsOf(it), preferences)
         }.thenByDescending {
@@ -141,21 +162,90 @@ object SourceRanking {
         fun Set<String>.covers(target: String?) =
             target != null && any { languageMatchesPreference(it, target) }
 
+        // Sidecar files and release-name claims both count here: this only decides whether a
+        // source is *watchable*, and `ITA.MultiSubs` very probably is.
+        val subtitles = facts.subtitleLanguages + facts.releaseSubtitleLanguages
         return when {
             facts.languages.covers(preferred) -> NAMES_PREFERRED
             facts.languages.isEmpty() || facts.isMultiLanguage -> UNDECLARED
             facts.languages.covers(secondary) -> NAMES_SECONDARY
-            facts.subtitleLanguages.covers(preferred) ||
-                facts.subtitleLanguages.covers(secondary) -> SUBTITLES_ONLY
+            subtitles.covers(preferred) || subtitles.covers(secondary) ||
+                facts.claimsMultiSubtitles -> SUBTITLES_ONLY
             else -> NAMES_OTHER_ONLY
         }
     }
+
+    /**
+     * The "Prefer built-in subtitles" hint. Higher is better; zero when the preference is off.
+     *
+     * ⚠ **Deliberately small.** The only evidence before mpv opens a file is the release name, and
+     * a release name is not proof - so this is worth what a codec preference is worth, a tie-break
+     * among releases the rest of [mediaScore] already rates alike, and never a resolution tier or a
+     * language tier. The player confirms against the real track list once the file is open.
+     *
+     * A hard-subbed release scores nothing: burned-in text is not a track that can be chosen.
+     */
+    fun embeddedSubtitleScore(facts: SourceFacts, preferences: SourceRankingPreferences): Int {
+        val target = preferences.preferredEmbeddedSubtitleLanguage?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return 0
+        if (facts.isHardSubbed) return 0
+        return when {
+            facts.releaseSubtitleLanguages.any { languageMatchesPreference(it, target) } ->
+                EMBEDDED_SUBTITLES_NAMED
+            facts.claimsMultiSubtitles -> EMBEDDED_SUBTITLES_UNNAMED
+            else -> 0
+        }
+    }
+
+    const val EMBEDDED_SUBTITLES_NAMED = 2
+    const val EMBEDDED_SUBTITLES_UNNAMED = 1
 
     const val NAMES_PREFERRED = 4
     const val UNDECLARED = 3
     const val NAMES_SECONDARY = 2
     const val SUBTITLES_ONLY = 1
     const val NAMES_OTHER_ONLY = 0
+
+    /**
+     * Whether a release carries the subtitles the user reads. Higher is better; **zero is the
+     * floor and silence lands on it**.
+     *
+     * Unlike [languageScore] this never demotes. A release that names no subtitle languages and a
+     * release that names only languages the user cannot read score the same, because
+     * `facts.subtitleLanguages` is parsed out of a release *name*, and names carry subtitle
+     * information far less reliably than they carry audio information. Most releases that do ship
+     * English subtitles never say so. Scoring silence as a negative would therefore demote good
+     * releases for being ordinary, and it would do it invisibly - the user asked for a preference
+     * and would have been given a refusal.
+     *
+     * Positive evidence only, in other words: this key can promote a release that proves it has
+     * what you want, and can do nothing else. That is also why it sits *below* [languageScore] in
+     * the comparator - a subtitle track you might get must never outrank audio you can understand -
+     * and above [mediaScore], because being able to read the film matters more than its codec.
+     *
+     * Returns 0 for everyone when no subtitle preference is set, so the key falls out of the
+     * comparator entirely rather than imposing an order nobody asked for.
+     */
+    fun subtitleLanguageBonus(facts: SourceFacts, preferences: SourceRankingPreferences): Int {
+        val preferred = preferences.preferredSubtitleLanguage?.trim()?.takeIf { it.isNotEmpty() }
+        val secondary = preferences.secondarySubtitleLanguage?.trim()?.takeIf { it.isNotEmpty() }
+        if (preferred == null && secondary == null) return SUBTITLES_ABSENT
+
+        fun Set<String>.covers(target: String?) =
+            target != null && any { languageMatchesPreference(it, target) }
+
+        return when {
+            facts.subtitleLanguages.covers(preferred) -> SUBTITLES_PREFERRED
+            facts.subtitleLanguages.covers(secondary) -> SUBTITLES_SECONDARY
+            else -> SUBTITLES_ABSENT
+        }
+    }
+
+    const val SUBTITLES_PREFERRED = 2
+    const val SUBTITLES_SECONDARY = 1
+
+    /** Named, because "the release said nothing" and "the release said no" are the same answer. */
+    const val SUBTITLES_ABSENT = 0
 
     /**
      * Whether a source is watchable at all in the user's language.
@@ -198,6 +288,7 @@ object SourceRanking {
             channelScore(facts, preferences.audioPreference) +
             codecScore(facts, preferences.codecPreference) +
             releaseQualityScore(facts.releaseQuality) +
+            embeddedSubtitleScore(facts, preferences) +
             aiUpscaleScore(facts) +
             theatricalCaptureScore(facts)
 

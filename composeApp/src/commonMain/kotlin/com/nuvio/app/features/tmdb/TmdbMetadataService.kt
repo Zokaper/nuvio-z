@@ -1,5 +1,7 @@
 package com.nuvio.app.features.tmdb
 
+import com.nuvio.app.isDesktop
+
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.details.MetaCompany
@@ -616,7 +618,7 @@ object TmdbMetadataService {
             type = if (mediaType == TmdbEntityMediaType.TV) "series" else "movie",
             name = title,
             poster = poster,
-            banner = buildImageUrl(result.backdropPath, "w780"),
+            banner = buildImageUrl(result.backdropPath, if (isDesktop) "w1280" else "w780"),
             logo = null,
             description = result.overview?.takeIf { it.isNotBlank() },
             releaseInfo = releaseInfo,

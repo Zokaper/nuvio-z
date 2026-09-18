@@ -289,6 +289,115 @@ class SourceRankingTest {
             isAiUpscaled = isAiUpscaled ?: ReleaseTags.isAiUpscaled(releaseName),
         )
 
+    // --- Subtitle language: a bonus, never a penalty ---------------------------------------
+
+    private val subsPrefs = SourceRankingPreferences(
+        preferredSubtitleLanguage = "en",
+        secondarySubtitleLanguage = "fr",
+    )
+
+    @Test
+    fun namingThePreferredSubtitleLanguagePromotesARelease() {
+        val withSubs = Candidate(
+            "subs",
+            SourceFacts(resolution = VideoResolution.FULL_HD_1080, subtitleLanguages = setOf("en")),
+        )
+        val without = Candidate(
+            "plain",
+            SourceFacts(resolution = VideoResolution.FULL_HD_1080),
+        )
+
+        assertEquals(
+            listOf("subs", "plain"),
+            listOf(without, withSubs).sortedWith(comparator(subsPrefs)).map { it.id },
+        )
+    }
+
+    @Test
+    fun theSecondarySubtitleLanguageRanksBetweenAMatchAndNothing() {
+        val primary = Candidate("en", SourceFacts(subtitleLanguages = setOf("en")))
+        val secondary = Candidate("fr", SourceFacts(subtitleLanguages = setOf("fr")))
+        val none = Candidate("none", SourceFacts())
+
+        assertEquals(
+            listOf("en", "fr", "none"),
+            listOf(none, secondary, primary).sortedWith(comparator(subsPrefs)).map { it.id },
+        )
+    }
+
+    /**
+     * ⚠ **The no-demotion rule, and the point of the whole key.**
+     *
+     * `subtitleLanguages` is parsed out of a release *name*, and most releases that do carry
+     * English subtitles never say so. Scoring silence as a negative would therefore demote good
+     * releases for being ordinary - a refusal wearing a preference's name. Addon order decides
+     * between these two, which is what happens when a comparator key is genuinely equal.
+     */
+    @Test
+    fun namingOtherSubtitleLanguagesIsNoWorseThanNamingNone() {
+        val other = Candidate("other", SourceFacts(subtitleLanguages = setOf("de", "it")), order = 1)
+        val silent = Candidate("silent", SourceFacts(), order = 0)
+
+        assertEquals(
+            listOf("silent", "other"),
+            listOf(other, silent).sortedWith(comparator(subsPrefs)).map { it.id },
+        )
+        assertEquals(
+            SourceRanking.subtitleLanguageBonus(other.facts, subsPrefs),
+            SourceRanking.subtitleLanguageBonus(silent.facts, subsPrefs),
+        )
+    }
+
+    @Test
+    fun subtitleLanguageNeverOutranksResolution() {
+        val sharperWithoutSubs = Candidate(
+            "4k",
+            SourceFacts(resolution = VideoResolution.UHD_2160),
+        )
+        val softerWithSubs = Candidate(
+            "1080",
+            SourceFacts(resolution = VideoResolution.FULL_HD_1080, subtitleLanguages = setOf("en")),
+        )
+
+        assertEquals(
+            listOf("4k", "1080"),
+            listOf(softerWithSubs, sharperWithoutSubs).sortedWith(comparator(subsPrefs)).map { it.id },
+        )
+    }
+
+    /**
+     * The anime pairing: audio you can listen to outranks subtitles you can read, because the
+     * subtitle key sits one below the audio key. A release with Japanese audio and no declared
+     * subtitles still leads one with English audio and English subtitles for a user who asked for
+     * Japanese - the subtitles are the fallback, not the goal.
+     */
+    @Test
+    fun audioLanguageOutranksSubtitleLanguage() {
+        val prefs = SourceRankingPreferences(
+            preferredAudioLanguage = "ja",
+            preferredSubtitleLanguage = "en",
+        )
+        val rightAudio = Candidate("ja", SourceFacts(languages = setOf("ja")))
+        val rightSubsOnly = Candidate(
+            "en",
+            SourceFacts(languages = setOf("en"), subtitleLanguages = setOf("en")),
+        )
+
+        assertEquals(
+            listOf("ja", "en"),
+            listOf(rightSubsOnly, rightAudio).sortedWith(comparator(prefs)).map { it.id },
+        )
+    }
+
+    @Test
+    fun withNoSubtitlePreferenceTheKeyFallsOutEntirely() {
+        val facts = SourceFacts(subtitleLanguages = setOf("de"))
+        assertEquals(
+            SourceRanking.SUBTITLES_ABSENT,
+            SourceRanking.subtitleLanguageBonus(facts, SourceRankingPreferences()),
+        )
+    }
+
     private fun comparator(preferences: SourceRankingPreferences = SourceRankingPreferences()) =
         SourceRanking.comparator<Candidate>(
             preferences = preferences,

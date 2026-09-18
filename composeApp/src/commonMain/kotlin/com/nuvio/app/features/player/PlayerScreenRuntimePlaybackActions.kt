@@ -61,11 +61,7 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         previousIsPlaying = false
         pendingSeekScrobbleRestart = false
         autoFetchedAddonSubtitlesForKey = null
-        trackPreferenceRestoreApplied = false
-        preferredAudioSelectionApplied = false
-        preferredSubtitleSelectionApplied = false
-        isUserExplicitSubtitleSelection = false
-        hasScannedTextTracksOnce = false
+        resetTrackSelectionState()
     }
 
     val videoIdentity = "$identity:$activeVideoId:$activeSeasonNumber:$activeEpisodeNumber"
@@ -76,7 +72,22 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         pendingSeekScrobbleRestart = false
         hasSentCompletionScrobbleForCurrentItem = false
         currentTrackingMedia = null
+        resetTrackSelectionState()
     }
+}
+
+private fun PlayerScreenRuntime.resetTrackSelectionState() {
+    trackPreferenceRestoreApplied = false
+    preferredAudioSelectionApplied = false
+    appliedAudioPreferences = null
+    isUserExplicitAudioSelection = false
+    preferredSubtitleSelectionApplied = false
+    isUserExplicitSubtitleSelection = false
+    hasScannedTextTracksOnce = false
+    subtitleTracks = emptyList()
+    selectedSubtitleIndex = -1
+    selectedAddonSubtitleId = null
+    useCustomSubtitles = false
 }
 
 internal fun PlayerScreenRuntime.currentPlaybackProgressPercent(

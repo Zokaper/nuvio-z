@@ -1,9 +1,7 @@
 package com.nuvio.app.features.home.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,19 +47,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.DisintegratingContainer
 import com.nuvio.app.core.ui.DisintegrationRequest
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioProgressBar
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PosterLandscapeAspectRatio
+import com.nuvio.app.core.ui.desktopCatalogShelfPosterBaseWidthDp
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
 import com.nuvio.app.core.ui.landscapePosterHeightForWidth
 import com.nuvio.app.core.ui.landscapePosterWidth
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.desktopPosterHoverScale
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.cloudLibraryDisplayArtworkUrl
@@ -139,32 +140,10 @@ private fun ContinueWatchingItem.isCloudLibraryItem(): Boolean =
 
 private fun ContinueWatchingItem.continueWatchingArtworkUrl(
     useEpisodeThumbnails: Boolean,
-): String? = when {
-    isNextUp && useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        poster,
-        background,
-        imageUrl,
-    )
-    isNextUp -> firstNonBlank(
-        poster,
-        background,
-        episodeThumbnail,
-        imageUrl,
-    )
-    useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        poster,
-        background,
-        imageUrl,
-    )
-    else -> firstNonBlank(
-        poster,
-        background,
-        episodeThumbnail,
-        imageUrl,
-    )
-}
+): String? = titlePresentation().artwork(
+    style = ContinueWatchingSectionStyle.Wide,
+    useEpisodeThumbnails = useEpisodeThumbnails,
+)
 
 private fun ContinueWatchingItem.continueWatchingPosterArtworkUrl(
     useEpisodeThumbnails: Boolean,
@@ -178,53 +157,30 @@ private fun ContinueWatchingItem.continueWatchingPosterArtworkUrl(
         ?.trim()
         ?.takeIf { it.isNotBlank() && it != normalizedEpisodeThumbnail }
 
-    return firstNonBlank(
-        poster,
-        background,
-        nonEpisodeImageUrl,
-        if (useEpisodeThumbnails) episodeThumbnail else null,
-        imageUrl,
-    )
+    return titlePresentation().copy(
+        episodeThumbnail = if (useEpisodeThumbnails) episodeThumbnail else null,
+        fallbackArtwork = nonEpisodeImageUrl ?: imageUrl,
+    ).artwork(ContinueWatchingSectionStyle.Poster, useEpisodeThumbnails)
 }
 
 private fun ContinueWatchingItem.continueWatchingCardArtworkUrl(
     useEpisodeThumbnails: Boolean,
     preferBackdropForNextUp: Boolean,
-): String? = when {
-    isNextUp && preferBackdropForNextUp -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-    isNextUp && useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        background,
-        poster,
-        imageUrl,
-    )
-    isNextUp -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-    useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        background,
-        poster,
-        imageUrl,
-    )
-    else -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-}
+): String? = titlePresentation().copy(
+    episodeThumbnail = episodeThumbnail.takeUnless { isNextUp && preferBackdropForNextUp },
+).artwork(ContinueWatchingSectionStyle.Card, useEpisodeThumbnails)
 
-private fun firstNonBlank(vararg values: String?): String? =
-    values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
+private fun ContinueWatchingItem.titlePresentation(): TitlePresentation = TitlePresentation(
+    title = title,
+    poster = poster,
+    background = background,
+    episodeThumbnail = episodeThumbnail,
+    fallbackArtwork = imageUrl,
+    season = seasonNumber,
+    episode = episodeNumber,
+    episodeTitle = episodeTitle,
+    progress = progressFraction,
+)
 
 internal fun ContinueWatchingItem.shouldBlurContinueWatchingArtwork(
     blurUnwatchedEpisodes: Boolean,
@@ -321,56 +277,56 @@ private fun HomeContinueWatchingSectionContent(
         }
         val displayEntries = disintegration.sync(dataSourceKey, items, disintegrationRequest)
 
-    NuvioShelfSection(
-        title = title ?: stringResource(Res.string.compose_settings_page_continue_watching),
-        entries = displayEntries,
-        modifier = modifier,
-        headerHorizontalPadding = sectionPadding,
-        rowContentPadding = PaddingValues(horizontal = sectionPadding),
-        itemSpacing = layout.itemGap,
-        key = { entry -> entry.key },
-        animatePlacement = true,
-        state = listState,
-    ) { entry ->
-        val item = entry.item
-        val onClick = if (entry.exiting) null else onItemClick?.let { { it(item) } }
-        val onLongClick = if (entry.exiting) null else onItemLongPress?.let { { it(item) } }
-        val onDetails = if (entry.exiting) null else onDetailsClick?.let { { it(item) } }
-        DisintegratingContainer(
-            disintegrating = entry.exiting,
-            onDisintegrated = { disintegration.onDisintegrated(entry.key) },
-        ) {
-            when (style) {
-                ContinueWatchingSectionStyle.Card -> ContinueWatchingCard(
-                    item = item,
-                    useEpisodeThumbnails = useEpisodeThumbnails,
-                    blurNextUp = blurNextUp,
-                    onClick = onClick,
-                    onLongClick = onLongClick,
-                    onDetailsClick = onDetails,
-                )
-                ContinueWatchingSectionStyle.Wide -> ContinueWatchingWideCard(
-                    item = item,
-                    layout = layout,
-                    useEpisodeThumbnails = useEpisodeThumbnails,
-                    blurNextUp = blurNextUp,
-                    onClick = onClick,
-                    onLongClick = onLongClick,
-                    onDetailsClick = onDetails,
-                )
-                ContinueWatchingSectionStyle.Poster -> ContinueWatchingPosterCard(
-                    item = item,
-                    layout = layout,
-                    useEpisodeThumbnails = useEpisodeThumbnails,
-                    blurNextUp = blurNextUp,
-                    onClick = onClick,
-                    onLongClick = onLongClick,
-                    onDetailsClick = onDetails,
-                )
+        NuvioShelfSection(
+            title = title ?: stringResource(Res.string.compose_settings_page_continue_watching),
+            entries = displayEntries,
+            modifier = modifier,
+            headerHorizontalPadding = sectionPadding,
+            rowContentPadding = PaddingValues(horizontal = sectionPadding),
+            itemSpacing = layout.itemGap,
+            key = { entry -> entry.key },
+            animatePlacement = true,
+            state = listState,
+        ) { entry ->
+            val item = entry.item
+            val onClick = if (entry.exiting) null else onItemClick?.let { { it(item) } }
+            val onLongClick = if (entry.exiting) null else onItemLongPress?.let { { it(item) } }
+            val onDetails = if (entry.exiting) null else onDetailsClick?.let { { it(item) } }
+            DisintegratingContainer(
+                disintegrating = entry.exiting,
+                onDisintegrated = { disintegration.onDisintegrated(entry.key) },
+            ) {
+                when (style) {
+                    ContinueWatchingSectionStyle.Card -> ContinueWatchingCard(
+                        item = item,
+                        useEpisodeThumbnails = useEpisodeThumbnails,
+                        blurNextUp = blurNextUp,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                        onDetailsClick = onDetails,
+                    )
+                    ContinueWatchingSectionStyle.Wide -> ContinueWatchingWideCard(
+                        item = item,
+                        layout = layout,
+                        useEpisodeThumbnails = useEpisodeThumbnails,
+                        blurNextUp = blurNextUp,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                        onDetailsClick = onDetails,
+                    )
+                    ContinueWatchingSectionStyle.Poster -> ContinueWatchingPosterCard(
+                        item = item,
+                        layout = layout,
+                        useEpisodeThumbnails = useEpisodeThumbnails,
+                        blurNextUp = blurNextUp,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                        onDetailsClick = onDetails,
+                    )
+                }
             }
         }
     }
-}
 }
 
 @Composable
@@ -577,7 +533,7 @@ private fun PosterCardPreview() {
     }
 }
 
-private data class ContinueWatchingLandscapeCardMetrics(
+internal data class ContinueWatchingLandscapeCardMetrics(
     val width: Dp,
     val cornerRadius: Dp,
     val contentPadding: Dp,
@@ -593,7 +549,7 @@ private data class ContinueWatchingLandscapeCardMetrics(
     val badgeTextSize: TextUnit,
 )
 
-private fun continueWatchingLandscapeCardMetrics(
+internal fun continueWatchingLandscapeCardMetrics(
     basePosterWidthDp: Int,
     cornerRadiusDp: Int,
 ): ContinueWatchingLandscapeCardMetrics {
@@ -647,7 +603,6 @@ private fun continueWatchingLandscapeCardMetrics(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingCard(
     item: ContinueWatchingItem,
@@ -659,8 +614,9 @@ private fun ContinueWatchingCard(
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
     val cardMetrics = remember(posterCardStyle.widthDp, posterCardStyle.cornerRadiusDp) {
+        val basePosterWidthDp = desktopCatalogShelfPosterBaseWidthDp(posterCardStyle.widthDp)
         continueWatchingLandscapeCardMetrics(
-            basePosterWidthDp = posterCardStyle.widthDp,
+            basePosterWidthDp = basePosterWidthDp,
             cornerRadiusDp = posterCardStyle.cornerRadiusDp,
         )
     }
@@ -869,7 +825,6 @@ private fun continueWatchingCardBadgeText(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingWideCard(
     item: ContinueWatchingItem,
@@ -882,6 +837,7 @@ private fun ContinueWatchingWideCard(
 ) {
     Row(
         modifier = Modifier
+            .posterCardClickable(onClick = onClick, onLongClick = onLongClick)
             .width(layout.wideCardWidth)
             .height(layout.wideCardHeight)
             .clip(RoundedCornerShape(layout.cardRadius))
@@ -890,11 +846,6 @@ private fun ContinueWatchingWideCard(
                 width = 1.5.dp,
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(layout.cardRadius),
-            )
-            .combinedClickable(
-                enabled = onClick != null || onLongClick != null,
-                onClick = { onClick?.invoke() },
-                onLongClick = onLongClick,
             ),
     ) {
         val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
@@ -1004,7 +955,6 @@ private fun ContinueWatchingWideCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingPosterCard(
     item: ContinueWatchingItem,
@@ -1017,7 +967,9 @@ private fun ContinueWatchingPosterCard(
 ) {
     val imageUrl = item.continueWatchingPosterArtworkUrl(useEpisodeThumbnails)
     Column(
-        modifier = Modifier.width(layout.posterCardWidth),
+        modifier = Modifier
+            .desktopPosterHoverScale()
+            .width(layout.posterCardWidth),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
@@ -1035,6 +987,7 @@ private fun ContinueWatchingPosterCard(
                     onLongClick = onLongClick,
                     zoomImageUrl = imageUrl,
                     zoomCornerRadius = layout.cardRadius,
+                    hoverScaleEnabled = false,
                 ),
         ) {
             val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
@@ -1164,7 +1117,7 @@ private fun ContinueWatchingDetailsButton(
 }
 
 @Composable
-private fun ArtworkPanel(
+internal fun ArtworkPanel(
     imageUrl: String?,
     width: Dp,
     blurred: Boolean = false,

@@ -17,14 +17,18 @@ import kotlinx.serialization.json.put
 actual object ThemeSettingsStorage {
     private const val preferencesName = "nuvio_theme_settings"
     private const val selectedThemeKey = "selected_theme"
+    private const val customThemeColorsKey = "custom_theme_colors"
     private const val amoledEnabledKey = "amoled_enabled"
     private const val liquidGlassNativeTabBarEnabledKey = "liquid_glass_native_tab_bar_enabled"
+    private const val desktopNavigationLayoutKey = "desktop_navigation_layout"
     private const val selectedAppLanguageKey = "selected_app_language"
     private const val NAV_BAR_STYLE_KEY = "nav_bar_style"
     private val profileScopedSyncKeys = listOf(
         selectedThemeKey,
+        customThemeColorsKey,
         amoledEnabledKey,
         liquidGlassNativeTabBarEnabledKey,
+        desktopNavigationLayoutKey,
         NAV_BAR_STYLE_KEY,
     )
 
@@ -42,6 +46,16 @@ actual object ThemeSettingsStorage {
         preferences
             ?.edit()
             ?.putString(ProfileScopedKey.of(selectedThemeKey), themeName)
+            ?.apply()
+    }
+
+    actual fun loadCustomThemeColors(): String? =
+        preferences?.getString(ProfileScopedKey.of(customThemeColorsKey), null)
+
+    actual fun saveCustomThemeColors(colors: String) {
+        preferences
+            ?.edit()
+            ?.putString(ProfileScopedKey.of(customThemeColorsKey), colors)
             ?.apply()
     }
 
@@ -68,6 +82,22 @@ actual object ThemeSettingsStorage {
         preferences
             ?.edit()
             ?.putBoolean(ProfileScopedKey.of(liquidGlassNativeTabBarEnabledKey), enabled)
+            ?.apply()
+    }
+
+    actual fun loadDesktopNavigationLayout(): String? =
+        preferences?.getString(ProfileScopedKey.of(desktopNavigationLayoutKey), null)
+
+    // Desktop-only setting; a stub here purely to satisfy the common `expect` object, exactly as
+    // the desktop navigation layout above does. Nothing on Android reads or writes it.
+    actual fun loadDesktopUiZoomPercent(): Int? = null
+
+    actual fun saveDesktopUiZoomPercent(percent: Int) = Unit
+
+    actual fun saveDesktopNavigationLayout(layoutName: String) {
+        preferences
+            ?.edit()
+            ?.putString(ProfileScopedKey.of(desktopNavigationLayoutKey), layoutName)
             ?.apply()
     }
 
@@ -108,8 +138,10 @@ actual object ThemeSettingsStorage {
 
     actual fun exportToSyncPayload(): JsonObject = buildJsonObject {
         loadSelectedTheme()?.let { put(selectedThemeKey, encodeSyncString(it)) }
+        loadCustomThemeColors()?.let { put(customThemeColorsKey, encodeSyncString(it)) }
         loadAmoledEnabled()?.let { put(amoledEnabledKey, encodeSyncBoolean(it)) }
         loadLiquidGlassNativeTabBarEnabled()?.let { put(liquidGlassNativeTabBarEnabledKey, encodeSyncBoolean(it)) }
+        loadDesktopNavigationLayout()?.let { put(desktopNavigationLayoutKey, encodeSyncString(it)) }
         loadNavBarStyle()?.let { put(NAV_BAR_STYLE_KEY, encodeSyncString(it)) }
     }
 
@@ -120,8 +152,10 @@ actual object ThemeSettingsStorage {
         }?.apply()
 
         payload.decodeSyncString(selectedThemeKey)?.let(::saveSelectedTheme)
+        payload.decodeSyncString(customThemeColorsKey)?.let(::saveCustomThemeColors)
         payload.decodeSyncBoolean(amoledEnabledKey)?.let(::saveAmoledEnabled)
         payload.decodeSyncBoolean(liquidGlassNativeTabBarEnabledKey)?.let(::saveLiquidGlassNativeTabBarEnabled)
+        payload.decodeSyncString(desktopNavigationLayoutKey)?.let(::saveDesktopNavigationLayout)
         payload.decodeSyncString(NAV_BAR_STYLE_KEY)?.let(::saveNavBarStyle)
         applySelectedAppLanguage(loadSelectedAppLanguage() ?: AppLanguage.DEVICE.code)
     }

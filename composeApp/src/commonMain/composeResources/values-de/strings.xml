@@ -1052,7 +1052,7 @@
     <string name="updates_downloading_progress">Wird heruntergeladen %1$d%</string>
     <string name="updates_install_failed">Installation kann nicht gestartet werden</string>
     <string name="updates_latest_version">Du verwendest die neueste Version.</string>
-    <string name="updates_message_allow_installs">Aktiviere App-Installationen für Nuvio Z und komm dann zurück, um fortzufahren.</string>
+    <string name="updates_message_allow_installs">Aktiviere App-Installationen für Nuvio und komm dann zurück, um fortzufahren.</string>
     <string name="updates_message_downloading">Update wird heruntergeladen...</string>
     <string name="updates_message_no_updates">Keine Updates gefunden.</string>
     <string name="updates_message_ready">Eine neue Version ist bereit zur Installation.</string>
@@ -1217,6 +1217,7 @@
     <string name="cw_airs_date">Ausstrahlung am %1$s</string>
     <string name="cw_airs_today">Ausstrahlung heute</string>
     <string name="cw_airs_tomorrow">Ausstrahlung morgen</string>
+    <string name="cw_airs_in_days_format">Ausstrahlung in %1$d Tagen</string>
     <plurals name="cw_airs_in_days">
         <item quantity="one">Ausstrahlung in %1$d Tag</item>
         <item quantity="other">Ausstrahlung in %1$d Tagen</item>
@@ -1224,6 +1225,7 @@
     <string name="cw_airs_date_short">%1$s</string>
     <string name="cw_airs_today_short">Heute</string>
     <string name="cw_airs_tomorrow_short">Morgen</string>
+    <string name="cw_airs_in_days_short_format">In %1$d Tagen</string>
     <plurals name="cw_airs_in_days_short">
         <item quantity="one">In %1$d Tag</item>
         <item quantity="other">In %1$d Tagen</item>

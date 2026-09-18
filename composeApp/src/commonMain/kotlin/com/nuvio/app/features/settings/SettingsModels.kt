@@ -18,6 +18,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_content_discov
 import nuvio.composeapp.generated.resources.compose_settings_page_debrid
 import nuvio.composeapp.generated.resources.compose_settings_page_continue_watching
 import nuvio.composeapp.generated.resources.compose_settings_page_homescreen
+import nuvio.composeapp.generated.resources.compose_settings_page_hover_preview
 import nuvio.composeapp.generated.resources.compose_settings_page_integrations
 import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attributions
 import nuvio.composeapp.generated.resources.compose_settings_page_mdblist_ratings
@@ -34,6 +35,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_tmdb_enrichmen
 import nuvio.composeapp.generated.resources.compose_settings_page_trakt
 import nuvio.composeapp.generated.resources.compose_settings_page_tracking
 import nuvio.composeapp.generated.resources.settings_account
+import nuvio.composeapp.generated.resources.settings_social_title
 import org.jetbrains.compose.resources.StringResource
 
 internal enum class SettingsCategory(
@@ -76,6 +78,13 @@ internal enum class SettingsPage(
         category = SettingsCategory.General,
         parentPage = Root,
     ),
+    // The master control for the whole social layer, and the only route back into it once the
+    // layer is off - the Social tab and every other social surface are gone by then.
+    Social(
+        titleRes = Res.string.settings_social_title,
+        category = SettingsCategory.General,
+        parentPage = Root,
+    ),
     // A child of Playback, so the back arrow and the breadcrumb both lead where the user
     // came from.
     //
@@ -90,6 +99,11 @@ internal enum class SettingsPage(
         titleRes = Res.string.compose_settings_page_appearance,
         category = SettingsCategory.General,
         parentPage = Root,
+    ),
+    HoverPreview(
+        titleRes = Res.string.compose_settings_page_hover_preview,
+        category = SettingsCategory.General,
+        parentPage = Appearance,
     ),
     Streams(
         titleRes = Res.string.compose_settings_page_streams,

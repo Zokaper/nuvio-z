@@ -15,6 +15,7 @@ import kotlin.test.assertTrue
 class StreamRouteSurfaceTest {
 
     private fun inputs(
+        isPartyResolution: Boolean = false,
         isClassic: Boolean = false,
         isManualLaunch: Boolean = false,
         manualSourceListRequested: Boolean = false,
@@ -25,6 +26,7 @@ class StreamRouteSurfaceTest {
         isAutoPlaybackStarting: Boolean = false,
         awaitingUserAnswer: Boolean = false,
     ) = StreamRouteSurfaceInputs(
+        isPartyResolution = isPartyResolution,
         isClassic = isClassic,
         isManualLaunch = isManualLaunch,
         manualSourceListRequested = manualSourceListRequested,
@@ -41,6 +43,43 @@ class StreamRouteSurfaceTest {
         assertEquals(
             StreamRouteSurface.SourceList,
             streamRouteSurface(inputs(isClassic = true, isAutoPlaybackStarting = true)),
+        )
+    }
+
+    @Test
+    fun partyResolutionNeverEntersTheOrdinarySourceListBeforeMatching() {
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isClassic = true,
+                ),
+            ),
+        )
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isManualLaunch = true,
+                    awaitingUserAnswer = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun partyResolutionOnlyUncoversTheListAfterAnExplicitBailOut() {
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isClassic = true,
+                    manualSourceListRequested = true,
+                ),
+            ),
         )
     }
 

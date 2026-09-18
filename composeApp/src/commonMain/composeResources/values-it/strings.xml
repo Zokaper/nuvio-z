@@ -946,7 +946,7 @@
   <string name="updates_downloading_progress">Download in corso: %1$d%</string>
   <string name="updates_install_failed">Impossibile avviare l'installazione</string>
   <string name="updates_latest_version">Stai utilizzando l'ultima versione.</string>
-  <string name="updates_message_allow_installs">Abilita l'installazione di app per Nuvio Z, quindi torna qui e continua.</string>
+  <string name="updates_message_allow_installs">Abilita l'installazione di app per Nuvio, quindi torna qui e continua.</string>
   <string name="updates_message_downloading">Download aggiornamento in corso...</string>
   <string name="updates_message_no_updates">Nessun aggiornamento trovato.</string>
   <string name="updates_message_ready">Una nuova versione è pronta per l'installazione.</string>
@@ -1497,6 +1497,7 @@
   <string name="cw_airs_date">In onda il %1$s</string>
   <string name="cw_airs_today">In onda oggi</string>
   <string name="cw_airs_tomorrow">In onda domani</string>
+  <string name="cw_airs_in_days_format">In onda tra %1$d giorni</string>
   <plurals name="cw_airs_in_days">
     <item quantity="one">In onda tra %1$d giorno</item>
     <item quantity="many">In onda tra %1$d giorni</item>
@@ -1505,6 +1506,7 @@
   <string name="cw_airs_date_short">%1$s</string>
   <string name="cw_airs_today_short">Oggi</string>
   <string name="cw_airs_tomorrow_short">Domani</string>
+  <string name="cw_airs_in_days_short_format">Tra %1$d giorni</string>
   <plurals name="cw_airs_in_days_short">
     <item quantity="one">Tra %1$d giorno</item>
     <item quantity="many">Tra %1$d giorni</item>

@@ -13,9 +13,14 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.p2p.P2pLoadingStatus
@@ -50,6 +55,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     renderedGestureFeedback: GestureFeedbackState?,
     initialLoadCompleted: Boolean,
     pausedOverlayVisible: Boolean,
+    watchPartyBanner: String?,
     activeSkipInterval: SkipInterval?,
     skipIntervalDismissed: Boolean,
     controlsVisible: Boolean,
@@ -145,6 +151,27 @@ internal fun BoxScope.PlayerPlaybackOverlays(
                         .padding(top = 40.dp),
                 )
             }
+        }
+    }
+
+    // Deliberately independent of `controlsVisible`: a player held still because it is waiting on
+    // somebody else has to say so even after the chrome fades, or it reads as one that has broken.
+    if (watchPartyBanner != null) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.72f),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(percent = 50),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
+                .padding(horizontal = horizontalSafePadding)
+                .padding(top = 96.dp),
+        ) {
+            Text(
+                text = watchPartyBanner,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
     }
 

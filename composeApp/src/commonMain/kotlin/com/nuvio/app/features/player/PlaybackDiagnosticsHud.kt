@@ -99,6 +99,7 @@ internal fun PlayerScreenRuntime.RenderPlaybackDiagnosticsHud() {
                     HudLine("throttle=unavailable on ${playbackSnapshot.engineName}")
                 }
 
+                partyDiagnosticsLine()?.let { HudLine(it, Color(0xFF80CBC4)) }
                 debugStatusMessage?.let { HudLine(it, Color(0xFFFFD180)) }
                 if (selectedThrottle > 0 && playbackSnapshot.engineName != "ExoPlayer") {
                     HudLine("Throttle is inactive: the live engine is not ExoPlayer.", Color(0xFFFF8A80))

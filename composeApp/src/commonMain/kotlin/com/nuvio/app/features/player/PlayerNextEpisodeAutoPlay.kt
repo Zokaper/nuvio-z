@@ -11,7 +11,6 @@ import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackQualityOptions
-import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
@@ -155,7 +154,6 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
 
         val timeoutSeconds = settings.streamAutoPlayTimeoutSeconds
         var autoSelectTriggered = false
-        var timeoutElapsed = false
         var selectedStream: StreamItem? = null
         val autoSelectSettled = CompletableDeferred<Unit>()
 
@@ -186,22 +184,10 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             onFallbacksChanged(emptyList())
             // The episode's own runtime, so a derived option's bitrate is honest here too.
             // This context used to omit it and always assumed the 45-minute fallback.
-            val selectionContext = PlaybackSelectionContext(
-                runtimeMinutes = nextVideo.runtime,
-                isEpisode = true,
-                allowTorrentSources = settings.playbackAllowTorrentAutopick,
-                // The same preferences the first episode was picked with. Applying them only
-                // at the stream route would mean a user's codec or HDR choice held until the
-                // next episode auto-played and then quietly stopped.
-                preferredAudioLanguage = settings.rankableAudioLanguage,
-                secondaryAudioLanguage = settings.rankableSecondaryAudioLanguage,
-                languageStrictness = settings.playbackLanguageStrictness,
-                qualityCeilingMbps = settings.playbackQualityCeilingMbps.takeIf { it > 0 }?.toDouble(),
-                codecPreference = settings.playbackCodecPreference,
-                dynamicRangePolicy = settings.playbackDynamicRangePolicy,
-                audioPreference = settings.playbackAudioPreference,
-                displayMaxHeight = com.nuvio.app.platformDisplayMaxHeight(),
-            )
+            // The same preferences the first episode was picked with. Applying them only at the
+            // stream route would mean a user's codec or HDR choice held until the next episode
+            // auto-played and then quietly stopped. Shared with the in-player Streamlined chooser.
+            val selectionContext = streamlinedEpisodeSelectionContext(settings, nextVideo)
             val candidates = streams.mapIndexed { index, stream ->
                 PlaybackSourceCandidate(
                     stream = stream,
@@ -270,118 +256,56 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             )
         }
 
+        val selectionCoordinator = NextEpisodeStreamSelectionCoordinator(
+            selectAfterDelay = ::trySelectStream,
+            selectPreferred = ::tryBingeGroupOnly,
+        )
+
+        fun applySelectionDecision(
+            decision: NextEpisodeStreamSelectionDecision,
+            streamsState: com.nuvio.app.features.streams.StreamsUiState,
+        ) {
+            if (autoSelectTriggered) return
+            when (decision) {
+                is NextEpisodeStreamSelectionDecision.Selected -> selectStream(decision.stream)
+                NextEpisodeStreamSelectionDecision.ManualSelection -> finishWithoutSelection(
+                    if (streamsState.groups.flatMap { it.streams }.isEmpty()) {
+                        PlayerNextEpisodeFailureReason.EMPTY_RESULTS
+                    } else {
+                        PlayerNextEpisodeFailureReason.NO_SAFE_CANDIDATE
+                    },
+                )
+                NextEpisodeStreamSelectionDecision.Waiting -> Unit
+            }
+        }
+
         val innerJob = launch {
             PlayerStreamsRepository.episodeStreamsState.collectLatest { state ->
-                if (state.groups.isEmpty() && state.isAnyLoading) return@collectLatest
-
-                val allStreams = state.groups.flatMap { it.streams }
-
-                if (autoSelectTriggered) {
-                    // Already resolved.
-                } else if (timeoutElapsed) {
-                    if (allStreams.isNotEmpty()) {
-                        val candidate = trySelectStream(allStreams)
-                        if (candidate != null) {
-                            selectStream(candidate)
-                        }
-                    }
-                } else if (allStreams.isNotEmpty()) {
-                    val earlyMatch = tryBingeGroupOnly(allStreams)
-                    if (earlyMatch != null) {
-                        selectStream(earlyMatch)
-                    }
-                }
-
-                if (!autoSelectTriggered && !state.isAnyLoading) {
-                    if (allStreams.isNotEmpty()) {
-                        val candidate = trySelectStream(allStreams)
-                        if (candidate != null) {
-                            selectStream(candidate)
-                        }
-                    }
-                    if (!autoSelectTriggered) {
-                        finishWithoutSelection(
-                            if (allStreams.isEmpty()) {
-                                PlayerNextEpisodeFailureReason.EMPTY_RESULTS
-                            } else {
-                                PlayerNextEpisodeFailureReason.NO_SAFE_CANDIDATE
-                            },
-                        )
-                    }
-                    return@collectLatest
-                }
-
-                if (autoSelectTriggered) return@collectLatest
+                applySelectionDecision(selectionCoordinator.onStreamsChanged(state), state)
             }
         }
 
         val timeoutMs = timeoutSeconds * 1_000L
-        val isBoundedClassicTimeout =
-            settings.playbackMode == PlaybackMode.CLASSIC && timeoutSeconds in 1..30
-
-        if (settings.playbackMode != PlaybackMode.CLASSIC) {
-            // Streamlined and Instant use the same settle signal and backstop as the main
-            // playback route. The Classic delay setting is disabled in these modes and must
-            // not quietly delay an explicit Next episode request.
-            val completed = withTimeoutOrNull(
-                com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS,
-            ) {
-                autoSelectSettled.await()
-            }
-            innerJob.cancel()
-            if (completed == null && !autoSelectTriggered) {
-                val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups
-                    .flatMap { it.streams }
-                if (allStreams.isNotEmpty()) {
-                    selectedStream = trySelectStream(allStreams)
-                }
-                finishWithoutSelection(PlayerNextEpisodeFailureReason.TIMED_OUT)
-            }
-        } else if (isBoundedClassicTimeout) {
+        val isBoundedClassicTimeout = settings.playbackMode == PlaybackMode.CLASSIC && timeoutSeconds in 1..30
+        if (isBoundedClassicTimeout) {
             delay(timeoutMs)
-            timeoutElapsed = true
-            if (!autoSelectTriggered) {
-                val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
-                if (allStreams.isNotEmpty()) {
-                    val candidate = trySelectStream(allStreams)
-                    if (candidate != null) {
-                        selectStream(candidate)
-                    }
-                }
-            }
-            if (selectedStream != null) {
-                innerJob.cancel()
-            } else if (PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }.isNotEmpty()) {
-                innerJob.cancel()
-                finishWithoutSelection(PlayerNextEpisodeFailureReason.NO_SAFE_CANDIDATE)
-            } else {
-                val completed = withTimeoutOrNull(timeoutMs) { autoSelectSettled.await() }
-                innerJob.cancel()
-                if (completed == null && !autoSelectTriggered) {
-                    val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
-                    if (allStreams.isNotEmpty()) {
-                        selectedStream = trySelectStream(allStreams)
-                    }
-                    finishWithoutSelection(PlayerNextEpisodeFailureReason.TIMED_OUT)
-                }
-            }
+        }
+        val latestStreamsState = PlayerStreamsRepository.episodeStreamsState.value
+        applySelectionDecision(
+            selectionCoordinator.onSelectionDelayElapsed(latestStreamsState),
+            latestStreamsState,
+        )
+        val selectionTimeoutMs = if (settings.playbackMode == PlaybackMode.CLASSIC) {
+            NEXT_EPISODE_HARD_TIMEOUT_MS
         } else {
-            timeoutElapsed = true
-            if (!autoSelectTriggered) {
-                val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
-                if (allStreams.isNotEmpty()) {
-                    trySelectStream(allStreams)?.let(::selectStream)
-                }
-            }
-            val completed = withTimeoutOrNull(NEXT_EPISODE_HARD_TIMEOUT_MS) { autoSelectSettled.await() }
-            innerJob.cancel()
-            if (completed == null && !autoSelectTriggered) {
-                val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
-                if (allStreams.isNotEmpty()) {
-                    selectedStream = trySelectStream(allStreams)
-                }
-                finishWithoutSelection(PlayerNextEpisodeFailureReason.TIMED_OUT)
-            }
+            com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS
+        }
+        val completed = withTimeoutOrNull(selectionTimeoutMs) { autoSelectSettled.await() }
+        innerJob.cancel()
+        if (completed == null && !autoSelectTriggered) {
+            val allStreams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
+            trySelectStream(allStreams)?.let(::selectStream)
+                ?: finishWithoutSelection(PlayerNextEpisodeFailureReason.TIMED_OUT)
         }
 
         if (!isRequestCurrent()) return@launch

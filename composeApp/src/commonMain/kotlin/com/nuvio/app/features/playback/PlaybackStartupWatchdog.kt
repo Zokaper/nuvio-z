@@ -122,6 +122,28 @@ object PlaybackStartupWatchdog {
          * Simple candidate handoff or URL existence is NOT evidence of life.
          */
         val hasExternalEvidenceOfLife: Boolean = false,
+        /**
+         * Whether something outside this source is deliberately keeping the player still.
+         *
+         * ⚠ **Without it, Watch Together abandons healthy sources for doing exactly what it asked
+         * them to.** Physically reproduced on two clients: a guest's source loads slowly, the
+         * startup watchdog arms, Watch Together holds the guest at the readiness gate while it
+         * waits for the rest of the party, the host starts, and the host pauses again before the
+         * guest's first frame has settled. The guest is now deliberately parked at 7257ms. Its
+         * buffer stops advancing, because a paused player has nothing to advance for.
+         * [STALL_DEADLINE_MS] runs out twelve seconds later, `onFatalPlaybackError` fires, and the
+         * guest is failed over and popped back to the source list - out of a party that was working.
+         *
+         * A held sample **freezes every deadline** rather than exempting the source from them:
+         * [State.holdMs] accumulates the time and every comparison below runs against
+         * [State.effectiveElapsedMs]. So a party that pauses for an hour costs the source nothing,
+         * and the moment the party lets go the source has exactly the deadline it had left - which
+         * is the difference between "the watchdog is off in a party" and "the watchdog does not
+         * count time nobody was waiting for a frame".
+         *
+         * False by default, which is every non-party play and is why their behaviour is unchanged.
+         */
+        val isHeld: Boolean = false,
     ) {
         /**
          * How far this play has moved **from where it started**.
@@ -212,7 +234,29 @@ object PlaybackStartupWatchdog {
         val verdict: Verdict = Verdict.Waiting,
         val reason: Reason? = null,
         val hasEvidenceOfLife: Boolean = false,
-    )
+        /**
+         * Wall-clock this play has spent deliberately held still. See [PlaybackStartupSample.isHeld].
+         *
+         * Every deadline is measured against `elapsedMs - holdMs`, so a hold neither restarts the
+         * clock nor exempts the source from it: it stops the clock, and it starts again where it
+         * stopped.
+         */
+        val holdMs: Long = 0L,
+        /**
+         * The elapsed reading of the previous sample, which is what a held interval is measured
+         * between.
+         *
+         * The caller supplies wall-clock rather than a tick count - Android polls every ~250ms and
+         * desktop every 500ms - so "how long was that hold" can only be the difference between two
+         * readings, never a count of them multiplied by an interval nobody guarantees.
+         */
+        val lastSampleElapsedMs: Long = 0L,
+        /** True while the previous sample was held, so an ending hold still charges nothing. */
+        val wasHeld: Boolean = false,
+    ) {
+        /** Wall-clock this source has actually been given to start in. */
+        val effectiveElapsedMs: Long get() = lastSampleElapsedMs - holdMs
+    }
 
     fun initial(): State = State()
 
@@ -228,6 +272,16 @@ object PlaybackStartupWatchdog {
         if (state.verdict != Verdict.Waiting) return state
         val evidenceOfLife = state.hasEvidenceOfLife || sample.hasEvidenceOfLife
 
+        // The interval that just passed, charged to the hold if either end of it was held.
+        //
+        // Either end, not just this one: a hold that is released between two polls still spent
+        // most of that interval held, and charging it to the source would give a released hold a
+        // free poll interval of stall time it never had. Symmetrically, a hold that *began*
+        // between two polls has already stopped the buffer for part of the interval.
+        val intervalMs = (sample.elapsedMs - state.lastSampleElapsedMs).coerceAtLeast(0L)
+        val holdMs = if (sample.isHeld || state.wasHeld) state.holdMs + intervalMs else state.holdMs
+        val elapsedMs = (sample.elapsedMs - holdMs).coerceAtLeast(0L)
+
         // Started, and *only* this. `isPlaying` on its own is true for an engine that reports
         // itself playing while stuck at zero with an empty buffer, which is precisely the shape
         // of the dead debrid link this watchdog exists for.
@@ -235,47 +289,67 @@ object PlaybackStartupWatchdog {
             return state.copy(
                 verdict = Verdict.Started,
                 hasEvidenceOfLife = true,
+                holdMs = holdMs,
+                lastSampleElapsedMs = sample.elapsedMs,
+                wasHeld = sample.isHeld,
             )
         }
 
         val advanced = sample.progressMs > state.bestProgressMs
         val bestProgressMs = if (advanced) sample.progressMs else state.bestProgressMs
-        val lastAdvanceMs = if (advanced) sample.elapsedMs else state.lastAdvanceMs
+        // Recorded in the same held-time-removed units every deadline is compared in. Stamping it
+        // with raw wall-clock would make one long hold look like one very old advance.
+        //
+        // A hold that has just ended rebases it, which is the difference between freezing the clock
+        // and resuming *safely*. A player parked for a minute has an empty pipeline to refill, and
+        // handing it back whatever fraction of [STALL_DEADLINE_MS] happened to be left when the
+        // party grabbed it would abandon a source for the restart the party itself caused. It gets
+        // the whole deadline, once, on release - and it gets it exactly once, because a source that
+        // is genuinely dead is not held again.
+        val releasedFromHold = state.wasHeld && !sample.isHeld
+        val lastAdvanceMs = when {
+            advanced -> elapsedMs
+            releasedFromHold -> elapsedMs
+            else -> state.lastAdvanceMs
+        }
 
-        fun abandon(reason: Reason) = State(
-            bestProgressMs = bestProgressMs,
+        fun carry(
+            verdict: Verdict = Verdict.Waiting,
+            reason: Reason? = null,
+            progressMs: Long = bestProgressMs,
+        ) = State(
+            bestProgressMs = progressMs,
             lastAdvanceMs = lastAdvanceMs,
-            verdict = Verdict.Abandon,
+            verdict = verdict,
             reason = reason,
             hasEvidenceOfLife = evidenceOfLife,
+            holdMs = holdMs,
+            lastSampleElapsedMs = sample.elapsedMs,
+            wasHeld = sample.isHeld,
         )
+
+        // Nothing is decided against a player somebody is deliberately holding still. A held
+        // player has no obligation to advance, so no absence of advance from it is evidence.
+        if (sample.isHeld) return carry()
 
         // Ordered dearest-first: a transfer that has run past the ceiling is [Reason.TooSlow]
         // whatever else is also true of it, and that is the one a log reader most needs told
         // apart from the other two - it is the only verdict that is about the *line* rather
         // than about the source.
-        if (sample.elapsedMs >= MAX_STARTUP_MS) return abandon(Reason.TooSlow)
+        if (elapsedMs >= MAX_STARTUP_MS) return carry(Verdict.Abandon, Reason.TooSlow)
         if (bestProgressMs <= 0L) {
             val deadlineMs = if (evidenceOfLife) {
                 EVIDENCE_OF_LIFE_DEADLINE_MS
             } else {
                 NO_PROGRESS_DEADLINE_MS
             }
-            return if (sample.elapsedMs >= deadlineMs) {
-                abandon(Reason.NeverStarted)
+            return if (elapsedMs >= deadlineMs) {
+                carry(Verdict.Abandon, Reason.NeverStarted)
             } else {
-                State(
-                    bestProgressMs = 0L,
-                    lastAdvanceMs = lastAdvanceMs,
-                    hasEvidenceOfLife = evidenceOfLife,
-                )
+                carry(progressMs = 0L)
             }
         }
-        if (sample.elapsedMs - lastAdvanceMs >= STALL_DEADLINE_MS) return abandon(Reason.Stalled)
-        return State(
-            bestProgressMs = bestProgressMs,
-            lastAdvanceMs = lastAdvanceMs,
-            hasEvidenceOfLife = evidenceOfLife,
-        )
+        if (elapsedMs - lastAdvanceMs >= STALL_DEADLINE_MS) return carry(Verdict.Abandon, Reason.Stalled)
+        return carry()
     }
 }

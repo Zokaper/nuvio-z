@@ -75,6 +75,8 @@ data class PlayerLaunch(
      * rather than guessing. See `PlaybackDurationPlausibility`.
      */
     val expectedRuntimeMinutes: Int? = null,
+    /** Credential-free identity captured before any local debrid resolution. */
+    val partySourceDescriptor: com.nuvio.app.features.watchparty.PartySourceDescriptorV2? = null,
 )
 
 object PlayerLaunchStore {
@@ -99,10 +101,18 @@ object PlayerLaunchStore {
     }
 }
 
+data class PartyPlayerLaunchKey(
+    val partyId: String,
+    val contentGeneration: Int,
+    val sourceGeneration: Int,
+    val descriptor: com.nuvio.app.features.watchparty.PartySourceDescriptorV2,
+)
+
 enum class PlayerResizeMode {
     Fit,
     Fill,
     Zoom,
+    Stretch,
 }
 
 enum class AndroidPlaybackEngine(

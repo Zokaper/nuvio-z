@@ -7,11 +7,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/** Bridges only explicit/local Nuvio watched mutations into the durable social outbox. */
+/**
+ * Bridges only explicit/local Nuvio watched mutations into the durable social outbox.
+ *
+ * ⚠ **Both entry points are inert when the social layer is off, and the check belongs here rather
+ * than at the call site.** `WatchedRepository` calls these two functions from the middle of its
+ * own write path; making it ask a social question first would put a social dependency in the
+ * watched history, which is the one part of the app that must keep working identically in both
+ * states. Answering "no" here keeps that boundary where it is.
+ *
+ * This stops *publishing*. It deletes nothing: activity already on the backend stays there, and
+ * re-enabling social makes it visible again without any of it having to be rebuilt.
+ */
 object SocialWatchedActivity {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun publish(items: Collection<WatchedItem>) {
+        if (!SocialFeatureGate.isEnabled) return
         items.filterNot(::isSeriesSummaryMarker).forEach { item ->
             scope.launch {
                 SocialRepository.publishWatched(
@@ -32,6 +44,7 @@ object SocialWatchedActivity {
     }
 
     fun remove(items: Collection<WatchedItem>) {
+        if (!SocialFeatureGate.isEnabled) return
         items.filterNot(::isSeriesSummaryMarker).forEach { item ->
             scope.launch { SocialRepository.removeWatched(originKey(item)) }
         }

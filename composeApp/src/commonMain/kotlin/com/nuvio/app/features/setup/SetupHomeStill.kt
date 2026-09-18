@@ -260,3 +260,14 @@ private fun SetupStillNavigationBar(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/**
+ * Width of the sidebar rail in the setup still.
+ *
+ * This mobile still has no rail -- it draws a bottom bar -- so the width is zero. The converged
+ * [SetupWizardScreen] reads the constant only inside its `if (desktop)` branch, to inset the
+ * panel past a rail that exists only there, so on a phone the value is never observed. It is
+ * declared here because the wizard is shared and the still is per-target: this file owns the
+ * dimension, and zero is the truthful answer for a still without a rail.
+ */
+internal val SetupStillRailWidth = 0.dp

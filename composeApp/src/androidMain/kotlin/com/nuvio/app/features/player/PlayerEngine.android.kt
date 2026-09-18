@@ -114,10 +114,18 @@ actual fun PlatformPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
+    // Desktop's native HTML controls page drives playback through these; media3 draws its
+    // own controls, so Android accepts them to satisfy the shared contract and uses none.
+    playerControlsState: PlayerControlsState,
+    onPlayerControlsAction: (PlayerControlsAction) -> Boolean,
+    onPlayerControlsEvent: (String, Double) -> Boolean,
+    onPlayerControlsScrubChange: (Long) -> Boolean,
+    onPlayerControlsScrubFinished: (Long) -> Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    sourceAvailable: Boolean,
 ) {
     val playerSettings = remember {
         PlayerSettingsRepository.ensureLoaded()
@@ -275,7 +283,7 @@ private fun ExoPlayerSurface(
 
     val initialMediaItem = remember(playerSourceKey, externalSubtitles) {
         val subtitleConfigs = externalSubtitles.mapNotNull { subtitle ->
-            val mimeType = resolveSubtitleMimeType(subtitle.url, subtitle.headers)
+            val mimeType = resolveSubtitleMimeTypeBlocking(subtitle.url, subtitle.headers)
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
                 .setMimeType(mimeType)
                 .setLanguage(subtitle.language)
@@ -587,7 +595,7 @@ private fun ExoPlayerSurface(
                                 .setMediaId(sourceUrl)
                                 .apply {
                                     val subtitleConfigs = externalSubtitles.mapNotNull { subtitle ->
-                                        val mimeType = resolveSubtitleMimeType(subtitle.url, subtitle.headers)
+                                        val mimeType = resolveSubtitleMimeTypeBlocking(subtitle.url, subtitle.headers)
                                         MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
                                             .setMimeType(mimeType)
                                             .setLanguage(subtitle.language)
@@ -790,6 +798,14 @@ private fun ExoPlayerSurface(
                     exoPlayer.selectTrackByIndex(C.TRACK_TYPE_AUDIO, index)
                 }
 
+                override fun applyAudioLanguagePreferences(languages: List<String>) {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .setPreferredAudioLanguages(*languages.toTypedArray())
+                        .build()
+                }
+
                 override fun selectSubtitleTrack(index: Int) {
                     Log.d(TAG, "selectSubtitleTrack: index=$index")
                     sidecarController.stopSidecarAddonSubtitle(clearView = true)
@@ -916,7 +932,7 @@ private fun ExoPlayerSurface(
                     Log.d(TAG, "clearExternalSubtitleAndSelect: done, pending=$trackIndex position=$currentPosition")
                 }
 
-                override fun applySubtitleStyle(style: SubtitleStyleState) {
+                override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                     currentSubtitleStyle = style
                     playerViewRef?.applySubtitleStyle(style, pipSubtitleScale)
                 }
@@ -1451,7 +1467,9 @@ private class NuvioLibmpvView(
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
         executeMpv {
             when (resizeMode) {
-                PlayerResizeMode.Fit -> {
+                // Stretch is not implemented on libmpv either; it behaves as Fit.
+                PlayerResizeMode.Fit,
+                PlayerResizeMode.Stretch -> {
                     mpv.setPropertyDouble("panscan", 0.0)
                     mpv.setPropertyString("video-aspect-override", "no")
                 }
@@ -1541,6 +1559,16 @@ private class NuvioLibmpvView(
                 }
             }
 
+            override fun applyAudioLanguagePreferences(languages: List<String>) {
+                executeMpv {
+                    mpv.setPropertyString("alang", languages.joinToString(","))
+                    mpv.getPropertyString("aid")?.takeIf { it.toIntOrNull() != null }?.let { currentId ->
+                        mpv.setPropertyString("aid", currentId)
+                    }
+                    mpv.setPropertyString("aid", "auto")
+                }
+            }
+
             override fun selectSubtitleTrack(index: Int) {
                 if (index < 0) {
                     executeMpv { mpv.setPropertyString("sid", "no") }
@@ -1595,7 +1623,7 @@ private class NuvioLibmpvView(
                 }
             }
 
-            override fun applySubtitleStyle(style: SubtitleStyleState) {
+            override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                 executeMpv {
                     mpv.setPropertyString("sub-ass-override", "no")
                     mpv.setPropertyString("sub-color", style.textColor.toMpvColor())
@@ -1882,6 +1910,9 @@ private fun PlayerResizeMode.toExoResizeMode(): Int =
         PlayerResizeMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         PlayerResizeMode.Fill -> AspectRatioFrameLayout.RESIZE_MODE_FILL
         PlayerResizeMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        // Not implemented on Android: falls back to Fit, matching desktop's own Android
+        // mapping. Stage H owns whether the phone player offers Stretch at all.
+        PlayerResizeMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 
 private fun PlayerView.syncLibassOverlay(
@@ -2313,82 +2344,16 @@ private class SubtitleOffsetRenderer(
     }
 }
 
-private fun resolveSubtitleMimeType(url: String, headers: Map<String, String>? = null): String {
-    probeSubtitleHeaders(url, headers)?.let { (contentType, contentDisposition) ->
-        mapSubtitleMime(contentType)?.let { return it }
-        filenameFromContentDisposition(contentDisposition)?.let(::guessSubtitleMime)?.let { return it }
-    }
-    return guessSubtitleMime(url)
-}
-
-private fun probeSubtitleHeaders(url: String, headers: Map<String, String>? = null): Pair<String?, String?>? {
-    val methods = listOf("HEAD", "GET")
-    methods.forEach { method ->
-        runCatching {
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 5_000
-                readTimeout = 5_000
-                instanceFollowRedirects = true
-                setRequestProperty("Accept", "*/*")
-                headers?.forEach { (key, value) ->
-                    setRequestProperty(key, value)
-                }
-            }
-            try {
-                connection.responseCode
-                connection.contentType to connection.getHeaderField("Content-Disposition")
-            } finally {
-                connection.disconnect()
-            }
-        }.getOrNull()?.let { return it }
-    }
-    return null
-}
-
-private fun mapSubtitleMime(contentType: String?): String? {
-    val normalized = contentType
-        ?.substringBefore(';')
-        ?.trim()
-        ?.lowercase()
-        ?: return null
-
-    return when (normalized) {
-        "application/x-subrip",
-        "application/srt",
-        "text/srt",
-        "text/plain" -> MimeTypes.APPLICATION_SUBRIP
-        "text/vtt",
-        "application/vtt" -> MimeTypes.TEXT_VTT
-        "text/x-ssa",
-        "text/ssa",
-        "text/ass",
-        "application/x-ssa" -> MimeTypes.TEXT_SSA
-        "application/ttml+xml",
-        "text/xml",
-        "application/xml" -> MimeTypes.APPLICATION_TTML
-        else -> null
-    }
-}
-
-private fun filenameFromContentDisposition(contentDisposition: String?): String? =
-    contentDisposition
-        ?.substringAfter("filename=", missingDelimiterValue = "")
-        ?.trim()
-        ?.trim('"')
-        ?.takeIf { it.isNotEmpty() }
-
-private fun guessSubtitleMime(url: String): String {
-    val lower = url.lowercase()
-    return when {
-        lower.contains(".srt") -> MimeTypes.APPLICATION_SUBRIP
-        lower.contains(".vtt") || lower.contains(".webvtt") -> MimeTypes.TEXT_VTT
-        lower.contains(".ass") || lower.contains(".ssa") -> MimeTypes.TEXT_SSA
-        lower.contains(".ttml") || lower.contains(".dfxp") || lower.contains(".xml") -> MimeTypes.APPLICATION_TTML
-        else -> MimeTypes.TEXT_VTT
-    }
-}
-
+// The subtitle MIME resolver that used to live here now lives in
+// PlaybackSubtitleMime.android.kt, which the Phase 6 convergence brought across as its own
+// file. The body is identical; keeping a private copy here made every call site ambiguous.
+//
+// Composition call sites below use resolveSubtitleMimeTypeBlocking, which is what this file
+// has always done -- a blocking HEAD/GET inside remember {}. That runs on the main thread,
+// where the probe's runCatching swallows NetworkOnMainThreadException, so on Android the
+// probe has in practice always fallen through to guessing from the URL. Preserved exactly as
+// it behaves today rather than quietly restructured here; Stage E owns the player contract
+// and is where moving it off the main thread belongs.
 private fun diagnosticElapsedSince(startedAtMs: Long): Long =
     if (startedAtMs <= 0L) -1L else (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
 

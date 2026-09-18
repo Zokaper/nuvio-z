@@ -174,6 +174,33 @@ private data class ManageDownloadTarget(
     val subtitle: String?,
     val state: ContentDownloadState,
 )
+private const val DetailScrolledBackgroundDefaultMaxAlpha = 0.86f
+private const val DetailScrolledBackgroundCinematicMaxAlpha = 0.36f
+private const val DetailScrolledBackgroundFadeHeroFraction = 0.75f
+
+/**
+ * How far the scrolled background has faded in, 0..1.
+ *
+ * Pure, and shared with desktop verbatim: `DetailScrolledBackgroundTest` in `commonTest` is the
+ * common test for it. This phone detail screen does not draw the scrolled background yet -- its
+ * layout diverges deliberately -- so nothing here calls these two. They live in the same file
+ * under the same names as desktop's so that the shared test has one subject rather than two, and
+ * so Stage H has the primitive ready when the phone layout adopts it.
+ */
+internal fun detailScrolledBackgroundProgress(scrollOffsetPx: Float, heroHeightPx: Int): Float {
+    if (scrollOffsetPx <= 0f || heroHeightPx <= 0) return 0f
+    val fadeDistancePx = heroHeightPx * DetailScrolledBackgroundFadeHeroFraction
+    return (scrollOffsetPx / fadeDistancePx).coerceIn(0f, 1f)
+}
+
+internal fun detailScrolledBackgroundAlpha(
+    scrollOffsetPx: Float,
+    heroHeightPx: Int,
+    maxAlpha: Float = DetailScrolledBackgroundDefaultMaxAlpha,
+): Float {
+    return detailScrolledBackgroundProgress(scrollOffsetPx, heroHeightPx) * maxAlpha.coerceIn(0f, 1f)
+}
+
 private val watchedMarkerDiagnosticLog = Logger.withTag("WatchedMarkerDiag")
 
 @Composable
@@ -1865,7 +1892,10 @@ private fun DetailHeaderOverlay(
     DetailFloatingHeader(
         meta = meta,
         isSaved = isSaved,
-        progress = headerProgress,
+        progressProvider = { headerProgress },
+        // Live only once the header has faded in -- the exact complement of the hero back
+        // button's own `headerProgress <= 0.05f` guard above.
+        interactive = headerProgress > 0.05f,
         backgroundColor = backgroundColor,
         onBack = onBack,
         onToggleSaved = onToggleSaved,

@@ -32,9 +32,10 @@ data class PlaybackSelectionContext(
     /**
      * An ISO code, or null.
      *
-     * `PlayerSettingsRepository` also stores the sentinels `default`, `device` and `original`,
-     * which are instructions to the *player's* track selection and name no language a release
-     * can be ranked against. The route resolves those to null.
+     * `PlayerSettingsRepository` also stores the sentinels `default`, `device` and `original`.
+     * [resolveRankableLanguages] turns those into codes before they reach here - `device` into the
+     * OS locale, `original` into the title's own language - so a null now means the user has no
+     * opinion rather than, as it used to, that they had one the ranker could not read.
      */
     val preferredAudioLanguage: String? = null,
     val codecPreference: CodecPreference = CodecPreference.ANY,
@@ -67,27 +68,76 @@ data class PlaybackSelectionContext(
      */
     val identity: RequestedContent? = null,
     val secondaryAudioLanguage: String? = null,
-    val languageStrictness: LanguageStrictness = LanguageStrictness.REQUIRE,
+    /**
+     * The subtitle language, resolved exactly as [preferredAudioLanguage] is.
+     *
+     * Ranked on as a **bonus only** - see `SourceRanking.subtitleLanguageBonus`. A release that
+     * names your subtitle language is promoted; one that names none is left where it was. Source
+     * names carry subtitle languages far less reliably than audio ones, so treating silence as a
+     * negative would demote good releases for saying nothing.
+     */
+    val preferredSubtitleLanguage: String? = null,
+    val secondarySubtitleLanguage: String? = null,
+    val languageStrictness: LanguageStrictness = LanguageStrictness.PREFER,
     val displayMaxHeight: Int? = null,
+    /**
+     * "Prefer built-in subtitles": the subtitle language whose release-name claims earn a small
+     * ranking hint. Build it with [automaticEmbeddedSubtitleLanguage] - null for Classic and every
+     * manual path, which leaves the ordering untouched.
+     */
+    val preferredEmbeddedSubtitleLanguage: String? = null,
 ) {
     internal val rankingPreferences: SourceRankingPreferences
         get() = SourceRankingPreferences(
             preferredAudioLanguage = preferredAudioLanguage,
             secondaryAudioLanguage = secondaryAudioLanguage,
+            preferredSubtitleLanguage = preferredSubtitleLanguage,
+            secondarySubtitleLanguage = secondarySubtitleLanguage,
             codecPreference = codecPreference,
             dynamicRangePolicy = dynamicRangePolicy,
             audioPreference = audioPreference,
             displayMaxHeight = displayMaxHeight,
+            preferredEmbeddedSubtitleLanguage = preferredEmbeddedSubtitleLanguage,
         )
+}
+
+/**
+ * The language "Prefer built-in subtitles" ranks for, or null when it must not apply.
+ *
+ * ⚠ **Streamlined and Instant automatic picks only.** Classic is the user reading release names,
+ * a manual pick is the same thing in any mode, and a download is not a play - in all three the
+ * user's own choice stands and this returns null, which makes the ranking hint zero for everyone.
+ *
+ * [primarySubtitleTarget] is the already-resolved first subtitle target (sentinels such as `none`,
+ * `forced` and `device` resolved by the caller); a blank one also returns null.
+ */
+fun automaticEmbeddedSubtitleLanguage(
+    enabled: Boolean,
+    mode: PlaybackMode,
+    manualSelection: Boolean,
+    downloadIntent: Boolean,
+    primarySubtitleTarget: String?,
+): String? {
+    if (!enabled || manualSelection || downloadIntent) return null
+    if (mode != PlaybackMode.STREAMLINED && mode != PlaybackMode.INSTANT) return null
+    return primarySubtitleTarget?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 /**
  * How hard the automatic picker tries to honour the user's audio language.
  *
- * The default is [REQUIRE], which is unusual for a preference and deliberate here: the reported
- * failure is being handed a source with no English audio *or* subtitles, and a soft preference is
- * what produced it. `SourceRanking` has always carried language as a tie-break under resolution,
- * and a tie-break loses to the first source that is one step sharper.
+ * ⚠ **The default was [REQUIRE] and is now [PREFER], because REQUIRE had never actually run.**
+ * It was chosen for a real reported failure - being handed a source with no English audio *or*
+ * subtitles, which a soft preference is exactly what produces, since `SourceRanking` carries
+ * language as a tie-break under resolution and a tie-break loses to the first source one step
+ * sharper. But the preference it was strict about arrived as the sentinel `device`, which the
+ * picker discarded, so for any profile that had never opened the language dialog there was no
+ * language to require and the setting did nothing.
+ *
+ * [resolveRankableLanguages] now resolves those sentinels, which makes this live for the first
+ * time. Shipping it live *and* strict in the same change would have altered what plays for every
+ * existing install at once, on a preference none of them had stated - so it ships live and soft,
+ * and REQUIRE is a deliberate choice that now behaves as documented.
  */
 enum class LanguageStrictness {
     /** Language is not considered at all. */
@@ -373,7 +423,7 @@ object PlaybackSourceSelector {
     // been wiring them into nothing. `PlaybackQualityOptions.rankingFor` is the ordering, and
     // now it is the only one.
 
-    private fun isPlaybackProtocolEligible(
+    internal fun isPlaybackProtocolEligible(
         candidate: PlaybackSourceCandidate,
         allowTorrentSources: Boolean,
     ): Boolean {

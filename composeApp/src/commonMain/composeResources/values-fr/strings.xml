@@ -459,6 +459,9 @@
     <string name="settings_advanced_remember_last_profile_description">Mémorise le dernier profil sélectionné au démarrage</string>
     <string name="settings_advanced_sentry_reports">Rapports de plantage Sentry</string>
     <string name="settings_advanced_sentry_reports_subtitle">Envoyer les rapports de plantage et d’ANR avec un contexte sûr. Activé par défaut.</string>
+    <string name="settings_advanced_section_discord">DISCORD</string>
+    <string name="settings_advanced_discord_rich_presence">Discord Rich Presence</string>
+    <string name="settings_advanced_discord_rich_presence_description">Affichez ce que vous consultez ou regardez sur votre profil Discord. Désactivé par défaut.</string>
     <string name="sentry_enable_dialog_title">Activer les rapports de plantage ?</string>
     <string name="sentry_enable_dialog_subtitle">Les rapports de plantage aident à identifier les défaillances propres à un appareil sans vous demander de reproduire le problème avec les journaux ADB.</string>
     <string name="sentry_disable_dialog_title">Désactiver les rapports de plantage ?</string>
@@ -1365,7 +1368,7 @@
     <string name="updates_downloading_progress">Téléchargement %1$d %</string>
     <string name="updates_install_failed">Impossible de démarrer l’installation</string>
     <string name="updates_latest_version">Vous utilisez la version la plus récente.</string>
-    <string name="updates_message_allow_installs">Activez l’installation d’applications pour Nuvio Z puis revenez pour continuer.</string>
+    <string name="updates_message_allow_installs">Activez l’installation d’applications pour Nuvio puis revenez pour continuer.</string>
     <string name="updates_message_downloading">Téléchargement de la mise à jour…</string>
     <string name="updates_message_no_updates">Aucune mise à jour trouvée.</string>
     <string name="updates_message_ready">Une nouvelle version est prête à être installée.</string>
@@ -1921,6 +1924,7 @@
     <string name="cw_airs_date">Diffusion le %1$s</string>
     <string name="cw_airs_today">Diffusion aujourd’hui</string>
     <string name="cw_airs_tomorrow">Diffusion demain</string>
+    <string name="cw_airs_in_days_format">Diffusion dans %1$d jours</string>
     <plurals name="cw_airs_in_days">
         <item quantity="one">Diffusion dans %1$d jour</item>
         <item quantity="many">Diffusion dans %1$d jours</item>
@@ -1929,6 +1933,7 @@
     <string name="cw_airs_date_short">%1$s</string>
     <string name="cw_airs_today_short">Aujourd’hui</string>
     <string name="cw_airs_tomorrow_short">Demain</string>
+    <string name="cw_airs_in_days_short_format">Dans %1$d jours</string>
     <plurals name="cw_airs_in_days_short">
         <item quantity="one">Dans %1$d jour</item>
         <item quantity="many">Dans %1$d jours</item>
@@ -1966,6 +1971,8 @@
     <string name="entity_browse_type">Type</string>
     <string name="entity_browse_catalogue">Catalogue</string>
     <string name="entity_browse_about">À propos</string>
+    <string name="entity_browse_title_count_one">%d titre</string>
+    <string name="entity_browse_title_count_other">%d titres</string>
     <string name="player_external_loading_subtitles">Chargement des sous-titres depuis les addons…</string>
     <string name="player_external_downloading_subtitles">Téléchargement des sous-titres…</string>
     <plurals name="entity_browse_title_count">

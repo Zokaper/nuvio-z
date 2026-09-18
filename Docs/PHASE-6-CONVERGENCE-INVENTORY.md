@@ -122,7 +122,7 @@ implementation".
 The merge is clean, which is precisely why it is dangerous: **git reports no conflict for any of
 these.** Each is a silent revert.
 
-### 3.1 It reverts all four documented-deliberate divergences
+### 3.1 It reverts the initially documented deliberate divergences
 
 `AGENTS.md` and `shared-code-drift.sh` both name four files that are deliberately *not* shared.
 Mobile has not edited them since the merge base, so git takes desktop's side silently:
@@ -130,12 +130,27 @@ Mobile has not edited them since the merge base, so git takes desktop's side sil
 | file | why it diverges | severity |
 | --- | --- | --- |
 | `features/setup/SetupHomeStill.kt` | per-target asset | **"copying it has broken the setup wizard before"** |
-| `core/build/AppFeaturePolicy.kt` | desktop gates external-player support | high |
 | `features/details/MetaDetailsScreen.kt` | divergent layout | high |
-| `composeResources/values/strings.xml` | desktop carries extra keys | medium |
 
-**Action:** restore mobile's version of all four in the merge commit, and assert it in the procedure
-(§5) rather than trusting a reviewer to notice four files inside a 1,190-file diff.
+**Action:** restore mobile's version of these two files in the merge commit, and assert it in the
+procedure (§5) rather than trusting a reviewer to notice them inside a 1,190-file diff.
+
+#### Compiler-driven correction to the initial classification
+
+The first Android compile disproved two entries that Stage A had classified as wholesale
+divergences:
+
+- `core/build/AppFeaturePolicy.kt` is a shared contract. Keeping mobile's old copy caused roughly
+  40 compile errors. The common policy now converges; target capability differences remain in its
+  platform actuals.
+- `composeResources/values/strings.xml` is neither a desktop file nor a mobile file wholesale.
+  Keeping mobile's old copy left roughly 335 shared resource references unresolved. Shared keys
+  converge, while genuinely mobile-only values are preserved additively.
+
+The same compile exposed a desktop pointer API leak in three shared call sites. Mouse Back/Forward
+and wheel handling now cross `PlatformPointerBackNavigation`; Android and iOS actuals are deliberate
+identity modifiers, while system/mobile Back remains owned by `PlatformBackHandler`. This is a
+platform seam, not synthetic pointer behaviour on touch devices.
 
 ### 3.2 It deletes mobile-only files that define the mobile product
 
@@ -252,9 +267,12 @@ actual in `androidMain`, `iosMain`, and the flavour sets `androidFull`, `android
 | `PluginRepository`, `TrailerPlaybackResolver`, `LazyListScope` | flavour sets | flavour sets |
 | `AppUpdaterPlatform` | flavour sets | n/a |
 | `P2pStreamingEngine` | `androidMain` | flavour sets |
-| **`platformDisplayMaxHeight`** | **`desktopMain` only — missing** | **missing** |
+| `platformDisplayMaxHeight` | `androidMain` | `iosMain` |
 
-One genuine gap, and it is §3.5. Everything else resolves.
+The controlled merge repaired that gap and reconciled the rest of the platform subset deliberately.
+The post-merge static check finds an Android and iOS actual for every current common expect. Android
+then compiled and ran the complete host suite; iOS still requires CI on macOS and is not claimed
+verified from static inspection.
 
 ---
 
@@ -291,15 +309,17 @@ Executable, and verifiable by assertion rather than by eye:
    pointers.
 4. **Restore class C:** re-add the 6 launcher resources, the keystore, both workflows, the two
    xcconfigs and all mobile-owned docs from `HEAD` (§3.2).
-5. **Restore class B:** `git checkout HEAD -- <the four deliberate files>` (§3.1).
+5. **Restore class B:** restore the two genuine whole-file divergences (§3.1), converge the shared
+   `AppFeaturePolicy` contract, and merge shared resource keys with mobile-only values additively.
 5b. **Review class A's platform subset:** for the 66 `androidMain`/`iosMain` files, diff desktop's
    against mobile's and keep mobile's unless desktop's carries a needed change. At minimum restore
    the `platformDisplayMaxHeight` actuals in `Platform.android.kt` and `Platform.ios.kt` (§3.5).
 6. Resolve the two documentation conflicts: keep mobile's `Docs/Z-FEATURES.md` (deleted on desktop
    because it is mobile-canonical); hand-merge `STATUS.md`.
 7. **Assert before committing:**
-   - `commonMain`/`commonTest`/`androidMain`/`iosMain` == `desktop/Dev`, *except* the four class-B
-     files and the 6 class-C resources
+   - `commonMain`/`commonTest` converge with `desktop/Dev`, except the reviewed pointer seam, two
+     whole-file divergences, and additive mobile resource values; platform source sets match the
+     explicitly reviewed actual set
    - no path under the §3.3 exclusion list is present
    - `git lfs ls-files` resolves every pointer
    - every class-C path still exists

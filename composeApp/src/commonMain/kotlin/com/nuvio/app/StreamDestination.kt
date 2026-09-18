@@ -23,6 +23,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import com.nuvio.app.features.player.PlayerExitDiagnostics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.MeteredPlaybackChoice
 import com.nuvio.app.core.network.NetworkConnectionType
@@ -38,13 +40,19 @@ import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.core.language.AudioLanguageOption
+import com.nuvio.app.core.language.normalizeLanguageCode
+import com.nuvio.app.features.player.resolveContentLanguage
+import com.nuvio.app.features.playback.playbackSelectionContextOf
 import com.nuvio.app.features.downloads.SourceFacts
 import com.nuvio.app.features.downloads.SourceFactsExtractor
+import com.nuvio.app.features.downloads.SourceRanking
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.playback.ConnectionProbeSettlement
 import com.nuvio.app.features.playback.PLAYBACK_PROGRESS_STALL_GRACE_MS
 import com.nuvio.app.features.playback.PlaybackLoadingActions
+import com.nuvio.app.features.playback.PlaybackLoadingBackdrop
 import com.nuvio.app.features.playback.PlaybackLoadingController
 import com.nuvio.app.features.playback.PlaybackLoadingState
 import com.nuvio.app.features.playback.PlaybackMode
@@ -54,9 +62,6 @@ import com.nuvio.app.features.playback.PlaybackProgress
 import com.nuvio.app.features.playback.PlaybackProgressFailure
 import com.nuvio.app.features.playback.PlaybackProgressInputs
 import com.nuvio.app.features.playback.PlaybackProgressStep
-import com.nuvio.app.features.playback.PlaybackProbeVerdict
-import com.nuvio.app.features.playback.logKey
-import com.nuvio.app.features.playback.probePlaybackSource
 import com.nuvio.app.features.playback.PlaybackQualityOption
 import com.nuvio.app.features.playback.PlaybackQualityOptions
 import com.nuvio.app.features.playback.PlaybackQualitySheet
@@ -73,15 +78,20 @@ import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.STREAMLINED_SELECTION_TIMEOUT_MS
+import com.nuvio.app.features.playback.SourceLanguageInference
+import com.nuvio.app.features.playback.automaticEmbeddedSubtitleLanguage
 import com.nuvio.app.features.playback.StreamRouteSurface
 import com.nuvio.app.features.playback.StreamRouteSurfaceInputs
 import com.nuvio.app.features.playback.playbackChain
 import com.nuvio.app.features.playback.playbackQualityOptionLabel
 import com.nuvio.app.features.playback.qualityLabel
 import com.nuvio.app.features.playback.streamRouteSurface
+import com.nuvio.app.features.player.DeviceLanguagePreferences
 import com.nuvio.app.features.player.ExternalPlaybackOutcome
 import com.nuvio.app.features.player.PlayerLaunch
+import com.nuvio.app.features.player.resolvePreferredAudioLanguageTargets
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.features.player.PartyPlayerLaunchKey
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
 import com.nuvio.app.features.player.sanitizePlaybackResponseHeaders
@@ -90,8 +100,18 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.p2pSentinelUrl
 import com.nuvio.app.features.streams.StreamLaunch
 import com.nuvio.app.features.streams.StreamLaunchStore
+import com.nuvio.app.features.streams.PartyStreamLaunchContext
+import com.nuvio.app.features.streams.PartyStreamLaunchPurpose
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.StreamsScreen
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+import com.nuvio.app.features.watchparty.toPartySourceDescriptor
+import com.nuvio.app.features.watchparty.PartyRealizationDecision
+import com.nuvio.app.features.watchparty.decidePartyRealization
+import com.nuvio.app.features.watchparty.PartySourceRealizer
+import com.nuvio.app.features.watchparty.WatchPartyRepository
+import com.nuvio.app.features.watchparty.partyLaunchStillLive
+import com.nuvio.app.features.watchparty.tierPartyPlaybackSources
 import com.nuvio.app.features.updater.formatFileSize
 import com.nuvio.app.navigation.*
 import kotlinx.coroutines.delay
@@ -129,6 +149,7 @@ internal fun buildP2pPlayerLaunch(
     resolvedResumeProgressFraction: Float?,
     autoPickedWithFailureChain: Boolean,
     autoPickAttempt: Int,
+    contentLanguage: String? = null,
 ): PlayerLaunch = PlayerLaunch(
     profileId = launch.profileId,
     title = launch.title,
@@ -160,10 +181,12 @@ internal fun buildP2pPlayerLaunch(
     torrentTrackers = stream.p2pTrackers,
     initialPositionMs = resolvedResumePositionMs ?: 0L,
     initialProgressFraction = resolvedResumeProgressFraction,
+    contentLanguage = contentLanguage,
     autoPickedWithFailureChain = autoPickedWithFailureChain,
     sourceFacts = SourceFactsExtractor.extract(stream),
     playbackAttempt = autoPickAttempt,
     expectedRuntimeMinutes = launch.runtimeMinutes,
+    partySourceDescriptor = stream.toPartySourceDescriptor(),
 )
 
 @Composable
@@ -185,6 +208,40 @@ internal fun StreamDestination(
         return
     }
     val pauseDescription = launch.pauseDescription
+    val partyResolutionContext = launch.partyContext?.takeIf {
+        it.purpose == PartyStreamLaunchPurpose.RESOLVE_PLAYBACK && it.targetFingerprint != null
+    }
+    val isPartyResolution = partyResolutionContext != null
+
+    /**
+     * The host choosing what the party will watch - the other half of the party's source story.
+     *
+     * [isPartyResolution] is a guest realizing an authority that already exists; this is the one
+     * member who gets asked a question. Which question is **not** this route's to invent: the
+     * host's `PlaybackMode` decides it, through `PlaybackModeRouter` like every other play, so
+     * Streamlined hosts get their quality step and Instant hosts get asked nothing at all.
+     *
+     * The *answer*, though, is party-shaped rather than playback-shaped. However the source is
+     * chosen, this route stages the descriptor and returns to the lobby; it never opens a player
+     * and never resolves a debrid link, because staging is a credential-free choice.
+     */
+    val partySourceSelection = launch.partyContext?.takeIf {
+        it.purpose == PartyStreamLaunchPurpose.SELECT_SOURCE
+    }
+    /**
+     * The exact authority this route is realizing for, or null when it is ordinary browsing.
+     *
+     * Derived up here with the launch it comes from, because every reporting call site - including
+     * the give-up path, which is declared before the rest of the party plumbing - names it.
+     */
+    val partyRealizationKey = partyResolutionContext?.targetFingerprint?.let { descriptor ->
+        PartyPlayerLaunchKey(
+            partyId = partyResolutionContext.partyId,
+            contentGeneration = partyResolutionContext.contentGeneration,
+            sourceGeneration = partyResolutionContext.sourceGeneration,
+            descriptor = descriptor,
+        )
+    }
     val streamRouteScope = rememberCoroutineScope()
     // In-flight coroutine state cannot survive process restoration. Restoring `true` would leave
     // the route permanently refusing every future resolve after Android killed it mid-request.
@@ -210,6 +267,7 @@ internal fun StreamDestination(
     // outlive the sheet, which leaves composition the moment `onDismiss` runs.
     var exitRequested by rememberSaveable(route.launchId) { mutableStateOf(false) }
     val noAutomaticSourceMessage = stringResource(Res.string.playback_quality_no_match)
+    val hostSourceUnavailableMessage = stringResource(Res.string.watch_party_host_source_unavailable)
 
     /**
      * Which of the ways into the source list was taken, or null while none has been.
@@ -218,6 +276,9 @@ internal fun StreamDestination(
      * said why" a failing test rather than a thing users have to notice and report.
      */
     var uncoverPath by rememberSaveable(route.launchId) { mutableStateOf<String?>(null) }
+    var manualPlaybackStarting by rememberSaveable(route.launchId) { mutableStateOf(false) }
+    var manualCandidateFacts by remember(route.launchId) { mutableStateOf<SourceFacts?>(null) }
+    var loadingToken by rememberSaveable(route.launchId) { mutableStateOf<Long?>(null) }
 
     /**
      * Gives the screen back to the user, with a reason.
@@ -239,6 +300,10 @@ internal fun StreamDestination(
      * supposed to bite. A required parameter turns that into a compile error instead.
      */
     fun giveUpToSourceList(reason: String? = null, path: String) {
+        manualPlaybackStarting = false
+        manualCandidateFacts = null
+        loadingToken?.let(PlaybackLoadingController::close)
+        loadingToken = null
         qualitySheetDismissed = true
         manualSourceListRequested = true
         // ⚠ **Which of the eight ways in this was.** The maintainer could not name the
@@ -248,6 +313,11 @@ internal fun StreamDestination(
         // days of ordinary use turns "for whatever reason" into a ranked list of real causes -
         // which is something no amount of reading the code produces.
         uncoverPath = path
+        // Every automatic dead end passes through here, so this is the one place that can tell the
+        // process owner that party realization ended without playing. It is inert unless work for
+        // this exact key is still in flight, so a member who merely walked back out of the player
+        // keeps the realization they are already watching.
+        partyRealizationKey?.let { PartySourceRealizer.abandoned(it, path) }
         // Arriving here means the app could not choose, so the user is about to
         // do it by hand - and `StreamsScreen` auto-filters to whichever addon
         // last served this show. That filter is a convenience when the list is
@@ -257,6 +327,70 @@ internal fun StreamDestination(
         StreamsRepository.selectFilter(null)
         val message = reason ?: noAutomaticSourceMessage
         if (message.isNotBlank()) NuvioToastController.show(message)
+    }
+
+    /**
+     * The host's party source choice, staged and handed back to the lobby.
+     *
+     * Every way the host can arrive at a source ends here - the Classic list, the Streamlined
+     * quality step, Instant deciding alone - so all three stage the same thing in the same way.
+     * It was written once for the list and then only the list could reach it, which is how
+     * "Choose a source" came to mean Classic's release list no matter what the host had chosen
+     * their playback mode to be.
+     *
+     * ⚠ **Source preparation is a credential-free choice, never a playback attempt.** The
+     * original descriptor is staged before any debrid resolution or URL/header access, and this
+     * transient source route then returns to the durable lobby. Nothing here opens a player.
+     *
+     * Answers false when the party moved underneath the choice or the stream describes nothing a
+     * guest could match, so the caller can put the list back rather than fail silently.
+     */
+    fun stagePartyHostSource(
+        selection: PartyStreamLaunchContext,
+        descriptor: PartySourceDescriptorV2?,
+        label: String?,
+    ): Boolean {
+        val currentParty = WatchPartyRepository.uiState.value.party
+        val selectionIsCurrent = currentParty?.id == selection.partyId &&
+            currentParty.sourceGeneration == selection.sourceGeneration
+        if (descriptor == null || !selectionIsCurrent) {
+            NuvioToastController.show(hostSourceUnavailableMessage)
+            return false
+        }
+        WatchPartyRepository.stageHostSource(descriptor, label)
+        StreamsRepository.cancelLoading()
+        navController.popBackStack(route)
+        return true
+    }
+
+    /**
+     * Whether this route was opened for a party that is no longer running.
+     *
+     * ⚠ **A terminal party must never lead to a resolution.** Hardware Bug 5 (2026-09-15): a guest
+     * sitting here "resolving source" when the host ended the party kept resolving, because nothing
+     * on this route ever looked at the party again after it was opened. Read at the two hand-offs to
+     * the player as well as by the effect below, so a frame in which both happen cannot open a
+     * player for a dead party.
+     */
+    val partyLaunchId = launch.partyContext?.partyId
+    fun partyLaunchEnded(): Boolean =
+        partyLaunchId != null && !partyLaunchStillLive(partyLaunchId, WatchPartyRepository.uiState.value.party)
+
+    if (partyLaunchId != null) {
+        val partyUiForLaunch by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
+        val launchPartyLive = partyLaunchStillLive(partyLaunchId, partyUiForLaunch.party)
+        LaunchedEffect(launchPartyLive) {
+            if (launchPartyLive) return@LaunchedEffect
+            streamLog.i { "party ended during source preparation party=${partyLaunchId.take(8)} - leaving" }
+            // The realizer was already cleared with the party; this names the abandonment for the
+            // trace and is inert if nothing was in flight.
+            partyRealizationKey?.let { PartySourceRealizer.abandoned(it, "party_ended") }
+            StreamsRepository.abandonAutoPlay()
+            StreamsRepository.cancelLoading()
+            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken = null
+            onBack()
+        }
     }
 
     /**
@@ -271,7 +405,11 @@ internal fun StreamDestination(
      * grew their own copy; this is the one copy.
      */
     fun leaveToDetails() {
-        // ⚠ **The automatic play ends here, not at the pop.** "Back takes you out and stops
+        manualPlaybackStarting = false
+        manualCandidateFacts = null
+        loadingToken?.let(PlaybackLoadingController::close)
+        loadingToken = null
+        // ⚠ **The automatic play ends here, not at the pop.** "Escape takes you back and stops
         // whatever is running" is one action, and splitting it left the stopping half unwritten:
         // the pop tore this route down while the chain stayed armed in the repository, so the
         // auto-play effect relaunched the source on the way out, and the next visit to the same
@@ -279,7 +417,7 @@ internal fun StreamDestination(
         //
         // The fetch goes with it. A user who has left is not waiting on a source list, and an
         // addon still answering into a route nobody is looking at is the "finding" half of what
-        // backing out is supposed to terminate.
+        // Escape is supposed to terminate.
         StreamsRepository.abandonAutoPlay()
         StreamsRepository.cancelLoading()
         exitRequested = true
@@ -362,6 +500,41 @@ internal fun StreamDestination(
     var playbackHandedOff by rememberSaveable(route.launchId) { mutableStateOf(false) }
     /** The requested title's year, once the meta answers. Null until then, and often for good. */
     var requestedYear by remember(route.launchId) { mutableStateOf<Int?>(null) }
+    val playerSettings by remember {
+        PlayerSettingsRepository.ensureLoaded()
+        PlayerSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    /**
+     * The title's original language, for the loading band's language inference
+     * (`SourceLanguageInference`) and the player's "original" audio target.
+     *
+     * ⚠ **Read synchronously from what is already loaded, never fetched.** A fetch would land after
+     * the band had drawn and change its language under the reader. `peek` answers from the details
+     * screen's enriched meta (TMDB `original_language`) or the cache; when neither has it - a cold
+     * Continue Watching launch - this is null for the whole play and the band says less, not more.
+     *
+     * Language only, never the production country: a country is not a language.
+     */
+    val requestedContentLanguage = remember(route.launchId) {
+        val metaId = launch.parentMetaId ?: launch.videoId
+        SourceLanguageInference.contentLanguageCode(
+            MetaDetailsRepository.peek(launch.parentMetaType ?: launch.type, metaId)?.language,
+        )
+    }
+    /**
+     * This title's own language, for the `original` audio sentinel, once the meta answers.
+     *
+     * Null until then and often for good, which is the honest answer: `resolveRankableLanguages`
+     * turns a null into "no language opinion" rather than falling back to the device locale, so a
+     * user who asked for the original language is never quietly given English instead.
+     *
+     * ⚠ **Deliberately not seeded from [requestedContentLanguage], and not the same rule.** That one
+     * refuses to read a production country as a language, because it is *displayed* and a wrong
+     * language on the band is worse than a blank one. This one is only ever *ranked* with, where
+     * `resolveContentLanguage`'s country fallback is a better guess than no guess. Two consumers,
+     * two policies, on purpose.
+     */
+    var contentOriginalLanguage by remember(route.launchId) { mutableStateOf<String?>(null) }
     val shouldResolveEpisodeVideoId =
         launch.parentMetaId != null &&
             launch.seasonNumber != null &&
@@ -394,6 +567,20 @@ internal fun StreamDestination(
         if (!shouldResolveEpisodeVideoId) {
             effectiveVideoId = launch.videoId
             hasResolvedVideoId = true
+            // A movie needs no video-id resolution, so this branch used to return before meta was
+            // ever fetched. That is still right for everyone except the one preference that cannot
+            // be answered without meta: `original` audio names a language only the title knows.
+            // Fetched here rather than always, because it buys nothing for the other settings.
+            if (normalizeLanguageCode(playerSettings.preferredAudioLanguage) == AudioLanguageOption.ORIGINAL) {
+                val metaId = launch.parentMetaId ?: launch.videoId
+                val movieMeta = runCatching {
+                    MetaDetailsRepository.fetch(launch.parentMetaType ?: launch.type, metaId)
+                }.getOrNull()
+                contentOriginalLanguage = resolveContentLanguage(
+                    language = movieMeta?.language,
+                    country = movieMeta?.country,
+                )
+            }
             return@LaunchedEffect
         }
         // Deliberately *not* reset to `launch.videoId` first. This effect
@@ -415,6 +602,10 @@ internal fun StreamDestination(
         // the guard treats a null as "not known", which always passes, so an addon that reports
         // no release info simply gets no year check rather than a wrong one.
         requestedYear = meta?.releaseInfo?.let(ContentIdentityGuard::parseYear)
+        contentOriginalLanguage = resolveContentLanguage(
+            language = meta?.language,
+            country = meta?.country,
+        )
         val resolvedVideoId = meta
         ?.videos
         ?.firstOrNull { video ->
@@ -428,16 +619,27 @@ internal fun StreamDestination(
         hasResolvedVideoId = true
     }
 
-    val playerSettings by remember {
-        PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
     // Streamlined and Instant own source selection. Passing them through the
     // legacy auto-play policy would run two pickers over the same candidates.
     val streamManualSelection = launch.manualSelection ||
         // A download-intent launch must never auto-play: the user pressed
         // Download, so every automatic playback path stays out of the way.
         launch.downloadIntent ||
+        // Party playback has its own strict source matcher. Marking the repository request as
+        // manual prevents Classic's legacy auto-play policy from seeding an ordinary ranked
+        // source before that matcher has seen the complete catalogue.
+        isPartyResolution ||
+        // A Classic host choosing the party's source reads the release list, the same as a
+        // Classic host choosing an ordinary play. `streamAutoPlayMode` is a Classic-only setting
+        // and this keeps it out of the party's candidates, which is what the launch's hardcoded
+        // `manualSelection = true` used to do - before it also overrode Streamlined and Instant.
+        partySourceSelection != null ||
+        // ⚠ **Back from the player is back to a list the user picks from.** Classic keeps this route
+        // under a hand-picked play, and the player saves that release's binge group while it runs.
+        // The pop re-fetched the list as an automatic request, which now found a remembered binge
+        // group, raised "Finding source…" over the list, armed the same release - and then the
+        // abandon rightly refused to play it, so the overlay stayed up until a second Escape.
+        userAbandonedPlayback ||
         playerSettings.playbackMode != PlaybackMode.CLASSIC
 
     fun openP2pStream(
@@ -447,8 +649,10 @@ internal fun StreamDestination(
         replaceStreamRoute: Boolean,
     ) {
         val infoHash = stream.p2pInfoHash ?: return
+        if (partyLaunchEnded()) return
         val sentinelUrl = p2pSentinelUrl(infoHash, stream.p2pFileIdx)
-        val hasFailureChain = replaceStreamRoute && playerSettings.playbackMode != PlaybackMode.CLASSIC
+        val hasFailureChain = replaceStreamRoute &&
+            (isPartyResolution || playerSettings.playbackMode != PlaybackMode.CLASSIC)
         val playerLaunch = buildP2pPlayerLaunch(
             launch = launch,
             stream = stream,
@@ -460,6 +664,7 @@ internal fun StreamDestination(
             resolvedResumeProgressFraction = resolvedResumeProgressFraction,
             autoPickedWithFailureChain = hasFailureChain,
             autoPickAttempt = autoPickAttempt,
+            contentLanguage = requestedContentLanguage,
         )
 
         val launchId = PlayerLaunchStore.put(playerLaunch)
@@ -599,34 +804,35 @@ internal fun StreamDestination(
 
     val playbackSelectionContext = remember(
         requestedYear,
+        contentOriginalLanguage,
         launch.runtimeMinutes,
         launch.seasonNumber,
         launch.episodeNumber,
         playerSettings.playbackAllowTorrentAutopick,
         playerSettings.preferredAudioLanguage,
         playerSettings.secondaryPreferredAudioLanguage,
+        playerSettings.preferredSubtitleLanguage,
+        playerSettings.secondaryPreferredSubtitleLanguage,
         playerSettings.playbackLanguageStrictness,
         playerSettings.playbackQualityCeilingMbps,
         playerSettings.playbackCodecPreference,
         playerSettings.playbackDynamicRangePolicy,
+        // Was absent, so changing the audio preference left the context - and therefore the
+        // whole quality panel built from it - showing the previous answer until something else
+        // invalidated it.
+        playerSettings.playbackAudioPreference,
+        playerSettings.playbackPreferEmbeddedSubtitles,
     ) {
-        PlaybackSelectionContext(
-            runtimeMinutes = launch.runtimeMinutes,
+        playbackSelectionContextOf(
+            settings = playerSettings,
             isEpisode = launch.seasonNumber != null && launch.episodeNumber != null,
-            allowTorrentSources = playerSettings.playbackAllowTorrentAutopick,
-            preferredAudioLanguage = playerSettings.rankableAudioLanguage,
-            // The same sentinel-stripping the primary gets. `default`, `device`
-            // and `original` are instructions to the player's track selection and
-            // name no language a release can be ranked against.
-            secondaryAudioLanguage = playerSettings.rankableSecondaryAudioLanguage,
-            languageStrictness = playerSettings.playbackLanguageStrictness,
-            qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps
-                .takeIf { it > 0 }?.toDouble(),
+            runtimeMinutes = launch.runtimeMinutes,
+            contentOriginalLanguage = contentOriginalLanguage,
             // ⚠ **Automatic modes only.** Classic and every manual path leave this null, so the
             // guard is inert for them: a manual pick is the user reading the release name and
             // choosing anyway, and overriding that would be a refusal wearing a helper's name.
             identity = if (
-                playerSettings.playbackMode != PlaybackMode.CLASSIC &&
+                (isPartyResolution || playerSettings.playbackMode != PlaybackMode.CLASSIC) &&
                 !launch.manualSelection &&
                 !launch.downloadIntent
             ) {
@@ -638,16 +844,40 @@ internal fun StreamDestination(
             } else {
                 null
             },
-            codecPreference = playerSettings.playbackCodecPreference,
-            dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
-            audioPreference = playerSettings.playbackAudioPreference,
-            displayMaxHeight = platformDisplayMaxHeight(),
+            // Codec, dynamic range, audio preference and the display ceiling are the factory's now;
+            // passing them here again is how the three copies drifted in the first place.
+            // Streamlined/Instant automatic picks only - null for Classic, manual and downloads.
+            preferredEmbeddedSubtitleLanguage = automaticEmbeddedSubtitleLanguage(
+                enabled = playerSettings.playbackPreferEmbeddedSubtitles,
+                mode = playerSettings.playbackMode,
+                manualSelection = launch.manualSelection,
+                downloadIntent = launch.downloadIntent,
+                primarySubtitleTarget = if (playerSettings.playbackPreferEmbeddedSubtitles) {
+                    playerSettings.primarySubtitleTarget
+                } else {
+                    null
+                },
+            ),
         )
     }
     // The quality choices for *this* title, derived from what the addons actually
     // returned. A quality nobody released simply produces no row.
     val playbackQualityOptions = remember(playbackCandidates, playbackSelectionContext) {
         PlaybackQualityOptions.build(playbackCandidates, playbackSelectionContext)
+    }
+    val partyTieredSources = remember(
+        partyResolutionContext,
+        playbackCandidates,
+        playbackQualityOptions,
+        playbackSelectionContext,
+    ) {
+        val host = partyResolutionContext?.targetFingerprint ?: return@remember null
+        tierPartyPlaybackSources(
+            host = host,
+            candidates = playbackCandidates,
+            normalOrder = playbackQualityOptions.firstOrNull()?.candidates.orEmpty(),
+            selection = playbackSelectionContext,
+        )
     }
     // Resolved here because the band names are `stringResource`s and the effect
     // that announces a skipped sheet is not composable. Built from the same
@@ -668,6 +898,7 @@ internal fun StreamDestination(
         playerSettings.playbackMode,
         launch.manualSelection,
         launch.downloadIntent,
+        launch.partyContext,
     ) {
         if (!hasResolvedVideoId) return@LaunchedEffect
         if (routeDecisionHandled) return@LaunchedEffect
@@ -678,8 +909,70 @@ internal fun StreamDestination(
                 manualSelection = launch.manualSelection || launch.downloadIntent,
                 // Completed downloads are consumed before StreamRoute is created.
                 hasCompletedLocalDownload = false,
+                isPartyResolvePlayback = launch.partyContext?.purpose ==
+                    PartyStreamLaunchPurpose.RESOLVE_PLAYBACK &&
+                    launch.partyContext.targetFingerprint != null,
             ),
         )
+    }
+
+    var partyResolutionHandled by rememberSaveable(
+        route.launchId,
+        partyResolutionContext?.partyId,
+        partyResolutionContext?.sourceGeneration,
+        partyResolutionContext?.targetFingerprint?.releaseFingerprint,
+    ) { mutableStateOf(false) }
+    LaunchedEffect(
+        isPartyResolution,
+        partyResolutionHandled,
+        partyTieredSources,
+        streamsUiState.requestToken,
+        streamsUiState.isAnyLoading,
+        streamsUiState.emptyStateReason,
+    ) {
+        if (!isPartyResolution || partyResolutionHandled) return@LaunchedEffect
+        // Reported, not owned: this route is torn down the moment playback starts, so the work it
+        // is doing on the party's behalf has to be visible somewhere that outlives it.
+        partyRealizationKey?.let(PartySourceRealizer::matching)
+        val decision = decidePartyRealization(
+            catalogueSettled = com.nuvio.app.features.playback.isStreamlinedSelectionReady(
+                requestToken = streamsUiState.requestToken,
+                expectedRequestToken = expectedStreamsRequestToken,
+                isAnyLoading = streamsUiState.isAnyLoading,
+                candidateCount = playbackCandidates.size,
+                hasTerminalEmptyState = streamsUiState.emptyStateReason != null,
+                hasStreams = streamsUiState.groups.any { it.streams.isNotEmpty() },
+            ),
+            tiered = partyTieredSources,
+        )
+        when (decision) {
+            PartyRealizationDecision.Wait -> return@LaunchedEffect
+            PartyRealizationDecision.FallbackRequired -> {
+                partyResolutionHandled = true
+                partyRealizationKey?.let(PartySourceRealizer::fallbackRequired)
+                streamLog.w {
+                    "party source unavailable: party=${partyResolutionContext?.partyId?.take(8)} " +
+                        "sourceGeneration=${partyResolutionContext?.sourceGeneration} " +
+                        "fallbackAvailable=${partyTieredSources?.fallback != null}"
+                }
+                // A fallback is only an offer. Never seed or open it: the user must explicitly
+                // choose an alternate from the uncovered list, and the lobby remains the durable
+                // owner.
+                giveUpToSourceList(hostSourceUnavailableMessage, path = "party_source_unavailable")
+            }
+            is PartyRealizationDecision.Resolve -> {
+                partyResolutionHandled = true
+                streamLog.i {
+                    "party source matched: party=${partyResolutionContext?.partyId?.take(8)} " +
+                        "sourceGeneration=${partyResolutionContext?.sourceGeneration} " +
+                        "tier=${partyTieredSources?.tier} candidates=${decision.candidates.size}"
+                }
+                qualitySheetDismissed = true
+                autoPlaybackStarting = true
+                partyRealizationKey?.let(PartySourceRealizer::resolving)
+                StreamsRepository.seedAutoPlayCandidates(decision.candidates.map { it.stream })
+            }
+        }
     }
 
     /**
@@ -732,6 +1025,26 @@ internal fun StreamDestination(
         noteSourceFailureByLabel(sourceFailureLabel(stream), reason?.takeIf { it.isNotBlank() })
     }
 
+    // "Choose source manually", pressed inside the player and answered here.
+    //
+    // ⚠ **Ordered before the retry effect below on purpose.** Both wake on the return from the
+    // player, and this one is the more specific answer: the user did not just leave, they asked
+    // for the list. Letting the retry effect see it first would carry the gesture through
+    // `leaveToDetails` to the details screen - which is right for a plain Back and wrong for a
+    // button whose whole text is where it wants to go.
+    //
+    // The chain goes with it. A list the user is reading must not have a candidate starting
+    // underneath it, which is the same rule `abandonAutoPlay` exists for.
+    LaunchedEffect(navController.currentRoute) {
+        if (navController.currentRoute != route) return@LaunchedEffect
+        if (!StreamsRepository.consumeManualSourceRequest()) return@LaunchedEffect
+        playbackHandedOff = false
+        lastHandedOffFacts = null
+        StreamsRepository.abandonAutoPlay()
+        // Blank, because the user pressed the button: they already know why they are here.
+        giveUpToSourceList(reason = "", path = "manual_escape_from_player")
+    }
+
     // Coming back from the player with a candidate still armed. Two very
     // different things look identical here, and telling them apart is the whole
     // point of this effect.
@@ -753,6 +1066,19 @@ internal fun StreamDestination(
     LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute) {
         if (navController.currentRoute != route) return@LaunchedEffect
         if (!playbackHandedOff) return@LaunchedEffect
+        // ⚠ **`autoPlayStream` gates the *retry*, never the *user leaving*, and conflating the two
+        // was the escape hatch's whole fault.**
+        //
+        // This guard used to sit above the branch, so a back press with no armed stream - a manual
+        // pick, or an automatic chain whose stream had already been consumed - returned here and
+        // set nothing. `userAbandonedPlayback` therefore stayed false, which is the one flag that
+        // suppresses the dead-end backstop, so 1.5 s later that backstop uncovered the source list
+        // and toasted "No safe sources found" at a user who had simply pressed Escape. Observed in
+        // the log as `outcome=gave_up uncover=dead_end_backstop` with `attempt=1/3` - no failover
+        // had happened at all - and it is also why Escape appeared to need two presses: the first
+        // popped the player and the route did nothing with it.
+        //
+        // A retry still requires a stream to relaunch, so the check moves into that branch alone.
         if (!StreamsRepository.consumeFailoverRetry()) {
             // The user came back on their own. Retire the chain first, so
             // nothing relaunches behind them.
@@ -765,6 +1091,9 @@ internal fun StreamDestination(
                 // Classic and the manual paths came *from* the list, so the
                 // list is where backing out belongs.
                 playbackHandedOff = false
+                // The hand-picked play that set this is over; left true, the route still believed
+                // a play was starting, and the next pick reused a closed loading session.
+                manualPlaybackStarting = false
                 lastHandedOffFacts = null
                 userAbandonedPlayback = true
                 return@LaunchedEffect
@@ -781,9 +1110,15 @@ internal fun StreamDestination(
             leaveToDetails()
             return@LaunchedEffect
         }
+        // A retry has nothing to relaunch without an armed stream. Only reachable when the player
+        // asked for one, so silence here is the failover arriving before the stream does.
         if (streamsUiState.autoPlayStream == null) return@LaunchedEffect
         playbackHandedOff = false
         lastHandedOffFacts = null
+        streamLog.i {
+            "failover retrying from attempt $autoPickAttempt to ${autoPickAttempt + 1}: " +
+                "previousCandidate=$lastHandedOffLabel"
+        }
         autoPickAttempt += 1
         // The third failure route, and the only one that used to say nothing.
         // The source opened, played, and died - the most visible failure there
@@ -814,14 +1149,14 @@ internal fun StreamDestination(
     ) {
         if (!routeDecisionHandled) return@LaunchedEffect
         if (launch.manualSelection) return@LaunchedEffect
-        // ⚠ **The user leaving outranks an armed chain, and this line is the whole of "back
+        // ⚠ **The user leaving outranks an armed chain, and this line is the whole of "Escape
         // means stop".** On the pop back from the player this effect and the retry effect above
         // both wake on the same `autoPlayStream`, and whichever ran first decided what happened.
-        // When this one won it relaunched the source the user had just left: measured on desktop
-        // at 2.4 s after the back press, re-attaching at the position they left it
-        // (`initialPositionMs=361499` against a `pos=360902` exit), which is why back had to be
-        // out-pressed rather than pressed. Ordering the two effects is not a fix - the abandon
-        // is a fact, and a fact outranks a race.
+        // When this one won it relaunched the source the user had just escaped: measured at
+        // 2.4 s after the back press, re-attaching at the position they left it
+        // (`initialPositionMs=361499` against a `pos=360902` exit), which is why Escape had to
+        // be out-pressed rather than pressed. Ordering the two effects is not a fix - the
+        // abandon is a fact, and a fact outranks a race.
         if (userAbandonedPlayback) return@LaunchedEffect
         val isClassicAutoPlay = playerSettings.playbackMode == PlaybackMode.CLASSIC &&
             playbackRouteDecision is PlaybackRouteDecision.ShowSourceList
@@ -833,14 +1168,37 @@ internal fun StreamDestination(
         // One flag, asked once: "is there a next candidate to fall to?".
         // Answering that in two ways is how the chain ends up half-wired - which
         // is why this is not `mode == STREAMLINED || mode == INSTANT`.
-        val hasFailureChain =
-            playerSettings.playbackMode != PlaybackMode.CLASSIC &&
-                autoPlaybackStarting
+        val hasFailureChain = autoPlaybackStarting &&
+            (isPartyResolution || playerSettings.playbackMode != PlaybackMode.CLASSIC)
         if (!isClassicAutoPlay && !hasFailureChain) return@LaunchedEffect
         if (autoPlayHandled && !hasFailureChain) return@LaunchedEffect
         if (streamsUiState.requestToken != expectedStreamsRequestToken) return@LaunchedEffect
         val selectedStream = streamsUiState.autoPlayStream ?: return@LaunchedEffect
+        val safePartySource = selectedStream.toPartySourceDescriptor(
+            playbackCandidates.firstOrNull { it.stream === selectedStream }?.facts
+                ?: SourceFactsExtractor.extract(selectedStream),
+        )
+        // ⚠ **A host choosing the party's source stops here, before the debrid resolve below.**
+        // Streamlined's quality step and Instant's automatic pick both arrive as an armed
+        // candidate on this chain, exactly as an ordinary play would, and an ordinary play would
+        // now mint a link and open the player. The host is not playing anything yet - they are
+        // answering "what will we watch" - so the descriptor is staged and the lobby takes over.
+        // Classic never reaches this line for a party selection, because `streamManualSelection`
+        // keeps the legacy auto-play policy off the party's candidates and the host picks from
+        // the list.
+        if (partySourceSelection != null) {
+            autoPlayHandled = true
+            if (!stagePartyHostSource(partySourceSelection, safePartySource, selectedStream.streamLabel)) {
+                // The automatic pick describes nothing a guest could match. Hand the host the
+                // list rather than leaving the overlay up over a choice that cannot be made.
+                giveUpToSourceList(path = "party_source_not_describable")
+            }
+            return@LaunchedEffect
+        }
         val stream = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
+            streamLog.i {
+                "debrid resolving: attempt=$autoPickAttempt candidate=${sourceFailureLabel(selectedStream)}"
+            }
             when (
                 val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                     stream = selectedStream,
@@ -848,8 +1206,17 @@ internal fun StreamDestination(
                     episode = launch.episodeNumber,
                 )
             ) {
-                is DirectDebridPlayableResult.Success -> resolved.stream
+                is DirectDebridPlayableResult.Success -> {
+                    streamLog.i {
+                        "debrid resolve succeeded: attempt=$autoPickAttempt candidate=${sourceFailureLabel(selectedStream)}"
+                    }
+                    resolved.stream
+                }
                 else -> {
+                    streamLog.w {
+                        "debrid resolve failed: attempt=$autoPickAttempt candidate=${sourceFailureLabel(selectedStream)} " +
+                            "reason=${resolved.toastMessage()}"
+                    }
                     val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
                     if (hasNextCandidate && hasFailureChain) {
                         autoPickAttempt += 1
@@ -938,12 +1305,14 @@ internal fun StreamDestination(
             parentMetaType = launch.parentMetaType ?: launch.type,
             initialPositionMs = launch.resumePositionMs ?: 0L,
             initialProgressFraction = launch.resumeProgressFraction,
+            contentLanguage = requestedContentLanguage,
             autoPickedWithFailureChain = hasFailureChain,
             // The band the player draws is the band the route was drawing a frame ago.
             sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
                 ?: SourceFactsExtractor.extract(stream),
             playbackAttempt = autoPickAttempt,
             expectedRuntimeMinutes = launch.runtimeMinutes,
+            partySourceDescriptor = safePartySource,
         )
         if (playerSettings.playbackMode == PlaybackMode.INSTANT) {
             val openedFacts = playbackCandidates
@@ -974,45 +1343,6 @@ internal fun StreamDestination(
         // complaint about the previous candidate into the overlay of the one
         // that is now working.
         autoPickFailure = null
-
-        // ⚠ **One request, before a frame is ever attached.** See `PlaybackSourceProbe` for the
-        // session this came from: a source marked cached that produced nothing for twenty
-        // seconds, then a provider's two-minute "being prepared" slate that *played* and so was
-        // scored as a success. Both are visible in the response and neither was visible to the
-        // app. Running it here, under a loading screen that is already up and before the player
-        // route exists, means a rejected source never opens the player at all - so the chain
-        // steps with nothing on screen changing but the attempt number.
-        //
-        // A null result means the probe did not apply (a torrent, a local file); a failure or a
-        // timeout inside it answers `Pass`. Neither may block a play.
-        val probe = probePlaybackSource(
-            url = playerLaunch.sourceUrl,
-            headers = playerLaunch.sourceHeaders,
-            expectedBytes = playerLaunch.sourceFacts?.sizeBytes,
-        )
-        if (probe != null) {
-            streamLog.i { "probe ${probe.toLogFields()} verdict=${probe.verdict.logKey()}" }
-        }
-        val probeRejection = when (probe?.verdict) {
-            is PlaybackProbeVerdict.Dead -> getString(Res.string.playback_source_unreachable)
-            is PlaybackProbeVerdict.Placeholder -> getString(Res.string.playback_source_not_ready)
-            // `Pass`, and the two ways there is no verdict at all: a protocol the probe does not
-            // apply to, and a probe that failed or timed out. All three play the source.
-            else -> null
-        }
-        if (probeRejection != null) {
-            if (hasFailureChain && StreamsRepository.skipAutoPlayStream(stream)) {
-                autoPickAttempt += 1
-                noteSourceFailure(stream, probeRejection)
-            } else if (hasFailureChain) {
-                giveUpToSourceList(reason = probeRejection, path = "probe_chain_spent")
-            } else {
-                StreamsRepository.consumeAutoPlay()
-                giveUpToSourceList(reason = probeRejection, path = "probe_rejected")
-            }
-            StreamsRepository.cancelLoading()
-            return@LaunchedEffect
-        }
 
         if (playerSettings.externalPlayerEnabled) {
             lastHandedOffFacts = playerLaunch.sourceFacts
@@ -1051,9 +1381,16 @@ internal fun StreamDestination(
         }
         if (!hasFailureChain) StreamsRepository.consumeAutoPlay()
         StreamsRepository.cancelLoading()
+        if (partyLaunchEnded()) return@LaunchedEffect
         val launchId = PlayerLaunchStore.put(playerLaunch)
         lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
+        loadingToken?.let(PlaybackLoadingController::handOff)
+        streamLog.i {
+            "handoff: attempt=$autoPickAttempt candidate=${playerLaunch.streamTitle} " +
+                "urlType=${if (playerLaunch.torrentInfoHash != null) "p2p" else "http"} " +
+                "facts=${playerLaunch.sourceFacts?.let { "${it.resolution.qualityLabel} ${it.releaseQuality.orEmpty()} ${it.debridService.orEmpty()}".trim() } ?: "unknown"}"
+        }
         // A mode with a chain keeps StreamRoute on the back stack: that route
         // owns the auto-play effect, the attempt counter and the overlay, so
         // popping it is popping the thing that does the retrying.
@@ -1078,7 +1415,34 @@ internal fun StreamDestination(
         resolvedResumeProgressFraction: Float?,
         forceExternal: Boolean,
         forceInternal: Boolean,
+        safePartySource: PartySourceDescriptorV2? = null,
     ) {
+        val willOpenInternally = forceInternal || (!forceExternal && !playerSettings.externalPlayerEnabled && !stream.shouldOpenExternally)
+        val streamFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
+            ?: SourceFactsExtractor.extract(stream)
+        val retainedPartySource = safePartySource ?: stream.toPartySourceDescriptor(streamFacts)
+        if (partySourceSelection != null) {
+            stagePartyHostSource(partySourceSelection, retainedPartySource, stream.streamLabel)
+            return
+        }
+        if (willOpenInternally) {
+            manualCandidateFacts = streamFacts
+            manualPlaybackStarting = true
+            if (loadingToken == null) {
+                loadingToken = PlaybackLoadingController.open(
+                    step = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
+                        PlaybackProgressStep.ResolvingLink
+                    } else {
+                        PlaybackProgressStep.StartingPlayback
+                    },
+                    artwork = launch.background ?: launch.poster,
+                    logo = launch.logo,
+                    title = launch.title,
+                    attempt = autoPickAttempt,
+                    facts = streamFacts,
+                )
+            }
+        }
         if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
             if (resolvingDebridStream) return
             streamRouteScope.launch {
@@ -1096,8 +1460,13 @@ internal fun StreamDestination(
                         resolvedResumeProgressFraction = resolvedResumeProgressFraction,
                         forceExternal = forceExternal,
                         forceInternal = forceInternal,
+                        safePartySource = retainedPartySource,
                     )
                     else -> {
+                        manualPlaybackStarting = false
+                        manualCandidateFacts = null
+                        loadingToken?.let(PlaybackLoadingController::close)
+                        loadingToken = null
                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
                         if (resolved == DirectDebridPlayableResult.Stale) {
                             StreamsRepository.reload(
@@ -1126,6 +1495,10 @@ internal fun StreamDestination(
             return
         }
         if (stream.shouldOpenExternally) {
+            manualPlaybackStarting = false
+            manualCandidateFacts = null
+            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken = null
             val opened = stream.externalOpenUrl?.let { url -> openExternalStreamUrl(url) } == true
             if (opened) {
                 StreamsRepository.cancelLoading()
@@ -1160,13 +1533,19 @@ internal fun StreamDestination(
             parentMetaType = launch.parentMetaType ?: launch.type,
             initialPositionMs = resolvedResumePositionMs ?: 0L,
             initialProgressFraction = resolvedResumeProgressFraction,
+            contentLanguage = requestedContentLanguage,
             sourceFacts = playbackCandidates.firstOrNull { it.stream === stream }?.facts
                 ?: SourceFactsExtractor.extract(stream),
             playbackAttempt = autoPickAttempt,
             expectedRuntimeMinutes = launch.runtimeMinutes,
+            partySourceDescriptor = retainedPartySource,
         )
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
+            manualPlaybackStarting = false
+            manualCandidateFacts = null
+            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken = null
             streamRouteScope.launch {
                 lastHandedOffFacts = playerLaunch.sourceFacts
                 playbackHandedOff = true
@@ -1188,6 +1567,7 @@ internal fun StreamDestination(
         // the opaque surface kept painting over a list nobody could see.
         lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
+        loadingToken?.let(PlaybackLoadingController::handOff)
         navController.navigate(
             PlayerRoute(launchId = launchId, title = playerLaunch.title)
         )
@@ -1240,9 +1620,20 @@ internal fun StreamDestination(
                 // progress figure that stops moving is a hang wearing a number.
                 // `PlayerNextEpisodeAutoPlay` already took the same budget and
                 // its comment claimed the two paths agreed; now they do.
-                StreamsRepository.seedAutoPlayCandidates(
-                    playbackChain(result.stream, result.fallbacks),
-                )
+                val canonicalChain = playbackChain(result.stream, result.fallbacks)
+                streamLog.i {
+                    canonicalChain.mapIndexed { index, stream ->
+                        val candidate = playbackCandidates.firstOrNull { it.stream === stream }
+                        val facts = candidate?.facts ?: SourceFactsExtractor.extract(stream)
+                        val preferences = playbackSelectionContext.rankingPreferences
+                        "#${index + 1}{resolution=${facts.resolution.qualityLabel.ifBlank { "unknown" }} " +
+                            "range=${facts.dynamicRange.sorted()} language=${SourceRanking.languageScore(facts, preferences)} " +
+                            "media=${SourceRanking.mediaScore(facts, preferences)} cached=${facts.isDebridReady} " +
+                            "size=${facts.sizeBytes ?: -1L} release=${facts.releaseQuality ?: "unknown"} " +
+                            "provider=${facts.debridService ?: facts.providerName ?: stream.addonName}}"
+                    }.joinToString(prefix = "canonical failure chain ", separator = " -> ")
+                }
+                StreamsRepository.seedAutoPlayCandidates(canonicalChain)
             }
             is PlaybackSelectionResult.AskUncached -> {
                 pendingUncachedStream = result.stream
@@ -1341,7 +1732,8 @@ internal fun StreamDestination(
      * is being derived from.
      */
     val awaitingMeteredAnswer =
-        playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
+        !isPartyResolution &&
+            playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
             sheetNetworkQuality.isMetered &&
             meteredChoice == null
     LaunchedEffect(
@@ -1356,9 +1748,10 @@ internal fun StreamDestination(
         // Both automatic modes need this. Streamlined shows the figure and
         // withholds it while it moves; Instant never shows it and *decides* on
         // it, which is the stricter of the two requirements.
-        val needsConnectionFigure =
+        val needsConnectionFigure = !isPartyResolution && (
             playbackRouteDecision is PlaybackRouteDecision.ShowQualitySheet ||
                 playbackRouteDecision is PlaybackRouteDecision.AutoPick
+            )
         if (!needsConnectionFigure) return@LaunchedEffect
         if (qualitySheetDismissed) return@LaunchedEffect
         // This effect re-runs often - `qualityProbeTarget` is rebuilt every
@@ -1457,7 +1850,7 @@ internal fun StreamDestination(
     // deciding whether to spend their data can easily take longer than twenty
     // seconds. Firing there would toast "sources timed out" at a question the app
     // itself had asked.
-    val automaticSelectionPending = !awaitingMeteredAnswer && (
+    val automaticSelectionPending = !isPartyResolution && !awaitingMeteredAnswer && (
         streamlinedSelectionPending ||
         (
             playbackRouteDecision is PlaybackRouteDecision.AutoPick &&
@@ -1544,6 +1937,7 @@ internal fun StreamDestination(
         streamsUiState.emptyStateReason,
     ) {
         if (playbackRouteDecision !is PlaybackRouteDecision.AutoPick) return@LaunchedEffect
+        if (isPartyResolution) return@LaunchedEffect
         if (instantSelectionHandled) return@LaunchedEffect
         if (qualitySheetDismissed || manualSourceListRequested) return@LaunchedEffect
         if (
@@ -1608,6 +2002,7 @@ internal fun StreamDestination(
         awaitingMeteredAnswer
     val streamSurface = streamRouteSurface(
         StreamRouteSurfaceInputs(
+            isPartyResolution = isPartyResolution,
             isClassic = playerSettings.playbackMode == PlaybackMode.CLASSIC,
             isManualLaunch = launch.manualSelection || launch.downloadIntent,
             manualSourceListRequested = manualSourceListRequested,
@@ -1693,7 +2088,14 @@ internal fun StreamDestination(
     }
 
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                drawContent()
+                PlayerExitDiagnostics.recordT2("StreamDestination")
+            },
+    ) {
         StreamsScreen(
             type = launch.type,
             videoId = effectiveVideoId,
@@ -1744,12 +2146,36 @@ internal fun StreamDestination(
         // state where this surface should never be resting was also one where
         // an invisible row could be started by a stray tap.
         if (streamSurface != StreamRouteSurface.SourceList) {
+            val handOffArtwork = launch.background ?: launch.poster
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.nuvio.colors.background)
+                    // ⚠ **Opaque only when there is no artwork to cover with.** The backdrop below
+                    // is full-bleed and opaque once loaded, so it hides the list on its own - but
+                    // `AsyncImage` needs a frame to resolve even from the memory cache, and while
+                    // this Box painted its own flat fill underneath, that frame *was* a grey one.
+                    // Captured on screen at 14:21:55.136, one frame, immediately after a source was
+                    // chosen and before the loading session opened. Transparent, the same list the
+                    // user was already looking at stays visible for that frame instead, and the
+                    // backdrop covers it the moment it arrives - continuous either way.
+                    .then(
+                        if (handOffArtwork.isNullOrBlank()) {
+                            Modifier.background(MaterialTheme.nuvio.colors.background)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .nuvioConsumePointerEvents(),
-            )
+            ) {
+                // ⚠ **The same picture as everything else on this path, and it must stay that
+                // way.** This surface goes up the instant a source is chosen and comes down when
+                // `PlaybackLoadingHost` opens its session - a gap of a frame or more. While it was
+                // a flat fill, that gap was a grey flash between a source list showing the artwork
+                // and a loading screen showing the artwork, measured on screen at the head of the
+                // hand-over. Same artwork, same crop, same scrim, so the loading screen arriving
+                // over it changes nothing visible. Same fallback as the session it precedes.
+                PlaybackLoadingBackdrop(artwork = handOffArtwork)
+            }
         }
         if (streamSurface == StreamRouteSurface.QualitySheet) {
             PlaybackQualitySheet(
@@ -1910,7 +2336,8 @@ internal fun StreamDestination(
                 },
             )
         }
-        val showLoadingSurface = streamSurface == StreamRouteSurface.ProgressOverlay ||
+        val showLoadingSurface = manualPlaybackStarting ||
+            streamSurface == StreamRouteSurface.ProgressOverlay ||
             (streamSurface == StreamRouteSurface.HandOff && playbackHandedOff)
         // ⚠ **This route no longer draws the loading screen; it publishes to it.**
         // `PlaybackLoadingHost` renders it above `NavDisplay` - see the block comment there for
@@ -1920,6 +2347,8 @@ internal fun StreamDestination(
         // destroyed and re-created in between.
         val loadingStep = if (playbackHandedOff) {
             PlaybackProgressStep.StartingPlayback
+        } else if (manualPlaybackStarting) {
+            if (resolvingDebridStream) PlaybackProgressStep.ResolvingLink else PlaybackProgressStep.StartingPlayback
         } else {
             PlaybackProgress.step(
                 PlaybackProgressInputs(
@@ -1937,6 +2366,13 @@ internal fun StreamDestination(
                 ),
             )
         }
+        val loadingFacts = if (manualPlaybackStarting) manualCandidateFacts ?: activeCandidateFacts else activeCandidateFacts
+        val preferredAudioLanguageTarget = resolvePreferredAudioLanguageTargets(
+            preferredAudioLanguage = playerSettings.preferredAudioLanguage,
+            secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
+            deviceLanguages = DeviceLanguagePreferences.preferredLanguageCodes(),
+            contentOriginalLanguage = requestedContentLanguage,
+        ).firstOrNull() ?: playerSettings.preferredAudioLanguage
         val loadingState = PlaybackLoadingState(
             step = loadingStep,
             attempt = autoPickAttempt,
@@ -1944,17 +2380,11 @@ internal fun StreamDestination(
             // the user is about to receive - and so the same figures survive the hand-off into
             // the player, which renders them from the same `SourceFacts` rather than from its own
             // re-parse of the display title.
-            facts = activeCandidateFacts,
+            facts = loadingFacts,
             failure = autoPickFailure,
+            contentLanguage = requestedContentLanguage,
+            preferredAudioLanguage = preferredAudioLanguageTarget,
         )
-
-        // ⚠ **`rememberSaveable`, not `remember`.** In the automatic modes this entry stays on
-        // the back stack while the player is on top, stops composing, and is composed again by
-        // the failover's pop. A plain `remember` would lose the token there, the route would open
-        // a *second* session on top of its own, and the screen would re-enter - which is exactly
-        // the "Attempt 2 reloads the loading screen" fault. `autoPickAttempt` above is saveable
-        // for the same reason.
-        var loadingToken by rememberSaveable(route.launchId) { mutableStateOf<Long?>(null) }
 
         LaunchedEffect(showLoadingSurface) {
             if (showLoadingSurface) {
@@ -1965,33 +2395,58 @@ internal fun StreamDestination(
                         // and the logo do not re-decode at the route change. Diverging these is
                         // the one way to make the hand-off visible again without changing
                         // anything else.
-                        artwork = launch.background,
+                        //
+                        // ⚠ **`?: poster` is load-bearing, and its absence was the grey flash.**
+                        // Every other surface on this path falls back to the poster when a title
+                        // has no backdrop - `StreamsTabletLayout` uses `background ?: poster`, and
+                        // the player's overlay uses `startingEpisode?.thumbnail ?: background ?:
+                        // poster`. This one did not, so on a title with no `background` the
+                        // loading screen alone had nothing to draw and fell through to
+                        // `nuvio.colors.background`: a flat #0D0D0D screen for its whole life,
+                        // between a source list showing the poster and a player overlay showing
+                        // the poster. Captured on screen at 1560 ms, ending exactly when the JCEF
+                        // overlay painted - which is why it read as "grey, then the loading
+                        // screen", and why chasing the canvas and the native container never
+                        // touched it. The comment above already claimed this matched the player.
+                        artwork = launch.background ?: launch.poster,
                         logo = launch.logo,
                         title = launch.title,
                         attempt = autoPickAttempt,
-                        facts = activeCandidateFacts,
+                        facts = loadingFacts,
+                        contentLanguage = requestedContentLanguage,
+                        preferredAudioLanguage = preferredAudioLanguageTarget,
                     )
                 }
             } else {
                 loadingToken?.let(PlaybackLoadingController::close)
                 loadingToken = null
+                manualPlaybackStarting = false
+                manualCandidateFacts = null
             }
         }
 
-        // ⚠ **The "or the user leaves" arm of the session's lifetime, ported from
-        // `nuviozdesktop` where it was written after the surface was found outliving the route.**
+        // ⚠ **The "or the user leaves" arm of the session's lifetime, which was never written.**
         //
-        // `PlaybackLoadingController.close` is reachable from exactly one place - the `else`
-        // above - and an effect does not run its `else` when the composition is torn down. So
-        // popping this route left the session **running**, and `PlaybackLoadingHost` draws above
-        // `NavDisplay` and stops for nothing. It also left the chain armed, which is the half
-        // that outlived the screen: the next visit to the same title was handed it back.
+        // `PlaybackLoadingController.close` is reachable from exactly one place - the `else` above -
+        // and an effect does not run its `else` when the composition is torn down. So popping this
+        // route (`leaveToDetails`, the back button, Escape) cancelled that effect and left the
+        // session **running**. `PlaybackLoadingHost` draws above `NavDisplay` and stops for nothing,
+        // so the abandoned surface kept painting over the details screen: the details screen
+        // appeared for one frame, the loading screen repainted over it, and there was no way out,
+        // because nothing left alive could ever close it. That is the "press Escape, see the other
+        // backdrop, then it flips back and you are stuck" report - and `PlaybackLoadingController`'s
+        // own contract already claimed this case was handled ("...or when the user leaves").
         //
         // A handed-off session is deliberately exempt: from that point the player owns it and
-        // `closeAfterHandOff` ends it, which is the entire reason the surface outlives this
-        // route.
+        // `closeAfterHandOff` ends it, which is the entire reason the surface outlives this route.
         DisposableEffect(Unit) {
             onDispose {
+                // ⚠ **A hand-off is the one exit that leaves the chain alone.** Every other way
+                // this route can vanish - Escape, the back button, the window closing, a deep
+                // link landing elsewhere - is the user leaving, and an automatic play that
+                // outlives them is a play nobody asked for. `leaveToDetails` covers the exits
+                // this route owns; this covers the ones it does not, which is why the abandon
+                // is here as well as there rather than only at the call sites.
                 if (PlaybackLoadingController.session?.handedOff == true) return@onDispose
                 loadingToken?.let { token -> PlaybackLoadingController.close(token) }
                 StreamsRepository.abandonAutoPlay()
@@ -2021,7 +2476,13 @@ internal fun StreamDestination(
             PlaybackLoadingController.registerActions(
                 token = token,
                 actions = PlaybackLoadingActions(
-                    onBack = { leaveToDetails() },
+                    onBack = {
+                        if (manualPlaybackStarting) {
+                            giveUpToSourceList(reason = "", path = "manual_escape")
+                        } else {
+                            leaveToDetails()
+                        }
+                    },
                     // The blank reason is the point: `giveUpToSourceList` toasts whatever it is
                     // given, and the user who just pressed this button already knows why they
                     // are looking at the list.

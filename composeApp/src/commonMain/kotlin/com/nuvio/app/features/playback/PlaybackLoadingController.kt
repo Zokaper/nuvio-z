@@ -45,6 +45,8 @@ object PlaybackLoadingController {
         title: String? = null,
         attempt: Int = 1,
         facts: SourceFacts? = null,
+        contentLanguage: String? = null,
+        preferredAudioLanguage: String? = null,
     ): Long {
         val token = nextToken++
         session = PlaybackLoadingSessions.open(
@@ -55,6 +57,8 @@ object PlaybackLoadingController {
             title = title,
             attempt = attempt,
             facts = facts,
+            contentLanguage = contentLanguage,
+            preferredAudioLanguage = preferredAudioLanguage,
         )
         return token
     }

@@ -48,6 +48,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,6 +58,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
@@ -979,8 +984,11 @@ private const val FIGURE_SEPARATOR = "·"
  * ⚠ **The phone branch keeps [QualitySheetBody] and its card grid**, unedited. It also serves
  * tablets under 768 dp, where there is no width to spend.
  */
+// `internal` rather than private so `PlaybackQualityRenderHarness` can draw it off-screen.
+// This is the desktop/wide branch - the one with the chip row - and nothing outside this file
+// may call it in production; `PlaybackQualitySheet` above is the entry point.
 @Composable
-private fun QualityColumnsBody(
+internal fun QualityColumnsBody(
     options: List<PlaybackQualityOption>,
     isLoading: Boolean,
     isSelecting: Boolean,
@@ -1354,11 +1362,15 @@ private fun FeatureChips(
     val tokens = MaterialTheme.nuvio
     // ⚠ Fixed height whether or not there is anything to draw. A release that names neither
     // fact must leave its neighbours where they are.
-    Row(
-        modifier = modifier.height(CHIP_ROW_HEIGHT),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
-    ) {
+    //
+    // ⚠ **Drops a chip that does not fit rather than clipping it**, which is why this is a
+    // `Layout` and not a `Row`. A `Row` truncates its last child mid-word, and a chip cut in
+    // half says something the release never claimed - a clipped `EN subs` reads as an English
+    // *audio* track. Found by `PlaybackQualityRenderHarness` against a four-chip row; three
+    // wide marks (`AI Upscale`, `HDR10+`, `DTS-HD MA 7.1`) can still reach the same edge.
+    //
+    // The children are declared in descending importance, so the row sheds from the end.
+    ChipRow(modifier = modifier.height(CHIP_ROW_HEIGHT)) {
         if (isAiUpscaled) {
             AiUpscaleChip()
         }
@@ -1374,6 +1386,37 @@ private fun FeatureChips(
             )
         }
         audio?.let { FeatureChip(text = it, color = tokens.colors.textSecondary) }
+    }
+}
+
+/**
+ * A single line of chips that **omits what will not fit** instead of clipping it.
+ *
+ * Hand-rolled for the same reason the loading band's rail is: `FlowRow` is still experimental in
+ * this Compose version, and wrapping is the wrong answer here anyway - a second line would change
+ * the cell's height and pull the grid out of alignment with the column beside it.
+ */
+@Composable
+private fun ChipRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val gap = with(LocalDensity.current) { NuvioTokens.Space.s6.roundToPx() }
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0)) }
+        var used = 0
+        val shown = mutableListOf<Placeable>()
+        for (placeable in placeables) {
+            val width = placeable.width + if (shown.isEmpty()) 0 else gap
+            if (used + width > constraints.maxWidth) break
+            shown += placeable
+            used += width
+        }
+        val height = constraints.constrainHeight(shown.maxOfOrNull { it.height } ?: 0)
+        layout(width = constraints.constrainWidth(used), height = height) {
+            var x = 0
+            shown.forEach { placeable ->
+                placeable.place(x, (height - placeable.height) / 2)
+                x += placeable.width + gap
+            }
+        }
     }
 }
 

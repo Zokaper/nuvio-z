@@ -37,6 +37,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 WORK="${2:-/tmp/nuvio-pure-suites}"
+if command -v cygpath >/dev/null 2>&1; then
+  REPO="$(cygpath -u "$REPO")"
+  WORK="$(cygpath -u "$WORK")"
+  [ -n "${JAVA_HOME:-}" ] && JAVA_HOME="$(cygpath -u "$JAVA_HOME")"
+fi
 KOTLIN_VERSION="2.4.10"
 
 mkdir -p "$WORK"
@@ -112,17 +117,23 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
   "$M/core/media/ReleaseTags.kt" \
   "$M/features/downloads/SourceRanking.kt" \
   "$M/features/playback/PlaybackModeModels.kt" \
+  "$M/features/playback/PlaybackLanguageResolution.kt" \
   "$M/features/playback/PlaybackSourceSelector.kt" \
   "$M/features/playback/PlaybackQualityOptions.kt" \
   "$M/features/playback/StreamRouteSurface.kt" \
   "$M/features/playback/PlaybackModeRouter.kt" \
   "$M/features/playback/ContentIdentityGuard.kt" \
   "$M/features/playback/PlaybackLoadingState.kt" \
+  "$M/features/playback/SourceLanguageInference.kt" \
   "$M/features/playback/PlaybackLoadingSession.kt" \
   "$M/features/playback/PlaybackEntranceMotion.kt" \
   "$T/core/language/LanguageCodesTest.kt" \
+  "$T/features/playback/SourceLanguageInferenceTest.kt" \
+  "$T/features/playback/AutomaticEmbeddedSubtitleLanguageTest.kt" \
+  "$T/features/downloads/EmbeddedSubtitleRankingTest.kt" \
   "$T/core/media/ReleaseTagsTest.kt" \
   "$T/features/downloads/SourceRankingTest.kt" \
+  "$T/features/playback/PlaybackLanguageResolutionTest.kt" \
   "$T/features/playback/PlaybackQualityOptionsTest.kt" \
   "$T/features/playback/StreamRouteSurfaceTest.kt" \
   "$T/features/playback/PlaybackModeRouterTest.kt" \
@@ -136,8 +147,12 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON" -Xplugin="$WORK/serialization-plugin-${
 
 java -cp "$WORK/out-selection:$CP_RUN:$CP_JSON" org.junit.runner.JUnitCore \
   com.nuvio.app.core.language.LanguageCodesTest \
+  com.nuvio.app.features.playback.SourceLanguageInferenceTest \
+  com.nuvio.app.features.playback.AutomaticEmbeddedSubtitleLanguageTest \
+  com.nuvio.app.features.downloads.EmbeddedSubtitleRankingTest \
   com.nuvio.app.core.media.ReleaseTagsTest \
   com.nuvio.app.features.downloads.SourceRankingTest \
+  com.nuvio.app.features.playback.PlaybackLanguageResolutionTest \
   com.nuvio.app.features.playback.PlaybackQualityOptionsTest \
   com.nuvio.app.features.playback.StreamRouteSurfaceTest \
   com.nuvio.app.features.playback.PlaybackModeRouterTest \
@@ -241,6 +256,106 @@ java -cp "$WORK/out-debrid:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUn
   com.nuvio.app.features.debrid.DebridProviderTest \
   com.nuvio.app.features.debrid.DebridSettingsTest \
   com.nuvio.app.features.debrid.DebridStreamPresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 6: the Watch Together timing plane -----------------------------------------------
+# No stubs at all: WatchPartyModels.kt imports nothing but kotlinx.serialization and kotlin.math,
+# and the three files that carry the timing decisions are import-free on purpose so they can be
+# executed here rather than only parser-checked. That matters more for this feature than for any
+# other in the app - two clients disagreeing about a clock is not something a single-machine build
+# can find, and every previous round of Watch Together sync work was verified by reading.
+#
+# `@Serializable` on the wire types is the only reason this group needs the compiler plugin, and
+# the JSON runtime is for WatchPartySyncProtocol.kt, which is hand-rolled over JsonObject so that
+# the encoder can be executed against the decoder instead of trusted to agree with it.
+rm -rf "$WORK/out-watchparty"
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
+  -d "$WORK/out-watchparty" \
+  "$M/features/watchparty/WatchPartyModels.kt" \
+  "$M/features/watchparty/PartySourceDescriptorV2.kt" \
+  "$M/features/watchparty/PartySessionContracts.kt" \
+  "$M/features/watchparty/WatchPartySyncRules.kt" \
+  "$M/features/watchparty/WatchPartySessionState.kt" \
+  "$M/features/watchparty/WatchPartyPlaybackLifecycle.kt" \
+  "$M/features/watchparty/WatchPartyClock.kt" \
+  "$M/features/watchparty/WatchPartyTimeline.kt" \
+  "$M/features/watchparty/WatchPartyBarrier.kt" \
+  "$M/features/watchparty/WatchPartySyncProtocol.kt" \
+  "$M/features/watchparty/PartyPlaybackStatus.kt" \
+  "$T/features/watchparty/WatchPartyModelsTest.kt" \
+  "$T/features/watchparty/PartyPlaybackStatusTest.kt" \
+  "$T/features/watchparty/PartySourceDescriptorV2Test.kt" \
+  "$T/features/watchparty/WatchPartySessionStateTest.kt" \
+  "$T/features/watchparty/WatchPartyPlaybackLifecycleTest.kt" \
+  "$T/features/watchparty/WatchPartySyncTest.kt" \
+  "$T/features/watchparty/WatchPartyJoinBarrierTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-watchparty:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
+  com.nuvio.app.features.watchparty.WatchPartyModelsTest \
+  com.nuvio.app.features.watchparty.WatchPartyJoinBarrierTest \
+  com.nuvio.app.features.watchparty.PartySourceDescriptorV2Test \
+  com.nuvio.app.features.watchparty.WatchPartySessionStateTest \
+  com.nuvio.app.features.watchparty.WatchPartyPlaybackLifecycleTest \
+  com.nuvio.app.features.watchparty.WatchPartyClockTest \
+  com.nuvio.app.features.watchparty.WatchPartyTimelineTest \
+  com.nuvio.app.features.watchparty.WatchPartyBarrierTest \
+  com.nuvio.app.features.watchparty.WatchPartyPendingSeekTest \
+  com.nuvio.app.features.watchparty.WatchPartySyncProtocolTest \
+  com.nuvio.app.features.watchparty.PartyPlaybackStatusTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 7: social reducers and projections -------------------------------------------------
+# The notification reducer, Recently Watched grouping, the outgoing join-request lifecycle with its
+# identity-boundary rules, the Watching Now join affordance and the in-player Watch Together panel
+# state. The panel reads party presentation and health, hence the party timing files and coroutines.
+rm -rf "$WORK/out-social"
+kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serialization-plugin-${KOTLIN_VERSION}.jar" \
+  -d "$WORK/out-social" \
+  "$M/features/watchparty/WatchPartyModels.kt" \
+  "$M/features/watchparty/PartySourceDescriptorV2.kt" \
+  "$M/features/watchparty/PartySessionContracts.kt" \
+  "$M/features/watchparty/WatchPartySyncRules.kt" \
+  "$M/features/watchparty/WatchPartySessionState.kt" \
+  "$M/features/watchparty/WatchPartyPlaybackLifecycle.kt" \
+  "$M/features/watchparty/WatchPartyClock.kt" \
+  "$M/features/watchparty/WatchPartyTimeline.kt" \
+  "$M/features/watchparty/WatchPartyBarrier.kt" \
+  "$M/features/watchparty/WatchPartySyncProtocol.kt" \
+  "$M/features/watchparty/WatchPartyPresentation.kt" \
+  "$M/features/watchparty/PartyPlaybackStatus.kt" \
+  "$M/features/social/SocialModels.kt" \
+  "$M/features/social/SocialNotifications.kt" \
+  "$M/features/social/FriendActivityGrouping.kt" \
+  "$M/features/social/OutgoingJoinRequest.kt" \
+  "$M/features/social/WatchingNowJoinAffordance.kt" \
+  "$M/features/player/WatchTogetherPanelState.kt" \
+  "$M/features/player/WatchTogetherBridge.kt" \
+  "$T/features/social/SocialNotificationsTest.kt" \
+  "$T/features/social/FriendActivityGroupingTest.kt" \
+  "$T/features/social/OutgoingJoinRequestTest.kt" \
+  "$T/features/player/WatchTogetherPanelStateTest.kt" \
+  "$T/features/player/WatchTogetherBridgeTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-social:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner.JUnitCore \
+  com.nuvio.app.features.social.SocialNotificationsTest \
+  com.nuvio.app.features.social.FriendActivityGroupingTest \
+  com.nuvio.app.features.social.OutgoingJoinRequestTest \
+  com.nuvio.app.features.social.WatchingNowJoinAffordanceTest \
+  com.nuvio.app.features.player.WatchTogetherPanelStateTest \
+  com.nuvio.app.features.player.WatchTogetherBridgeTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 8: shared Continue Watching/social title artwork selection -------------------------
+# The style enum is a neighbour stub because its shipped file reaches the full watch-progress
+# model graph; the title presentation decision itself is compiled from the shipped source.
+rm -rf "$WORK/out-title-presentation"
+kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-title-presentation" \
+  "$STUBS/title/ContinueWatchingSectionStyleStub.kt" \
+  "$M/features/home/components/TitlePresentation.kt" \
+  "$T/features/home/components/TitlePresentationTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-title-presentation:$CP_RUN" org.junit.runner.JUnitCore \
+  com.nuvio.app.features.home.components.TitlePresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # Deliberately not run here, and CI is the gate for all three:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types

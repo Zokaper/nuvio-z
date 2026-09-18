@@ -1,5 +1,6 @@
 package com.nuvio.app.core.storage
 
+import com.nuvio.app.features.social.OutgoingJoinRequestStore
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.sync.ProfileSettingsSync
@@ -25,6 +26,7 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.MAX_PROFILES
 import com.nuvio.app.features.search.SearchRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.streams.StreamContextStore
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamLaunchStore
@@ -37,6 +39,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
+import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watched.WatchedRepository
 
 internal object LocalAccountDataCleaner {
@@ -66,6 +69,9 @@ internal object LocalAccountDataCleaner {
         LibraryDisplaySettingsRepository.clearLocalState()
         ContinueWatchingPreferencesRepository.clearLocalState()
         EpisodeReleaseNotificationsRepository.clearLocalState()
+        SocialFeaturePreferencesRepository.clearLocalState()
+        // Local clear now; the server cancel is best effort, since the session may already be gone.
+        OutgoingJoinRequestStore.onAccountWipe()
         CollectionMobileSettingsRepository.clearLocalState()
         CollectionRepository.clearLocalState()
         ThemeSettingsRepository.clearLocalState()
@@ -82,6 +88,9 @@ internal object LocalAccountDataCleaner {
         SearchRepository.reset()
         SubtitleRepository.clear()
         PlayerLaunchStore.clear()
+        // The resolved party launch is sensitive and is owned by the realizer, not by the launch
+        // store it used to hide in. A wipe that cleared only the store left it behind.
+        PartySourceRealizer.clear()
         StreamLaunchStore.clear()
         StreamContextStore.clear()
     }

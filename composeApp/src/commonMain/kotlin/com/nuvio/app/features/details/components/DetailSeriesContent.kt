@@ -68,7 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
@@ -77,16 +77,18 @@ import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioProgressBar
 import com.nuvio.app.core.ui.nuvioCardDepth
+import com.nuvio.app.core.ui.nuvioDesktopDragScroll
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.secondaryClick
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.isDesktop
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.SeasonViewMode
 import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.details.formatRuntimeFromMinutes
-import com.nuvio.app.features.details.metaVideoSeasonEpisodeComparator
-import com.nuvio.app.features.details.normalizeSeasonNumber
+import com.nuvio.app.features.details.groupedEpisodesForDisplay
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.downloads.ContentDownloadState
@@ -159,16 +161,7 @@ fun DetailSeriesContent(
         if (meta.videos.isNotEmpty() && withSeasonOrEp.isEmpty()) {
             log.w { "All videos lack season/episode fields! First: ${meta.videos.first()}" }
         }
-        if (withSeasonOrEp.isNotEmpty()) {
-            withSeasonOrEp
-                .sortedWith(metaVideoSeasonEpisodeComparator)
-                .groupBy { normalizeSeasonNumber(it.season) }
-        } else if (meta.type != "series" && meta.videos.isNotEmpty()) {
-            // For non-series types (e.g. "other"), show videos without season/episode as a flat list
-            mapOf(normalizeSeasonNumber(null) to meta.videos)
-        } else {
-            emptyMap()
-        }
+        meta.groupedEpisodesForDisplay()
     }
 
     if (groupedEpisodes.isEmpty()) {
@@ -200,10 +193,6 @@ fun DetailSeriesContent(
         onCurrentSeasonChanged?.invoke(currentSeason)
     }
 
-    var seasonViewMode by remember {
-        mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
-    }
-
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
         val containerWidthDp = maxWidth.value
@@ -211,83 +200,16 @@ fun DetailSeriesContent(
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (seasons.size > 1) {
-                val hasSeasonPosters = seasons.any { season ->
-                    resolveSeasonPoster(
-                        season = season,
-                        groupedEpisodes = groupedEpisodes,
-                        meta = meta,
-                    ) != null
-                }
-                Column(
-                    modifier = Modifier.animateContentSize(animationSpec = tween(280)),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(Res.string.details_seasons),
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontSize = sizing.seasonHeaderSize,
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        if (hasSeasonPosters) {
-                            SeasonViewModeToggle(
-                                mode = seasonViewMode,
-                                sizing = sizing,
-                                onClick = {
-                                    val next = seasonViewMode.toggled()
-                                    seasonViewMode = next
-                                    SeasonViewModeStorage.save(next)
-                                },
-                            )
-                        }
-                    }
-
-                    if (hasSeasonPosters) {
-                        Crossfade(
-                            targetState = seasonViewMode,
-                            animationSpec = tween(280),
-                            label = "season_selector_layout",
-                        ) { mode ->
-                            when (mode) {
-                                SeasonViewMode.Posters -> SeasonPosterScrollRow(
-                                    seasons = seasons,
-                                    groupedEpisodes = groupedEpisodes,
-                                    meta = meta,
-                                    currentSeason = currentSeason,
-                                    sizing = sizing,
-                                    horizontalScrollPadding = horizontalScrollPadding,
-                                    onSelect = { selectedSeasonOverride = it },
-                                    onLongPress = onSeasonLongPress,
-                                )
-                                SeasonViewMode.Text -> SeasonTextChipScrollRow(
-                                    seasons = seasons,
-                                    currentSeason = currentSeason,
-                                    sizing = sizing,
-                                    horizontalScrollPadding = horizontalScrollPadding,
-                                    onSelect = { selectedSeasonOverride = it },
-                                    onLongPress = onSeasonLongPress,
-                                )
-                            }
-                        }
-                    } else {
-                        SeasonTextChipScrollRow(
-                            seasons = seasons,
-                            currentSeason = currentSeason,
-                            sizing = sizing,
-                            horizontalScrollPadding = horizontalScrollPadding,
-                            onSelect = { selectedSeasonOverride = it },
-                            onLongPress = onSeasonLongPress,
-                        )
-                    }
-                }
-            }
+            SeriesSeasonSelector(
+                meta = meta,
+                seasons = seasons,
+                groupedEpisodes = groupedEpisodes,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                onSelect = { selectedSeasonOverride = it },
+                onLongPress = onSeasonLongPress,
+            )
 
             AnimatedContent(
                 targetState = currentSeason,
@@ -310,6 +232,11 @@ fun DetailSeriesContent(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    if (!isDesktop || seasons.size <= 1) {
+                        DetailSectionTitle(
+                            title = sectionTitle,
+                        )
+                    }
                     val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
                     val hasUnwatchedEpisodes = onSeasonDownloadUnwatched != null &&
                         seasonEpisodes.any { episode ->
@@ -483,6 +410,178 @@ fun DetailSeriesContent(
 }
 
 @Composable
+internal fun DetailSeriesListHeader(
+    meta: MetaDetails,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    seasons: List<Int>,
+    currentSeason: Int,
+    horizontalScrollPadding: Dp,
+    onSeasonSelect: (Int) -> Unit,
+    onSeasonLongPress: ((Int) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val sizing = seriesContentSizing(maxWidth.value)
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SeriesSeasonSelector(
+                meta = meta,
+                seasons = seasons,
+                groupedEpisodes = groupedEpisodes,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                onSelect = onSeasonSelect,
+                onLongPress = onSeasonLongPress,
+            )
+            DetailSectionTitle(
+                title = if (meta.type != "series" && seasons.size == 1 && currentSeason <= 0) {
+                    stringResource(Res.string.details_videos)
+                } else {
+                    currentSeason.label()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+internal fun DetailSeriesListEpisode(
+    meta: MetaDetails,
+    episode: MetaVideo,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
+    episodeRatings: Map<Pair<Int, Int>, Double>,
+    blurUnwatchedEpisodes: Boolean,
+    onEpisodeClick: ((MetaVideo) -> Unit)?,
+    onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val sizing = seriesContentSizing(maxWidth.value)
+        val episodeVideoId = buildPlaybackVideoId(
+            parentMetaId = meta.id,
+            seasonNumber = episode.season,
+            episodeNumber = episode.episode,
+            fallbackVideoId = episode.id,
+        )
+        EpisodeListCard(
+            video = episode,
+            fallbackImage = meta.background ?: meta.poster,
+            progressEntry = progressByVideoId[episodeVideoId],
+            imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.rating,
+            isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                WatchingState.isEpisodeWatched(
+                    watchedKeys = watchedKeys,
+                    metaType = meta.type,
+                    metaId = meta.id,
+                    episode = episode,
+                ),
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            sizing = sizing,
+            onClick = { onEpisodeClick?.invoke(episode) },
+            onLongPress = { onEpisodeLongPress?.invoke(episode) },
+        )
+    }
+}
+
+@Composable
+private fun SeriesSeasonSelector(
+    meta: MetaDetails,
+    seasons: List<Int>,
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    currentSeason: Int,
+    sizing: SeriesContentSizing,
+    horizontalScrollPadding: Dp,
+    onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
+) {
+    if (seasons.size <= 1) return
+
+    var seasonViewMode by remember {
+        mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
+    }
+    val hasSeasonPosters = seasons.any { season ->
+        resolveSeasonPoster(
+            season = season,
+            groupedEpisodes = groupedEpisodes,
+            meta = meta,
+        ) != null
+    }
+    Column(
+        modifier = Modifier.animateContentSize(animationSpec = tween(280)),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isDesktop) {
+                Arrangement.spacedBy(12.dp)
+            } else {
+                Arrangement.SpaceBetween
+            },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.details_seasons),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = sizing.seasonHeaderSize,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            if (hasSeasonPosters) {
+                SeasonViewModeToggle(
+                    mode = seasonViewMode,
+                    sizing = sizing,
+                    onClick = {
+                        val next = seasonViewMode.toggled()
+                        seasonViewMode = next
+                        SeasonViewModeStorage.save(next)
+                    },
+                )
+            }
+        }
+
+        if (hasSeasonPosters) {
+            Crossfade(
+                targetState = seasonViewMode,
+                animationSpec = tween(280),
+                label = "season_selector_layout",
+            ) { mode ->
+                when (mode) {
+                    SeasonViewMode.Posters -> SeasonPosterScrollRow(
+                        seasons = seasons,
+                        groupedEpisodes = groupedEpisodes,
+                        meta = meta,
+                        currentSeason = currentSeason,
+                        sizing = sizing,
+                        horizontalScrollPadding = horizontalScrollPadding,
+                        onSelect = onSelect,
+                        onLongPress = onLongPress,
+                    )
+                    SeasonViewMode.Text -> SeasonTextChipScrollRow(
+                        seasons = seasons,
+                        currentSeason = currentSeason,
+                        sizing = sizing,
+                        horizontalScrollPadding = horizontalScrollPadding,
+                        onSelect = onSelect,
+                        onLongPress = onLongPress,
+                    )
+                }
+            }
+        } else {
+            SeasonTextChipScrollRow(
+                seasons = seasons,
+                currentSeason = currentSeason,
+                sizing = sizing,
+                horizontalScrollPadding = horizontalScrollPadding,
+                onSelect = onSelect,
+                onLongPress = onLongPress,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SeasonViewModeToggle(
     mode: SeasonViewMode,
     sizing: SeriesContentSizing,
@@ -556,12 +655,14 @@ private fun SeasonTextChipScrollRow(
         state = seasonListState,
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .nuvioDesktopDragScroll(seasonListState),
         contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
         items(seasons, key = { season -> season }) { season ->
             val isSelected = season == currentSeason
+            val onSecondaryClick = onLongPress?.let { handler -> { handler(season) } }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(sizing.seasonChipRadius))
@@ -574,8 +675,9 @@ private fun SeasonTextChipScrollRow(
                     )
                     .combinedClickable(
                         onClick = { onSelect(season) },
-                        onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                        onLongClick = onSecondaryClick,
                     )
+                    .secondaryClick(onSecondaryClick)
                     .padding(
                         horizontal = sizing.seasonChipHorizontalPadding,
                         vertical = sizing.seasonChipVerticalPadding,
@@ -629,7 +731,8 @@ private fun SeasonPosterScrollRow(
         state = seasonListState,
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .nuvioDesktopDragScroll(seasonListState),
         contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
@@ -674,10 +777,7 @@ private fun SeasonPosterButton(
     Column(
         modifier = Modifier
             .width(sizing.seasonPosterWidth)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
+            .posterCardClickable(onClick = onClick, onLongClick = onLongClick),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
@@ -785,7 +885,8 @@ private fun EpisodeHorizontalRow(
         state = listState,
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .nuvioDesktopDragScroll(listState),
         contentPadding = PaddingValues(
             horizontal = horizontalScrollPadding + rowMetrics.rowHorizontalPadding,
             vertical = rowMetrics.rowVerticalPadding,
@@ -1263,7 +1364,8 @@ private fun EpisodeListCard(
                 enabled = onClick != null || onLongPress != null,
                 onClick = { onClick?.invoke() },
                 onLongClick = onLongPress,
-            ),
+            )
+            .secondaryClick(onLongPress),
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),

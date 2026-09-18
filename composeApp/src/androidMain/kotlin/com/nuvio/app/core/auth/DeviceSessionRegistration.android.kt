@@ -13,6 +13,7 @@ internal actual fun currentDeviceClientMetadata(): DeviceClientMetadata {
         .ifBlank { Build.VERSION.SDK_INT.toString() }
 
     return DeviceClientMetadata(
+        clientName = "Nuvio Mobile",
         deviceName = deviceName,
         platform = "Android $osVersion",
     )

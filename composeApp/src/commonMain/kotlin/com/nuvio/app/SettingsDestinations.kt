@@ -11,11 +11,8 @@ import com.nuvio.app.features.collection.CollectionManagementScreen
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.collection.FolderDetailScreen
-import com.nuvio.app.features.downloads.DownloadBatch
-import com.nuvio.app.features.downloads.DownloadBatchEntry
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsScreen
-import com.nuvio.app.features.downloads.DownloadsSettingsScreen
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.settings.SettingsScreen
@@ -49,19 +46,13 @@ internal fun SettingsRootDestination(
     collectionsTitle: String,
     onCheckForUpdates: (() -> Unit)?,
     onTestUpdateBanner: (() -> Unit)?,
-    onWhatsNewClick: (() -> Unit)?,
-    onRunSetupAgainClick: (() -> Unit)?,
+    onRunSetupAgain: (() -> Unit)? = null,
 ) {
-    val onBack = rememberGuardedPopBackStack(navController, route)
     SettingsScreen(
         modifier = Modifier.fillMaxSize(),
-        initialPageName = route.pageName,
+        requestedPageName = route.pageName,
+        onRequestedPageConsumed = {},
         rootActionsEnabled = false,
-        onNavigatePage = { pageName, title ->
-            navController.navigate(SettingsPageRoute(pageName, title))
-        },
-        onExternalBack = onBack,
-        showInternalHeader = !useNativeNavigation,
         onDownloadsClick = {
             navController.navigate(DownloadsSettingsRoute(downloadsTitle))
         },
@@ -70,8 +61,7 @@ internal fun SettingsRootDestination(
         },
         onCheckForUpdatesClick = onCheckForUpdates,
         onTestUpdateBannerClick = onTestUpdateBanner,
-        onWhatsNewClick = onWhatsNewClick,
-        onRunSetupAgainClick = onRunSetupAgainClick,
+        onRunSetupAgainClick = onRunSetupAgain,
     )
 }
 
@@ -83,8 +73,14 @@ internal fun DownloadsDestination(
     onOpenDownload: (DownloadItem) -> Unit,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
-    DownloadsSettingsScreen(
+    DownloadsScreen(
         onBack = onBack,
+        onOpenDownload = onOpenDownload,
+        onNavigateToShow = if (useNativeNavigation) {
+            { showId, title -> navController.navigate(DownloadShowRoute(showId, title)) }
+        } else {
+            null
+        },
     )
 }
 
@@ -93,7 +89,6 @@ internal fun DownloadShowDestination(
     route: DownloadShowRoute,
     navController: NuvioNavigator,
     onOpenDownload: (DownloadItem) -> Unit,
-    onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)? = null,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
     DownloadsScreen(
@@ -101,7 +96,6 @@ internal fun DownloadShowDestination(
         onOpenDownload = onOpenDownload,
         initialShowId = route.showId,
         onBackFromShow = onBack,
-        onChooseBatchEntryManually = onChooseBatchEntryManually,
     )
 }
 

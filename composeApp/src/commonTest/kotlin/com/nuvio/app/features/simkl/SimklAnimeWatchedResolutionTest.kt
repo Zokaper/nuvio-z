@@ -275,7 +275,7 @@ class SimklAnimeWatchedResolutionTest {
     }
 
     @Test
-    fun `resolveAnimeEpisodeForSimkl strips anime ids for IMDB videoId prefix`() {
+    fun `resolveAnimeEpisodeForSimkl strips anime ids for IMDB season coordinates`() {
         val reference = TrackingMediaReference(
             kind = TrackingMediaKind.ANIME,
             title = "Some Anime",
@@ -290,10 +290,10 @@ class SimklAnimeWatchedResolutionTest {
 
         val resolved = reference.resolveAnimeEpisodeForSimkl()
 
-        assertEquals("tt2560140", resolved.ids.imdb)
-        assertNull(resolved.ids.mal)
-        assertEquals(reference.episode, resolved.episode)
-        assertEquals(reference.catalog, resolved.catalog)
+        assertEquals(
+            reference.copy(ids = reference.ids.copy(mal = null)),
+            resolved,
+        )
     }
 
     @Test
@@ -308,9 +308,10 @@ class SimklAnimeWatchedResolutionTest {
 
         val resolved = reference.resolveAnimeEpisodeForSimkl()
 
-        assertNull(resolved.ids.mal)
-        assertEquals(reference.episode, resolved.episode)
-        assertNull(resolved.catalog)
+        assertEquals(
+            reference.copy(ids = reference.ids.copy(mal = null)),
+            resolved,
+        )
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -430,10 +431,6 @@ class SimklAnimeWatchedResolutionTest {
         assertTrue(extraKeys.contains(watchedItemKey("series", "mal:123")))
         assertTrue(extraKeys.contains(watchedItemKey("series", "simkl:39687")))
     }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Scenario 10: Library projection uses "anime" type for anime entries
-    // ──────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `library projection uses series type for episodic anime entries`() {

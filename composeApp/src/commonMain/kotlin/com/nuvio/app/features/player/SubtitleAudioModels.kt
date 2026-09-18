@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_track_number
@@ -23,6 +24,17 @@ data class SubtitleTrack(
     val language: String? = null,
     val isSelected: Boolean = false,
     val isForced: Boolean = false,
+    /**
+     * Loaded from outside the container - a stream's sidecar file or an addon subtitle added after
+     * open. False for a track inside the file. Only engines that report it (desktop mpv) set it;
+     * elsewhere it stays false, which "Prefer built-in subtitles" treats as unconfirmed, not as
+     * built-in - see [verifyEmbeddedSubtitles].
+     */
+    val isExternal: Boolean = false,
+    /** The container marks this its default subtitle track. */
+    val isDefault: Boolean = false,
+    /** Whether [isExternal] is an engine report rather than the default. */
+    val isOriginKnown: Boolean = false,
 )
 
 data class AddonSubtitle(
@@ -33,6 +45,12 @@ data class AddonSubtitle(
     val addonName: String? = null,
     val isSelected: Boolean = false,
 )
+
+internal enum class SubtitleTab {
+    BuiltIn,
+    Addons,
+    Style,
+}
 
 enum class AddonSubtitleStartupMode {
     FAST_STARTUP,
@@ -46,7 +64,7 @@ const val SUBTITLE_DELAY_STEP_MS = 100
 const val SUBTITLE_AUTO_SYNC_REACTION_COMPENSATION_MS = 300L
 
 internal val subtitleFontSizeRangeSp: IntRange
-    get() = if (isIos) 6..40 else 12..40
+    get() = if (isDesktop || isIos) 6..40 else 12..40
 
 data class SubtitleStyleState(
     val textColor: Color = Color.White,

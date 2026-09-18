@@ -69,7 +69,7 @@ class ReleaseSerialVersionTest {
 
     @Test
     fun `a zero serial means no serial, not serial zero`() {
-        // A checkout predating ReleaseSerial.xcconfig generates RELEASE_SERIAL = 0
+        // A checkout predating DesktopReleaseSerial.properties generates RELEASE_SERIAL = 0
         // from the gradle default. That must fall through to the string, not compare
         // as a real serial - otherwise every serialled release would outrank it on
         // the serial alone, including ones that are genuinely older.

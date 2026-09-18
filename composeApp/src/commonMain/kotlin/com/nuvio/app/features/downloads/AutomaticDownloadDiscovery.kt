@@ -131,6 +131,7 @@ object AutomaticDownloadDiscovery {
             addonId = target.manifestId,
             addonLogo = target.logoUrl,
             addonManifestUrl = target.manifestUrl,
+            partyOriginId = target.manifestId,
         ).mapNotNull { stream ->
             val facts = SourceFactsExtractor.extract(stream, context)
             if (facts.isAioStreams) {

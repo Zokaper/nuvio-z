@@ -6,19 +6,49 @@ import androidx.compose.ui.Modifier
 interface PlayerEngineController {
     fun play()
     fun pause()
+
+    /**
+     * The player's position, read now, or null when this engine cannot be asked.
+     *
+     * `PlayerPlaybackSnapshot` is produced by a polling loop - every 500ms on desktop, every ~250ms
+     * on Android - so its position is up to a full interval old before anything reads it. That is
+     * invisible for a progress bar and fatal for Watch Together, where the host's position has to
+     * be paired with the instant it was taken: a stale sample stamped with the current time *is*
+     * the sync error. Engines that can answer synchronously answer here; the rest fall back to the
+     * snapshot and the instant it was received.
+     */
+    fun samplePositionMs(): Long? = null
+
     fun seekTo(positionMs: Long)
+
+    /**
+     * Seek to exactly [positionMs], rather than to whatever the engine finds cheapest nearby.
+     *
+     * Desktop's mpv runs with `hr-seek=no` and seeks `absolute+keyframes`, which lands on the
+     * nearest *earlier* keyframe - eight or nine seconds early on a long-GOP release. That trade is
+     * right for a scrub or a ten second skip, where nothing measures the landing. It is fatal for
+     * Watch Together, which measures the gap between where a guest is and where the party is: a
+     * corrective seek that lands seconds short is re-measured as the same gap and seeked for again,
+     * and the guest never converges. Engines whose ordinary seek is already exact inherit it here.
+     */
+    fun seekToExact(positionMs: Long) = seekTo(positionMs)
+    fun trySeekTo(positionMs: Long): Boolean {
+        seekTo(positionMs)
+        return true
+    }
     fun seekBy(offsetMs: Long)
     fun retry()
     fun setPlaybackSpeed(speed: Float)
     fun setMuted(muted: Boolean) {}
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>
+    fun applyAudioLanguagePreferences(languages: List<String>)
     fun selectAudioTrack(index: Int)
     fun selectSubtitleTrack(index: Int)
     fun setSubtitleUri(url: String)
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackIndex: Int)
-    fun applySubtitleStyle(style: SubtitleStyleState) {}
+    fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean = false) {}
     fun applySubtitlePreferences(
         preferredLanguage: String,
         secondaryPreferredLanguage: String? = null,
@@ -31,7 +61,358 @@ interface PlayerEngineController {
     fun configureIosVideoOutput(settings: PlayerSettingsUiState) {}
     fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {}
     fun clearNowPlayingInfo() {}
+
+    /** Optional barrier for platforms that must release native resources before their route is removed. */
+    fun releaseBeforeNavigation(
+        onReleased: () -> Unit,
+        onReleaseFailed: (String) -> Unit = {},
+    ) {
+        onReleased()
+    }
 }
+
+enum class PlayerControlsAction {
+    ToggleChrome,
+    RevealLockedOverlay,
+    Back,
+    ChooseManually,
+    TogglePlayback,
+    KeyboardTogglePlayback,
+    SeekBack,
+    KeyboardSeekBack,
+    SeekForward,
+    KeyboardSeekForward,
+    KeyboardVolumeDown,
+    KeyboardVolumeUp,
+    ResizeMode,
+    Speed,
+    Subtitles,
+    Audio,
+    Sources,
+    Episodes,
+    NextEpisode,
+    OpenExternalPlayer,
+    SubmitIntro,
+    WatchTogether,
+    LockToggle,
+    VideoSettings,
+    DoubleTapSeekBack,
+    DoubleTapSeekForward,
+}
+
+data class PlayerOpeningFact(val label: String, val value: String)
+
+data class PlayerControlsState(
+    val title: String = "",
+    val episodeText: String = "",
+    val streamTitle: String = "",
+    val providerName: String = "",
+    val pauseOverlayWatchingLabel: String = "You're watching",
+    val pauseOverlayLogo: String? = null,
+    val pauseOverlayEpisodeInfo: String = "",
+    val pauseOverlayEpisodeTitle: String = "",
+    val pauseOverlayDescription: String = "",
+    val resizeModeLabel: String = "Fit",
+    val playbackSpeedLabel: String = "1x",
+    val volumeLevel: Float? = null,
+    val subtitlesLabel: String = "Subs",
+    val audioLabel: String = "Audio",
+    val sourcesLabel: String = "Sources",
+    val episodesLabel: String = "Episodes",
+    val nextEpisodeLabel: String = "Next Episode",
+    val externalPlayerLabel: String = "External",
+    val playLabel: String = "Play",
+    val pauseLabel: String = "Pause",
+    val closeLabel: String = "Close player",
+    val mutedLabel: String = "",
+    val volumeLevelLabelFormat: String = "",
+    val lockLabel: String = "Lock player controls",
+    val unlockLabel: String = "Unlock player controls",
+    val submitIntroLabel: String = "Submit Intro",
+    val videoSettingsLabel: String = "Video settings",
+    val watchTogetherLabel: String = "Watch Together",
+    val tapToUnlockLabel: String = "Tap to unlock",
+    val playbackErrorTitle: String = "Playback error",
+    val playbackErrorMessage: String = "",
+    val playbackErrorActionLabel: String = "Go back",
+    val sourcesPanelTitle: String = "Sources",
+    val episodesPanelTitle: String = "Episodes",
+    val streamsPanelTitle: String = "Streams",
+    val allFilterLabel: String = "All",
+    val reloadLabel: String = "Reload",
+    val backLabel: String = "Back",
+    val panelCloseLabel: String = "Close",
+    val cancelLabel: String = "Cancel",
+    val playingLabel: String = "Playing",
+    val noStreamsLabel: String = "No streams found",
+    val noEpisodesLabel: String = "No episodes available",
+    val submitIntroPanelTitle: String = "Submit Timestamps",
+    val submitIntroSegmentTypeLabel: String = "SEGMENT TYPE",
+    val submitIntroSegmentIntroLabel: String = "Intro",
+    val submitIntroSegmentRecapLabel: String = "Recap",
+    val submitIntroSegmentOutroLabel: String = "Outro",
+    val submitIntroStartTimeLabel: String = "START TIME (MM:SS)",
+    val submitIntroEndTimeLabel: String = "END TIME (MM:SS)",
+    val submitIntroCaptureLabel: String = "Capture",
+    val submitIntroSubmitLabel: String = "Submit",
+    val p2pConsentTitle: String = "P2P Streaming",
+    val p2pConsentBody: String = "",
+    val p2pConsentEnableLabel: String = "Enable P2P",
+    val p2pConsentCancelLabel: String = "Cancel",
+    val speedPanelTitle: String = "Playback Speed",
+    val audioTracksPanelTitle: String = "Audio Tracks",
+    val noAudioTracksLabel: String = "No audio tracks available",
+    val subtitlesPanelTitle: String = "Subtitles",
+    val subtitleLanguagesLabel: String = "Languages",
+    val subtitleBuiltInTabLabel: String = "Built-in",
+    val subtitleAddonsTabLabel: String = "Addons",
+    val subtitleStyleTabLabel: String = "Style",
+    val customSubtitleStyleLabel: String = "Use custom styling",
+    val forcedLabel: String = "Forced",
+    val noneLabel: String = "None",
+    val fetchSubtitlesLabel: String = "Tap to fetch subtitles",
+    val subtitleDelayLabel: String = "Subtitle Delay",
+    val resetLabel: String = "Reset",
+    val autoSyncLabel: String = "Auto Sync",
+    val reloadSmallLabel: String = "Reload",
+    val captureLineLabel: String = "Capture",
+    val selectAddonSubtitleFirstLabel: String = "Select an addon subtitle first",
+    val loadingSubtitleLinesLabel: String = "Loading subtitle lines...",
+    val fontSizeLabel: String = "Font Size",
+    val outlineLabel: String = "Outline",
+    val boldLabel: String = "Bold",
+    val bottomOffsetLabel: String = "Bottom Offset",
+    val colorLabel: String = "Color",
+    val textOpacityLabel: String = "Text Opacity",
+    val outlineColorLabel: String = "Outline Color",
+    val noSubtitleLinesFoundLabel: String = "No subtitle lines found",
+    val resetDefaultsLabel: String = "Reset Defaults",
+    val onLabel: String = "On",
+    val offLabel: String = "Off",
+    val themeAccentColor: String = "#2f6fed",
+    val themeAccentStrongColor: String = "#3c7bff",
+    val themeOnAccentColor: String = "#ffffff",
+    val themeFocusColor: String = "#9ecaff",
+    val themeSelectedSurfaceColor: String = "#26384f",
+    val themeSelectedSurfaceHoverColor: String = "#2d4565",
+    val themeSelectedRingColor: String = "rgba(47, 111, 237, .35)",
+    val themeTimelineFillColor: String = "#ffffff",
+    val themeTimelineTrackColor: String = "rgba(255, 255, 255, .28)",
+    val themeBufferingColor: String = "#ffffff",
+    val themeBufferingTrackColor: String = "rgba(255, 255, 255, .28)",
+    val themeControlForegroundColor: String = "#ffffff",
+    val themeSurfaceElevatedColor: String = "#16171d",
+    val themeSurfaceCardColor: String = "rgba(255, 255, 255, .08)",
+    val themeSurfacePopoverColor: String = "rgba(255, 255, 255, .08)",
+    val themeTextPrimaryColor: String = "#ffffff",
+    val themeTextSecondaryColor: String = "rgba(255, 255, 255, .72)",
+    val themeTextMutedColor: String = "rgba(255, 255, 255, .60)",
+    val themeBorderDefaultColor: String = "rgba(255, 255, 255, .12)",
+    val isPlaying: Boolean = false,
+    val isLoading: Boolean = false,
+    val isLocked: Boolean = false,
+    val lockedOverlayVisible: Boolean = false,
+    val controlsVisible: Boolean = true,
+    val parentalWarnings: List<ParentalWarning> = emptyList(),
+    val showParentalGuide: Boolean = false,
+    val showOpeningOverlay: Boolean = false,
+    val openingArtwork: String? = null,
+    val openingLogo: String? = null,
+    val openingTitle: String = "",
+    val openingMessage: String? = null,
+    val openingProgress: Float? = null,
+    /**
+     * The app's desktop UI scale, so the native opening overlay is the **same size** as the
+     * Compose loading screen it takes over from.
+     *
+     * ⚠ **This is the bug that made the hand-over obvious.** `NuvioTheme` multiplies `LocalDensity`
+     * by `effectiveDesktopUiScale`, so every Compose dp on desktop is already scaled - but the
+     * controls page is a browser and sizes everything in raw CSS px, which knows nothing about it.
+     * The two loading screens were therefore never the same size, and the moment both became
+     * visible in sequence the takeover read as the screen reloading at a different zoom. Matching
+     * the colour was not enough; they have to match the *scale*.
+     *
+     * Applied to the opening overlay only. The rest of the player chrome never coexists with a
+     * Compose screen, so it has nothing to match and is deliberately left alone.
+     */
+    val openingScale: Float = 1f,
+    /** Desktop-native rendering of Phase 2's shared loading band. */
+    val openingStageLabel: String = "",
+    val openingAttemptLabel: String = "",
+    val openingFacts: List<PlayerOpeningFact> = emptyList(),
+    val openingOffersManualEscape: Boolean = false,
+    val openingManualEscapeLabel: String = "",
+    val openingProviderLine: String = "",
+    val openingReleaseName: String = "",
+    /**
+     * The Watch Together status pill (§5 of the UX pass): who or what the party is waiting on, with at
+     * most one action. Deliberately independent of [controlsVisible]: a player that is paused because
+     * it is waiting on somebody else has to say so even when the chrome has faded - the page compacts
+     * it then rather than hiding it.
+     */
+    val partyStatus: PartyStatusBridgeState = PartyStatusBridgeState(),
+    /** The Watch Together panel, header badge and in-player request mirror. See `WatchTogetherBridge.kt`. */
+    val watchTogether: WatchTogetherBridgeState = WatchTogetherBridgeState(),
+    /**
+     * A guest under host-only controls. Kept flat and apart from [watchTogether] because a dozen
+     * transport entry points on the page ask it before anything moves.
+     */
+    val partyTransportLocked: Boolean = false,
+    /** Who holds the controls, for "Only Seraph can pause or seek". */
+    val partyHostName: String = "",
+    val socialNotificationVisible: Boolean = false,
+    val socialNotificationActor: String = "",
+    val socialNotificationMessage: String = "",
+    val socialNotificationActions: List<String> = emptyList(),
+    val skipPromptVisible: Boolean = false,
+    val skipPromptLabel: String = "Skip",
+    val skipPromptStartMs: Long = 0L,
+    val skipPromptEndMs: Long = 0L,
+    val skipPromptDismissed: Boolean = false,
+    val nextEpisodeVisible: Boolean = false,
+    val nextEpisodeHeaderLabel: String = "Next episode",
+    val nextEpisodeTitle: String = "",
+    val nextEpisodeThumbnail: String = "",
+    val nextEpisodeStatus: String = "",
+    val nextEpisodeActionLabel: String = "Play",
+    val nextEpisodePlayable: Boolean = false,
+    val showSubmitIntro: Boolean = false,
+    val showVideoSettings: Boolean = false,
+    val showWatchTogether: Boolean = false,
+    val showSources: Boolean = false,
+    val showEpisodes: Boolean = false,
+    val showNextEpisode: Boolean = false,
+    val showExternalPlayer: Boolean = false,
+    val durationMs: Long = 0L,
+    val positionMs: Long = 0L,
+    val sourceIsLoading: Boolean = false,
+    val sourceFilters: List<PlayerControlFilterItem> = emptyList(),
+    val sourceItems: List<PlayerControlSourceItem> = emptyList(),
+    val episodeItems: List<PlayerControlEpisodeItem> = emptyList(),
+    val episodeSeasons: List<PlayerControlSeasonItem> = emptyList(),
+    val episodeStreamsVisible: Boolean = false,
+    val episodeStreamsIsLoading: Boolean = false,
+    val selectedEpisodeLabel: String = "",
+    val episodeStreamFilters: List<PlayerControlFilterItem> = emptyList(),
+    val episodeStreamItems: List<PlayerControlSourceItem> = emptyList(),
+    val blurUnwatchedEpisodes: Boolean = false,
+    val submitIntroSegmentType: String = "intro",
+    val submitIntroStartTime: String = "00:00",
+    val submitIntroEndTime: String = "00:00",
+    val isSubmitIntroSubmitting: Boolean = false,
+    val submitIntroStatusMessage: String = "",
+    val showP2pConsent: Boolean = false,
+    val subtitleActiveTab: String = "BuiltIn",
+    val subtitleLanguageItems: List<PlayerControlSubtitleLanguageItem> = emptyList(),
+    val subtitleOptionItems: List<PlayerControlSubtitleOptionItem> = emptyList(),
+    val selectedSubtitleLanguageKey: String = "__off__",
+    val selectedSubtitleOptionId: String = "",
+    val addonSubtitleItems: List<PlayerControlAddonSubtitleItem> = emptyList(),
+    val isLoadingAddonSubtitles: Boolean = false,
+    val selectedAddonSubtitleId: String = "",
+    val useCustomSubtitles: Boolean = false,
+    val customSubtitleStylingEnabled: Boolean = true,
+    val subtitleStyle: SubtitleStyleState = SubtitleStyleState.DEFAULT,
+    val subtitleDelayMs: Int = 0,
+    val hasSelectedAddonSubtitle: Boolean = false,
+    val subtitleAutoSyncCapturedPositionMs: Long = -1L,
+    val subtitleAutoSyncCues: List<PlayerControlSubtitleCueItem> = emptyList(),
+    val subtitleAutoSyncIsLoading: Boolean = false,
+    val subtitleAutoSyncErrorMessage: String = "",
+    val closeModalsToken: Long = 0L,
+    val submitIntroContentKey: String = "",
+    val submitIntroSuccessToken: Long = 0L,
+    val notificationMessage: String = "",
+    val notificationToken: Long = 0L,
+)
+
+data class PlayerControlFilterItem(
+    val id: String = "",
+    val label: String = "",
+    val isSelected: Boolean = false,
+    val isLoading: Boolean = false,
+    val hasError: Boolean = false,
+)
+
+data class PlayerControlSeasonItem(
+    val season: Int = 0,
+    val label: String = "",
+    val isSelected: Boolean = false,
+)
+
+data class PlayerControlSourceBadgeItem(
+    val name: String = "",
+    val imageURL: String = "",
+    val tagColor: String = "",
+    val tagStyle: String = "",
+    val borderColor: String = "",
+)
+
+data class PlayerControlSourceItem(
+    val index: Int = 0,
+    val filterId: String = "",
+    val label: String = "",
+    val subtitle: String = "",
+    val addonName: String = "",
+    val addonLogo: String = "",
+    val showAddonLogo: Boolean = false,
+    val isCurrent: Boolean = false,
+    val isEnabled: Boolean = true,
+    val badges: List<PlayerControlSourceBadgeItem> = emptyList(),
+    val formattedSize: String = "",
+    val badgePlacement: String = "BOTTOM",
+    /** Choosing this row changes the panel's content rather than finishing the choice. */
+    val keepOpen: Boolean = false,
+)
+
+data class PlayerControlEpisodeItem(
+    val index: Int = 0,
+    val id: String = "",
+    val title: String = "",
+    val code: String = "",
+    val overview: String = "",
+    val thumbnail: String = "",
+    val released: String = "",
+    val season: Int = 0,
+    val episode: Int = 0,
+    val isCurrent: Boolean = false,
+    val isWatched: Boolean = false,
+)
+
+data class PlayerControlAddonSubtitleItem(
+    val index: Int = 0,
+    val id: String = "",
+    val display: String = "",
+    val language: String = "",
+    val languageLabel: String = "",
+    val addonName: String = "",
+    val isSelected: Boolean = false,
+)
+
+data class PlayerControlSubtitleLanguageItem(
+    val key: String = "",
+    val label: String = "",
+    val count: Int = 0,
+    val isSelected: Boolean = false,
+)
+
+data class PlayerControlSubtitleOptionItem(
+    val id: String = "",
+    val languageKey: String = "",
+    val kind: String = "",
+    val index: Int = 0,
+    val sourceLabel: String = "",
+    val title: String = "",
+    val metadata: String = "",
+    val isSelected: Boolean = false,
+)
+
+data class PlayerControlSubtitleCueItem(
+    val index: Int = 0,
+    val timeMs: Long = 0L,
+    val timeLabel: String = "",
+    val text: String = "",
+)
 
 internal fun sanitizePlaybackHeaders(headers: Map<String, String>?): Map<String, String> {
     val rawHeaders = headers ?: return emptyMap()
@@ -77,8 +458,14 @@ expect fun PlatformPlayerSurface(
     initialPositionRequestKey: String? = null,
     resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     useNativeController: Boolean = false,
+    playerControlsState: PlayerControlsState = PlayerControlsState(),
+    onPlayerControlsAction: (PlayerControlsAction) -> Boolean = { false },
+    onPlayerControlsEvent: (String, Double) -> Boolean = { _, _ -> false },
+    onPlayerControlsScrubChange: (Long) -> Boolean = { false },
+    onPlayerControlsScrubFinished: (Long) -> Boolean = { false },
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit = { _, _ -> },
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    sourceAvailable: Boolean = true,
 )

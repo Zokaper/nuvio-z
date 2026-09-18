@@ -67,14 +67,67 @@ class LanguageCodesTest {
     fun keepsTheTwoSpanishesAndTheTwoPortuguesesApart() {
         assertEquals(setOf("es-419"), releaseLanguagesIn("Movie.2024.1080p.LATINO.WEB-DL.mkv").codes)
         assertEquals(setOf("es"), releaseLanguagesIn("Movie.2024.1080p.CASTELLANO.WEB-DL.mkv").codes)
-        assertEquals(setOf("pt-br"), releaseLanguagesIn("Movie.2024.1080p.LEGENDADO.WEB-DL.mkv").codes)
+        assertEquals(setOf("pt-br"), releaseLanguagesIn("Movie.2024.1080p.DUBLADO.WEB-DL.mkv").codes)
     }
 
     @Test
     fun readsSceneWordsThatNameAMarket() {
-        assertEquals(setOf("fr"), releaseLanguagesIn("Movie.2024.1080p.VOSTFR.WEB-DL.mkv").codes)
         assertEquals(setOf("fr"), releaseLanguagesIn("Movie.2024.1080p.TRUEFRENCH.BluRay.mkv").codes)
         assertEquals(setOf("pl"), releaseLanguagesIn("Movie.2024.1080p.LEKTOR.PL.WEB-DL.mkv").codes)
+    }
+
+    @Test
+    fun subtitleSceneWordsAreSubtitlesNotAudio() {
+        // `VOSTFR` is original audio with French subtitles and `LEGENDADO` is original audio with
+        // Brazilian subtitles. Both used to be read as the audio language.
+        val vostfr = releaseLanguageEvidenceIn("Movie.2024.1080p.VOSTFR.WEB-DL.mkv")
+        assertTrue(vostfr.audio.codes.isEmpty())
+        assertEquals(setOf("fr"), vostfr.subtitles.codes)
+
+        val legendado = releaseLanguageEvidenceIn("Movie.2024.1080p.LEGENDADO.WEB-DL.mkv")
+        assertTrue(legendado.audio.codes.isEmpty())
+        assertEquals(setOf("pt-br"), legendado.subtitles.codes)
+    }
+
+    @Test
+    fun aLanguageNextToSubsIsASubtitleLanguage() {
+        val engSubs = releaseLanguageEvidenceIn("Movie.2024.1080p.WEB-DL.HINDI.ENG.SUBS.mkv")
+        assertEquals(setOf("hi"), engSubs.audio.codes)
+        assertEquals(setOf("en"), engSubs.subtitles.codes)
+
+        // The Italian convention puts the language after the word.
+        val subIta = releaseLanguageEvidenceIn("Film.2024.1080p.WEB-DL.ENG.AC3.SUB.ITA.mkv")
+        assertEquals(setOf("en"), subIta.audio.codes)
+        assertEquals(setOf("it"), subIta.subtitles.codes)
+
+        assertEquals(setOf("en"), releaseLanguageEvidenceIn("Movie.2024.720p.HDRip.Hindi.ESub.mkv").subtitles.codes)
+        assertEquals(setOf("en"), releaseLanguageEvidenceIn("Show.S01E01.1080p.EngSub.mkv").subtitles.codes)
+    }
+
+    @Test
+    fun multiSubsIsNotMultiAudio() {
+        val evidence = releaseLanguageEvidenceIn("Movie.2024.2160p.ITA.MultiSubs.mkv")
+        assertFalse(evidence.audio.isMulti)
+        assertEquals(setOf("it"), evidence.audio.codes)
+        assertTrue(evidence.subtitles.isMulti)
+
+        val spaced = releaseLanguageEvidenceIn("Movie.2024.2160p.MULTi.SUBS.mkv")
+        assertFalse(spaced.audio.isMulti)
+        assertTrue(spaced.subtitles.isMulti)
+    }
+
+    @Test
+    fun dubbedAndHardSubbedAreMarkers() {
+        assertTrue(releaseLanguageEvidenceIn("Anime.S01E01.1080p.DUBBED.WEB.mkv").isDubbed)
+        assertTrue(releaseLanguageEvidenceIn("Movie.2024.720p.HC.HDRip.mkv").isHardSubbed)
+        assertFalse(releaseLanguageEvidenceIn("Movie.2024.1080p.WEB-DL.mkv").isDubbed)
+    }
+
+    @Test
+    fun aTitleWordThatMerelyStartsWithSubIsNotASubtitleClaim() {
+        val evidence = releaseLanguageEvidenceIn("Submarine.2010.1080p.BluRay.mkv")
+        assertTrue(evidence.subtitles.isEmpty)
+        assertTrue(releaseLanguageEvidenceIn("[SubsPlease] Frieren - 12 (1080p).mkv").subtitles.isEmpty)
     }
 
     @Test
@@ -100,5 +153,26 @@ class LanguageCodesTest {
         assertTrue(languageMatchesPreference("pt-BR", "pt"))
         assertTrue(languageMatchesPreference("eng", "en"))
         assertFalse(languageMatchesPreference("hi", "en"))
+    }
+
+    @Test
+    fun trackerReleaseGroupsDoNotInferRussianFromRutrackerOrRutor() {
+        val rutracker = releaseLanguagesIn(
+            "Bugonia.2025.Hybrid.UHD.EUR.BluRay.Remux.2160p.DV.HDR.HEVC.TrueHD.Atmos.7.1-RUTRACKER.mkv",
+        )
+        assertFalse("ru" in rutracker.codes)
+
+        val rutor = releaseLanguagesIn("Movie.2024.1080p.WEB-DL-RUTOR.mkv")
+        assertFalse("ru" in rutor.codes)
+    }
+
+    @Test
+    fun legitimateRussianReleaseTokensAreRecognizedAcrossDelimiters() {
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie.2024.1080p.RU.audio.mkv").codes)
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie.2024.1080p.RU-Audio.mkv").codes)
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie.2024.1080p.RU_Audio.mkv").codes)
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie 2024 1080p RU Audio mkv").codes)
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie.2024.1080p.RUS.mkv").codes)
+        assertEquals(setOf("ru"), releaseLanguagesIn("Movie.2024.1080p.Russian.mkv").codes)
     }
 }

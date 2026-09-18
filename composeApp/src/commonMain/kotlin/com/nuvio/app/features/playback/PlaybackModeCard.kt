@@ -257,9 +257,11 @@ private fun playbackModeDownloadLine(mode: PlaybackMode): String = when (mode) {
  * Marker for the contract the wizard depends on, kept as documentation rather than an
  * interface because `PlayerSettingsRepository` is an object.
  *
- * Finishing setup must call **both** `markSetupWizardCompleted` and
- * `markPlaybackModeSelectorSeen`. Choosing Classic is a no-op for the mode - it is the
- * default - so the mode alone can never mean "answered", which is why the flag exists at all.
- * `SetupWizardScreen.complete()` writes both.
+ * Finishing setup must call `markSetupWizardCompleted`. It used to have to call
+ * `markPlaybackModeSelectorSeen` as well, because choosing Classic is a no-op for the mode - it
+ * is the default - so the mode alone could never mean "answered". That distinction belongs to the
+ * standalone first-launch selector, which the wizard replaced; the wizard's own completion
+ * revision answers the same question, so the second flag was deleted.
+ * `SetupWizardScreen.complete()` writes the revision.
  */
 private interface PlaybackModeRepositoryContract

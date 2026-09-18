@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,24 +64,45 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.sync.ProfileSettingsSync
+import com.nuvio.app.isDesktop
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.features.membership.MemberAccessRepository
+import com.nuvio.app.features.membership.availableAppThemes
+import com.nuvio.app.features.settings.CustomThemeEditor
 import com.nuvio.app.core.ui.labelRes
 import com.nuvio.app.core.ui.isBackdropBlurSupported
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
-import com.nuvio.app.features.addons.AddAddonResult
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaScreenBackgroundMode
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.downloads.DynamicRangePolicy
+import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
+import com.nuvio.app.features.playback.playbackModeName
+import com.nuvio.app.features.settings.PLAYBACK_QUALITY_CEILING_STEPS
+import com.nuvio.app.features.settings.playbackDynamicRangeLabel
+import com.nuvio.app.features.settings.playbackLanguageStrictnessLabel
+import com.nuvio.app.features.settings.playbackQualityCeilingLabel
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
+import com.nuvio.app.features.social.SocialIdentityBody
+import com.nuvio.app.features.social.SocialRepository
+import com.nuvio.app.features.social.shutdownSocialLayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.AudioLanguageOption
+import com.nuvio.app.features.player.AvailableLanguageOptions
+import com.nuvio.app.features.player.SubtitleLanguageOption
+import com.nuvio.app.features.player.languageLabelForCode
+import com.nuvio.app.features.settings.LanguageSelectionDialog
+import com.nuvio.app.features.settings.LanguageSelectionOption
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
@@ -89,6 +113,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
+import kotlin.math.abs
 
 // String keys are imported by wildcard, which is the style HomeScreen.kt, MetaDetailsScreen.kt
 // and DetailHero.kt already use. Deliberate: this screen reads about sixty keys.
@@ -164,6 +189,24 @@ fun SetupWizardScreen(
     val selectedTheme by remember { ThemeSettingsRepository.selectedTheme }.collectAsStateWithLifecycle()
     val amoledEnabled by remember { ThemeSettingsRepository.amoledEnabled }.collectAsStateWithLifecycle()
     val addons by remember { AddonRepository.uiState }.collectAsStateWithLifecycle()
+    val socialPreferences by remember {
+        SocialFeaturePreferencesRepository.ensureLoaded()
+        SocialFeaturePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val socialState by remember { SocialRepository.uiState }.collectAsStateWithLifecycle()
+    val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
+
+    // ⚠ **Kicked off here rather than on the social step, and that head start is the point.** The
+    // probe only runs for a profile the local cache cannot answer for - a second install, a
+    // cleared data root - and it is a signed-in round trip. Starting it when the wizard opens
+    // gives it four screens to land in, so the social switch is already pre-selected correctly by
+    // the time anyone reads the question. Starting it on the step itself would show the wrong
+    // default first and correct it under the user, which is the one thing that must not happen on
+    // a question about their existing account.
+    val socialProfileId = profileState.activeProfile?.id?.takeIf(String::isNotBlank)
+    LaunchedEffect(socialProfileId) {
+        SocialFeaturePreferencesRepository.refreshIdentityProbe(socialProfileId)
+    }
 
     // Saved by name, not by ordinal: an enum reordered in a later release must not resume a
     // process-death-restored wizard on a different step than the user left it on. Revision 3
@@ -174,9 +217,30 @@ fun SetupWizardScreen(
 
     val specimen = step.specimen
 
-    // `enabled`, not merely present: an installed-but-disabled addon is not a source, so a
-    // profile carrying only those still gets asked.
-    val plan = SetupWizardPlan(offerSources = addons.addons.none { it.enabled })
+    // Every input is live repository state, so the plan is derived rather than stored. That is
+    // what keeps the immediate-write model honest: each choice is written through the real setter
+    // the moment it is tapped, and the shape of the remaining flow is a pure function of what has
+    // been written. A draft would mean the wizard and Settings disagreed about the current value
+    // for the length of the flow, which is the drift the shared `PlaybackModeCard` exists to stop.
+    val plan = SetupWizardPlan(
+        playbackModeName = playerSettings.playbackMode.name,
+        socialEnabled = socialPreferences.enabled,
+        // Either half can answer: the local cache for anyone who has used social on this machine,
+        // the probe for a cache-cold install that still has a backend identity.
+        offerSocialIdentity = socialState.me == null && !socialPreferences.hasKnownIdentity,
+    )
+    val existingStreamAddonName = addons.addons.firstEnabledStreamAddonName()
+
+    // ⚠ **A step can leave the plan while the user is standing on it, and there are two ways.**
+    // Going back and choosing Classic drops PlaybackSetup; turning social off drops SocialIdentity.
+    // Sources remains in the plan unconditionally. `nextSetupStep` already answers for a step outside
+    // the plan - this is what makes the screen act on that answer instead of leaving the user on
+    // a screen the run no longer contains, waiting for a tap.
+    LaunchedEffect(plan) {
+        if (setupStepPosition(step, plan) == null) {
+            stepName = (nextSetupStep(step, plan) ?: SetupStep.Done).name
+        }
+    }
 
     // Which way the panel body should slide. Read from the step's position in the plan, so a
     // dropped optional step cannot make Back animate forwards.
@@ -185,22 +249,62 @@ fun SetupWizardScreen(
     val goingForward = position >= lastPosition
     LaunchedEffect(position) { lastPosition = position }
 
-    var addonUrl by rememberSaveable { mutableStateOf("") }
-    var addonBusy by remember { mutableStateOf(false) }
-    // Two states rather than a message plus a boolean: the error text comes from the addon or
-    // the manifest fetch and is shown verbatim, while the success line is a formatted string
-    // resource and can only be built in composition.
-    var addonError by remember { mutableStateOf<String?>(null) }
-    var addonInstalledName by remember { mutableStateOf<String?>(null) }
+    // ⚠ `remember`, never `rememberSaveable`: this state holds the TorBox key while it is being typed,
+    // and a saveable would write it into the saved-instance bundle. Only the mode is saved.
+    var sourcesModeName by rememberSaveable { mutableStateOf(SetupSourcesMode.Choice.name) }
+    val sourcesController = remember {
+        SetupSourcesController(
+            initial = SetupSourcesState(
+                mode = SetupSourcesMode.entries.firstOrNull { it.name == sourcesModeName } ?: SetupSourcesMode.Choice,
+            ),
+        )
+    }
+    val sources by sourcesController.state.collectAsStateWithLifecycle()
+    LaunchedEffect(sources.mode) { sourcesModeName = sources.mode.name }
+    // Nothing sensitive outlives the step: not a half-typed key, not the recovery password.
+    // The pickers follow the Language step, which comes first, until the user picks one here.
+    LaunchedEffect(step) {
+        if (step == SetupStep.Sources) {
+            sourcesController.seedLanguages(playerSettings.preferredAudioLanguage, playerSettings.preferredSubtitleLanguage)
+        } else {
+            sourcesController.forgetSensitive()
+        }
+    }
+
+    // The handle draft survives a process-death restore for the same reason `stepName` does: a
+    // half-typed handle is work, and losing it on a step that gates the app is a bad trade.
+    var socialHandle by rememberSaveable { mutableStateOf("") }
+    var socialHandleBusy by remember { mutableStateOf(false) }
+    var socialHandleMessage by remember { mutableStateOf<String?>(null) }
 
     val emptyUrlMessage = stringResource(Res.string.addons_error_enter_url)
     val nextUpLabel = stringResource(Res.string.setup_specimen_next_up)
 
+    /**
+     * Record the social answer, taking the layer down first when it is being switched off.
+     *
+     * ⚠ **Teardown before the flag, never after.** Turning social off has to leave any live party
+     * through the coordinator - which is what tells the server and, for a host, transfers the
+     * party - and that has to finish while the social surfaces still exist. Flipping the
+     * preference first would remove them mid-departure. `shutdownSocialLayer` is idempotent, so
+     * the ordinary first-run case (nothing running) costs nothing.
+     */
+    fun setSocialEnabled(enabled: Boolean) {
+        if (enabled) {
+            SocialFeaturePreferencesRepository.setEnabled(true)
+            return
+        }
+        scope.launch {
+            shutdownSocialLayer()
+            SocialFeaturePreferencesRepository.setEnabled(false)
+        }
+    }
+
     fun complete() {
-        // Both, always. `playback_mode_selector_seen` is no longer read by any gate, but it is
-        // still what `PlaybackModeDialog` treats as "answered" and it still syncs, so leaving
-        // it false would re-prompt anyone who downgrades to 0.4.x.
-        PlayerSettingsRepository.markPlaybackModeSelectorSeen()
+        // ⚠ `playback_mode_selector_seen` used to be written here too. It is gone: nothing had
+        // read it since the setup wizard replaced the standalone selector, and it was being
+        // kept alive only to spare a 0.4.x downgrade one extra prompt. The key survives as a
+        // sync tombstone so an older client's payload still clears the stale local value.
         PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
 
         // ⚠ Push immediately rather than leaving it to the observer, because while the wizard is
@@ -217,12 +321,49 @@ fun SetupWizardScreen(
     }
 
     fun advance() {
+        // ⚠ **Leaving the social step forward is an answer, and this is where it becomes one.**
+        // The switch shows a value resolved from this profile's history, not a stored preference,
+        // and until somebody commits it the migration rule keeps re-deriving it on every launch.
+        // Seeing the question and walking past it is a decision; the Welcome skip, which never
+        // reaches this step, deliberately is not - see `resolveSocialFeaturesEnabled`.
+        // ⚠ Through `setSocialEnabled`, not straight to the repository. A first run has no party
+        // to leave, but this same screen is the dismissible re-run from Settings, and walking past
+        // this step with the switch off is as much a decision to turn social off as moving the
+        // switch is - so it has to take the layer down in the same order.
+        if (step == SetupStep.SocialOptIn && socialPreferences.storedPreference == null) {
+            setSocialEnabled(socialPreferences.enabled)
+        }
         if (isFinalSetupStep(step, plan)) {
             complete()
         } else {
             stepName = (nextSetupStep(step, plan) ?: SetupStep.Done).name
         }
     }
+
+    val advanceState = setupAdvanceFor(step, sources)
+
+    /** Back from a Sources setup path returns to its question, not to the previous step. */
+    fun back() {
+        if (advanceState == SetupAdvance.Disabled) {
+            sourcesController.backToChoice()
+            return
+        }
+        previousSetupStep(step, plan)?.let { stepName = it.name }
+    }
+
+    val sourcesActions = SetupSourcesActions(
+        onUseRecommended = sourcesController::chooseRecommended,
+        onSetUpManually = sourcesController::chooseManual,
+        onKeepExisting = { advance() },
+        onDoItLater = { advance() },
+        onBackToChoice = sourcesController::backToChoice,
+        onTorBoxApiKeyChange = sourcesController::setTorBoxApiKey,
+        onSourceLanguageChange = sourcesController::setSourceLanguage,
+        onSubtitleLanguageChange = sourcesController::setSubtitleLanguage,
+        onSetUpRecommended = { scope.launch { sourcesController.setUpRecommended() } },
+        onManualUrlChange = sourcesController::setManualUrl,
+        onInstallManual = { scope.launch { sourcesController.installManual(emptyUrlMessage) } },
+    )
 
     BoxWithConstraints(
         modifier = modifier
@@ -240,9 +381,9 @@ fun SetupWizardScreen(
             // ⚠ **This is the second time this defect has shipped.** `0.5.0-beta` item 1 was the
             // same thing on the stream route - "the surface consumed no pointer input, so the
             // invisible source list underneath was fully tappable". `nuvioConsumePointerEvents`
-            // is the fix written then, and it consumes on `PointerEventPass.Final`, so this
-            // screen's own controls still receive events first and only unhandled ones are
-            // swallowed.
+            // is the fix written then. ⚠ It now consumes only presses and releases: consuming the
+            // movement inside a click cancelled this screen's own buttons, which is the post-release
+            // "wizard buttons need several presses on macOS" - see the modifier's own comment.
             //
             // The gate path never showed it because there `MainAppContent` is not composed at
             // all. Only the dismissible re-run is affected, which is why it took a re-run to
@@ -253,6 +394,18 @@ fun SetupWizardScreen(
         val windowHeight = maxHeight
         val windowWidth = maxWidth
         val insets = WindowInsets.safeDrawing.asPaddingValues()
+
+        // ⚠ **The one thing that decides mobile-shaped or desktop-shaped, and it is deliberately
+        // the same expression `MetaDetailsScreen` uses for `useDesktopDetailLayout`.** Both
+        // halves matter: `isDesktop` keeps an Android tablet on the stacked layout it was
+        // designed and tested for, and the width test keeps a desktop window the user has
+        // dragged narrow from being handed a two-pane layout that no longer fits in it.
+        //
+        // The default desktop window is 1280x820 (`Main.kt`), so this is true on launch. Note
+        // that `NuvioTheme` scales density by `desktopUiScaleForWindow` against that same
+        // 1280x820 base, so this threshold is in scaled dp - at the default window the scale is
+        // exactly 1.0 and below it the layout only ever gets *more* room per dp.
+        val useDesktopWizardLayout = isDesktop && windowWidth >= DesktopWizardMinWidth
 
         // Each specimen asks for the height it needs, capped so that a short phone always
         // leaves the panel the larger share.
@@ -284,11 +437,83 @@ fun SetupWizardScreen(
             SetupWelcomeSurface(
                 insets = insets,
                 maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
+                desktop = useDesktopWizardLayout,
                 onAdvance = ::advance,
                 onSkipAll = ::complete,
                 dismissible = dismissible,
                 onDismiss = onDismiss,
             )
+            return@BoxWithConstraints
+        }
+
+        // Steps 2-8 on a desktop window: the specimen beside the controls rather than above them.
+        // Everything the step *is* - the questions, their order, what each control writes - comes
+        // from the same `SetupStepBody` the stacked layout calls. Only the frame differs.
+        if (useDesktopWizardLayout) {
+            SetupWizardDesktopLayout(
+                step = step,
+                plan = plan,
+                specimen = specimen,
+                dismissible = dismissible,
+                onDismiss = onDismiss,
+                playbackMode = playerSettings.playbackMode,
+                posterWidthDp = posterStyle.widthDp,
+                posterCornerRadiusDp = posterStyle.cornerRadiusDp,
+                landscapeCards = posterStyle.catalogLandscapeModeEnabled,
+                showCardTitles = !posterStyle.hideLabelsEnabled,
+                heroEnabled = homeSettings.heroEnabled,
+                continueWatchingStyle = continueWatching.style,
+                useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
+                blurNextUp = continueWatching.blurNextUp,
+                backgroundMode = metaSettings.backgroundMode,
+                episodeCardStyle = metaSettings.episodeCardStyle,
+                blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
+                tabLayout = metaSettings.tabLayout,
+                nextUpLabel = nextUpLabel,
+                topInset = insets.calculateTopPadding(),
+                bottomInset = insets.calculateBottomPadding(),
+                onBack = ::back,
+                onAdvance = ::advance,
+                advance = advanceState,
+            ) {
+                SetupStepBody(
+                    step = step,
+                    goingForward = goingForward,
+                    playbackMode = playerSettings.playbackMode,
+                    languageStrictness = playerSettings.playbackLanguageStrictness,
+                    dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
+                    qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps,
+                    preferredAudioLanguage = playerSettings.preferredAudioLanguage,
+                    preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
+                    posterWidthDp = posterStyle.widthDp,
+                    landscapeCards = posterStyle.catalogLandscapeModeEnabled,
+                    selectedTheme = selectedTheme,
+                    amoledEnabled = amoledEnabled,
+                    socialEnabled = socialPreferences.enabled,
+                    socialProbeUnknown = socialPreferences.identityProbe == SocialIdentityProbe.Indeterminate,
+                    socialSignedIn = socialProfileId != null,
+                    socialHandle = socialHandle,
+                    socialHandleBusy = socialHandleBusy,
+                    socialHandleMessage = socialHandleMessage,
+                    onSocialEnabledChange = ::setSocialEnabled,
+                    onSocialHandleChange = {
+                        socialHandle = it
+                        socialHandleMessage = null
+                    },
+                    onSaveSocialHandle = {
+                        saveSocialHandle(
+                            scope = scope,
+                            profileId = socialProfileId,
+                            handle = socialHandle,
+                            setBusy = { socialHandleBusy = it },
+                            onFailed = { socialHandleMessage = it },
+                        )
+                    },
+                    sources = sources,
+                    existingSourceName = existingStreamAddonName,
+                    sourcesActions = sourcesActions,
+                )
+            }
             return@BoxWithConstraints
         }
 
@@ -328,60 +553,54 @@ fun SetupWizardScreen(
             SetupPanel(
                 step = step,
                 plan = plan,
+                playbackMode = playerSettings.playbackMode,
                 dismissible = dismissible,
                 onDismiss = onDismiss,
                 // Centred and capped on wide windows. The band is what should use the extra
                 // width, not a line of body text stretched across a desktop monitor.
                 maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
                 bottomInset = insets.calculateBottomPadding(),
-                onBack = { previousSetupStep(step, plan)?.let { stepName = it.name } },
+                onBack = ::back,
                 onAdvance = ::advance,
+                advance = advanceState,
                 modifier = Modifier.weight(1f),
             ) {
                 SetupStepBody(
                     step = step,
                     goingForward = goingForward,
                     playbackMode = playerSettings.playbackMode,
+                    languageStrictness = playerSettings.playbackLanguageStrictness,
+                    dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
+                    qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps,
+                    preferredAudioLanguage = playerSettings.preferredAudioLanguage,
+                    preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
                     posterWidthDp = posterStyle.widthDp,
-                    posterCornerRadiusDp = posterStyle.cornerRadiusDp,
                     landscapeCards = posterStyle.catalogLandscapeModeEnabled,
-                    hideLabels = posterStyle.hideLabelsEnabled,
-                    heroEnabled = homeSettings.heroEnabled,
-                    continueWatchingStyle = continueWatching.style,
-                    useEpisodeThumbnails = continueWatching.useEpisodeThumbnails,
-                    blurNextUp = continueWatching.blurNextUp,
-                    backgroundMode = metaSettings.backgroundMode,
-                    episodeCardStyle = metaSettings.episodeCardStyle,
-                    blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
-                    tabLayout = metaSettings.tabLayout,
                     selectedTheme = selectedTheme,
                     amoledEnabled = amoledEnabled,
-                    addonUrl = addonUrl,
-                    addonBusy = addonBusy,
-                    addonError = addonError,
-                    addonInstalledName = addonInstalledName,
-                    onAddonUrlChange = {
-                        addonUrl = it
-                        addonError = null
-                        addonInstalledName = null
+                    socialEnabled = socialPreferences.enabled,
+                    socialProbeUnknown = socialPreferences.identityProbe == SocialIdentityProbe.Indeterminate,
+                    socialSignedIn = socialProfileId != null,
+                    socialHandle = socialHandle,
+                    socialHandleBusy = socialHandleBusy,
+                    socialHandleMessage = socialHandleMessage,
+                    onSocialEnabledChange = ::setSocialEnabled,
+                    onSocialHandleChange = {
+                        socialHandle = it
+                        socialHandleMessage = null
                     },
-                    onInstallAddon = {
-                        installAddon(
+                    onSaveSocialHandle = {
+                        saveSocialHandle(
                             scope = scope,
-                            rawUrl = addonUrl,
-                            emptyUrlMessage = emptyUrlMessage,
-                            setBusy = { addonBusy = it },
-                            onInstalled = { name ->
-                                addonUrl = ""
-                                addonError = null
-                                addonInstalledName = name
-                            },
-                            onFailed = { message ->
-                                addonInstalledName = null
-                                addonError = message
-                            },
+                            profileId = socialProfileId,
+                            handle = socialHandle,
+                            setBusy = { socialHandleBusy = it },
+                            onFailed = { socialHandleMessage = it },
                         )
                     },
+                    sources = sources,
+                    existingSourceName = existingStreamAddonName,
+                    sourcesActions = sourcesActions,
                 )
             }
         }
@@ -417,6 +636,7 @@ fun SetupWizardScreen(
 private fun SetupWelcomeSurface(
     insets: PaddingValues,
     maxPanelWidth: Dp,
+    desktop: Boolean,
     onAdvance: () -> Unit,
     onSkipAll: () -> Unit,
     dismissible: Boolean,
@@ -436,16 +656,65 @@ private fun SetupWelcomeSurface(
     val tintBottom = if (blurred) FrostedTintBottom else ScrimTintBottom
 
     Box(modifier = Modifier.fillMaxSize()) {
-        SetupHomeStill(
+        // ⚠ **The scrim is inside the haze source, not layered over it.** `hazeEffect` samples
+        // whatever this subtree draws, so a scrim applied as a sibling *after* it would leave the
+        // panel blurring the original bright artwork while the screen around the panel was dimmed
+        // - the panel would read brighter than its own surroundings, which is backwards.
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(state = hazeState),
-        )
+        ) {
+            SetupHomeStill(modifier = Modifier.fillMaxSize())
+
+            // The still is a real home screen - hero artwork, two catalog rows, a Continue
+            // Watching row - and on a large display that is a great deal of colour competing with
+            // two sentences in a corner. Reported as "the homepage is too overwhelming, you almost
+            // don't notice the wizard". Dimming it is half the fix; the panel also got bigger.
+            //
+            // ⚠ Only on desktop. On a phone the panel already covers most of the window, so a
+            // scrim there would darken the screen for nothing.
+            if (desktop) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(tokens.colors.background.copy(alpha = WelcomeStillScrimAlpha)),
+                )
+            }
+        }
+
+        // ⚠ **The panel is a bounded card on desktop and a full-width strip on a phone, and the
+        // difference is not cosmetic.** On a phone the panel spans the window because the window
+        // *is* the panel's natural width. Carried onto a 1280 dp window unchanged, the same code
+        // tinted the full width while holding a 620 dp column of text in the middle of it - a
+        // wide empty bar with a strip of writing in the centre, which is what "the intro screen
+        // looks super off" was.
+        //
+        // Bottom-**start**, not centre: it sits over the corner of the still that carries the
+        // least of the hero's own content, and it lines up with the sidebar rail the still now
+        // draws rather than floating free of it.
+        val panelAlignment = if (desktop) Alignment.BottomStart else Alignment.BottomCenter
+        val panelShape = RoundedCornerShape(WelcomePanelCornerRadius)
 
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
+                .align(panelAlignment)
+                .then(
+                    if (desktop) {
+                        Modifier
+                            .padding(
+                                start = SetupStillRailWidth + 32.dp,
+                                end = 32.dp,
+                                bottom = 48.dp + insets.calculateBottomPadding(),
+                            )
+                            .widthIn(max = WelcomeDesktopPanelWidth)
+                            // Clip *before* the blur and the tint, so both stop at the rounded
+                            // edge instead of the card showing square corners over the still.
+                            .clip(panelShape)
+                    } else {
+                        Modifier.fillMaxWidth()
+                    },
+                )
                 .hazeEffect(state = hazeState) { blurRadius = WelcomeBlurRadius }
                 .background(
                     Brush.verticalGradient(
@@ -453,40 +722,104 @@ private fun SetupWelcomeSurface(
                         0.55f to tokens.colors.background.copy(alpha = tintMid),
                         1f to tokens.colors.background.copy(alpha = tintBottom),
                     ),
+                )
+                .then(
+                    if (desktop) {
+                        Modifier.border(
+                            width = tokens.borders.hairline,
+                            color = tokens.colors.borderSubtle.copy(alpha = 0.6f),
+                            shape = panelShape,
+                        )
+                    } else {
+                        Modifier
+                    },
                 ),
             contentAlignment = Alignment.TopCenter,
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = maxPanelWidth)
+                    .widthIn(max = if (desktop) WelcomeDesktopPanelWidth else maxPanelWidth)
                     .fillMaxWidth()
                     .padding(
-                        start = 22.dp,
-                        end = 22.dp,
-                        top = 26.dp,
-                        bottom = 14.dp + insets.calculateBottomPadding(),
+                        start = if (desktop) 36.dp else 22.dp,
+                        end = if (desktop) 36.dp else 22.dp,
+                        top = if (desktop) 36.dp else 26.dp,
+                        bottom = if (desktop) 36.dp else 14.dp + insets.calculateBottomPadding(),
                     ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (desktop) 20.dp else 16.dp),
             ) {
                 SetupPanelHeader(
                     step = SetupStep.Welcome,
                     plan = SetupWizardPlan(),
+                    // Welcome's subtitle does not depend on the mode; the default keeps this
+                    // surface from having to thread a value it never reads.
+                    playbackMode = PlaybackMode.Default,
                     dismissible = dismissible,
                     onDismiss = onDismiss,
                 )
                 SetupParagraph(stringResource(Res.string.setup_welcome_body))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
-                        Text(text = stringResource(Res.string.setup_welcome_start))
+                if (desktop) {
+                    // Sized to their labels. A pointer does not need a 460 dp target, and two
+                    // stacked full-width buttons in a card read as a phone sheet.
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(onClick = onAdvance) {
+                            Text(text = stringResource(Res.string.setup_welcome_start))
+                        }
+                        TextButton(onClick = onSkipAll) {
+                            Text(text = stringResource(Res.string.setup_welcome_skip))
+                        }
                     }
-                    TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
-                        Text(text = stringResource(Res.string.setup_welcome_skip))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Button(onClick = onAdvance, modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(Res.string.setup_welcome_start))
+                        }
+                        TextButton(onClick = onSkipAll, modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(Res.string.setup_welcome_skip))
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/**
+ * How wide the intro card is on desktop.
+ *
+ * ⚠ Was 520 dp (`NuvioComponentTokens.sheetMaxWidth`) and that was too modest: on a large display
+ * a 520 dp card in the corner of the window reads as a tooltip rather than as the thing the screen
+ * is for. 640 gives the heading and both sentences room to sit on fewer lines, which is most of
+ * what makes it read as a panel.
+ */
+private val WelcomeDesktopPanelWidth = 640.dp
+
+/**
+ * How far the home-screen still is dimmed behind the intro card.
+ *
+ * ⚠ Deliberately a flat wash rather than a gradient. The panel is anchored in one corner, so a
+ * gradient would have to be aimed at it, and every future move of the panel would silently leave
+ * the bright end in the wrong place. Flat is also honest about what it is: the app, turned down.
+ *
+ * This is **not** part of the panel's own tint - see `FrostedTintTop` and the warning above it.
+ * Those alphas are tuned for the no-blur case and must not be traded off against this one.
+ */
+private const val WelcomeStillScrimAlpha = 0.62f
+
+/** `NuvioTokens.Radius.card`. Kept local so the mobile path keeps its square-edged strip. */
+private val WelcomePanelCornerRadius = 24.dp
+
+/**
+ * The width the two-pane layout needs before it is worth using.
+ *
+ * Same threshold as `MetaDetailsScreen`'s `useDesktopDetailLayout`. Below it the control pane
+ * would be clamped to its 460 dp minimum and the specimen would get less room than the stacked
+ * layout already gives it, so the stacked layout is simply better there.
+ */
+private val DesktopWizardMinWidth = 1000.dp
 
 /** Matches the streams tablet panel rather than the nav pill: this pane is much larger. */
 private val WelcomeBlurRadius = 40.dp
@@ -525,11 +858,21 @@ private val SetupStep.specimen: SetupSpecimen
         // `SetupWelcomeSurface`, which draws a full-bleed `SetupHomeStill` instead of a band.
         // Enumerated rather than defaulted so that adding a step stays a compile error here.
         SetupStep.Welcome -> SetupSpecimen.Diagram
-        SetupStep.Cards -> SetupSpecimen.Cards
-        SetupStep.Home -> SetupSpecimen.Home
-        SetupStep.Details -> SetupSpecimen.Details
+        SetupStep.Look -> SetupSpecimen.Cards
         SetupStep.Theme -> SetupSpecimen.Theme
-        SetupStep.PlaybackMode, SetupStep.Sources, SetupStep.Done -> SetupSpecimen.Diagram
+        // ⚠ `SetupSpecimen.Home` and `SetupSpecimen.Details` are no longer reachable from the
+        // wizard - revision 7 moved those questions to Settings - but the specimens themselves
+        // stay in `SetupSpecimen.kt`. They cost nothing, they are byte-shared with the mobile
+        // repository, and `SetupWizardRenderHarness` keeps drawing them, which is the only thing
+        // that would ever catch them drifting from the real screens they mirror.
+        SetupStep.PlaybackMode,
+        SetupStep.PlaybackSetup,
+        SetupStep.Language,
+        SetupStep.Sources,
+        SetupStep.SocialOptIn,
+        SetupStep.SocialIdentity,
+        SetupStep.Done,
+        -> SetupSpecimen.Diagram
     }
 
 /**
@@ -545,12 +888,14 @@ private val SetupStep.specimen: SetupSpecimen
 private fun SetupPanel(
     step: SetupStep,
     plan: SetupWizardPlan,
+    playbackMode: PlaybackMode,
     dismissible: Boolean,
     onDismiss: () -> Unit,
     maxPanelWidth: Dp,
     bottomInset: Dp,
     onBack: () -> Unit,
     onAdvance: () -> Unit,
+    advance: SetupAdvance = SetupAdvance.Shown,
     modifier: Modifier = Modifier,
     body: @Composable () -> Unit,
 ) {
@@ -577,6 +922,7 @@ private fun SetupPanel(
             SetupPanelHeader(
                 step = step,
                 plan = plan,
+                playbackMode = playbackMode,
                 dismissible = dismissible,
                 onDismiss = onDismiss,
             )
@@ -598,15 +944,24 @@ private fun SetupPanel(
                 plan = plan,
                 onBack = onBack,
                 onAdvance = onAdvance,
+                advance = advance,
             )
         }
     }
 }
 
+/**
+ * Step counter, title, subtitle and the optional close button.
+ *
+ * `internal` rather than private because `SetupWizardDesktopLayout` draws the same header in its
+ * control pane. Sharing it is the point: a second copy is a second place for the progress line to
+ * drift from `setupStepPosition`.
+ */
 @Composable
-private fun SetupPanelHeader(
+internal fun SetupPanelHeader(
     step: SetupStep,
     plan: SetupWizardPlan,
+    playbackMode: PlaybackMode,
     dismissible: Boolean,
     onDismiss: () -> Unit,
 ) {
@@ -635,7 +990,7 @@ private fun SetupPanelHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = stringResource(step.subtitleRes),
+                text = setupStepSubtitle(step, playbackMode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = tokens.colors.textSecondary,
             )
@@ -666,6 +1021,7 @@ private fun SetupPanelFooter(
     plan: SetupWizardPlan,
     onBack: () -> Unit,
     onAdvance: () -> Unit,
+    advance: SetupAdvance = SetupAdvance.Shown,
 ) {
     // Welcome's own two buttons live in `SetupWelcomeSurface`; it never reaches this panel.
     Row(
@@ -673,54 +1029,107 @@ private fun SetupPanelFooter(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (previousSetupStep(step, plan) != null) {
-            TextButton(onClick = onBack) {
-                Text(text = stringResource(Res.string.setup_back))
-            }
-        }
+        SetupBackButton(step = step, plan = plan, onBack = onBack)
         Spacer(modifier = Modifier.weight(1f))
-        Button(onClick = onAdvance) {
-            Text(
-                text = stringResource(
-                    if (isFinalSetupStep(step, plan)) {
-                        Res.string.setup_done_finish
-                    } else {
-                        Res.string.setup_next
-                    },
-                ),
-            )
+        SetupAdvanceButton(step = step, plan = plan, onAdvance = onAdvance, advance = advance)
+    }
+}
+
+/**
+ * Back, or nothing on the first step shown.
+ *
+ * Split out of [SetupPanelFooter] so the desktop pane's footer cannot drift from it. ⚠ The
+ * *absence* on the first step is the behaviour, not an oversight: `previousSetupStep` answers
+ * against the plan, so a dropped optional step cannot leave a Back button that goes nowhere.
+ */
+@Composable
+internal fun SetupBackButton(
+    step: SetupStep,
+    plan: SetupWizardPlan,
+    onBack: () -> Unit,
+) {
+    if (previousSetupStep(step, plan) != null) {
+        TextButton(onClick = onBack) {
+            Text(text = stringResource(Res.string.setup_back))
         }
+    }
+}
+
+/** Whether the footer offers Next on the current screen. */
+enum class SetupAdvance { Shown, Disabled, Hidden }
+
+/**
+ * The footer's Next for a step. Only Sources restricts it: people press Next without reading, so the
+ * source question has no Next at all (its own buttons, including "Do it later", are the only ways on),
+ * and a setup path keeps Next greyed until a source is actually installed. Leaving a path without
+ * one is Back, which returns to the question.
+ */
+internal fun setupAdvanceFor(step: SetupStep, sources: SetupSourcesState): SetupAdvance = when {
+    step != SetupStep.Sources || sources.configuredName != null -> SetupAdvance.Shown
+    sources.mode == SetupSourcesMode.Choice -> SetupAdvance.Hidden
+    else -> SetupAdvance.Disabled
+}
+
+/** Next, or Finish on the last step the plan will show. */
+@Composable
+internal fun SetupAdvanceButton(
+    step: SetupStep,
+    plan: SetupWizardPlan,
+    onAdvance: () -> Unit,
+    advance: SetupAdvance = SetupAdvance.Shown,
+) {
+    if (advance == SetupAdvance.Hidden) return
+    Button(onClick = onAdvance, enabled = advance == SetupAdvance.Shown) {
+        Text(
+            text = stringResource(
+                if (isFinalSetupStep(step, plan)) {
+                    Res.string.setup_done_finish
+                } else {
+                    Res.string.setup_next
+                },
+            ),
+        )
     }
 }
 
 /**
  * The controls for the current step.
+ *
+ * `internal` so `SetupWizardRenderHarness` can draw a real step body inside the desktop layout.
+ * Before the desktop layout existed no wizard step could be rendered off-screen at all - the step
+ * lives in `rememberSaveable` state in [SetupWizardScreen] and there is no way in from outside -
+ * so the harness could only ever cover Welcome and the bands in isolation. ⚠ Keep it callable.
+ *
+ * ⚠ **Reads no repository for its state.** Every displayed value arrives as a parameter, which is
+ * what lets the harness draw a step without the app around it, and what lets one implementation
+ * serve both the stacked and the two-pane layouts.
  */
 @Composable
-private fun SetupStepBody(
+internal fun SetupStepBody(
     step: SetupStep,
     goingForward: Boolean,
     playbackMode: PlaybackMode,
+    languageStrictness: LanguageStrictness,
+    dynamicRangePolicy: DynamicRangePolicy,
+    qualityCeilingMbps: Int,
+    preferredAudioLanguage: String,
+    preferredSubtitleLanguage: String,
     posterWidthDp: Int,
-    posterCornerRadiusDp: Int,
     landscapeCards: Boolean,
-    hideLabels: Boolean,
-    heroEnabled: Boolean,
-    continueWatchingStyle: ContinueWatchingSectionStyle,
-    useEpisodeThumbnails: Boolean,
-    blurNextUp: Boolean,
-    backgroundMode: MetaScreenBackgroundMode,
-    episodeCardStyle: MetaEpisodeCardStyle,
-    blurUnwatchedEpisodes: Boolean,
-    tabLayout: Boolean,
     selectedTheme: AppTheme,
     amoledEnabled: Boolean,
-    addonUrl: String,
-    addonBusy: Boolean,
-    addonError: String?,
-    addonInstalledName: String?,
-    onAddonUrlChange: (String) -> Unit,
-    onInstallAddon: () -> Unit,
+    socialEnabled: Boolean,
+    socialProbeUnknown: Boolean,
+    socialSignedIn: Boolean,
+    socialHandle: String,
+    socialHandleBusy: Boolean,
+    socialHandleMessage: String?,
+    onSocialEnabledChange: (Boolean) -> Unit,
+    onSocialHandleChange: (String) -> Unit,
+    onSaveSocialHandle: () -> Unit,
+    sources: SetupSourcesState,
+    existingSourceName: String?,
+    sourcesActions: SetupSourcesActions,
 ) {
     AnimatedContent(
         targetState = step,
@@ -758,7 +1167,72 @@ private fun SetupStepBody(
                     SetupParagraph(stringResource(Res.string.playback_mode_escape_hatch))
                 }
 
-                SetupStep.Cards -> {
+                SetupStep.PlaybackSetup -> SetupPlaybackSetupBody(
+                    variant = playbackSetupVariant(playbackMode.name),
+                    languageStrictness = languageStrictness,
+                    dynamicRangePolicy = dynamicRangePolicy,
+                    qualityCeilingMbps = qualityCeilingMbps,
+                )
+
+                SetupStep.Language -> SetupLanguageBody(
+                    preferredAudioLanguage = preferredAudioLanguage,
+                    preferredSubtitleLanguage = preferredSubtitleLanguage,
+                )
+
+                SetupStep.Sources -> SetupSourcesBody(
+                    state = sources,
+                    existingSourceName = existingSourceName,
+                    actions = sourcesActions,
+                )
+
+                SetupStep.SocialOptIn -> {
+                    SetupToggleRow(
+                        title = stringResource(Res.string.setup_social_toggle),
+                        description = stringResource(Res.string.setup_social_toggle_description),
+                        checked = socialEnabled,
+                        onCheckedChange = onSocialEnabledChange,
+                    )
+                    // The consequence of the answer, in the words of the answer itself. One
+                    // paragraph that changes with the switch says more than two hedging about
+                    // what might happen either way.
+                    SetupParagraph(
+                        stringResource(
+                            if (socialEnabled) {
+                                Res.string.setup_social_on_body
+                            } else {
+                                Res.string.setup_social_off_body
+                            },
+                        ),
+                    )
+                    // ⚠ Only when the probe genuinely could not answer. Telling somebody we could
+                    // not check their account when we did check it is worse than saying nothing.
+                    if (socialProbeUnknown) {
+                        SetupParagraph(stringResource(Res.string.setup_social_probe_unknown))
+                    }
+                }
+
+                SetupStep.SocialIdentity -> {
+                    if (socialSignedIn) {
+                        SetupParagraph(stringResource(Res.string.setup_social_identity_body))
+                        SocialIdentityBody(
+                            handle = socialHandle,
+                            onHandleChange = onSocialHandleChange,
+                            message = socialHandleMessage,
+                            busy = socialHandleBusy,
+                            onSave = onSaveSocialHandle,
+                            showHeading = false,
+                        )
+                    } else {
+                        // ⚠ **Explains, never blocks.** The wizard gates the app, and a step the
+                        // user cannot leave because they are signed out - or because a server is
+                        // down - is the failure the Sources step already refuses to have. Social
+                        // stays on; the handle is finished later from Settings, or from the
+                        // Social tab needsHandleSetup path, which is untouched by any of this.
+                        SetupParagraph(stringResource(Res.string.setup_social_identity_signed_out))
+                    }
+                }
+
+                SetupStep.Look -> {
                     SetupChoiceGroup(
                         title = stringResource(Res.string.setup_cards_shape),
                         options = listOf(
@@ -778,100 +1252,10 @@ private fun SetupStepBody(
                         selected = posterWidthDp,
                         onSelected = PosterCardStyleRepository::setWidthDp,
                     )
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_cards_corners),
-                        options = listOf(
-                            stringResource(Res.string.settings_poster_radius_sharp) to 0,
-                            stringResource(Res.string.settings_poster_radius_classic) to 8,
-                            stringResource(Res.string.settings_poster_radius_pill) to 16,
-                        ),
-                        selected = posterCornerRadiusDp,
-                        onSelected = PosterCardStyleRepository::setCornerRadiusDp,
-                    )
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_cards_labels),
-                        checked = !hideLabels,
-                        onCheckedChange = { PosterCardStyleRepository.setHideLabelsEnabled(!it) },
-                    )
-                }
-
-                // Merged: the banner, then Continue Watching. The band shows both at once and
-                // every control here changes it in place.
-                SetupStep.Home -> {
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_home_hero),
-                        description = stringResource(Res.string.setup_home_hero_description),
-                        checked = heroEnabled,
-                        onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
-                    )
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_home_continue),
-                        options = listOf(
-                            stringResource(Res.string.setup_home_cw_card) to ContinueWatchingSectionStyle.Card,
-                            stringResource(Res.string.setup_home_cw_wide) to ContinueWatchingSectionStyle.Wide,
-                            stringResource(Res.string.setup_home_cw_poster) to ContinueWatchingSectionStyle.Poster,
-                        ),
-                        selected = continueWatchingStyle,
-                        onSelected = ContinueWatchingPreferencesRepository::setStyle,
-                    )
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_cw_thumbnails),
-                        description = stringResource(Res.string.setup_cw_thumbnails_description),
-                        checked = useEpisodeThumbnails,
-                        onCheckedChange = ContinueWatchingPreferencesRepository::setUseEpisodeThumbnails,
-                    )
-                    // Only meaningful over a thumbnail; with artwork off there is nothing to
-                    // blur, and a toggle that visibly does nothing reads as broken.
-                    if (useEpisodeThumbnails) {
-                        SetupToggleRow(
-                            title = stringResource(Res.string.setup_cw_blur_next_up),
-                            description = stringResource(Res.string.setup_cw_blur_next_up_description),
-                            checked = blurNextUp,
-                            onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
-                        )
-                    }
-                }
-
-                // Merged: the background treatment, then the episode list. The band is one
-                // small details screen and all four controls act on it.
-                SetupStep.Details -> {
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_details_background),
-                        options = listOf(
-                            stringResource(Res.string.setup_details_background_normal) to MetaScreenBackgroundMode.Normal,
-                            stringResource(Res.string.setup_details_background_cinematic) to MetaScreenBackgroundMode.Cinematic,
-                            stringResource(Res.string.setup_details_background_dominant) to MetaScreenBackgroundMode.DominantColor,
-                        ),
-                        selected = backgroundMode,
-                        onSelected = MetaScreenSettingsRepository::setBackgroundMode,
-                    )
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_details_episodes),
-                        options = listOf(
-                            stringResource(Res.string.setup_details_episodes_horizontal) to MetaEpisodeCardStyle.Horizontal,
-                            stringResource(Res.string.setup_details_episodes_list) to MetaEpisodeCardStyle.List,
-                        ),
-                        selected = episodeCardStyle,
-                        onSelected = MetaScreenSettingsRepository::setEpisodeCardStyle,
-                    )
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_episodes_blur_unwatched),
-                        description = stringResource(Res.string.setup_episodes_blur_unwatched_description),
-                        checked = blurUnwatchedEpisodes,
-                        onCheckedChange = MetaScreenSettingsRepository::setBlurUnwatchedEpisodes,
-                    )
-                    // ⚠ This did nothing at all until revision 5, and not only in the preview:
-                    // every section's `tabGroup` defaults to null and `ConfiguredMetaSections`
-                    // only draws a tab row for a group with more than one member, so on a fresh
-                    // profile `tabLayout = true` rendered identically to false in the real
-                    // details screen too. `setTabLayout` now seeds a default grouping - see
-                    // `MetaScreenSettingsRepository.defaultTabGroupSections`.
-                    SetupToggleRow(
-                        title = stringResource(Res.string.setup_details_tabs),
-                        description = stringResource(Res.string.setup_details_tabs_description),
-                        checked = tabLayout,
-                        onCheckedChange = MetaScreenSettingsRepository::setTabLayout,
-                    )
+                    // ⚠ Corners and card titles used to be asked here and are now Settings-only.
+                    // Naming where they went is the difference between condensing the step and
+                    // appearing to have dropped the features.
+                    SetupParagraph(stringResource(Res.string.setup_look_more))
                 }
 
                 SetupStep.Theme -> {
@@ -887,112 +1271,296 @@ private fun SetupStepBody(
                     )
                 }
 
-                SetupStep.Sources -> SetupSourcesBody(
-                    addonUrl = addonUrl,
-                    busy = addonBusy,
-                    error = addonError,
-                    installedName = addonInstalledName,
-                    onAddonUrlChange = onAddonUrlChange,
-                    onInstall = onInstallAddon,
-                )
-
-                SetupStep.Done -> SetupParagraph(stringResource(Res.string.setup_done_body))
+                SetupStep.Done -> {
+                    SetupSummaryRow(
+                        label = stringResource(Res.string.setup_done_playback),
+                        value = playbackModeName(playbackMode),
+                    )
+                    SetupSummaryRow(
+                        label = stringResource(Res.string.setup_done_social),
+                        value = stringResource(
+                            if (socialEnabled) {
+                                Res.string.setup_done_social_on
+                            } else {
+                                Res.string.setup_done_social_off
+                            },
+                        ),
+                    )
+                    // Only worth a line when there is something to report. A profile that skipped
+                    // the Sources step has no answer here, and a row saying nothing is the kind
+                    // of filler a three-line summary exists to avoid.
+                    if (sources.configuredName != null || existingSourceName != null) {
+                        SetupSummaryRow(
+                            label = stringResource(Res.string.setup_done_sources),
+                            value = sources.configuredName
+                                ?: stringResource(Res.string.setup_done_sources_ready),
+                        )
+                    }
+                    SetupParagraph(stringResource(Res.string.setup_done_body))
+                }
             }
         }
     }
 }
 
+/**
+ * The playback configuration that the chosen mode can actually use.
+ *
+ * ⚠ **Renders from [playbackSetupVariant] rather than deciding for itself what a mode means.**
+ * The rule lives in `SetupWizardSteps.kt` because that file is the only part of the wizard a test
+ * can reach; a second `when (mode)` here would be a rule nothing checks, and mode-descriptive
+ * logic has already drifted once for exactly that reason - see `PlaybackModeCard`.
+ *
+ * [PlaybackSetupVariant.None] is unreachable: the plan drops the whole step for a mode with
+ * nothing to ask. It is handled anyway, so that a variant added without a body renders nothing
+ * rather than crashing a screen that gates the app.
+ *
+ * Every control writes through the same `PlayerSettingsRepository` setter that
+ * Settings - Playback - Source preferences uses, and shows the same words for the same values by
+ * importing that page own label functions. There is no wizard-only copy of any of it.
+ */
+/**
+ * The one playback question worth asking every mode.
+ *
+ * ⚠ **Unconditional, where `SetupPlaybackSetupBody` is not.** Everything that step asks feeds the
+ * automatic source picker, which Classic does not have. Language feeds that *and* the player's own
+ * track selection, which runs in all three modes - so a Classic user who skips the step above still
+ * answers this one, and the answer still does something.
+ *
+ * Revision 7 asked how hard to try for a language it never asked the user to name. The audio
+ * preference shipped as the sentinel `device` and the source picker discarded every sentinel, so
+ * "Audio language matching" was asked, stored, synced and inert. Naming the language is what makes
+ * that row mean anything.
+ *
+ * Two rows rather than a chip group, because there are seventy-nine languages and a wrapping flow
+ * of seventy-nine chips is not a setup step. They open `LanguageSelectionDialog` - the same dialog
+ * Settings opens, with the same options and the same labels - so there is no wizard-only copy of
+ * the list, which is the rule the rest of this file follows.
+ */
 @Composable
-private fun SetupSourcesBody(
-    addonUrl: String,
-    busy: Boolean,
-    error: String?,
-    installedName: String?,
-    onAddonUrlChange: (String) -> Unit,
-    onInstall: () -> Unit,
+private fun SetupLanguageBody(
+    preferredAudioLanguage: String,
+    preferredSubtitleLanguage: String,
 ) {
-    val tokens = MaterialTheme.nuvio
-    SetupParagraph(stringResource(Res.string.setup_sources_body))
-    NuvioInputField(
-        value = addonUrl,
-        onValueChange = onAddonUrlChange,
-        placeholder = stringResource(Res.string.setup_sources_url_placeholder),
-        modifier = Modifier.fillMaxWidth(),
+    var showAudioDialog by remember { mutableStateOf(false) }
+    var showSubtitleDialog by remember { mutableStateOf(false) }
+
+    SetupParagraph(stringResource(Res.string.setup_language_body))
+
+    SetupLanguageRow(
+        title = stringResource(Res.string.settings_playback_preferred_audio_language),
+        value = when (preferredAudioLanguage) {
+            AudioLanguageOption.DEFAULT -> stringResource(Res.string.settings_playback_option_default)
+            AudioLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
+            AudioLanguageOption.ORIGINAL -> stringResource(Res.string.settings_playback_option_original)
+            else -> languageLabelForCode(preferredAudioLanguage)
+        },
+        onClick = { showAudioDialog = true },
     )
-    Button(
-        onClick = onInstall,
-        enabled = !busy,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        if (busy) {
-            NuvioLoadingIndicator(
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(18.dp),
-            )
-        } else {
-            Text(text = stringResource(Res.string.setup_sources_install))
-        }
-    }
-    if (error != null) {
-        Text(
-            text = error,
-            style = MaterialTheme.typography.bodyMedium,
-            color = tokens.colors.danger,
+    SetupLanguageRow(
+        title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
+        value = when (preferredSubtitleLanguage) {
+            SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
+            SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
+            SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
+            else -> languageLabelForCode(preferredSubtitleLanguage)
+        },
+        onClick = { showSubtitleDialog = true },
+    )
+
+    SetupParagraph(stringResource(Res.string.setup_language_more))
+
+    if (showAudioDialog) {
+        val originalHint = stringResource(Res.string.settings_playback_option_original_hint)
+        LanguageSelectionDialog(
+            title = stringResource(Res.string.settings_playback_preferred_audio_language),
+            options = listOf(
+                LanguageSelectionOption(
+                    AudioLanguageOption.DEVICE,
+                    stringResource(Res.string.settings_playback_option_device_language),
+                ),
+                LanguageSelectionOption(
+                    AudioLanguageOption.ORIGINAL,
+                    stringResource(Res.string.settings_playback_option_original),
+                    description = originalHint,
+                ),
+            ) + AvailableLanguageOptions.map { option ->
+                LanguageSelectionOption(option.code, stringResource(option.labelRes))
+            },
+            selectedValue = preferredAudioLanguage,
+            onSelect = { value ->
+                PlayerSettingsRepository.setPreferredAudioLanguage(value ?: AudioLanguageOption.DEVICE)
+                showAudioDialog = false
+            },
+            onDismiss = { showAudioDialog = false },
         )
-    } else if (installedName != null) {
-        Text(
-            text = stringResource(Res.string.setup_sources_installed, installedName),
-            style = MaterialTheme.typography.bodyMedium,
-            color = tokens.colors.success,
+    }
+
+    if (showSubtitleDialog) {
+        LanguageSelectionDialog(
+            title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
+            options = listOf(
+                LanguageSelectionOption(
+                    SubtitleLanguageOption.NONE,
+                    stringResource(Res.string.settings_playback_option_none),
+                ),
+                LanguageSelectionOption(
+                    SubtitleLanguageOption.DEVICE,
+                    stringResource(Res.string.settings_playback_option_device_language),
+                ),
+            ) + AvailableLanguageOptions.map { option ->
+                LanguageSelectionOption(option.code, stringResource(option.labelRes))
+            },
+            selectedValue = preferredSubtitleLanguage,
+            onSelect = { value ->
+                PlayerSettingsRepository.setPreferredSubtitleLanguage(value ?: SubtitleLanguageOption.NONE)
+                showSubtitleDialog = false
+            },
+            onDismiss = { showSubtitleDialog = false },
         )
     }
-    // Debrid is named rather than offered. The wizard gates the app, so it has no nav
-    // controller and cannot reach the settings page - and a button that goes nowhere is worse
-    // than a sentence that says where to look.
-    SetupParagraph(stringResource(Res.string.setup_sources_debrid_hint))
 }
 
-// --- the one thing that can fail ----------------------------------------------------------
+/** A label and the current answer, sized to its content like [SetupChoiceGroup]'s chips. */
+@Composable
+internal fun SetupLanguageRow(
+    title: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+            shape = RoundedCornerShape(12.dp),
+            color = tokens.colors.surfaceCard,
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SetupPlaybackSetupBody(
+    variant: PlaybackSetupVariant,
+    languageStrictness: LanguageStrictness,
+    dynamicRangePolicy: DynamicRangePolicy,
+    qualityCeilingMbps: Int,
+) {
+    if (variant == PlaybackSetupVariant.None) return
+
+    SetupParagraph(
+        stringResource(
+            when (variant) {
+                PlaybackSetupVariant.AutomaticBand -> Res.string.setup_playback_setup_body_instant
+                else -> Res.string.setup_playback_setup_body_streamlined
+            },
+        ),
+    )
+
+    // ⚠ The ceiling leads, and in Instant that ordering is the whole point: the user never sees a
+    // quality list there, so this is the only lever they have over what gets chosen for them.
+    SetupChoiceGroup(
+        title = stringResource(Res.string.settings_playback_quality_ceiling),
+        options = PLAYBACK_QUALITY_CEILING_STEPS.map { playbackQualityCeilingLabel(it) to it },
+        // A stored ceiling need not be one of the five steps: it can arrive from a build with a
+        // different ladder, or from the quality sheet cycling row. Snap to the nearest rather
+        // than drawing a group with nothing selected.
+        selected = PLAYBACK_QUALITY_CEILING_STEPS.minByOrNull { step ->
+            abs(step - qualityCeilingMbps)
+        } ?: 0,
+        onSelected = PlayerSettingsRepository::setPlaybackQualityCeilingMbps,
+    )
+    SetupChoiceGroup(
+        title = stringResource(Res.string.settings_playback_language_strictness),
+        options = LanguageStrictness.entries.map { playbackLanguageStrictnessLabel(it) to it },
+        selected = languageStrictness,
+        onSelected = PlayerSettingsRepository::setPlaybackLanguageStrictness,
+    )
+    SetupChoiceGroup(
+        title = stringResource(Res.string.settings_playback_dynamic_range),
+        options = DynamicRangePolicy.entries.map { playbackDynamicRangeLabel(it) to it },
+        selected = dynamicRangePolicy,
+        onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
+    )
+    SetupParagraph(stringResource(Res.string.setup_playback_setup_more))
+}
 
 /**
- * Installs an addon from a pasted manifest URL.
+ * One line of the closing summary.
  *
- * Reuses `AddonRepository.addAddon`, which is what `AddonsScreen`'s own `AddAddonCard` calls,
- * so URL normalisation, the manifest fetch and the duplicate check behave identically here -
- * including the errors, which are the point. A first-time user pasting a URL that does not
- * work needs to be told what went wrong, not returned to a blank field.
- *
- * The wizard never blocks on this. The step is skippable whether it succeeds or not: an app
- * with no sources is a bad first experience, but a setup flow the user cannot leave because a
- * server is down is a worse one.
+ * A label and a value, and nothing else. The finish screen is three facts and a button; anything
+ * more decorative here turns it back into the success page revision 7 exists to remove.
  */
-private fun installAddon(
+@Composable
+private fun SetupSummaryRow(label: String, value: String) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textSecondary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.colors.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+// --- the things that can fail --------------------------------------------------------------
+
+/**
+ * Saves the handle through the same call the Social tab uses.
+ *
+ * ⚠ **The result is read.** `SocialScreen` discarded it once and a handle that never saved looked
+ * exactly like one that had - which is how an empty database went unnoticed while the screen
+ * appeared to work. Server-side uniqueness lives in `social_upsert_profile`, so its rejection is
+ * what the user is shown, verbatim.
+ *
+ * Like the addon install, this never blocks the step: a failure leaves a message and the user can
+ * still press Next. The wizard gates the app.
+ */
+private fun saveSocialHandle(
     scope: CoroutineScope,
-    rawUrl: String,
-    emptyUrlMessage: String,
+    profileId: String?,
+    handle: String,
     setBusy: (Boolean) -> Unit,
-    onInstalled: (name: String) -> Unit,
     onFailed: (message: String) -> Unit,
 ) {
-    if (rawUrl.isBlank()) {
-        onFailed(emptyUrlMessage)
-        return
-    }
     scope.launch {
         setBusy(true)
-        val result = AddonRepository.addAddon(rawUrl)
+        // ⚠ The profile is passed explicitly: the social layer is not activated until the app shell
+        // runs, which is after the wizard. Success drops this step from the plan, which advances.
+        SocialRepository.setupHandle(handle, profileId)
+            .onSuccess { SocialFeaturePreferencesRepository.recordKnownIdentity() }
+            .onFailure { error -> onFailed(error.message ?: "Could not save that handle") }
         setBusy(false)
-        when (result) {
-            is AddAddonResult.Success -> onInstalled(result.manifest.name)
-            is AddAddonResult.Error -> onFailed(result.message)
-        }
     }
 }
 
 // --- small shared pieces -----------------------------------------------------------------
 
 @Composable
-private fun SetupParagraph(text: String) {
+internal fun SetupParagraph(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
@@ -1007,6 +1575,7 @@ private fun SetupParagraph(text: String) {
  * what the panel is painted with, so a card here would be invisible - the trap the quality
  * sheet hit. These use an `overlayHover` lift instead, which is what that sheet settled on.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> SetupChoiceGroup(
     title: String,
@@ -1022,7 +1591,21 @@ private fun <T> SetupChoiceGroup(
             color = tokens.colors.textPrimary,
             fontWeight = FontWeight.SemiBold,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // ⚠ **A wrapping flow of content-width chips, not a row of equal-weight ones, and the
+        // render harness is what settled it.** Equal weights plus `maxLines = 1` are fine for two
+        // or three short words and silently destroy anything longer: revision 7's playback step
+        // drew "Only play what I can watch" as "Only play what I", and rendered *Prefer SDR*,
+        // *Prefer HDR*, *Require HDR* and *Require Dolby Vision* as "Prefer", "Prefer", "Require"
+        // and "Require" - four chips, two visible labels, and no way to tell them apart.
+        //
+        // Sizing to the label instead means the option decides the chip rather than the chip
+        // truncating the option, and a group that does not fit wraps onto a second line instead
+        // of squeezing. That is also what lets the same component carry a two-option group and a
+        // five-option one without either being tuned by hand.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             options.forEach { (label, value) ->
                 val isSelected = value == selected
                 Text(
@@ -1032,15 +1615,15 @@ private fun <T> SetupChoiceGroup(
                     color = if (isSelected) tokens.colors.onAccent else tokens.colors.textSecondary,
                     // ⚠ `textAlign` is load-bearing. Without it the label sits hard left inside
                     // its pill, which shipped in every build from revision 2 to revision 3
-                    // before anyone named it.
+                    // before anyone named it. Still true now that the pill hugs the label: a
+                    // chip that wraps to two lines centres them.
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
+                    maxLines = 2,
                     modifier = Modifier
-                        .weight(1f)
                         .clip(RoundedCornerShape(999.dp))
                         .background(if (isSelected) tokens.colors.accent else tokens.colors.overlayHover)
                         .clickable { onSelected(value) }
-                        .padding(vertical = 11.dp),
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
                 )
             }
         }
@@ -1089,7 +1672,12 @@ private fun SetupToggleRow(
 }
 
 /**
- * The seven palettes as colour swatches.
+ * The palettes this account can use, as colour swatches.
+ *
+ * ⚠ **The same list Settings offers, from [availableAppThemes].** Listing every [AppTheme] showed
+ * supporter-only palettes (Gold, Jade, Rose Gold, Arctic Blue, Graphite) that
+ * `ThemeSettingsRepository.setTheme` silently refuses without the entitlement, so tapping them did
+ * nothing. Custom opens the same editor Settings does rather than applying unseen colours.
  *
  * The swatch is the palette's own accent read straight from [ThemeColors], so it cannot drift
  * from what tapping it produces - and tapping it recolours the whole wizard, band included,
@@ -1101,8 +1689,15 @@ private fun SetupThemeGrid(
     onSelected: (AppTheme) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val memberAccess by remember {
+        MemberAccessRepository.ensureStarted()
+        MemberAccessRepository.access
+    }.collectAsStateWithLifecycle()
+    val customColors by ThemeSettingsRepository.customThemeColors.collectAsStateWithLifecycle()
+    var showCustomEditor by remember { mutableStateOf(false) }
+    val themes = availableAppThemes(memberAccess.entitlements)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AppTheme.entries.chunked(4).forEach { row ->
+        themes.chunked(4).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { theme ->
                     val isSelected = theme == selected
@@ -1116,7 +1711,9 @@ private fun SetupThemeGrid(
                                 color = if (isSelected) tokens.colors.accent else tokens.colors.borderSubtle,
                                 shape = RoundedCornerShape(12.dp),
                             )
-                            .clickable { onSelected(theme) }
+                            .clickable {
+                                if (theme == AppTheme.CUSTOM) showCustomEditor = true else onSelected(theme)
+                            }
                             .padding(vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1125,7 +1722,7 @@ private fun SetupThemeGrid(
                             modifier = Modifier
                                 .size(26.dp)
                                 .clip(CircleShape)
-                                .background(ThemeColors.getColorPalette(theme).secondary),
+                                .background(ThemeColors.getColorPalette(theme, customColors).secondary),
                             contentAlignment = Alignment.Center,
                         ) {
                             if (isSelected) {
@@ -1145,11 +1742,19 @@ private fun SetupThemeGrid(
                         )
                     }
                 }
-                // Seven palettes over rows of four leaves one gap; an explicit spacer keeps the
-                // last row's chips the same width as the first's instead of stretching them.
+                // A short last row keeps its chips the same width as a full row's instead of
+                // stretching them.
                 repeat(4 - row.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
+    }
+    if (showCustomEditor) {
+        CustomThemeEditor(
+            initialColors = customColors,
+            allowGradient = memberAccess.tier != null,
+            onSave = ThemeSettingsRepository::setCustomTheme,
+            onDismiss = { showCustomEditor = false },
+        )
     }
 }
 
@@ -1159,22 +1764,48 @@ private val SetupStep.titleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_title
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
-        SetupStep.Cards -> Res.string.setup_cards_title
-        SetupStep.Home -> Res.string.setup_home_title
-        SetupStep.Details -> Res.string.setup_details_title
-        SetupStep.Theme -> Res.string.setup_theme_title
+        SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_title
+        SetupStep.Language -> Res.string.setup_language_title
         SetupStep.Sources -> Res.string.setup_sources_title
+        SetupStep.SocialOptIn -> Res.string.setup_social_title
+        SetupStep.SocialIdentity -> Res.string.setup_social_identity_title
+        SetupStep.Look -> Res.string.setup_look_title
+        SetupStep.Theme -> Res.string.setup_theme_title
         SetupStep.Done -> Res.string.setup_done_title
     }
+
+/**
+ * The subtitle, which for one step depends on the answer to the step before it.
+ *
+ * ⚠ [SetupStep.PlaybackSetup] asks the same three questions in Streamlined and Instant but for
+ * opposite reasons - in one the user is narrowing what they will be offered, in the other they are
+ * bounding what Nuvio will choose without asking. Same controls, same setters, different promise,
+ * so the header has to say which one this is. It reads the variant rather than the mode for the
+ * same reason the body does.
+ */
+@Composable
+private fun setupStepSubtitle(step: SetupStep, playbackMode: PlaybackMode): String = when (step) {
+    SetupStep.PlaybackSetup -> stringResource(
+        when (playbackSetupVariant(playbackMode.name)) {
+            PlaybackSetupVariant.AutomaticBand -> Res.string.setup_playback_setup_subtitle_instant
+            else -> Res.string.setup_playback_setup_subtitle_streamlined
+        },
+    )
+    else -> stringResource(step.subtitleRes)
+}
 
 private val SetupStep.subtitleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_subtitle
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_subtitle
-        SetupStep.Cards -> Res.string.setup_cards_subtitle
-        SetupStep.Home -> Res.string.setup_home_subtitle
-        SetupStep.Details -> Res.string.setup_details_subtitle
-        SetupStep.Theme -> Res.string.setup_theme_subtitle
+        // Never read - `setupStepSubtitle` answers for this step - but enumerated so that a new
+        // step is a compile error here rather than a header with no subtitle.
+        SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_subtitle_streamlined
+        SetupStep.Language -> Res.string.setup_language_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
+        SetupStep.SocialOptIn -> Res.string.setup_social_subtitle
+        SetupStep.SocialIdentity -> Res.string.setup_social_identity_subtitle
+        SetupStep.Look -> Res.string.setup_look_subtitle
+        SetupStep.Theme -> Res.string.setup_theme_subtitle
         SetupStep.Done -> Res.string.setup_done_subtitle
     }
