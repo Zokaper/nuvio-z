@@ -27,8 +27,11 @@ debug log, so why its requests stopped landing for 71 s is still **unknown**.
   - Explicit leave is still immediate, and a completed transfer is still permanent.
   - Test suite `host_authority_grace.sql`: 25 assertions; 12 of them fail on the old body.
     Backend suite **323/323**.
-  - **Not yet deployed:** the classifier blocks `supabase db push`, so the maintainer runs it.
-    Production is still at `202609170001`.
+  - **Deployed 2026-09-18** by the maintainer (`supabase db push --linked`). Read back:
+    `202609170002` and `202609180001` recorded, `away_since` present and nullable, both function
+    bodies hash-identical to the tested local database, grants still service-role only, the
+    heartbeat trigger enabled, and `party_heartbeat`/`party_create` signatures unchanged, so released
+    desktop is unaffected.
 - **Client, both repos** (mobile `575f27af7`, `313a96910`; desktop `claude/heartbeat-session-renewal`
   off `Dev`):
   - `ZSessionBridge.ensureSession` renews a Z token within 2 min of its expiry. A token that is
