@@ -41,7 +41,11 @@ object AndroidAppUpdaterPlatform {
 
     fun getSupportedAbis(): List<String> = Build.SUPPORTED_ABIS?.toList().orEmpty()
 
+    /** Test seam only: host tests have no Context, so they could otherwise never see a debug build. */
+    internal var debugBuildOverrideForTest: Boolean? = null
+
     fun isDebugBuild(): Boolean {
+        debugBuildOverrideForTest?.let { return it }
         val context = appContext ?: return false
         return context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     }

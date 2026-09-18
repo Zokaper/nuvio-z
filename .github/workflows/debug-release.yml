@@ -146,6 +146,19 @@ jobs:
             exit 1
           }
 
+      # The default host-test run compiles the playstore distribution, so nothing under
+      # `androidFullHostTest` ever ran here - including the guard for the debug update channel,
+      # which the Phase 6 convergence broke without a single red test (e606c2290: `.29` could not
+      # see `.30`). The full distribution is the one the debug channel ships.
+      - name: Guard the Android update channel (full distribution)
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:testAndroidHostTest -Pnuvio.android.distribution=full --tests 'com.nuvio.app.features.updater.AndroidUpdateChannelTest' --console=plain 2>&1 | tee build.log || {
+            echo "::error::The Android debug/stable update channel wiring is broken"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
       # Copied from ci.yml. The inline `grep -E '^e: '` above catches a Kotlin
       # compile error, but a *test* failure produces no `e:` lines at all, and
       # the raw job log is long enough that reading it back through the API

@@ -764,6 +764,15 @@ Things that legitimately differ, and must **never** be copied:
 `features/setup/SetupHomeStill.kt` (a genuinely per-target file), and everything
 under `desktopMain`.
 
+⚠ **`androidFull/.../updater/AppUpdaterPlatform.android.kt` is per-repository.**
+Here the debuggable APK *is* the debug channel's build (`com.nuvio.app.z.debug`):
+`releaseSource.debugChannel` follows `isDebugBuild`, and `currentVersionName` is
+`DEBUG_VERSION_NAME` for it. Desktop's copy of the same file keeps its Android
+debug APK on the release line. The Phase 6 convergence merge (e606c2290) took
+desktop's, and `debug-v0.4.13-z1.29` could not see `.30`. `AndroidUpdateChannelTest`
+(full distribution, `-Pnuvio.android.distribution=full`) now fails if that happens
+again. It runs in `ci.yml` and in the `debug-release.yml` gate.
+
 **`desktopMain` has no counterpart in `nuvio-z`.** Any `expect` declaration needs
 a **desktop actual** in `NuvioZDesktop` as well as the android and ios ones. This
 has broken the desktop build twice (`publishNativeTabTitles`, then nearly
