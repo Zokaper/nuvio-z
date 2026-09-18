@@ -3,6 +3,100 @@
 
 Last updated: 2026-09-18
 
+## Phase 6: the mobile in-player Watch Together surface (2026-09-18)
+
+Branch `claude/phase-6-convergence-linear`. **The push blocker recorded below is resolved.** The
+convergence was reproduced as the single-parent commit `e606c2290` (parent `3ac11a9b9`), so no
+desktop LFS history is reachable; the branch is pushed. iOS CI run `35300592476` (*Compile Kotlin
+framework and Xcode app*, on `4d34c1fee`) **passed**. That is buildability evidence only: there is
+still no Apple Developer account, and nothing on iOS is physically verified. `390bf66c7` then
+implemented exact seek on both Android engines (media3 `SeekParameters.EXACT`; libmpv `hr-seek`)
+with three contract tests. The Android host suite was **2,065/2,065** at that point.
+
+### What was missing
+
+Shared Watch Together state reached Android and iOS, but **nothing on mobile drew it inside the
+player**. Desktop renders three things on its native HTML controls page, and mobile had no Compose
+counterpart for any of them:
+
+- **the party room.** Mobile had no header button and no panel.
+- **the status pill's actions.** Mobile drew the pill's text and no buttons, so a host held at the
+  start gate had no *Start anyway*, a guest with no source had no *Choose source*, and a stall hold
+  had no *Don't wait*.
+- **the in-player social card.** `MainAppContent` suppresses its floating prompt on `PlayerRoute`
+  because desktop's page draws the card. On mobile, a party invite or friend request that arrived
+  mid-playback was invisible until the user left the player.
+
+### What landed
+
+- `MobileWatchTogetherPanel.kt` renders `WatchTogetherBridgeState`. **It uses `PlayerSidePanel`,
+  the same right-hand rail as Sources and Episodes, not a dialog.** The mobile player is locked to
+  landscape (`SCREEN_ORIENTATION_SENSOR_LANDSCAPE`). The previous session's WIP used a
+  `Dialog` sized to 94%×92%, which covered the whole video and opened a second window that
+  immersive mode does not govern. The panel covers every bridge state: unshareable, idle (Start),
+  starting/connecting, start failed (Try again / Open existing), active host or guest,
+  active elsewhere (Open / Leave), and ended (Keep watching / Exit). It also shows the connection
+  chip and delayed tooltip, people with Host/You badges and tone-coloured status, and incoming
+  (Let in / Decline) and outgoing (Cancel, or Join now / Not now) requests. There are dismissable
+  errors, the host's switches, Who can join (Direct / Ask / Off, locked while saving), per-friend
+  invites with an Invited state, and a tap-to-copy invite code. End asks for confirmation inline.
+- `MobilePartyOverlays.kt` draws the status pill with the bridge's own actions, plus the in-player
+  social card (Join / Accept / Decline / Dismiss). They stack at the top centre, so neither can sit
+  on the other. The pill stays visible while the player is locked; its buttons do not.
+- `PlayerControls` got a Groups header button, labelled with the bridge's `buttonLabel`. It shows
+  wherever desktop offers the control, and also whenever the badge is not `none`. So a running
+  party, or a request in either direction, always has a way back into the room.
+- Every button emits an existing `handlePlayerControlsEvent` command. Each one was traced to its
+  handler, and no new event or party state was invented. The action tables are pure functions
+  (`mobilePartyStateActions`, `mobileOutgoingRequestActions`, `mobilePartyStatusActions`,
+  `mobileSocialNotificationActions`, `mobileWatchTogetherButtonVisible`) with 12 tests in
+  `MobileWatchTogetherPanelTest`.
+
+### A shared bug fixed on the way (desktop inherits it on the next merge)
+
+The `socialNotificationAccept` / `Decline` / `Join` / `Dismiss` events acted on *the first unread
+notification offering that action*. The card deliberately skips `WatchingNowJoinRequest`, because
+those belong to the panel and the pill. So with a join request pending, pressing **Accept on a
+friend request's card let the join requester into the party** instead. The card and its handlers
+now resolve the same notification through `inPlayerSocialCardNotification` and act on it by id.
+This is `commonMain`, so desktop has the same defect today. It was **not** changed in
+`nuviozdesktop` (closed for feature work). Carry it across with the next shared merge.
+
+### Verification
+
+- `:androidApp:compileFullDebugKotlin` passes.
+- Android host suite **2,077/2,077**, zero failures, errors or skips. That is 2,065 plus exactly the
+  12 new tests. ⚠ A first read of the results said 2,127: eight stale XML files from an earlier run
+  were still in the results directory. The directory was deleted and the task run again with
+  `--rerun`.
+- Pure suites **695/695**.
+- The new files use only common APIs (FlowRow, `LocalClipboardManager`, and icons already used in
+  `commonMain`), with no `java.*` or `android.*` imports. iOS compilation remains CI's gate.
+- **Rendered.** An `ImageComposeScene` harness ran nine scenes at 915×412, 800×360, 640×360 and
+  1280×800 dp. It ran in a throwaway, detached `nuviozdesktop` worktree, because the mobile repo
+  has no desktop target; the worktree was removed afterwards, and desktop `Dev` and the desktop
+  branches were untouched. Long names ellipsize, badges fit, the rail leaves the video visible, and
+  the pill and card stack cleanly. Some lines broke mid-word in the render ("in st/ep"). That is
+  probably the test renderer's text shaping, but **confirm it on a handset**.
+
+### Pending physical checks for this surface
+
+On a handset (S20+/S25+), with desktop as the reference peer:
+
+1. The header button appears, opens and closes the rail, and system Back closes the rail before
+   leaving the player.
+2. The rail does not break immersive mode.
+3. Start a party from the rail.
+4. As host: switches, Who can join, invite a friend, copy the invite code, End → confirm.
+5. As a guest: Leave.
+6. An incoming join request: Let in and Decline, from both the rail and the pill.
+7. Your own request: Cancel, then Join now / Not now.
+8. The pill's Start anyway / Choose source / Don't wait each do what they say.
+9. A party invite arriving mid-playback shows the card, and Join works.
+10. Test 9 again with a join request also pending (the fixed bug).
+11. The pill stays up while the player is locked, with no buttons.
+12. Text wraps at word boundaries.
+
 ## Phase 6 Stage B client configuration landed (2026-09-18)
 
 The mobile client now has an explicit, secret-free configuration path for the Nuvio Z Supabase

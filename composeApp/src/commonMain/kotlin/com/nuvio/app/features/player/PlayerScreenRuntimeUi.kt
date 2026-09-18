@@ -101,6 +101,7 @@ import com.nuvio.app.core.ui.LocalNuvioPlatformDensity
 import com.nuvio.app.features.playback.PlaybackHandover
 import com.nuvio.app.features.playback.PlaybackLoadingActions
 import com.nuvio.app.features.updater.formatFileSize
+import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialRepository
@@ -201,10 +202,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     // The repository is already empty when the layer is off, but stating the gate here means a
     // stale emission during the teardown frame cannot flash a friend request over the player.
     // A request to join *this* playback is the panel's row and the status pill's, not this card's.
-    val activeSocialNotification = socialUiState.notifications.firstOrNull {
-        socialEnabled && it.readAt == null && it.availableActions.isNotEmpty() &&
-            it.kind != SocialNotificationKind.WatchingNowJoinRequest
-    }
+    val activeSocialNotification = socialUiState.notifications
+        .takeIf { socialEnabled }
+        ?.let(::inPlayerSocialCardNotification)
     val incomingJoinRequest = socialUiState.notifications.firstOrNull {
         socialEnabled && it.readAt == null && it.kind == SocialNotificationKind.WatchingNowJoinRequest &&
             SocialNotificationAction.Accept in it.availableActions
@@ -989,7 +989,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         }
 
         if (!isDesktop) {
-            RenderPlayerControls(displayedPositionMs = displayedPositionMs, isEpisode = isEpisode)
+            RenderPlayerControls(
+                displayedPositionMs = displayedPositionMs,
+                isEpisode = isEpisode,
+                playerControlsState = playerControlsState,
+            )
         }
         RenderPlaybackOverlays(
             runtime = runtime,
@@ -1004,8 +1008,26 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             // Desktop draws its chrome in the native controls layer above the video surface, where
             // a Compose overlay would be invisible; there the banner is carried by
             // PlayerControlsState instead.
-            watchPartyBanner = partyStatusLine?.text.takeUnless { isDesktop },
         )
+        // Desktop draws all of this on its native controls page from the same `PlayerControlsState`;
+        // there a Compose overlay would sit under the video surface and be invisible.
+        if (!isDesktop) {
+            MobilePartyOverlays(
+                // Unsuppressed: the pill outlives a lock, only its buttons do not.
+                partyStatus = partyStatusBridgeState(partyStatusLine),
+                state = playerControlsState,
+                locked = playerControlsLocked,
+                horizontalSafePadding = horizontalSafePadding,
+                onEvent = { type, value -> handlePlayerControlsEvent(type, value) },
+            )
+            // Above the pill and the playback overlays, below the modals it can open (Sources).
+            // Always composed so the rail can animate out; `open` is its visibility.
+            MobileWatchTogetherPanel(
+                state = playerControlsState.watchTogether,
+                onDismiss = { handlePlayerControlsEvent("partyRoomClose", 0.0) },
+                onEvent = { type, value -> handlePlayerControlsEvent(type, value) },
+            )
+        }
         RenderPlaybackDiagnosticsHud()
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
     }
@@ -1030,7 +1052,11 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 }
 
 @Composable
-private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
+private fun PlayerScreenRuntime.RenderPlayerControls(
+    displayedPositionMs: Long,
+    isEpisode: Boolean,
+    playerControlsState: PlayerControlsState,
+) {
     val isInPip = rememberIsInPictureInPicture()
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
@@ -1115,6 +1141,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 { showSubmitIntroModal = true }
             } else {
                 null
+            },
+            watchTogether = playerControlsState.watchTogether.takeIf {
+                mobileWatchTogetherButtonVisible(playerControlsState.showWatchTogether, it)
+            },
+            onWatchTogetherClick = {
+                handlePlayerControlsAction(PlayerControlsAction.WatchTogether)
             },
             parentalWarnings = parentalWarnings,
             showParentalGuide = showParentalGuide,
@@ -1494,21 +1526,29 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             partyRoomOpen = false
             requestBack()
         }
+        // ⚠ **The card's buttons act on the card's notification, by id.** They used to take the
+        // first unread notification offering the action, but the card skips join requests - those
+        // are the panel's and the pill's - so with a join request pending, Accept on a friend
+        // request's card let the requester into the party instead.
         "socialNotificationDismiss" -> {
-            val notification = SocialRepository.uiState.value.notifications.firstOrNull {
-                it.readAt == null && it.availableActions.isNotEmpty()
-            } ?: return true
+            val notification = inPlayerSocialCardNotification(SocialRepository.uiState.value.notifications)
+                ?: return true
             scope.launch { SocialRepository.markNotificationsRead(setOf(notification.id)) }
         }
         "socialNotificationAccept",
         "socialNotificationDecline",
-        "socialNotificationJoin" -> handleSocialNotificationAction(
-            when (type) {
-                "socialNotificationAccept" -> SocialNotificationAction.Accept
-                "socialNotificationJoin" -> SocialNotificationAction.Join
-                else -> SocialNotificationAction.Decline
-            },
-        )
+        "socialNotificationJoin" -> {
+            val notification = inPlayerSocialCardNotification(SocialRepository.uiState.value.notifications)
+                ?: return true
+            handleSocialNotificationAction(
+                when (type) {
+                    "socialNotificationAccept" -> SocialNotificationAction.Accept
+                    "socialNotificationJoin" -> SocialNotificationAction.Join
+                    else -> SocialNotificationAction.Decline
+                },
+                notificationId = notification.id,
+            )
+        }
         "selectSource" -> {
             val streams = sourceStreamsState.groups.flatMap { it.streams }
             val stream = streams.getOrNull(value.toInt()) ?: return true
@@ -1697,6 +1737,16 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
     }
     return true
 }
+
+/**
+ * The notification the in-player social card shows, and so the one its buttons answer. A request
+ * to join *this* playback is excluded: that is the Watch Together panel's row and the status pill's.
+ */
+internal fun inPlayerSocialCardNotification(notifications: List<SocialNotification>): SocialNotification? =
+    notifications.firstOrNull {
+        it.readAt == null && it.availableActions.isNotEmpty() &&
+            it.kind != SocialNotificationKind.WatchingNowJoinRequest
+    }
 
 private fun PlayerScreenRuntime.handleSocialNotificationAction(
     action: SocialNotificationAction,
@@ -2346,7 +2396,6 @@ private fun BoxScope.RenderPlaybackOverlays(
     p2pRebufferMessage: String?,
     p2pRebufferProgress: Float?,
     suppressOpeningOverlay: Boolean,
-    watchPartyBanner: String?,
 ) {
     runtime.run {
         val startingEpisode = nextEpisodeTransition
@@ -2395,7 +2444,6 @@ private fun BoxScope.RenderPlaybackOverlays(
             renderedGestureFeedback = renderedGestureFeedback,
             initialLoadCompleted = initialLoadCompleted,
             pausedOverlayVisible = pausedOverlayVisible,
-            watchPartyBanner = watchPartyBanner,
             activeSkipInterval = activeSkipInterval.takeUnless { isDesktop },
             skipIntervalDismissed = skipIntervalDismissed,
             controlsVisible = controlsVisible,

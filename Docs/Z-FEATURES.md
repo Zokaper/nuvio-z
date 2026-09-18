@@ -169,6 +169,14 @@ Both capabilities default off in the backend and must be enabled independently a
 > RPC is reachable, while signed-in profile exchange, authenticated Realtime, device behavior and
 > every iOS claim remain unverified.
 
+> **Mobile in-player surface, 2026-09-18:** S6 and S8 now have a phone rendering in `commonMain`
+> (`MobileWatchTogetherPanel`, `MobilePartyOverlays`): the Watch Together room as a right-hand rail
+> beside the landscape video, the status pill with its actions, and the in-player social card, all
+> drawn from the same `WatchTogetherBridgeState` / `PartyStatusBridgeState` desktop's page draws and
+> sending only the commands desktop's page sends. Built, compiled for Android, rendered at four
+> landscape widths; **not yet run on a handset**, so the AND and iOS columns stay `port` until the
+> Stage F physical pass rather than moving on the strength of a compile.
+
 ⚠ **Every client publishing presence must omit nulls rather than serialize them.** The backend's
 payload sanitizers now treat an explicit JSON `null` as absent (`202609110002`), but kotlinx defaults
 `explicitNulls` to **true**, and before both halves landed a nullable field serialized as an explicit
