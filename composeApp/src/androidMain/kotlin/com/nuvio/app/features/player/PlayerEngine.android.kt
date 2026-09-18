@@ -53,6 +53,7 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -761,6 +762,18 @@ private fun ExoPlayerSurface(
                     exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
                 }
 
+                override fun samplePositionMs(): Long = exoPlayer.currentPosition.coerceAtLeast(0L)
+
+                override fun seekToExact(positionMs: Long) {
+                    withTemporaryExactSeek(
+                        current = exoPlayer.seekParameters,
+                        exact = SeekParameters.EXACT,
+                        setParameters = exoPlayer::setSeekParameters,
+                    ) {
+                        exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
+                    }
+                }
+
                 override fun seekBy(offsetMs: Long) {
                     exoPlayer.seekTo((exoPlayer.currentPosition + offsetMs).coerceAtLeast(0L))
                 }
@@ -1414,8 +1427,31 @@ private class NuvioLibmpvView(
 
     fun seekToMs(positionMs: Long) {
         executeMpv {
-            mpv.command("seek", (positionMs.coerceAtLeast(0L) / 1000.0).toString(), "absolute")
+            mpv.command(*mpvAbsoluteSeekArguments(positionMs, exact = false))
         }
+    }
+
+    fun seekToExactMs(positionMs: Long) {
+        executeMpv {
+            mpv.command(*mpvAbsoluteSeekArguments(positionMs, exact = true))
+        }
+    }
+
+    fun samplePositionMs(): Long? {
+        if (released.get()) return null
+        return runCatching {
+            runBlocking {
+                withContext(mpvDispatcher) {
+                    if (released.get()) {
+                        null
+                    } else {
+                        mpv.getPropertyDouble("time-pos")
+                            ?.takeIf { it.isFinite() && it >= 0.0 }
+                            ?.let { (it * 1000.0).toLong() }
+                    }
+                }
+            }
+        }.getOrNull()
     }
 
     suspend fun snapshot(): PlayerPlaybackSnapshot {
@@ -1501,6 +1537,10 @@ private class NuvioLibmpvView(
             override fun pause() = setPaused(true)
 
             override fun seekTo(positionMs: Long) = this@NuvioLibmpvView.seekToMs(positionMs)
+
+            override fun samplePositionMs(): Long? = this@NuvioLibmpvView.samplePositionMs()
+
+            override fun seekToExact(positionMs: Long) = this@NuvioLibmpvView.seekToExactMs(positionMs)
 
             override fun seekBy(offsetMs: Long) = this@NuvioLibmpvView.seekByMs(offsetMs)
 
@@ -1738,6 +1778,26 @@ private fun Int.logIfMpvError(option: String) {
 
 private fun Double?.toMillis(): Long =
     this?.takeIf { it.isFinite() && it > 0.0 }?.let { (it * 1000.0).toLong() } ?: 0L
+
+internal inline fun <T> withTemporaryExactSeek(
+    current: T,
+    exact: T,
+    setParameters: (T) -> Unit,
+    seek: () -> Unit,
+) {
+    setParameters(exact)
+    try {
+        seek()
+    } finally {
+        setParameters(current)
+    }
+}
+
+internal fun mpvAbsoluteSeekArguments(positionMs: Long, exact: Boolean): Array<String> = arrayOf(
+    "seek",
+    (positionMs.coerceAtLeast(0L) / 1000.0).toString(),
+    if (exact) "absolute+exact" else "absolute",
+)
 
 private fun MPVNode.nodeString(key: String): String? =
     runCatching { this[key]?.asString() }.getOrNull()?.takeIf { it.isNotBlank() }
