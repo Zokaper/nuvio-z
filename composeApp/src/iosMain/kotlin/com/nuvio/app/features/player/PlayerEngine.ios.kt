@@ -55,10 +55,16 @@ actual fun PlatformPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
+    playerControlsState: PlayerControlsState,
+    onPlayerControlsAction: (PlayerControlsAction) -> Boolean,
+    onPlayerControlsEvent: (String, Double) -> Boolean,
+    onPlayerControlsScrubChange: (Long) -> Boolean,
+    onPlayerControlsScrubFinished: (Long) -> Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    sourceAvailable: Boolean,
 ) {
     sanitizePlaybackResponseHeaders(sourceResponseHeaders)
     val latestOnControllerReady = rememberUpdatedState(onControllerReady)
@@ -92,6 +98,12 @@ actual fun PlatformPlayerSurface(
 
             override fun seekTo(positionMs: Long) {
                 bridge.seekTo(positionMs)
+            }
+
+            override fun samplePositionMs(): Long = bridge.getPositionMs()
+
+            override fun seekToExact(positionMs: Long) {
+                bridge.seekToExact(positionMs)
             }
 
             override fun seekBy(offsetMs: Long) {
@@ -194,6 +206,10 @@ actual fun PlatformPlayerSurface(
                 }
             }
 
+            override fun applyAudioLanguagePreferences(languages: List<String>) {
+                bridge.applyAudioLanguagePreferences(languages)
+            }
+
             override fun selectSubtitleTrack(index: Int) {
                 if (index < 0) {
                     bridge.selectSubtitleTrack(-1) // disable
@@ -260,7 +276,7 @@ actual fun PlatformPlayerSurface(
                 bridge.setSubtitleDelayMs(delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
             }
 
-            override fun applySubtitleStyle(style: SubtitleStyleState) {
+            override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                 bridge.applySubtitleStyle(
                     textColor = style.textColor.toMpvColorString(),
                     backgroundColor = style.backgroundColor.toMpvColorString(),
@@ -307,6 +323,7 @@ actual fun PlatformPlayerSurface(
                 PlayerResizeMode.Fit -> 0
                 PlayerResizeMode.Fill -> 1
                 PlayerResizeMode.Zoom -> 2
+                PlayerResizeMode.Stretch -> 0
             }
         )
     }

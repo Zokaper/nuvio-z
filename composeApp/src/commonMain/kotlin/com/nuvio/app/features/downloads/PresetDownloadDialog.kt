@@ -79,8 +79,8 @@ fun PresetDownloadDialog(
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    val availableSeasons = remember(meta.videos) {
-        meta.videos.mapNotNull { it.season }.toSortedSet()
+    val availableSeasons: Set<Int> = remember(meta.videos) {
+        meta.videos.mapNotNull { it.season }.sorted().toSet()
     }
     var selectedSeasons by remember(meta.id, initialScope) {
         mutableStateOf(

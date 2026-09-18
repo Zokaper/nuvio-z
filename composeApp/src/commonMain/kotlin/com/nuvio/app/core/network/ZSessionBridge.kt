@@ -14,6 +14,7 @@ import io.ktor.http.isSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.atomicfu.atomic
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -50,9 +51,12 @@ object ZSessionBridge {
      * reasons they cannot, and a bare false told them apart from neither. Every return path below
      * sets this before giving up.
      */
-    @Volatile
-    var lastFailure: String? = null
-        private set
+    private val lastFailureRef = atomic<String?>(null)
+    var lastFailure: String?
+        get() = lastFailureRef.value
+        private set(value) {
+            lastFailureRef.value = value
+        }
 
     /** True when a Z session is currently installed for [profileId]. */
     fun hasSessionFor(profileId: String): Boolean =

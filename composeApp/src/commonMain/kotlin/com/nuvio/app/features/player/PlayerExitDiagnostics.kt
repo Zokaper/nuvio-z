@@ -1,6 +1,9 @@
 package com.nuvio.app.features.player
 
 import co.touchlab.kermit.Logger
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import kotlin.time.TimeSource
 
 /**
  * Timestamped diagnostics for the player exit path.
@@ -14,84 +17,87 @@ import co.touchlab.kermit.Logger
  */
 object PlayerExitDiagnostics {
     private val log = Logger.withTag("PlayerExit")
-    private val lock = Any()
+    private val lock = SynchronizedObject()
+    private val clockOrigin = TimeSource.Monotonic.markNow()
     private val afterPreviousDraw = mutableListOf<() -> Unit>()
 
-    @Volatile
-    private var t0Nanos: Long = 0L
-
-    @Volatile
-    private var t1Nanos: Long = 0L
-
-    @Volatile
-    private var t2Nanos: Long = 0L
-
-    @Volatile
-    private var t3Nanos: Long = 0L
-
-    @Volatile
-    private var t4Nanos: Long = 0L
+    private var t0Ms: Long = 0L
+    private var t1Ms: Long = 0L
+    private var t2Ms: Long = 0L
+    private var t3Ms: Long = 0L
+    private var t4Ms: Long = 0L
 
     fun recordT0(source: String = "back_action") {
-        val now = System.nanoTime()
+        val now = monotonicNowMs()
         synchronized(lock) {
-            t0Nanos = now
-            t1Nanos = 0L
-            t2Nanos = 0L
-            t3Nanos = 0L
-            t4Nanos = 0L
+            t0Ms = now
+            t1Ms = 0L
+            t2Ms = 0L
+            t3Ms = 0L
+            t4Ms = 0L
             afterPreviousDraw.clear()
         }
         log.i { "T0 [0 ms] Escape/back received source=$source" }
     }
 
     fun recordT1(targetRoute: String = "") {
-        val now = System.nanoTime()
-        t1Nanos = now
-        val elapsedMs = elapsedFromT0(now)
+        val now = monotonicNowMs()
+        val elapsedMs = synchronized(lock) {
+            t1Ms = now
+            elapsedFromT0(now)
+        }
         log.i { "T1 [+$elapsedMs ms] Navigation pop requested target=$targetRoute" }
     }
 
     fun recordT2(destination: String = "") {
-        val now = System.nanoTime()
-        val callbacks = synchronized(lock) {
-            if (t0Nanos == 0L || t2Nanos != 0L) return
-            t2Nanos = now
-            afterPreviousDraw.toList().also { afterPreviousDraw.clear() }
-        }
-        val elapsedMs = elapsedFromT0(now)
-        val fromT1 = if (t1Nanos > 0L) (now - t1Nanos) / 1_000_000L else -1L
+        val now = monotonicNowMs()
+        val result = synchronized(lock) {
+            if (t0Ms == 0L || t2Ms != 0L) return@synchronized null
+            t2Ms = now
+            Triple(
+                afterPreviousDraw.toList().also { afterPreviousDraw.clear() },
+                elapsedFromT0(now),
+                if (t1Ms > 0L) now - t1Ms else -1L,
+            )
+        } ?: return
+        val (callbacks, elapsedMs, fromT1) = result
         log.i { "T2 [+$elapsedMs ms, +$fromT1 ms from T1] Previous destination drew: $destination" }
         callbacks.forEach { it() }
     }
 
     /** Defers work until the destination under the player has really drawn. */
     fun runAfterPreviousDraw(action: () -> Unit): Boolean = synchronized(lock) {
-        if (t0Nanos == 0L || t2Nanos != 0L) return@synchronized false
+        if (t0Ms == 0L || t2Ms != 0L) return@synchronized false
         afterPreviousDraw += action
         true
     }
 
     fun recordT3(details: String = "") {
-        if (t0Nanos == 0L || t3Nanos != 0L) return
-        val now = System.nanoTime()
-        t3Nanos = now
-        val elapsedMs = elapsedFromT0(now)
-        val fromT1 = if (t1Nanos > 0L) (now - t1Nanos) / 1_000_000L else -1L
+        val now = monotonicNowMs()
+        val timing = synchronized(lock) {
+            if (t0Ms == 0L || t3Ms != 0L) return@synchronized null
+            t3Ms = now
+            elapsedFromT0(now) to if (t1Ms > 0L) now - t1Ms else -1L
+        } ?: return
+        val (elapsedMs, fromT1) = timing
         log.i { "T3 [+$elapsedMs ms, +$fromT1 ms from T1] Native player surface detached/hidden: $details" }
     }
 
     fun recordT4(handle: Long = 0L) {
-        if (t0Nanos == 0L || t4Nanos != 0L) return
-        val now = System.nanoTime()
-        t4Nanos = now
-        val elapsedMs = elapsedFromT0(now)
-        val fromT1 = if (t1Nanos > 0L) (now - t1Nanos) / 1_000_000L else -1L
+        val now = monotonicNowMs()
+        val timing = synchronized(lock) {
+            if (t0Ms == 0L || t4Ms != 0L) return@synchronized null
+            t4Ms = now
+            elapsedFromT0(now) to if (t1Ms > 0L) now - t1Ms else -1L
+        } ?: return
+        val (elapsedMs, fromT1) = timing
         log.i { "T4 [+$elapsedMs ms, +$fromT1 ms from T1] Native player teardown completed handle=$handle" }
     }
 
-    private fun elapsedFromT0(nanos: Long): Long {
-        if (t0Nanos == 0L) return 0L
-        return (nanos - t0Nanos) / 1_000_000L
+    private fun elapsedFromT0(nowMs: Long): Long {
+        if (t0Ms == 0L) return 0L
+        return nowMs - t0Ms
     }
+
+    private fun monotonicNowMs(): Long = clockOrigin.elapsedNow().inWholeMilliseconds + 1L
 }

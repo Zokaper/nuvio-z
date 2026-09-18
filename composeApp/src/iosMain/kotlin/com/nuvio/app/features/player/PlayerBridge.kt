@@ -18,6 +18,7 @@ interface NuvioPlayerBridge {
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
+    fun seekToExact(positionMs: Long)
     fun seekBy(offsetMs: Long)
     fun retry()
     fun updateNowPlayingMetadata(
@@ -59,6 +60,7 @@ interface NuvioPlayerBridge {
     fun getSubtitleTrackLang(at: Int): String
     fun isSubtitleTrackSelected(at: Int): Boolean
     fun selectAudioTrack(trackId: Int)
+    fun applyAudioLanguagePreferences(languages: List<String>)
     fun selectSubtitleTrack(trackId: Int)
     fun setSubtitleUrl(url: String)
     fun clearExternalSubtitle()
