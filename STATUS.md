@@ -119,6 +119,8 @@ This is `commonMain`, so desktop has the same defect today. It was **not** chang
   were still in the results directory. The directory was deleted and the task run again with
   `--rerun`.
 - Pure suites **695/695**.
+- iOS CI run `35326357624` (a manual dispatch on `a53e0eb30`) **passed**: the Kotlin framework and the Xcode app
+  compile with the new common UI. That shows it builds; it is not an iOS verification.
 - The new files use only common APIs (FlowRow, `LocalClipboardManager`, and icons already used in
   `commonMain`), with no `java.*` or `android.*` imports. iOS compilation remains CI's gate.
 - **Rendered.** An `ImageComposeScene` harness ran nine scenes at 915×412, 800×360, 640×360 and
