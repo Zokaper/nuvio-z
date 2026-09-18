@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import kotlinx.coroutines.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
@@ -58,9 +59,19 @@ internal suspend fun <T> runWithZSession(
     block: suspend () -> T,
 ): Result<T> {
     if (!ensure()) return Result.failure(ZSessionUnavailableException())
-    val first = runCatching { block() }
+    val first = runCatchingCancellable { block() }
     val failure = first.exceptionOrNull() ?: return first
     if (!needsReexchange(failure)) return first
     if (!reexchange()) return first
-    return runCatching { block() }
+    return runCatchingCancellable { block() }
 }
+
+/** [runCatching] that lets cancellation through, so a caller's deadline or shutdown still applies. */
+private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Throwable) {
+        Result.failure(failure)
+    }

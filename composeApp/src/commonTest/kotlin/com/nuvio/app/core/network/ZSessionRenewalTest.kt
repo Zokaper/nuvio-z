@@ -1,8 +1,10 @@
 package com.nuvio.app.core.network
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -119,5 +121,18 @@ class ZSessionRenewalTest {
         ) { calls++; throw unauthorized }
         assertSame(unauthorized, result.exceptionOrNull())
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun cancellationIsNotSwallowedAsAFailedCall() {
+        // The poll bounds each attempt with a deadline; a wrapper that caught the timeout as an
+        // ordinary failure would hide it from that deadline.
+        assertFailsWith<CancellationException> {
+            runBlocking {
+                runWithZSession(ensure = { true }, reexchange = { true }) {
+                    throw CancellationException("deadline")
+                }
+            }
+        }
     }
 }
