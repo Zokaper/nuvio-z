@@ -71,6 +71,10 @@ jobs:
       # macOS images do not ship one.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # setup-android's default also requests the retired legacy package
+          # named "tools", which current SDK repositories no longer expose.
+          packages: platform-tools
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
