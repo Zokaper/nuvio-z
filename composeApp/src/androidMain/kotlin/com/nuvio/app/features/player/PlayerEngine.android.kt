@@ -144,12 +144,10 @@ actual fun PlatformPlayerSurface(
     var activeEngine by remember(playerSourceKey, playerSettings.androidPlaybackEngine) {
         mutableStateOf(playerSettings.androidPlaybackEngine.initialAndroidEngine())
     }
-    val latestPartyOwnsTransport = rememberUpdatedState(playerControlsState.partyOwnsExternalTransport())
     val latestOnPlayerControlsEvent = rememberUpdatedState(onPlayerControlsEvent)
     val latestOnPlayerControlsScrubFinished = rememberUpdatedState(onPlayerControlsScrubFinished)
     val externalTransport = remember {
         PlayerExternalTransport(
-            partyActive = { latestPartyOwnsTransport.value },
             onEvent = { type, value -> latestOnPlayerControlsEvent.value(type, value) },
             onSeek = { positionMs -> latestOnPlayerControlsScrubFinished.value(positionMs) },
         )

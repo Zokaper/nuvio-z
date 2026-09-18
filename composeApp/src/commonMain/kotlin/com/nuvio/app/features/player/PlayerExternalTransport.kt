@@ -14,7 +14,8 @@ package com.nuvio.app.features.player
  *   party carried on without them, until drift correction started it again.
  *
  * Each request now goes to the runtime through the same events desktop's controls page sends
- * (`setPlaybackStateQuiet`, and a finished scrub for seeks), so the party's permission check and
+ * (`externalSetPlaybackState`, the same party path as desktop's `setPlaybackStateQuiet`, and a
+ * finished scrub for seeks), so the party's permission check and
  * barrier apply exactly as they do for an on-screen button.
  *
  * The engine is still moved directly when no party is active. The runtime only reaches the engine
@@ -24,18 +25,15 @@ package com.nuvio.app.features.player
  * refused guest's player correctly stays where the party is.
  */
 internal class PlayerExternalTransport(
-    private val partyActive: () -> Boolean,
     private val onEvent: (String, Double) -> Boolean,
     private val onSeek: (Long) -> Boolean,
 ) {
     fun play(engine: () -> Unit) {
-        if (!partyActive()) engine()
-        onEvent("setPlaybackStateQuiet", 1.0)
+        if (!onEvent(EVENT, 1.0)) engine()
     }
 
     fun pause(engine: () -> Unit) {
-        if (!partyActive()) engine()
-        onEvent("setPlaybackStateQuiet", 0.0)
+        if (!onEvent(EVENT, 0.0)) engine()
     }
 
     fun seekTo(positionMs: Long) {
@@ -43,5 +41,10 @@ internal class PlayerExternalTransport(
     }
 }
 
-/** Whether a party owns this player's transport, as far as the controls state can tell. */
-internal fun PlayerControlsState.partyOwnsExternalTransport(): Boolean = watchTogether.stateName == "active"
+/**
+ * Answered `true` when the party took the request, `false` when the engine must be moved directly.
+ * Whether a party owns the transport is decided by the runtime against the live repository - an
+ * engine-side reading of the controls state is only as fresh as the last frame, and there are no
+ * frames in the background.
+ */
+private const val EVENT = "externalSetPlaybackState"

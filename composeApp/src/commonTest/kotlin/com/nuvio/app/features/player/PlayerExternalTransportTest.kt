@@ -4,43 +4,34 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class PlayerExternalTransportTest {
-    private var party = false
+    /** What the runtime answers: `true` when a party took the request. */
+    private var partyTakesIt = false
     private val events = mutableListOf<Pair<String, Double>>()
     private val seeks = mutableListOf<Long>()
     private var engineCalls = 0
     private val transport = PlayerExternalTransport(
-        partyActive = { party },
-        onEvent = { type, value -> events += type to value; true },
+        onEvent = { type, value -> events += type to value; partyTakesIt },
         onSeek = { seeks += it; true },
     )
 
-    @Test fun outsideAPartyTheEngineMovesAndTheRuntimeLearnsTheIntent() {
+    @Test fun outsideAPartyTheRuntimeLearnsTheIntentAndTheEngineMoves() {
         transport.pause { engineCalls++ }
         transport.play { engineCalls++ }
         assertEquals(2, engineCalls)
-        assertEquals(listOf("setPlaybackStateQuiet" to 0.0, "setPlaybackStateQuiet" to 1.0), events)
+        assertEquals(listOf("externalSetPlaybackState" to 0.0, "externalSetPlaybackState" to 1.0), events)
     }
 
-    @Test fun inAPartyOnlyThePartyMovesTheEngine() {
-        party = true
+    @Test fun whenThePartyTakesItOnlyThePartyMovesTheEngine() {
+        partyTakesIt = true
         transport.pause { engineCalls++ }
         transport.play { engineCalls++ }
         assertEquals(0, engineCalls)
-        assertEquals(listOf("setPlaybackStateQuiet" to 0.0, "setPlaybackStateQuiet" to 1.0), events)
+        assertEquals(listOf("externalSetPlaybackState" to 0.0, "externalSetPlaybackState" to 1.0), events)
     }
 
     @Test fun seeksAlwaysGoThroughTheRuntimeAndNeverBeforeZero() {
         transport.seekTo(-4_000L)
-        party = true
         transport.seekTo(90_000L)
         assertEquals(listOf(0L, 90_000L), seeks)
-    }
-
-    @Test fun onlyAnActivePartyOwnsTheTransport() {
-        assertEquals(false, PlayerControlsState().partyOwnsExternalTransport())
-        listOf("idle", "starting", "connecting", "activeElsewhere", "ended").forEach { name ->
-            assertEquals(false, PlayerControlsState(watchTogether = WatchTogetherBridgeState(stateName = name)).partyOwnsExternalTransport(), name)
-        }
-        assertEquals(true, PlayerControlsState(watchTogether = WatchTogetherBridgeState(stateName = "active")).partyOwnsExternalTransport())
     }
 }

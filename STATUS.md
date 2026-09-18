@@ -24,6 +24,14 @@ through recomposition, and nothing recomposes while the app is in the background
 is unchanged: it is still a local pause (see the open decision below).
 Android host **2,081/2,081**; pure 695/695.
 
+`/code-review high` over `390bf66c7..HEAD` found two issues, both fixed in the follow-up commit. **(1)** The
+transport decided "a party is active" from the controls state, which is only as fresh as the last
+frame, while the command path asks the live repository. A party that ended while the phone was
+locked left the lock-screen buttons doing nothing. The runtime now decides, through the answer to a
+dedicated `externalSetPlaybackState` event. **(2)** The rail, pill and card were drawn inside the
+PiP window. They are now hidden in PiP, like the controls. Host suite **2,080/2,080**: the removed
+state-based check took one test with it.
+
 **iOS has the same bypass, and it is left unfixed.** `iosApp/Player/NowPlayingController.swift`
 calls `owner.pausePlayback()` and its siblings directly. The fix needs the Swift bridge to call back
 into Kotlin's `onPlayerControlsEvent`, and without a local iOS compiler that should not be written

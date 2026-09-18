@@ -1011,7 +1011,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         )
         // Desktop draws all of this on its native controls page from the same `PlayerControlsState`;
         // there a Compose overlay would sit under the video surface and be invisible.
-        if (!isDesktop) {
+        // Nothing here can be pressed in a picture-in-picture window, and all of it would cover it.
+        if (!isDesktop && !rememberIsInPictureInPicture()) {
             MobilePartyOverlays(
                 // Unsuppressed: the pill outlives a lock, only its buttons do not.
                 partyStatus = partyStatusBridgeState(partyStatusLine),
@@ -1417,6 +1418,18 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             if (type == "setPlaybackState") {
                 controlsVisible = true
             }
+        }
+        // Play/pause from outside the player's own controls - see `PlayerExternalTransport`. The
+        // answer is the point: `true` when the party took it (and will move the engine itself, or
+        // refused it), `false` when it did not, and the caller must move the engine directly,
+        // because `shouldPlay` only reaches the engine through a recomposition that does not happen
+        // in the background. Decided here, against the live repository, rather than by the
+        // engine from a controls state that is only as fresh as the last frame.
+        "externalSetPlaybackState" -> {
+            val nextIsPlaying = value >= 0.5
+            if (submitPartyPlayPause(isPlaying = nextIsPlaying, positionMs = partyPositionNowMs())) return true
+            shouldPlay = nextIsPlaying
+            return false
         }
         "reloadSources" -> {
             prepareSourcesForPlayerControls(forceRefresh = true)
