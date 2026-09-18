@@ -3,6 +3,59 @@
 
 Last updated: 2026-09-18
 
+## INCIDENT: host moved to the phone mid-party without anyone leaving (2026-09-18, open)
+
+First S25 handset run on `debug-v0.4.13-z1.29` (commit `1f159e76f`). Android (Big Z, profile
+`d3397924…`, handle `zokaper`) and desktop (debugmain, `11cee346…`, the installed **release**
+2.0.131 from `C:\Program Files\Nuvio Z`, started 10:22:07 UTC). The desktop hosted. Host moved to
+the phone with no leave, end, transfer or sign-out.
+
+**Live server capture, read-only, taken 10:35 UTC** (party `31d64d49-c761-47e1-82f8-cab1bb8a0d72`,
+created 10:24:05):
+
+- party: `status=paused`, `stage=playing`, `control_mode=collaborative`, **`authority_epoch=2`**,
+  `sequence=21`, `host_profile_id=debugmain`, `host_disconnected_at=NULL`,
+  `state_updated_at=10:32:54.19`.
+- debugmain: `role=host`, `ready`, `connected=true`, `last_seen_at=10:35:36`, `client_location=player`.
+- zokaper: `role=participant`, `ready_state=disconnected`, `connected=false`,
+  `last_seen_at=10:34:49`, `client_location=lobby`, `left_at=NULL`.
+- `watch_party_commands` holds seq 3–19 (10:24:54 → 10:31:50). Every row carries
+  `authority_epoch=0`. Seq 20 and 21 have no command rows.
+
+**What that proves:**
+
+1. Authority moved **twice**: desktop → phone (epoch 1), then phone → desktop (epoch 2). The
+   only deployed code that bumps `authority_epoch` on a live party is `party_transfer_stale_host`
+   (`party_reap_stale` bumps it only when ending a party). Both transfers happened after
+   10:31:50, with the last one at or before 10:32:54.
+2. The mechanism is `party_transfer_stale_host`. The `watch_party_heartbeat_transfer` trigger runs
+   it on **every member's** `last_seen_at` update. It moves host to `party_live_successor` (connected,
+   seen within 20 s, earliest joiner) as soon as the host's `last_seen_at` is **more than 15 s** old.
+   Nothing gives host back. It returns only if the new host goes stale as well, which explains the
+   ping-pong.
+3. `last_seen_at` is written only by the `party_heartbeat` RPC (the 5 s poll). Realtime
+   presence is not consulted. **Missing three polls is enough to lose host**, even with a healthy
+   socket.
+4. For epoch 1, the desktop must have gone ≥15 s without a successful heartbeat while the phone kept
+   succeeding. For epoch 2, the phone must then have gone ≥15 s stale while the desktop was fresh.
+   That points to a shared network outage lasting at least 15 s (both clients on one network),
+   with the first client to recover taking host. This is a **hypothesis**: no request log has been
+   read yet.
+
+**Latent defect found while tracing, not the cause here:** the poll heartbeat
+(`WatchPartyRepository.startPolling`) is deliberately not routed through `call()`, so a 401 from an
+expired Z token is never re-exchanged. After the Z JWT expires (about 1 h), an idle host's
+heartbeats all fail and it loses host 15 s later. This did not happen here: the desktop's Z token
+was minted around 10:22 and was still valid at 10:32.
+
+**Evidence still to collect:** `realtime.messages` for this party's topic (party-row broadcasts give
+per-heartbeat timing for both transfers), Supabase edge logs for `party_heartbeat` around
+10:31:50–10:33, and the S25's logcat. Desktop evidence is gone: the release build writes no debug log.
+
+**Invariant to restore:** a transient network, Realtime, buffering or lifecycle gap must not
+permanently move host while the host is still a member. Fix this before building Away, because Away
+deliberately makes a member go quiet.
+
 ## Phase 6: Android system transport now goes through the party (2026-09-18)
 
 The media notification, the lock screen, headset and Bluetooth buttons, and the picture-in-picture
