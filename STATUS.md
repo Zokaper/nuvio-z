@@ -1,7 +1,119 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
+
+## The stall hold released itself, and a party seek looked like startup progress (2026-09-19)
+
+Second S25 handset run, desktop host (`debugmain`, debug **z6.52** / 1.45.52, `716195ff`) and
+Android guest (`debug-v0.4.13-z1.31`, `f45aea06c`). The guest never finished starting: it was
+kicked back to the source list with "No safe source found", having been the only candidate the
+party had. Two independent defects, each sufficient on its own, and they compound.
+
+**Both are fixed** in mobile `c3ef420e7` and desktop `26f96d6b` (same change, cherry-picked; the
+ten touched files are byte-identical across the repos).
+
+### 1. A host hold was released by the guest obeying it
+
+From the two logs, to the millisecond:
+
+| time | who | what |
+| --- | --- | --- |
+| 13:32:34.544 | guest | `peer publish status=buffering` (edge at .344) |
+| 13:32:36.141 | host | `peer status from=d3397924 status=buffering transitMs=173` |
+| 13:32:43.354 | host | `waiting for d3397924 intent=playing` → `pause src=stall-guard` |
+| 13:32:42.612 | guest | `peer publish status=paused` — obeying that pause, still empty |
+| 13:32:44.192 | host | `peer status … status=paused` |
+| 13:32:44.624 | host | `stalled guests recovered, resuming for=d3397924` |
+| 13:32:43.992 | guest | `peer publish status=buffering` — it had never recovered |
+
+The hold lasted **1.27 s**. `GuestBufferingWatch` read `paused` as recovery, per a doc comment
+asserting that a starving member says `buffering` instead. **That assertion was false.**
+`partyStatusFor` tests `snapshot.isLoading`, which is starvation measured *against an intent to
+play*; the host's own pause removes the intent, so a starving player stops looking starved the
+moment it is held. The host read its own command coming back as evidence the guest was fine.
+
+The spurious hold also spent the single hold `StallHoldBudget` allowed, so the guest's real
+buffering at 13:32:43.992 produced nothing at all and the host played on for **26 s**.
+
+**Fix.** `PartyPeerStatusMessage.starved` carries buffer occupancy - a fact no command can change -
+beside the status. `GuestBufferingWatch.observe` normalises a starved `paused` to the stall it is,
+at the edge, so such a member both *enters* the stall window and stays in it. A hold now ends on
+genuine recovery or on the ceiling, never on obedience.
+
+Two consequences that needed handling, both caught by the new tests rather than by reasoning:
+
+- `WatchPartyStallHoldMaxMs` was reachable only for a member that had *stopped* reporting a stall,
+  which was survivable only because of the bug. It is now checked ahead of "still stalling", or one
+  guest that never recovers would hold the party for the rest of the film.
+- A member released by that ceiling keeps no stall window, or the next `advance` would promote it
+  straight back and the party would flap once per poll. A later stall is a new fact, and how often
+  a host may act on one remains `StallHoldBudget`'s decision.
+
+Wire-compatible: absent from older senders, where it decodes `false` - exactly what those builds
+already do. Both ends of a party need `.32`/`z6.53` for the fix to apply.
+
+### 2. A commanded seek counted as startup progress
+
+```
+13:32:56 W PlaybackStartup: abandoning [TB⚡] ComeTorz 2160p: reason=Stalled
+  elapsed=43419ms effective=20147ms heldTotal=23272ms progress=12012ms lastAdvance=8086ms
+```
+
+The hold-exclusion worked: all 23.3 s of held time was subtracted. What killed the source is that
+`progress=12012ms` was reached by the host's pause-align **seek** (4339 → 12012), not by decoding.
+The engine reports a seek target immediately, so `PlaybackStartupWatchdog` recorded 12012 ms of
+progress no byte had been fetched for. That flipped the play off the patient `bestProgressMs <= 0`
+path (35 s) onto `STALL_DEADLINE_MS` (12 s), measured against a position only the host could move.
+
+**Fix.** `seekPartyToExact` - the one choke point for every authoritative move of a party
+playhead - publishes its target as `partyAlignedBaselineMs`, the sampler passes it as the
+watchdog's baseline, and `observe` rebases `bestProgressMs` into the new baseline's units. The jump
+measures zero; real advancement past the target measures normally. Nothing else is touched:
+`elapsedMs`, `holdMs` and `lastAdvanceMs` all carry, so a correction resets no deadline, and both
+deadlines that survive a rebase are absolute in effective elapsed time - which is what makes
+"repeated corrections cannot extend the watchdog" a property rather than an intention.
+
+### Verification
+
+- Mobile `:composeApp:testAndroidHostTest` — **2112 tests, 0 failures** (full suite, `--rerun`,
+  results directory deleted first).
+- Mobile `:androidApp:compileFullDebugKotlin` — green.
+- Desktop `:composeApp:desktopTest` — **2271 tests, 0 failures** (full suite, `--rerun`, results
+  directory deleted first). The three known flakes - `WatchedItemsStoreTest`,
+  `DesktopDownloadQueueE2ETest`, `NativePlayerControllerTeardownTest` - all passed this run.
+- All 14 new tests confirmed present in both result sets, not silently skipped.
+- New tests: `aHostHoldDoesNotReleaseItselfWhenTheGuestObeysIt` replays the eight steps above;
+  plus a starved `paused` starting a stall, an ordinary user pause not becoming one, a barrier park
+  creating none, the ceiling still abandoning a guest that never recovers, and a second genuine
+  stall still reaching the budget. Watchdog: party seek counts as zero progress, grants no fresh
+  startup, cannot extend the watchdog when repeated, real advancement past the target still counts,
+  and held time stays excluded exactly as before. Protocol: `starved` round-trips, an older
+  sender decodes as not starved, and an older decoder sees every field it knew unchanged.
+
+### Carried forward, unresolved
+
+- **#2/#4 (frozen frame under running audio) was not exercised by this run** and must not be
+  diagnosed from it: ExoPlayer failed the container outright
+  (`ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED`, 13:32:16), libmpv took over on a **58.9 GB 4K
+  BluRay MPEG-TS remux**, the phone was genuinely starving, and there was exactly one candidate.
+  Re-run on a normal-bitrate MP4/MKV with several candidates.
+- **#3 measured, and it is worse than the static 3.3 s estimate.** Guest edge → desktop pause was
+  **9.01 s**: 200 ms settle, ~1.4 s publish/transport (`transitMs` reports only 173 ms, so ~1.2 s
+  is queueing on the publish side and is worth its own look), then **7.21 s** of host-side grace.
+  The grace is unchanged, as instructed.
+- **#1 considered fixed.** All party and barrier state stayed `speed=1.0` on both sides. The
+  `1.1x` in the Android media session is the real engine rate during drift correction, which that
+  surface uses deliberately for position extrapolation.
+- **Heartbeat silence did not recur** (no desktop poll gap over 8 s). But the desktop log contains
+  **zero** lines matching `heartbeat`, so this run does not establish that the new diagnostics can
+  fire at all. Confirm that before reading silence as a pass.
+- **Risk to watch on the next run.** `starved` is `bufferedPositionMs - positionMs < 1000 ms`. Both
+  engines behaved on this run - 1.4-7.2 s ahead when healthy, exactly 0 when frozen - but an engine
+  that never reports a buffer ahead of the playhead would read as permanently starved and stall a
+  party for up to `WatchPartyStallHoldMaxMs`. The guest's `peer status settled=` line now carries
+  `bufferedAheadMs=` so this is measurable rather than assumed.
+- **Away is still blocked**, deliberately: it sits on the same readiness model this entry corrects.
 
 ## Host-authority incident: root cause, fixes, and the handset findings (2026-09-18)
 
