@@ -119,6 +119,28 @@ class StreamRouteSurfaceTest {
     }
 
     @Test
+    fun thePlayerOffersTheSourceListOnlyWhereOneExists() {
+        // The route handed the session over and kept its own escape registered, so its list is
+        // still on the back stack for the pop to land on.
+        assertEquals(
+            true,
+            playerMayOfferSourceList(routeOffersSourceList = true, isAutomaticSelection = false),
+        )
+        // An auto-picked launch retains `StreamRoute` deliberately, to host the failure chain.
+        assertEquals(
+            true,
+            playerMayOfferSourceList(routeOffersSourceList = false, isAutomaticSelection = true),
+        )
+        // Continue Watching, a next episode and a resumed download reach the player with nothing
+        // behind them but the details screen. Offering a list there would leave
+        // `manualSourceRequestPending` set for whatever play came next.
+        assertEquals(
+            false,
+            playerMayOfferSourceList(routeOffersSourceList = false, isAutomaticSelection = false),
+        )
+    }
+
+    @Test
     fun everyBailOutUncoversTheList() {
         // Each of these exists because the app gave up on choosing for the user. Leaving
         // anything over the list they now have to read would be worse than never covering it.

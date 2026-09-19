@@ -51,6 +51,35 @@ fun shouldOfferManualEscape(attempt: Int, elapsedMs: Long): Boolean =
     attempt > 1 || elapsedMs >= MANUAL_ESCAPE_DELAY_MS
 
 /**
+ * Whether the player may offer "Choose source manually" on the loading surface it inherited.
+ *
+ * ⚠ **The button was drawn by the loading surface and wired to a lambda that could not work.**
+ * `PlaybackLoadingHost` draws above `NavDisplay` and passes `PlaybackLoadingController.actions`
+ * straight through, and in the automatic modes those actions belong to `entry<StreamRoute>` -
+ * which has *stopped composing* while the player is on top. Pressing it wrote flags into saved
+ * state nobody would read, exactly as `StreamsRepository.signalManualSourceRequest` documents for
+ * the player's own copy of this button. So a start that hung behind the loading surface offered
+ * a way out that did nothing, and Back - which abandons the play - was the only real exit.
+ *
+ * The player takes the actions over while it is on top and signals-and-pops instead, which is the
+ * path that demonstrably works. This decides whether it may **offer** the button at all, and the
+ * answer is "only where a source list actually exists behind the player":
+ *
+ *  - [routeOffersSourceList] - the route that handed the session over registered an escape of its
+ *    own, so it is still on the back stack with a list on it;
+ *  - [isAutomaticSelection] - an auto-picked launch, whose `StreamRoute` is deliberately retained
+ *    to host the failure chain (`PlayerDestination`'s `skipRetainedStreamRoute`).
+ *
+ * Neither is true of Continue Watching, a next episode, or a resumed download. Those reach the
+ * player with nothing behind them but the details screen, and offering a source list there would
+ * leave `manualSourceRequestPending` set for whatever play came next.
+ */
+fun playerMayOfferSourceList(
+    routeOffersSourceList: Boolean,
+    isAutomaticSelection: Boolean,
+): Boolean = routeOffersSourceList || isAutomaticSelection
+
+/**
  * How long a silent automatic start may run before it offers the source list.
  *
  * Five seconds is past the point where a working debrid mint has answered and well short of

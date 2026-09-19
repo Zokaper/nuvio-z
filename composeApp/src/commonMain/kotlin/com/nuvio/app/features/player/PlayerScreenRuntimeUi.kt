@@ -78,6 +78,7 @@ import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.playback.PlaybackSourceSelector
 import com.nuvio.app.features.playback.playbackSelectionContextOf
 import com.nuvio.app.features.playback.playbackFactSlotLabelRes
+import com.nuvio.app.features.playback.playerMayOfferSourceList
 import com.nuvio.app.features.playback.rememberLanguageNamer
 import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.streams.AddonStreamGroup
@@ -557,6 +558,55 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             }
         } else {
             PlaybackLoadingController.closeAfterHandOff()
+        }
+    }
+    // ⚠ **The escape hatch on the loading surface belongs to whoever is on top, and that is this
+    // screen.** `PlaybackLoadingHost` passes `PlaybackLoadingController.actions` straight through,
+    // and in the automatic modes those actions are `entry<StreamRoute>`'s - a route that has
+    // stopped composing while the player is up, so its `giveUpToSourceList` writes flags into
+    // saved state nobody reads. The button was drawn, pressed, and did nothing; Back, which
+    // abandons the play rather than dropping to the list, was the only working way out of a start
+    // that hung. See `playerMayOfferSourceList`.
+    //
+    // Taken over rather than replaced: the previous registration is restored on disposal, because
+    // a **failover** disposes this screen and re-enters the route, which must get its own escape
+    // back untouched. An explicit back closes the session and the actions with it.
+    //
+    // [loadingEscapeToken] is the handed-off session this screen is currently the top of, and null
+    // when the surface is not up - including the moment a first frame arrives, which is what hands
+    // the actions back.
+    val loadingEscapeToken = PlaybackLoadingController.session
+        ?.takeIf { it.handedOff && openingOverlayWanted }
+        ?.token
+    DisposableEffect(loadingEscapeToken, args.automaticSourceSelection) {
+        val token = loadingEscapeToken
+        if (token == null) {
+            onDispose { }
+        } else {
+            val inherited = PlaybackLoadingController.actions
+            val mayOfferSourceList = playerMayOfferSourceList(
+                routeOffersSourceList = inherited?.onChooseManually != null,
+                isAutomaticSelection = args.automaticSourceSelection,
+            )
+            PlaybackLoadingController.registerActions(
+                token = token,
+                actions = PlaybackLoadingActions(
+                    onBack = { requestBack() },
+                    // Signalled and popped, never invoked in place - the same path
+                    // `PlayerControlsAction.ChooseManually` takes, and the only one that has ever
+                    // worked from inside the player. The route consumes the request when the pop
+                    // brings it back and uncovers the list.
+                    onChooseManually = if (mayOfferSourceList) {
+                        {
+                            StreamsRepository.signalManualSourceRequest()
+                            requestBack()
+                        }
+                    } else {
+                        null
+                    },
+                ),
+            )
+            onDispose { PlaybackLoadingController.registerActions(token, inherited) }
         }
     }
     val nextEpisodeStatus = when {
