@@ -3,6 +3,93 @@
 
 Last updated: 2026-09-19
 
+## Android black picture: the diagnostic that skipped video, and a dead escape hatch (2026-09-19)
+
+Three Android changes, all on `claude/phase-6-convergence-linear`. None of them is a fix for the
+audio-only run itself - that run is still undiagnosed, deliberately. They make the next occurrence
+say which of four things it is, and they stop the user being stranded meanwhile.
+
+### 1. `logCurrentTracks` could not answer the question it was being read for
+
+On debug `.32` a clean Matroska remux played audio for ~27 minutes across three attempts with
+`onRenderedFirstFrame` firing **zero** times. The logs could not say whether the video track was
+supported, selected, or even present, and that was structural rather than bad luck:
+
+```kotlin
+C.TRACK_TYPE_VIDEO -> "VIDEO"                                        // label built
+...
+if (group.type != C.TRACK_TYPE_TEXT && group.type != C.TRACK_TYPE_AUDIO) continue   // then skipped
+```
+
+It also described each group by `getFormat(0)` and by the group-level `isSupported`/`isSelected`,
+so a multi-track group was reported through one arbitrary member of it.
+
+**Now**: one line per *track*, video included, carrying group index, track index, format id,
+sample MIME, codecs, WxH, frame rate, bitrate, rotation, `selected`, `supported` (Media3's strict
+answer) and `decodable` (the same question allowing a format above the device's advertised decoder
+headroom). `onVideoSizeChanged` logs dimensions, pixel ratio, unapplied rotation and whether a
+first frame has arrived; `onRenderedFirstFrame` and the dropped-frame batches are unchanged.
+
+### 2. A black picture is classified from track evidence, never from a timer
+
+`features/playback/VideoPresentation.kt` (pure, in the standalone pure-suite group) takes a census
+- video groups, tracks, decodable tracks, selected tracks, selected-and-decodable tracks - and
+separates the four causes `STATE_READY + no first frame` collapses into one:
+
+| verdict | meaning | acted on |
+| --- | --- | --- |
+| `NoVideoTracks` | no video groups at all | no - audio-only content is legitimate |
+| `NoSupportedVideoTrack` | groups exist, **nothing decodable** | **yes** - fatal, source fallback |
+| `NoSelectedVideoTrack` | decodable track exists, none selected | no - a selection bug, logged |
+| `SelectedNotRendering` | decodable and selected, no frame | no - a presentation bug, logged |
+
+Only the codec verdict is fatal (`isFatalVideoPresentation` has one member, and a test pins that).
+There is deliberately **no elapsed-time parameter**: a timer cannot tell a dead decoder from a slow
+one, and one would have reported "unsupported codec" about whichever cause happened to be slow.
+
+`allowExceedsCapabilities` is true in the census on purpose - Media3's strict answer is false for
+any format above a device's rated decoder headroom, which `DefaultTrackSelector` selects anyway and
+which usually plays. Counting those out would fire the one fatal verdict on ordinary 4K remuxes.
+The strict answer is still printed per track, where it diagnoses rather than decides.
+
+### 3. The loading surface's escape hatch was drawn but wired to a dead lambda
+
+`PlaybackLoadingHost` passes `PlaybackLoadingController.actions` straight through, and in the
+automatic modes those actions belong to `entry<StreamRoute>` - which has stopped composing while
+the player is on top, so its `giveUpToSourceList` writes flags into saved state nobody reads. This
+is the same defect `StreamsRepository.signalManualSourceRequest` documents for the player's own
+copy of the button, and the player's copy was fixed while the surface's was not. A start that hung
+behind the loading surface therefore offered a way out that did nothing, and Back - which abandons
+the play rather than dropping to the list - was the only working exit.
+
+The player now **takes the actions over** while it is on top and signals-and-pops instead, which is
+the path that works. It restores the previous registration on disposal, because a failover disposes
+the player and re-enters the route, which must get its own escape back untouched. `Choose source
+manually` is offered only where a list exists behind the player - the route registered one, or the
+launch is an auto-pick whose `StreamRoute` is deliberately retained (`playerMayOfferSourceList`).
+Continue Watching, a next episode and a resumed download get Back and nothing else, or
+`manualSourceRequestPending` would be left set for whatever played next.
+
+Watch Together is unaffected: nothing here touches transport, readiness or the hold.
+
+### Verification
+
+- Pure suites (`scripts/run-pure-suites.sh`) — all eight groups green; 279 + 121 + 70 + 17 + 29 +
+  137 + 63 + 3 tests, 0 failures. Includes the 9 new `VideoPresentationTest` cases and the new
+  `playerMayOfferSourceList` case in `StreamRouteSurfaceTest`.
+- `:composeApp:testAndroidHostTest` — **2128 tests, 0 failures** (up from 2112).
+- `:androidApp:compileFullDebugKotlin` — green.
+
+### What this does *not* establish
+
+- **The audio-only run is still undiagnosed.** No verdict has been observed on hardware yet. The
+  next occurrence should print exactly one of `no_video_tracks`, `no_supported_video`,
+  `no_selected_video` or `selected_not_rendering`, and until it does, none of the four may be
+  asserted.
+- The fatal path (`no_supported_video` → error → source fallback) has unit coverage and **no
+  hardware run**.
+- The 1000 ms starvation recovery threshold is **untouched**, as instructed.
+
 ## The stall hold released itself, and a party seek looked like startup progress (2026-09-19)
 
 Second S25 handset run, desktop host (`debugmain`, debug **z6.52** / 1.45.52, `716195ff`) and
