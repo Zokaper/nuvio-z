@@ -248,6 +248,39 @@ fun IosHardwareDecoderMode.localizedLabel(): String = when (this) {
     else -> label
 }
 
+/**
+ * What the playback engine itself says about its ability to present media right now.
+ *
+ * Distinct from [PlayerPlaybackSnapshot.isLoading], which is a *UI* verdict blended with intent, and
+ * from buffer occupancy, which is a guess about the engine made from outside it. Watch Together
+ * needs the engine's own answer: ExoPlayer will not leave `STATE_BUFFERING` until its own rebuffer
+ * condition is satisfied - configured here at five seconds, not the one second a buffered-ahead
+ * heuristic used to accept - and libmpv will not leave `paused-for-cache` until its cache says so.
+ */
+enum class PlayerEngineReadiness {
+    /**
+     * The engine cannot answer, so callers fall back to buffer occupancy.
+     *
+     * The default, and the honest reading for any engine whose snapshot path has not been taught to
+     * report this.
+     */
+    Unknown,
+
+    /**
+     * There is nothing to be ready for: idle, released, or a source that has not become usable yet.
+     *
+     * Never starvation. A client that has not started is the start gate's business, not the stall
+     * guard's.
+     */
+    NoSource,
+
+    /** The engine says it cannot present media now, whatever it has been told to do. */
+    Buffering,
+
+    /** The engine says it can present media now, whatever it has been told to do. */
+    Ready,
+}
+
 data class PlayerPlaybackSnapshot(
     val isLoading: Boolean = true,
     val isPlaying: Boolean = false,
@@ -260,6 +293,13 @@ data class PlayerPlaybackSnapshot(
     val videoHeight: Int = 0,
     /** Concrete engine producing this snapshot; especially important for buffer diagnostics. */
     val engineName: String = "Unknown",
+    /**
+     * The engine's own readiness, which is what Watch Together's starvation signal is built on.
+     *
+     * [PlayerEngineReadiness.Unknown] by default: an engine that has not been taught to answer
+     * leaves the buffered-ahead fallback in place rather than silently reading as ready.
+     */
+    val engineReadiness: PlayerEngineReadiness = PlayerEngineReadiness.Unknown,
 )
 
 data class PlayerNowPlayingInfo(

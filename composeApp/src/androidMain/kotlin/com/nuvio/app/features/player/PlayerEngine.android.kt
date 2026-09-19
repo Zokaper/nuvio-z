@@ -1636,6 +1636,14 @@ private class NuvioLibmpvView(
         val isCacheBuffering = cacheBufferingState != null && cacheBufferingState in 0 until 100
         val isLoading = pausedForCache ||
             (!paused && !ended && (seeking || isCacheBuffering || (idle && durationMs <= 0L)))
+        val engineReadiness = mpvEngineReadiness(
+            pausedForCache = pausedForCache,
+            cacheBuffering = isCacheBuffering,
+            paused = paused,
+            seeking = seeking,
+            idle = idle,
+            durationMs = durationMs,
+        )
         val videoWidth = mpv.getPropertyInt("video-out-params/dw")
             ?: mpv.getPropertyInt("video-params/dw")
             ?: 0
@@ -1653,6 +1661,7 @@ private class NuvioLibmpvView(
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             engineName = "libmpv",
+            engineReadiness = engineReadiness,
         )
     }
 
@@ -2012,7 +2021,55 @@ private fun ExoPlayer.snapshot(): PlayerPlaybackSnapshot {
         videoWidth = videoWidth,
         videoHeight = videoHeight,
         engineName = "ExoPlayer",
+        engineReadiness = engineReadiness(),
     )
+}
+
+/**
+ * ExoPlayer's own verdict about whether it can present media now.
+ *
+ * `STATE_BUFFERING` is not conditioned on `playWhenReady`: a player told to pause while holding
+ * media sits in `STATE_READY`, so a buffering state means the engine has genuinely run dry even when
+ * the party has this member paused - which is exactly the case a buffered-ahead heuristic cannot
+ * see. The engine leaves that state on its own rebuffer condition, which the load control above sets
+ * to five seconds, so nothing in this app should be guessing at the instant it will resume.
+ *
+ * `STATE_IDLE` is no source at all rather than an empty one, and `STATE_ENDED` is not waiting for
+ * anything, so neither is starvation.
+ */
+/**
+ * libmpv's own cache verdict, which is what decides when it will resume - not a buffer constant
+ * chosen here.
+ *
+ * `paused-for-cache` is the engine saying it stopped because the cache ran dry, and it is reported
+ * independently of the `pause` flag, so a member the party has paused still tells the truth about its
+ * cache. `cache-buffering-state` is the percentage of cache fill until it unpauses, which is only
+ * meaningful while playback is intended - a deliberate pause can leave the last value standing - so it
+ * is read only when not paused. A seek in flight is a transition rather than an answer, and the
+ * caller's fallback reads it better than either verdict would.
+ */
+internal fun mpvEngineReadiness(
+    pausedForCache: Boolean,
+    cacheBuffering: Boolean,
+    paused: Boolean,
+    seeking: Boolean,
+    idle: Boolean,
+    durationMs: Long,
+): PlayerEngineReadiness = when {
+    durationMs <= 0L && idle -> PlayerEngineReadiness.NoSource
+    pausedForCache -> PlayerEngineReadiness.Buffering
+    cacheBuffering && !paused -> PlayerEngineReadiness.Buffering
+    seeking -> PlayerEngineReadiness.Unknown
+    else -> PlayerEngineReadiness.Ready
+}
+
+private fun ExoPlayer.engineReadiness(): PlayerEngineReadiness = exoPlayerEngineReadiness(playbackState)
+
+/** [engineReadiness] as a function of the state alone, so the mapping can be tested without an engine. */
+internal fun exoPlayerEngineReadiness(playbackState: Int): PlayerEngineReadiness = when (playbackState) {
+    Player.STATE_IDLE -> PlayerEngineReadiness.NoSource
+    Player.STATE_BUFFERING -> PlayerEngineReadiness.Buffering
+    else -> PlayerEngineReadiness.Ready
 }
 
 private fun ExoPlayer.videoDimensions(): Pair<Int, Int> {

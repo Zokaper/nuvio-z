@@ -129,32 +129,61 @@ private fun partyStatusFor(
 }
 
 /**
- * How much playable media this client is holding ahead of its own playhead.
+ * How much playable media a client must hold ahead of its playhead to read as ready *when its engine
+ * cannot answer for itself*.
  *
- * A member parked with less than this is empty rather than ready, whatever its transport says.
- * One second is short enough that an ordinary pause - where the engine keeps a buffer it is simply
- * not draining - is never mistaken for a stall, and long enough that a player sitting on the
- * single frame a seek just landed on is never mistaken for a recovery.
+ * A fallback, and only that. As the primary signal it was wrong in the direction that matters: the
+ * Android load control asks for five seconds before it will resume from a rebuffer
+ * (`bufferForPlaybackAfterRebuffer`), so a member with 1200ms ahead published `starved = false` while
+ * ExoPlayer was still in `STATE_BUFFERING` and would not play for seconds yet. The 2026-09-19 S25 run
+ * shows exactly that: recoveries clustered at 1001-1276ms, which is the shape of this constant rather
+ * than of an engine becoming ready. Engines that do report their own readiness are believed instead;
+ * see [partyStarvedFor].
  */
-private const val PartyStarvedBufferMs = 1_000L
+private const val PartyStarvedFallbackBufferMs = 1_000L
 
 /**
  * Whether this client's engine has run out of media, independent of what it has been told to do.
+ *
+ * The engine's own readiness is the answer wherever it is available, because the engine is the thing
+ * that decides when playback resumes. Buffer occupancy cannot decide it: it was answering "ready" at
+ * a second's worth of media while ExoPlayer's rebuffer condition wanted five, so the party released
+ * its hold on members that were still frozen. It stays as the fallback for engines that cannot answer
+ * - see [PartyStarvedFallbackBufferMs] - and as the diagnostic in the logs either way, but it never
+ * overrules an engine that says it is still buffering.
  *
  * ⚠ **[partyStatusFor] cannot answer this and must not be asked to.** Its `isLoading` case is the
  * engine reporting starvation *against an intent to play*, so the instant the party pauses a
  * starving player the starvation stops being reported - the player is no longer failing to play,
  * it is succeeding at being stopped. The host's stall guard then reads its own pause coming back
  * as the guest recovering. The S25 run of 2026-09-19 cost the party its only source that way; see
- * `GuestBufferingWatch`.
+ * `GuestBufferingWatch`. [PlayerPlaybackSnapshot.engineReadiness] is free of that because it carries
+ * no intent: ExoPlayer holds `STATE_BUFFERING` and libmpv `paused-for-cache` whether or not the
+ * member has been told to play, which is what makes a host-forced pause over an empty engine still
+ * read as starved.
  *
- * Buffer occupancy is the fact underneath both, and no command can change it. An engine that does
- * not report a buffer position at all reads as not starved, which is the pre-existing behaviour and
- * the safe direction: a false `true` would hold a healthy party for a member that is fine.
+ * The two ways out of a false positive are both here rather than in the engines, because both are
+ * facts about the party and not about the media: a client parked on a barrier or its own corrective
+ * seek is doing what it was asked and will be playing at an instant that is already decided, and a
+ * client with no duration yet has not begun - that one is the start gate's business, and calling it
+ * starved would have every join hold the party from the outside.
  */
-private fun partyStarvedFor(snapshot: PlayerPlaybackSnapshot): Boolean {
-    if (snapshot.bufferedPositionMs <= 0L) return false
-    return snapshot.bufferedPositionMs - snapshot.positionMs < PartyStarvedBufferMs
+internal fun partyStarvedFor(
+    snapshot: PlayerPlaybackSnapshot,
+    holdingForBarrier: Boolean = false,
+): Boolean {
+    if (holdingForBarrier) return false
+    if (snapshot.durationMs <= 0L) return false
+    return when (snapshot.engineReadiness) {
+        PlayerEngineReadiness.Buffering -> true
+        PlayerEngineReadiness.Ready -> false
+        PlayerEngineReadiness.NoSource -> false
+        // An engine that reports no buffer position either reads as not starved, which is the
+        // pre-existing behaviour and the safe direction: a false `true` holds a healthy party for a
+        // member that is fine.
+        PlayerEngineReadiness.Unknown -> snapshot.bufferedPositionMs > 0L &&
+            snapshot.bufferedPositionMs - snapshot.positionMs < PartyStarvedFallbackBufferMs
+    }
 }
 
 private val partyLog = Logger.withTag("WatchPartyPlayer")
@@ -643,7 +672,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // while it is empty and `paused` again once it has refilled, and the second one is the only
     // thing that ends the hold. Leaving it out of the key would publish the first and never the
     // second, which is a party stopped until [WatchPartyStallHoldMaxMs] gives up on it.
-    val peerStarved = partyStarvedFor(playbackSnapshot)
+    val peerStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
     LaunchedEffect(generationKey, isHost, peerStatus, peerStarved, partyHoldingForBarrier) {
         if (generationKey == null || isHost) return@LaunchedEffect
         if (partyHoldingForBarrier) return@LaunchedEffect
@@ -657,7 +686,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         delay(WatchPartyStatusSettleMs)
         if (partyHoldingForBarrier) return@LaunchedEffect
         val settled = partyStatusFor(playbackSnapshot, shouldPlay)
-        val settledStarved = partyStarvedFor(playbackSnapshot)
+        val settledStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
         if (partyReportedPeerStatus == settled && partyReportedPeerStarved == settledStarved) {
             return@LaunchedEffect
         }
@@ -668,6 +697,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         // the grace, so the whole delay can be read off the two logs.
         partyLog.i {
             "peer status settled=$settled starved=$settledStarved " +
+                "engine=${playbackSnapshot.engineName}/${playbackSnapshot.engineReadiness} " +
                 "bufferedAheadMs=${playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs} " +
                 "afterEdgeMs=${currentEpochMs() - edgeAtMs}"
         }
