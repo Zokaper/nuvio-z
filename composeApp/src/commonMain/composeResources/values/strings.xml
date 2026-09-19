@@ -2861,4 +2861,8 @@
     <string name="setup_home_title">Your home screen</string>
     <string name="setup_sources_body">Nuvio Z doesn't host anything itself — it plays what your own addons provide. Paste an addon manifest URL below to add your first one.</string>
     <string name="setup_sources_installed">Added %1$s</string>
+
+    <!-- Nuvio Z playback diagnostics. Surfaced only from a track-capability verdict, never
+         from a timer: see VideoPresentation.kt. -->
+    <string name="player_no_supported_video_track">This device cannot decode the video in this source.</string>
 </resources>

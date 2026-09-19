@@ -46,6 +46,11 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.app.core.debug.ThrottledDataSourceFactory
 import com.nuvio.app.core.debug.isDebugBuild
+import com.nuvio.app.features.playback.VideoPresentationVerdict
+import com.nuvio.app.features.playback.VideoTrackCensus
+import com.nuvio.app.features.playback.classifyVideoPresentation
+import com.nuvio.app.features.playback.isFatalVideoPresentation
+import com.nuvio.app.features.playback.videoPresentationLogCode
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
@@ -98,6 +103,32 @@ private const val PLAYER_DIAGNOSTIC_TAG = "NuvioPlayerDiag"
 private class PlaybackDiagnostics {
     var prepareStartedAtMs: Long = 0L
     var attempt: Int = 0
+}
+
+/**
+ * What is known so far about whether this source can put a picture on the screen.
+ *
+ * A mutable holder rather than Compose state, and remembered on the player rather than on the
+ * source, because the listener that writes it is installed in a `DisposableEffect(exoPlayer)`
+ * that outlives a source change - a `remember(playerSourceKey)` read from inside it would be
+ * captured once and then be the *previous* source's box for the rest of the player's life.
+ * [reset] is called where the source genuinely changes: at prepare.
+ */
+private class VideoPresentationDiagnostics {
+    /** A `Tracks` callback has arrived, so an absent video group means absent rather than pending. */
+    var tracksSettled: Boolean = false
+    var renderedFirstFrame: Boolean = false
+    /** The last verdict logged, so a settled state costs one line and not one per callback. */
+    var reportedVerdict: VideoPresentationVerdict? = null
+    /** A fatal verdict is acted on once; the chain advances from the first report, not every one. */
+    var fatalReported: Boolean = false
+
+    fun reset() {
+        tracksSettled = false
+        renderedFirstFrame = false
+        reportedVerdict = null
+        fatalReported = false
+    }
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -490,12 +521,15 @@ private fun ExoPlayerSurface(
         onDispose { nowPlayingController.release() }
     }
 
+    val videoPresentation = remember(exoPlayer) { VideoPresentationDiagnostics() }
+
     LaunchedEffect(exoPlayer, resolvedMediaItem, initialPositionRequestKey) {
         val mediaItem = resolvedMediaItem ?: return@LaunchedEffect
         val requestedStartPositionMs = fallbackStartPositionMs
             ?: initialPositionMs?.takeIf { it > 0L }
         playbackDiagnostics.attempt += 1
         playbackDiagnostics.prepareStartedAtMs = SystemClock.elapsedRealtime()
+        videoPresentation.reset()
         Log.i(
             PLAYER_DIAGNOSTIC_TAG,
             "prepare begin attempt=${playbackDiagnostics.attempt} " +
@@ -574,6 +608,60 @@ private fun ExoPlayerSurface(
                 return
             }
             latestOnError.value(error.localizedMessage ?: runBlocking { getString(Res.string.player_unable_to_play_stream) })
+        }
+
+        /**
+         * Classifies a black picture from **track evidence**, and acts on exactly one verdict.
+         *
+         * ⚠ **`STATE_READY` with no first frame is not a diagnosis, and must never be used as
+         * one.** It is equally true of an undecodable profile, a selector that chose nothing, a
+         * surface that is not attached, and a healthy remux a keyframe away from its first
+         * picture. `classifyVideoPresentation` separates those four from the census rather than
+         * from a clock, and only `NoSupportedVideoTrack` - every video track asked, every renderer
+         * said no - ends the source. The other two failures are this app's, and failing over would
+         * hide a bug behind a retry that cannot fix it.
+         */
+        fun evaluateVideoPresentation(at: String) {
+            val census = exoPlayer.videoTrackCensus()
+            val verdict = classifyVideoPresentation(
+                census = census,
+                tracksSettled = videoPresentation.tracksSettled,
+                hasRenderedFirstFrame = videoPresentation.renderedFirstFrame,
+            )
+            if (verdict != videoPresentation.reportedVerdict) {
+                videoPresentation.reportedVerdict = verdict
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoPresentation=${videoPresentationLogCode(verdict)} at=$at " +
+                        "attempt=${playbackDiagnostics.attempt} " +
+                        "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
+                        "groups=${census.groupCount} tracks=${census.trackCount} " +
+                        "supported=${census.supportedTrackCount} " +
+                        "selected=${census.selectedTrackCount} " +
+                        "selectedSupported=${census.selectedSupportedTrackCount} " +
+                        "playbackState=${exoPlayer.playbackState} " +
+                        "videoSize=${exoPlayer.videoSize.width}x${exoPlayer.videoSize.height}",
+                )
+                // The census names the counts; this names the tracks, so the codec question is
+                // answered by the same log line that raised it.
+                if (
+                    verdict == VideoPresentationVerdict.NoSupportedVideoTrack ||
+                    verdict == VideoPresentationVerdict.NoSelectedVideoTrack
+                ) {
+                    exoPlayer.logCurrentTracks("videoPresentation:${videoPresentationLogCode(verdict)}")
+                }
+            }
+            if (isFatalVideoPresentation(verdict) && !videoPresentation.fatalReported) {
+                videoPresentation.fatalReported = true
+                Log.e(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoPresentation fatal: ${census.trackCount} video track(s) in " +
+                        "${census.groupCount} group(s), none decodable by this device",
+                )
+                latestOnError.value(
+                    runBlocking { getString(Res.string.player_no_supported_video_track) },
+                )
+            }
         }
 
         val listener = object : Player.Listener {
@@ -657,6 +745,7 @@ private fun ExoPlayerSurface(
                     fallbackStartPositionMs = null
                     latestOnError.value(null)
                     exoPlayer.logCurrentTracks("STATE_READY")
+                    evaluateVideoPresentation("STATE_READY")
                 }
                 syncPlayerViewKeepScreenOn()
                 dispatchExoPlayerSnapshot()
@@ -680,6 +769,8 @@ private fun ExoPlayerSurface(
                         "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
                         "positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)}",
                 )
+                videoPresentation.renderedFirstFrame = true
+                evaluateVideoPresentation("firstFrame")
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -695,6 +786,20 @@ private fun ExoPlayerSurface(
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
+                // Dimensions arrive from the *decoder*, so a non-zero size here proves the video
+                // pipeline got as far as producing an output format - which, paired with a
+                // `firstFrame` line that never comes, is what separates a presentation failure
+                // from a decode failure. It reported nothing at all during the twenty-seven
+                // minutes of audio-only playback it was most needed for.
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoSize=${videoSize.width}x${videoSize.height} " +
+                        "pixelRatio=${videoSize.pixelWidthHeightRatio} " +
+                        "rotationDegrees=${videoSize.unappliedRotationDegrees} " +
+                        "attempt=${playbackDiagnostics.attempt} " +
+                        "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
+                        "firstFrame=${videoPresentation.renderedFirstFrame}",
+                )
                 latestOnSnapshot.value(exoPlayer.snapshot())
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     videoAspectRatio = videoSize.width.toFloat() / videoSize.height.toFloat()
@@ -704,6 +809,10 @@ private fun ExoPlayerSurface(
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 Log.d(TAG, "onTracksChanged: ${tracks.groups.size} groups total")
                 exoPlayer.logCurrentTracks("onTracksChanged")
+                // The demuxer has answered, so an absent video group now means absent rather than
+                // pending - which is the whole difference between `Unknown` and a verdict.
+                videoPresentation.tracksSettled = true
+                evaluateVideoPresentation("onTracksChanged")
                 pendingAudioTrackSelection.firstOrNull()?.let { selection ->
                     if (tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }) {
                         pendingAudioTrackSelection.clear()
@@ -2248,21 +2357,106 @@ private fun ExoPlayer.selectTrackByPredicate(
     return false
 }
 
+/**
+ * Every track the demuxer produced, one line each.
+ *
+ * ⚠ **VIDEO used to be built and then skipped.** This function computed a `VIDEO` label and
+ * the very next statement was `if (group.type != TEXT && group.type != AUDIO) continue`, so no
+ * video line was ever printed. That is why twenty-seven minutes of audio-only playback on debug
+ * `.32` produced logs that could not say whether the video track was supported, selected, or
+ * even present - the one question the run existed to answer.
+ *
+ * ⚠ **Per track, not per format index 0.** The old body read `getFormat(0)` and described the
+ * whole group by it. A group routinely carries several tracks, and `Tracks.Group` answers
+ * `isSupported`/`isSelected` per track index - so describing a five-track adaptive group by its
+ * first entry reports on a track the selector may never have considered.
+ */
 private fun ExoPlayer.logCurrentTracks(context: String) {
     Log.d(TAG, "--- logCurrentTracks ($context) ---")
     Log.d(TAG, "  textDisabled=${trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)}")
-    for (group in currentTracks.groups) {
+    for ((groupIndex, group) in currentTracks.groups.withIndex()) {
         val typeName = when (group.type) {
             C.TRACK_TYPE_AUDIO -> "AUDIO"
             C.TRACK_TYPE_TEXT -> "TEXT"
             C.TRACK_TYPE_VIDEO -> "VIDEO"
             else -> "OTHER(${group.type})"
         }
-        if (group.type != C.TRACK_TYPE_TEXT && group.type != C.TRACK_TYPE_AUDIO) continue
-        val format = group.mediaTrackGroup.getFormat(0)
-        Log.d(TAG, "  group type=$typeName id=${format.id} lang=${format.language} label=${format.label} selected=${group.isSelected} supported=${group.isSupported}")
+        if (
+            group.type != C.TRACK_TYPE_TEXT &&
+            group.type != C.TRACK_TYPE_AUDIO &&
+            group.type != C.TRACK_TYPE_VIDEO
+        ) continue
+        for (trackIndex in 0 until group.length) {
+            val format = group.getTrackFormat(trackIndex)
+            // Both answers, because they mean different things and only one of them is fatal.
+            // `supported` is the strict one Media3 gives by default; `decodable` allows a format
+            // that merely exceeds the device's advertised capability headroom, which the default
+            // track selector will still choose and which usually plays. Reporting the strict
+            // answer as "unsupported codec" would call every 4K file on a 1080p-rated decoder
+            // undecodable.
+            val common = "  group=$groupIndex track=$trackIndex type=$typeName id=${format.id} " +
+                "selected=${group.isTrackSelected(trackIndex)} " +
+                "supported=${group.isTrackSupported(trackIndex)} " +
+                "decodable=${group.isTrackSupported(trackIndex, true)}"
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                // Everything needed to answer "is this decodable, and by what" without a second
+                // run: the MIME the extractor assigned, the codec string the container carried,
+                // and the frame geometry a renderer capability check is made against.
+                Log.d(
+                    TAG,
+                    "$common mime=${format.sampleMimeType} codecs=${format.codecs} " +
+                        "size=${format.width}x${format.height} fps=${format.frameRate} " +
+                        "bitrate=${format.bitrate} rotation=${format.rotationDegrees}",
+                )
+            } else {
+                Log.d(TAG, "$common lang=${format.language} label=${format.label} mime=${format.sampleMimeType}")
+            }
+        }
     }
+    Log.d(TAG, "  videoCensus=${videoTrackCensus()}")
     Log.d(TAG, "--- end logCurrentTracks ---")
+}
+
+/**
+ * The three numbers [classifyVideoPresentation] separates the four black-picture causes with.
+ *
+ * Counted per track for the reason spelled out on [VideoTrackCensus.supportedTrackCount]: the
+ * selector may choose any track in a group, so a group-level answer is an answer about a
+ * different question.
+ *
+ * ⚠ **`allowExceedsCapabilities` is true here, and that is not laxity.** Media3's strict
+ * answer is false for any format above the device's advertised decoder headroom - a 4K remux on a
+ * decoder rated for 1080p - and `DefaultTrackSelector` will select such a track anyway when
+ * nothing better exists, because the advertised figures are conservative and it usually plays.
+ * Counting those as unsupported would make [VideoPresentationVerdict.NoSupportedVideoTrack], the
+ * one fatal verdict, fire on healthy high-bitrate sources. The strict answer is still printed
+ * per track by `logCurrentTracks`, where it diagnoses rather than decides.
+ */
+private fun ExoPlayer.videoTrackCensus(): VideoTrackCensus {
+    var groupCount = 0
+    var trackCount = 0
+    var supported = 0
+    var selected = 0
+    var selectedSupported = 0
+    for (group in currentTracks.groups) {
+        if (group.type != C.TRACK_TYPE_VIDEO) continue
+        groupCount++
+        for (trackIndex in 0 until group.length) {
+            trackCount++
+            val isSupported = group.isTrackSupported(trackIndex, /* allowExceedsCapabilities= */ true)
+            val isSelected = group.isTrackSelected(trackIndex)
+            if (isSupported) supported++
+            if (isSelected) selected++
+            if (isSupported && isSelected) selectedSupported++
+        }
+    }
+    return VideoTrackCensus(
+        groupCount = groupCount,
+        trackCount = trackCount,
+        supportedTrackCount = supported,
+        selectedTrackCount = selected,
+        selectedSupportedTrackCount = selectedSupported,
+    )
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
