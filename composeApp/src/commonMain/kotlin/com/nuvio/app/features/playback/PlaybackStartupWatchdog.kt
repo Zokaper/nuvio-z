@@ -35,6 +35,9 @@ package com.nuvio.app.features.playback
  *  - [MAX_STARTUP_MS] is the backstop for a source whose buffer creeps forever and never plays a
  *    frame. Without it, "measure progress instead" would trade a false positive for a hang, which
  *    is the worse of the two.
+ *  - Progress is measured from [PlaybackStartupSample.baselineMs], and when an authority outside
+ *    this play moves the playhead - Watch Together aligning a guest - the baseline moves with it
+ *    and [observe] rebases. A commanded seek is somebody else's millisecond, not this source's.
  *
  * None of this traps the user meanwhile: [shouldOfferManualEscape] puts the source list one tap
  * away after [MANUAL_ESCAPE_DELAY_MS], so a longer deadline costs a wait somebody can already
@@ -115,6 +118,10 @@ object PlaybackStartupWatchdog {
          *
          * Defaults to 0, which is both the play-from-the-start case and what every caller that
          * has no resume point to declare should leave it at.
+         *
+         * ⚠ **It moves when an authority outside this play moves the playhead, and [observe]
+         * rebases onto it.** Watch Together aligns a guest by seeking it, and a commanded seek is
+         * not startup progress - see the rebase in [observe] for the run that proves it.
          */
         val baselineMs: Long = 0L,
         /**
@@ -253,6 +260,13 @@ object PlaybackStartupWatchdog {
         val lastSampleElapsedMs: Long = 0L,
         /** True while the previous sample was held, so an ending hold still charges nothing. */
         val wasHeld: Boolean = false,
+        /**
+         * The baseline [bestProgressMs] is currently expressed against.
+         *
+         * Held so [observe] can tell an authoritative move of the playhead from progress. Without
+         * it the two are indistinguishable, because both arrive as a larger `positionMs`.
+         */
+        val baselineMs: Long = 0L,
     ) {
         /** Wall-clock this source has actually been given to start in. */
         val effectiveElapsedMs: Long get() = lastSampleElapsedMs - holdMs
@@ -292,11 +306,34 @@ object PlaybackStartupWatchdog {
                 holdMs = holdMs,
                 lastSampleElapsedMs = sample.elapsedMs,
                 wasHeld = sample.isHeld,
+                baselineMs = sample.baselineMs,
             )
         }
 
-        val advanced = sample.progressMs > state.bestProgressMs
-        val bestProgressMs = if (advanced) sample.progressMs else state.bestProgressMs
+        // ⚠ **A seek Watch Together commanded is not progress this source made, and counting it
+        // as progress abandons the source.** Physically reproduced on the S25, 2026-09-19: the
+        // guest was starving on a 4K remux at 4339 ms when the host's stall guard paused the party
+        // and aligned everyone to 12012 ms. The engine reports a commanded seek target as its
+        // position immediately, so the next sample read 12012 ms of "progress" that no byte had
+        // been fetched for. That flipped the play off the patient [bestProgressMs] <= 0 path and
+        // onto [STALL_DEADLINE_MS], which then ran out against a position only the host could
+        // move - and the only candidate in the party was thrown away as [Reason.Stalled].
+        //
+        // The displacement is removed rather than forgiven: [bestProgressMs] is converted into the
+        // new baseline's units, so the jump itself measures zero and real advancement past the
+        // commanded target still measures normally. Nothing else is touched - `elapsedMs`,
+        // `holdMs` and `lastAdvanceMs` all carry - so a seek neither restarts a deadline nor
+        // buys the source a fresh startup, and a party correcting a guest every few seconds
+        // cannot extend the watchdog indefinitely. Both surviving deadlines at a baseline change
+        // ([MAX_STARTUP_MS] and the [Reason.NeverStarted] pair) are absolute in effective elapsed
+        // time, which is what makes that guarantee hold rather than merely be intended.
+        val rebasedBestProgressMs = if (sample.baselineMs == state.baselineMs) {
+            state.bestProgressMs
+        } else {
+            (state.bestProgressMs + state.baselineMs - sample.baselineMs).coerceAtLeast(0L)
+        }
+        val advanced = sample.progressMs > rebasedBestProgressMs
+        val bestProgressMs = if (advanced) sample.progressMs else rebasedBestProgressMs
         // Recorded in the same held-time-removed units every deadline is compared in. Stamping it
         // with raw wall-clock would make one long hold look like one very old advance.
         //
@@ -326,6 +363,7 @@ object PlaybackStartupWatchdog {
             holdMs = holdMs,
             lastSampleElapsedMs = sample.elapsedMs,
             wasHeld = sample.isHeld,
+            baselineMs = sample.baselineMs,
         )
 
         // Nothing is decided against a player somebody is deliberately holding still. A held

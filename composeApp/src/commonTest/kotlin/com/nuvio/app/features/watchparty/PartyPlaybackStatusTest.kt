@@ -247,4 +247,43 @@ class PartyPlaybackStatusTest {
         val mixed = JsonObject(encodePartySyncMessage(tick()) + ("hold" to JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive(3)))))
         assertTrue(assertIs<PartyTickMessage>(decodePartySyncMessage(mixed)).tick.hold == listOf("a"))
     }
+
+    private fun peerStatus(starved: Boolean) = PartyPeerStatusMessage(
+        partyId = "p",
+        fromProfileId = "guest",
+        status = WatchPartyStatus.paused,
+        atPartyMs = 5_000,
+        rttMs = 42,
+        starved = starved,
+        contentGeneration = 2,
+        sourceGeneration = 3,
+        authorityEpoch = 4,
+    )
+
+    @Test fun starvationRoundTripsOnThePeerStatus() {
+        listOf(true, false).forEach { starved ->
+            val decoded = assertIs<PartyPeerStatusMessage>(
+                decodePartySyncMessage(encodePartySyncMessage(peerStatus(starved))),
+            )
+            assertEquals(starved, decoded.starved)
+            assertEquals(peerStatus(starved), decoded)
+        }
+    }
+
+    /**
+     * An older sender reads as "not starved", which is the behaviour those builds already have.
+     *
+     * The opposite default would hold a party open for every pre-2026-09-19 guest until the
+     * abandon ceiling, so the direction here is the safe one rather than the eager one.
+     */
+    @Test fun anOlderSendersPeerStatusDecodesAsNotStarved() {
+        val older = JsonObject(encodePartySyncMessage(peerStatus(starved = true)) - "st")
+        assertFalse(assertIs<PartyPeerStatusMessage>(decodePartySyncMessage(older)).starved)
+    }
+
+    @Test fun anOlderDecoderSeesEveryPeerStatusFieldItKnewUnchanged() {
+        val empty = encodePartySyncMessage(peerStatus(starved = true))
+        val full = encodePartySyncMessage(peerStatus(starved = false))
+        assertEquals(JsonObject(empty - "st"), JsonObject(full - "st"))
+    }
 }

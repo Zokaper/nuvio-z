@@ -128,6 +128,35 @@ private fun partyStatusFor(
     else -> WatchPartyStatus.paused
 }
 
+/**
+ * How much playable media this client is holding ahead of its own playhead.
+ *
+ * A member parked with less than this is empty rather than ready, whatever its transport says.
+ * One second is short enough that an ordinary pause - where the engine keeps a buffer it is simply
+ * not draining - is never mistaken for a stall, and long enough that a player sitting on the
+ * single frame a seek just landed on is never mistaken for a recovery.
+ */
+private const val PartyStarvedBufferMs = 1_000L
+
+/**
+ * Whether this client's engine has run out of media, independent of what it has been told to do.
+ *
+ * ⚠ **[partyStatusFor] cannot answer this and must not be asked to.** Its `isLoading` case is the
+ * engine reporting starvation *against an intent to play*, so the instant the party pauses a
+ * starving player the starvation stops being reported - the player is no longer failing to play,
+ * it is succeeding at being stopped. The host's stall guard then reads its own pause coming back
+ * as the guest recovering. The S25 run of 2026-09-19 cost the party its only source that way; see
+ * `GuestBufferingWatch`.
+ *
+ * Buffer occupancy is the fact underneath both, and no command can change it. An engine that does
+ * not report a buffer position at all reads as not starved, which is the pre-existing behaviour and
+ * the safe direction: a false `true` would hold a healthy party for a member that is fine.
+ */
+private fun partyStarvedFor(snapshot: PlayerPlaybackSnapshot): Boolean {
+    if (snapshot.bufferedPositionMs <= 0L) return false
+    return snapshot.bufferedPositionMs - snapshot.positionMs < PartyStarvedBufferMs
+}
+
 private val partyLog = Logger.withTag("WatchPartyPlayer")
 
 /**
@@ -188,6 +217,10 @@ private suspend fun PlayerScreenRuntime.seekPartyToExact(targetMs: Long, reason:
     val controller = playerController ?: return
     val issuedAtMs = currentEpochMs()
     partyPendingSeek = pendingPartySeek(targetMs = targetMs, nowMs = issuedAtMs)
+    // The single choke point for every authoritative move of this playhead - drift, barrier,
+    // pause-align, fallback-align - so it is the one place the startup watchdog's baseline can be
+    // rebased from. See `partyAlignedBaselineMs`.
+    partyAlignedBaselineMs = targetMs
     partyLog.i { "seek issue reason=$reason targetMs=$targetMs fromMs=${samplePlaybackPosition().positionMs}" }
     controller.seekToExact(targetMs)
     awaitPartySeekLanded()
@@ -419,8 +452,12 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             if (generationKey != null) {
                 partyBarrierAtMs = 0L
                 partyReportedPeerStatus = null
+                partyReportedPeerStarved = false
                 partyHoldingForBarrier = false
                 partyPendingSeek = null
+                // A commanded playhead belongs to the generation that commanded it. Carried into
+                // the next one it would be a baseline for a file the party has not placed yet.
+                partyAlignedBaselineMs = null
                 partyNominalSpeedDuringCorrection = null
                 partyPositionUnreachable = false
                 // Per content generation: a new episode is a new stream, and it deserves the
@@ -601,7 +638,13 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // made the stall guard hold the party on every single correction. The host already knows a
     // barrier is in flight - it sent it - so silence here is the accurate answer, not a missing one.
     val peerStatus = partyStatusFor(playbackSnapshot, shouldPlay)
-    LaunchedEffect(generationKey, isHost, peerStatus, partyHoldingForBarrier) {
+    // Keyed alongside the status, because the transition this whole mechanism turns on does not
+    // change the status at all: a guest held paused by the host's stall guard reports `paused`
+    // while it is empty and `paused` again once it has refilled, and the second one is the only
+    // thing that ends the hold. Leaving it out of the key would publish the first and never the
+    // second, which is a party stopped until [WatchPartyStallHoldMaxMs] gives up on it.
+    val peerStarved = partyStarvedFor(playbackSnapshot)
+    LaunchedEffect(generationKey, isHost, peerStatus, peerStarved, partyHoldingForBarrier) {
         if (generationKey == null || isHost) return@LaunchedEffect
         if (partyHoldingForBarrier) return@LaunchedEffect
         val edgeAtMs = currentEpochMs()
@@ -614,13 +657,21 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         delay(WatchPartyStatusSettleMs)
         if (partyHoldingForBarrier) return@LaunchedEffect
         val settled = partyStatusFor(playbackSnapshot, shouldPlay)
-        if (partyReportedPeerStatus == settled) return@LaunchedEffect
+        val settledStarved = partyStarvedFor(playbackSnapshot)
+        if (partyReportedPeerStatus == settled && partyReportedPeerStarved == settledStarved) {
+            return@LaunchedEffect
+        }
         partyReportedPeerStatus = settled
+        partyReportedPeerStarved = settledStarved
         // The first leg of "a guest buffered and the host waited": from this player's own edge to
         // the report. The host's `peer status` line carries the transit, and its `waiting for` line
         // the grace, so the whole delay can be read off the two logs.
-        partyLog.i { "peer status settled=$settled afterEdgeMs=${currentEpochMs() - edgeAtMs}" }
-        WatchPartySync.publishPeerStatus(settled)
+        partyLog.i {
+            "peer status settled=$settled starved=$settledStarved " +
+                "bufferedAheadMs=${playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs} " +
+                "afterEdgeMs=${currentEpochMs() - edgeAtMs}"
+        }
+        WatchPartySync.publishPeerStatus(settled, settledStarved)
     }
 
     // Every transport action, host and guest alike, through one path and one instant.

@@ -497,11 +497,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 // so the first sample then read enormous progress against a baseline of zero,
                 // `hasEvidenceOfLife` was true, and **a dead source was declared Started** -
                 // the startup overlay up forever with the chain unrun.
-                baselineMs = PlaybackPosition.resolveStartPositionMs(
-                    initialPositionMs = activeInitialPositionMs,
-                    progressFraction = activeInitialProgressFraction,
-                    durationMs = snapshot.durationMs,
-                ) ?: activeInitialPositionMs.coerceAtLeast(0L),
+                // ⚠ **A party seek supersedes the resume point, because it is where this play now
+                // begins from.** Watch Together moves the playhead by command, and the engine
+                // reports the target immediately, so without this the displacement was counted as
+                // progress this source had made - see `partyAlignedBaselineMs` for the run it cost
+                // a party. The watchdog rebases onto the new value rather than restarting, so no
+                // deadline is reset by a correction.
+                baselineMs = partyAlignedBaselineMs
+                    ?: PlaybackPosition.resolveStartPositionMs(
+                        initialPositionMs = activeInitialPositionMs,
+                        progressFraction = activeInitialProgressFraction,
+                        durationMs = snapshot.durationMs,
+                    ) ?: activeInitialPositionMs.coerceAtLeast(0L),
                 hasExternalEvidenceOfLife = probePassed,
                 // ⚠ **Watch Together parks this player on purpose, and a parked player does not
                 // buffer.** Held time is frozen rather than exempted: see

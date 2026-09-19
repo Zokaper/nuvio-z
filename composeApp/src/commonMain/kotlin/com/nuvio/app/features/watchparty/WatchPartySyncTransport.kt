@@ -137,10 +137,13 @@ internal object WatchPartySync : PartyRealtimeTransport {
     private var tick: PartyTick? = null
     private val guestRttMs = mutableMapOf<String, Long>()
     private val guestStatus = mutableMapOf<String, WatchPartyStatus>()
+    /** Each guest's last reported buffer occupancy. See [PartyPeerStatusMessage.starved]. */
+    private val guestStarved = mutableMapOf<String, Boolean>()
     private val guestLastTelemetryAtPartyMs = mutableMapOf<String, Long>()
     private val outstandingPings = mutableMapOf<String, Long>()
     private var commandCounter = 0L
     private var peerStatus: WatchPartyStatus? = null
+    private var peerStarved: Boolean = false
     private var authority: PartyAuthorityContext? = null
     private var channelInstance: Long = 0L
     private var healthSink: (PartyHealthEvent) -> Unit = {}
@@ -256,12 +259,15 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 engineState = guestStatus[profileId],
                 telemetryAgeMs = guestLastTelemetryAtPartyMs[profileId]?.let { now - it } ?: -1L,
                 holdAgeMs = before.heldSinceByProfile[profileId]?.let { now - it } ?: -1L,
-                // A member released while it reads `paused` has recovered just as much as one
-                // reading `playing`: the party's own hold is what stopped it, and `paused` rather
-                // than `buffering` is the engine saying it is full. Only a member still reading
-                // `buffering` at release was abandoned rather than waited out.
-                classification = when (guestStatus[profileId]) {
-                    WatchPartyStatus.playing, WatchPartyStatus.paused -> "recovered"
+                // A member released while it reads `paused` **and reports a buffer** has recovered
+                // just as much as one reading `playing`: the party's own hold is what stopped it.
+                // A member released while it is still starved was not waited out, it was given up
+                // on by [WatchPartyStallHoldMaxMs], and calling that "recovered" is how the hold
+                // that resumed onto a frozen guest looked clean in the log it was recorded in.
+                classification = when {
+                    guestStatus[profileId] == WatchPartyStatus.playing -> "recovered"
+                    guestStatus[profileId] == WatchPartyStatus.paused ->
+                        if (guestStarved[profileId] == true) "abandoned-still-starved" else "recovered"
                     else -> "telemetry-stale"
                 },
             )
@@ -357,10 +363,12 @@ internal object WatchPartySync : PartyRealtimeTransport {
         _ticks.resetReplayCache()
         guestRttMs.clear()
         guestStatus.clear()
+        guestStarved.clear()
         guestLastTelemetryAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
+        peerStarved = false
         lastValidatedReceiveAtMs = null
         _state.value = WatchPartySyncState()
     }
@@ -373,10 +381,12 @@ internal object WatchPartySync : PartyRealtimeTransport {
         _ticks.resetReplayCache()
         guestRttMs.clear()
         guestStatus.clear()
+        guestStarved.clear()
         guestLastTelemetryAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
+        peerStarved = false
         publishState()
     }
 
@@ -605,18 +615,27 @@ internal object WatchPartySync : PartyRealtimeTransport {
         return command
     }
 
-    /** What this client is doing, for a host deciding whether to wait for it. */
-    fun publishPeerStatus(status: WatchPartyStatus) {
+    /**
+     * What this client is doing, for a host deciding whether to wait for it.
+     *
+     * [starved] travels with [status] rather than being derived from it, because the host cannot
+     * derive it: see [PartyPeerStatusMessage.starved].
+     */
+    fun publishPeerStatus(status: WatchPartyStatus, starved: Boolean = false) {
         val context = authority ?: return
         val generation = context.generation
         val profileId = context.selfProfileId
         if (profileId == context.hostProfileId) return
         // Only when it changes: the clock exchange re-sends the held one for liveness, and logging
         // every one of those would bury the transitions that decide whether the host holds.
-        if (peerStatus != status) {
-            log.i { "peer publish party=${context.partyId.shortId()} status=$status" }
+        // `starved` counts as a change - a guest that fills its buffer while the party holds it
+        // paused reports the same `paused` it did while empty, and that transition is the entire
+        // signal the hold ends on.
+        if (peerStatus != status || peerStarved != starved) {
+            log.i { "peer publish party=${context.partyId.shortId()} status=$status starved=$starved" }
         }
         peerStatus = status
+        peerStarved = starved
         scope.launch {
             send(PartyPeerStatusMessage(
                 partyId = context.partyId,
@@ -624,6 +643,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 status = status,
                 atPartyMs = partyNowMs(),
                 rttMs = clock.bestRttMs,
+                starved = starved,
                 contentGeneration = generation.contentGeneration,
                 sourceGeneration = generation.sourceGeneration,
                 authorityEpoch = generation.authorityEpoch,
@@ -850,6 +870,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 profileId = message.fromProfileId,
                 status = message.status,
                 partyNowMs = partyNowMs(),
+                starved = message.starved,
             )
         }
         val after = if (isHost()) advanceBufferWatch() else emptyList()
@@ -857,9 +878,19 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // 2026-09-02 run showed the host pausing for a guest with nothing in either log saying what
         // the guest had reported. Logged on the guest's *transitions* rather than per message - the
         // clock exchange re-sends the held status for liveness, and a line each would bury them.
-        if (guestStatus.put(message.fromProfileId, message.status) != message.status || before != after) {
+        //
+        // `starved` is part of the transition, not a decoration on it: `paused starved=true` and
+        // `paused starved=false` are the two sides of the hold this file gets wrong when they are
+        // conflated, so a log that cannot tell them apart cannot be used to diagnose it.
+        val starvedBefore = guestStarved.put(message.fromProfileId, message.starved)
+        if (
+            guestStatus.put(message.fromProfileId, message.status) != message.status ||
+            starvedBefore != message.starved ||
+            before != after
+        ) {
             log.i {
                 "peer status from=${message.fromProfileId.shortId()} status=${message.status} " +
+                    "starved=${message.starved} " +
                     "rttMs=${message.rttMs} transitMs=${partyNowMs() - message.atPartyMs} " +
                     "holding=[${after.joinToString { it.shortId() }}]"
             }
@@ -903,7 +934,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
                     authorityEpoch = generation.authorityEpoch,
                 ),
             )
-            peerStatus?.let { publishPeerStatus(it) }
+            peerStatus?.let { publishPeerStatus(it, peerStarved) }
             delay(watchPartyClockPingDelayMs(clock.samples.size))
         }
     }

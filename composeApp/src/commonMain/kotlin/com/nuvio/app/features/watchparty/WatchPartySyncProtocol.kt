@@ -151,6 +151,21 @@ data class PartyPeerStatusMessage(
     val status: WatchPartyStatus,
     val atPartyMs: Long,
     val rttMs: Long = -1L,
+    /**
+     * Whether this member's engine has nothing left to play, whatever [status] says.
+     *
+     * ⚠ **[status] alone cannot answer "has this guest recovered", and reading it as though it
+     * could is what made a host resume on a guest that was still starved.** `paused` is produced
+     * by two unrelated facts: a member that is full and parked, and a member that is empty and has
+     * been *told* to stop by the very hold that is waiting for it. Pausing a starving player stops
+     * it looking starved, because `isLoading` is starvation measured against an intent to play and
+     * the pause removes the intent. So the host's own stall hold erased the evidence that
+     * justified it - see `GuestBufferingWatch.observe`.
+     *
+     * This is the engine's buffer occupancy instead, which no command can change. False from a
+     * build that does not send it, which is exactly the behaviour those builds already have.
+     */
+    val starved: Boolean = false,
     override val contentGeneration: Int = 0,
     override val sourceGeneration: Int = 0,
     override val authorityEpoch: Long = 0L,
@@ -212,6 +227,7 @@ fun encodePartySyncMessage(message: PartySyncMessage): JsonObject = buildJsonObj
             put("s", message.status.name)
             put("at", message.atPartyMs)
             put("rtt", message.rttMs)
+            put("st", message.starved)
         }
     }
 }
@@ -303,6 +319,9 @@ fun decodePartySyncMessage(payload: JsonObject): PartySyncMessage? {
                 ?: return null,
             atPartyMs = long("at") ?: return null,
             rttMs = long("rtt") ?: -1L,
+            // Absent from every build before 2026-09-19, and false is what those builds mean:
+            // "no starvation fact available", which is how the host read a bare `paused` then.
+            starved = bool("st") ?: false,
             contentGeneration = contentGeneration,
             sourceGeneration = sourceGeneration,
             authorityEpoch = authorityEpoch,

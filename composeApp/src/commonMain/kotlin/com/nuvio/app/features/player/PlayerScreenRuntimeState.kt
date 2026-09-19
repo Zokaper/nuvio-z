@@ -506,6 +506,26 @@ internal class PlayerScreenRuntime(
     var partyReportedPeerStatus: WatchPartyStatus? = null
 
     /**
+     * The last buffer-occupancy fact published beside [partyReportedPeerStatus].
+     *
+     * Held separately because it transitions while the status does not: a guest the host is holding
+     * reports `paused` empty and `paused` full, and only the second ends the hold.
+     */
+    var partyReportedPeerStarved: Boolean = false
+
+    /**
+     * Where Watch Together has last commanded this player's playhead, or null when it has not.
+     *
+     * ⚠ **The startup watchdog measures progress from a baseline, and a party seek moves the
+     * playhead without the source having fetched anything.** Left unsaid, the jump reads as
+     * progress: the S25 run of 2026-09-19 had a guest aligned from 4339 ms to 12012 ms by the
+     * host, which flipped its watchdog onto the shorter post-progress stall deadline and then
+     * abandoned the party's only candidate. Published here so the sampler can rebase - see
+     * `PlaybackStartupWatchdog.observe`.
+     */
+    var partyAlignedBaselineMs by mutableStateOf<Long?>(null)
+
+    /**
      * The stalled guests this host paused the party for, empty when it did not.
      *
      * Non-empty *is* the retained playing intent, and that is the whole point of it. A stall hold
