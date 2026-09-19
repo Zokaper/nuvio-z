@@ -3,6 +3,59 @@
 
 Last updated: 2026-09-19
 
+## Starvation is the engine's verdict now, not a one-second buffer (2026-09-19)
+
+`6b937f65c`, on `claude/phase-6-convergence-linear`, and published as debug **`.33`**
+(`debug-v0.4.13-z1.33`). This is the fix the inspection below pointed at; the inspection's reading of
+the defect stands unchanged.
+
+`PlayerPlaybackSnapshot` now carries `engineReadiness` - `Buffering`, `Ready`, `NoSource` or
+`Unknown` - and `partyStarvedFor` believes it:
+
+| Engine state | Readiness | Starved |
+| --- | --- | --- |
+| ExoPlayer `STATE_BUFFERING` | `Buffering` | **yes**, at any buffer level |
+| ExoPlayer `STATE_READY` / `STATE_ENDED` | `Ready` | no, at any buffer level |
+| ExoPlayer `STATE_IDLE` | `NoSource` | no |
+| libmpv `paused-for-cache` | `Buffering` | **yes**, even while `pause` is set |
+| libmpv `cache-buffering-state` 0-99 **and not paused** | `Buffering` | **yes** |
+| libmpv cache filled, or `cache-buffering-state` standing while paused | `Ready` | no |
+| libmpv `seeking` | `Unknown` | falls back to buffer occupancy |
+| anything else - iOS today | `Unknown` | falls back to buffer occupancy |
+
+Two exclusions sit in the party rather than in the engines, because both are facts about the party:
+a client holding for a barrier or its own corrective seek is never starved, and neither is one with
+no duration yet - that one belongs to the start gate, and calling it starved would have every join
+hold the party from outside.
+
+**Why the engine and not a bigger constant.** The engine is what decides when playback resumes.
+Raising 1000 to 5000 would have matched today's `bufferForPlaybackAfterRebuffer` and drifted from it
+the next time the load control is tuned, and it would still have been guessing on libmpv, which sets
+no cache timing in this repo at all. `bufferedAheadMs` stays in the peer-status log line (now beside
+`engine=<name>/<readiness>`) and stays the rule where nothing better exists, but it no longer
+overrules an engine that says it is still buffering.
+
+**What did not change**: the host grace, the hold budget and its ceiling, the transport and its wire
+format, Away, and the backend. `starved` is the same boolean on the same field - only how a member
+decides its own value moved.
+
+**Coverage.** `PartyStarvationTest` (9, `commonTest`) and `PlayerEngineReadinessAndroidTest` (6,
+`androidHostTest`, mapping the Media3 states and the libmpv properties). Buffering at 1200 ms ahead
+is starved; engine-ready at 120 ms is not; a host-forced pause over a buffering engine still is; an
+ordinary pause is not; a barrier hold never is; `paused-for-cache` is and a recovered cache is not.
+The stall-hold feedback-loop regressions in `WatchPartySyncTest` take `starved` as an input and are
+unchanged and green.
+
+**Verified**: `:composeApp:testAndroidHostTest --rerun` 2137 tests, 0 failures, 0 skipped (results
+directory deleted first); `:androidApp:compileFullDebugKotlin` green; the `debug-release.yml` run for
+`.33` green, which is the host suite and `assembleFullDebug` again in CI.
+
+**Not carried to desktop.** `NuvioZDesktop`'s copy of `PlayerWatchPartyEffect.kt` was byte-identical
+before this commit and is now behind it, so desktop parties still clear starvation on the 1000 ms
+heuristic. Mirroring it also means teaching the desktop native bridge's snapshot to report
+readiness - it already reads `paused-for-cache` - or desktop silently keeps the old rule through the
+`Unknown` fallback. No desktop build was cut.
+
 ## Android black picture: the diagnostic that skipped video, and a dead escape hatch (2026-09-19)
 
 Three Android changes, all on `claude/phase-6-convergence-linear`. None of them is a fix for the
@@ -88,8 +141,9 @@ Watch Together is unaffected: nothing here touches transport, readiness or the h
   asserted.
 - The fatal path (`no_supported_video` → error → source fallback) has unit coverage and **no
   hardware run**.
-- The 1000 ms starvation recovery threshold is **untouched**, as instructed. Inspected only, and
-  the inspection already says it is the wrong number:
+- The 1000 ms starvation recovery threshold was **untouched by the three changes above**, as
+  instructed, and has since been replaced by the engine-native signal at the top of this file.
+  Inspected first, and the inspection already said it was the wrong number:
 
   - `PartyStarvedBufferMs` (`PlayerWatchPartyEffect.kt:139`) is `1_000L`.
   - The Android `DefaultLoadControl` is built with
@@ -106,8 +160,9 @@ Watch Together is unaffected: nothing here touches transport, readiness or the h
     `readSnapshotNow`.
 
   The shape of the fix this points at - report the engine's own readiness rather than compare a
-  buffer figure to a constant - is **not implemented**, and 1000 ms is unchanged pending that
-  decision.
+  buffer figure to a constant - is what `6b937f65c` implements; see the top of this file. The
+  constant survives as the fallback for engines that cannot answer, under the name
+  `PartyStarvedFallbackBufferMs`.
 
 ## The stall hold released itself, and a party seek looked like startup progress (2026-09-19)
 
