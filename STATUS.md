@@ -88,7 +88,26 @@ Watch Together is unaffected: nothing here touches transport, readiness or the h
   asserted.
 - The fatal path (`no_supported_video` → error → source fallback) has unit coverage and **no
   hardware run**.
-- The 1000 ms starvation recovery threshold is **untouched**, as instructed.
+- The 1000 ms starvation recovery threshold is **untouched**, as instructed. Inspected only, and
+  the inspection already says it is the wrong number:
+
+  - `PartyStarvedBufferMs` (`PlayerWatchPartyEffect.kt:139`) is `1_000L`.
+  - The Android `DefaultLoadControl` is built with
+    `setBufferDurationsMs(15_000, 70_000, DEFAULT_BUFFER_FOR_PLAYBACK_MS, 5_000)`, so ExoPlayer's
+    own **resume-after-rebuffer** figure is **5000 ms** (and its initial-playback figure is
+    Media3's 2500 ms default). Nothing in the app is configured at 1000 ms.
+  - So a guest publishes `starved=false` at ~1000 ms of buffer while its own engine will not leave
+    `STATE_BUFFERING` until 5000 ms. That is exactly the 1001-1276 ms cluster the hardware run
+    produced: the party un-starves roughly four seconds before the player actually resumes.
+  - libmpv is configured with `demuxer-max-bytes` only - no `cache-secs`, `demuxer-readahead-secs`
+    or `cache-pause-wait` is set, so those run at mpv's defaults and are not pinned by this repo.
+    It does, however, already expose and observe two **engine-level** readiness facts that need no
+    threshold at all: `paused-for-cache` and `cache-buffering-state` (0-100), both read in
+    `readSnapshotNow`.
+
+  The shape of the fix this points at - report the engine's own readiness rather than compare a
+  buffer figure to a constant - is **not implemented**, and 1000 ms is unchanged pending that
+  decision.
 
 ## The stall hold released itself, and a party seek looked like startup progress (2026-09-19)
 
