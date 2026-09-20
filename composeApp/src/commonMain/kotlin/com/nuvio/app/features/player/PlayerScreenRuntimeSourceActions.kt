@@ -335,6 +335,12 @@ internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) 
  * members picking at the same instant produce one advance and one rejection rather than two
  * advances. `partyPublishedSourceGeneration` is the local half of the same guarantee: a retry or a
  * recomposition of the same pick cannot advance it twice.
+ *
+ * For the **host**, a pick of a different release advances the party even when the two look alike
+ * enough to score `EquivalentMedia`. That tier is the one the automatic paths must treat as a
+ * duplicate and the one a person cannot have meant: the host opened the panel and chose another
+ * release, and the party's timeline is whatever the host is watching. Re-picking the release the
+ * party is already on is still refused, for either member.
  */
 private fun PlayerScreenRuntime.publishPartySourceChange(stream: StreamItem) {
     val party = WatchPartyRepository.uiState.value.party
@@ -347,6 +353,12 @@ private fun PlayerScreenRuntime.publishPartySourceChange(stream: StreamItem) {
             profileId = WatchPartyRepository.uiState.value.activeProfileId,
             picked = picked,
             publishedSourceGeneration = partyPublishedSourceGeneration,
+            // Only this call site sets it, and only because only this one is a person. The guard's
+            // duplicate test cannot tell a host deliberately changing release from a realization
+            // that flapped onto a look-alike, so for the host it narrows to the party's own
+            // release: re-picking what is playing is still refused, picking a different release is
+            // now the authoritative change the sources panel says it is.
+            explicitHostSelection = true,
         )
     ) return
     partyPublishedSourceGeneration = party.sourceGeneration

@@ -78,6 +78,7 @@ fun shouldPublishPartySourceChange(
     picked: PartySourceDescriptorV2?,
     publishedSourceGeneration: Int?,
     timelineChanged: Boolean = false,
+    explicitHostSelection: Boolean = false,
 ): Boolean {
     if (party == null || picked == null) return false
     if (!party.allowsSourceChangeBy(profileId)) return false
@@ -87,8 +88,10 @@ fun shouldPublishPartySourceChange(
     // line.
     if (publishedSourceGeneration == party.sourceGeneration) return false
     val current = party.sourceFingerprint
-    // ⚠ **[timelineChanged] is the one way past the duplicate test, and it exists because that
-    // test is a heuristic standing in for a verdict the caller sometimes actually has.**
+    // ⚠ **Two callers may narrow the duplicate test, and both exist because that test is a
+    // heuristic standing in for a verdict the caller sometimes actually has.**
+    //
+    // [timelineChanged] is the first, and it bypasses the test outright.
     //
     // The test refuses anything inside [PartyExactMatchTiers], which is right for a hand-picked
     // source - re-picking what the party is already on, or something indistinguishable from it, is a
@@ -101,10 +104,26 @@ fun shouldPublishPartySourceChange(
     // thing - `AdvancePartySource`, which a same-release tier only reaches on a proven duration
     // contradiction. Every other caller keeps this test exactly as it was, and the one-shot guard
     // above applies to all of them alike.
+    //
+    // [explicitHostSelection] is the second, and it is narrower still: it does not open the door,
+    // it moves it. A host that reaches into the sources panel and picks a *different release* has
+    // said what the party watches - that is what the panel means when the host opens it - and
+    // `EquivalentMedia` is precisely "another release that looks alike", so refusing it left the
+    // party on a timeline the host had visibly chosen to leave, with the UI reporting the change it
+    // had just declined to make. Re-picking the party's own release stays refused, because that is
+    // still a generation advance for a change nobody made: the host may change the release, it may
+    // not republish the one already playing.
+    //
+    // Only the *host* moves the door. A guest picking in collaborative mode is permitted to change
+    // the party source and keeps the full test, because a guest's pick is a guest's opinion about a
+    // timeline it does not define - it may not promote a look-alike into the party's timeline, and
+    // a guest's local fallback never reaches this function at all.
+    val hostChoosing = explicitHostSelection && party.hostProfileId == profileId
+    val duplicateTiers = if (hostChoosing) PartySameReleaseTiers else PartyExactMatchTiers
     if (
         !timelineChanged &&
         current != null &&
-        partySourceMatchTier(current, picked) in PartyExactMatchTiers
+        partySourceMatchTier(current, picked) in duplicateTiers
     ) return false
     return true
 }
