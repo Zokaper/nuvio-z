@@ -32,6 +32,7 @@ import com.nuvio.app.features.watchparty.SourceResolutionState
 import com.nuvio.app.features.watchparty.PartySourceMatch
 import com.nuvio.app.features.watchparty.StallHoldBudget
 import com.nuvio.app.features.watchparty.WatchPartyControlMode
+import com.nuvio.app.features.watchparty.PartyPendingResume
 import com.nuvio.app.features.watchparty.WatchPartyDiagnostics
 import com.nuvio.app.features.watchparty.WatchPartyIdleTickIntervalMs
 import com.nuvio.app.features.watchparty.WatchPartyPausedAlignToleranceMs
@@ -480,6 +481,8 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         onDispose {
             if (generationKey != null) {
                 partyBarrierAtMs = 0L
+                partyPendingResume = null
+                partyAwaitingResumeReadiness = emptyList()
                 partyReportedPeerStatus = null
                 partyReportedPeerStarved = false
                 partyHoldingForBarrier = false
@@ -574,6 +577,75 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         }
     }
 
+    // The readiness barrier for buffering the party asked for.
+    //
+    // A seek empties every member's buffer by construction, so resuming on a fixed lead and finding
+    // out afterwards is a race the host wins: it starts, and a guest that needed longer than the
+    // lead is reported buffering half a second later and pulled back by the stall guard - a pause,
+    // a resume and a pause for everybody, for an operation whose cost was known in advance. So the
+    // seek parks the party on the frame (`playAfter = false`) and the resume is issued here, once
+    // every member the party moved says it can play again.
+    //
+    // Deliberately not the stall guard, which stays exactly as it was: that one is for buffering
+    // nobody asked for, and it is reactive because it has to be.
+    LaunchedEffect(generationKey, isHost, partyPendingResume?.issuedAtPartyMs) {
+        val pending = partyPendingResume ?: return@LaunchedEffect
+        if (generationKey == null || !isHost || pending.generationKey != generationKey) {
+            partyPendingResume = null
+            partyAwaitingResumeReadiness = emptyList()
+            return@LaunchedEffect
+        }
+        var reported: List<String>? = null
+        while (true) {
+            val live = WatchPartyRepository.uiState.value
+            val party = live.party?.takeIf { it.generationKey() == generationKey }
+            // The party ended, changed content, or the host stopped waiting for anybody: the resume
+            // belongs to whoever owns the transport now.
+            if (party == null || partyPendingResume?.issuedAtPartyMs != pending.issuedAtPartyMs) {
+                partyAwaitingResumeReadiness = emptyList()
+                return@LaunchedEffect
+            }
+            val decision = partyStartPlaybackRelease(
+                members = party.members,
+                viewerProfileId = live.activeProfileId,
+                peerTelemetry = WatchPartySync.state.value.peerTelemetry,
+                realtimeLive = live.health.capability() ==
+                    com.nuvio.app.features.watchparty.PartySyncCapability.FullSync,
+                partyNowMs = WatchPartySync.partyNowMs(),
+                durablyReadyAtPartyMs = pending.issuedAtPartyMs,
+                freshSincePartyMs = pending.issuedAtPartyMs,
+            )
+            // The host's own engine is the one member that never reports over the wire, and it has
+            // just been seeked too. Read locally, from the same signal a guest publishes.
+            val selfStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
+            if (decision.release && !(selfStarved && !decision.timedOut)) {
+                if (decision.timedOut) {
+                    partyLog.w {
+                        "resume barrier $generationKey timed out waiting for " +
+                            "[${decision.waitingOn.joinToString { it.shortId() }}] selfStarved=$selfStarved"
+                    }
+                }
+                partyPendingResume = null
+                partyAwaitingResumeReadiness = emptyList()
+                partyLog.i {
+                    "resume barrier $generationKey ready positionMs=${pending.targetPositionMs} " +
+                        "waitedMs=${WatchPartySync.partyNowMs() - pending.issuedAtPartyMs}"
+                }
+                startPartyPlayback(pending.targetPositionMs, source = "seek-readiness")
+                return@LaunchedEffect
+            }
+            val waitingOn = if (selfStarved) decision.waitingOn + listOfNotNull(live.activeProfileId) else decision.waitingOn
+            if (waitingOn != reported) {
+                reported = waitingOn
+                // Only the others are shown as held; a host waiting on its own engine is buffering,
+                // not waiting for a person.
+                partyAwaitingResumeReadiness = decision.waitingOn
+                partyLog.i { "resume barrier $generationKey waiting for [${waitingOn.joinToString { it.shortId() }}]" }
+            }
+            delay(WatchPartyStallWatchPollMs)
+        }
+    }
+
     // Composition supplies fresh telemetry; the process-scoped repository poll owns liveness and
     // durable publication. Disposing this effect can no longer silently stop the heartbeat.
     LaunchedEffect(
@@ -623,7 +695,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                     capturedAtPartyMs = partyInstantOf(sample.atEpochMs),
                     playbackSpeed = nominalPlaybackSpeed,
                     durationMs = snapshot.durationMs,
-                    hold = partyAutoPausedForGuests,
+                    hold = partyHoldNotice(),
                 )
             }
             delay(
@@ -655,7 +727,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             capturedAtPartyMs = partyInstantOf(sample.atEpochMs),
             playbackSpeed = nominalPlaybackSpeed,
             durationMs = snapshot.durationMs,
-            hold = partyAutoPausedForGuests,
+            hold = partyHoldNotice(),
         )
     }
 
@@ -675,7 +747,15 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     val peerStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
     LaunchedEffect(generationKey, isHost, peerStatus, peerStarved, partyHoldingForBarrier) {
         if (generationKey == null || isHost) return@LaunchedEffect
-        if (partyHoldingForBarrier) return@LaunchedEffect
+        if (partyHoldingForBarrier) {
+            // ⚠ **What was reported before a barrier cannot answer for after one.** The publisher
+            // below sends only on a change, and a member seeked while paused reports `paused` on
+            // both sides of the seek - so the host's readiness barrier would wait for a report that
+            // was never going to be sent, and time out on a guest that was ready in a second.
+            // Forgetting here means the first settled read after every barrier is published.
+            partyReportedPeerStatus = null
+            return@LaunchedEffect
+        }
         val edgeAtMs = currentEpochMs()
         // Keyed on the status, so a flap cancels the pending publish rather than adding to it - the
         // same debounce the host's status gets, and for a sharper reason here: the snapshot poll is
@@ -1413,12 +1493,34 @@ internal fun PlayerScreenRuntime.stopWaitingForStalledGuests() {
     if (party.hostProfileId != WatchPartyRepository.uiState.value.activeProfileId) return
     partyDontWaitGenerationKey = party.generationKey()
     WatchPartyRepository.setWaitForEveryone(false)
-    val waited = partyAutoPausedForGuests
-    if (waited.isEmpty()) return
+    // A resume the seek barrier is still holding is the same answer to the same question - the host
+    // has said it is not waiting - so it is released here rather than left for a timeout nobody
+    // asked to sit through.
+    val pendingResume = partyPendingResume
+    val waited = (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
+    partyPendingResume = null
+    partyAwaitingResumeReadiness = emptyList()
+    if (pendingResume == null && partyAutoPausedForGuests.isEmpty()) return
     partyAutoPausedForGuests = emptyList()
-    partyLog.i { "dont-wait: releasing hold for=${waited.joinToString { it.shortId() }}" }
-    startPartyPlayback(samplePlaybackPosition().positionMs, source = "dont-wait")
+    partyLog.i { "dont-wait: releasing hold for=[${waited.joinToString { it.shortId() }}]" }
+    startPartyPlayback(
+        pendingResume?.targetPositionMs ?: samplePlaybackPosition().positionMs,
+        source = "dont-wait",
+    )
 }
+
+/**
+ * Who the party is visibly waiting for, whichever mechanism is doing the waiting.
+ *
+ * One list, because the guests read one field and a member cannot tell - or care - whether the film
+ * stopped for a stall or for a seek it was too slow to land.
+ */
+private fun PlayerScreenRuntime.partyHoldNotice(): List<String> =
+    if (partyAwaitingResumeReadiness.isEmpty()) {
+        partyAutoPausedForGuests
+    } else {
+        (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
+    }
 
 /**
  * Holds the party for a guest whose stream has stalled, and starts it again together.
@@ -1615,8 +1717,11 @@ internal fun PlayerScreenRuntime.submitPartyPlayPause(isPlaying: Boolean, positi
     }
     // The user has taken the transport back. Without this, a guest recovering later would have the
     // stall guard resume over a pause a person made in the meantime - the guard would be undoing a
-    // decision it did not take.
+    // decision it did not take. A resume the seek barrier was still waiting to issue is revoked for
+    // the same reason: this command is the newer answer to the same question.
     partyAutoPausedForGuests = emptyList()
+    partyPendingResume = null
+    partyAwaitingResumeReadiness = emptyList()
     if (isPlaying) {
         startPartyPlayback(positionMs, source = "user", diagnosticInputId = inputId)
     } else {
@@ -1657,15 +1762,39 @@ internal fun PlayerScreenRuntime.submitPartySeek(positionMs: Long): Boolean {
         return refusePartyControl()
     }
     val startAt = WatchPartySync.partyNowMs() + WatchPartySync.barrierLeadMs()
+    // A seek that resumes waits for readiness rather than for a lead - see the resume barrier in
+    // `BindWatchPartyEffect`. The seek lands everybody on the frame and stops there; the resume is
+    // a second command, issued when they can all play it.
+    //
+    // Not when the host has said it is not waiting for people, and not when there is nobody to wait
+    // for: a party of one, or one where everybody else has gone, resumes on the seek exactly as it
+    // always did.
+    val party = uiAtInput.party
+    val waitsForReadiness = resumeAfter &&
+        uiAtInput.waitForEveryone &&
+        party != null &&
+        partyMembersPresent(party).any { it != uiAtInput.activeProfileId }
     WatchPartySync.issueCommand(
         kind = PartyCommandKind.seek,
         startPositionMs = targetMs,
         startAtPartyMs = startAt,
         playbackSpeed = nominalPlaybackSpeed,
-        playAfter = resumeAfter,
+        playAfter = if (waitsForReadiness) false else resumeAfter,
         diagnosticInputId = inputId,
         submitDurable = { accepted -> scope.launch { WatchPartyRepository.submitAccepted(accepted) } },
     )
+    if (waitsForReadiness && party != null) {
+        partyAwaitingResumeReadiness = emptyList()
+        partyPendingResume = PartyPendingResume(
+            generationKey = party.generationKey(),
+            targetPositionMs = targetMs,
+            issuedAtPartyMs = startAt,
+        )
+        partyLog.i { "resume barrier ${party.generationKey()} armed targetMs=$targetMs atPartyMs=$startAt" }
+    } else {
+        partyPendingResume = null
+        partyAwaitingResumeReadiness = emptyList()
+    }
     return true
 }
 

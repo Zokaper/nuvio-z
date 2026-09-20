@@ -54,11 +54,16 @@ class PlayerEngineReadinessAndroidTest {
     }
 
     @Test
-    fun libmpvCacheBufferingCountsOnlyWhilePlaybackIsIntended() {
+    fun libmpvCacheBufferingIsReadWhateverThePauseFlagSays() {
         assertEquals(PlayerEngineReadiness.Buffering, mpv(cacheBuffering = true))
-        // A deliberate pause can leave the last percentage standing; believing it would report every
-        // paused member as empty.
-        assertEquals(PlayerEngineReadiness.Ready, mpv(cacheBuffering = true, paused = true))
+        // Held paused from outside with a cache still filling is the readiness barrier's own case: a
+        // member seeked into an unbuffered region and told to wait there. Measured on the shipped
+        // libmpv, `cache-buffering-state` stays live through that refill, so believing it is the
+        // whole difference between waiting for readiness and resuming onto an empty engine.
+        assertEquals(PlayerEngineReadiness.Buffering, mpv(cacheBuffering = true, paused = true))
+        // And a paused member whose cache is full is not buffering at all: the property reads 100
+        // when mpv is not filling to a target, so this case never reaches the flag.
+        assertEquals(PlayerEngineReadiness.Ready, mpv(paused = true))
     }
 
     @Test

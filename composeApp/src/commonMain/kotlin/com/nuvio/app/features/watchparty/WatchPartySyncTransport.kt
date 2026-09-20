@@ -140,6 +140,17 @@ internal object WatchPartySync : PartyRealtimeTransport {
     /** Each guest's last reported buffer occupancy. See [PartyPeerStatusMessage.starved]. */
     private val guestStarved = mutableMapOf<String, Boolean>()
     private val guestLastTelemetryAtPartyMs = mutableMapOf<String, Long>()
+
+    /**
+     * The party instant each guest *stamped* on its last status, as opposed to when it arrived.
+     *
+     * A readiness barrier asks whether a member has answered a question the party asked at a known
+     * instant, and only the sender's own stamp can say: a report that crossed with the command is
+     * received after it and describes the member before it. Kept beside the receipt rather than
+     * replacing it, because the receipt is what liveness is measured with and a sender stamp must
+     * never be able to keep a silent member looking present.
+     */
+    private val guestStatusAtPartyMs = mutableMapOf<String, Long>()
     private val outstandingPings = mutableMapOf<String, Long>()
     private var commandCounter = 0L
     private var peerStatus: WatchPartyStatus? = null
@@ -365,6 +376,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         guestStatus.clear()
         guestStarved.clear()
         guestLastTelemetryAtPartyMs.clear()
+        guestStatusAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
@@ -383,6 +395,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         guestStatus.clear()
         guestStarved.clear()
         guestLastTelemetryAtPartyMs.clear()
+        guestStatusAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
@@ -864,6 +877,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // Freshness is stamped on receipt in the host's clock domain. The sender timestamp is
         // useful content, but it must not be allowed to keep its own presence fresh indefinitely.
         guestLastTelemetryAtPartyMs[message.fromProfileId] = partyNowMs()
+        guestStatusAtPartyMs[message.fromProfileId] = message.atPartyMs
         val before = if (isHost()) advanceBufferWatch() else emptyList()
         if (isHost()) {
             bufferWatch = bufferWatch.observe(
@@ -953,6 +967,8 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 PartyPeerTelemetry(
                     status = status,
                     receivedAtPartyMs = guestLastTelemetryAtPartyMs[profileId] ?: 0L,
+                    starved = guestStarved[profileId] ?: false,
+                    reportedAtPartyMs = guestStatusAtPartyMs[profileId] ?: 0L,
                 )
             },
         )

@@ -21,6 +21,7 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
+import com.nuvio.app.features.watchparty.PartyPendingResume
 import com.nuvio.app.features.watchparty.PartyStartupHold
 import com.nuvio.app.features.watchparty.PendingPartySeek
 import com.nuvio.app.features.watchparty.StallHoldBudget
@@ -550,6 +551,24 @@ internal class PlayerScreenRuntime(
 
     /** The generation the host pressed "Don't wait" in; the stall guard comes back on for the next one. */
     var partyDontWaitGenerationKey: String? = null
+
+    /**
+     * The seek this host has issued and not yet resumed the party from.
+     *
+     * The readiness barrier for deliberate buffering: a seek empties everybody's buffer by
+     * construction, so the party parks on the target and the resume waits for positive readiness
+     * instead of running on a lead and being pulled back by the stall guard afterwards. Compose
+     * state because the effect that does the waiting is keyed on it.
+     */
+    var partyPendingResume by mutableStateOf<PartyPendingResume?>(null)
+
+    /**
+     * Who that resume is still waiting on, for the status pill and the tick the guests read.
+     *
+     * Kept beside [partyAutoPausedForGuests] rather than inside it: this is a wait the party chose
+     * and the stall guard must not read it as a stall it took.
+     */
+    var partyAwaitingResumeReadiness by mutableStateOf<List<String>>(emptyList())
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
     var lastResetPlaybackIdentity: String? = null

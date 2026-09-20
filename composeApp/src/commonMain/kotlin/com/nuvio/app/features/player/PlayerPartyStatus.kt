@@ -116,7 +116,13 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
         )
     } else {
         val tickHold = syncState.tickHold.takeIf { !isHost && syncState.tickStatus != WatchPartyStatus.playing }.orEmpty()
-        val stallHold = if (isHost) partyAutoPausedForGuests else tickHold.filter { it != viewerId }
+        // The host's own two waits, which are one thing to everybody looking at the screen: a stall
+        // it took, and a seek it is waiting to resume from.
+        val stallHold = if (isHost) {
+            (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
+        } else {
+            tickHold.filter { it != viewerId }
+        }
         val realizationPhase = partyRealizationPhaseFor(realization, party.id)
         val partyPaused = if (isHost) !playbackSnapshot.isPlaying else presentation.freshHostStatus != WatchPartyStatus.playing
         // Deferred by one tick interval: a stall hold's tick follows its `pause` command, and "Paused

@@ -2043,10 +2043,19 @@ private fun ExoPlayer.snapshot(): PlayerPlaybackSnapshot {
  *
  * `paused-for-cache` is the engine saying it stopped because the cache ran dry, and it is reported
  * independently of the `pause` flag, so a member the party has paused still tells the truth about its
- * cache. `cache-buffering-state` is the percentage of cache fill until it unpauses, which is only
- * meaningful while playback is intended - a deliberate pause can leave the last value standing - so it
- * is read only when not paused. A seek in flight is a transition rather than an answer, and the
- * caller's fallback reads it better than either verdict would.
+ * cache. `cache-buffering-state` is the percentage of cache fill until playback may run, and it is
+ * read whatever the pause flag says.
+ *
+ * ⚠ **That last part used to carry `&& !paused`, on the theory that a deliberate pause could
+ * leave a stale percentage standing.** Measured against the shipped libmpv on 2026-09-20 and it does
+ * not: the property reads 100 whenever mpv is not buffering - playing and paused alike - and during a
+ * refill *while the player was held paused from outside* it climbed 0 → 96 → 100 live, which is
+ * exactly the case the guard was invented for. Keeping the guard cost the readiness barrier its whole
+ * answer: a member seeked into an unbuffered region while the party holds it paused reported `Ready`
+ * with an empty cache, which is the one thing the barrier exists to not do.
+ *
+ * A seek in flight is a transition rather than an answer, and the caller's fallback reads it better
+ * than either verdict would.
  */
 internal fun mpvEngineReadiness(
     pausedForCache: Boolean,
@@ -2058,7 +2067,7 @@ internal fun mpvEngineReadiness(
 ): PlayerEngineReadiness = when {
     durationMs <= 0L && idle -> PlayerEngineReadiness.NoSource
     pausedForCache -> PlayerEngineReadiness.Buffering
-    cacheBuffering && !paused -> PlayerEngineReadiness.Buffering
+    cacheBuffering -> PlayerEngineReadiness.Buffering
     seeking -> PlayerEngineReadiness.Unknown
     else -> PlayerEngineReadiness.Ready
 }

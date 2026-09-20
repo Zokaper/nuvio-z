@@ -563,15 +563,36 @@ data class GuestBufferingWatch(
 const val WatchPartyStartupStallGraceMs = 10_000L
 
 /**
- * The longest the start barrier waits, after every member has a source, for them to be able to play.
+ * The longest a coordinated barrier waits for the members it moved to be able to play.
  *
- * `ready` means the member's file opened and has a duration - not that it can start. In the physical
- * run the gate released on exactly that and the guest's first real frame was still seconds away,
- * which is why the party's first act after the hold was another hold. Bounded, because a member whose
- * player never reports itself parked must not keep the party stopped: after this the barrier releases
- * on durable readiness alone, exactly as it did before, and the start-up grace absorbs the rest.
+ * Two callers, one clock. At the start, `ready` means the member's file opened and has a duration -
+ * not that it can start; in the physical run the gate released on exactly that and the guest's first
+ * real frame was still seconds away, which is why the party's first act after the hold was another
+ * hold. After a seek it is the same question about the same members, asked about a position the
+ * party itself has just moved them to.
+ *
+ * Bounded, because a member whose player never reports itself parked must not keep the party
+ * stopped: past this the barrier goes on without them - at the start on durable readiness alone,
+ * exactly as it did before, and after a seek by resuming anyway and leaving the rest to the stall
+ * guard, which is the mechanism for buffering nobody asked for.
  */
 const val WatchPartyStartPlaybackReadyMaxWaitMs = 12_000L
+
+/**
+ * A seek whose resume is waiting for the party to be able to play again.
+ *
+ * Held rather than awaited inline because the wait outlives the gesture: the seek is issued with
+ * `playAfter = false`, every member lands on the frame and stays there, and the resume is a second
+ * command issued when - and only when - they have all said they can play it.
+ *
+ * [issuedAtPartyMs] is the seek's own barrier instant, and it is what makes a report an answer:
+ * see the `freshSincePartyMs` argument of [partyStartPlaybackRelease].
+ */
+data class PartyPendingResume(
+    val generationKey: String,
+    val targetPositionMs: Long,
+    val issuedAtPartyMs: Long,
+)
 
 /** Whether the start barrier may release, and who it is still waiting on when it may not. */
 data class PartyStartRelease(
@@ -581,15 +602,29 @@ data class PartyStartRelease(
 )
 
 /**
- * The start barrier's second condition: every member it waited on can actually play.
+ * Whether every member a coordinated barrier moved can actually play, and who it is waiting on.
  *
- * Called only once the durable gate has opened, so every connected member already has a source.
- * A member is playback-ready when its fresh peer status is `paused` or `playing`: `partyStatusFor`
- * reports `buffering` for as long as the engine is loading or has no first frame, so `paused` from a
- * member the party is holding means parked on a decoded frame. Members the barrier does not wait on:
- * the viewer, anyone disconnected, left or failed, and anyone who has never been in a player and says
- * nothing on the live plane - durable readiness is all there is to know about them. Without a live
- * plane there is no playback evidence to wait for, so the durable gate is the whole answer.
+ * The rule behind both barriers that wait for positive readiness rather than resuming on a timer:
+ *
+ *  - **The start**, once the durable gate has opened and every connected member has a source.
+ *    [freshSincePartyMs] is 0 there: any recent report answers, because the question is simply
+ *    whether that member's player is up.
+ *  - **A seek**, where the party has deliberately emptied everyone's buffer and the question is
+ *    whether they have refilled it. [freshSincePartyMs] is the seek's own barrier instant, so a
+ *    report from *before* the seek cannot answer a question the seek asked - which is the whole
+ *    difference between waiting for readiness and hoping the lead was long enough.
+ *
+ * A member is playback-ready when its fresh peer status is `paused` or `playing` **and it is not
+ * starved**. Both halves are load-bearing. `partyStatusFor` reports `buffering` for as long as the
+ * engine is loading, so `paused` from a member the party is holding means parked on a decoded frame -
+ * but only [PartyPeerTelemetry.starved] can tell that from a member parked on an empty engine,
+ * because pausing a starving player stops it reporting `buffering` at all. That is the 2026-09-19
+ * S25 failure in its other form: here it would release the barrier onto a member that cannot play.
+ *
+ * Members the barrier does not wait on: the viewer, anyone disconnected, left or failed, and anyone
+ * who has never been in a player and says nothing on the live plane - durable readiness is all there
+ * is to know about them. Without a live plane there is no playback evidence to wait for, so the
+ * durable gate is the whole answer.
  */
 fun partyStartPlaybackRelease(
     members: List<WatchPartyParticipant>,
@@ -598,6 +633,7 @@ fun partyStartPlaybackRelease(
     realtimeLive: Boolean,
     partyNowMs: Long,
     durablyReadyAtPartyMs: Long,
+    freshSincePartyMs: Long = 0L,
 ): PartyStartRelease {
     if (!realtimeLive) return PartyStartRelease(release = true, waitingOn = emptyList())
     val waiting = members.filter { member ->
@@ -606,11 +642,15 @@ fun partyStartPlaybackRelease(
             member.readyState == SourceResolutionState.failed ||
             member.readyState == SourceResolutionState.disconnected
         ) return@filter false
-        val status = peerTelemetry[member.profileId]
+        val telemetry = peerTelemetry[member.profileId]
             ?.takeIf { partyNowMs - it.receivedAtPartyMs <= WatchPartyClockStaleMs }
-            ?.status
-        when (status) {
-            WatchPartyStatus.paused, WatchPartyStatus.playing -> false
+            // A report the member sent before the operation describes it before it was moved. The
+            // sender's own stamp, not the receipt: the receipt of a report that crossed with the
+            // command would read as an answer to it.
+            ?.takeIf { it.reportedAtPartyMs >= freshSincePartyMs }
+        val starved = telemetry?.starved == true
+        when (telemetry?.status) {
+            WatchPartyStatus.paused, WatchPartyStatus.playing -> starved
             WatchPartyStatus.buffering -> true
             else -> member.clientLocation == WatchPartyClientLocation.player
         }

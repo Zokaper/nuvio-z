@@ -67,6 +67,20 @@ data class WatchPartySyncState(
 data class PartyPeerTelemetry(
     val status: WatchPartyStatus,
     val receivedAtPartyMs: Long,
+    /**
+     * The engine's own "nothing left to play", carried beside the status because the status cannot
+     * express it: a member the party has paused reports `paused` whether it is full or empty. Comes
+     * over the wire already - see `PartyPeerStatusMessage.starved` - and is what stops a readiness
+     * barrier releasing onto a member parked on an empty engine.
+     */
+    val starved: Boolean = false,
+    /**
+     * The party instant the *sender* stamped on this report, which is the only clock that can say
+     * whether it answers a question the party asked after it. [receivedAtPartyMs] cannot: a report
+     * that crossed with the command on the wire is received after it and describes the member
+     * before it.
+     */
+    val reportedAtPartyMs: Long = 0L,
 )
 
 /**
