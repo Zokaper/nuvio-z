@@ -448,4 +448,136 @@ class PartyPresenceTest {
         // The away roster changes nothing about who the snapshot names.
         assertFalse(partyAwayHoldMembers(live, setOf("host"), "host", pauseForAwayUsers = true).isNotEmpty())
     }
+
+    // --- Case 4, as hardware contradicted it on 2026-09-20 -------------------------------------
+    //
+    // Locking the phone made the member Away correctly, and unlocking never brought them back.
+    // `ACTION_USER_PRESENT` re-read `KeyguardManager.isKeyguardLocked`, the S25 answered `true`
+    // while the keyguard was still dismissing, and nothing else was coming to correct it. These
+    // are that cycle, fact by fact, with the keyguard lying at the moment it was believed.
+
+    @Test
+    fun screenOffIsLockedWhateverTheKeyguardSays() {
+        assertTrue(partyScreenLockedAfter(PartyScreenSignal.ScreenOff, keyguardLocked = false))
+        assertTrue(partyScreenLockedAfter(PartyScreenSignal.ScreenOff, keyguardLocked = true))
+    }
+
+    @Test
+    fun screenOnIsTheOneQuestionTheKeyguardAnswers() {
+        assertTrue(partyScreenLockedAfter(PartyScreenSignal.ScreenOn, keyguardLocked = true))
+        // A device with no lock set: the screen coming on is the whole story.
+        assertFalse(partyScreenLockedAfter(PartyScreenSignal.ScreenOn, keyguardLocked = false))
+    }
+
+    @Test
+    fun userPresentIsUnlockedEvenWhenTheKeyguardStillClaimsOtherwise() {
+        assertFalse(partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = true))
+        assertFalse(partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = false))
+    }
+
+    /**
+     * The whole hardware cycle: watching, lock, unlock, and back to watching.
+     *
+     * The keyguard answers `true` at every single read, which is what the S25 did. The return
+     * still has to happen, because `USER_PRESENT` is the fact and is not asking.
+     */
+    @Test
+    fun lockingAndUnlockingReturnsToWatchingWithALyingKeyguard() {
+        var seq = 0L
+        var state = PartyPresenceState()
+        fun observe(foreground: Boolean, signal: PartyScreenSignal): PartyPresenceState {
+            seq += 1
+            state = state.observe(
+                PartyLifecycleFacts(
+                    appForeground = foreground,
+                    screenLocked = partyScreenLockedAfter(signal, keyguardLocked = true),
+                    seq = seq,
+                ),
+            )
+            return state
+        }
+
+        assertEquals(PartyPresence.Watching, state.presence)
+
+        // Power button: SCREEN_OFF, then the process stops.
+        assertEquals(PartyPresence.Away, observe(foreground = true, signal = PartyScreenSignal.ScreenOff).presence)
+        assertEquals(PartyAwayReason.ScreenLocked, state.reason)
+        assertEquals(PartyPresence.Away, observe(foreground = false, signal = PartyScreenSignal.ScreenOff).presence)
+
+        // Screen back on, lock screen still lit: still away, and still for the lock.
+        assertEquals(PartyPresence.Away, observe(foreground = false, signal = PartyScreenSignal.ScreenOn).presence)
+        assertEquals(PartyAwayReason.ScreenLocked, state.reason)
+
+        // Unlocked. This is the assertion the shipped build failed.
+        assertEquals(PartyPresence.Watching, observe(foreground = true, signal = PartyScreenSignal.UserPresent).presence)
+        assertEquals(PartyAwayReason.None, state.reason)
+        assertEquals(
+            "presence Away -> Watching reason=foreground",
+            partyPresenceTransitionLog(
+                before = PartyPresenceState(
+                    presence = PartyPresence.Away,
+                    reason = PartyAwayReason.ScreenLocked,
+                    facts = PartyLifecycleFacts(appForeground = false, screenLocked = true),
+                ),
+                after = state,
+            ),
+        )
+    }
+
+    // --- The away that outlived its party ------------------------------------------------------
+    //
+    // Also 2026-09-20, in the same logs: every peer status of two consecutive parties carried
+    // `away=true`, including while the phone was demonstrably in a hand and playing. The
+    // transport's own copy of this member's presence survives a channel reset and a generation
+    // change by design, and nothing cleared it when the party it belonged to ended.
+
+    @Test
+    fun aWatchingMemberWithdrawsAnAwayItNeverSent() {
+        assertTrue(partyStaleAwayNeedsClearing(PartyPresenceState(), transportReportsAway = true))
+    }
+
+    @Test
+    fun nothingIsReconciledWhenTheWireAlreadyAgrees() {
+        assertFalse(partyStaleAwayNeedsClearing(PartyPresenceState(), transportReportsAway = false))
+    }
+
+    /**
+     * Reconciliation never *declares* an absence.
+     *
+     * An away that reached the wire through anything but `enterPartyAway` would have no generation
+     * key captured at away-time and no retained playback intent, so the return would have nothing
+     * to compare against and nothing to restore.
+     */
+    @Test
+    fun reconciliationNeverDeclaresAnAbsence() {
+        val away = PartyPresenceState(
+            presence = PartyPresence.Away,
+            reason = PartyAwayReason.Background,
+            facts = PartyLifecycleFacts(appForeground = false),
+        )
+        assertFalse(partyStaleAwayNeedsClearing(away, transportReportsAway = false))
+        // Already reported, and still away: nothing to do either.
+        assertFalse(partyStaleAwayNeedsClearing(away, transportReportsAway = true))
+    }
+
+    /**
+     * A member watching in picture-in-picture is watching, so it withdraws the away too.
+     *
+     * The PiP exception outranks both away rules, and the reconciliation reads the presence rather
+     * than the facts, so it inherits that ordering rather than re-deciding it.
+     */
+    @Test
+    fun aPictureInPictureWatcherWithdrawsAStaleAway() {
+        val pip = PartyPresenceState().observe(
+            PartyLifecycleFacts(
+                appForeground = false,
+                pictureInPicture = true,
+                playbackContinues = true,
+                screenLocked = true,
+                seq = 1,
+            ),
+        )
+        assertEquals(PartyPresence.Watching, pip.presence)
+        assertTrue(partyStaleAwayNeedsClearing(pip, transportReportsAway = true))
+    }
 }

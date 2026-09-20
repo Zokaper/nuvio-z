@@ -84,6 +84,7 @@ import com.nuvio.app.features.watchparty.PartyReturnAction
 import com.nuvio.app.features.watchparty.partyAwayHoldMembers
 import com.nuvio.app.features.watchparty.partyPresenceTransitionLog
 import com.nuvio.app.features.watchparty.partyReturnAction
+import com.nuvio.app.features.watchparty.partyStaleAwayNeedsClearing
 import com.nuvio.app.features.watchparty.rememberPartyPlatformLifecycle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -891,6 +892,16 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 partyAwayAtGenerationKey = null
                 partyAwayReturning = false
             }
+            // ⚠ **And the transport's own copy.** `selfAway` deliberately survives a channel reset
+            // and a generation change - see `WatchPartySyncTransport.setLocalPresence` - so leaving
+            // the party is the one moment left that can clear it, and nothing did. A member that
+            // went Away, left, and joined again then reported `away=true` on every peer status of
+            // the new party for as long as the app ran: a fresh player composes as Watching, and a
+            // presence that never transitions never calls `setLocalPresence`. Observed on hardware
+            // 2026-09-20 across two consecutive parties.
+            if (WatchPartySync.setLocalPresence(false)) {
+                partyLog.i { "presence cleared reason=left-party" }
+            }
             return@LaunchedEffect
         }
         partyLifecycleSeq += 1
@@ -907,11 +918,27 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 seq = partyLifecycleSeq,
             ),
         )
-        if (after == before) return@LaunchedEffect
-        partyPresence = after
-        partyPresenceTransitionLog(before, after)?.let { line -> partyLog.i { line } }
-        if (before.presence == after.presence) return@LaunchedEffect
-        if (after.presence == PartyPresence.Away) enterPartyAway(isHost) else returnFromPartyAway(isHost)
+        if (after != before) {
+            partyPresence = after
+            partyPresenceTransitionLog(before, after)?.let { line -> partyLog.i { line } }
+            if (before.presence != after.presence) {
+                if (after.presence == PartyPresence.Away) enterPartyAway(isHost) else returnFromPartyAway(isHost)
+                return@LaunchedEffect
+            }
+        }
+        // A member that is plainly here has to be able to say so without a transition to hang it
+        // on, because the transport's self-presence outlives the party that set it and a party
+        // joined while the flag was still set never produces one.
+        //
+        // Only this direction is reconciled. Declaring *Away* from here would report an absence
+        // with none of the bookkeeping the return depends on - the generation key captured at
+        // away-time, the retained intent, the host's pause - and every real absence already
+        // arrives as a transition through [enterPartyAway].
+        if (partyStaleAwayNeedsClearing(after, WatchPartySync.isLocallyAway())) {
+            if (WatchPartySync.setLocalPresence(false)) {
+                partyLog.i { "presence reconciled away=false" }
+            }
+        }
     }
 
     // Pause for away users: the host's second, separate hold condition.

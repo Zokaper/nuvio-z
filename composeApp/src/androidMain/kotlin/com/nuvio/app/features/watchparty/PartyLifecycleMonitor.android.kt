@@ -48,22 +48,38 @@ internal actual fun rememberPartyPlatformLifecycle(): PartyPlatformLifecycle {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> facts = facts.copy(appForeground = true)
+                // The keyguard is re-read here, not just trusted from the broadcasts. It is the
+                // belt to `ACTION_USER_PRESENT`'s braces: by the time the process is STARTED again
+                // the keyguard has settled, so a lock fact that was missed - a broadcast dropped
+                // while the process was cached, or an unlock straight into the app whose
+                // `USER_PRESENT` raced this - cannot leave the member latched Away with the video
+                // in front of them.
+                Lifecycle.Event.ON_START -> facts = facts.copy(
+                    appForeground = true,
+                    screenLocked = keyguard?.isKeyguardLocked == true,
+                )
                 Lifecycle.Event.ON_STOP -> facts = facts.copy(appForeground = false)
                 else -> Unit
             }
         }
         val screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(receivedContext: Context?, intent: Intent?) {
-                val locked = when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> true
-                    // The screen coming on is not the lock coming off - the lock screen is lit.
-                    // `USER_PRESENT` means somebody got past it, and asking the keyguard covers a
-                    // device with no lock set, where `SCREEN_ON` is the whole story.
-                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> keyguard?.isKeyguardLocked == true
+                // The action is turned into a signal here and decided on in `PartyPresence.kt`,
+                // like every other fact this adapter reports. `USER_PRESENT` in particular must
+                // not be second-guessed by re-reading the keyguard, and the reason it must not is
+                // written down where the rule lives - see [partyScreenLockedAfter].
+                val signal = when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> PartyScreenSignal.ScreenOff
+                    Intent.ACTION_SCREEN_ON -> PartyScreenSignal.ScreenOn
+                    Intent.ACTION_USER_PRESENT -> PartyScreenSignal.UserPresent
                     else -> return
                 }
-                facts = facts.copy(screenLocked = locked)
+                facts = facts.copy(
+                    screenLocked = partyScreenLockedAfter(
+                        signal = signal,
+                        keyguardLocked = keyguard?.isKeyguardLocked == true,
+                    ),
+                )
             }
         }
         ContextCompat.registerReceiver(

@@ -88,6 +88,63 @@ data class PartyLifecycleFacts(
 }
 
 /**
+ * The three broadcasts a platform can tell this model about the screen and the lock.
+ *
+ * Named for what they mean rather than for the Android constants that carry them, so the decision
+ * they feed stays in this file with every other one.
+ */
+enum class PartyScreenSignal {
+    /** The screen went off. */
+    ScreenOff,
+
+    /** The screen came on. Says nothing about the lock: a lock screen is a lit screen. */
+    ScreenOn,
+
+    /** Somebody got past the lock screen. */
+    UserPresent,
+}
+
+/**
+ * Whether a lock screen is between the viewer and the video, after [signal].
+ *
+ * [keyguardLocked] is what the platform says the lock is doing *at that instant*, and the whole
+ * point of this function is that it is only asked when it can be believed.
+ *
+ * - [PartyScreenSignal.ScreenOff] needs no lock at all. A dark screen is away whatever the
+ *   keyguard thinks, and on a device with no lock set it is the only signal there will be.
+ * - [PartyScreenSignal.ScreenOn] is the one honest question: the screen is lit and the lock may or
+ *   may not be in front of it. A device with no lock set answers false here and is done.
+ * - [PartyScreenSignal.UserPresent] **is the answer, and asking again gets a worse one.** It is
+ *   broadcast for exactly one reason - somebody unlocked - so reading the keyguard back at that
+ *   instant replaces a certainty with a race. On the S25 that read returns `true` while the
+ *   keyguard is still playing its going-away animation; nothing else was coming to correct it, so
+ *   the member stayed Away for the rest of the session with the film in front of them. Reproduced
+ *   on hardware 2026-09-20.
+ */
+fun partyScreenLockedAfter(signal: PartyScreenSignal, keyguardLocked: Boolean): Boolean = when (signal) {
+    PartyScreenSignal.ScreenOff -> true
+    PartyScreenSignal.ScreenOn -> keyguardLocked
+    PartyScreenSignal.UserPresent -> false
+}
+
+/**
+ * Whether a member that is plainly here still has an away on the wire, and must withdraw it.
+ *
+ * The transport's own copy of this member's presence deliberately outlives the channel and the
+ * generation that set it - a reconnect does not put the phone back into a hand - so the only
+ * things that clear it are a return and leaving the party. Neither is a transition a *new* party
+ * can produce: a fresh player composes as Watching, and a presence that never changes never
+ * reports. A member that went away, left and joined again therefore published `away=true` on
+ * every peer status of the new party for as long as the app ran. Observed on hardware 2026-09-20.
+ *
+ * **Only this direction.** Declaring Away from a reconciliation would report an absence with none
+ * of the bookkeeping a return depends on - the generation key captured at away-time, the retained
+ * playback intent, a host's pause - and every real absence already arrives as a transition.
+ */
+fun partyStaleAwayNeedsClearing(held: PartyPresenceState, transportReportsAway: Boolean): Boolean =
+    transportReportsAway && held.presence == PartyPresence.Watching
+
+/**
  * The presence these facts mean, with no memory of what came before.
  *
  * Precedence, highest first:

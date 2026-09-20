@@ -1623,7 +1623,13 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             val streams = sourceStreamsState.groups.flatMap { it.streams }
             val stream = streams.getOrNull(value.toInt()) ?: return true
             if (requestP2pConsentForPlayerControls(stream = stream, episode = null)) return true
-            switchToSource(stream)
+            // `switchToUserSelectedSource`, not `switchToSource`. This is the sources panel as the
+            // native controls draw it - the same person making the same choice as the Compose
+            // panel - and the base call is the internal one that deliberately says nothing to the
+            // party. A host changing source here therefore loaded and played the new source while
+            // every guest stayed on the old one and went on syncing its timeline against it.
+            // Reproduced on hardware 2026-09-20, desktop host to Android guest.
+            switchToUserSelectedSource(stream)
             playerControlsCloseModalsToken += 1
         }
         "selectEpisode" -> {
@@ -1876,6 +1882,8 @@ private fun PlayerScreenRuntime.requestP2pConsentForPlayerControls(
         stream = stream,
         episode = episode,
         isAutoPlay = false,
+        // Every caller of this is a panel tap. Only the source branch consults it.
+        userSelected = true,
     )
     return true
 }
@@ -1898,6 +1906,8 @@ private fun PlayerScreenRuntime.enableP2pForPlayerControls() {
     val episode = pending.episode
     if (episode != null) {
         switchToP2pEpisodeStream(pending.stream, episode, pending.isAutoPlay)
+    } else if (pending.userSelected) {
+        switchToUserSelectedSourceAfterP2pConsent(pending.stream)
     } else {
         switchToP2pSourceStream(pending.stream)
     }
@@ -2581,7 +2591,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onP2pEpisodeStreamSelected = { stream, episode, isAutoPlay ->
             switchToP2pEpisodeStream(stream, episode, isAutoPlay)
         },
-        onP2pSourceStreamSelected = { stream -> switchToP2pSourceStream(stream) },
+        onP2pSourceStreamSelected = { stream, userSelected ->
+            if (userSelected) switchToUserSelectedSourceAfterP2pConsent(stream) else switchToP2pSourceStream(stream)
+        },
         onNextEpisodeAutoPlayCancelled = {
             cancelNextEpisodeTransition(suppressForCurrentEpisode = false)
         },

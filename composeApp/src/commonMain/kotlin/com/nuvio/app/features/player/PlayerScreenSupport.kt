@@ -86,4 +86,13 @@ internal data class PendingPlayerP2pSwitch(
     val stream: StreamItem,
     val episode: MetaVideo?,
     val isAutoPlay: Boolean,
+    /**
+     * This switch is somebody choosing a source from a panel, rather than the automatic chain
+     * arriving at a P2P stream on its own.
+     *
+     * Carried across the consent dialog because that is the only thing on the far side of it that
+     * can still tell the two apart, and only one of them may move a party: see
+     * `switchToUserSelectedSourceAfterP2pConsent`.
+     */
+    val userSelected: Boolean = false,
 )

@@ -1,7 +1,117 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
+
+## Phase 6 Away hardware run: three defects found and fixed, none verified again yet (2026-09-21)
+
+The `0.4.13-z1.37` / `z6.58` device run passed on almost everything Away was written for - ordinary
+background and return, PiP without a flap, the away hold, a host going away, Play anyway, and the
+source surviving a backgrounding. Two things failed; chasing the first one turned up a third
+that nobody had reported. **Nothing is published; both repos hold the fix on their working
+branches and the phone has not seen it.**
+
+### 1. Screen-lock return got stuck Away, and `USER_PRESENT` was being second-guessed
+
+Reproduced live on the S25 through `adb`, with the party still up: lock, and
+`presence Watching -> Away reason=lock` is correct. Unlock, and **nothing** - no transition, no
+publish - while `dumpsys` says `isKeyguardShowing=false`, the app is `topResumedActivity` and
+`USER_PRESENT` was broadcast. The receiver was alive with all three actions registered, and it had
+demonstrably just received `SCREEN_OFF`, so the broadcasts were arriving and the *answer* was wrong.
+
+`ACTION_USER_PRESENT` re-read `KeyguardManager.isKeyguardLocked`. On this device that read returns
+`true` while the keyguard is still playing its going-away animation. `screenLocked` latched there,
+nothing else was coming to correct it, and `screenLocked` outranks `appForeground` in
+`partyPresenceFor` - so the member stayed Away for the rest of the session with the film in front of
+them.
+
+`USER_PRESENT` **is** the fact: it is broadcast for exactly one reason. It now means unlocked, full
+stop. `SCREEN_ON` keeps the keyguard read, which is the one honest question and the only signal a
+device with no lock set will ever produce. The mapping moved into `PartyPresence.kt` as
+`partyScreenLockedAfter`, so the adapter still decides nothing and the rule is executed by the pure
+suites. `ON_START` also re-reads the keyguard now, as a second chance at a lock fact that went
+missing - a broadcast dropped while the process was cached, an unlock straight into the app.
+
+### 2. The away flag outlived its party, so every publish said `away=true`
+
+Found in the same logs and easy to miss: **every** `peer publish` in the buffer carried `away=true`,
+across two consecutive parties, including while the phone was demonstrably in a hand and playing.
+The live repro settled which way round it was - the runtime logged `Watching -> Away` on lock, so it
+had thought itself Watching all along while the wire said otherwise.
+
+`WatchPartySyncTransport.selfAway` deliberately survives a channel reset and a generation change,
+which is right: a reconnect does not put the phone back into a hand. But that left a return and
+nothing else able to clear it, and a *new* party cannot produce a return - a fresh player composes
+as Watching, and a presence that never transitions never calls `setLocalPresence`. So a member who
+went away, left, and joined again reported away forever.
+
+Two cheap closures, both in `PlayerWatchPartyEffect`: leaving a party clears it
+(`presence cleared reason=left-party`), and a member holding `Watching` while the transport still
+reports away withdraws it (`presence reconciled away=false`). **One direction only** -
+`partyStaleAwayNeedsClearing` refuses to *declare* an absence, because an away that reached the wire
+without `enterPartyAway` would have no generation key captured at away-time and no retained intent,
+and the return would have nothing to compare against or restore.
+
+### 3. A host changing source in the native controls told nobody
+
+Separate bug, same run. The desktop host opened Change Source, picked another source, loaded and
+played it; the Android guest stayed on the old source completely and went on syncing its timeline
+against a host that had left it.
+
+`"selectSource"` in the native/HTML player-controls handler called `switchToSource(stream)`. The
+Compose sources panel calls `switchToUserSelectedSource(stream)`, and that is the one that calls
+`publishPartySourceChange` and advances `sourceGeneration`. Two panels, one person, two functions.
+Nothing threw and nothing logged: `switchToSource` is a legitimate call from a dozen automatic
+paths, and the panel looked like one more.
+
+The handler now routes through `switchToUserSelectedSource`. **Base `switchToSource` still publishes
+nothing** - automatic retries, party adoption, credential re-mints and debrid re-resolution all
+reach it, and none of them is somebody choosing what everyone watches.
+
+**P2P had the same bypass, and one of its own.** The native consent continuation
+(`enableP2pForPlayerControls`) called `switchToP2pSourceStream` directly, so a host enabling P2P for
+a hand-picked torrent hit the identical silence one dialog further along. The Compose path had the
+inverse defect: `switchToUserSelectedSource` published *before* the dialog, so cancelling moved the
+whole party onto a source nobody started. Both are now the same rule - a pick that stops at the
+consent dialog has not happened yet, and `switchToUserSelectedSourceAfterP2pConsent` publishes it
+when the dialog is answered. The automatic chain reaches that dialog too and still stays local;
+`PendingPlayerP2pSwitch.userSelected` is what tells them apart.
+
+**Play-anyway needed no fix.** The desync followed a phone that was falsely Away, so the host was
+pressing Play anyway at a member that had never left. The existing Away return catch-up
+(`partySeekPlan` plus the barrier park) is the mechanism for it, and it was never reached because
+the return never happened. It stays on the hardware list rather than in the changelog: if it
+reproduces once lock return works, it is a real second bug.
+
+**Tests.** `PartyPresenceTest` gains 9: the three screen signals, the whole lock/unlock cycle run
+with the keyguard answering `true` at every single read - which is what the S25 did, and is the
+assertion the shipped build fails - and the four reconciliation cases including a PiP watcher, which
+withdraws a stale away because the PiP exception outranks both away rules. `PlayerSourcePickRouting-
+Test` (6) is a source-contract test, deliberately: the defect it exists for is invisible to every
+other kind of test, since both functions compile, neither throws, and the difference is only which
+one talks to the party. It pins both panels, both consent continuations, and that `switchToSource`
+and the automatic consent branch stay silent. It lives in `androidHostTest` here and `desktopTest`
+on the desktop side - the one deliberate divergence in this change.
+
+**Verified here.** Mobile: 8/8 pure groups, `:composeApp:testAndroidHostTest` **2254 tests, 0
+failures**, plus `:androidApp:compileFullDebugKotlin`. Desktop: 8/8 pure groups,
+`:composeApp:desktopTest` **2397 tests, 0 failures**. All shared Watch Together and player files are
+byte-identical across the two repos (`diff --strip-trailing-cr`).
+
+**Still needs hardware, and nothing here has had any.**
+
+- Lock and unlock with the party live, on the S25: `presence Away -> Watching reason=foreground`
+  must appear, and the peer publish after it must say `away=false`. This is the one that was
+  reproduced failing, so it is the one to run first.
+- Leave a party while away, join another: the first `peer publish` of the new party must say
+  `away=false`.
+- Host Change Source, desktop host to Android guest, through the **native** controls: the guest must
+  reach "Host source changed", re-realize and resume through the readiness barrier.
+- The same pick through the Compose panel, to confirm it was not disturbed.
+- A P2P source picked with P2P disabled, accepted **and** cancelled, on both panels: accepting must
+  move the party, cancelling must move nobody.
+- Play anyway after a *correct* away and return, to see whether the residual desync survives the
+  lock fix at all.
 
 ## Phase 6 Away lifecycle - PUBLISHED FOR HARDWARE, UNVERIFIED ON HARDWARE (2026-09-20)
 

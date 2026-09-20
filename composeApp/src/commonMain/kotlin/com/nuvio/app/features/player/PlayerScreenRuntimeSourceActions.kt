@@ -302,14 +302,42 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
 }
 
 /**
- * A source the *user* picked from the sources panel.
+ * A source the *user* picked from a sources panel.
  *
- * Only this refunds the credential-refresh budget. [switchToSource] itself must not: it also
- * serves in-player source changes and re-entrant debrid resolution, so refunding there would hand
- * an automatic retry of a dying source a fresh budget every attempt - which is the shape of the
- * loop this budget exists to stop.
+ * **Both** panels, and that is the point of it being one function. The Compose panel and the
+ * native/HTML controls draw the same list for the same person, so a pick in either is the same
+ * event and has to reach the party the same way; the native one called [switchToSource] instead,
+ * and a host changing source moved nobody but itself. See the call sites in
+ * `PlayerScreenRuntimeUi.kt`, and `PlayerSourcePickRoutingTest`, which asserts they agree.
  */
 internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
+    markSourceUserSelected()
+    // A pick that stops at the P2P consent dialog has not happened yet. Publishing here would
+    // move the whole party onto a source this member may be about to cancel, and cancelling
+    // leaves nothing behind to withdraw it with. The continuation publishes it instead, once the
+    // dialog is answered - see [switchToUserSelectedSourceAfterP2pConsent].
+    if (userSelectedSourceAwaitsP2pConsent(stream)) {
+        pendingP2pSwitch = PendingPlayerP2pSwitch(
+            stream = stream,
+            episode = null,
+            isAutoPlay = false,
+            userSelected = true,
+        )
+        return
+    }
+    publishPartySourceChange(stream)
+    switchToSource(stream)
+}
+
+/**
+ * The bookkeeping every explicit pick does, whichever panel it came from.
+ *
+ * Only a user pick refunds the credential-refresh budget. [switchToSource] itself must not: it
+ * also serves in-player source changes and re-entrant debrid resolution, so refunding there would
+ * hand an automatic retry of a dying source a fresh budget every attempt - which is the shape of
+ * the loop this budget exists to stop.
+ */
+private fun PlayerScreenRuntime.markSourceUserSelected() {
     credentialRefreshesUsed = 0
     credentialRefreshAttemptedSourceUrl = null
     // An explicit pick retires the automatic chain. Without this the eight-second watchdog
@@ -318,8 +346,37 @@ internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) 
     nextEpisodeFallbacks = emptyList()
     // A hand-picked source: "Prefer built-in subtitles" steps aside for the rest of this player.
     activeSourceAutoPicked = false
+}
+
+/**
+ * Whether picking [stream] will stop at the P2P consent dialog rather than change the source.
+ *
+ * Deliberately the same four facts [shouldRequestP2pConsentForPlayerControls] asks, so the two
+ * panels cannot drift into disagreeing about which picks are deferred.
+ */
+internal fun PlayerScreenRuntime.userSelectedSourceAwaitsP2pConsent(stream: StreamItem): Boolean =
+    shouldRequestP2pConsentForPlayerControls(
+        isP2pStream = isP2pStream(stream),
+        shouldResolveToPlayableStream = DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream),
+        p2pSettingsVisible = P2pSettingsRepository.isVisible,
+        p2pEnabled = P2pSettingsRepository.uiState.value.p2pEnabled,
+    )
+
+/**
+ * A user pick resumed on the far side of the P2P consent dialog.
+ *
+ * The party hears about it *here* rather than where it was picked, because until the dialog was
+ * answered there was nothing to hear: a member that cancels has not changed source, and a party
+ * told otherwise would have moved every guest onto a stream nobody started.
+ *
+ * Only reached when the pending switch was flagged [PendingPlayerP2pSwitch.userSelected]. The
+ * automatic chain reaches the same dialog - [switchToP2pSourceStream] parks its own pending
+ * switch - and must stay local when that one is answered, exactly as it does everywhere else.
+ */
+internal fun PlayerScreenRuntime.switchToUserSelectedSourceAfterP2pConsent(stream: StreamItem) {
+    markSourceUserSelected()
     publishPartySourceChange(stream)
-    switchToSource(stream)
+    switchToP2pSourceStream(stream)
 }
 
 /**
