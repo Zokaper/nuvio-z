@@ -3,6 +3,43 @@
 
 Last updated: 2026-09-20
 
+## The host's republish was suppressed twice, and the check could not fire (2026-09-20)
+
+`84c3ec5cc`, published as Android **`.35`** (`0b7fb77b8`) and desktop **z6.56** (`95ebc494` +
+`fb4d327c`). The edge was **not** already correct; it needed a fix, and the test written for it found
+a second defect of the same shape.
+
+1. **The duplicate test swallowed the publish.** `shouldPublishPartySourceChange` refuses anything
+   inside `PartyExactMatchTiers`, which is right for a hand-picked source and wrong for a host
+   realignment - and it covered *both* shapes the realignment exists for: a file re-cut under the
+   same descriptor, and a fall back to a look-alike release, which is `EquivalentMedia` and therefore
+   inside that set. `partySourceTimelineDecision` said `AdvancePartySource`; the heuristic said
+   duplicate; the heuristic won with nothing in the log.
+2. **The host was excluded from its own duration comparison** (`takeIf { !isHost }`), so
+   `durationsAgree` was vacuously true for the one client whose duration defines the timeline. The
+   contradiction branch was reachable only from its own unit test.
+
+The fix is the host realignment path passing its own verdict - `timelineChanged`, reached only
+through `AdvancePartySource` - and the duplicate test being bypassed for that caller alone. Every
+other caller keeps it exactly as it was; a manual pick still refuses to republish an equivalent. The
+one-shot guard on `publishedSourceGeneration` sits outside the bypass, so "exactly once" holds
+whichever way a publish was justified. `partyHostTimelineContradicted` is the narrow duration
+reading: same release identity, both durations known, genuinely disagreeing - a missing duration is
+never evidence, or a host would republish its own source at every start.
+
+`EquivalentMedia` is unchanged for guests: with a compatible duration it is still `KeepLocal` and
+still reports ready.
+
+`PartyHostSourceRepublishTest` (12) covers every case: same descriptor + compatible duration, a
+credential re-mint and the same release through another provider, the proven contradiction, the
+ordinary guard still refusing that same descriptor without one, no double advance on recomposition,
+the contradiction going away once the new duration is on record, a different release, a look-alike
+release, unknown durations, the bypass never opening for a tier that is not the party's own release,
+and the two guest halves.
+
+Verified: mobile **910 tests, 0 failures** (`watchparty`, `player`, `playback`) plus
+`:androidApp:compileFullDebugKotlin`; desktop **942 tests, 0 failures**.
+
 ## Different URLs are fine. Different timelines are not. (2026-09-20)
 
 `7ff3a02ba` on `claude/phase-6-convergence-linear`, `8044f0b1` on desktop. Not in any build yet.
