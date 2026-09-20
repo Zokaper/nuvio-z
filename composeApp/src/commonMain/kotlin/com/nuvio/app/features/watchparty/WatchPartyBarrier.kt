@@ -594,6 +594,37 @@ data class PartyPendingResume(
     val issuedAtPartyMs: Long,
 )
 
+/**
+ * Why a seek's resume happened, which is the only thing that tells the four of them apart.
+ *
+ * All four end the same way - the party plays again at the seek target - so a log that says only
+ * that cannot answer the question the ceiling exists to raise: whether it ever fires at all, and on
+ * whom. [logCode] is what a run is grepped for; [playSource] carries the same word into the `play`
+ * line the transport already writes, so the two can be joined without a timestamp match.
+ */
+enum class PartyResumeReason(val logCode: String) {
+    /** Every member the seek moved reported it can play the frame it landed on. The intended path. */
+    AllReady("all-ready"),
+
+    /** The host said it was not waiting - the "Don't wait" action on the status pill. */
+    DontWait("dont-wait"),
+
+    /** [WatchPartyStartPlaybackReadyMaxWaitMs] passed with somebody still not ready. */
+    Ceiling("ceiling"),
+
+    /**
+     * There is no live peer plane, so there is no readiness to wait for.
+     *
+     * Not a failure of the barrier: a party on the durable path has no way to report readiness at
+     * all, and waiting for a report that cannot arrive would leave a scrub paused until the ceiling.
+     */
+    Degraded("degraded"),
+    ;
+
+    /** The `src=` on the resulting `play`, so the command and the reason are one grep apart. */
+    val playSource: String get() = "seek-readiness:" + logCode
+}
+
 /** Whether the start barrier may release, and who it is still waiting on when it may not. */
 data class PartyStartRelease(
     val release: Boolean,

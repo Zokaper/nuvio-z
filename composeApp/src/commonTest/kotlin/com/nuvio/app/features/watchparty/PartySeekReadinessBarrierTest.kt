@@ -186,7 +186,18 @@ class PartySeekReadinessBarrierTest {
         assertTrue(degraded.release)
     }
 
-    // 6. The start barrier's own call must be unchanged by the argument it does not pass.
+    // 6. The diagnostic contract for the next hardware run.
+    @Test
+    fun everyWayOutOfTheBarrierIsNamedInTheLog() {
+        // Four ways to resume, four words, and the `play` line carries the same one - so a run can be
+        // asked "did the ceiling ever fire, and on whom" without inferring it from what is missing.
+        val codes = PartyResumeReason.entries.map { it.logCode }
+        assertEquals(listOf("all-ready", "dont-wait", "ceiling", "degraded"), codes)
+        assertEquals(codes.size, codes.toSet().size, "a reason that cannot be told apart is not a reason")
+        assertEquals("seek-readiness:ceiling", PartyResumeReason.Ceiling.playSource)
+    }
+
+    // 7. The start barrier's own call must be unchanged by the argument it does not pass.
     @Test
     fun theStartBarrierStillAcceptsAnyRecentReport() {
         val atStart = partyStartPlaybackRelease(

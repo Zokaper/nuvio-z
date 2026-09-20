@@ -33,6 +33,7 @@ import com.nuvio.app.features.watchparty.PartySourceMatch
 import com.nuvio.app.features.watchparty.StallHoldBudget
 import com.nuvio.app.features.watchparty.WatchPartyControlMode
 import com.nuvio.app.features.watchparty.PartyPendingResume
+import com.nuvio.app.features.watchparty.PartyResumeReason
 import com.nuvio.app.features.watchparty.WatchPartyDiagnostics
 import com.nuvio.app.features.watchparty.WatchPartyIdleTickIntervalMs
 import com.nuvio.app.features.watchparty.WatchPartyPausedAlignToleranceMs
@@ -605,12 +606,13 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 partyAwaitingResumeReadiness = emptyList()
                 return@LaunchedEffect
             }
+            val realtimeLive = live.health.capability() ==
+                com.nuvio.app.features.watchparty.PartySyncCapability.FullSync
             val decision = partyStartPlaybackRelease(
                 members = party.members,
                 viewerProfileId = live.activeProfileId,
                 peerTelemetry = WatchPartySync.state.value.peerTelemetry,
-                realtimeLive = live.health.capability() ==
-                    com.nuvio.app.features.watchparty.PartySyncCapability.FullSync,
+                realtimeLive = realtimeLive,
                 partyNowMs = WatchPartySync.partyNowMs(),
                 durablyReadyAtPartyMs = pending.issuedAtPartyMs,
                 freshSincePartyMs = pending.issuedAtPartyMs,
@@ -619,19 +621,26 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             // just been seeked too. Read locally, from the same signal a guest publishes.
             val selfStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
             if (decision.release && !(selfStarved && !decision.timedOut)) {
-                if (decision.timedOut) {
-                    partyLog.w {
-                        "resume barrier $generationKey timed out waiting for " +
-                            "[${decision.waitingOn.joinToString { it.shortId() }}] selfStarved=$selfStarved"
-                    }
+                // Why this resume happened, in the one line that carries it. The four ways out of
+                // this barrier look identical in a log that only says the party started again, and
+                // the next hardware run's whole question - does the ceiling ever actually fire? -
+                // cannot be read off "resumed". See [PartyResumeReason].
+                val reason = when {
+                    !realtimeLive -> PartyResumeReason.Degraded
+                    decision.timedOut -> PartyResumeReason.Ceiling
+                    else -> PartyResumeReason.AllReady
                 }
                 partyPendingResume = null
                 partyAwaitingResumeReadiness = emptyList()
-                partyLog.i {
-                    "resume barrier $generationKey ready positionMs=${pending.targetPositionMs} " +
-                        "waitedMs=${WatchPartySync.partyNowMs() - pending.issuedAtPartyMs}"
-                }
-                startPartyPlayback(pending.targetPositionMs, source = "seek-readiness")
+                val waitedMs = WatchPartySync.partyNowMs() - pending.issuedAtPartyMs
+                val line = "resume barrier $generationKey resumed reason=${reason.logCode} " +
+                    "positionMs=${pending.targetPositionMs} waitedMs=$waitedMs " +
+                    "waitingOn=[${decision.waitingOn.joinToString { it.shortId() }}] " +
+                    "selfStarved=$selfStarved"
+                // A ceiling that fires is the party going on without somebody, which is a warning
+                // wherever it happens; the other three are the mechanism working.
+                if (reason == PartyResumeReason.Ceiling) partyLog.w { line } else partyLog.i { line }
+                startPartyPlayback(pending.targetPositionMs, source = reason.playSource)
                 return@LaunchedEffect
             }
             val waitingOn = if (selfStarved) decision.waitingOn + listOfNotNull(live.activeProfileId) else decision.waitingOn
@@ -1502,10 +1511,21 @@ internal fun PlayerScreenRuntime.stopWaitingForStalledGuests() {
     partyAwaitingResumeReadiness = emptyList()
     if (pendingResume == null && partyAutoPausedForGuests.isEmpty()) return
     partyAutoPausedForGuests = emptyList()
+    if (pendingResume != null) {
+        // Said in the resume barrier's own words as well as the hold's, so every way out of that
+        // barrier can be found with one grep.
+        partyLog.i {
+            "resume barrier ${party.generationKey()} resumed " +
+                "reason=${PartyResumeReason.DontWait.logCode} " +
+                "positionMs=${pendingResume.targetPositionMs} " +
+                "waitedMs=${WatchPartySync.partyNowMs() - pendingResume.issuedAtPartyMs} " +
+                "waitingOn=[${waited.joinToString { it.shortId() }}]"
+        }
+    }
     partyLog.i { "dont-wait: releasing hold for=[${waited.joinToString { it.shortId() }}]" }
     startPartyPlayback(
         pendingResume?.targetPositionMs ?: samplePlaybackPosition().positionMs,
-        source = "dont-wait",
+        source = if (pendingResume != null) PartyResumeReason.DontWait.playSource else "dont-wait",
     )
 }
 
