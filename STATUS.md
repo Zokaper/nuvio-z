@@ -3,11 +3,14 @@
 
 Last updated: 2026-09-20
 
-## Phase 6 Away lifecycle - IMPLEMENTED, UNVERIFIED ON HARDWARE (2026-09-20)
+## Phase 6 Away lifecycle - PUBLISHED FOR HARDWARE, UNVERIFIED ON HARDWARE (2026-09-20)
 
 Mobile `a1cb8afd` on `claude/phase-6-convergence-linear`, desktop `f7bec859` on
-`claude/heartbeat-session-renewal`. **No debug build published yet** - the design and results were
-reported first, per the chunk brief. Ledger: **S10** in `Docs/Z-FEATURES.md`.
+`claude/heartbeat-session-renewal`. Cut for the device run as Android **`0.4.13-z1.37`**
+(`debug-v0.4.13-z1.37`) against desktop **`z6.58`** (`debug-v0.1.23-alpha-z6.58`) - debug channel
+only, prereleases, the stable updater untouched. Ledger: **S10** in `Docs/Z-FEATURES.md`.
+
+Nothing in the Away implementation moved to cut these builds; the only change is the debug counter.
 
 **What it fixes.** `PlayerEngine.android.kt` pauses the engine at `ON_STOP`, so a member who pressed
 Home reached the party as a member that had stopped reporting `playing` - indistinguishable from a
