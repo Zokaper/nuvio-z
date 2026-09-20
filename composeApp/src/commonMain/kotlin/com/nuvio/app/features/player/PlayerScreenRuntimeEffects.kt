@@ -550,6 +550,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                     "watchdog hold: attempt=${args.playbackAttempt} held=${partyStartupHold.isHeld} " +
                         "reason=${partyStartupHold.reason} gateReason=${partyStartupHold.gateReason} " +
                         "elapsed=${sample.elapsedMs}ms effective=${watch.effectiveElapsedMs}ms " +
+                        // Whether this hold stops the clock at all, which is the whole difference
+                        // between a party protecting a slow source and a party hiding a dead one.
+                        "proven=${watch.hasProvenViability} " +
                         "heldTotal=${watch.holdMs}ms"
                 }
                 lastLoggedHold = partyStartupHold
