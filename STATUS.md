@@ -3,6 +3,98 @@
 
 Last updated: 2026-09-20
 
+## Phase 6 Away lifecycle - IMPLEMENTED, UNVERIFIED ON HARDWARE (2026-09-20)
+
+Mobile `a1cb8afd` on `claude/phase-6-convergence-linear`, desktop `f7bec859` on
+`claude/heartbeat-session-renewal`. **No debug build published yet** - the design and results were
+reported first, per the chunk brief. Ledger: **S10** in `Docs/Z-FEATURES.md`.
+
+**What it fixes.** `PlayerEngine.android.kt` pauses the engine at `ON_STOP`, so a member who pressed
+Home reached the party as a member that had stopped reporting `playing` - indistinguishable from a
+stalled stream. The host's stall guard held the party for them and abandoned them at
+`WatchPartyStallHoldMaxMs`. `ON_START` then restored `playWhenReady`, so they resumed at the frame
+they were frozen at and the drift tracker dragged them forward through a seek. None of that was a
+fault in the stall guard; it was a fact the party was never told.
+
+**Where it lives.** `features/watchparty/PartyPresence.kt` - import-free, executed by the pure
+suites - holds every decision. `PartyLifecycleMonitor` (expect/actual, three actuals) reports
+platform facts and decides nothing. The runtime folds them in `PlayerWatchPartyEffect`.
+
+**The three things most likely to be wrong on a device, and how they are guarded.**
+
+1. **PiP ordering.** The facts arrive as a *snapshot with a monotonic sequence*, not as events.
+   Entering PiP delivers a pause, a configuration change, a mode change and on some devices a stop,
+   in an order that is not guaranteed; read together the PiP exception cannot be got wrong, and a
+   late callback carrying an older sequence is dropped whole.
+2. **Source preservation.** Nothing on the away or return path touches the realizer, the route, the
+   readiness row or the descriptor. `partyReturnAction` compares the generation key captured at
+   away-time with the current one; unchanged means catch up, changed means the existing realization
+   flow owns it.
+3. **Hold cross-talk.** The away hold has its own reactor and its own retained list
+   (`partyAutoPausedForAway`), never the stall guard's. A user transport command and "Don't wait"
+   clear both; nothing else can clear one from the other.
+
+**On the wire.** Two additive optional fields, **no protocol bump**. A guest reports its own
+presence on its peer status (`aw`); the host aggregates and republishes the roster on its tick
+(`away`, absent unless somebody is away). The currently shipped desktop release decodes every
+message unchanged, and this build reads an older peer's silence as "nobody is away" - which is that
+build's actual behaviour. **No backend change was needed and none was made.**
+
+**"Pause for away users"** is a separate host switch from "Pause when someone buffers", defaulting
+**off** (the party plays on; whoever returns catches up). Session-scoped and host-side, exactly like
+`waitForEveryone`. A host's own absence pauses the party whatever the switch says - the host is the
+clock - and it is issued as a real command so it is ordered and attributable.
+
+**Host authority is untouched.** Away writes no member row; transfer remains
+`party_transfer_stale_host`.
+
+**Logs to grep on the hardware run:**
+
+```
+presence Watching -> Away reason=background|lock|interrupt|pip-dismissed
+presence Away -> Watching reason=foreground
+presence Watching -> Watching reason=pip        # the exception doing its job
+peer publish ... away=true
+away roster party=... away=[...]
+party hold reason=away waitingOn=[...]
+party release reason=away returned=[...]
+away return catchup targetMs=... localMs=... status=... reachable=...
+away return realize awayAt=... now=...          # generation moved while away
+away return host intent=playing|paused
+```
+
+**Verified here.** Mobile: 8/8 pure groups, `:composeApp:testAndroidHostTest` 2235 tests, 0
+failures. Desktop: 8/8 pure groups, `:composeApp:desktopTest` 2384 tests, 0 failures. All shared
+Watch Together files are byte-identical across the two repos (`diff --strip-trailing-cr`).
+
+**Not verified, and the next session should not assume otherwise.** Every one of the 21 edge cases
+is covered by `PartyPresenceTest` against the pure model; **none has been exercised on a phone.**
+The ones a device can contradict:
+
+- PiP entry/exit ordering on the actual S25 (case 5-8, 21). The model cannot flap, but the *facts*
+  this build feeds it come from `ProcessLifecycleOwner` plus
+  `addOnPictureInPictureModeChangedListener`, and whether those two agree on a real device is the
+  open question.
+- Screen lock (case 4). `ACTION_SCREEN_OFF` plus `KeyguardManager.isKeyguardLocked`; on a device
+  with no lock set this should read as an ordinary background, not as a lock.
+- The catch-up seek after a long absence (case 9). It reuses `partySeekPlan`, so it should behave
+  like any large drift correction, but nobody has watched one land after four minutes away.
+- A phone call (`PartyAwayReason.Interrupted`). **Nothing sets it on Android.** The model carries and
+  tests it, and the adapter does not supply it, because the only honest sources are audio focus -
+  which would mean requesting focus and changing playback behaviour - and telephony permissions. A
+  call backgrounds the app and turns the screen off, so it is already covered as `background` or
+  `lock`; the reason code is reserved for an adapter that can do better.
+- iOS: `didEnterBackground` rather than `willResignActive` (a notification shade is not somebody
+  walking away), `screenLocked` always false. Compiled only - iOS is SKIPPED on Windows - and, per
+  the chunk brief, no physical iOS verification was attempted.
+
+**Also fixed on the way.** Groups 6 and 7 of `run-pure-suites.sh` had been failing to compile in
+**both** repos since the source-resolution UX pass: `PartyPlaybackStatus.kt` calls into
+`PartySourceActivity.kt` and neither group listed it. A group that does not compile does not report
+as missing - JUnitCore prints one `initializationError` per named class - so the run showed eleven
+and six nameless "failures" right after five groups of OK lines. Mobile `1f25f6e8`; folded into the
+desktop commit. 236 tests are running again that were not.
+
 ## Phase 6 Watch Together playback/source stabilization - DONE WITH NON-BLOCKING QA DEBT (2026-09-20)
 
 The chunk is closed. Published as Android **`0.4.13-z1.36`** and desktop **`z6.57`**. What it
