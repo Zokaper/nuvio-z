@@ -77,11 +77,34 @@ fun shouldPublishPartySourceChange(
     profileId: String?,
     picked: PartySourceDescriptorV2?,
     publishedSourceGeneration: Int?,
+    timelineChanged: Boolean = false,
 ): Boolean {
     if (party == null || picked == null) return false
     if (!party.allowsSourceChangeBy(profileId)) return false
+    // The one-shot guard, and it is *not* conditional: whatever the reason for publishing, a
+    // generation this client has already advanced may not be advanced again. Recomposition, a
+    // retried effect and a second poll of the same state all land here, and "exactly once" is this
+    // line.
     if (publishedSourceGeneration == party.sourceGeneration) return false
     val current = party.sourceFingerprint
-    if (current != null && partySourceMatchTier(current, picked) in PartyExactMatchTiers) return false
+    // ⚠ **[timelineChanged] is the one way past the duplicate test, and it exists because that
+    // test is a heuristic standing in for a verdict the caller sometimes actually has.**
+    //
+    // The test refuses anything inside [PartyExactMatchTiers], which is right for a hand-picked
+    // source - re-picking what the party is already on, or something indistinguishable from it, is a
+    // generation advance for a change nobody made. It is wrong for a host whose own chain has moved
+    // it, and it was wrong twice over: a re-cut file carries the *same* descriptor, and a look-alike
+    // release is `EquivalentMedia`, which this set contains. Both are a different timeline and both
+    // were swallowed here while `partySourceTimelineDecision` said to publish them.
+    //
+    // So the host realignment path passes its own verdict instead, and that verdict is the narrow
+    // thing - `AdvancePartySource`, which a same-release tier only reaches on a proven duration
+    // contradiction. Every other caller keeps this test exactly as it was, and the one-shot guard
+    // above applies to all of them alike.
+    if (
+        !timelineChanged &&
+        current != null &&
+        partySourceMatchTier(current, picked) in PartyExactMatchTiers
+    ) return false
     return true
 }

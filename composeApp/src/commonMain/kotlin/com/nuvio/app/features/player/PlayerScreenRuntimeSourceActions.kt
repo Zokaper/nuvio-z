@@ -389,6 +389,7 @@ private val sourceActionsPartyLog = Logger.withTag("WatchPartyPlayer")
 internal fun PlayerScreenRuntime.publishHostPartySourceRealignment(
     party: WatchPartyState,
     descriptor: PartySourceDescriptorV2,
+    timelineChanged: Boolean = false,
 ) {
     if (
         !shouldPublishPartySourceChange(
@@ -396,6 +397,12 @@ internal fun PlayerScreenRuntime.publishHostPartySourceRealignment(
             profileId = WatchPartyRepository.uiState.value.activeProfileId,
             picked = descriptor,
             publishedSourceGeneration = partyPublishedSourceGeneration,
+            // The caller's verdict, which is stronger than the duplicate heuristic and is the
+            // only thing that reaches this function: `AdvancePartySource`. Without it the guard
+            // refuses a re-cut file as a duplicate descriptor and a look-alike release as an
+            // equivalent, and the party keeps a timeline the host has already left - the same
+            // silent divergence this path exists to end, arriving by the one door left open.
+            timelineChanged = timelineChanged,
         )
     ) return
     partyPublishedSourceGeneration = party.sourceGeneration

@@ -112,6 +112,36 @@ fun partySourceTimelineDecision(
 }
 
 /**
+ * Whether the host is on the party's own release and the file under it is not the same length.
+ *
+ * ⚠ **The one case where identity and the timeline disagree, and the only one that needs a way
+ * past the duplicate-source guard.** Everything else that advances the party source is a *different*
+ * descriptor, which `shouldPublishPartySourceChange` publishes happily. This is the same descriptor
+ * with a different film behind it - a provider that re-cut its file, an origin that started serving
+ * an extended version under the release it has always served - and the guard was built to refuse
+ * exactly that shape, because republishing the source the party is already on is normally a
+ * generation advance for a change nobody made.
+ *
+ * So it is narrow on purpose: only [PartySameReleaseTiers], only with both durations known, and only
+ * when they genuinely contradict. A missing duration on either side is not evidence -
+ * [arePartyDurationsCompatible] answers `true` for an unknown side, and a host that has not reported
+ * one yet must not republish its own source at every start.
+ *
+ * [partyDurationMs] is the duration the party has on record for the host, which for the host itself
+ * is what it last told everybody. Once the new one is reported this reads as agreement again, so the
+ * contradiction is transient by construction - and the publish is one-shot per generation anyway.
+ */
+fun partyHostTimelineContradicted(
+    tier: PartySourceMatchTier,
+    partyDurationMs: Long?,
+    localDurationMs: Long?,
+): Boolean {
+    if (tier !in PartySameReleaseTiers) return false
+    if (partyDurationMs == null || localDurationMs == null) return false
+    return !arePartyDurationsCompatible(partyDurationMs, localDurationMs)
+}
+
+/**
  * The readiness a member may report for a source at [tier], which is the decision in the party's own
  * vocabulary.
  *

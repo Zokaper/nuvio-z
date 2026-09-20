@@ -17,6 +17,7 @@ import com.nuvio.app.features.watchparty.tierPartyPlaybackSources
 import com.nuvio.app.features.watchparty.PartyExactMatchTiers
 import com.nuvio.app.features.watchparty.PartySameReleaseTiers
 import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
+import com.nuvio.app.features.watchparty.partyHostTimelineContradicted
 import com.nuvio.app.features.watchparty.partySourceReadyState
 import com.nuvio.app.features.watchparty.partySourceTimelineDecision
 import com.nuvio.app.features.watchparty.PartySourceRealizer
@@ -449,15 +450,23 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
             val target = party?.sourceFingerprint
             val local = activePartySourceDescriptor
             val tier = if (target != null && local != null) partySourceMatchTier(target, local) else null
+            // The duration the party has on record for the host, which is what a guest matches
+            // against - and, for the host itself, what it last told everybody.
+            //
+            // ⚠ **The host's own reading used to be excluded here**, so a host whose release was
+            // re-cut underneath it compared against nothing, `durationsAgree` was vacuously true, and
+            // the contradiction branch of `partySourceTimelineDecision` could not be reached by any
+            // real party. It was reachable only from its own unit test.
+            val partyHostDurationMs = party?.members
+                ?.firstOrNull { member -> member.profileId == party.hostProfileId }
+                ?.resolvedDurationMs
+            val localDurationMs = playbackSnapshot.durationMs.takeIf { ms -> ms > 0L }
             val decision = tier?.let {
                 partySourceTimelineDecision(
                     isHost = isHost,
                     tier = it,
-                    hostDurationMs = party.members
-                        .firstOrNull { member -> member.profileId == party.hostProfileId }
-                        ?.resolvedDurationMs
-                        ?.takeIf { _ -> !isHost },
-                    localDurationMs = playbackSnapshot.durationMs.takeIf { ms -> ms > 0L },
+                    hostDurationMs = partyHostDurationMs,
+                    localDurationMs = localDurationMs,
                 )
             }
             val match = when {
@@ -477,9 +486,17 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 }
             }
             if (decision == PartySourceTimelineDecision.AdvancePartySource && party != null && local != null) {
-                // The host is on a different release, so the party's is now out of date. One
-                // advance per generation, through the same guarded path a hand-picked source takes.
-                publishHostPartySourceRealignment(party, local)
+                // The host is on a different timeline, so the party's source is out of date. One
+                // advance per generation, through the same guarded path a hand-picked source takes -
+                // with the one narrow exception it cannot otherwise survive: the same descriptor
+                // whose film has changed length, which that guard would read as a duplicate.
+                publishHostPartySourceRealignment(
+                    party = party,
+                    descriptor = local,
+                    // The decision above is the verdict; reaching here *is* `AdvancePartySource`.
+                    // Stated rather than assumed so the guard's bypass names what justifies it.
+                    timelineChanged = true,
+                )
             }
             WatchPartySessionCoordinator.reportReadiness(
                 partySourceReadyState(decision ?: PartySourceTimelineDecision.KeepLocal),
