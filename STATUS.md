@@ -3,6 +3,51 @@
 
 Last updated: 2026-09-20
 
+## Phase 6 hardware run: clean, and the last source-authority gap is closed (2026-09-20)
+
+**The run passed.** Both seek directions (desktop host → Android guest, Android host → desktop
+guest) held the readiness barrier and resumed together; the host waited rather than playing ahead;
+no buffering or readiness regression; the source status copy read correctly in every case exercised.
+Captured on Android `0.4.13-z1.35` (125035) against desktop `z6.56` (1.45.56).
+
+**Every barrier resume was `reason=all-ready`. The 12 s ceiling never fired on either side**, and
+neither did `dont-wait` or `degraded`. Observed waits: 478 ms, 3.6 s, 3.9 s on the Android host and
+3.7 s, 3.9 s, 8.5 s on the desktop host. The 8.5 s is the number to keep: it is 71% of the budget,
+so the ceiling is doing real work and there is no evidence for lowering it. Leave it at 12 s.
+
+Real source failures could not be forced - they are too random to manufacture - so host failover,
+guest compatible fallback and guest-with-no-fallback remain **trial by fire from normal usage**. If
+one happens, preserve the live state and logs and inspect that incident rather than reproducing it.
+
+With that evidence in hand, `2b81383d9` (desktop `ccac89fe`) closes the one known inconsistency the
+run was gating: **a manual host pick of an `EquivalentMedia` look-alike now advances the party.**
+The sources panel is a person, and the party's timeline is whatever the host is watching, so an
+explicit host pick narrows the duplicate test from `PartyExactMatchTiers` to `PartySameReleaseTiers`
+and a look-alike release falls outside it. It moves the door rather than opening one - re-picking
+the release the party is already on is still a change nobody made, and still refused.
+
+Deliberately narrow, and the tests assert the narrowness as hard as the fix:
+
+- only the sources panel passes `explicitHostSelection`, so **automatic duplicate protection is
+  unchanged** - a realization that flaps onto a look-alike still says nothing to the party;
+- only the **host** may use it. A collaborative guest's pick faces the full test whatever flag it
+  arrives with, because a guest promoting a look-alike asserts a timeline it does not define;
+- the one-shot `publishedSourceGeneration` guard sits above both doors, so `sourceGeneration` still
+  advances exactly once;
+- guests reach the existing "Host source changed" resolution UI and the existing readiness barrier.
+  Nothing in either was touched.
+
+`PartyHostManualSourcePickTest` (11) covers it: the tier fixtures themselves, the look-alike pick in
+both control modes, re-picking the party's own source and the same release through another provider
+and the same origin, a guest's look-alike refused with the flag set, a guest's plainly different
+release still publishing, a guest under host-only control refused, the automatic path keeping the
+full test, and no second advance for the same generation.
+
+Verified: mobile **2199 tests, 0 failures** (`:composeApp:testAndroidHostTest`, full suite) plus
+`:androidApp:compileFullDebugKotlin`; desktop **2348 tests, 0 failures** (`:composeApp:desktopTest`, full suite).
+
+Not in any build yet. **Away is not implemented and was deliberately not part of this change.**
+
 ## The host's republish was suppressed twice, and the check could not fire (2026-09-20)
 
 `84c3ec5cc`, published as Android **`.35`** (`0b7fb77b8`) and desktop **z6.56** (`95ebc494` +
@@ -21,7 +66,9 @@ a second defect of the same shape.
 
 The fix is the host realignment path passing its own verdict - `timelineChanged`, reached only
 through `AdvancePartySource` - and the duplicate test being bypassed for that caller alone. Every
-other caller keeps it exactly as it was; a manual pick still refuses to republish an equivalent. The
+other caller keeps it exactly as it was; a manual pick still refuses to republish an equivalent.
+(Superseded for the **host's** manual pick by `2b81383d9` above - an explicit host selection of a
+look-alike now advances the party. An automatic path, and any guest, still refuse it.) The
 one-shot guard on `publishedSourceGeneration` sits outside the bypass, so "exactly once" holds
 whichever way a publish was justified. `partyHostTimelineContradicted` is the narrow duration
 reading: same release identity, both durations known, genuinely disagreeing - a missing duration is
