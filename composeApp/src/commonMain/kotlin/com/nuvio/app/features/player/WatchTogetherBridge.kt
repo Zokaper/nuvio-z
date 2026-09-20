@@ -243,6 +243,8 @@ data class PartyStatusBridgeState(
     val visible: Boolean = false,
     val kind: String = "",
     val text: String = "",
+    /** The second line, when the row has one. Empty for every row that does not. */
+    val detail: String = "",
     /** neutral | waiting | warning | error */
     val tone: String = "neutral",
     val action: String = "",
@@ -258,6 +260,7 @@ fun partyStatusBridgeState(line: PartyStatusLine?, suppressed: Boolean = false):
         visible = true,
         kind = line.kind.name,
         text = line.text,
+        detail = line.detail.orEmpty(),
         tone = when (line.tone) {
             PartyStatusTone.Neutral -> "neutral"
             PartyStatusTone.Waiting -> "waiting"

@@ -22,6 +22,8 @@ import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watchparty.PartyPendingResume
+import com.nuvio.app.features.watchparty.PartySourceMatch
+import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
 import com.nuvio.app.features.watchparty.PartyStartupHold
 import com.nuvio.app.features.watchparty.PendingPartySeek
 import com.nuvio.app.features.watchparty.StallHoldBudget
@@ -551,6 +553,23 @@ internal class PlayerScreenRuntime(
 
     /** The generation the host pressed "Don't wait" in; the stall guard comes back on for the next one. */
     var partyDontWaitGenerationKey: String? = null
+
+    /**
+     * The last timeline verdict this player logged about its own source.
+     *
+     * The readiness effect re-runs on every duration and descriptor change, and the verdict is the
+     * same one almost every time; a line each would bury the transition that matters - the one where
+     * a chain step lands on a release the party is not on.
+     */
+    var partyReportedTimelineDecision by mutableStateOf<PartySourceTimelineDecision?>(null)
+
+    /**
+     * Whether this player is on the party's own release or on a compatible alternate.
+     *
+     * The same verdict that goes to the party as `source_match`, kept locally because the status
+     * line has to say "Using a compatible source" about it and nothing else on this client knows.
+     */
+    var partyLocalSourceMatch by mutableStateOf<PartySourceMatch?>(null)
 
     /**
      * The seek this host has issued and not yet resumed the party from.

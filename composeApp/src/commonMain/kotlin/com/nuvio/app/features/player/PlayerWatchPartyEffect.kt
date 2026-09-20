@@ -15,6 +15,10 @@ import com.nuvio.app.features.watchparty.decidePartyRealization
 import com.nuvio.app.features.watchparty.decidePartySourceHandoff
 import com.nuvio.app.features.watchparty.tierPartyPlaybackSources
 import com.nuvio.app.features.watchparty.PartyExactMatchTiers
+import com.nuvio.app.features.watchparty.PartySameReleaseTiers
+import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
+import com.nuvio.app.features.watchparty.partySourceReadyState
+import com.nuvio.app.features.watchparty.partySourceTimelineDecision
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.partySourceKey
 import com.nuvio.app.features.watchparty.DriftCorrectionKind
@@ -429,26 +433,58 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
 
     // Readiness is what the host's gate waits on, so it has to be reported both ways: a stream that
     // is open, and one that is not open yet.
-    LaunchedEffect(generationKey, mediaLoaded) {
+    //
+    // ⚠ **It is also where a source change is judged against the party's timeline.** The failure
+    // chain is a route-level mechanism that knows nothing about parties: it picks the next candidate
+    // and relaunches the player, and every step of it used to be purely local. That is right for the
+    // three quarters of them that produce another URL for the same bytes, and wrong in the one way
+    // that matters for the rest - a host quietly playing a different cut while everybody else holds
+    // the old one, at timestamps that no longer mean the same frame. So the tier is measured here,
+    // against the party's own descriptor, and `partySourceTimelineDecision` says who owes what: the
+    // host moves the party, a guest proves it still matches or says it cannot.
+    LaunchedEffect(generationKey, mediaLoaded, activePartySourceDescriptor, playbackSnapshot.durationMs > 0L) {
         if (generationKey == null) return@LaunchedEffect
         if (mediaLoaded) {
-            val match = matchingParty?.sourceFingerprint?.let { target ->
-                val local = activePartySourceDescriptor
-                if (local != null && partySourceMatchTier(target,local) in setOf(
-                        PartySourceMatchTier.ExactTorrentFile,
-                        PartySourceMatchTier.ExactOriginRelease,
-                        PartySourceMatchTier.ExactRelease,
-                        PartySourceMatchTier.EquivalentMedia,
-                    )) {
-                    PartySourceMatch.exact
-                } else {
-                    PartySourceMatch.alternate
+            val party = matchingParty
+            val target = party?.sourceFingerprint
+            val local = activePartySourceDescriptor
+            val tier = if (target != null && local != null) partySourceMatchTier(target, local) else null
+            val decision = tier?.let {
+                partySourceTimelineDecision(
+                    isHost = isHost,
+                    tier = it,
+                    hostDurationMs = party.members
+                        .firstOrNull { member -> member.profileId == party.hostProfileId }
+                        ?.resolvedDurationMs
+                        ?.takeIf { _ -> !isHost },
+                    localDurationMs = playbackSnapshot.durationMs.takeIf { ms -> ms > 0L },
+                )
+            }
+            val match = when {
+                tier == null -> null
+                tier in PartySameReleaseTiers -> PartySourceMatch.exact
+                // Everything the party will still accept, and nothing it has: a compatible
+                // alternate, which the status line says out loud rather than leaving as "loading".
+                tier in PartyExactMatchTiers -> PartySourceMatch.alternate
+                else -> PartySourceMatch.alternate
+            }
+            partyLocalSourceMatch = match
+            if (decision != null && decision != partyReportedTimelineDecision) {
+                partyReportedTimelineDecision = decision
+                partyLog.i {
+                    "source timeline $generationKey role=${if (isHost) "host" else "guest"} " +
+                        "tier=$tier decision=$decision localDurationMs=${playbackSnapshot.durationMs}"
                 }
             }
+            if (decision == PartySourceTimelineDecision.AdvancePartySource && party != null && local != null) {
+                // The host is on a different release, so the party's is now out of date. One
+                // advance per generation, through the same guarded path a hand-picked source takes.
+                publishHostPartySourceRealignment(party, local)
+            }
             WatchPartySessionCoordinator.reportReadiness(
-                SourceResolutionState.ready,
+                partySourceReadyState(decision ?: PartySourceTimelineDecision.KeepLocal),
                 playbackSnapshot.durationMs,
-                sourceGeneration = matchingParty?.sourceGeneration,
+                sourceGeneration = party?.sourceGeneration,
                 sourceMatch = match,
             )
         } else {

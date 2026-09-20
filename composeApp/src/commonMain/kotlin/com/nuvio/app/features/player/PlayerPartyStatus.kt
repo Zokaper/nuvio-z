@@ -9,6 +9,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.watchparty.PartyPlaybackStatusInputs
+import com.nuvio.app.features.watchparty.PartySourceActivityInputs
+import com.nuvio.app.features.watchparty.PartySourceHandoff
+import com.nuvio.app.features.watchparty.PartySourceMatch
+import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
+import com.nuvio.app.features.watchparty.decidePartySourceHandoff
+import com.nuvio.app.features.watchparty.partySourceActivity
 import com.nuvio.app.features.watchparty.PartyPresentationProjector
 import com.nuvio.app.features.watchparty.partyRealizationPhaseFor
 import com.nuvio.app.features.watchparty.PartyRealtimeHealth
@@ -124,6 +130,34 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
             tickHold.filter { it != viewerId }
         }
         val realizationPhase = partyRealizationPhaseFor(realization, party.id)
+        // What this client is doing about a source, derived from what it already knows rather than
+        // from `loading = true`. Every input here is local state the player holds; none of it is a
+        // new fact on the wire.
+        val sourceActivity = partySourceActivity(
+            PartySourceActivityInputs(
+                inParty = true,
+                isHost = isHost,
+                partyStarted = partyStartReleasedKey == party.generationKey(),
+                realization = realizationPhase,
+                // The party's source moved and this player has not caught up with it. `Adopt` is
+                // the same verdict the transition itself runs on, so the copy cannot disagree with
+                // what the player is actually doing.
+                adoptingNewPartySource = decidePartySourceHandoff(
+                    party = party,
+                    localDescriptor = activePartySourceDescriptor,
+                    handledSourceGeneration = partyHandledSourceGeneration,
+                ) is PartySourceHandoff.Adopt,
+                hostAdvancingPartySource = isHost &&
+                    partyReportedTimelineDecision == PartySourceTimelineDecision.AdvancePartySource,
+                localAttempt = args.playbackAttempt,
+                needsPartyMatch =
+                    partyReportedTimelineDecision == PartySourceTimelineDecision.NeedsPartyMatch,
+                usingCompatibleAlternate = partyLocalSourceMatch == PartySourceMatch.alternate,
+                waitingForPartyReadiness = partyPendingResume != null,
+                mediaReady = playbackSnapshot.durationMs > 0L,
+                buffering = playbackSnapshot.isLoading,
+            ),
+        )
         val partyPaused = if (isHost) !playbackSnapshot.isPlaying else presentation.freshHostStatus != WatchPartyStatus.playing
         // Deferred by one tick interval: a stall hold's tick follows its `pause` command, and "Paused
         // by Seraph" flashing up before "Waiting for Ahmed to buffer" is the misreading this removes.
@@ -135,6 +169,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
             PartyPlaybackStatusInputs(
                 inParty = true,
                 isHost = isHost,
+                sourceActivity = sourceActivity,
                 host = party.members.firstOrNull { it.profileId == party.hostProfileId }?.toStatusPerson(),
                 realization = realizationPhase,
                 realizationChangesEpisode = matching == null,

@@ -128,7 +128,9 @@ fun SourceResolutionState.readyLabel(): String = when (this) {
     SourceResolutionState.waiting_for_host -> "Waiting for host"
     SourceResolutionState.fetching -> "Finding source"
     SourceResolutionState.resolving -> "Resolving source"
-    SourceResolutionState.choosing_fallback -> "Choosing alternate"
+    // "Choosing alternate" described a mechanism; a host deciding whether to wait needs the
+        // situation, which is that this member has nothing it can play with the party.
+    SourceResolutionState.choosing_fallback -> partyMemberSourceLabel(this) ?: "Choosing alternate"
     SourceResolutionState.source_ready -> "Source ready"
     SourceResolutionState.buffering -> "Buffering"
     SourceResolutionState.ready -> "Ready"

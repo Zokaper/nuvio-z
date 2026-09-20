@@ -129,6 +129,18 @@ private fun StatusPill(status: PartyStatusBridgeState, actionsEnabled: Boolean, 
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            // The second line, dimmed: what happened is the headline, what is being done about it
+            // reads as the subordinate clause it is.
+            if (status.detail.isNotBlank()) {
+                Text(
+                    text = status.detail,
+                    color = Color.White.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (actions.isNotEmpty()) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     actions.forEach { OverlayButton(it, onEvent) }

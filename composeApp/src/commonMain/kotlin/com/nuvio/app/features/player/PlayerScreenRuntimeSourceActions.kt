@@ -14,6 +14,9 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.streams.StreamItem
+import co.touchlab.kermit.Logger
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.shouldPublishPartySourceChange
 import com.nuvio.app.features.watchparty.matchesPlayback
 import com.nuvio.app.features.watchparty.WatchPartyRepository
@@ -359,6 +362,53 @@ private fun PlayerScreenRuntime.publishPartySourceChange(stream: StreamItem) {
             // stands as an alternate, and the authoritative source is whatever the party says it
             // is: releasing both latches lets the next snapshot decide, including by handing this
             // player back to a source it has just left.
+            partyPublishedSourceGeneration = null
+            partyHandledSourceGeneration = null
+        }
+    }
+}
+
+/** The same tag the party effect logs under, so a realignment reads in sequence with the gate. */
+private val sourceActionsPartyLog = Logger.withTag("WatchPartyPlayer")
+
+/**
+ * Moves the party onto the release the *host* has ended up on, after its own chain moved it there.
+ *
+ * The automatic chain is local by design and stays local for everything that produces another URL
+ * for the same bytes - see `partySourceTimelineDecision`. This is the one case it cannot be: the
+ * host defines the party's timeline, so a host on a different release has already changed what the
+ * shared timestamp means, and the only honest thing left is to say so. The party then does what it
+ * does for a hand-picked source: the generation advances, the start gate closes, every guest
+ * re-realizes against the new descriptor, and the readiness barrier starts everyone together.
+ *
+ * Guarded exactly as the deliberate pick is - `shouldPublishPartySourceChange` refuses a
+ * republication of the source the party is already on, and `partyPublishedSourceGeneration` refuses
+ * a second advance for the same generation - because a realization that flaps must not turn into a
+ * party that re-realizes on every flap.
+ */
+internal fun PlayerScreenRuntime.publishHostPartySourceRealignment(
+    party: WatchPartyState,
+    descriptor: PartySourceDescriptorV2,
+) {
+    if (
+        !shouldPublishPartySourceChange(
+            party = party,
+            profileId = WatchPartyRepository.uiState.value.activeProfileId,
+            picked = descriptor,
+            publishedSourceGeneration = partyPublishedSourceGeneration,
+        )
+    ) return
+    partyPublishedSourceGeneration = party.sourceGeneration
+    partyHandledSourceGeneration = party.sourceGeneration + 1
+    sourceActionsPartyLog.i {
+        "host source realignment party=${party.id} generation=${party.sourceGeneration} " +
+            "release=${descriptor.releaseFingerprint}"
+    }
+    scope.launch {
+        WatchPartyRepository.selectSource(
+            fingerprint = descriptor,
+            expectedSourceGeneration = party.sourceGeneration,
+        ).onFailure {
             partyPublishedSourceGeneration = null
             partyHandledSourceGeneration = null
         }
