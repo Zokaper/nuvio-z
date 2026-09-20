@@ -3,6 +3,50 @@
 
 Last updated: 2026-09-20
 
+## Phase 6 Watch Together playback/source stabilization - DONE WITH NON-BLOCKING QA DEBT (2026-09-20)
+
+The chunk is closed. Published as Android **`0.4.13-z1.36`** and desktop **`z6.57`**. What it
+contains, end to end:
+
+- **Engine-native starvation and readiness.** Android and desktop both ask the engine whether it is
+  buffering or ready instead of inferring it from roughly a second of buffered-ahead. Reactive stall
+  handling stays for the buffering nobody expected.
+- **The watchdog's viability rule.** A party hold freezes startup-watchdog time only once the local
+  source has proven itself through real media progress, so a dead source can no longer become
+  immortal behind a hold. Headers, a reachable URL, a parsed duration and a party-commanded seek are
+  explicitly not proof.
+- **The seek positive-readiness barrier.** Seek, everyone stays paused, clients seek, fresh post-seek
+  readiness is reported, the host checks its own, and the play barrier resumes the party together.
+  Every exit is named in the log: `all-ready`, `dont-wait`, `ceiling`, `degraded`.
+- **Timeline-safe source failover.** Different URLs are fine, different timelines are not. A host
+  staying on its release retries locally; a host leaving it advances the authoritative source and
+  `sourceGeneration`. A guest's failure never advances it, its local fallback must be
+  timeline-compatible, and an incompatible one never silently reports ready.
+- **Source-resolution UX.** Joining, matching the host's source, host source changed, own source
+  failed, trying a compatible fallback, cannot match, waiting for everyone and ordinary buffering are
+  distinct states. They must not regress into a generic "Loading".
+- **Explicit host manual source authority.** A host picking a different `EquivalentMedia` release
+  from the sources panel is an authoritative source change. Re-picks of the party's own release,
+  automatic paths and guests all keep the full duplicate test.
+
+**Hardware-verified** on 2026-09-20 in both directions (Android `z1.35` host + desktop `z6.56` guest,
+and the reverse): the host waited for the slower member rather than playing ahead, and **every
+observed barrier resume was `reason=all-ready`** - no `ceiling`, no `degraded`, no `dont-wait`.
+Observed waits: 478 ms / 3.6 s / 3.9 s with the Android host, 3.7 s / 3.9 s / 8.5 s with the desktop
+host. **The 12 s ceiling is unchanged**, and 8.5 s is 71% of it.
+
+**Non-blocking QA debt**, carried deliberately rather than folded into the pass. Real source failures
+cannot be forced reliably, so these three remain opportunistic, trial-by-fire from normal usage:
+
+- a natural **host** source failure,
+- a natural **guest** compatible fallback,
+- a natural **guest** incompatible / no-compatible-fallback.
+
+When one happens, preserve the live state and logs and debug that incident. None of them blocks the
+next chunk.
+
+Ledger: **S9** in `Docs/Z-FEATURES.md`.
+
 ## Phase 6 hardware run: clean, and the last source-authority gap is closed (2026-09-20)
 
 **The run passed.** Both seek directions (desktop host → Android guest, Android host → desktop
@@ -46,7 +90,7 @@ full test, and no second advance for the same generation.
 Verified: mobile **2199 tests, 0 failures** (`:composeApp:testAndroidHostTest`, full suite) plus
 `:androidApp:compileFullDebugKotlin`; desktop **2348 tests, 0 failures** (`:composeApp:desktopTest`, full suite).
 
-Not in any build yet. **Away is not implemented and was deliberately not part of this change.**
+Published as Android `0.4.13-z1.36` / desktop `z6.57`. **Away is not implemented and was deliberately not part of this change.**
 
 ## The host's republish was suppressed twice, and the check could not fire (2026-09-20)
 
