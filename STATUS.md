@@ -1,7 +1,113 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
+
+## A dead source, a deadlock, and a seek that waits for people (2026-09-20)
+
+Four things, in the order they happened: the desktop mirror of the engine-native starvation signal
+was published as **`debug-v0.1.23-alpha-z6.54`**; a two-client hardware run on the S25 and that build
+named the black-picture cause and found a worse defect behind it; the deadlock was fixed
+(`989e1d10c`); and seeks stopped resuming on a timer (`2554f48c8`). Mobile commits on
+`claude/phase-6-convergence-linear`, desktop on `claude/heartbeat-session-renewal` (`280d11d2`,
+`6c9a0843`). No build has been cut for either fix yet.
+
+### Desktop now answers the same question Android does
+
+`NuvioZDesktop` carried the 1000 ms heuristic until this run. The mirror adds one JNI export,
+`engineReadinessFlags`, to all three bridges - `paused-for-cache`, `cache-buffering-state`, `pause`,
+`seeking`, `core-idle` packed into one int - and maps them in Kotlin with the same rules the Android
+bridge uses. `isLoading` could not be reused: its `core-idle && !paused` term is blended with intent,
+so the instant the party pauses a starving guest the guest stops reporting that it is empty.
+
+First live evidence, from the desktop guest of the Android-hosted party:
+
+```
+peer status settled=buffering starved=false engine=Desktop-mpv/NoSource bufferedAheadMs=0
+peer status settled=paused    starved=false engine=Desktop-mpv/Ready    bufferedAheadMs=0
+```
+
+A missing export is caught and latched rather than left to `snapshot`'s `runCatching`: the Gradle
+task skips the native build whenever a DLL is already there, so a stale local bridge would otherwise
+turn every poll into an all-loading snapshot and break playback outright.
+
+### The black picture was Dolby Vision profile 7
+
+`videoPresentation=no_supported_video` on the first hardware attempt, which is exactly what the
+`.33` diagnostics were added to answer. The candidate's only video track was
+`mime=video/dolby-vision codecs=dvhe.07.06`, 3840x2160, `supported=false decodable=false` - dual-layer
+DV, which the S25's decoders do not take. Classified fatal, fell back to libmpv as designed, and
+libmpv then said `Dolby Vision enhancement-layer playback is not supported`. **The `.32` audio-only
+run is almost certainly the same source shape.** No fix is owed for the classification; what to do
+about DV7 sources (reject at selection? prefer a profile-8 or HDR10 release?) is still open.
+
+### A party hold made a dead source immortal — fixed
+
+Behind the DV7 track, the same URL was serving a 21 KB placeholder claiming 59.4 GB:
+`probe status=206 total=21982 verdict=placeholder:served_21982_claimed_59400000000`. The failure
+chain exists for exactly this and would have run in twenty seconds outside a party.
+
+Inside one it could not run at all. The host's own start gate held the player at
+`WAITING_FOR_PARTICIPANTS` while it waited for the guest; `PlaybackStartupSample.isHeld` froze every
+deadline; and a frozen deadline cannot fail a source. The host waited for a guest that was waiting
+for the host, and the one clock that could have broken the tie had been stopped by the wait itself -
+seven minutes on the loading screen when the run was stopped by hand, with the probe's verdict
+already in the log.
+
+**The rule now**: a hold stops the clock only for a source that has delivered media.
+`State.hasProvenViability` is sticky and set by `progressMs` alone, so a parsed duration (a header), a
+successful probe (a reachable host), the URL existing (a string) and a party-commanded seek (the
+baseline moves with it, so the jump measures zero) are all worth nothing. An unproven source falls
+through to the ordinary deadline it would have had outside a party - 20 s, or 35 s with evidence of
+life - and fails over normally. Everything the hold was built for is untouched: every case of it had
+already produced media, and those tests pass unchanged.
+
+### Seeks wait for readiness instead of a lead
+
+The same run measured the other half of the host's behaviour. The host released its seek barrier at
+10:14:31.516 and the guest's `starved=true` arrived at 10:14:31.954. Neither client was slow: a
+member holding for a barrier publishes nothing by design, so the answer could not exist before the
+host had already started, and the stall guard then pulled the party back - a pause, a resume and a
+pause, for a cost that was known in advance.
+
+A seek that resumes is now issued with `playAfter = false`. Everybody lands on the frame and stays
+there; the resume is a second command, issued once they have all said they can play it. The rule is
+the start barrier's own - `partyStartPlaybackRelease` - with `freshSincePartyMs` added so a report
+from before the seek cannot answer a question the seek asked (the sender's stamp, not the receipt: a
+report that crossed with the command arrives after it and describes the member before it). It now
+also requires `!starved` of a `paused` member, which is the 2026-09-19 failure in its second form.
+
+Bounded by the start barrier's 12 s ceiling, released immediately by "Don't wait", revoked by any
+user transport command, never waiting on members who are disconnected, failed, gone or not in a
+player, and skipped entirely when there is no live peer plane. The reactive stall guard is untouched
+and still owns buffering nobody asked for. **No wire or backend change was needed**: `starved` was
+already on the peer plane, and only `PartyPeerTelemetry` had to start carrying it inward.
+
+**One engine change came with it.** libmpv's `cache-buffering-state` was read only while playback was
+intended, against a stale percentage. Measured against the shipped libmpv (a 16 Mbps file served at
+250 KB/s, the player held paused the moment the cache ran dry) it is not stale: it reads 100 whenever
+mpv is not buffering, playing and paused alike, and climbed 0 → 96 → 100 live through a refill the
+player was held paused for. The `&& !paused` guard is gone in both repositories, which corrects the
+table in the 2026-09-19 entry above. Without it the barrier had no answer on desktop: a member seeked
+into an unbuffered region and told to wait there reported `Ready` with an empty cache.
+
+### Coverage and what is still owed
+
+`PlaybackStartupWatchdogTest` (+5: the held dead source at the ordinary deadline, the header-and-probe
+case at the 35 s one, repeated party seeks under a hold, one millisecond of media buying the
+protection back, and proof earned after a hold began). `PartySeekReadinessBarrierTest` (10, new:
+staleness, a report that crossed with the command, `paused`-but-starved, the ceiling, members who
+cannot be waited for, a degraded plane, and the start barrier's own call unchanged).
+`NativePlayerReadinessTest` and `PlayerEngineReadinessAndroidTest` updated for the pause-flag change.
+
+Verified: mobile `:composeApp:testAndroidHostTest` over `watchparty`, `player` and `playback` -
+**873 tests, 0 failures**; `:composeApp:compileAndroidMain` green. Desktop `:composeApp:desktopTest`
+over the same packages - **905 tests, 0 failures**. Both with `--rerun-tasks` and the results
+directory deleted first.
+
+**Owed**: a hardware run for both fixes - the deadlock case (a dead source inside a party must now
+fail over) and the seek barrier (the host must not start before the guest can). Neither has been on a
+device. The DV7 selection question is open. Away is still not implemented.
 
 ## Starvation is the engine's verdict now, not a one-second buffer (2026-09-19)
 
