@@ -3,6 +3,76 @@
 
 Last updated: 2026-09-20
 
+## Different URLs are fine. Different timelines are not. (2026-09-20)
+
+`7ff3a02ba` on `claude/phase-6-convergence-linear`, `8044f0b1` on desktop. Not in any build yet.
+
+### The rule
+
+The failure chain is a route-level mechanism with no idea a party exists, and every step of it was
+local. That is right for most of what it does - a credential re-mint, a renewed debrid link, the same
+torrent file through another provider are all new URLs for bytes the party has already agreed on -
+and wrong in exactly one way: a host whose chain lands on a **different release** is playing
+different frames at the same timestamps, and nothing told the party.
+
+| Who | What changed | What happens now |
+| --- | --- | --- |
+| Host | same release, new URL (`ExactTorrentFile` / `ExactOriginRelease` / `ExactRelease`) | nothing - stays local, as before |
+| Host | a different release, including a look-alike (`EquivalentMedia`) | `publishHostPartySourceRealignment` advances the authoritative source: gate closes, guests re-realize, readiness barrier resumes everyone |
+| Host | same release identity, contradicted by duration | treated as a release change - the host's timeline is the party's |
+| Guest | same release | local, reports `ready` |
+| Guest | `EquivalentMedia` **and** duration compatible | local, reports `ready` |
+| Guest | `Fallback`, `None`, or any duration contradiction | reports `choosing_fallback`, never `ready`; stays in the party |
+
+A guest never advances the authoritative source, whatever it lands on. `PartySameReleaseTiers` is the
+new narrower set for the host's publish decision; `PartyExactMatchTiers` keeps its old meaning of
+"close enough not to re-adopt" for the handoff and realizer. Duration can only ever subtract: two
+cuts can run to the same minute and differ by a distributor logo at the head.
+
+### The copy, derived rather than guessed
+
+`PartySourceActivity` is a pure state machine over facts the player already holds - realization
+phase, whether the party has played this generation, whether the party's source moved, the local
+attempt number, the timeline verdict - and `partySourceMessage` is the only place the words live.
+Ordering is the design: a client with no source open yet is *not* buffering, which is how every one
+of these collapsed into "Matching source…" before.
+
+| State | Headline | Detail |
+| --- | --- | --- |
+| InitialPartyMatch | Joining playback | Matching <host>'s source… |
+| HostSourceChangedMatching | Host source changed | Finding a compatible source… |
+| HostSourceChangedResolving | Host source changed | Resolving the new source… |
+| HostSwitchingSource | Switching source | The current source failed. Finding a replacement… |
+| LocalSourceRetry (host) | Source failed | Trying another connection… |
+| LocalSourceRetry (guest) | Your source stopped working | Trying another compatible source… |
+| LocalCompatibleFallback | Using a compatible source | Preparing playback… |
+| PartySourceUnmatched | Couldn't match the party source | Choose another source to continue with the group. |
+| FailedTryingNext | Source didn't work | Trying the next option… |
+| WaitingForPartyReadiness | Waiting for everyone… | - |
+| Buffering | Buffering… | - |
+
+`PartyStatusLine` gained `detail`, the mobile pill stacks it dimmed under the headline, and the
+desktop controls got the same pair in `controls.html/css/js`. The host's member list says **Needs
+source** for `choosing_fallback` rather than "Choosing alternate". The generic "Matching …'s source…"
+row is still there as the answer for a caller that has not derived an activity - a projector that
+drops a row because an input defaulted is worse than a generic sentence.
+
+### Coverage
+
+`PartySourceTimelineTest` (12): host re-mint, host alternate realization, host different release,
+host look-alike release, host duration contradiction, guest on the party's release, guest compatible
+equivalent, guest duration-incompatible, guest arbitrary `Fallback`, guest contradicted identity, a
+guest never advancing the source, and unknown durations leaving the identity verdict standing.
+`PartySourceActivityTest` (11) asserts the copy itself, including that a client with no source is
+never called buffering and that no tier name reaches a person.
+
+Verified: mobile `:composeApp:testAndroidHostTest` over `watchparty`, `player`, `playback` - **898
+tests, 0 failures**; `:composeApp:compileAndroidMain` green. Desktop `:composeApp:desktopTest` over
+`watchparty` and `player` - **571 tests, 0 failures**.
+
+**Owed**: no hardware run for any of it. The DV7 selection question is still open, and Away is still
+not implemented.
+
 ## A dead source, a deadlock, and a seek that waits for people (2026-09-20)
 
 Four things, in the order they happened: the desktop mirror of the engine-native starvation signal
