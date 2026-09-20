@@ -23,7 +23,16 @@ class WatchTogetherBridgeTest {
         connection = PartyConnectionChip.Delayed,
         people = listOf(WatchTogetherPersonRow("me", "You", null, "#1", true, true, "Playing", PartyReadyTone.Ready)),
         incomingRequest = incoming,
-        settings = if (host) WatchTogetherHostSettings(true, false, JoinPolicyControl(WatchJoinPolicy.disabled)) else null,
+        settings = if (host) {
+            WatchTogetherHostSettings(
+                guestsControlPlayback = true,
+                pauseWhenSomeoneBuffers = false,
+                pauseForAwayUsers = true,
+                joinPolicy = JoinPolicyControl(WatchJoinPolicy.disabled),
+            )
+        } else {
+            null
+        },
         leaveHelper = if (host) "Seraph becomes host" else null,
         errorMessage = null,
         syncDetails = null,
@@ -59,6 +68,8 @@ class WatchTogetherBridgeTest {
         assertEquals("Live sync is down; staying in step every few seconds", host.connectionTooltip)
         assertTrue(host.guestsControl)
         assertFalse(host.pauseWhenBuffers)
+        // Its own field on the wire to the native panel: two toggles, two answers.
+        assertTrue(host.pauseForAway)
         assertEquals("ready", host.people.single().tone)
     }
 

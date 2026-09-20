@@ -76,6 +76,17 @@ import com.nuvio.app.features.watchparty.partyGenerationKey
 import com.nuvio.app.features.watchparty.partySeekPlan
 import com.nuvio.app.features.watchparty.pendingPartySeek
 import com.nuvio.app.features.watchparty.shortId
+import com.nuvio.app.features.watchparty.PartyAwayCatchUpTickWaitMs
+import com.nuvio.app.features.watchparty.PartyLifecycleFacts
+import com.nuvio.app.features.watchparty.PartyPresence
+import com.nuvio.app.features.watchparty.PartyPresenceState
+import com.nuvio.app.features.watchparty.PartyReturnAction
+import com.nuvio.app.features.watchparty.partyAwayHoldMembers
+import com.nuvio.app.features.watchparty.partyPresenceTransitionLog
+import com.nuvio.app.features.watchparty.partyReturnAction
+import com.nuvio.app.features.watchparty.rememberPartyPlatformLifecycle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -807,9 +818,12 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // thing that ends the hold. Leaving it out of the key would publish the first and never the
     // second, which is a party stopped until [WatchPartyStallHoldMaxMs] gives up on it.
     val peerStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
-    LaunchedEffect(generationKey, isHost, peerStatus, peerStarved, partyHoldingForBarrier) {
+    LaunchedEffect(generationKey, isHost, peerStatus, peerStarved, partyHoldingForBarrier, partyAwayReturning) {
         if (generationKey == null || isHost) return@LaunchedEffect
-        if (partyHoldingForBarrier) {
+        // A member catching up after being away is parked under the party's own instruction, exactly
+        // like a barrier. Its engine is empty and it reports `paused`, and either would hand a
+        // member that is doing as it was told straight to the host's stall guard.
+        if (partyHoldingForBarrier || partyAwayReturning) {
             // ⚠ **What was reported before a barrier cannot answer for after one.** The publisher
             // below sends only on a change, and a member seeked while paused reports `paused` on
             // both sides of the seek - so the host's readiness barrier would wait for a report that
@@ -826,7 +840,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         // been told to resume. The host's grace is measured in seconds; two hundred milliseconds of
         // honesty costs nothing against it.
         delay(WatchPartyStatusSettleMs)
-        if (partyHoldingForBarrier) return@LaunchedEffect
+        if (partyHoldingForBarrier || partyAwayReturning) return@LaunchedEffect
         val settled = partyStatusFor(playbackSnapshot, shouldPlay)
         val settledStarved = partyStarvedFor(playbackSnapshot, partyHoldingForBarrier)
         if (partyReportedPeerStatus == settled && partyReportedPeerStarved == settledStarved) {
@@ -857,6 +871,72 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
         if (generationKey == null || isHost) return@LaunchedEffect
         var tracker = DriftTracker()
         WatchPartySync.ticks.collect { tick -> tracker = followPartyTick(tick, tracker) }
+    }
+
+
+    // --- Away -------------------------------------------------------------------------------
+    //
+    // The lifecycle facts, folded into one presence, in one place. Every Android callback reports
+    // *here*; none of them decides anything, which is the whole reason `PartyPresence.kt` exists as
+    // a pure file. See it for why this is a snapshot rather than a stream of events - a
+    // picture-in-picture transition delivers four of them in an order that is not guaranteed.
+    val platformLifecycle = rememberPartyPlatformLifecycle()
+    val inPictureInPicture = rememberIsInPictureInPicture()
+    LaunchedEffect(generationKey, platformLifecycle, inPictureInPicture, mediaLoaded) {
+        if (generationKey == null) {
+            // Not in a party: nothing to report and nothing to hold. Reset so the next party does
+            // not inherit a window state from the last one.
+            if (partyPresence.isAway || partyAwayReturning) {
+                partyPresence = PartyPresenceState()
+                partyAwayAtGenerationKey = null
+                partyAwayReturning = false
+            }
+            return@LaunchedEffect
+        }
+        partyLifecycleSeq += 1
+        val before = partyPresence
+        val after = before.observe(
+            PartyLifecycleFacts(
+                appForeground = platformLifecycle.appForeground,
+                pictureInPicture = inPictureInPicture,
+                // A picture-in-picture window over a player with no media is not somebody watching.
+                // Deliberately not `isPlaying`: that flips on every rebuffer, and a member whose
+                // stream hiccuped in PiP has not stepped away from it.
+                playbackContinues = inPictureInPicture && mediaLoaded,
+                screenLocked = platformLifecycle.screenLocked,
+                seq = partyLifecycleSeq,
+            ),
+        )
+        if (after == before) return@LaunchedEffect
+        partyPresence = after
+        partyPresenceTransitionLog(before, after)?.let { line -> partyLog.i { line } }
+        if (before.presence == after.presence) return@LaunchedEffect
+        if (after.presence == PartyPresence.Away) enterPartyAway(isHost) else returnFromPartyAway(isHost)
+    }
+
+    // Pause for away users: the host's second, separate hold condition.
+    //
+    // Its own reactor beside the stall guard rather than a branch inside it, because they are
+    // independent conditions feeding one gate: a member can be away *and* another member buffering,
+    // and one hold clearing must not release the other. Polled for the same reason the stall guard
+    // is - membership and the away roster both move under it with no message to drive an edge.
+    LaunchedEffect(generationKey, isHost) {
+        if (generationKey == null || !isHost) return@LaunchedEffect
+        var reactedTo: List<String>? = null
+        while (true) {
+            val live = WatchPartyRepository.uiState.value
+            val holding = partyAwayHoldMembers(
+                party = live.party,
+                awayProfileIds = WatchPartySync.state.value.awayProfileIds,
+                viewerProfileId = live.activeProfileId,
+                pauseForAwayUsers = live.pauseForAwayUsers,
+            )
+            if (holding != reactedTo) {
+                reactedTo = holding
+                reactToAwayMembers(holding)
+            }
+            delay(WatchPartyStallWatchPollMs)
+        }
     }
 
     // Wait for everyone: a guest that stalls used to be left behind and then dragged back by a seek,
@@ -1555,14 +1635,21 @@ internal fun PlayerScreenRuntime.stopWaitingForStalledGuests() {
     if (party.hostProfileId != WatchPartyRepository.uiState.value.activeProfileId) return
     partyDontWaitGenerationKey = party.generationKey()
     WatchPartyRepository.setWaitForEveryone(false)
+    // The away hold answers the same press. "Don't wait" is one action on one pill, and which of the
+    // two conditions was showing when it was pressed is not something the host was asked - so both
+    // switches go off together and both held lists are released below. Turning one off and leaving
+    // its hold standing is the exact failure this function was written for.
+    WatchPartyRepository.setPauseForAwayUsers(false)
+    val heldForAway = partyAutoPausedForAway
+    partyAutoPausedForAway = emptyList()
     // A resume the seek barrier is still holding is the same answer to the same question - the host
     // has said it is not waiting - so it is released here rather than left for a timeout nobody
     // asked to sit through.
     val pendingResume = partyPendingResume
-    val waited = (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
+    val waited = (partyAutoPausedForGuests + partyAwaitingResumeReadiness + heldForAway).distinct()
     partyPendingResume = null
     partyAwaitingResumeReadiness = emptyList()
-    if (pendingResume == null && partyAutoPausedForGuests.isEmpty()) return
+    if (pendingResume == null && partyAutoPausedForGuests.isEmpty() && heldForAway.isEmpty()) return
     partyAutoPausedForGuests = emptyList()
     if (pendingResume != null) {
         // Said in the resume barrier's own words as well as the hold's, so every way out of that
@@ -1589,11 +1676,10 @@ internal fun PlayerScreenRuntime.stopWaitingForStalledGuests() {
  * stopped for a stall or for a seek it was too slow to land.
  */
 private fun PlayerScreenRuntime.partyHoldNotice(): List<String> =
-    if (partyAwaitingResumeReadiness.isEmpty()) {
-        partyAutoPausedForGuests
-    } else {
-        (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
-    }
+    // Away members ride the same list on purpose. A guest reads "the party is waiting for these
+    // people", and the tick's separate away roster is what lets it say *why* without a second hold
+    // list that could disagree with this one about who.
+    (partyAutoPausedForGuests + partyAwaitingResumeReadiness + partyAutoPausedForAway).distinct()
 
 /**
  * Holds the party for a guest whose stream has stalled, and starts it again together.
@@ -1629,6 +1715,167 @@ private suspend fun PlayerScreenRuntime.reactToStalledGuests(holding: List<Strin
         partyAutoPausedForGuests = emptyList()
         partyLog.i { "stalled guests recovered, resuming for=${waited.joinToString { it.shortId() }}" }
         startPartyPlayback(samplePlaybackPosition().positionMs, source = "stall-guard")
+    }
+}
+
+
+/**
+ * The local member steps away: pause here, tell the party, stay in it.
+ *
+ * ⚠ **Nothing in here touches the source.** No realizer reset, no route disposal, no readiness
+ * downgrade, no leave. The realization this player is holding is still the party’s, and the only
+ * thing that has changed is that nobody is looking at it - which is the entire point of Away
+ * existing rather than the party inferring one of the three things it is not.
+ *
+ * A host’s absence is a party pause and a guest’s is not, and that asymmetry is not a policy
+ * choice anybody made: the host *is* the party clock, so a host that stops publishing a moving
+ * timeline has stopped the party whether or not it issues a command. Issuing one makes that
+ * explicit, ordered and attributable instead of leaving every guest to infer it from a timeline
+ * that quietly stopped.
+ */
+private fun PlayerScreenRuntime.enterPartyAway(isHost: Boolean) {
+    val party = WatchPartyRepository.uiState.value.party
+    partyAwayAtGenerationKey = party?.generationKey()
+    // Captured before anything below can pause the engine, for the same reason the start barrier
+    // captures its intent: by the time this member comes back, every local signal says "paused".
+    partyAwayIntentPlaying = shouldPlay
+    partyAwayReturning = false
+    WatchPartySync.setLocalPresence(true)
+    if (isHost && partyOwnsTransport() && shouldPlay) {
+        pausePartyPlayback(samplePlaybackPosition().positionMs, source = "away")
+        return
+    }
+    shouldPlay = false
+    playerController?.pause()
+}
+
+/**
+ * The local member comes back.
+ *
+ * Three things, and the order is the requirement: clear the away *first* so a host holding the
+ * party for this member can start releasing while the catch-up runs; decide whether the party is
+ * still on the same content and source; and only then move the player.
+ *
+ * Never resumes where this member left off. A player away for four minutes holds a position four
+ * minutes stale, and playing it even for the half second before the next tick lands is the member
+ * watching the wrong frame - or, if the party is paused, watching it indefinitely.
+ */
+private suspend fun PlayerScreenRuntime.returnFromPartyAway(isHost: Boolean) {
+    val ui = WatchPartyRepository.uiState.value
+    val party = ui.party?.takeIf { it.matchesPlayback(parentMetaId, playbackSession.videoId) }
+    val awayAt = partyAwayAtGenerationKey
+    val action = partyReturnAction(
+        awayAtGenerationKey = awayAt,
+        currentGenerationKey = party?.generationKey(),
+        // The engine still has a timeline and a controller: the source survived the background,
+        // which on Android it does - `PlayerEngine.android.kt` pauses at `ON_STOP` and releases
+        // only when the route itself is disposed.
+        localSourceUsable = playbackSnapshot.durationMs > 0L && playerController != null,
+    )
+    partyAwayAtGenerationKey = null
+    WatchPartySync.setLocalPresence(false)
+    if (action == PartyReturnAction.RealizeCurrentGeneration) {
+        // The party moved while this member was away, or the engine did not survive. Either way the
+        // realization flow owns it and is already keyed on the generation that changed; starting a
+        // second one from here is how one member ends up resolving two sources at once.
+        partyLog.i {
+            "away return realize awayAt=$awayAt now=${party?.generationKey()} " +
+                "durationMs=${playbackSnapshot.durationMs}"
+        }
+        return
+    }
+    // The host’s own position never moved and neither did the party’s, because the host stopped
+    // both. There is nothing to catch up to; there is only the intent to restore.
+    if (isHost) {
+        partyLog.i { "away return host intent=${if (partyAwayIntentPlaying) "playing" else "paused"}" }
+        if (partyAwayIntentPlaying && partyOwnsTransport()) {
+            startPartyPlayback(samplePlaybackPosition().positionMs, source = "away-return")
+        }
+        return
+    }
+    catchUpAfterPartyAway()
+}
+
+/**
+ * Puts a returning guest where the party is, using the machinery every other correction uses.
+ *
+ * Deliberately not a new synchronisation path: this is [partySeekPlan] and a barrier park, which is
+ * exactly what a large drift correction already does in [followPartyTick]. The difference is only
+ * that it is taken at a known moment rather than waited for - the next tick would produce the same
+ * seek half a second later, and half a second of a stale frame is the thing the viewer would report.
+ *
+ * `partyHoldingForBarrier` is what stops this being reported to the host as a stall: a member
+ * seeking four minutes forward under the party’s own instruction is doing what it was asked, and
+ * telling the host it is buffering is how the stall guard ends up holding a party for a member that
+ * is fine.
+ */
+private suspend fun PlayerScreenRuntime.catchUpAfterPartyAway() {
+    val controller = playerController ?: return
+    partyAwayReturning = true
+    try {
+        val heldTick = WatchPartySync.heldTick()?.takeIf { !it.isStale(WatchPartySync.partyNowMs()) }
+        val tick = heldTick ?: withTimeoutOrNull(PartyAwayCatchUpTickWaitMs) {
+            WatchPartySync.ticks.first { !it.isStale(WatchPartySync.partyNowMs()) }
+        }
+        if (tick == null) {
+            // No live timeline. The durable anchor is still correcting this player and is what it
+            // has always had on this path, so hand over rather than hold it still waiting for a
+            // message that is not coming.
+            partyLog.w { "away return catchup no live timeline; leaving it to the durable anchor" }
+            return
+        }
+        val durationMs = playbackSnapshot.durationMs
+        if (durationMs <= 0L) return
+        val plan = partySeekPlan(tick, WatchPartySync.partyNowMs())
+        val target = partyPositionInThisFile(plan.seekToMs, durationMs)
+        partyLog.i {
+            "away return catchup targetMs=${plan.seekToMs} localMs=${samplePlaybackPosition().positionMs} " +
+                "status=${tick.status} reachable=${target != null}"
+        }
+        // The party is somewhere this copy does not reach. Refusing is the established answer -
+        // clamping turns it into "go to the last frame" - and the status line already says so.
+        if (target == null) return
+        partyBarrierAtMs = plan.resumeAtPartyMs
+        partyHoldingForBarrier = true
+        try {
+            controller.pause()
+            seekPartyToExact(target, reason = "away-return")
+            awaitPartyInstant(plan.resumeAtPartyMs)
+        } finally {
+            partyHoldingForBarrier = false
+        }
+        // Resume according to the *party*, never according to what this member was doing before it
+        // went away: the party may have been paused in the meantime, and a member that starts
+        // playing into a paused party is the desync this whole barrier layer exists to remove.
+        if (tick.status == WatchPartyStatus.playing) resumePartyPlayback()
+    } finally {
+        partyAwayReturning = false
+    }
+}
+
+/**
+ * Holds the party while a member is away, and starts it again when they come back.
+ *
+ * The same shape as [reactToStalledGuests] and deliberately a separate function with its own
+ * retained list: two hold conditions sharing one list release each other, and a party that resumed
+ * because a buffer filled while somebody was still in another app is exactly the cross-talk this
+ * has to avoid. The stall-hold budget is not consulted either - a person is not a flapping source,
+ * and rate-limiting how often the party may wait for one would be nonsense.
+ */
+private suspend fun PlayerScreenRuntime.reactToAwayMembers(holding: List<String>) {
+    if (holding.isNotEmpty() && partyAutoPausedForAway.isEmpty()) {
+        if (!playbackSnapshot.isPlaying) return
+        partyAutoPausedForAway = holding
+        partyLog.i {
+            "party hold reason=away waitingOn=[${holding.joinToString { it.shortId() }}] " +
+                "partyMs=${WatchPartySync.partyNowMs()}"
+        }
+        pausePartyPlayback(samplePlaybackPosition().positionMs, source = "away-guard")
+    } else if (holding.isEmpty() && partyAutoPausedForAway.isNotEmpty()) {
+        val waited = partyAutoPausedForAway
+        partyAutoPausedForAway = emptyList()
+        partyLog.i { "party release reason=away returned=[${waited.joinToString { it.shortId() }}]" }
+        startPartyPlayback(samplePlaybackPosition().positionMs, source = "away-guard")
     }
 }
 
@@ -1793,6 +2040,11 @@ internal fun PlayerScreenRuntime.submitPartyPlayPause(isPlaying: Boolean, positi
     // decision it did not take. A resume the seek barrier was still waiting to issue is revoked for
     // the same reason: this command is the newer answer to the same question.
     partyAutoPausedForGuests = emptyList()
+    // Same rule for the away hold: a host that presses play while somebody is in another app has
+    // decided to play without them, and the away reactor must not put the party back on hold the
+    // moment it next polls. The member is still away and still shown as away; the party has simply
+    // stopped waiting for them.
+    partyAutoPausedForAway = emptyList()
     partyPendingResume = null
     partyAwaitingResumeReadiness = emptyList()
     if (isPlaying) {

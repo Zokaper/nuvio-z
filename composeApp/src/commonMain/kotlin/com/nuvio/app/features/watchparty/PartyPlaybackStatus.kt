@@ -30,6 +30,8 @@ enum class PartyStatusKind {
     HostChoosingSource,
     WaitingForSources,
     WaitingForBuffering,
+    /** The party is stopped because somebody stepped away, not because anything is loading. */
+    WaitingForAway,
     EveryoneWaitingOnYou,
     HostBuffering,
     WaitingForHostStart,
@@ -124,6 +126,15 @@ data class PartyPlaybackStatusInputs(
     val stallHoldOthers: List<PartyStatusPerson> = emptyList(),
     /** This viewer is the one a stall hold is waiting on. */
     val selfHeld: Boolean = false,
+    /**
+     * Other members the party is stopped for because they are **away**, named.
+     *
+     * Deliberately a separate input from [stallHoldOthers] rather than a flag on it. They are
+     * different waits with different wording and different advice - one ends when a buffer fills,
+     * the other when a person comes back - and folding them together is how "Waiting for Riyad to
+     * buffer" got shown about a phone that was in a pocket.
+     */
+    val awayHoldOthers: List<PartyStatusPerson> = emptyList(),
     val hostBuffering: Boolean = false,
     val timelinePlaying: Boolean = false,
     /** How long a barrier park or pending seek has been holding this player, 0 when not. */
@@ -226,6 +237,20 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
         return PartyStatusLine(
             PartyStatusKind.WaitingForSources, text, awaitingSource,
             action = PartyStatusAction.StartAnyway, tone = PartyStatusTone.Waiting,
+        )
+    }
+    // 5b. Away outranks every buffering row below it: when both are true the party is stopped for
+    // the person, and telling the others to wait for a buffer that is not the reason is worse than
+    // saying nothing. It sits under the source rows for the ordinary reason - a member with no
+    // source open is not watching *or* away, they are still getting ready.
+    if (inParty && awayHoldOthers.isNotEmpty()) {
+        return PartyStatusLine(
+            PartyStatusKind.WaitingForAway,
+            partyAwayHoldHeadline(awayHoldOthers.map { it.name }),
+            awayHoldOthers,
+            // The same escape the stall hold has, and the host is the only one who can take it.
+            action = if (isHost) PartyStatusAction.DontWait else null,
+            tone = PartyStatusTone.Waiting,
         )
     }
     // 6b before 6: the held member reads about themselves, even if someone else is held too.

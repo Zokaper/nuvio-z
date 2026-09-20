@@ -112,6 +112,14 @@ data class WatchTogetherPersonRow(
 data class WatchTogetherHostSettings(
     val guestsControlPlayback: Boolean,
     val pauseWhenSomeoneBuffers: Boolean,
+    /**
+     * Hold the party while somebody is away. See `WatchPartyUiState.pauseForAwayUsers`.
+     *
+     * Beside [pauseWhenSomeoneBuffers] rather than merged into it: a stalled stream and an absent
+     * person are different problems with different right answers, and a host who wants to wait out
+     * one does not necessarily want to wait out the other.
+     */
+    val pauseForAwayUsers: Boolean,
     val joinPolicy: JoinPolicyControl,
 )
 
@@ -144,6 +152,7 @@ data class WatchTogetherPanelInputs(
     val joinPolicy: JoinPolicyControl = JoinPolicyControl(WatchJoinPolicy.approval),
     val incomingRequest: IncomingJoinRequestRow? = null,
     val waitForEveryone: Boolean = true,
+    val pauseForAwayUsers: Boolean = false,
     val errorMessage: String? = null,
     val sourceMatch: PartySourceMatch? = null,
     val releaseName: String? = null,
@@ -218,6 +227,7 @@ private fun WatchTogetherPanelInputs.active(party: WatchPartyState): WatchTogeth
             WatchTogetherHostSettings(
                 guestsControlPlayback = party.controlMode == WatchPartyControlMode.collaborative,
                 pauseWhenSomeoneBuffers = waitForEveryone,
+                pauseForAwayUsers = pauseForAwayUsers,
                 joinPolicy = joinPolicy,
             )
         } else {

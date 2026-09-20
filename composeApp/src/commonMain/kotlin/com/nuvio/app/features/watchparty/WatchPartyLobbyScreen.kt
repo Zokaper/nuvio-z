@@ -352,6 +352,8 @@ fun WatchPartyLobbyScreen(
                                         onControlMode = onControlMode,
                                         waitForEveryone = state.waitForEveryone,
                                         onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
+                                        pauseForAwayUsers = state.pauseForAwayUsers,
+                                        onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
                                     )
                                 }
                             }
@@ -422,6 +424,8 @@ fun WatchPartyLobbyScreen(
                                 onControlMode = onControlMode,
                                 waitForEveryone = state.waitForEveryone,
                                 onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
+                                pauseForAwayUsers = state.pauseForAwayUsers,
+                                onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
                             )
                         }
                     }
@@ -1139,9 +1143,12 @@ private fun PartyParticipantTile(
     status: PartyMemberPresentation,
 ) {
     val tone = status.tone
-    val offline = tone == PartyReadyTone.Offline
+    // Away is dimmed like Offline and for the same reading reason - this person is not with us
+    // right now - but nothing else treats them the same: they are still a member, still counted in
+    // the party size, and still somebody the party may be waiting for.
+    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away
     Surface(
-        modifier = Modifier.width(PartyTileWidth).alpha(if (offline) 0.55f else 1f),
+        modifier = Modifier.width(PartyTileWidth).alpha(if (dimmed) 0.55f else 1f),
         shape = RoundedCornerShape(NuvioTokens.Radius.xl),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
     ) {
@@ -1193,7 +1200,7 @@ private fun PartyParticipantTile(
                 textAlign = TextAlign.Center,
             )
             PartyStatusPill(tone, status.label)
-            if (!offline && member.sourceMatch == PartySourceMatch.alternate) {
+            if (!dimmed && member.sourceMatch == PartySourceMatch.alternate) {
                 Text(
                     "different source",
                     style = MaterialTheme.typography.labelSmall,
@@ -1256,11 +1263,18 @@ private fun PartyStatusPill(tone: PartyReadyTone, label: String) {
         PartyReadyTone.Working, PartyReadyTone.Buffering, PartyReadyTone.Reconnecting -> PartyWorkingColor
         PartyReadyTone.Paused -> MaterialTheme.colorScheme.primary
         PartyReadyTone.Failed -> MaterialTheme.colorScheme.error
-        PartyReadyTone.Offline -> MaterialTheme.colorScheme.onSurfaceVariant
+        // Away reads like Offline and is not Offline: the member is still here and still counted.
+        // Muted rather than coloured, because the one thing it must not do is look like a problem
+        // somebody has to act on.
+        PartyReadyTone.Away,
+        PartyReadyTone.Offline,
+        -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         shape = RoundedCornerShape(NuvioTokens.Radius.chip),
-        color = color.copy(alpha = if (tone == PartyReadyTone.Offline) 0.10f else 0.18f),
+        color = color.copy(
+            alpha = if (tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away) 0.10f else 0.18f,
+        ),
     ) {
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
@@ -1328,6 +1342,8 @@ private fun PartyHostSettings(
     onControlMode: (WatchPartyControlMode) -> Unit,
     waitForEveryone: Boolean,
     onWaitForEveryone: (Boolean) -> Unit,
+    pauseForAwayUsers: Boolean,
+    onPauseForAwayUsers: (Boolean) -> Unit,
 ) {
     // Two stacked rows for four controls cost the lobby a panel's worth of height it needs to fit
     // one screen; the switch reads perfectly well beside the chips, with its one explaining line
@@ -1357,6 +1373,26 @@ private fun PartyHostSettings(
                 "Playback pauses for anyone whose stream stalls, and starts again together."
             } else {
                 "Playback carries on when someone's stream stalls; they catch up on their own."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Its own row and its own sentence. A stalled stream and a person who has put their phone
+        // down are different problems, and a host has no reason to answer both the same way.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Pause for away users", fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Switch(checked = pauseForAwayUsers, onCheckedChange = onPauseForAwayUsers)
+        }
+        Text(
+            if (pauseForAwayUsers) {
+                "Playback waits while someone has the app in the background, and starts again together."
+            } else {
+                "Playback carries on when someone steps away; they catch up when they come back."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

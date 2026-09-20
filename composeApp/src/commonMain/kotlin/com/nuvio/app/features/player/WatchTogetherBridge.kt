@@ -66,6 +66,7 @@ data class WatchTogetherBridgeState(
     val incomingExpiresAtMs: Long = 0L,
     val guestsControl: Boolean = false,
     val pauseWhenBuffers: Boolean = true,
+    val pauseForAway: Boolean = false,
     val joinPolicyVisible: Boolean = false,
     /** 0 Direct, 1 Ask, 2 Off: the segment index. */
     val joinPolicy: Int = 1,
@@ -189,6 +190,7 @@ fun watchTogetherBridgeState(
                 memberCount = panel.people.size,
                 guestsControl = panel.settings?.guestsControlPlayback ?: false,
                 pauseWhenBuffers = panel.settings?.pauseWhenSomeoneBuffers ?: true,
+                pauseForAway = panel.settings?.pauseForAwayUsers ?: false,
                 joinPolicyVisible = policy != null,
                 joinPolicy = policy?.selected?.segmentIndex() ?: 1,
                 joinPolicyExplanation = policy?.explanation.orEmpty(),

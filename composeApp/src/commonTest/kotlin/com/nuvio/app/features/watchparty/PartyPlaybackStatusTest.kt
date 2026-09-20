@@ -104,6 +104,7 @@ class PartyPlaybackStatusTest {
             positionUnreachable = true,
             waitingForHostSource = true,
             stallHoldOthers = listOf(ahmed),
+            awayHoldOthers = listOf(ahmed),
             selfHeld = true,
             hostBuffering = true,
             gate = gate(PartyHoldReason.WAITING_FOR_HOST),
@@ -118,6 +119,7 @@ class PartyPlaybackStatusTest {
             { it.copy(realization = PartyRealizationPhase.None) },
             { it.copy(positionUnreachable = false) },
             { it.copy(waitingForHostSource = false) },
+            { it.copy(awayHoldOthers = emptyList()) },
             { it.copy(selfHeld = false) },
             { it.copy(stallHoldOthers = emptyList()) },
             { it.copy(hostBuffering = false) },
@@ -133,6 +135,10 @@ class PartyPlaybackStatusTest {
             PartyStatusKind.SourceNotFound,
             PartyStatusKind.VersionTooShort,
             PartyStatusKind.HostChoosingSource,
+            // Above every buffering row: when the party is stopped for a person *and* a buffer,
+            // the person is the reason, and telling the others to wait for the buffer is worse
+            // than saying nothing.
+            PartyStatusKind.WaitingForAway,
             PartyStatusKind.EveryoneWaitingOnYou,
             PartyStatusKind.WaitingForBuffering,
             PartyStatusKind.HostBuffering,
@@ -154,6 +160,46 @@ class PartyPlaybackStatusTest {
 
     @Test fun aStallHoldIsNeverAttributedAsAPause() {
         assertEquals(PartyStatusKind.WaitingForBuffering, kind(guest.copy(stallHoldOthers = listOf(ahmed), pausedBy = seraph)))
+    }
+
+    /**
+     * An away hold says a person is not here, never that something is loading.
+     *
+     * "Buffering…", "Waiting for the host" and a bare "Paused" were all wrong for the same reason:
+     * every one of them describes a machine, and the party is waiting for a person.
+     */
+    @Test fun anAwayHoldIsItsOwnSentence() {
+        projectPartyPlaybackStatus(guest.copy(awayHoldOthers = listOf(ahmed)))!!.let {
+            assertEquals(PartyStatusKind.WaitingForAway, it.kind)
+            assertEquals("Waiting for Ahmed to return…", it.text)
+            assertEquals(PartyStatusTone.Waiting, it.tone)
+            // Only the host can decide not to wait, so only the host is offered the way out.
+            assertNull(it.action)
+        }
+        assertEquals(
+            PartyStatusAction.DontWait,
+            projectPartyPlaybackStatus(host.copy(awayHoldOthers = listOf(ahmed)))!!.action,
+        )
+        assertEquals(
+            "Waiting for Ahmed and Seraph to return…",
+            projectPartyPlaybackStatus(guest.copy(awayHoldOthers = listOf(ahmed, seraph)))!!.text,
+        )
+    }
+
+    /** A member away while another genuinely buffers reads as the away, not as the buffer. */
+    @Test fun awayOutranksAStallHoldForTheSameParty() {
+        assertEquals(
+            PartyStatusKind.WaitingForAway,
+            kind(guest.copy(awayHoldOthers = listOf(ahmed), stallHoldOthers = listOf(seraph))),
+        )
+    }
+
+    /** A member with no source yet is not away, they are still getting ready. */
+    @Test fun sourceWorkStillOutranksAnAwayHold() {
+        assertEquals(
+            PartyStatusKind.MatchingSource,
+            kind(guest.copy(awayHoldOthers = listOf(ahmed), realization = PartyRealizationPhase.Matching)),
+        )
     }
 
     // Debounce ---------------------------------------------------------------------------------

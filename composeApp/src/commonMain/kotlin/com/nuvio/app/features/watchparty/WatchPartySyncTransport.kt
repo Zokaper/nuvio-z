@@ -139,6 +139,29 @@ internal object WatchPartySync : PartyRealtimeTransport {
     private val guestStatus = mutableMapOf<String, WatchPartyStatus>()
     /** Each guest's last reported buffer occupancy. See [PartyPeerStatusMessage.starved]. */
     private val guestStarved = mutableMapOf<String, Boolean>()
+
+    /** Each guest's last reported presence. See `PartyPresence.kt`. */
+    private val guestAway = mutableMapOf<String, Boolean>()
+
+    /**
+     * This client's own presence, and it is the only client that can know it.
+     *
+     * Kept here rather than read back off the wire so a member is never briefly shown as watching
+     * because its own report has not come round the loop yet - a guest's away has to travel to the
+     * host and back on the next tick before the roster would carry it.
+     */
+    private var selfAway: Boolean = false
+
+    /**
+     * The host's published roster of away members, as the newest tick carried it. Guests only.
+     *
+     * There is deliberately no second field for "who the party is being held for because they are
+     * away". That is the *intersection* of this and the tick's `hold` list, which every member can
+     * compute from what it already has, and a separately published copy of a derived answer is a
+     * second authority waiting to disagree with the first.
+     */
+    private var tickAway: List<String> = emptyList()
+
     private val guestLastTelemetryAtPartyMs = mutableMapOf<String, Long>()
 
     /**
@@ -375,12 +398,18 @@ internal object WatchPartySync : PartyRealtimeTransport {
         guestRttMs.clear()
         guestStatus.clear()
         guestStarved.clear()
+        guestAway.clear()
         guestLastTelemetryAtPartyMs.clear()
         guestStatusAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
         peerStarved = false
+        // ⚠ Not `selfAway`. The channel going away says nothing about the app's window, and a
+        // reconnect that silently declared this member back is precisely the confusion the brief
+        // rules out: the phone is still in a pocket, and the first thing the reconnected socket
+        // would publish is a lie the host would resume the party on.
+        tickAway = emptyList()
         lastValidatedReceiveAtMs = null
         _state.value = WatchPartySyncState()
     }
@@ -394,12 +423,17 @@ internal object WatchPartySync : PartyRealtimeTransport {
         guestRttMs.clear()
         guestStatus.clear()
         guestStarved.clear()
+        // The other members' presence belonged to the generation it was reported in; this client's
+        // own does not - it is about a window, and a new episode does not put the phone back into a
+        // hand. `selfAway` deliberately survives, and `awayRoster` republishes it immediately.
+        guestAway.clear()
         guestLastTelemetryAtPartyMs.clear()
         guestStatusAtPartyMs.clear()
         outstandingPings.clear()
         commandCounter = 0
         peerStatus = null
         peerStarved = false
+        tickAway = emptyList()
         publishState()
     }
 
@@ -560,6 +594,10 @@ internal object WatchPartySync : PartyRealtimeTransport {
             sourceGeneration = generation.sourceGeneration,
             authorityEpoch = generation.authorityEpoch,
             hold = hold,
+            // Read here rather than passed in: the host's runtime publishes a tick from several
+            // places and the away roster is the same answer from all of them, so asking each caller
+            // to carry it is an invitation for one of them to forget and silently un-away the party.
+            away = hostAwayRoster(),
         )
         tick = next
         _ticks.tryEmit(next)
@@ -629,10 +667,51 @@ internal object WatchPartySync : PartyRealtimeTransport {
     }
 
     /**
+     * This client's own presence, which nothing else can observe.
+     *
+     * Publishes immediately rather than waiting for the next status change: a member pressing Home
+     * produces no engine transition the peer publisher is keyed on - the engine simply stops - and
+     * the host's away hold must not wait a clock-ping interval for a fact the member already knows.
+     *
+     * Returns true when the presence actually changed, so the caller can log the transition once.
+     */
+    fun setLocalPresence(away: Boolean): Boolean {
+        if (selfAway == away) return false
+        selfAway = away
+        val context = authority
+        if (context != null && context.selfProfileId != context.hostProfileId) {
+            // A guest tells the party directly. The host has nobody to tell: its own presence rides
+            // the tick it publishes anyway, and a host that broadcast a peer status would be
+            // writing a message every receiver is built to ignore from the host.
+            peerStatus?.let { publishPeerStatus(it, peerStarved) }
+        }
+        publishState()
+        return true
+    }
+
+    /** Whether this client is away. Read back by the runtime that has to decide what to resume. */
+    fun isLocallyAway(): Boolean = selfAway
+
+    /**
+     * The away roster this host publishes: every guest that has reported being away, plus itself.
+     *
+     * Only meaningful on the host - a guest has no view of the other guests - and the host is where
+     * the tick is built, so this is read exactly once per tick.
+     */
+    private fun hostAwayRoster(): List<String> {
+        val self = authority?.selfProfileId
+        val reported = guestAway.filterValues { it }.keys
+        val all = if (selfAway && self != null) reported + self else reported
+        return all.sorted()
+    }
+
+    /**
      * What this client is doing, for a host deciding whether to wait for it.
      *
      * [starved] travels with [status] rather than being derived from it, because the host cannot
-     * derive it: see [PartyPeerStatusMessage.starved].
+     * derive it: see [PartyPeerStatusMessage.starved]. Presence travels the same way and for the
+     * same reason, but it is held in [selfAway] rather than passed here, because every caller of
+     * this function is reporting an *engine* fact and none of them knows about the app's window.
      */
     fun publishPeerStatus(status: WatchPartyStatus, starved: Boolean = false) {
         val context = authority ?: return
@@ -645,10 +724,14 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // paused reports the same `paused` it did while empty, and that transition is the entire
         // signal the hold ends on.
         if (peerStatus != status || peerStarved != starved) {
-            log.i { "peer publish party=${context.partyId.shortId()} status=$status starved=$starved" }
+            log.i {
+                "peer publish party=${context.partyId.shortId()} status=$status starved=$starved " +
+                    "away=$selfAway"
+            }
         }
         peerStatus = status
         peerStarved = starved
+        val away = selfAway
         scope.launch {
             send(PartyPeerStatusMessage(
                 partyId = context.partyId,
@@ -657,6 +740,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 atPartyMs = partyNowMs(),
                 rttMs = clock.bestRttMs,
                 starved = starved,
+                away = away,
                 contentGeneration = generation.contentGeneration,
                 sourceGeneration = generation.sourceGeneration,
                 authorityEpoch = generation.authorityEpoch,
@@ -840,6 +924,16 @@ internal object WatchPartySync : PartyRealtimeTransport {
         }
         if (!next.supersedes(held)) return
         tick = next
+        // The host is the only client that hears from every member, so its roster is the only
+        // complete one. A guest's own presence is added back in `awayRoster`, because this roster
+        // was built before that guest's own report could have reached the host.
+        if (tickAway != next.away) {
+            log.i {
+                "away roster party=${context.partyId.shortId()} " +
+                    "away=[${next.away.joinToString { it.shortId() }}]"
+            }
+            tickAway = next.away
+        }
         _ticks.tryEmit(next)
         publishState()
     }
@@ -897,14 +991,19 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // `paused starved=false` are the two sides of the hold this file gets wrong when they are
         // conflated, so a log that cannot tell them apart cannot be used to diagnose it.
         val starvedBefore = guestStarved.put(message.fromProfileId, message.starved)
+        // Presence is part of the transition for the same reason `starved` is: an away member and a
+        // member who pressed pause send the identical `paused`, and the away hold is decided on the
+        // difference. A log that cannot show the transition cannot be used to diagnose the hold.
+        val awayBefore = guestAway.put(message.fromProfileId, message.away)
         if (
             guestStatus.put(message.fromProfileId, message.status) != message.status ||
             starvedBefore != message.starved ||
+            awayBefore != message.away ||
             before != after
         ) {
             log.i {
                 "peer status from=${message.fromProfileId.shortId()} status=${message.status} " +
-                    "starved=${message.starved} " +
+                    "starved=${message.starved} away=${message.away} " +
                     "rttMs=${message.rttMs} transitMs=${partyNowMs() - message.atPartyMs} " +
                     "holding=[${after.joinToString { it.shortId() }}]"
             }
@@ -969,9 +1068,29 @@ internal object WatchPartySync : PartyRealtimeTransport {
                     receivedAtPartyMs = guestLastTelemetryAtPartyMs[profileId] ?: 0L,
                     starved = guestStarved[profileId] ?: false,
                     reportedAtPartyMs = guestStatusAtPartyMs[profileId] ?: 0L,
+                    away = guestAway[profileId] ?: false,
                 )
             },
+            awayProfileIds = awayRoster(),
         )
+    }
+
+    /**
+     * Who this client believes is away, from whichever evidence it actually has.
+     *
+     * The host builds it; a guest is told it. Both of them add their own presence unconditionally,
+     * because a client is authoritative about its own window and the roster it is told was built
+     * before its own report could have reached the host - so a guest that took the roster whole
+     * would flicker back to Watching for one tick every time it went away.
+     */
+    private fun awayRoster(): Set<String> {
+        val self = authority?.selfProfileId
+        val base = if (isHost()) hostAwayRoster().toSet() else tickAway.toSet()
+        return when {
+            self == null -> base
+            selfAway -> base + self
+            else -> base - self
+        }
     }
 
     private fun absDelta(a: Long, b: Long): Long = if (a > b) a - b else b - a

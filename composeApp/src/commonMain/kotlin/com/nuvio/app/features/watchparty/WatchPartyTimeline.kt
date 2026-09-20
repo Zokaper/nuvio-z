@@ -133,6 +133,24 @@ data class PartyTick(
      * wire, and ignored by builds that predate it; the protocol version does not move.
      */
     val hold: List<String> = emptyList(),
+    /**
+     * Every member the host currently believes is away, itself included.
+     *
+     * The host is the aggregator because it is the only client that hears from everybody: a guest
+     * reports its own away on the peer plane, and the host folds those together with its own and
+     * republishes the roster here. Without it a guest could only ever know about members whose
+     * broadcasts it happened to receive, and two guests would disagree about who was in the room.
+     *
+     * Carried beside [hold] rather than inside it on purpose. [hold] is *who the party is waiting
+     * for*, which is a decision; this is *who is not watching*, which is a fact - and a member can
+     * be either without the other. Intersecting the two is what lets a guest say "Waiting for Riyad
+     * to return" instead of "Waiting for Riyad to buffer".
+     *
+     * Peer plane only, optional on the wire, absent from every build before this one and read as
+     * "nobody is away" there - which is exactly the behaviour those builds already have. The
+     * protocol version does not move.
+     */
+    val away: List<String> = emptyList(),
 ) {
     /**
      * Where the party is at [partyNowMs].

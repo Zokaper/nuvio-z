@@ -122,13 +122,19 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
         )
     } else {
         val tickHold = syncState.tickHold.takeIf { !isHost && syncState.tickStatus != WatchPartyStatus.playing }.orEmpty()
-        // The host's own two waits, which are one thing to everybody looking at the screen: a stall
-        // it took, and a seek it is waiting to resume from.
-        val stallHold = if (isHost) {
-            (partyAutoPausedForGuests + partyAwaitingResumeReadiness).distinct()
+        // The host's own waits, which are one thing to everybody looking at the screen: a stall it
+        // took, a seek it is waiting to resume from, and a member who has stepped away.
+        val held = if (isHost) {
+            (partyAutoPausedForGuests + partyAwaitingResumeReadiness + partyAutoPausedForAway).distinct()
         } else {
             tickHold.filter { it != viewerId }
         }
+        // Split by the away roster rather than by a second hold list on the wire. The host
+        // publishes who it is waiting for and, separately, who is away; the intersection is the
+        // only thing that can say which of the two waits this is, and deriving it on both sides
+        // from the same two facts means the host and the guests cannot word it differently.
+        val awayHold = held.filter { it in syncState.awayProfileIds }
+        val stallHold = held.filter { it !in syncState.awayProfileIds }
         val realizationPhase = partyRealizationPhaseFor(realization, party.id)
         // What this client is doing about a source, derived from what it already knows rather than
         // from `loading = true`. Every input here is local state the player holds; none of it is a
@@ -192,6 +198,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                     emptyList()
                 },
                 stallHoldOthers = stallHold.mapNotNull { id -> party.members.firstOrNull { it.profileId == id }?.toStatusPerson() },
+                awayHoldOthers = awayHold.mapNotNull { id -> party.members.firstOrNull { it.profileId == id }?.toStatusPerson() },
                 selfHeld = viewerId != null && viewerId in tickHold,
                 hostBuffering = !isHost && presentation.freshHostStatus == WatchPartyStatus.buffering,
                 timelinePlaying = presentation.freshHostStatus == WatchPartyStatus.playing,

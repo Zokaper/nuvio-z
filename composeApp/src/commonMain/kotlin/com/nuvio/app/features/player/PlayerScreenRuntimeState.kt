@@ -21,7 +21,9 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
+import com.nuvio.app.features.watchparty.PartyLifecycleFacts
 import com.nuvio.app.features.watchparty.PartyPendingResume
+import com.nuvio.app.features.watchparty.PartyPresenceState
 import com.nuvio.app.features.watchparty.PartySourceMatch
 import com.nuvio.app.features.watchparty.PartySourceTimelineDecision
 import com.nuvio.app.features.watchparty.PartyStartupHold
@@ -588,6 +590,54 @@ internal class PlayerScreenRuntime(
      * and the stall guard must not read it as a stall it took.
      */
     var partyAwaitingResumeReadiness by mutableStateOf<List<String>>(emptyList())
+
+    /**
+     * This client's own presence, and the facts it was decided from. See `PartyPresence.kt`.
+     *
+     * Held on the runtime rather than inside a `remember` in the effect because the return path
+     * needs the presence that was in force when the app went away, and a value scoped to one
+     * composition is exactly the thing a backgrounded Android process is least able to promise.
+     */
+    var partyPresence by mutableStateOf(PartyPresenceState())
+
+    /**
+     * How many lifecycle observations have been folded in, so a late one cannot overwrite a newer.
+     *
+     * Monotonic for the life of the player. See [PartyLifecycleFacts.seq]: Android delivers the
+     * callbacks around picture-in-picture in an order that is not guaranteed, and a posted `ON_STOP`
+     * landing after the foreground it was overtaken by would otherwise put an active viewer Away.
+     */
+    var partyLifecycleSeq: Long = 0L
+
+    /**
+     * The party generation this client was following when it went away, null when it is not away.
+     *
+     * The whole of the source-preservation rule lives on this comparison: unchanged on return means
+     * the open stream is still the party's stream and nothing may be re-resolved. See
+     * [partyReturnAction].
+     */
+    var partyAwayAtGenerationKey: String? = null
+
+    /**
+     * The play intent the party had for this client at the moment it went away.
+     *
+     * Away pauses the engine, so by the time the member comes back every local signal says "paused"
+     * and only this still knows whether the party was running. The same argument
+     * [partyStartReleaseResumes] makes about the start barrier, for the same reason.
+     */
+    var partyAwayIntentPlaying: Boolean = false
+
+    /**
+     * Whether this client is catching up after being away, and must not play at its stale position.
+     *
+     * Read by the peer publisher as well as by the transport: a member seeking minutes forward is
+     * doing what the party asked, exactly like a barrier park, so it must not be reported to the
+     * host as a stall.
+     */
+    var partyAwayReturning by mutableStateOf(false)
+
+    /** The away members this host paused the party for, empty when it did not. */
+    var partyAutoPausedForAway by mutableStateOf<List<String>>(emptyList())
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
     var lastResetPlaybackIdentity: String? = null

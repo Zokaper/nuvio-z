@@ -166,6 +166,17 @@ data class PartyPeerStatusMessage(
      * build that does not send it, which is exactly the behaviour those builds already have.
      */
     val starved: Boolean = false,
+    /**
+     * This member is in the party and deliberately not watching. See `PartyPresence.kt`.
+     *
+     * Orthogonal to [status] and to [starved], and it has to be sent rather than inferred for the
+     * same reason [starved] does: a backgrounded member reports `paused` with a full buffer, which
+     * is byte-for-byte what a person pressing pause reports. The host read one as the other and
+     * held the party for a stall that was somebody pressing Home.
+     *
+     * False from a build that does not send it, which is what those builds mean.
+     */
+    val away: Boolean = false,
     override val contentGeneration: Int = 0,
     override val sourceGeneration: Int = 0,
     override val authorityEpoch: Long = 0L,
@@ -193,6 +204,11 @@ fun encodePartySyncMessage(message: PartySyncMessage): JsonObject = buildJsonObj
             // Only while a hold is on, so an ordinary tick is byte-for-byte what older builds send.
             if (message.tick.hold.isNotEmpty()) {
                 put("hold", JsonArray(message.tick.hold.map(::JsonPrimitive)))
+            }
+            // Same rule: absent unless somebody is away, so an ordinary tick is unchanged on the
+            // wire and an older receiver decodes exactly what it always did.
+            if (message.tick.away.isNotEmpty()) {
+                put("away", JsonArray(message.tick.away.map(::JsonPrimitive)))
             }
         }
         is PartyCommandMessage -> {
@@ -228,6 +244,7 @@ fun encodePartySyncMessage(message: PartySyncMessage): JsonObject = buildJsonObj
             put("at", message.atPartyMs)
             put("rtt", message.rttMs)
             put("st", message.starved)
+            put("aw", message.away)
         }
     }
 }
@@ -268,6 +285,12 @@ fun decodePartySyncMessage(payload: JsonObject): PartySyncMessage? {
                 // Absent from older builds and from every tick outside a hold. A malformed value is
                 // treated as no hold rather than dropping the tick: the position is still good.
                 hold = (payload["hold"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                    .orEmpty(),
+                // Absent from older builds and from every tick with nobody away. Malformed is read
+                // as nobody away rather than dropping the tick, exactly as `hold` is: the position
+                // in this tick is still the best one anybody has.
+                away = (payload["away"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
                     .orEmpty(),
                 sourceGeneration = sourceGeneration,
@@ -322,6 +345,10 @@ fun decodePartySyncMessage(payload: JsonObject): PartySyncMessage? {
             // Absent from every build before 2026-09-19, and false is what those builds mean:
             // "no starvation fact available", which is how the host read a bare `paused` then.
             starved = bool("st") ?: false,
+            // Absent from every build before Away existed, and false is what those builds mean:
+            // a member that cannot report being away is a member that is watching as far as any
+            // decision here is concerned.
+            away = bool("aw") ?: false,
             contentGeneration = contentGeneration,
             sourceGeneration = sourceGeneration,
             authorityEpoch = authorityEpoch,

@@ -17,7 +17,16 @@ enum class PartyReadyTone {
     Buffering,
     Reconnecting,
     Failed,
-    Offline;
+    Offline,
+
+    /**
+     * In the party, deliberately not watching. See `PartyPresence.kt`.
+     *
+     * Its own tone rather than [Paused] or [Working]: the brief's whole point is that these five
+     * are not interchangeable, and a member who has stepped away is the one case where the right
+     * answer for everybody else is "carry on" rather than "wait a moment".
+     */
+    Away;
 
     val wireName: String
         get() = when (this) {
@@ -28,6 +37,7 @@ enum class PartyReadyTone {
             Reconnecting -> "reconnecting"
             Failed -> "failed"
             Offline -> "offline"
+            Away -> "away"
         }
 }
 
@@ -43,6 +53,8 @@ fun WatchPartyParticipant.derivedStatus(
     livePlaybackStatus: WatchPartyStatus? = null,
     isSelfResyncing: Boolean = false,
     partySourceGeneration: Int = sourceGeneration,
+    /** This member has reported itself away. See `PartyPresence.kt`. */
+    isAway: Boolean = false,
 ): DerivedMemberStatus {
     // ⚠ Readiness is durable and generation-stamped; live telemetry is not. A member carrying
     // `fetching` from a generation the party has already moved past is not fetching anything - the
@@ -72,6 +84,20 @@ fun WatchPartyParticipant.derivedStatus(
     }
     if (clientLocation == WatchPartyClientLocation.reconnecting) {
         return DerivedMemberStatus("Reconnecting", PartyReadyTone.Reconnecting)
+    }
+    // ⚠ **Below the transport rows and above everything else, and both halves are deliberate.**
+    //
+    // Below, because a member who backgrounded the app and then lost the network is not "away" in
+    // any sense this client can vouch for - nothing it shows about them is current, and Away
+    // implies a liveness the socket is not providing. `partyMemberActivity` states the same
+    // precedence for the surfaces that do not come through here.
+    //
+    // Above, because every row underneath describes an engine, and an away member's engine is
+    // stopped *because they are not there*. Painting that as "Paused" is how the stall guard read
+    // somebody pressing Home as a stream that had died: the label and the decision were reading the
+    // same ambiguous fact, so making the label honest is half of the fix.
+    if (isAway) {
+        return DerivedMemberStatus("Away", PartyReadyTone.Away)
     }
     if (isSelfResyncing) {
         return DerivedMemberStatus("Resynchronizing", PartyReadyTone.Working)
@@ -234,6 +260,13 @@ data class PartyMemberPresentation(
     val label: String,
     val tone: PartyReadyTone,
     val connected: Boolean,
+    /**
+     * Carried beside [tone] so a caller can ask the question without matching on a label string.
+     *
+     * The away hold's wording needs the names of exactly the away members, and deriving that from
+     * `label == "Away"` is the kind of thing that survives until somebody rewords the label.
+     */
+    val away: Boolean = false,
 )
 
 data class PartyPresentationState(
@@ -286,6 +319,7 @@ object PartyPresentationProjector {
             val derived = member.derivedStatus(
                 livePlaybackStatus = liveStatus,
                 isSelfResyncing = member.profileId == selfProfileId && selfResyncing,
+                isAway = member.profileId in realtime.awayProfileIds,
                 // The party's own generation is the only thing that can tell a member still
                 // resolving the *current* content from one whose readiness row is simply behind.
                 partySourceGeneration = party?.sourceGeneration ?: member.sourceGeneration,
@@ -295,6 +329,7 @@ object PartyPresentationProjector {
                 label = derived.label,
                 tone = derived.tone,
                 connected = member.connected && derived.tone != PartyReadyTone.Offline,
+                away = derived.tone == PartyReadyTone.Away,
             )
         }
         return PartyPresentationState(

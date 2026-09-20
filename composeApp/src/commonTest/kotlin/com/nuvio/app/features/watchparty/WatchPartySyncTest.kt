@@ -884,10 +884,75 @@ class WatchPartySyncProtocolTest {
             PartyClockPingMessage("party", "guest", exchangeId = "x1", sentAtMs = 10),
             PartyClockPongMessage("party", "host", toProfileId = "guest", exchangeId = "x1", sentAtMs = 10, hostAtMs = 4_010),
             PartyPeerStatusMessage("party", "guest", WatchPartyStatus.buffering, atPartyMs = 500, rttMs = 42),
+            // Away, which reports `paused` with a full buffer - byte-for-byte what a person
+            // pressing pause reports - so the flag is the only thing carrying the difference.
+            PartyPeerStatusMessage(
+                "party",
+                "guest",
+                WatchPartyStatus.paused,
+                atPartyMs = 600,
+                rttMs = 42,
+                away = true,
+            ),
+            // The host's roster of who is away, which is how a guest learns about the other guests.
+            PartyTickMessage(
+                "host",
+                tick(positionMs = 1_234, capturedAtPartyMs = 99_000).copy(
+                    hold = listOf("ana"),
+                    away = listOf("ana", "ben"),
+                ),
+            ),
         )
         messages.forEach { message ->
             assertEquals(message, decodePartySyncMessage(encodePartySyncMessage(message)))
         }
+    }
+
+    /**
+     * A build that predates Away reads exactly what it always did, and this build reads its silence
+     * as "nobody is away" - which is that build's actual behaviour rather than a guess about it.
+     *
+     * The protocol version deliberately does not move for either field: both are optional and both
+     * are absent from the wire unless they say something, so an ordinary tick between an old client
+     * and a new one is unchanged in both directions. Bumping the version would instead make every
+     * message from the newer build undecodable by the older one, which is the opposite of what an
+     * additive field is for.
+     */
+    @Test fun awayIsAbsentFromTheWireUntilSomebodyIsAway() {
+        val ordinaryTick = encodePartySyncMessage(PartyTickMessage("host", tick(0, 0)))
+        assertNull(ordinaryTick["away"])
+        val ordinaryPeer = encodePartySyncMessage(
+            PartyPeerStatusMessage("party", "guest", WatchPartyStatus.playing, atPartyMs = 1),
+        )
+        // The peer status always carries it, like `st`: it is one boolean on a message that is sent
+        // only on a change, not a list on a message that goes out twice a second.
+        assertEquals(false, ordinaryPeer["aw"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content.toBoolean() })
+
+        val olderTick = kotlinx.serialization.json.buildJsonObject {
+            ordinaryTick.forEach { (key, value) -> if (key != "away") put(key, value) }
+        }
+        val decodedTick = decodePartySyncMessage(olderTick) as PartyTickMessage
+        assertEquals(emptyList(), decodedTick.tick.away)
+
+        val olderPeer = kotlinx.serialization.json.buildJsonObject {
+            ordinaryPeer.forEach { (key, value) -> if (key != "aw") put(key, value) }
+        }
+        val decodedPeer = decodePartySyncMessage(olderPeer) as PartyPeerStatusMessage
+        assertEquals(false, decodedPeer.away)
+    }
+
+    /** A malformed roster costs the tick its roster, never the position everything else needs. */
+    @Test fun aMalformedAwayRosterDoesNotDropTheTick() {
+        val encoded = encodePartySyncMessage(
+            PartyTickMessage("host", tick(positionMs = 4_000, capturedAtPartyMs = 9_000)),
+        )
+        val broken = kotlinx.serialization.json.buildJsonObject {
+            encoded.forEach { (key, value) -> put(key, value) }
+            put("away", kotlinx.serialization.json.JsonPrimitive("ana"))
+        }
+        val decoded = decodePartySyncMessage(broken) as PartyTickMessage
+        assertEquals(4_000L, decoded.tick.positionMs)
+        assertEquals(emptyList(), decoded.tick.away)
     }
 
     /**

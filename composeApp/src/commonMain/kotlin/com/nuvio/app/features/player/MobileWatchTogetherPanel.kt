@@ -288,6 +288,12 @@ private fun ActiveParty(state: WatchTogetherBridgeState, onEvent: (String, Doubl
         PartyToggle("Pause when someone buffers", state.pauseWhenBuffers) {
             onEvent("wtSetWaitForEveryone", if (it) 1.0 else 0.0)
         }
+        // Its own row, right under the one it is most likely to be confused with, so the
+        // difference between "their stream stopped" and "they are not here" is readable on the
+        // screen rather than only in the code.
+        PartyToggle("Pause for away users", state.pauseForAway) {
+            onEvent("wtSetPauseForAway", if (it) 1.0 else 0.0)
+        }
 
         if (state.inviteTargets.isNotEmpty()) {
             SectionLabel("Invite friends")

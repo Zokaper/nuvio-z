@@ -57,6 +57,20 @@ data class WatchPartyUiState(
      */
     val waitForEveryone: Boolean = true,
     /**
+     * Whether the host holds the party while a member is **away**.
+     *
+     * A separate answer from [waitForEveryone], and it has to be. That one is about a stream that
+     * cannot keep up; this one is about a person who is not in the room. Wanting to wait out a bad
+     * connection says nothing about wanting the film to stop because somebody answered a message,
+     * and a single switch would force the host to accept both to get either.
+     *
+     * Defaults **off**, which is the least disruptive of the two behaviours: the party plays on and
+     * whoever comes back catches up through the timeline they were already following. Host-side and
+     * this session only, exactly like [waitForEveryone] - see `partyAwayHoldMembers` for the one
+     * case this switch does not govern, which is the host's own absence.
+     */
+    val pauseForAwayUsers: Boolean = false,
+    /**
      * The source the host has chosen but has not started the party on yet.
      *
      * Choosing and starting are two separate decisions, and the host makes them on two separate
@@ -311,6 +325,12 @@ object WatchPartyRepository {
         if (_uiState.value.waitForEveryone == enabled) return
         log.i { "waitForEveryone=$enabled party=${_uiState.value.party?.id.shortId()}" }
         _uiState.value = _uiState.value.copy(waitForEveryone = enabled)
+    }
+
+    fun setPauseForAwayUsers(enabled: Boolean) {
+        if (_uiState.value.pauseForAwayUsers == enabled) return
+        log.i { "pauseForAwayUsers=$enabled party=${_uiState.value.party?.id.shortId()}" }
+        _uiState.value = _uiState.value.copy(pauseForAwayUsers = enabled)
     }
 
     suspend fun create(

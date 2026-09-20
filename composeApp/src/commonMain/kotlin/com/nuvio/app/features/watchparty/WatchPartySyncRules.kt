@@ -62,6 +62,15 @@ data class WatchPartySyncState(
     val tickHold: List<String> = emptyList(),
     val holdingProfiles: List<String> = emptyList(),
     val peerTelemetry: Map<String, PartyPeerTelemetry> = emptyMap(),
+    /**
+     * Every member this client believes is away right now, the local viewer included.
+     *
+     * On the host it is built from the guests' peer reports plus its own presence, and it is what
+     * the host publishes on its tick. On a guest it is the host's roster from that tick, plus the
+     * guest's own presence - which is authoritative about itself and arrives a round trip before
+     * the host could echo it back.
+     */
+    val awayProfileIds: Set<String> = emptySet(),
 )
 
 data class PartyPeerTelemetry(
@@ -81,6 +90,14 @@ data class PartyPeerTelemetry(
      * before it.
      */
     val reportedAtPartyMs: Long = 0L,
+    /**
+     * This member is in the party and deliberately not watching. See `PartyPresence.kt`.
+     *
+     * Beside [starved] for the same reason [starved] is beside [status]: a backgrounded member and
+     * a member who pressed pause both report `paused`, and the party has to be able to tell a
+     * person who has stepped away from a person who is sitting there watching a still frame.
+     */
+    val away: Boolean = false,
 )
 
 /**
