@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -164,6 +165,7 @@ import com.kmpalette.rememberDominantColorState
 import com.kmpalette.extensions.painter.rememberPainterDominantColorState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.watch_party_title
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
@@ -1138,15 +1140,6 @@ fun MetaDetailsScreen(
                                 )
                             }
 
-                            if (onWatchTogether != null) {
-                                item(key = "z-watch-together-entry") {
-                                    Button(
-                                        onClick = { onWatchTogether(watchPartyContent) },
-                                        modifier = Modifier.padding(horizontal = contentHorizontalPadding, vertical = 8.dp),
-                                    ) { Text("Watch Together") }
-                                }
-                            }
-
                             configuredMetaSectionItems(
                                 settings = metaScreenSettingsUiState,
                                 meta = meta,
@@ -1161,6 +1154,7 @@ fun MetaDetailsScreen(
                                 onSaveClick = toggleSaved,
                                 onSaveLongClick = openLibraryListPicker,
                                 onWatchedClick = toggleWatched,
+                                onWatchTogetherClick = onWatchTogether?.let { open -> { open(watchPartyContent) } },
                                 onDownloadClick = {
                                     presetDownloadScope = if (meta.type.lowercase() in setOf("series", "show", "tv", "tvshow") || hasEpisodes) {
                                         DownloadScope.SelectedSeasons(emptySet())
@@ -1984,6 +1978,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onWatchedClick: () -> Unit,
+    onWatchTogetherClick: (() -> Unit)?,
     onDownloadClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
@@ -2071,6 +2066,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     onSaveClick = onSaveClick,
                     onSaveLongClick = onSaveLongClick,
                     onWatchedClick = onWatchedClick,
+                    onWatchTogetherClick = onWatchTogetherClick,
                     onDownloadClick = onDownloadClick,
                     showManualPlayOption = showManualPlayOption,
                     preferredEpisodeSeasonNumber = preferredEpisodeSeasonNumber,
@@ -2232,6 +2228,7 @@ private fun ConfiguredMetaSections(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onWatchedClick: () -> Unit,
+    onWatchTogetherClick: (() -> Unit)?,
     onDownloadClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
@@ -2363,6 +2360,13 @@ private fun ConfiguredMetaSections(
                             onClick = onSaveClick,
                             onLongClick = onSaveLongClick,
                         ))
+                        onWatchTogetherClick?.let { action ->
+                            add(DetailSecondaryAction(
+                                label = stringResource(Res.string.watch_party_title),
+                                icon = Icons.Rounded.People,
+                                onClick = action,
+                            ))
+                        }
                     },
                     isTablet = isTablet,
                     onPlayClick = onPrimaryPlayClick,

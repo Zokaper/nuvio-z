@@ -3,6 +3,15 @@
 
 Last updated: 2026-09-21
 
+## Details: Watch Together folded into the three-dot menu (2026-09-21)
+
+The phone details screen still carried the old standalone "Watch Together" button above the
+actions row. It is now the last entry of the play button's three-dot menu (People icon,
+`watch_party_title`), matching `DesktopDetailHero`. Plumbed as `onWatchTogetherClick` through
+`configuredMetaSectionItems` -> `ConfiguredMetaSections`; hidden when `onWatchTogether` is null.
+Mobile only; desktop's `MetaDetailsScreen` was not touched. Built and installed on the S25
+(`0.4.13-z1.40`); the maintainer checks it on device.
+
 ## Mobile UI pass, stages 5-10: phone lobby and phone Social, render-verified (2026-09-21)
 
 Stages 5-8 of `../HANDOFF-mobile-ui-responsive-pass.md` landed. **Presentation only** - no change
