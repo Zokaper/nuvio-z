@@ -3,11 +3,15 @@ package com.nuvio.app.core.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
@@ -22,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,6 +56,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import kotlin.math.ceil
 
 /**
  * How much vertical room the floating navigation bar actually occupies, reported by the bar.
@@ -83,17 +89,22 @@ class NuvioNavBarHeightState {
      *    content shifts under the finger that is dragging it. A slightly generous but *fixed*
      *    reserve is what "content must not disappear behind the bar" actually asks for.
      *
-     * It resets when the bar's width changes, so a rotation or a window resize re-measures rather
-     * than keeping a maximum that belonged to a different layout.
+     * It resets when the bar's *layout* changes - its width, or whether its labels were demoted - so
+     * a rotation, a window resize or a demote re-measures rather than keeping a maximum that
+     * belonged to a different layout. The demote matters: the first frame at any width is drawn
+     * with labels, so without it a bar that had just dropped its labels at 320dp kept reserving the
+     * labelled height for as long as it lived there.
      */
     var overlayHeight: Dp by mutableStateOf(NuvioNavBarOverlayHeightFallback)
         private set
 
     private var measuredAtWidth: Dp = Dp.Unspecified
+    private var measuredDemoted: Boolean = false
 
-    internal fun report(height: Dp, barWidth: Dp) {
-        if (barWidth != measuredAtWidth) {
+    internal fun report(height: Dp, barWidth: Dp, labelsDemoted: Boolean) {
+        if (barWidth != measuredAtWidth || labelsDemoted != measuredDemoted) {
             measuredAtWidth = barWidth
+            measuredDemoted = labelsDemoted
             overlayHeight = height
         } else if (height > overlayHeight) {
             overlayHeight = height
@@ -221,6 +232,18 @@ fun NuvioNavigationBar(
     val bottomSafePadding = navigationBarInsets.asPaddingValues().calculateBottomPadding()
     val density = LocalDensity.current
 
+    // The width at which a label last failed to fit, or null. Held out here rather than inside the
+    // `BoxWithConstraints` so the size report below can say which layout it measured; compared
+    // against `maxWidth` inside, so a rotation or resize asks the question again.
+    var labelsDemotedAtWidth by remember { mutableStateOf<Dp?>(null) }
+
+    // Whether the layout being *measured* was composed demoted - not whether a demote has been
+    // requested. The request is made from `onTextLayout`, i.e. in the middle of measuring the
+    // labelled layout, so reporting the live flag would file that labelled height under the demoted
+    // key and the reserve could never come back down. Read only from the size report below, so
+    // writing it never recomposes anything.
+    val measuredLayoutDemoted = remember { mutableStateOf(false) }
+
     // Outer container - no background, just safe padding.
     //
     // `BoxWithConstraints` because the pill's horizontal padding and its labels both depend on how
@@ -235,6 +258,7 @@ fun NuvioNavigationBar(
                     heightState?.report(
                         height = size.height.toDp() - bottomSafePadding,
                         barWidth = size.width.toDp(),
+                        labelsDemoted = measuredLayoutDemoted.value,
                     )
                 }
             }
@@ -249,10 +273,12 @@ fun NuvioNavigationBar(
         // a height, so it overflowed its cell and was then cut by the neighbouring item's clip -
         // which is how the bar came to read ")ownload" on a real phone.
         //
-        // Keyed on `maxWidth` so rotating or resizing re-asks the question; without that key a bar
+        // Compared with `maxWidth` so rotating or resizing re-asks the question; otherwise a bar
         // that demoted once at 320dp would stay iconic forever. There is no oscillation, because a
         // demoted bar draws no labels and therefore reports no further overflow.
-        var labelsDoNotFit by remember(maxWidth) { mutableStateOf(false) }
+        val barWidth = maxWidth
+        val labelsDoNotFit = labelsDemotedAtWidth == barWidth
+        SideEffect { measuredLayoutDemoted.value = labelsDoNotFit }
         val effectiveLabelFraction = if (labelsDoNotFit) 0f else labelFraction
 
         // Dynamic horizontal padding: the pill shrinks when labels are hidden, on the same fraction.
@@ -311,7 +337,7 @@ fun NuvioNavigationBar(
                 NuvioNavigationBarScopeImpl(
                     rowScope = this,
                     labelFraction = effectiveLabelFraction,
-                    onLabelDidNotFit = { labelsDoNotFit = true },
+                    onLabelDidNotFit = { labelsDemotedAtWidth = barWidth },
                 ).content()
             }
         }
@@ -378,19 +404,11 @@ private class NuvioNavigationBarScopeImpl(
         )
 
         with(rowScope) {
-            Column(
-                modifier = modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(NuvioTokens.Radius.full))
-                    .background(selectedBgColor)
-                    .selectable(
-                        selected = selected,
-                        enabled = true,
-                        role = Role.Tab,
-                        onClick = onClick,
-                    )
-                    .padding(vertical = NuvioTokens.Space.s6),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            NavItemCell(
+                selected = selected,
+                selectedBackground = selectedBgColor,
+                onClick = onClick,
+                modifier = modifier.weight(1f),
             ) {
                 Icon(
                     modifier = Modifier
@@ -433,19 +451,11 @@ private class NuvioNavigationBarScopeImpl(
         )
 
         with(rowScope) {
-            Column(
-                modifier = modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(NuvioTokens.Radius.full))
-                    .background(selectedBgColor)
-                    .selectable(
-                        selected = selected,
-                        enabled = true,
-                        role = Role.Tab,
-                        onClick = onClick,
-                    )
-                    .padding(vertical = NuvioTokens.Space.s6),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            NavItemCell(
+                selected = selected,
+                selectedBackground = selectedBgColor,
+                onClick = onClick,
+                modifier = modifier.weight(1f),
             ) {
                 Icon(
                     modifier = Modifier
@@ -486,19 +496,11 @@ private class NuvioNavigationBarScopeImpl(
         )
 
         with(rowScope) {
-            Column(
-                modifier = modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(NuvioTokens.Radius.full))
-                    .background(selectedBgColor)
-                    .selectable(
-                        selected = selected,
-                        enabled = true,
-                        role = Role.Tab,
-                        onClick = onClick,
-                    )
-                    .padding(vertical = NuvioTokens.Space.s6),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            NavItemCell(
+                selected = selected,
+                selectedBackground = selectedBgColor,
+                onClick = onClick,
+                modifier = modifier.weight(1f),
             ) {
                 content()
                 NavItemLabel(
@@ -510,6 +512,56 @@ private class NuvioNavigationBarScopeImpl(
                 )
             }
         }
+    }
+}
+
+/**
+ * One cell of the floating bar: the selected highlight and the press ripple behind, the icon and
+ * label in front.
+ *
+ * WARN **The highlight is clipped; the content is not.** The cell used to be one `Column` with
+ * `clip(Radius.full)` on it. A cell is about 58 x 62dp, so a full radius makes it nearly a circle,
+ * and the label sits at its bottom - exactly where that curve bites deepest. A label that fitted the
+ * cell's *width* was still cut on both ends by its *shape*: at 411dp the bar read "ownloa" inside a
+ * perfectly adequate cell. Same geometry as the pill's own corners, one level down.
+ *
+ * `selectable` stays on the outer box, so the whole cell is the touch target and its semantics
+ * still merge the label into one selectable tab; the ripple is drawn by the clipped layer through a
+ * shared interaction source, so it keeps the rounded shape.
+ */
+@Composable
+private fun NavItemCell(
+    selected: Boolean,
+    selectedBackground: Color,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier.selectable(
+            selected = selected,
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = true,
+            role = Role.Tab,
+            onClick = onClick,
+        ),
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(NuvioTokens.Radius.full))
+                .background(selectedBackground)
+                .indication(interactionSource, LocalIndication.current),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = NuvioTokens.Space.s6),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content,
+        )
     }
 }
 
@@ -548,8 +600,8 @@ private fun NavItemLabel(
             softWrap = false,
             textAlign = TextAlign.Center,
             overflow = TextOverflow.Ellipsis,
-            // WARN **The detector is `isLineEllipsized`, and the two obvious alternatives are
-            // both wrong.**
+            // WARN **The detector compares the label's natural width with its cell, and every
+            // flag on the layout result has been wrong.**
             //
             // `hasVisualOverflow` is also true when the text overflows *vertically*, and this
             // label deliberately sits in a box `Space.s14` tall - shorter than the line height it
@@ -557,13 +609,21 @@ private fun NavItemLabel(
             // icons on an 891dp landscape phone with room to spare.
             //
             // `didOverflowWidth` is the opposite failure: once `Ellipsis` has shortened the text it
-            // *does* fit the constraint, so the flag is false and the demote never fires at all. A
-            // 320dp bar sat there reading "Downl.." and "Settin.." while the code that was supposed
-            // to prevent that was dead.
+            // *does* fit the constraint, so the flag is false and the demote never fires at all.
             //
-            // A line that had to be ellipsized is the actual question being asked.
+            // `isLineEllipsized(0)` looked like the actual question, and on the desktop renderer
+            // it never answered: rendered, a 320dp bar still read "Downl.." and "Settin..".
+            //
+            // The intrinsics are computed before any ellipsis or wrap and are the same on every
+            // platform, so this asks the question itself: is one line of this label wider than
+            // the width it was given?
             onTextLayout = { result ->
-                if (result.lineCount > 0 && result.isLineEllipsized(0)) onDidNotFit()
+                val available = result.layoutInput.constraints
+                if (available.hasBoundedWidth &&
+                    ceil(result.multiParagraph.intrinsics.maxIntrinsicWidth) > available.maxWidth
+                ) {
+                    onDidNotFit()
+                }
             },
         )
     }
