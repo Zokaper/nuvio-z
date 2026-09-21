@@ -12,6 +12,12 @@ actions row. It is now the last entry of the play button's three-dot menu (Peopl
 Mobile only; desktop's `MetaDetailsScreen` was not touched. Built and installed on the S25
 (`0.4.13-z1.40`); the maintainer checks it on device.
 
+Follow-up: with four actions the expanded row squeezed Play to "Re..." on a portrait phone.
+`DetailActionButtons` (upstream-owned) now keeps Play at >= 128dp; when the full-size row does
+not fit, the circles shrink (floor 40dp) and gaps drop to 8dp, interpolated with the menu's
+open progress so the collapsed row is unchanged. Rows that already fit (tablet, desktop, wide
+landscape) are untouched.
+
 ## Mobile UI pass, stages 5-10: phone lobby and phone Social, render-verified (2026-09-21)
 
 Stages 5-8 of `../HANDOFF-mobile-ui-responsive-pass.md` landed. **Presentation only** - no change
