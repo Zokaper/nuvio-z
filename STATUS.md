@@ -8,8 +8,11 @@ Last updated: 2026-09-21
 The `0.4.13-z1.37` / `z6.58` device run passed on almost everything Away was written for - ordinary
 background and return, PiP without a flap, the away hold, a host going away, Play anyway, and the
 source surviving a backgrounding. Two things failed; chasing the first one turned up a third
-that nobody had reported. **Nothing is published; both repos hold the fix on their working
-branches and the phone has not seen it.**
+that nobody had reported. **Cut for hardware as Android `0.4.13-z1.38` (`debug-v0.4.13-z1.38`,
+versionCode 125038) against desktop `z6.59` (`debug-v0.1.23-alpha-z6.59`, MSI ProductVersion
+1.45.59) - debug channel only, prereleases, the stable updater and the release line untouched.
+Nothing in the fixes moved to cut these builds; the only change is the debug counter. None of the
+three defects has been re-tested on a device yet.**
 
 ### 1. Screen-lock return got stuck Away, and `USER_PRESENT` was being second-guessed
 
@@ -98,7 +101,8 @@ failures**, plus `:androidApp:compileFullDebugKotlin`. Desktop: 8/8 pure groups,
 `:composeApp:desktopTest` **2397 tests, 0 failures**. All shared Watch Together and player files are
 byte-identical across the two repos (`diff --strip-trailing-cr`).
 
-**Still needs hardware, and nothing here has had any.**
+**Still needs hardware, and nothing here has had any.** The list below is what
+`z1.38`/`z6.59` were cut to answer.
 
 - Lock and unlock with the party live, on the S25: `presence Away -> Watching reason=foreground`
   must appear, and the peer publish after it must say `away=false`. This is the one that was
