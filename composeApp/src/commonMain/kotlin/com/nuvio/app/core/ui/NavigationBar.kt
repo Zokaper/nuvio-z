@@ -617,9 +617,16 @@ private fun NavItemLabel(
             // The intrinsics are computed before any ellipsis or wrap and are the same on every
             // platform, so this asks the question itself: is one line of this label wider than
             // the width it was given?
+            //
+            // WARN **Only asked of the fully expanded bar.** While the labels fade, the pill's
+            // horizontal padding animates from its expanded to its collapsed width, so the cells
+            // narrow under labels that are still drawn. Asked mid-animation, "Download" fails at
+            // 411dp and the demote latches at a width the bar never leaves - on a phone, one
+            // scroll-collapse removed the labels for the life of the process.
             onTextLayout = { result ->
                 val available = result.layoutInput.constraints
-                if (available.hasBoundedWidth &&
+                if (labelFraction >= 1f &&
+                    available.hasBoundedWidth &&
                     ceil(result.multiParagraph.intrinsics.maxIntrinsicWidth) > available.maxWidth
                 ) {
                     onDidNotFit()
