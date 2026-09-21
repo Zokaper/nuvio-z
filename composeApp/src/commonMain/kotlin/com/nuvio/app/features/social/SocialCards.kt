@@ -83,6 +83,9 @@ internal val SocialWatchingNowCardHeight = 132.dp
 internal val SocialWatchingNowArtworkWidth = 116.dp
 internal val SocialWatchingNowArtworkWidthWide = 160.dp
 
+/** The phone card's still: 96 x 54, beside the text rather than above it. */
+internal val SocialWatchingNowArtworkWidthCompact = 96.dp
+
 /** Below this card width the artwork drops above the text instead of beside it (§2). */
 internal val SocialWatchingNowStackedBelow = 340.dp
 
@@ -192,7 +195,18 @@ internal fun SocialWatchingNowCard(
      * `BoxWithConstraints` cannot answer.
      */
     stacked: Boolean = false,
+    /**
+     * Phone density: one row - still, two lines of text, the action on the second line's right.
+     * ~84dp for one friend where the stacked card was ~150dp. [SocialFeedMetrics.phone] decides it.
+     */
+    compact: Boolean = false,
 ) {
+    if (compact) {
+        SocialCardSurface(onClick = onOpen, modifier = modifier) {
+            CompactWatchingNowBody(item, affordance, artworkWidth, onJoin, onCancelRequest)
+        }
+        return
+    }
     SocialCardSurface(
         onClick = onOpen,
         modifier = modifier.heightIn(min = SocialWatchingNowCardHeight),
@@ -270,11 +284,7 @@ private fun ColumnScope.WatchingNowText(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                when {
-                    item.partyId == null || (item.partyMemberCount ?: 0) < 2 -> if (playing) "Playing" else "Paused"
-                    playing -> "Watch party"
-                    else -> "Party paused"
-                },
+                watchingNowStateLabel(item),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -304,6 +314,96 @@ private fun ColumnScope.WatchingNowText(
         Spacer(Modifier.weight(1f).heightIn(min = 6.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
             WatchingNowJoinButton(affordance, onJoin, onCancelRequest)
+        }
+    }
+}
+
+/** "Playing", "Paused", "Watch party", "Party paused". */
+internal fun watchingNowStateLabel(item: WatchingNowItem): String {
+    val playing = item.state == SocialPlaybackState.playing
+    return when {
+        item.partyId == null || (item.partyMemberCount ?: 0) < 2 -> if (playing) "Playing" else "Paused"
+        playing -> "Watch party"
+        else -> "Party paused"
+    }
+}
+
+/**
+ * [SocialWatchingNowCard]'s phone form. The same facts in the same order - who, what, can I join -
+ * with the still beside them and the join action sharing the episode line, so a card is two lines
+ * of text tall rather than a still plus four lines.
+ */
+@Composable
+private fun CompactWatchingNowBody(
+    item: WatchingNowItem,
+    affordance: WatchingNowJoinAffordance,
+    artworkWidth: Dp,
+    onJoin: () -> Unit,
+    onCancelRequest: () -> Unit,
+) {
+    val playing = item.state == SocialPlaybackState.playing
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        SocialCardArtwork(
+            poster = item.poster,
+            background = item.background,
+            episodeThumbnail = item.episodeThumbnail,
+            width = artworkWidth,
+            progress = item.progressFraction.takeIf { item.durationMs > 0 },
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box {
+                    SocialAvatar(item.profile.displayName, item.profile.avatarUrl, item.profile.avatarColorHex, 20.dp)
+                    Box(
+                        Modifier.align(Alignment.BottomEnd)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.size(6.dp).clip(CircleShape)
+                                .background(if (playing) SocialLiveColor else SocialPausedColor),
+                        )
+                    }
+                }
+                Text(
+                    watchingNowPeopleLabel(item),
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "· ${watchingNowStateLabel(item)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+            Text(
+                item.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val meta = watchingNowMetadataLine(item.season, item.episode, item.episodeTitle)
+            if (meta.isNotBlank() || affordance != WatchingNowJoinAffordance.None) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        meta,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    WatchingNowJoinButton(affordance, onJoin, onCancelRequest)
+                }
+            }
         }
     }
 }

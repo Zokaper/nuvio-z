@@ -2,6 +2,7 @@ package com.nuvio.app.features.social
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioWindowClass
 
 /**
  * How wide the Social feed is, and what fits across it.
@@ -29,6 +30,9 @@ internal val SocialDashboardMaxWidth = Dp.Infinity
 
 /** The feed's own `contentPadding`, on each side. Part of the arithmetic, so it is named here. */
 internal val SocialFeedHorizontalPadding = 24.dp
+
+/** The same, at phone density: 24dp a side is 12% of a 411dp screen spent on margin. */
+internal val SocialFeedHorizontalPaddingPhone = 16.dp
 
 /** The gap between cards in a grid row, matching `socialGridItems`. */
 internal val SocialGridGap = 10.dp
@@ -66,9 +70,27 @@ internal data class SocialFeedMetrics(
      * hierarchy. Wide art belongs to the multi-column case.
      */
     val watchingNowArtworkWidth: Dp,
+    /**
+     * Phone density: a portrait phone, or any window too short to stack (a landscape phone).
+     *
+     * ⚠ **Decided here, not at the call site.** The screen and the render harness both read it from
+     * this one function, for the same reason the width and the column count live here: the last time
+     * two places each decided a piece of the feed's layout, they disagreed. Density is a function of
+     * the window's shape, not of the nav style or of which screen is asking.
+     */
+    val phone: Boolean = false,
+    /** The feed's `contentPadding` on each side, which [contentWidth] was derived from. */
+    val horizontalPadding: Dp = SocialFeedHorizontalPadding,
+    /** The feed's vertical rhythm between items. */
+    val itemSpacing: Dp = 14.dp,
 ) {
-    /** Below [SocialWatchingNowStackedBelow] the card puts its artwork above the text. */
-    val watchingNowStacked: Boolean get() = watchingNowCardWidth < SocialWatchingNowStackedBelow
+    /**
+     * Below [SocialWatchingNowStackedBelow] the card puts its artwork above the text.
+     *
+     * Never at phone density: the stacked card was the ~150dp full-width still that made one friend
+     * a screen's worth of feed. The phone card is a row with a 96dp still instead.
+     */
+    val watchingNowStacked: Boolean get() = !phone && watchingNowCardWidth < SocialWatchingNowStackedBelow
 }
 
 internal fun socialColumnsFor(contentWidth: Dp, minCardWidth: Dp, maxColumns: Int): Int =
@@ -77,12 +99,19 @@ internal fun socialColumnsFor(contentWidth: Dp, minCardWidth: Dp, maxColumns: In
 internal fun socialCardWidthFor(contentWidth: Dp, columns: Int): Dp =
     (contentWidth - SocialGridGap * (columns - 1)) / columns
 
-internal fun socialFeedMetrics(windowWidth: Dp, railVisible: Boolean): SocialFeedMetrics {
+internal fun socialFeedMetrics(
+    windowWidth: Dp,
+    railVisible: Boolean,
+    /** The height the feed's `BoxWithConstraints` was given; unbounded means "not short". */
+    windowHeight: Dp = Dp.Infinity,
+): SocialFeedMetrics {
+    val phone = NuvioWindowClass(widthDp = windowWidth.value, heightDp = windowHeight.value).isPhoneSurface
+    val horizontalPadding = if (phone) SocialFeedHorizontalPaddingPhone else SocialFeedHorizontalPadding
     // The dashboard itself is capped and centred, so a 2560dp window does not give the feed 2560dp
     // to divide - reading `maxWidth` straight was half of the original mismatch.
     val dashboardWidth = if (windowWidth < SocialDashboardMaxWidth) windowWidth else SocialDashboardMaxWidth
     val feedWidth = if (railVisible) dashboardWidth - SocialFriendsRailWidth else dashboardWidth
-    val contentWidth = (feedWidth - SocialFeedHorizontalPadding * 2).coerceAtLeast(160.dp)
+    val contentWidth = (feedWidth - horizontalPadding * 2).coerceAtLeast(160.dp)
     val watchingNowColumns = socialColumnsFor(contentWidth, SocialWatchingNowMinCardWidth, SocialWatchingNowMaxColumns)
     val activityColumns = socialColumnsFor(contentWidth, SocialActivityMinCardWidth, SocialActivityMaxColumns)
     return SocialFeedMetrics(
@@ -92,10 +121,13 @@ internal fun socialFeedMetrics(windowWidth: Dp, railVisible: Boolean): SocialFee
         activityColumns = activityColumns,
         watchingNowCardWidth = socialCardWidthFor(contentWidth, watchingNowColumns),
         activityCardWidth = socialCardWidthFor(contentWidth, activityColumns),
-        watchingNowArtworkWidth = if (watchingNowColumns > 1) {
-            SocialWatchingNowArtworkWidthWide
-        } else {
-            SocialWatchingNowArtworkWidth
+        watchingNowArtworkWidth = when {
+            phone -> SocialWatchingNowArtworkWidthCompact
+            watchingNowColumns > 1 -> SocialWatchingNowArtworkWidthWide
+            else -> SocialWatchingNowArtworkWidth
         },
+        phone = phone,
+        horizontalPadding = horizontalPadding,
+        itemSpacing = if (phone) 8.dp else 14.dp,
     )
 }

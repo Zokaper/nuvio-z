@@ -66,9 +66,11 @@ class SocialFeedMetricsTest {
     @Test
     fun aSingleColumnKeepsTheCompactArtwork() {
         // One column is the phone path, where a card is the whole screen and the desktop still
-        // would take a third of it back for the artwork.
+        // would take a third of it back for the artwork. A phone goes further: its card is a row.
         val phone = socialFeedMetrics(420.dp, railVisible = false)
-        assertEquals(SocialWatchingNowArtworkWidth, phone.watchingNowArtworkWidth)
+        assertEquals(SocialWatchingNowArtworkWidthCompact, phone.watchingNowArtworkWidth)
+        val tablet = socialFeedMetrics(800.dp, railVisible = false, windowHeight = 1280.dp)
+        assertEquals(SocialWatchingNowArtworkWidth, tablet.watchingNowArtworkWidth)
         val desktop = socialFeedMetrics(1440.dp, railVisible = true)
         assertEquals(SocialWatchingNowArtworkWidthWide, desktop.watchingNowArtworkWidth)
     }
@@ -97,6 +99,24 @@ class SocialFeedMetricsTest {
         assertTrue(watchingText >= 190.dp, "watching now text column is $watchingText")
         assertTrue(FriendActivityRowHeight < SocialWatchingNowCardHeight)
         assertTrue(!socialFeedMetrics(1440.dp, railVisible = true).watchingNowStacked)
-        assertTrue(socialFeedMetrics(360.dp, railVisible = false).watchingNowStacked)
+        // The stacked card was the full-width still that made one friend a screen of feed; a phone
+        // never gets it.
+        assertTrue(!socialFeedMetrics(360.dp, railVisible = false).watchingNowStacked)
+    }
+
+    @Test
+    fun densityFollowsTheWindowsShapeNotItsWidthAlone() {
+        val portrait = socialFeedMetrics(411.dp, railVisible = false, windowHeight = 914.dp)
+        val landscape = socialFeedMetrics(891.dp, railVisible = false, windowHeight = 411.dp)
+        val tablet = socialFeedMetrics(800.dp, railVisible = false, windowHeight = 1280.dp)
+        val desktop = socialFeedMetrics(1280.dp, railVisible = true, windowHeight = 820.dp)
+        assertTrue(portrait.phone)
+        assertTrue(landscape.phone, "a landscape phone is phone density however wide it is")
+        assertTrue(!tablet.phone)
+        assertTrue(!desktop.phone)
+        // A landscape phone still gets the width as columns - the grid was already right.
+        assertTrue(landscape.watchingNowColumns >= 2)
+        assertEquals(SocialFeedHorizontalPadding, desktop.horizontalPadding)
+        assertEquals(portrait.contentWidth, 411.dp - SocialFeedHorizontalPaddingPhone * 2)
     }
 }
