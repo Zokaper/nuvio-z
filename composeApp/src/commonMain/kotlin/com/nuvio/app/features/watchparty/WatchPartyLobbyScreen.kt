@@ -70,11 +70,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1388,25 +1390,32 @@ private fun PartyHostSettings(
     // one screen; the switch reads perfectly well beside the chips, with its one explaining line
     // underneath them both.
     PartyPanel {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = controlMode == WatchPartyControlMode.host_only,
-                onClick = { onControlMode(WatchPartyControlMode.host_only) },
-                label = { Text("Host controls") },
-            )
-            FilterChip(
-                selected = controlMode == WatchPartyControlMode.collaborative,
-                onClick = { onControlMode(WatchPartyControlMode.collaborative) },
-                label = { Text("Collaborative") },
-            )
-            Spacer(Modifier.weight(1f))
-            Text("Wait for everyone", fontWeight = FontWeight.SemiBold)
-            Switch(checked = waitForEveryone, onCheckedChange = onWaitForEveryone)
-        }
+        LeadingBesideTrailingRow(
+            leading = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = controlMode == WatchPartyControlMode.host_only,
+                        onClick = { onControlMode(WatchPartyControlMode.host_only) },
+                        label = { Text("Host controls") },
+                    )
+                    FilterChip(
+                        selected = controlMode == WatchPartyControlMode.collaborative,
+                        onClick = { onControlMode(WatchPartyControlMode.collaborative) },
+                        label = { Text("Collaborative") },
+                    )
+                }
+            },
+            trailing = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Wait for everyone", fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                    Spacer(Modifier.weight(1f))
+                    Switch(checked = waitForEveryone, onCheckedChange = onWaitForEveryone)
+                }
+            },
+        )
         Text(
             if (waitForEveryone) {
                 "Playback pauses for anyone whose stream stalls, and starts again together."
@@ -1456,26 +1465,35 @@ private fun PartyActionBar(
     onLeave: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (isHost) {
-                if (hasSource) {
-                    Button(onClick = onStart) { Text("Start watching") }
-                    OutlinedButton(onClick = onChoose) {
-                        Text(stringResource(Res.string.watch_party_resolve_source))
-                    }
-                } else {
-                    Button(onClick = onChoose) {
-                        Text(stringResource(Res.string.watch_party_choose_source))
+        LeadingBesideTrailingRow(
+            gap = 12.dp,
+            leading = {
+                // A `FlowRow`, so two primary buttons on a very narrow phone wrap instead of one of
+                // them being squeezed.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (isHost) {
+                        if (hasSource) {
+                            Button(onClick = onStart) { Text("Start watching") }
+                            OutlinedButton(onClick = onChoose) {
+                                Text(stringResource(Res.string.watch_party_resolve_source))
+                            }
+                        } else {
+                            Button(onClick = onChoose) {
+                                Text(stringResource(Res.string.watch_party_choose_source))
+                            }
+                        }
                     }
                 }
-            }
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onLeave) { Text(if (isHost) "End session" else "Leave") }
-        }
+            },
+            trailing = {
+                Box(contentAlignment = Alignment.CenterEnd) {
+                    OutlinedButton(onClick = onLeave) { Text(if (isHost) "End session" else "Leave") }
+                }
+            },
+        )
         if (isHost) {
             Text(
                 when {
@@ -1536,6 +1554,52 @@ private fun PartyJoinHero(info: PartyJoinHandoffInfo) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * [leading] at the start and [trailing] at the end of one line when both fit at their natural
+ * widths, and [trailing] on a line of its own, given the full width, when they do not.
+ *
+ * WARN **Decided by measurement, not by a breakpoint.** The lobby's rows were written for the
+ * desktop window: a `Row` with a weighted spacer between two groups. On a 411dp phone the groups
+ * need more than the panel has, so the row pushed the "Wait for everyone" switch past the card's
+ * edge and folded its label into "Wait fo / everyon", and squeezed "End session" into a column one
+ * letter wide. A width threshold would be wrong again under font scaling or a translation; this
+ * asks the actual pieces. Where they fit, the result is the old row exactly.
+ *
+ * [trailing] is measured at its natural width on a shared line and at the full width on its own,
+ * so it decides how it sits there - a label-and-switch row spreads out, a button aligns itself.
+ */
+@Composable
+private fun LeadingBesideTrailingRow(
+    leading: @Composable () -> Unit,
+    trailing: @Composable () -> Unit,
+    gap: Dp = 8.dp,
+) {
+    Layout(
+        contents = listOf(leading, trailing),
+        modifier = Modifier.fillMaxWidth(),
+    ) { (leadingMeasurables, trailingMeasurables), constraints ->
+        val gapPx = gap.roundToPx()
+        val leadingPlaceable = leadingMeasurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val trailingMeasurable = trailingMeasurables.single()
+        val trailingNatural = trailingMeasurable.maxIntrinsicWidth(Constraints.Infinity)
+        val oneLine = leadingPlaceable.width + gapPx + trailingNatural <= constraints.maxWidth
+        val trailingWidth = if (oneLine) trailingNatural else constraints.maxWidth
+        val trailingPlaceable = trailingMeasurable.measure(Constraints.fixedWidth(trailingWidth))
+        if (oneLine) {
+            val height = maxOf(leadingPlaceable.height, trailingPlaceable.height)
+            layout(constraints.maxWidth, height) {
+                leadingPlaceable.place(0, (height - leadingPlaceable.height) / 2)
+                trailingPlaceable.place(constraints.maxWidth - trailingPlaceable.width, (height - trailingPlaceable.height) / 2)
+            }
+        } else {
+            layout(constraints.maxWidth, leadingPlaceable.height + gapPx + trailingPlaceable.height) {
+                leadingPlaceable.place(0, 0)
+                trailingPlaceable.place(0, leadingPlaceable.height + gapPx)
             }
         }
     }
