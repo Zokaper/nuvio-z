@@ -40,6 +40,8 @@ class ReleaseSerialVersionTest {
         // A "+" with nothing usable after it is not a serial.
         assertNull(VersionUtils.parseReleaseSerial("v0.6.0-z1+"))
         assertNull(VersionUtils.parseReleaseSerial("v0.6.0-z1+beta"))
+        assertNull(VersionUtils.parseReleaseSerial("v0.6.0-z1+127beta"))
+        assertNull(VersionUtils.parseReleaseSerial("v0.6.0-z1+127+128"))
     }
 
     @Test
@@ -108,5 +110,19 @@ class ReleaseSerialVersionTest {
         // behaves identically whether or not a serial happens to be present.
         assertEquals(listOf(0, 6, 0), VersionUtils.parseVersionParts("v0.6.0+127"))
         assertEquals(listOf(0, 6, 0, 3), VersionUtils.parseVersionParts("debug-v0.6.0-z1.3+128"))
+    }
+
+    @Test
+    fun `serial ordering never offers an equal or lower stable build`() {
+        val localVersion = "0.1.23-alpha-z6"
+        val localSerial = 131
+        listOf(
+            "0.1.23-alpha-z6+131",
+            "0.1.23-alpha-z5+130",
+            "9.9.9-z99+130",
+        ).forEach { remote ->
+            assertFalse(VersionUtils.isRemoteNewer(remote, localVersion, localSerial), remote)
+        }
+        assertTrue(VersionUtils.isRemoteNewer("0.1.23-alpha-z7+132", localVersion, localSerial))
     }
 }

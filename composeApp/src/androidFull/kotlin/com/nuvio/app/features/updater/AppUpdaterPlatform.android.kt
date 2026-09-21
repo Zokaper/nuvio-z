@@ -23,7 +23,11 @@ actual object AppUpdaterPlatform {
             // Releases target an explicit commit, so a release's targetCommitish is a SHA rather
             // than a branch name; filtering by branch rejects them all.
             channelBranch = null,
-            includePrereleases = true,
+            // Stable mobile releases are ordinary GitHub releases. A prerelease is never a
+            // stable update, even when it lacks the debug prefix; accepting one here would let a
+            // partially staged mobile release escape to installed users. Debug builds still take
+            // only debug-v* prereleases through debugChannel below.
+            includePrereleases = isDebugBuild,
             userAgent = "NuvioZ",
             // ⚠ **In this repository the debuggable APK *is* the debug channel's build**
             // (`com.nuvio.app.z.debug`, published by `debug-release.yml` as `debug-v*`), and has

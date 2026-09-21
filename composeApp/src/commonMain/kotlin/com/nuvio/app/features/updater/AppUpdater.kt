@@ -112,12 +112,11 @@ internal object VersionUtils {
      */
     fun parseReleaseSerial(raw: String?): Int? {
         if (raw.isNullOrBlank()) return null
-        val marker = raw.lastIndexOf('+')
-        if (marker < 0) return null
-        return raw.substring(marker + 1)
-            .trim()
-            .takeWhile { it.isDigit() }
-            .toIntOrNull()
+        return Regex("""^[^+]+\+(\d+)$""")
+            .find(raw.trim())
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
     }
 
     /**

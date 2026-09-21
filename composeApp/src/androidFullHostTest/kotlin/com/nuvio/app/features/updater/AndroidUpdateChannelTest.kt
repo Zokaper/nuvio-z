@@ -72,7 +72,7 @@ class AndroidUpdateChannelTest {
 
         assertFalse(isChannelEligible(debugBuild, release), "a release install must never be offered a debug APK")
         assertTrue(isChannelEligible(stable, release))
-        assertTrue(isChannelEligible(stablePrerelease, release), "this repository's release line takes prereleases")
+        assertFalse(isChannelEligible(stablePrerelease, release), "stable mobile installs reject every prerelease")
     }
 
     @Test
@@ -87,7 +87,7 @@ class AndroidUpdateChannelTest {
     private fun debugSource(debugChannel: Boolean) = AppUpdateReleaseSource(
         owner = "Zokaper",
         repo = "nuvio-z",
-        includePrereleases = true,
+        includePrereleases = debugChannel,
         userAgent = "NuvioZ",
         debugChannel = debugChannel,
     )

@@ -59,4 +59,31 @@ class DebugChannelVersionTest {
         // channel split is what actually prevents it, and this pins the ordering half.
         assertFalse(VersionUtils.isRemoteNewer("v0.4.14-beta", "0.4.14-beta.1"))
     }
+
+    @Test
+    fun `stable and debug channel eligibility is fail closed`() {
+        val stable = channelSource(debug = false)
+        val debug = channelSource(debug = true)
+        val cases = listOf(
+            ChannelReleaseFacts("0.4.13-z1+127", draft = false, prerelease = false) to (true to false),
+            ChannelReleaseFacts("v0.4.13-z1+127", draft = false, prerelease = false) to (true to false),
+            ChannelReleaseFacts("0.4.13-z1+127", draft = false, prerelease = true) to (false to false),
+            ChannelReleaseFacts("debug-v0.4.13-z1.40", draft = false, prerelease = true) to (false to true),
+            ChannelReleaseFacts("debug-v0.4.13-z1.40", draft = false, prerelease = false) to (false to false),
+            ChannelReleaseFacts("debug-v0.4.13-z1.40", draft = true, prerelease = true) to (false to false),
+        )
+
+        cases.forEach { (release, expected) ->
+            assertTrue(isChannelEligible(release, stable) == expected.first, "stable: $release")
+            assertTrue(isChannelEligible(release, debug) == expected.second, "debug: $release")
+        }
+    }
+
+    private fun channelSource(debug: Boolean) = AppUpdateReleaseSource(
+        owner = "Zokaper",
+        repo = "nuvio-z",
+        includePrereleases = debug,
+        userAgent = "NuvioZ",
+        debugChannel = debug,
+    )
 }
