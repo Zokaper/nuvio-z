@@ -475,6 +475,12 @@ class PartyPresenceTest {
         assertFalse(partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = false))
     }
 
+    private fun started(heldScreenLocked: Boolean, keyguardLocked: Boolean) =
+        partyScreenLockedOnForeground(heldScreenLocked, keyguardLocked, resumed = false)
+
+    private fun resumed(heldScreenLocked: Boolean, keyguardLocked: Boolean) =
+        partyScreenLockedOnForeground(heldScreenLocked, keyguardLocked, resumed = true)
+
     // The foreground keyguard re-read, which is the second door the same bad read came through.
     // `USER_PRESENT` was fixed and this was not, so the unlock raced: whichever of the two landed
     // last decided the answer, and the phone returned or stayed Away at random. Reported from
@@ -483,17 +489,71 @@ class PartyPresenceTest {
     @Test
     fun foregroundNeverDeclaresALockThatWasNotHeld() {
         // The going-away animation, read at the worst instant. Held false, so it stays false.
-        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = false, keyguardLocked = true))
-        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = false, keyguardLocked = false))
+        assertFalse(started(heldScreenLocked = false, keyguardLocked = true))
+        assertFalse(started(heldScreenLocked = false, keyguardLocked = false))
     }
 
     @Test
     fun foregroundStillClearsALockFactThatWentMissing() {
         // The whole point of re-reading: a dropped broadcast left the lock latched, and a settled
         // keyguard says it is gone.
-        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = true, keyguardLocked = false))
+        assertFalse(started(heldScreenLocked = true, keyguardLocked = false))
         // Genuinely still locked, so it stays locked.
-        assertTrue(partyScreenLockedOnForeground(heldScreenLocked = true, keyguardLocked = true))
+        assertTrue(started(heldScreenLocked = true, keyguardLocked = true))
+    }
+
+    /**
+     * Resuming is proof, so it clears a latched lock without asking the keyguard.
+     *
+     * The case the S25 sat in for eight minutes on `0.4.13-z1.39`: `USER_PRESENT` was never
+     * delivered, because a cached process does not get it, and the one `ON_START` of the return
+     * read a keyguard still mid-dismiss and answered `true`. Nothing else was coming. A resume is
+     * the signal that cannot be dropped and cannot be read wrong.
+     */
+    @Test
+    fun resumingClearsTheLockEvenWhenTheKeyguardStillClaimsItIsUp() {
+        assertFalse(resumed(heldScreenLocked = true, keyguardLocked = true))
+        assertFalse(resumed(heldScreenLocked = true, keyguardLocked = false))
+        assertFalse(resumed(heldScreenLocked = false, keyguardLocked = true))
+    }
+
+    /**
+     * The whole unlock-and-return, with every signal the device actually delivered.
+     *
+     * No `USER_PRESENT` at all - that is the point - and an `ON_START` whose keyguard read is
+     * wrong. Before the resume signal this sequence ended Away and stayed there; the assertion is
+     * that it now ends Watching without either of the two facts that went missing.
+     */
+    @Test
+    fun anUnlockWithNoUserPresentAndALyingOnStartStillReturns() {
+        var seq = 0L
+        var state = PartyPresenceState()
+        var screenLocked = false
+        fun push(foreground: Boolean) {
+            seq += 1
+            state = state.observe(
+                PartyLifecycleFacts(appForeground = foreground, screenLocked = screenLocked, seq = seq),
+            )
+        }
+
+        // Power button, then the process is stopped and cached behind the keyguard.
+        screenLocked = partyScreenLockedAfter(PartyScreenSignal.ScreenOff, keyguardLocked = true)
+        push(foreground = true)
+        push(foreground = false)
+        assertEquals(PartyPresence.Away, state.presence)
+        assertEquals(PartyAwayReason.ScreenLocked, state.reason)
+
+        // The unlock. USER_PRESENT is never delivered - the process was cached - and ON_START
+        // reads the keyguard mid-dismiss, which answers true.
+        screenLocked = started(heldScreenLocked = screenLocked, keyguardLocked = true)
+        push(foreground = true)
+        assertEquals(PartyPresence.Away, state.presence)
+
+        // The resume, which is the only honest signal left.
+        screenLocked = resumed(heldScreenLocked = screenLocked, keyguardLocked = true)
+        push(foreground = true)
+        assertEquals(PartyPresence.Watching, state.presence)
+        assertEquals(PartyAwayReason.None, state.reason)
     }
 
     /**
@@ -524,14 +584,14 @@ class PartyPresenceTest {
             // The unlock, delivered both ways round. The keyguard answers `true` at every read,
             // which is what the S25 does through the dismiss animation.
             if (userPresentLast) {
-                screenLocked = partyScreenLockedOnForeground(heldScreenLocked = screenLocked, keyguardLocked = true)
+                screenLocked = started(heldScreenLocked = screenLocked, keyguardLocked = true)
                 push(foreground = true)
                 screenLocked = partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = true)
                 push(foreground = true)
             } else {
                 screenLocked = partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = true)
                 push(foreground = true)
-                screenLocked = partyScreenLockedOnForeground(heldScreenLocked = screenLocked, keyguardLocked = true)
+                screenLocked = started(heldScreenLocked = screenLocked, keyguardLocked = true)
                 push(foreground = true)
             }
             return state

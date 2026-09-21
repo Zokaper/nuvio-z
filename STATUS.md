@@ -3,6 +3,89 @@
 
 Last updated: 2026-09-21
 
+## Away return: fixed for the right reason this time, and verified on the phone (2026-09-21)
+
+**The third attempt at this, and the first with evidence instead of a theory.** `z1.38` and `z1.39`
+each fixed a real defect in this path and neither fixed the bug, because both were reasoned from
+the code rather than from the device. This one was diagnosed on a live S25 over adb and then
+verified on it.
+
+### What the device actually said
+
+With `0.4.13-z1.39` installed and a party live, `adb logcat` showed:
+
+```
+11:48:02.253  presence Watching -> Away reason=lock
+                     ... nothing at all for eight minutes ...
+11:56:52.944  presence Away -> Watching reason=foreground     <- only when the app was foregrounded again
+11:56:54.725  peer publish ... away=false
+```
+
+Three facts settled it, none of which could be read off the source:
+
+1. **`reason=lock`**, so the stuck fact is `screenLocked` and not `appForeground`.
+2. **The receiver was registered the whole time.** `dumpsys activity broadcasts` on the live pid
+   showed the filter holding `SCREEN_OFF`, `SCREEN_ON` **and** `USER_PRESENT`. Nothing had torn
+   down, so every "the composable was disposed" theory was wrong.
+3. **`USER_PRESENT` never arrived anyway.** The process is cached while the screen is locked, and
+   broadcasts to a cached process are dropped. This is exactly the case the `ON_START` keyguard
+   re-read was written for on 2026-09-20 - and it missed it too, because the only `ON_START` of an
+   unlock-and-return fires *during* the keyguard dismiss animation, where `isKeyguardLocked` still
+   answers `true`.
+
+Foregrounding the app again minutes later - a *second* `ON_START`, with the keyguard long settled -
+cleared it instantly. That is the whole bug in one line: **it cleared only by accident of timing,
+and an unlock-and-return never supplies that accident.** "Sometimes" was whether a second
+foreground happened to occur.
+
+### The fix
+
+`ON_RESUME`. An activity cannot be RESUMED behind the keyguard - this app sets `showWhenLocked`
+nowhere, and a picture-in-picture window is paused rather than resumed - so **being resumed is proof
+the lock is gone**. No keyguard read to get wrong, no broadcast to be dropped, and it arrives after
+the dismiss animation rather than during it. It is the same kind of fact as `USER_PRESENT`, in the
+one channel a cached process cannot lose.
+
+`partyScreenLockedOnForeground` now takes `resumed`, so both callers keep their rule in the pure
+file: resumed clears unconditionally; started remains the weaker second chance that may clear a
+lock but never declare one. The two are deliberately not merged - they carry different evidence.
+
+### Verified on hardware, not just in tests
+
+Local build installed to the S25 over adb, party rejoined against the desktop:
+
+```
+12:21:29.924  presence Watching -> Away reason=lock          away roster [d3397924]
+12:21:36.059  presence Away -> Watching reason=foreground    away roster []
+12:21:36.149  away return catchup targetMs=171546 localMs=171566 reachable=true
+12:21:43.305  presence Watching -> Away reason=lock
+12:21:46.252  presence Away -> Watching reason=foreground    away roster []
+12:21:46.317  away return catchup targetMs=178220 localMs=178219 reachable=true
+```
+
+Two lock/unlock cycles, two returns, roster cleared both times, and the catch-up landed 20ms and
+1ms from target on the existing source (`reachable=true`) rather than re-realizing. A third lock is
+in the log with no return because the phone was still locked when the capture was taken.
+
+**The starve-recovery policy was confirmed on the same run**, which is what it was cut for:
+`drift ... action=TEMPORARY_SPEED ... starveRecovery=true` with the gap closing 806 -> 727 -> 668
+-> ... -> 108ms. No seek, no loop.
+
+**Tests.** 8/8 pure groups; `:composeApp:testAndroidHostTest` **2264 tests, 0 failures**;
+`:androidApp:assembleFullDebug`. `PartyPresenceTest` gains the unlock the device actually performed
+- no `USER_PRESENT` at all and an `ON_START` whose keyguard read is wrong - which ends Watching only
+because of the resume.
+
+### One trap worth writing down
+
+A locally built debug APK ships with **no Z backend** unless `local.properties` carries
+`NUVIO_Z_SUPABASE_URL` and `NUVIO_Z_SUPABASE_PUBLISHABLE_KEY`. CI injects them from
+`NUVIO_LOCAL_PROPERTIES_BASE64`; a dev machine may not have them, and the build succeeds anyway.
+The app then reports **"social features are not enabled on this server"** and no party can be
+joined - which is a missing key, not a regression. `nuviozdesktop/local.properties` has both.
+Check `composeApp/build/generated/runtime-config/.../SupabaseConfig.kt` for
+`ZSupabaseConfig.isConfigured` before blaming the build.
+
 ## The z1.38/z6.59 run: the unlock race, and the seek that was eating the buffer (2026-09-21)
 
 Two findings from the `0.4.13-z1.38` / `z6.59` hardware run. Cut for retest as Android

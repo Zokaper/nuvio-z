@@ -130,29 +130,39 @@ fun partyScreenLockedAfter(signal: PartyScreenSignal, keyguardLocked: Boolean): 
 /**
  * Whether a lock screen is still in front of the viewer once the app reaches the foreground.
  *
- * The foreground transition re-reads the keyguard as a second chance at a lock fact that went
- * missing - a broadcast dropped while the process was cached, an unlock straight into the app - so
- * a member cannot stay latched Away with the video in front of them. But it is the *same*
- * untrustworthy read that [partyScreenLockedAfter] refuses to make at `USER_PRESENT`, arriving
- * through a different door, and it raced it: unlocking delivers `ACTION_USER_PRESENT` and the
- * process foreground at nearly the same instant, in no guaranteed order. `USER_PRESENT` last
- * cleared the lock and the member returned; the foreground last re-read a keyguard still playing
- * its going-away animation, answered `true`, and the member stayed Away. **The same unlock, on the
- * same phone, went both ways depending on which landed last** - reported as "sometimes clears,
- * inconsistent" on hardware 2026-09-21, after the `USER_PRESENT` fix had removed this exact race
- * from the broadcast path and left it here.
+ * Two different qualities of evidence, which is why [resumed] is a parameter and not a caller's
+ * business:
  *
- * **One direction only, exactly as [partyStaleAwayNeedsClearing] is.** A foreground may *clear* a
- * lock that is no longer there; it may never *declare* one. Held false, this answers false whatever
- * the keyguard claims, so a return that already happened cannot be taken back. Held true, a settled
- * keyguard reading false still clears it, which is the whole of what the second chance was for.
- * Both orderings of the unlock therefore converge on the same answer instead of racing.
+ * - **Resumed is proof.** An activity cannot be RESUMED behind the keyguard - this app sets no
+ *   `showWhenLocked` anywhere, and a picture-in-picture window is paused rather than resumed - so
+ *   being resumed *is* the lock being gone. No keyguard read, no broadcast, nothing to race. It is
+ *   the same kind of fact as `ACTION_USER_PRESENT` in [partyScreenLockedAfter], and it is the one
+ *   signal that arrives *after* the dismiss animation rather than during it.
+ * - **Started is only a second chance**, and a poor one. It re-reads the keyguard to recover a lock
+ *   fact that went missing, so it may *clear* a lock that is no longer there but may never
+ *   *declare* one - one direction only, exactly as [partyStaleAwayNeedsClearing] is.
+ *
+ * **Why the started path alone was not enough.** Captured on an S25 on 2026-09-21 with
+ * `0.4.13-z1.39` installed: `presence Watching -> Away reason=lock` at the lock, then no transition
+ * of any kind for the next eight minutes while the phone sat unlocked with the film in front of it.
+ * The receiver was registered for all three actions the whole time - `dumpsys activity broadcasts`
+ * confirmed it on the live pid - so nothing had torn down. `ACTION_USER_PRESENT` simply never
+ * arrived: the process is cached while the screen is locked, and broadcasts to a cached process are
+ * dropped. That is exactly the case the started re-read was added for, and the re-read missed it
+ * too, because the only `ON_START` of an unlock-and-return fires *during* the keyguard dismiss
+ * animation, where `isKeyguardLocked` still answers `true`. Foregrounding the app again minutes
+ * later - a second `ON_START`, with the keyguard long settled - cleared it instantly
+ * (`presence Away -> Watching reason=foreground`), which is the whole bug in one line: it cleared
+ * only by accident of timing, and an unlock-and-return never supplies that accident.
  *
  * A genuine lock arrives as [PartyScreenSignal.ScreenOff] or [PartyScreenSignal.ScreenOn] with the
  * keyguard up, and neither goes through here.
  */
-fun partyScreenLockedOnForeground(heldScreenLocked: Boolean, keyguardLocked: Boolean): Boolean =
-    heldScreenLocked && keyguardLocked
+fun partyScreenLockedOnForeground(
+    heldScreenLocked: Boolean,
+    keyguardLocked: Boolean,
+    resumed: Boolean,
+): Boolean = if (resumed) false else heldScreenLocked && keyguardLocked
 
 /**
  * Whether a member that is plainly here still has an away on the wire, and must withdraw it.

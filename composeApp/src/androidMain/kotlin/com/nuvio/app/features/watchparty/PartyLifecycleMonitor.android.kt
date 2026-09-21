@@ -48,19 +48,31 @@ internal actual fun rememberPartyPlatformLifecycle(): PartyPlatformLifecycle {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                // The keyguard is re-read here, not just trusted from the broadcasts, as a
-                // second chance at a lock fact that went missing - a broadcast dropped while the
-                // process was cached, an unlock straight into the app. It may only ever *clear*
-                // the lock, never declare one: this read is the same one `USER_PRESENT` refuses to
-                // make, and unlocking delivers the broadcast and this foreground in no guaranteed
-                // order, so declaring from it made the same unlock return or stay Away depending
-                // on which landed last. The rule is in `partyScreenLockedOnForeground`, with every
-                // other decision.
+                // A second chance at a lock fact that went missing, and no more than that: it
+                // re-reads the keyguard, so it may only ever *clear* the lock and never declare
+                // one. On an unlock-and-return this read is taken during the dismiss animation,
+                // where the keyguard still answers `true` and the chance is wasted - which is why
+                // ON_RESUME below exists and this is not the signal the return depends on.
                 Lifecycle.Event.ON_START -> facts = facts.copy(
                     appForeground = true,
                     screenLocked = partyScreenLockedOnForeground(
                         heldScreenLocked = facts.screenLocked,
                         keyguardLocked = keyguard?.isKeyguardLocked == true,
+                        resumed = false,
+                    ),
+                )
+                // **The signal a return actually hangs on.** An activity cannot be RESUMED behind
+                // the keyguard, so this is proof rather than a reading - nothing to race, and
+                // unlike `ACTION_USER_PRESENT` it cannot be dropped for being sent to a cached
+                // process, which is how a locked phone sat Away for eight minutes on hardware with
+                // the film in front of it. Deliberately not merged into ON_START: they carry
+                // different evidence, and only this one may clear a lock without asking.
+                Lifecycle.Event.ON_RESUME -> facts = facts.copy(
+                    appForeground = true,
+                    screenLocked = partyScreenLockedOnForeground(
+                        heldScreenLocked = facts.screenLocked,
+                        keyguardLocked = keyguard?.isKeyguardLocked == true,
+                        resumed = true,
                     ),
                 )
                 Lifecycle.Event.ON_STOP -> facts = facts.copy(appForeground = false)
