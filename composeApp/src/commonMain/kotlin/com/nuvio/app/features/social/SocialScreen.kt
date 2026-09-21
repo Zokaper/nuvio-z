@@ -102,6 +102,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.core.ui.nuvioWindowClass
 import com.nuvio.app.features.profiles.parseHexColor
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.WatchPartyStatus
@@ -445,8 +446,11 @@ internal fun SocialFeed(
                         }
                     }
             }
+            // A window too short to stack - a landscape phone - keeps the header collapsed for good:
+            // ~60dp of fixed chrome out of 411 is a seventh of the screen spent on a name.
+            val shortSurface = nuvioWindowClass().isShortSurface
             val headerCollapse by animateFloatAsState(
-                targetValue = if (feed.phone && scrolledPastTop) 1f else 0f,
+                targetValue = if (feed.phone && (shortSurface || scrolledPastTop)) 1f else 0f,
                 animationSpec = tween(220),
                 label = "social-header-collapse",
             )
