@@ -5,8 +5,10 @@ Last updated: 2026-09-21
 
 ## The z1.38/z6.59 run: the unlock race, and the seek that was eating the buffer (2026-09-21)
 
-Two findings from the `0.4.13-z1.38` / `z6.59` hardware run. **Nothing is published; both repos
-hold the fix on their working branches.**
+Two findings from the `0.4.13-z1.38` / `z6.59` hardware run. Cut for retest as Android
+**`0.4.13-z1.39`** (`debug-v0.4.13-z1.39`, versionCode 125039) against desktop **`z6.60`**
+(`debug-v0.1.23-alpha-z6.60`, MSI ProductVersion 1.45.60) - debug channel only, prereleases, the
+stable updater and the release line untouched. Only the debug counter moved to cut them.
 
 ### 1. Unlock cleared Away only sometimes, because the fix left the same bad read in a second place
 
