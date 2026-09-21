@@ -21,7 +21,7 @@ ledger updated. **No code changed in the closeout.**
 | D - shared Watch Together core | complete (the convergence merge) |
 | E - mobile player contract | Android complete (`samplePositionMs`, `seekToExact`, `engineReadiness` on media3 and libmpv). iOS: `seekToExact` done, `engineReadiness` not reported (falls back to buffered-ahead) - Phase 8 |
 | F - Android Watch Together | complete; background behaviour decided and built as Away (S10), verified in `z1.40` |
-| G - iOS Watch Together | builds in CI (green through `9f8e93e56`); `NowPlayingController.swift` still bypasses the party transport - Phase 8 |
+| G - iOS Watch Together | builds in CI (green on `8e38804f8`); `NowPlayingController.swift` still bypasses the party transport - Phase 8 |
 | H - phone UI | complete, accepted on the S25 |
 | I - cross-platform matrix | partial, closed as QA debt (below) |
 | Backend drift | resolved in `nuvio-z-backend` `62673cf`/`cc81430` (only the enum ordinal order of `watch_party_ready_state` differs, deliberately) |
@@ -71,7 +71,7 @@ feature work; this is a small bug fix for the next desktop touch.
 - mobile `:androidApp:assembleFullDebug`: BUILD SUCCESSFUL (`0.4.13-z1.40`, unchanged)
 - desktop `:composeApp:desktopTest`: **2425 / 0 failures**, BUILD SUCCESSFUL
 - shared-code drift vs `desktop/claude/mobile-ui-responsive-pass`: 68 differing files, all read; none is a desktop change mobile lacks
-- iOS: CI `iOS build` green through `9f8e93e56` (run 35584618532). The 19 local commits after it are unpushed and have not been through iOS CI
+- iOS: CI `iOS build` green on the closeout HEAD `8e38804f8` (run 35648673700, dispatched by hand at wrap-up because the UI-pass commits touch only `commonMain`, which the workflow's path filter does not watch). Mobile `CI` green on the same commit (run 35648657705). Desktop `CI` on `f7e1d841` fails in `buildNativeLinux` (`frame_copy_test`) exactly as it has on every push since before Phase 6 - pre-existing, not a Phase 6 regression; its Windows MSI job passes
 
 Next: **Phase 7 - identity and release engineering** (`ROADMAP.md`). Not started.
 
