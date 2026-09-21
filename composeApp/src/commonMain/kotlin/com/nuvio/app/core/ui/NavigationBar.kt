@@ -266,6 +266,20 @@ fun NuvioNavigationBar(
         val horizontalPadding = expandedHorizontalPadding +
             (collapsedHorizontalPadding - expandedHorizontalPadding) * (1f - effectiveLabelFraction)
 
+        // WARN **The pill's own rounded ends clip the first and last labels.**
+        //
+        // The pill is `RoundedCornerShape(Radius.full)`, so its corner radius is capped at half its
+        // height - about 28dp. A label sits at the *bottom* of its cell, under the icon, which is
+        // exactly where that curve has eaten furthest into the box: at the label's baseline the
+        // corner intrudes about 11dp horizontally. With the row inset by only `Space.s6` the outer
+        // two labels were drawn inside the curve and cut by it, which reads as the same bug as
+        // ")ownload" and is a completely different cause.
+        //
+        // Only narrow bars need it. A wide pill has cells far larger than its corners, and this
+        // file is shared with the desktop build, so the wide case keeps its existing inset exactly.
+        val rowHorizontalPadding =
+            if (maxWidth.value < NuvioWindowBreakpoints.MEDIUM_WIDTH_DP) 14.dp else NuvioTokens.Space.s6
+
 
         // The floating pill
         val pillModifier = Modifier
@@ -288,7 +302,7 @@ fun NuvioNavigationBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        horizontal = NuvioTokens.Space.s6,
+                        horizontal = rowHorizontalPadding,
                         vertical = NuvioTokens.Space.s4,
                     ),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -534,7 +548,23 @@ private fun NavItemLabel(
             softWrap = false,
             textAlign = TextAlign.Center,
             overflow = TextOverflow.Ellipsis,
-            onTextLayout = { result -> if (result.hasVisualOverflow) onDidNotFit() },
+            // WARN **The detector is `isLineEllipsized`, and the two obvious alternatives are
+            // both wrong.**
+            //
+            // `hasVisualOverflow` is also true when the text overflows *vertically*, and this
+            // label deliberately sits in a box `Space.s14` tall - shorter than the line height it
+            // is given - so it is true for every label at every width. Using it demoted the bar to
+            // icons on an 891dp landscape phone with room to spare.
+            //
+            // `didOverflowWidth` is the opposite failure: once `Ellipsis` has shortened the text it
+            // *does* fit the constraint, so the flag is false and the demote never fires at all. A
+            // 320dp bar sat there reading "Downl.." and "Settin.." while the code that was supposed
+            // to prevent that was dead.
+            //
+            // A line that had to be ellipsized is the actual question being asked.
+            onTextLayout = { result ->
+                if (result.lineCount > 0 && result.isLineEllipsized(0)) onDidNotFit()
+            },
         )
     }
 }
