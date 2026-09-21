@@ -1069,6 +1069,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 partyStatus = partyStatusBridgeState(partyStatusLine),
                 state = playerControlsState,
                 locked = playerControlsLocked,
+                // Density and slot only; whether the pill shows never depends on the chrome.
+                controlsVisible = controlsVisible,
+                gestureFeedbackShowing = currentGestureFeedback != null,
                 horizontalSafePadding = horizontalSafePadding,
                 onEvent = { type, value -> handlePlayerControlsEvent(type, value) },
             )
