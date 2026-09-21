@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
@@ -21,7 +22,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -38,9 +41,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PriorityHigh
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,8 +74,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -86,6 +96,7 @@ import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.core.ui.nuvioWindowClass
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -218,272 +229,113 @@ fun WatchPartyLobbyScreen(
     )
     val requestDeparture = { onShowDepartureDialogChange(true) }
 
-    // Hosted outside a Surface, so LocalContentColor falls back to black. Without this the whole
-    // lobby - the invite code included - is black on a dark background.
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-        Box(modifier.fillMaxSize()) {
-            // The party is about one specific title, and this screen used to show a 92x132 poster on
-            // the settings-screen background. The art is most of what makes it a lobby, not a form.
-            PartyLobbyBackdrop(party?.content?.poster)
+    WatchPartyLobbyFrame(poster = party?.content?.poster, modifier = modifier) {
+        if (party == null) {
+            PartyLobbyOpening(
+                onBack = onBack,
+                errorMessage = state.errorMessage,
+                isWorking = state.isWorking,
+                handoff = joinHandoff,
+            )
+            return@WatchPartyLobbyFrame
+        }
 
-            // ⚠ **The insets are consumed here, once, above the layout branch.**
-            //
-            // This route is pushed onto the navigator's own back stack rather than hosted in the
-            // tab shell, and the root `Scaffold` consumes nothing by design
-            // (`MainTabsDestination`, `contentWindowInsets = WindowInsets(0)`), so nothing upstream
-            // was ever going to supply these: the back arrow sat at a flat 20dp from the physical
-            // top of the display, under the status bar and under any cutout.
-            //
-            // Applying them on the `BoxWithConstraints` rather than inside each branch is what
-            // makes it impossible for the two-pane and single-pane paths to disagree about the
-            // inset or to apply it twice - and it means `maxWidth` below is the width this screen
-            // actually owns, which is the number the breakpoints must be read from.
-            //
-            // `PartyLobbyBackdrop` stays *outside* it: the artwork is meant to run full-bleed
-            // behind the status bar. Only the content is inset.
-            BoxWithConstraints(
-                Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(
-                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
-                        ),
-                    ),
-            ) {
-                // A centred `widthIn(max = 1040.dp)` column read as a document with a dead margin
-                // down either side of a desktop window, and still ran off the bottom. Given the
-                // width, the party takes the left and the title takes a rail on the right: the two
-                // panes meet, so none of the window is spent on margins, and nothing scrolls.
-                val twoPane = maxWidth >= PartyTwoPaneMinWidth
-                val wide = maxWidth >= 900.dp
+        val hostSignature = party.members
+            .firstOrNull { it.profileId == party.hostProfileId }?.addonSignature.orEmpty()
+        val addonMismatches = party.members.filter { member ->
+            member.connected && member.profileId != party.hostProfileId &&
+                comparePartyAddonSignatures(hostSignature, member.addonSignature).differs
+        }
+        val addonNotice = if (addonMismatches.isEmpty()) {
+            null
+        } else {
+            stringResource(Res.string.watch_party_addon_differences) + " — " +
+                "${addonMismatches.size} ${if (addonMismatches.size == 1) "person has" else "people have"} " +
+                "a different set of stream addons. You can continue; an alternate source may be needed."
+        }
 
-                if (party == null) {
-                    PartyLobbyOpening(
-                        onBack = onBack,
-                        errorMessage = state.errorMessage,
-                        isWorking = state.isWorking,
-                        handoff = joinHandoff,
-                    )
-                    return@BoxWithConstraints
-                }
-
-                val hostSignature = party.members
-                    .firstOrNull { it.profileId == party.hostProfileId }?.addonSignature.orEmpty()
-                val addonMismatches = party.members.filter { member ->
-                    member.connected && member.profileId != party.hostProfileId &&
-                        comparePartyAddonSignatures(hostSignature, member.addonSignature).differs
-                }
-                val addonNotice = if (addonMismatches.isEmpty()) {
-                    null
-                } else {
-                    stringResource(Res.string.watch_party_addon_differences) + " — " +
-                        "${addonMismatches.size} ${if (addonMismatches.size == 1) "person has" else "people have"} " +
-                        "a different set of stream addons. You can continue; an alternate source may be needed."
-                }
-
-                // "I'm ready" used to sit in the action bar and mark a member ready from the lobby,
-                // where nobody has resolved anything yet - it reported a source that did not exist
-                // and was the one thing that could defeat the host's own readiness gate. Readiness
-                // is now reported by the player, once a stream is actually open.
-                //
-                // The host's half of the lobby is two buttons because it is two decisions. Picking
-                // a release and committing everyone to it in the same press is what made the source
-                // list a trapdoor: there was no moment between the two in which the host could look
-                // at who had actually turned up.
-                val chosenSource = state.stagedHostSource ?: party.sourceFingerprint
-                val onChoose: () -> Unit = {
-                    scope.launch {
-                        // Announces "the host is picking" and bumps the generation, so a source
-                        // chosen now cannot be published against the previous round's number.
-                        WatchPartyRepository.beginSourceSelection(addonSignature).onSuccess {
-                            WatchPartyRepository.uiState.value.party?.let {
-                                onChooseSource(it, PartyStreamLaunchPurpose.SELECT_SOURCE)
-                            }
-                        }
-                    }
-                }
-                val onStart: () -> Unit = {
-                    when (
-                        partyPlaybackEntryAction(
-                            authoritativeSourcePublished = party.sourceFingerprint != null,
-                            stagedHostSourceAvailable = state.stagedHostSource != null,
-                            reusableLocalLaunchAvailable = false,
-                            viewerIsHost = isHost,
-                        )
-                    ) {
-                        PartyPlaybackEntryAction.PublishStagedHostSource -> {
-                            state.stagedHostSource?.let { fingerprint ->
-                                scope.launch {
-                                    // Choosing the source already began this generation. Publish it
-                                    // exactly once against that generation; beginning again here was
-                                    // the lifecycle reset that sent every guest back to waiting.
-                                    WatchPartyRepository.selectSource(
-                                        fingerprint = fingerprint,
-                                        expectedSourceGeneration = party.sourceGeneration,
-                                    )
-                                }
-                            }
-                        }
-                        PartyPlaybackEntryAction.ReuseLocalLaunch,
-                        PartyPlaybackEntryAction.ResolveAuthoritativeSource ->
-                            onChooseSource(party, PartyStreamLaunchPurpose.RESOLVE_PLAYBACK)
-                        PartyPlaybackEntryAction.AwaitHostSource -> Unit
-                    }
-                }
-                val onLeave: () -> Unit = {
-                    requestDeparture()
-                }
-                val invitableFriends = socialState.friends.filterNot { friend ->
-                    party.members.any { it.profileId == friend.profileId }
-                }
-                val onInvite: (String) -> Unit = { profileId ->
-                    scope.launch { WatchPartyRepository.invite(profileId) }
-                }
-                val onControlMode: (WatchPartyControlMode) -> Unit = { mode ->
-                    scope.launch { WatchPartyRepository.setControlMode(mode) }
-                }
-
-                if (twoPane) {
-                    // A share of the window rather than a fixed rail: the left pane takes whatever
-                    // is left, so the two panes always meet.
-                    val railWidth = (maxWidth * 0.30f).coerceIn(400.dp, 560.dp)
-                    Row(Modifier.fillMaxSize()) {
-                        Column(
-                            Modifier.weight(1f).fillMaxHeight()
-                                .padding(start = 40.dp, end = 24.dp, top = 20.dp)
-                                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
-                        ) {
-                            Column(
-                                Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
-                            ) {
-                                PartyLobbyHeader(requestDeparture)
-                                joinHandoff?.takeIf { it.partyId == party.id }?.let { PartyJoinHero(it) }
-                                state.errorMessage?.let { message ->
-                                    PartyNotice(message, MaterialTheme.colorScheme.error)
-                                }
-                                PartyStatusBand(
-                                    party = party,
-                                    inviteCode = state.inviteCode,
-                                    connection = presentation.connection,
-                                    sync = syncState,
-                                    hostSourceStaged = state.stagedHostSource != null,
-                                )
-                                PartyStageRail(party.effectiveStage())
-                                addonNotice?.let { PartyNotice(it, PartyWorkingColor) }
-                                PartyParticipants(
-                                    party = party,
-                                    viewerProfileId = state.activeProfileId,
-                                    presentation = presentation,
-                                    invitableFriends = invitableFriends,
-                                    onInvite = onInvite,
-                                )
-                                if (isHost) {
-                                    PartyHostSettings(
-                                        controlMode = party.controlMode,
-                                        onControlMode = onControlMode,
-                                        waitForEveryone = state.waitForEveryone,
-                                        onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
-                                        pauseForAwayUsers = state.pauseForAwayUsers,
-                                        onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(16.dp))
-                            PartyActionBar(
-                                isHost = isHost,
-                                hasSource = chosenSource != null,
-                                sourceLabel = state.stagedHostSourceLabel,
-                                onChoose = onChoose,
-                                onStart = onStart,
-                                onLeave = onLeave,
-                            )
-                        }
-                        PartyTitleRail(
-                            content = party.content,
-                            modifier = Modifier
-                                .width(railWidth)
-                                .fillMaxHeight()
-                                .padding(end = 40.dp, top = 20.dp)
-                                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
-                        )
-                    }
-                    return@BoxWithConstraints
-                }
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxHeight().widthIn(max = 1040.dp),
-                    // 88dp was a literal that cleared nothing in particular. There is no bottom
-                    // nav on this route, so the overlay term is zero - but the system navigation
-                    // bar is not, and this screen never asked for it.
-                    contentPadding = PaddingValues(
-                        start = 24.dp,
-                        end = 24.dp,
-                        top = 20.dp,
-                        bottom = nuvioSafeBottomPadding(extra = 24.dp),
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                ) {
-                    item { PartyLobbyHeader(requestDeparture) }
-                    joinHandoff?.takeIf { it.partyId == party.id }?.let { info -> item { PartyJoinHero(info) } }
-
-                    state.errorMessage?.let { message ->
-                        item { PartyNotice(message, MaterialTheme.colorScheme.error) }
-                    }
-
-                    item {
-                        PartyHero(
-                            party = party,
-                            inviteCode = state.inviteCode,
-                            connection = presentation.connection,
-                            sync = syncState,
-                            wide = wide,
-                            hostSourceStaged = state.stagedHostSource != null,
-                        )
-                    }
-
-                    item { PartyStageRail(party.effectiveStage()) }
-
-                    addonNotice?.let { notice ->
-                        item { PartyNotice(notice, PartyWorkingColor) }
-                    }
-
-                    item {
-                        PartyParticipants(
-                            party = party,
-                            viewerProfileId = state.activeProfileId,
-                            presentation = presentation,
-                            invitableFriends = invitableFriends,
-                            onInvite = onInvite,
-                        )
-                    }
-
-                    if (isHost) {
-                        item {
-                            PartyHostSettings(
-                                controlMode = party.controlMode,
-                                onControlMode = onControlMode,
-                                waitForEveryone = state.waitForEveryone,
-                                onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
-                                pauseForAwayUsers = state.pauseForAwayUsers,
-                                onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
-                            )
-                        }
-                    }
-
-                    item {
-                        PartyActionBar(
-                            isHost = isHost,
-                            hasSource = chosenSource != null,
-                            sourceLabel = state.stagedHostSourceLabel,
-                            onChoose = onChoose,
-                            onStart = onStart,
-                            onLeave = onLeave,
-                        )
+        // "I'm ready" used to sit in the action bar and mark a member ready from the lobby,
+        // where nobody has resolved anything yet - it reported a source that did not exist
+        // and was the one thing that could defeat the host's own readiness gate. Readiness
+        // is now reported by the player, once a stream is actually open.
+        //
+        // The host's half of the lobby is two buttons because it is two decisions. Picking
+        // a release and committing everyone to it in the same press is what made the source
+        // list a trapdoor: there was no moment between the two in which the host could look
+        // at who had actually turned up.
+        val chosenSource = state.stagedHostSource ?: party.sourceFingerprint
+        val onChoose: () -> Unit = {
+            scope.launch {
+                // Announces "the host is picking" and bumps the generation, so a source
+                // chosen now cannot be published against the previous round's number.
+                WatchPartyRepository.beginSourceSelection(addonSignature).onSuccess {
+                    WatchPartyRepository.uiState.value.party?.let {
+                        onChooseSource(it, PartyStreamLaunchPurpose.SELECT_SOURCE)
                     }
                 }
             }
         }
+        val onStart: () -> Unit = {
+            when (
+                partyPlaybackEntryAction(
+                    authoritativeSourcePublished = party.sourceFingerprint != null,
+                    stagedHostSourceAvailable = state.stagedHostSource != null,
+                    reusableLocalLaunchAvailable = false,
+                    viewerIsHost = isHost,
+                )
+            ) {
+                PartyPlaybackEntryAction.PublishStagedHostSource -> {
+                    state.stagedHostSource?.let { fingerprint ->
+                        scope.launch {
+                            // Choosing the source already began this generation. Publish it
+                            // exactly once against that generation; beginning again here was
+                            // the lifecycle reset that sent every guest back to waiting.
+                            WatchPartyRepository.selectSource(
+                                fingerprint = fingerprint,
+                                expectedSourceGeneration = party.sourceGeneration,
+                            )
+                        }
+                    }
+                }
+                PartyPlaybackEntryAction.ReuseLocalLaunch,
+                PartyPlaybackEntryAction.ResolveAuthoritativeSource ->
+                    onChooseSource(party, PartyStreamLaunchPurpose.RESOLVE_PLAYBACK)
+                PartyPlaybackEntryAction.AwaitHostSource -> Unit
+            }
+        }
+        val invitableFriends = socialState.friends.filterNot { friend ->
+            party.members.any { it.profileId == friend.profileId }
+        }
+
+        PartyLobbyContent(
+            model = PartyLobbyModel(
+                party = party,
+                viewerProfileId = state.activeProfileId,
+                isHost = isHost,
+                presentation = presentation,
+                sync = syncState,
+                inviteCode = state.inviteCode,
+                errorMessage = state.errorMessage,
+                joinHandoff = joinHandoff?.takeIf { it.partyId == party.id },
+                addonNotice = addonNotice,
+                hostSourceStaged = state.stagedHostSource != null,
+                hasSource = chosenSource != null,
+                sourceLabel = state.stagedHostSourceLabel,
+                waitForEveryone = state.waitForEveryone,
+                pauseForAwayUsers = state.pauseForAwayUsers,
+                invitableFriends = invitableFriends,
+            ),
+            actions = PartyLobbyActions(
+                onRequestDeparture = requestDeparture,
+                onChoose = onChoose,
+                onStart = onStart,
+                onLeave = requestDeparture,
+                onInvite = { profileId -> scope.launch { WatchPartyRepository.invite(profileId) } },
+                onControlMode = { mode -> scope.launch { WatchPartyRepository.setControlMode(mode) } },
+                onWaitForEveryone = { WatchPartyRepository.setWaitForEveryone(it) },
+                onPauseForAwayUsers = { WatchPartyRepository.setPauseForAwayUsers(it) },
+            ),
+        )
     }
 
     if (party != null && party.status != WatchPartyStatus.ended && showDepartureDialog) {
@@ -525,14 +377,981 @@ fun WatchPartyLobbyScreen(
     }
 }
 
+/**
+ * The lobby's backdrop and its constraint stack, shared by the screen and by the render harness.
+ *
+ * ⚠ **The insets are consumed here, once, above every layout branch.**
+ *
+ * This route is pushed onto the navigator's own back stack rather than hosted in the tab shell, and
+ * the root `Scaffold` consumes nothing by design (`MainTabsDestination`,
+ * `contentWindowInsets = WindowInsets(0)`), so nothing upstream was ever going to supply these: the
+ * back arrow sat at a flat 20dp from the physical top of the display, under the status bar and
+ * under any cutout.
+ *
+ * Applying them on the `BoxWithConstraints` rather than inside each branch is what makes it
+ * impossible for the branches to disagree about the inset or to apply it twice - and it means
+ * `maxWidth`/`maxHeight` inside [content] are the space this screen actually owns, which is what the
+ * window class must be read from.
+ *
+ * [PartyLobbyBackdrop] stays *outside* it: the artwork is meant to run full-bleed behind the status
+ * bar. Only the content is inset.
+ */
 @Composable
-private fun PartyLobbyHeader(onBack: () -> Unit) {
+internal fun WatchPartyLobbyFrame(
+    poster: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxWithConstraintsScope.() -> Unit,
+) {
+    // Hosted outside a Surface, so LocalContentColor falls back to black. Without this the whole
+    // lobby - the invite code included - is black on a dark background.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        Box(modifier.fillMaxSize()) {
+            // The party is about one specific title, and this screen used to show a 92x132 poster on
+            // the settings-screen background. The art is most of what makes it a lobby, not a form.
+            PartyLobbyBackdrop(poster)
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                        ),
+                    ),
+                content = content,
+            )
+        }
+    }
+}
+
+/**
+ * Everything the lobby draws, already gathered.
+ *
+ * [WatchPartyLobbyScreen] reads the repositories and the sync singletons and folds them into this;
+ * [PartyLobbyContent] only lays it out. The split exists so a render harness can compose the real
+ * layout - every branch, under the real constraint stack - without a party, a socket or Supabase.
+ * Nothing in here decides anything about the party.
+ */
+internal data class PartyLobbyModel(
+    val party: WatchPartyState,
+    val viewerProfileId: String?,
+    val isHost: Boolean,
+    val presentation: PartyPresentationState,
+    val sync: WatchPartySyncState,
+    val inviteCode: String?,
+    val errorMessage: String?,
+    /** Already filtered to this party. */
+    val joinHandoff: PartyJoinHandoffInfo?,
+    val addonNotice: String?,
+    val hostSourceStaged: Boolean,
+    val hasSource: Boolean,
+    val sourceLabel: String?,
+    val waitForEveryone: Boolean,
+    val pauseForAwayUsers: Boolean,
+    val invitableFriends: List<SocialProfileSummary>,
+)
+
+/** The lobby's callbacks, exactly as the screen defines them. Layout only rearranges who calls them. */
+internal class PartyLobbyActions(
+    /** The header's back arrow, which asks the leave / end question rather than leaving. */
+    val onRequestDeparture: () -> Unit,
+    val onChoose: () -> Unit,
+    val onStart: () -> Unit,
+    val onLeave: () -> Unit,
+    val onInvite: (String) -> Unit,
+    val onControlMode: (WatchPartyControlMode) -> Unit,
+    val onWaitForEveryone: (Boolean) -> Unit,
+    val onPauseForAwayUsers: (Boolean) -> Unit,
+)
+
+/**
+ * The lobby, laid out for the window it was given.
+ *
+ * Four compositions, chosen from [nuvioWindowClass] rather than from a bare width:
+ *
+ * | Window | Composition |
+ * | --- | --- |
+ * | wide and not short (desktop) | two panes: the party, and the title rail |
+ * | phone-narrow (a portrait phone) | one dense scrolling column over a pinned action bar |
+ * | anything else (a tablet) | the original single column |
+ *
+ * ⚠ **The desktop and tablet branches are the code they were before the phone branches existed.**
+ * Both phone branches sit below them and are reached only by windows those two never took - a
+ * 1280dp desktop window cannot land in either - so the desktop rendering is unchanged by
+ * construction rather than by care.
+ *
+ * The one boundary that moved is 900dp: the old `wide` flag put an 891dp landscape phone and a
+ * 1000dp landscape tablet on opposite sides of a 9dp coin-flip despite their wildly different
+ * heights. Short windows are now caught before it is read.
+ */
+@Composable
+internal fun BoxWithConstraintsScope.PartyLobbyContent(
+    model: PartyLobbyModel,
+    actions: PartyLobbyActions,
+    titleRail: @Composable (PartyContent, Modifier) -> Unit = { content, railModifier ->
+        PartyTitleRail(content, railModifier)
+    },
+) {
+    val windowClass = nuvioWindowClass()
+    when {
+        windowClass.isTwoPaneSurface -> PartyLobbyTwoPane(model, actions, maxWidth, titleRail)
+        windowClass.isCompactWidth -> PartyLobbyPhonePortrait(model, actions)
+        else -> PartyLobbySingleColumn(model, actions, wide = maxWidth >= 900.dp)
+    }
+}
+
+@Composable
+private fun PartyLobbyTwoPane(
+    model: PartyLobbyModel,
+    actions: PartyLobbyActions,
+    maxWidth: Dp,
+    titleRail: @Composable (PartyContent, Modifier) -> Unit,
+) {
+    val party = model.party
+    // A centred `widthIn(max = 1040.dp)` column read as a document with a dead margin down either
+    // side of a desktop window, and still ran off the bottom. Given the width, the party takes the
+    // left and the title takes a rail on the right: the two panes meet, so none of the window is
+    // spent on margins, and nothing scrolls.
+    //
+    // A share of the window rather than a fixed rail: the left pane takes whatever is left, so the
+    // two panes always meet.
+    val railWidth = (maxWidth * 0.30f).coerceIn(400.dp, 560.dp)
+    Row(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.weight(1f).fillMaxHeight()
+                .padding(start = 40.dp, end = 24.dp, top = 20.dp)
+                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
+        ) {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                PartyLobbyHeader(actions.onRequestDeparture)
+                model.joinHandoff?.let { PartyJoinHero(it) }
+                model.errorMessage?.let { message ->
+                    PartyNotice(message, MaterialTheme.colorScheme.error)
+                }
+                PartyStatusBand(
+                    party = party,
+                    inviteCode = model.inviteCode,
+                    connection = model.presentation.connection,
+                    sync = model.sync,
+                    hostSourceStaged = model.hostSourceStaged,
+                )
+                PartyStageRail(party.effectiveStage())
+                model.addonNotice?.let { PartyNotice(it, PartyWorkingColor) }
+                PartyParticipants(
+                    party = party,
+                    viewerProfileId = model.viewerProfileId,
+                    presentation = model.presentation,
+                    invitableFriends = model.invitableFriends,
+                    onInvite = actions.onInvite,
+                )
+                if (model.isHost) {
+                    PartyHostSettings(
+                        controlMode = party.controlMode,
+                        onControlMode = actions.onControlMode,
+                        waitForEveryone = model.waitForEveryone,
+                        onWaitForEveryone = actions.onWaitForEveryone,
+                        pauseForAwayUsers = model.pauseForAwayUsers,
+                        onPauseForAwayUsers = actions.onPauseForAwayUsers,
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            PartyActionBar(
+                isHost = model.isHost,
+                hasSource = model.hasSource,
+                sourceLabel = model.sourceLabel,
+                onChoose = actions.onChoose,
+                onStart = actions.onStart,
+                onLeave = actions.onLeave,
+            )
+        }
+        titleRail(
+            party.content,
+            Modifier
+                .width(railWidth)
+                .fillMaxHeight()
+                .padding(end = 40.dp, top = 20.dp)
+                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
+        )
+    }
+}
+
+/** The tablet composition: one scrolling column, as every window used to get. */
+@Composable
+private fun PartyLobbySingleColumn(
+    model: PartyLobbyModel,
+    actions: PartyLobbyActions,
+    wide: Boolean,
+) {
+    val party = model.party
+    LazyColumn(
+        modifier = Modifier.fillMaxHeight().widthIn(max = 1040.dp),
+        // 88dp was a literal that cleared nothing in particular. There is no bottom nav on this
+        // route, so the overlay term is zero - but the system navigation bar is not, and this
+        // screen never asked for it.
+        contentPadding = PaddingValues(
+            start = 24.dp,
+            end = 24.dp,
+            top = 20.dp,
+            bottom = nuvioSafeBottomPadding(extra = 24.dp),
+        ),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item { PartyLobbyHeader(actions.onRequestDeparture) }
+        model.joinHandoff?.let { info -> item { PartyJoinHero(info) } }
+
+        model.errorMessage?.let { message ->
+            item { PartyNotice(message, MaterialTheme.colorScheme.error) }
+        }
+
+        item {
+            PartyHero(
+                party = party,
+                inviteCode = model.inviteCode,
+                connection = model.presentation.connection,
+                sync = model.sync,
+                wide = wide,
+                hostSourceStaged = model.hostSourceStaged,
+            )
+        }
+
+        item { PartyStageRail(party.effectiveStage()) }
+
+        model.addonNotice?.let { notice ->
+            item { PartyNotice(notice, PartyWorkingColor) }
+        }
+
+        item {
+            PartyParticipants(
+                party = party,
+                viewerProfileId = model.viewerProfileId,
+                presentation = model.presentation,
+                invitableFriends = model.invitableFriends,
+                onInvite = actions.onInvite,
+            )
+        }
+
+        if (model.isHost) {
+            item {
+                PartyHostSettings(
+                    controlMode = party.controlMode,
+                    onControlMode = actions.onControlMode,
+                    waitForEveryone = model.waitForEveryone,
+                    onWaitForEveryone = actions.onWaitForEveryone,
+                    pauseForAwayUsers = model.pauseForAwayUsers,
+                    onPauseForAwayUsers = actions.onPauseForAwayUsers,
+                )
+            }
+        }
+
+        item {
+            PartyActionBar(
+                isHost = model.isHost,
+                hasSource = model.hasSource,
+                sourceLabel = model.sourceLabel,
+                onChoose = actions.onChoose,
+                onStart = actions.onStart,
+                onLeave = actions.onLeave,
+            )
+        }
+    }
+}
+
+/**
+ * A portrait phone: one dense column that scrolls, over an action bar that does not.
+ *
+ * The tablet column at 411dp was ~1,100dp of desktop-scaled content: a 156dp poster, a full-width
+ * invite block inside the hero, a four-label stage rail with ~90dp per label, 156dp participant
+ * tiles two to a row, and Leave as the last item of the list - so on a phone you scrolled to leave.
+ * Every piece is still here and still does the same thing; it is arranged for the width.
+ *
+ * ⚠ **Fitting one screen is a target, not an invariant.** The ordinary party - a short title, two
+ * or three people, no notice - fits a 914dp screen. A long title, a large font scale, an expanded
+ * notice or a full roster scrolls, and nothing is shrunk, clipped or hidden to avoid it.
+ */
+@Composable
+private fun PartyLobbyPhonePortrait(model: PartyLobbyModel, actions: PartyLobbyActions) {
+    val party = model.party
+    Column(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item { PartyLobbyHeader(actions.onRequestDeparture, compact = true) }
+            model.joinHandoff?.let { info -> item { PartyJoinHero(info) } }
+            model.errorMessage?.let { message ->
+                item { PartyCompactNotice(message, MaterialTheme.colorScheme.error, collapsible = false) }
+            }
+            item {
+                PartyCompactHero(
+                    party = party,
+                    connection = model.presentation.connection,
+                    sync = model.sync,
+                    hostSourceStaged = model.hostSourceStaged,
+                )
+            }
+            model.addonNotice?.let { notice ->
+                item { PartyCompactNotice(notice, PartyWorkingColor, collapsible = true) }
+            }
+            model.inviteCode?.let { code -> item { PartyInviteCard(code) } }
+            item {
+                PartyParticipantRows(
+                    party = party,
+                    viewerProfileId = model.viewerProfileId,
+                    presentation = model.presentation,
+                    invitableFriends = model.invitableFriends,
+                    onInvite = actions.onInvite,
+                )
+            }
+            if (model.isHost) {
+                item {
+                    PartyHostSettingsCompact(
+                        controlMode = party.controlMode,
+                        onControlMode = actions.onControlMode,
+                        waitForEveryone = model.waitForEveryone,
+                        onWaitForEveryone = actions.onWaitForEveryone,
+                        pauseForAwayUsers = model.pauseForAwayUsers,
+                        onPauseForAwayUsers = actions.onPauseForAwayUsers,
+                    )
+                }
+            }
+        }
+        PartyPinnedActionBar(model, actions, landscape = false)
+    }
+}
+
+/**
+ * The poster, the title and the party's state in one card, at phone scale.
+ *
+ * The desktop hero's 104 x 156 poster competed with the backdrop that is already that poster, and
+ * cost ~70dp a phone does not have. The stage rail lives in here too, as a footer: it is the same
+ * question the headline answers - where the party has got to - so it belongs beside it.
+ */
+@Composable
+private fun PartyCompactHero(
+    party: WatchPartyState,
+    connection: PartyConnectionState,
+    sync: WatchPartySyncState,
+    hostSourceStaged: Boolean,
+    posterWidth: Dp = 64.dp,
+) {
+    PartyPanel(padding = 14.dp) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            party.content.poster?.let { poster ->
+                NuvioAsyncImage(
+                    model = poster,
+                    contentDescription = null,
+                    modifier = Modifier.width(posterWidth).aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(NuvioTokens.Radius.compactCard))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    party.content.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                party.content.episode?.let { episode ->
+                    Text(
+                        "S${party.content.season ?: 1} E$episode" +
+                            party.content.episodeTitle?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    party.stageHeadline(hostSourceStaged),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                PartySyncLine(connection, sync, party.members.size)
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth().padding(vertical = 2.dp).height(1.dp)
+                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+        )
+        PartyStageDots(party.effectiveStage())
+    }
+}
+
+/**
+ * [PartyStageRail] at phone width: four dots and connectors, and only the current step named.
+ *
+ * Four `weight(1f)` labels at ~90dp each were unreadable, and three of them are always either done
+ * or not yet meaningful. Same input, same colours, one ~20dp row.
+ */
+@Composable
+private fun PartyStageDots(stage: WatchPartyStage) {
+    val reached = stage.railIndex()
     Row(verticalAlignment = Alignment.CenterVertically) {
+        WatchPartyStageRail.forEachIndexed { index, _ ->
+            val done = index <= reached
+            val color by animateColorAsState(
+                // `outline` - the desktop rail's undone colour - vanishes on a phone card; the steps
+                // still to come have to be countable at a glance or the dots say nothing.
+                if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                label = "party-stage-dot-$index",
+            )
+            if (index > 0) {
+                Box(Modifier.width(14.dp).height(2.dp).clip(CircleShape).background(color))
+            }
+            Box(
+                Modifier.size(if (index == reached) 10.dp else 7.dp).clip(CircleShape).background(color),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            WatchPartyStageRail[reached.coerceIn(0, WatchPartyStageRail.lastIndex)].railLabel(),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+        Text(
+            "  ·  step ${reached + 1} of ${WatchPartyStageRail.size}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * The invite code as its own compact card, rather than as a full-width footer of the hero.
+ *
+ * Tap-to-copy and the 1.6s "Copied" state are [PartyInviteCode]'s, unchanged.
+ */
+@Composable
+private fun PartyInviteCard(code: String) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember(code) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_600)
+            copied = false
+        }
+    }
+    val accent = MaterialTheme.colorScheme.primary
+    // On a 320dp split screen the code and a labelled Copy pill do not fit together, and it is the
+    // pill's label that goes, never a character of the code: an ellipsized invite code is a wrong one.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val narrow = maxWidth < 340.dp
+        Surface(
+            modifier = Modifier.fillMaxWidth().clickable {
+                clipboard.setText(AnnotatedString(code))
+                copied = true
+            },
+            shape = RoundedCornerShape(NuvioTokens.Radius.xl),
+            color = accent.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, accent.copy(alpha = 0.45f)),
+        ) {
+            Row(
+                Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "INVITE CODE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.4.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        code,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = if (narrow) 1.sp else 2.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                Row(
+                    Modifier.clip(RoundedCornerShape(NuvioTokens.Radius.chip))
+                        .background(accent.copy(alpha = if (copied) 0.22f else 0.14f))
+                        .padding(horizontal = if (narrow) 10.dp else 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        contentDescription = if (copied) "Copied" else "Copy invite code",
+                        modifier = Modifier.size(16.dp),
+                        tint = if (copied) accent else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (!narrow) {
+                        Text(
+                            if (copied) "Copied" else "Copy",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (copied) accent else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * [PartyNotice] at phone density: an icon, one line, and a tap to read the rest.
+ *
+ * [collapsible] is for advice (the addon differences), which is worth a line until somebody asks.
+ * An error is never folded - it is the one thing on the screen that must be read in full.
+ */
+@Composable
+private fun PartyCompactNotice(message: String, accent: Color, collapsible: Boolean) {
+    var expanded by remember(message) { mutableStateOf(false) }
+    val folded = collapsible && !expanded
+    Surface(
+        modifier = Modifier.fillMaxWidth()
+            .then(if (collapsible) Modifier.clickable { expanded = !expanded } else Modifier),
+        shape = RoundedCornerShape(NuvioTokens.Radius.lg),
+        // Grounded on the card surface: a bare 12% tint over the poster backdrop left red text on
+        // pale grey, which is the one notice that must not be hard to read.
+        color = accent.copy(alpha = 0.14f).compositeOver(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = if (folded) Alignment.CenterVertically else Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                if (collapsible) Icons.Rounded.WarningAmber else Icons.Rounded.ErrorOutline,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = accent,
+            )
+            Text(
+                message,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = accent,
+                maxLines = if (folded) 1 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (collapsible) {
+                Icon(
+                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (expanded) "Show less" else "Show more",
+                    modifier = Modifier.size(18.dp),
+                    tint = accent,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The roster as rows, for a phone.
+ *
+ * A 156dp tile with a 46dp avatar spent ~120dp of height per two people and centred a long name
+ * under the avatar where it had the least room. A row gives the name the flexible middle, keeps the
+ * status pill at its natural width on the right, and holds eight people without a grid. The pill,
+ * the avatar, the working ring and the dimming are [PartyParticipantTile]'s, rearranged.
+ */
+@Composable
+private fun PartyParticipantRows(
+    party: WatchPartyState,
+    viewerProfileId: String?,
+    presentation: PartyPresentationState,
+    invitableFriends: List<SocialProfileSummary>,
+    onInvite: (String) -> Unit,
+) {
+    var inviting by remember { mutableStateOf(false) }
+    val canInvite = invitableFriends.isNotEmpty() && party.members.size < WatchPartyMaxParticipants
+    PartyPanel(padding = 14.dp, spacing = 4.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("People", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${party.members.size}/$WatchPartyMaxParticipants",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${party.readyCount()} of ${party.members.count { it.connected }} ready",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        party.members.forEach { member ->
+            PartyParticipantRow(
+                member = member,
+                isHost = member.profileId == party.hostProfileId,
+                viewerProfileId = viewerProfileId,
+                status = presentation.members.getValue(member.profileId),
+            )
+        }
+        if (canInvite) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(NuvioTokens.Radius.lg))
+                    .clickable { inviting = !inviting }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.size(32.dp).clip(CircleShape)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.PersonAdd,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Text(
+                    if (inviting) "Close" else "Invite a friend",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    if (inviting) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (inviting && canInvite) {
+            PartyInviteFriendChips(invitableFriends, onInvite)
+        }
+    }
+}
+
+@Composable
+private fun PartyParticipantRow(
+    member: WatchPartyParticipant,
+    isHost: Boolean,
+    viewerProfileId: String?,
+    status: PartyMemberPresentation,
+) {
+    val tone = status.tone
+    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away
+    val detail = when {
+        member.readyError != null -> member.readyError
+        !dimmed && member.sourceMatch == PartySourceMatch.alternate -> "different source"
+        else -> null
+    }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).alpha(if (dimmed) 0.55f else 1f).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+            if (tone == PartyReadyTone.Working || tone == PartyReadyTone.Buffering || tone == PartyReadyTone.Reconnecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(38.dp),
+                    color = PartyWorkingColor,
+                    strokeWidth = 2.dp,
+                    trackColor = Color.Transparent,
+                )
+            }
+            PartyAvatar(
+                name = member.displayName(viewerProfileId),
+                avatarUrl = member.profile?.avatarUrl,
+                colorHex = member.profile?.avatarColorHex,
+                size = 32.dp,
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    member.displayName(viewerProfileId),
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (isHost) PartyHostChip()
+            }
+            detail?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (member.readyError != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(Modifier.widthIn(max = 150.dp)) { PartyStatusPill(tone, status.label) }
+    }
+}
+
+@Composable
+private fun PartyHostChip() {
+    Row(
+        Modifier.clip(RoundedCornerShape(NuvioTokens.Radius.chip))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            Icons.Rounded.Star,
+            contentDescription = null,
+            modifier = Modifier.size(11.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            "Host",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * [PartyHostSettings] at phone width: each switch beside its own explaining line.
+ *
+ * Same three controls, same callbacks. The desktop form puts the switch on the chips' line and its
+ * sentence underneath both, which on a phone left the switch a line away from what it explains.
+ */
+@Composable
+private fun PartyHostSettingsCompact(
+    controlMode: WatchPartyControlMode,
+    onControlMode: (WatchPartyControlMode) -> Unit,
+    waitForEveryone: Boolean,
+    onWaitForEveryone: (Boolean) -> Unit,
+    pauseForAwayUsers: Boolean,
+    onPauseForAwayUsers: (Boolean) -> Unit,
+) {
+    PartyPanel(padding = 14.dp, spacing = 10.dp) {
+        Text(
+            "HOST SETTINGS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.4.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            FilterChip(
+                selected = controlMode == WatchPartyControlMode.host_only,
+                onClick = { onControlMode(WatchPartyControlMode.host_only) },
+                label = { Text("Host controls") },
+            )
+            FilterChip(
+                selected = controlMode == WatchPartyControlMode.collaborative,
+                onClick = { onControlMode(WatchPartyControlMode.collaborative) },
+                label = { Text("Collaborative") },
+            )
+        }
+        PartySwitchRow(
+            label = "Wait for everyone",
+            explanation = if (waitForEveryone) {
+                "Playback pauses for anyone whose stream stalls, and starts again together."
+            } else {
+                "Playback carries on when someone's stream stalls; they catch up on their own."
+            },
+            checked = waitForEveryone,
+            onCheckedChange = onWaitForEveryone,
+        )
+        PartySwitchRow(
+            label = "Pause for away users",
+            explanation = if (pauseForAwayUsers) {
+                "Playback waits while someone has the app in the background, and starts again together."
+            } else {
+                "Playback carries on when someone steps away; they catch up when they come back."
+            },
+            checked = pauseForAwayUsers,
+            onCheckedChange = onPauseForAwayUsers,
+        )
+    }
+}
+
+@Composable
+private fun PartySwitchRow(
+    label: String,
+    explanation: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                explanation,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * [PartyActionBar]'s buttons, pinned under a phone layout instead of scrolled to.
+ *
+ * Same three callbacks and the same host sentence. "Change source" moves beside that sentence as a
+ * text button - it is a correction to the source the sentence names, not a third peer of Start and
+ * Leave - which is what lets the two buttons that matter sit on one line at 360dp.
+ */
+@Composable
+private fun PartyPinnedActionBar(model: PartyLobbyModel, actions: PartyLobbyActions, landscape: Boolean) {
+    val caption = when {
+        !model.isHost -> "The host starts playback for everyone."
+        !model.hasSource -> stringResource(Res.string.watch_party_source_explanation)
+        model.sourceLabel != null -> "${model.sourceLabel} - nobody leaves the lobby until you press Start."
+        else -> "Source ready - nobody leaves the lobby until you press Start."
+    }
+    val changeSource: @Composable () -> Unit = {
+        if (model.isHost && model.hasSource) {
+            TextButton(onClick = actions.onChoose, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Text(stringResource(Res.string.watch_party_resolve_source), maxLines = 1, softWrap = false)
+            }
+        }
+    }
+    val leave: @Composable () -> Unit = {
+        OutlinedButton(onClick = actions.onLeave) {
+            Text(if (model.isHost) "End session" else "Leave", maxLines = 1, softWrap = false)
+        }
+    }
+    val primary: @Composable (Modifier) -> Unit = { buttonModifier ->
+        if (model.isHost) {
+            Button(
+                onClick = if (model.hasSource) actions.onStart else actions.onChoose,
+                modifier = buttonModifier,
+            ) {
+                Text(
+                    if (model.hasSource) "Start watching" else stringResource(Res.string.watch_party_choose_source),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+    val hairline = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+    val captionText: @Composable (Modifier) -> Unit = { textModifier ->
+        Text(
+            caption,
+            modifier = textModifier,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    Column(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
+            .drawBehind {
+                drawLine(
+                    color = hairline,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp)
+            .padding(bottom = nuvioSafeBottomPadding(extra = 10.dp)),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (landscape) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                captionText(Modifier.weight(1f))
+                changeSource()
+                leave()
+                primary(Modifier)
+            }
+        } else if (model.isHost) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                captionText(Modifier.weight(1f))
+                changeSource()
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                leave()
+                primary(Modifier.weight(1f))
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                captionText(Modifier.weight(1f))
+                leave()
+            }
+        }
+    }
+}
+
+@Composable
+private fun PartyInviteFriendChips(invitableFriends: List<SocialProfileSummary>, onInvite: (String) -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        invitableFriends.forEach { friend ->
+            Surface(
+                modifier = Modifier.clickable { onInvite(friend.profileId) },
+                shape = RoundedCornerShape(NuvioTokens.Radius.chip),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Row(
+                    Modifier.padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PartyAvatar(
+                        name = friend.displayName,
+                        avatarUrl = friend.avatarUrl,
+                        colorHex = friend.avatarColorHex,
+                        size = 26.dp,
+                    )
+                    Text(friend.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PartyLobbyHeader(onBack: () -> Unit, compact: Boolean = false) {
+    Row(
+        // A phone spends its 48dp touch target on the arrow and nothing else: the title starts where
+        // the arrow's own padding ends, flush with the cards below rather than 24dp inside them.
+        modifier = if (compact) Modifier.offset(x = (-12).dp) else Modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(if (compact) 0.dp else 4.dp))
         Text(
             stringResource(Res.string.watch_party_title),
-            style = MaterialTheme.typography.headlineSmall,
+            style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1139,32 +1958,7 @@ private fun PartyParticipants(
         }
         if (inviting && invitableFriends.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                invitableFriends.forEach { friend ->
-                    Surface(
-                        modifier = Modifier.clickable { onInvite(friend.profileId) },
-                        shape = RoundedCornerShape(NuvioTokens.Radius.chip),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                    ) {
-                        Row(
-                            Modifier.padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            PartyAvatar(
-                                name = friend.displayName,
-                                avatarUrl = friend.avatarUrl,
-                                colorHex = friend.avatarColorHex,
-                                size = 26.dp,
-                            )
-                            Text(friend.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                        }
-                    }
-                }
-            }
+            PartyInviteFriendChips(invitableFriends, onInvite)
         }
     }
 }
@@ -1605,13 +2399,17 @@ private fun LeadingBesideTrailingRow(
     }
 }
 
-@Composable private fun PartyPanel(content: @Composable ColumnScope.() -> Unit) {
+@Composable private fun PartyPanel(
+    padding: Dp = 18.dp,
+    spacing: Dp = 8.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NuvioTokens.Radius.card),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
     }
 }
 
