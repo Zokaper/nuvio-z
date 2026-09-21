@@ -8,7 +8,8 @@ Last updated: 2026-09-21
 **The third attempt at this, and the first with evidence instead of a theory.** `z1.38` and `z1.39`
 each fixed a real defect in this path and neither fixed the bug, because both were reasoned from
 the code rather than from the device. This one was diagnosed on a live S25 over adb and then
-verified on it.
+verified on it. Cut as Android **`0.4.13-z1.40`** (versionCode 125040) against desktop
+**`z6.61`** (MSI ProductVersion 1.45.61) - debug channel only, stable untouched.
 
 ### What the device actually said
 
