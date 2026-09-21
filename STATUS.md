@@ -3,6 +3,78 @@
 
 Last updated: 2026-09-21
 
+## Phase 6 closeout: DONE WITH NON-BLOCKING QA DEBT (2026-09-21)
+
+**Phase 6 (Social + Watch Together to mobile) is closed.** The mobile responsive/UI pass was
+physically tested on the S25 and accepted by the maintainer. Together with the Android↔desktop
+hardware runs of 2026-09-20/21, that meets the Android gate, with the lifecycle rows below carried
+as debt by the maintainer's call. Ledger: `Docs/Z-FEATURES.md` revision 11. Roadmap and plan
+ledger updated. **No code changed in the closeout.**
+
+### Deliverables
+
+| Deliverable | State |
+| --- | --- |
+| A - shared-code inventory | complete (`Docs/PHASE-6-CONVERGENCE-INVENTORY.md`) |
+| B - mobile repointed to the Z backend | complete; the formal `/security-review` was never recorded. A light pass at closeout found no secrets in the tree, and the Z session stays memory-only and derived from the official one. The formal review moves to Phase 7's backend `/security-review` |
+| C - Social runtime on mobile | complete, on hardware (S25) |
+| D - shared Watch Together core | complete (the convergence merge) |
+| E - mobile player contract | Android complete (`samplePositionMs`, `seekToExact`, `engineReadiness` on media3 and libmpv). iOS: `seekToExact` done, `engineReadiness` not reported (falls back to buffered-ahead) - Phase 8 |
+| F - Android Watch Together | complete; background behaviour decided and built as Away (S10), verified in `z1.40` |
+| G - iOS Watch Together | builds in CI (green through `9f8e93e56`); `NowPlayingController.swift` still bypasses the party transport - Phase 8 |
+| H - phone UI | complete, accepted on the S25 |
+| I - cross-platform matrix | partial, closed as QA debt (below) |
+| Backend drift | resolved in `nuvio-z-backend` `62673cf`/`cc81430` (only the enum ordinal order of `watch_party_ready_state` differs, deliberately) |
+
+### Desktop -> mobile parity audit
+
+Method: `scripts/shared-code-drift.sh desktop/claude/mobile-ui-responsive-pass --expected`, every
+differing `commonMain` file read line by line, then every desktop commit since 2026-09-10 not
+mirrored on mobile checked for what it touched. **No desktop feature is missing on mobile.** Of the
+26 differing `commonMain` files, all are mobile ahead (the phone surfaces, `PlayerExternalTransport`,
+the notification-by-id fix, `socialRuntimeProfileId`, `MemorySessionManager`,
+`playerMayOfferSourceList`, updater channel refactor, the details menu) or a platform adaptation
+(desktop's `onPointerEvent` / mouse back-button code behind `platformPointer*` expect/actuals,
+`atomicfu` instead of `@Volatile`/`System.nanoTime`). Desktop's `androidMain` copy is stale by design:
+desktop has no Android target.
+
+| Area | Result |
+| --- | --- |
+| Playback: shared state, modes, source selection/realization/switching, loading surface, failure chain, watchdog, next episode (P12), language decision (S14-S16), resume | shared, identical `commonMain`, exercised by Android |
+| Playback: engine contract | Android implements the full contract incl. engine-native readiness; iOS partial (above) |
+| Playback: premature end-of-stream guard (P18), mpv readiness bridge, native player handoff, Next Episode button (P11), wide quality columns (P17) | desktop/mpv only by design; Android has its own ExoPlayer/libmpv equivalents where needed |
+| Downloads | shared queue/state/presets/ranking; Android has its own downloader and stall watchdog (D11); the desktop E2E harness (D15) is desktop infrastructure; iOS notification hook is the known D12 gap |
+| Social | same shared implementation, on hardware (S25) |
+| Watch Together | same shared implementation; Android↔desktop on hardware both directions; mobile owns its lobby, room rail, status pill and route |
+| Onboarding / settings | the same wizard (revision 9, Sources step included), Social opt-in and ordered shutdown (W8/W9) shared and wired through `MainAppContent`. **Gap:** the ledger said iOS adapts the Sources step out (W10); it does not - `setupWizardSteps` keeps it everywhere. Phase 8 |
+| Metadata / UI | shared (logos, loading surface, cards, window classes); the details screen is a deliberate `MetaDetailsScreen` divergence |
+| Updater | mobile ahead (pure `isChannelEligible`); desktop's MSI install path is desktop-only |
+
+**Reverse drift (mobile -> desktop), not fixed:** desktop's in-player social card still acts on the
+*first* unread notification with actions, while the card itself skips join requests - so with a
+join request pending, Accept on a friend request's card would let the requester into the party.
+Mobile fixed this (by notification id, `inPlayerSocialCardNotification`). Desktop is closed for
+feature work; this is a small bug fix for the next desktop touch.
+
+### QA debt carried out of Phase 6
+
+- Android↔Android party (S20+/S25+); doze after 10+ minutes; an incoming call; Wi-Fi↔cellular handover.
+- Natural source-failure paths: host failover, guest compatible and incompatible fallback.
+- iOS: all physical verification; the two adapter items above; W10's iOS Sources step.
+- Join-request "Let in" hidden while the player chrome is hidden; a solo party's pill reading
+  "Reconnecting to the party..." while polling carries it.
+
+### Verification at closeout
+
+- mobile pure suites: 8 / 8 groups, 788 tests, OK
+- mobile `:composeApp:testAndroidHostTest --rerun`, results dir cleared first: **2278 / 0 failures**
+- mobile `:androidApp:assembleFullDebug`: BUILD SUCCESSFUL (`0.4.13-z1.40`, unchanged)
+- desktop `:composeApp:desktopTest`: **2425 / 0 failures**, BUILD SUCCESSFUL
+- shared-code drift vs `desktop/claude/mobile-ui-responsive-pass`: 68 differing files, all read; none is a desktop change mobile lacks
+- iOS: CI `iOS build` green through `9f8e93e56` (run 35584618532). The 19 local commits after it are unpushed and have not been through iOS CI
+
+Next: **Phase 7 - identity and release engineering** (`ROADMAP.md`). Not started.
+
 ## Details: Watch Together folded into the three-dot menu (2026-09-21)
 
 The phone details screen still carried the old standalone "Watch Together" button above the
