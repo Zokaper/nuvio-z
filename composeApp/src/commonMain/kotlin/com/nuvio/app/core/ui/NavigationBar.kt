@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,21 +37,77 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.AppScreenTab
+import com.nuvio.app.features.settings.NavBarStyle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 
 /**
- * Scroll-aware state for the floating navigation bar.
- * Tracks scroll direction and exposes a label visibility fraction (1 = fully visible, 0 = hidden).
+ * How much vertical room the floating navigation bar actually occupies, reported by the bar.
+ *
+ * WARN **This exists so there is exactly one answer, and it is a measurement rather than a guess.**
+ * `LocalNuvioBottomNavigationOverlayPadding` used to be the literal `72.dp`, written in
+ * `MainTabsDestination` and hand-tuned to approximate a height computed in *this* file out of an
+ * icon size, two paddings, a spacer and a label box. The bar is 62dp tall with its labels collapsed
+ * and 79dp with them shown, so the constant was seven short at rest and wrong throughout the
+ * animation - which is why content ended up under the bar in its expanded state.
+ *
+ * A second formula here - `lerp(62.dp, 79.dp, labelFraction)` - would have been a third copy of the
+ * same number and the same class of bug. The bar measures itself instead.
+ *
+ * The value published is the height **above the navigation-bar inset**, because
+ * [nuvioSafeBottomPadding] adds that inset itself; publishing the total would count it twice.
  */
-import com.nuvio.app.AppScreenTab
-import com.nuvio.app.features.settings.NavBarStyle
+@Stable
+class NuvioNavBarHeightState {
+    /**
+     * The **greatest** height the bar has occupied at its current width, not its height right now.
+     *
+     * Two reasons it is a maximum rather than the live value, and the second is the important one:
+     *
+     * 1. `LocalNuvioBottomNavigationOverlayPadding` is a *static* composition local, so every
+     *    change invalidates the whole tab subtree that reads it. Publishing a value that animates
+     *    would recompose every screen on every frame of a label collapse, to move a list's bottom
+     *    padding by 17dp.
+     * 2. A reserve that animates makes the end of a list move while the user is scrolling it - the
+     *    content shifts under the finger that is dragging it. A slightly generous but *fixed*
+     *    reserve is what "content must not disappear behind the bar" actually asks for.
+     *
+     * It resets when the bar's width changes, so a rotation or a window resize re-measures rather
+     * than keeping a maximum that belonged to a different layout.
+     */
+    var overlayHeight: Dp by mutableStateOf(NuvioNavBarOverlayHeightFallback)
+        private set
+
+    private var measuredAtWidth: Dp = Dp.Unspecified
+
+    internal fun report(height: Dp, barWidth: Dp) {
+        if (barWidth != measuredAtWidth) {
+            measuredAtWidth = barWidth
+            overlayHeight = height
+        } else if (height > overlayHeight) {
+            overlayHeight = height
+        }
+    }
+}
+
+/**
+ * What [NuvioNavBarHeightState] reports before the bar has been measured, i.e. for one frame.
+ *
+ * The old hand-tuned constant, kept for exactly this job: a first frame that reserved nothing would
+ * lay every screen out too tall and then snap.
+ */
+val NuvioNavBarOverlayHeightFallback = 72.dp
 
 @Stable
 class NuvioNavBarScrollState {
@@ -140,6 +199,8 @@ fun NuvioNavigationBar(
     scrollState: NuvioNavBarScrollState? = null,
     hazeState: HazeState? = null,
     navBarStyle: NavBarStyle = NavBarStyle.ADAPTIVE,
+    /** Receives this bar's measured occupied height. See [NuvioNavBarHeightState]. */
+    heightState: NuvioNavBarHeightState? = null,
     content: @Composable NuvioNavigationBarScope.() -> Unit,
 ) {
     val targetLabelFraction = when (navBarStyle) {
@@ -158,19 +219,54 @@ fun NuvioNavigationBar(
 
     val navigationBarInsets = nuvioBottomNavigationBarInsets()
     val bottomSafePadding = navigationBarInsets.asPaddingValues().calculateBottomPadding()
+    val density = LocalDensity.current
 
-    // Dynamic horizontal padding: pill shrinks when labels are hidden — driven by same labelFraction
-    val expandedHorizontalPadding = 28.dp
-    val collapsedHorizontalPadding = 58.dp
-    val horizontalPadding = expandedHorizontalPadding + (collapsedHorizontalPadding - expandedHorizontalPadding) * (1f - labelFraction)
-
-    // Outer container — no background, just safe padding
-    Box(
+    // Outer container - no background, just safe padding.
+    //
+    // `BoxWithConstraints` because the pill's horizontal padding and its labels both depend on how
+    // much width there is, and the bar is the only thing that knows its own width.
+    BoxWithConstraints(
         modifier = modifier
+            // WARN **Outermost, so this is the full occupied height including the padding below.**
+            // An `onSizeChanged` placed after `padding(...)` reports the inner size and would
+            // under-report the bar by the height of its own margin.
+            .onSizeChanged { size ->
+                with(density) {
+                    heightState?.report(
+                        height = size.height.toDp() - bottomSafePadding,
+                        barWidth = size.width.toDp(),
+                    )
+                }
+            }
             .fillMaxWidth()
             .padding(bottom = bottomSafePadding + nuvioBottomNavigationExtraVerticalPadding + NuvioTokens.Space.s8),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        // WARN **A label that cannot fit its cell demotes every label, rather than being cut.**
+        //
+        // Six tabs across a 411dp phone leave about 55dp per cell, and "Download" and "Settings"
+        // measure wider than that. The label `Text` was unconstrained inside a `Box` that set only
+        // a height, so it overflowed its cell and was then cut by the neighbouring item's clip -
+        // which is how the bar came to read ")ownload" on a real phone.
+        //
+        // Keyed on `maxWidth` so rotating or resizing re-asks the question; without that key a bar
+        // that demoted once at 320dp would stay iconic forever. There is no oscillation, because a
+        // demoted bar draws no labels and therefore reports no further overflow.
+        var labelsDoNotFit by remember(maxWidth) { mutableStateOf(false) }
+        val effectiveLabelFraction = if (labelsDoNotFit) 0f else labelFraction
+
+        // Dynamic horizontal padding: the pill shrinks when labels are hidden, on the same fraction.
+        //
+        // 28dp was a desktop-ish number a phone cannot afford: on a compact window it is worth
+        // about 32dp of label width per cell, which is the difference between "Download" fitting
+        // and not.
+        val expandedHorizontalPadding =
+            if (maxWidth.value < NuvioWindowBreakpoints.MEDIUM_WIDTH_DP) 12.dp else 28.dp
+        val collapsedHorizontalPadding = 58.dp
+        val horizontalPadding = expandedHorizontalPadding +
+            (collapsedHorizontalPadding - expandedHorizontalPadding) * (1f - effectiveLabelFraction)
+
+
         // The floating pill
         val pillModifier = Modifier
             .padding(horizontal = horizontalPadding)
@@ -200,7 +296,8 @@ fun NuvioNavigationBar(
             ) {
                 NuvioNavigationBarScopeImpl(
                     rowScope = this,
-                    labelFraction = labelFraction,
+                    labelFraction = effectiveLabelFraction,
+                    onLabelDidNotFit = { labelsDoNotFit = true },
                 ).content()
             }
         }
@@ -241,6 +338,7 @@ interface NuvioNavigationBarScope {
 private class NuvioNavigationBarScopeImpl(
     private val rowScope: androidx.compose.foundation.layout.RowScope,
     private val labelFraction: Float,
+    private val onLabelDidNotFit: () -> Unit,
 ) : NuvioNavigationBarScope {
 
     @Composable
@@ -288,7 +386,13 @@ private class NuvioNavigationBarScopeImpl(
                     contentDescription = contentDescription,
                     tint = if (selected) Color.White else iconColor,
                 )
-                NavItemLabel(label = label, labelFraction = labelFraction, iconColor = iconColor, selected = selected)
+                NavItemLabel(
+                    label = label,
+                    labelFraction = labelFraction,
+                    iconColor = iconColor,
+                    selected = selected,
+                    onDidNotFit = onLabelDidNotFit,
+                )
             }
         }
     }
@@ -337,7 +441,13 @@ private class NuvioNavigationBarScopeImpl(
                     contentDescription = contentDescription,
                     tint = if (selected) Color.White else iconColor,
                 )
-                NavItemLabel(label = label, labelFraction = labelFraction, iconColor = iconColor, selected = selected)
+                NavItemLabel(
+                    label = label,
+                    labelFraction = labelFraction,
+                    iconColor = iconColor,
+                    selected = selected,
+                    onDidNotFit = onLabelDidNotFit,
+                )
             }
         }
     }
@@ -377,7 +487,13 @@ private class NuvioNavigationBarScopeImpl(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 content()
-                NavItemLabel(label = label, labelFraction = labelFraction, iconColor = iconColor, selected = selected)
+                NavItemLabel(
+                    label = label,
+                    labelFraction = labelFraction,
+                    iconColor = iconColor,
+                    selected = selected,
+                    onDidNotFit = onLabelDidNotFit,
+                )
             }
         }
     }
@@ -389,13 +505,22 @@ private fun NavItemLabel(
     labelFraction: Float,
     iconColor: Color,
     selected: Boolean,
+    onDidNotFit: () -> Unit,
 ) {
     if (label == null || labelFraction <= 0f) return
     Spacer(modifier = Modifier.height(NuvioTokens.Space.s3 * labelFraction))
     Box(
         modifier = Modifier
+            // WARN **`fillMaxWidth` is the fix for ")ownload".** The parent item is `weight(1f)`,
+            // so the cell is already the right size; this `Box` set a height and left the width
+            // unbounded, which let the `Text` measure at its intrinsic width, spill into the
+            // neighbouring cells and get cut by their clip. Constrained here it can only ellipsize
+            // - and it reports when it has to, so the bar can drop labels entirely rather than
+            // show half a word.
+            .fillMaxWidth()
             .height(NuvioTokens.Space.s14 * labelFraction)
             .alpha(labelFraction),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
@@ -406,7 +531,10 @@ private fun NavItemLabel(
             ),
             color = iconColor,
             maxLines = 1,
-            overflow = TextOverflow.Clip,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { result -> if (result.hasVisualOverflow) onDidNotFit() },
         )
     }
 }

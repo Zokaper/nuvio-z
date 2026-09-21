@@ -36,30 +36,31 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
+import com.nuvio.app.core.ui.NuvioNavBarHeightState
 import com.nuvio.app.core.ui.NuvioNavigationBar
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvioBlockPointerEvents
 import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
-import com.nuvio.app.core.build.AppFeaturePolicy
-import com.nuvio.app.features.social.rememberSocialEnabled
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.profiles.NuvioProfile
 import com.nuvio.app.features.profiles.ProfileSwitcherTab
 import com.nuvio.app.features.settings.DesktopNavigationLayout
 import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.features.settings.ThemeSettingsRepository
+import com.nuvio.app.features.social.rememberSocialEnabled
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_downloads
+import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
 import nuvio.composeapp.generated.resources.compose_nav_search
-import nuvio.composeapp.generated.resources.compose_nav_social
 import nuvio.composeapp.generated.resources.compose_nav_settings
+import nuvio.composeapp.generated.resources.compose_nav_social
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.sidebar_search
 import org.jetbrains.compose.resources.stringResource
@@ -110,6 +111,11 @@ internal fun MainTabsDestination(
             navBarScrollState.switchToTab(selectedTab)
         }
         val navBarHazeState = rememberHazeState()
+
+        // The floating pill reports its own occupied height into this, and
+        // `LocalNuvioBottomNavigationOverlayPadding` below publishes it. See
+        // [NuvioNavBarHeightState] for why this is measured rather than written down.
+        val navBarHeightState = remember { NuvioNavBarHeightState() }
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
         val homeCatalogSettingsUiState by remember { HomeCatalogSettingsRepository.uiState }.collectAsStateWithLifecycle()
 
@@ -211,7 +217,23 @@ internal fun MainTabsDestination(
                     navBarStyleSetting == NavBarStyle.ADAPTIVE
                 }
                 CompositionLocalProvider(
-                    LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) 49.dp else if (!isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC) 72.dp else 0.dp,
+                    // WARN **The floating pill's reserve is measured, not written down.**
+                    //
+                    // This was `72.dp`: a hand-tuned approximation of a height computed in
+                    // `NavigationBar.kt` from an icon size, two paddings, a spacer and a label box.
+                    // The bar is 62dp collapsed and 79dp expanded, so the literal was seven short
+                    // at rest and wrong for the whole of the adaptive animation - which is how the
+                    // Social tab's "Friends" heading ended up behind it.
+                    //
+                    // Native tabs and the classic bar keep literals on purpose: the first is the
+                    // platform's own bar, which we do not measure, and the second is a real
+                    // `Scaffold.bottomBar` whose height already arrives through `innerPadding`.
+                    LocalNuvioBottomNavigationOverlayPadding provides when {
+                        useNativeBottomTabs -> 49.dp
+                        !isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC ->
+                            navBarHeightState.overlayHeight
+                        else -> 0.dp
+                    },
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                 ) {
                     AppTabHost(
@@ -266,6 +288,7 @@ internal fun MainTabsDestination(
                         scrollState = navBarScrollState,
                         hazeState = navBarHazeState,
                         navBarStyle = navBarStyleSetting,
+                        heightState = navBarHeightState,
                     ) {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,
