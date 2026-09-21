@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -259,6 +260,133 @@ fun SocialScreen(
         scrollToTopRequests.collect { listState.animateScrollToItem(0) }
     }
 
+    SocialFeed(
+        model = SocialFeedModel(
+            state = state,
+            handle = handle,
+            handleMessage = handleMessage,
+            search = search,
+            searchResults = searchResults,
+            feedback = feedback,
+            isSearching = isSearching,
+            partyCode = partyCode,
+            shareWatching = shareWatching,
+            shareRecent = shareRecent,
+            defaultJoinPolicy = defaultJoinPolicy,
+            activityGroups = activityGroups,
+            activityBuckets = activityBuckets,
+            activityNowMs = activityNowMs,
+            joinAffordance = { watching ->
+                if (state.capabilities.watchPartyEnabled) {
+                    watchingNowJoinAffordance(watching, outgoingRequest, heldParty)
+                } else {
+                    WatchingNowJoinAffordance.None
+                }
+            },
+        ),
+        actions = SocialFeedActions(
+            onRefresh = { scope.launch { SocialRepository.refresh() } },
+            onHandleChange = { handle = normalizeSocialHandle(it).take(24) },
+            onSaveHandle = {
+                scope.launch {
+                    // The result was discarded here, so a handle that never saved looked exactly
+                    // like one that did - which is how an empty database went unnoticed while the
+                    // screen appeared to work.
+                    SocialRepository.setupHandle(handle)
+                        .onFailure { error -> handleMessage = error.message ?: "Could not save that handle" }
+                        .onSuccess { handleMessage = null }
+                }
+            },
+            onPartyCodeChange = { partyCode = it.trim().uppercase().take(32) },
+            onJoinParty = { onJoinParty(partyCode) },
+            onRespondRequest = { id, accept -> scope.launch { SocialRepository.respondFriendRequest(id, accept) } },
+            onJoinInvitedParty = onJoinInvitedParty,
+            onNotificationAction = onNotificationAction,
+            onOpenContent = onOpenContent,
+            onStartParty = onStartParty,
+            onCancelJoinRequest = onCancelJoinRequest,
+            onSearchChange = { search = normalizeSocialHandle(it).take(24) },
+            onRunSearch = runSearch,
+            onSendRequest = sendFriendRequest,
+            onRemoveFriend = { id -> scope.launch { SocialRepository.removeFriend(id) } },
+            onSelectFriend = SocialRepository::selectFriend,
+            onShareWatching = {
+                shareWatching = it
+                scope.launch { SocialRepository.setPrivacy(shareWatching, shareRecent) }
+            },
+            onShareRecent = {
+                shareRecent = it
+                scope.launch { SocialRepository.setPrivacy(shareWatching, shareRecent) }
+            },
+            onDefaultJoinPolicy = { policy ->
+                defaultJoinPolicy = policy
+                scope.launch { SocialRepository.setDefaultJoinPolicy(policy) }
+            },
+        ),
+        listState = listState,
+        topChromePadding = topChromePadding,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Everything the Social tab draws, already gathered.
+ *
+ * [SocialScreen] reads the repositories and owns every piece of remembered state; [SocialFeed]
+ * only lays it out. The split exists so the render harness composes the real layout - the real
+ * `BoxWithConstraints`, the real metrics call, the real list - instead of a hand-built replica that
+ * silently stops describing the screen the first time the screen changes.
+ */
+internal data class SocialFeedModel(
+    val state: SocialUiState,
+    val handle: String = "",
+    val handleMessage: String? = null,
+    val search: String = "",
+    val searchResults: List<SocialProfileSummary> = emptyList(),
+    val feedback: SocialFeedback? = null,
+    val isSearching: Boolean = false,
+    val partyCode: String = "",
+    val shareWatching: Boolean = true,
+    val shareRecent: Boolean = true,
+    val defaultJoinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
+    val activityGroups: List<FriendActivityGroup> = emptyList(),
+    val activityBuckets: List<Pair<FriendActivityBucket, List<FriendActivityGroup>>> = emptyList(),
+    val activityNowMs: Long = 0L,
+    val joinAffordance: (WatchingNowItem) -> WatchingNowJoinAffordance = { WatchingNowJoinAffordance.None },
+)
+
+/** The Social tab's callbacks, exactly as [SocialScreen] defines them. */
+internal class SocialFeedActions(
+    val onRefresh: () -> Unit = {},
+    val onHandleChange: (String) -> Unit = {},
+    val onSaveHandle: () -> Unit = {},
+    val onPartyCodeChange: (String) -> Unit = {},
+    val onJoinParty: () -> Unit = {},
+    val onRespondRequest: (String, Boolean) -> Unit = { _, _ -> },
+    val onJoinInvitedParty: (String) -> Unit = {},
+    val onNotificationAction: (SocialNotification, SocialNotificationAction) -> Unit = { _, _ -> },
+    val onOpenContent: (contentType: String, contentId: String, title: String) -> Unit = { _, _, _ -> },
+    val onStartParty: (WatchingNowItem) -> Unit = {},
+    val onCancelJoinRequest: () -> Unit = {},
+    val onSearchChange: (String) -> Unit = {},
+    val onRunSearch: () -> Unit = {},
+    val onSendRequest: (SocialProfileSummary) -> Unit = {},
+    val onRemoveFriend: (String) -> Unit = {},
+    val onSelectFriend: (String?) -> Unit = {},
+    val onShareWatching: (Boolean) -> Unit = {},
+    val onShareRecent: (Boolean) -> Unit = {},
+    val onDefaultJoinPolicy: (WatchJoinPolicy) -> Unit = {},
+)
+
+@Composable
+internal fun SocialFeed(
+    model: SocialFeedModel,
+    actions: SocialFeedActions,
+    listState: LazyListState,
+    topChromePadding: Dp? = null,
+    modifier: Modifier = Modifier,
+) {
+    val state = model.state
     // Screens here are hosted directly rather than inside a Surface, so LocalContentColor falls back
     // to black - the app's other screens compensate by naming a colour at every call site. The port
     // from mobile did not, which left every bare Text and Icon black on the dark background: the
@@ -289,6 +417,27 @@ fun SocialScreen(
             val railVisible = wideDashboard && state.capabilities.socialEnabled && !state.needsHandleSetup
             val feed = socialFeedMetrics(maxWidth, railVisible)
 
+            val friendsPanel: @Composable () -> Unit = {
+                SocialFriendsPanel(
+                    state = state,
+                    search = model.search,
+                    onSearchChange = actions.onSearchChange,
+                    onRunSearch = actions.onRunSearch,
+                    isSearching = model.isSearching,
+                    feedback = model.feedback,
+                    searchResults = model.searchResults,
+                    onSendRequest = actions.onSendRequest,
+                    onRemoveFriend = actions.onRemoveFriend,
+                    onSelectFriend = actions.onSelectFriend,
+                    shareWatching = model.shareWatching,
+                    shareRecent = model.shareRecent,
+                    defaultJoinPolicy = model.defaultJoinPolicy,
+                    onShareWatching = actions.onShareWatching,
+                    onShareRecent = actions.onShareRecent,
+                    onDefaultJoinPolicy = actions.onDefaultJoinPolicy,
+                )
+            }
+
             // ⚠ `fillMaxSize()` here, and the cap below it never applied: filling sets the minimum
             // width to the parent's, which `widthIn(max = …)` cannot then go under. So the dashboard
             // ran edge to edge on a wide monitor while [socialFeedMetrics] divided a capped width,
@@ -307,11 +456,11 @@ fun SocialScreen(
                     showJoinField = wideDashboard &&
                         state.capabilities.watchPartyEnabled &&
                         !state.needsHandleSetup,
-                    partyCode = partyCode,
-                    onPartyCodeChange = { partyCode = it.trim().uppercase().take(32) },
-                    onJoinParty = { onJoinParty(partyCode) },
+                    partyCode = model.partyCode,
+                    onPartyCodeChange = actions.onPartyCodeChange,
+                    onJoinParty = actions.onJoinParty,
                     isRefreshing = state.isLoading,
-                    onRefresh = { scope.launch { SocialRepository.refresh() } },
+                    onRefresh = actions.onRefresh,
                 )
 
                 Row(Modifier.fillMaxSize()) {
@@ -339,23 +488,10 @@ fun SocialScreen(
                             state.needsHandleSetup -> {
                                 item {
                                     SocialHandleSetup(
-                                        handle = handle,
-                                        onHandleChange = { handle = normalizeSocialHandle(it).take(24) },
-                                        message = handleMessage,
-                                        onSave = {
-                                            scope.launch {
-                                                // The result was discarded here, so a handle that
-                                                // never saved looked exactly like one that did -
-                                                // which is how an empty database went unnoticed
-                                                // while the screen appeared to work.
-                                                SocialRepository.setupHandle(handle)
-                                                    .onFailure { error ->
-                                                        handleMessage = error.message
-                                                            ?: "Could not save that handle"
-                                                    }
-                                                    .onSuccess { handleMessage = null }
-                                            }
-                                        },
+                                        handle = model.handle,
+                                        onHandleChange = actions.onHandleChange,
+                                        message = model.handleMessage,
+                                        onSave = actions.onSaveHandle,
                                     )
                                 }
                             }
@@ -383,21 +519,19 @@ fun SocialScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
                                                 OutlinedTextField(
-                                                    value = partyCode,
-                                                    onValueChange = {
-                                                        partyCode = it.trim().uppercase().take(32)
-                                                    },
+                                                    value = model.partyCode,
+                                                    onValueChange = actions.onPartyCodeChange,
                                                     modifier = Modifier.weight(1f),
                                                     singleLine = true,
                                                     label = { Text("Invite code") },
                                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                                                     keyboardActions = KeyboardActions(
-                                                        onGo = { if (partyCode.isNotBlank()) onJoinParty(partyCode) },
+                                                        onGo = { if (model.partyCode.isNotBlank()) actions.onJoinParty() },
                                                     ),
                                                 )
                                                 Button(
-                                                    onClick = { onJoinParty(partyCode) },
-                                                    enabled = partyCode.isNotBlank(),
+                                                    onClick = actions.onJoinParty,
+                                                    enabled = model.partyCode.isNotBlank(),
                                                 ) { Text("Join") }
                                             }
                                         }
@@ -406,11 +540,9 @@ fun SocialScreen(
 
                                 socialInbox(
                                     state = state,
-                                    onRespond = { id, accept ->
-                                        scope.launch { SocialRepository.respondFriendRequest(id, accept) }
-                                    },
-                                    onJoinInvitedParty = onJoinInvitedParty,
-                                    onNotificationAction = onNotificationAction,
+                                    onRespond = actions.onRespondRequest,
+                                    onJoinInvitedParty = actions.onJoinInvitedParty,
+                                    onNotificationAction = actions.onNotificationAction,
                                 )
 
                                 item {
@@ -433,20 +565,16 @@ fun SocialScreen(
                                     ) { watching, cardModifier ->
                                         SocialWatchingNowCard(
                                             item = watching,
-                                            affordance = if (state.capabilities.watchPartyEnabled) {
-                                                watchingNowJoinAffordance(watching, outgoingRequest, heldParty)
-                                            } else {
-                                                WatchingNowJoinAffordance.None
-                                            },
+                                            affordance = model.joinAffordance(watching),
                                             onOpen = {
-                                                onOpenContent(
+                                                actions.onOpenContent(
                                                     watching.contentType,
                                                     watching.contentId,
                                                     watching.title,
                                                 )
                                             },
-                                            onJoin = { onStartParty(watching) },
-                                            onCancelRequest = onCancelJoinRequest,
+                                            onJoin = { actions.onStartParty(watching) },
+                                            onCancelRequest = actions.onCancelJoinRequest,
                                             modifier = cardModifier,
                                             artworkWidth = feed.watchingNowArtworkWidth,
                                             stacked = feed.watchingNowStacked,
@@ -458,7 +586,7 @@ fun SocialScreen(
                                 item {
                                     SocialSectionHeader(stringResource(Res.string.social_recently_watched))
                                 }
-                                if (activityGroups.isEmpty()) {
+                                if (model.activityGroups.isEmpty()) {
                                     item {
                                         if (state.isLoading) {
                                             SocialSkeletonCard()
@@ -467,7 +595,7 @@ fun SocialScreen(
                                         }
                                     }
                                 } else {
-                                    activityBuckets.forEach { (bucket, groups) ->
+                                    model.activityBuckets.forEach { (bucket, groups) ->
                                         item(key = "activity-bucket:${bucket.name}") {
                                             Text(
                                                 bucket.label.uppercase(),
@@ -485,8 +613,8 @@ fun SocialScreen(
                                         ) { group, cellModifier ->
                                             FriendActivityRow(
                                                 group = group,
-                                                nowMs = activityNowMs,
-                                                onOpen = { onOpenContent(group.contentType, group.contentId, group.title) },
+                                                nowMs = model.activityNowMs,
+                                                onOpen = { actions.onOpenContent(group.contentType, group.contentId, group.title) },
                                                 modifier = cellModifier.height(FriendActivityRowHeight),
                                             )
                                         }
@@ -504,41 +632,7 @@ fun SocialScreen(
 
                                 if (!wideDashboard) {
                                     item { Spacer(Modifier.height(6.dp)) }
-                                    item {
-                                        SocialFriendsPanel(
-                                            state = state,
-                                            search = search,
-                                            onSearchChange = { search = normalizeSocialHandle(it).take(24) },
-                                            onRunSearch = runSearch,
-                                            isSearching = isSearching,
-                                            feedback = feedback,
-                                            searchResults = searchResults,
-                                            onSendRequest = sendFriendRequest,
-                                            onRemoveFriend = { id ->
-                                                scope.launch { SocialRepository.removeFriend(id) }
-                                            },
-                                            onSelectFriend = SocialRepository::selectFriend,
-                                            shareWatching = shareWatching,
-                                            shareRecent = shareRecent,
-                                            defaultJoinPolicy = defaultJoinPolicy,
-                                            onShareWatching = {
-                                                shareWatching = it
-                                                scope.launch {
-                                                    SocialRepository.setPrivacy(shareWatching, shareRecent)
-                                                }
-                                            },
-                                            onShareRecent = {
-                                                shareRecent = it
-                                                scope.launch {
-                                                    SocialRepository.setPrivacy(shareWatching, shareRecent)
-                                                }
-                                            },
-                                            onDefaultJoinPolicy = { policy ->
-                                                defaultJoinPolicy = policy
-                                                scope.launch { SocialRepository.setDefaultJoinPolicy(policy) }
-                                            },
-                                        )
-                                    }
+                                    item { friendsPanel() }
                                 }
                             }
                         }
@@ -556,33 +650,7 @@ fun SocialScreen(
                                 .padding(start = 4.dp, end = 24.dp, top = 4.dp)
                                 .padding(bottom = nuvioSafeBottomPadding(extra = 12.dp)),
                         ) {
-                            SocialFriendsPanel(
-                                state = state,
-                                search = search,
-                                onSearchChange = { search = normalizeSocialHandle(it).take(24) },
-                                onRunSearch = runSearch,
-                                isSearching = isSearching,
-                                feedback = feedback,
-                                searchResults = searchResults,
-                                onSendRequest = sendFriendRequest,
-                                onRemoveFriend = { id -> scope.launch { SocialRepository.removeFriend(id) } },
-                                onSelectFriend = SocialRepository::selectFriend,
-                                shareWatching = shareWatching,
-                                shareRecent = shareRecent,
-                                defaultJoinPolicy = defaultJoinPolicy,
-                                onShareWatching = {
-                                    shareWatching = it
-                                    scope.launch { SocialRepository.setPrivacy(shareWatching, shareRecent) }
-                                },
-                                onShareRecent = {
-                                    shareRecent = it
-                                    scope.launch { SocialRepository.setPrivacy(shareWatching, shareRecent) }
-                                },
-                                onDefaultJoinPolicy = { policy ->
-                                    defaultJoinPolicy = policy
-                                    scope.launch { SocialRepository.setDefaultJoinPolicy(policy) }
-                                },
-                            )
+                            friendsPanel()
                         }
                     }
                 }
