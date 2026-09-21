@@ -471,6 +471,7 @@ internal class PartyLobbyActions(
  * | Window | Composition |
  * | --- | --- |
  * | wide and not short (desktop) | two panes: the party, and the title rail |
+ * | short and not phone-narrow (a landscape phone) | two regions over a pinned action strip |
  * | phone-narrow (a portrait phone) | one dense scrolling column over a pinned action bar |
  * | anything else (a tablet) | the original single column |
  *
@@ -494,6 +495,7 @@ internal fun BoxWithConstraintsScope.PartyLobbyContent(
     val windowClass = nuvioWindowClass()
     when {
         windowClass.isTwoPaneSurface -> PartyLobbyTwoPane(model, actions, maxWidth, titleRail)
+        windowClass.isShortWide -> PartyLobbyShortLandscape(model, actions, maxWidth)
         windowClass.isCompactWidth -> PartyLobbyPhonePortrait(model, actions)
         else -> PartyLobbySingleColumn(model, actions, wide = maxWidth >= 900.dp)
     }
@@ -720,6 +722,77 @@ private fun PartyLobbyPhonePortrait(model: PartyLobbyModel, actions: PartyLobbyA
             }
         }
         PartyPinnedActionBar(model, actions, landscape = false)
+    }
+}
+
+/**
+ * A landscape phone: what you read on the left, what changes on the right, the actions under both.
+ *
+ * At 891 x 411dp the tablet column spent the whole viewport on the header and a hero whose invite
+ * code had stretched to 891dp, and Leave was a scroll past the entire lobby. Here each region
+ * scrolls on its own, the invite code is capped by its pane, and the action strip spans both and
+ * never moves.
+ */
+@Composable
+private fun PartyLobbyShortLandscape(
+    model: PartyLobbyModel,
+    actions: PartyLobbyActions,
+    maxWidth: Dp,
+) {
+    val party = model.party
+    val leftWidth = (maxWidth * 0.42f).coerceIn(300.dp, 440.dp)
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column(
+                Modifier.width(leftWidth).fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PartyLobbyHeader(actions.onRequestDeparture, compact = true)
+                model.joinHandoff?.let { PartyJoinHero(it) }
+                model.errorMessage?.let { message ->
+                    PartyCompactNotice(message, MaterialTheme.colorScheme.error, collapsible = false)
+                }
+                PartyCompactHero(
+                    party = party,
+                    connection = model.presentation.connection,
+                    sync = model.sync,
+                    hostSourceStaged = model.hostSourceStaged,
+                    posterWidth = 56.dp,
+                )
+                model.inviteCode?.let { PartyInviteCard(it) }
+                model.addonNotice?.let { PartyCompactNotice(it, PartyWorkingColor, collapsible = true) }
+            }
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PartyParticipantRows(
+                    party = party,
+                    viewerProfileId = model.viewerProfileId,
+                    presentation = model.presentation,
+                    invitableFriends = model.invitableFriends,
+                    onInvite = actions.onInvite,
+                )
+                if (model.isHost) {
+                    PartyHostSettingsCompact(
+                        controlMode = party.controlMode,
+                        onControlMode = actions.onControlMode,
+                        waitForEveryone = model.waitForEveryone,
+                        onWaitForEveryone = actions.onWaitForEveryone,
+                        pauseForAwayUsers = model.pauseForAwayUsers,
+                        onPauseForAwayUsers = actions.onPauseForAwayUsers,
+                    )
+                }
+            }
+        }
+        PartyPinnedActionBar(model, actions, landscape = true)
     }
 }
 
