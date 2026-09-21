@@ -4,14 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Validate only, create a draft, or publish the release
+        description: Build artifacts, rehearse the release, or publish Android after TestFlight upload
         required: true
         type: choice
-        options:
-          - dry-run
-          - draft
-          - publish
-        default: dry-run
+        options: [build-only, dry-run, publish]
+        default: build-only
       exclude_commits:
         description: Optional comma-separated commit hashes to omit from the notes
         required: false
@@ -26,27 +23,35 @@ concurrency:
 
 jobs:
   prepare:
-    name: Prepare ${{ inputs.mode }} release
+    name: Prepare ${{ inputs.mode }} mobile release
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
+      build: ${{ steps.release.outputs.build }}
       release_commit: ${{ steps.release.outputs.release_commit }}
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
-
+      IOS_CERTIFICATE_BASE64: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      IOS_TEAM_ID: ${{ vars.NUVIO_IOS_TEAM_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
     steps:
       - name: Check out full history
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
       - name: Read release metadata
         id: release
-        run: ./scripts/release-metadata.sh "${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-
+        run: |
+          ./scripts/release-metadata.sh "${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+          build="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' iosApp/Configuration/Version.xcconfig | head -n 1)"
+          [[ "${build}" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid mobile build number: ${build}" >&2; exit 1; }
+          echo "build=${build}" >> "${GITHUB_OUTPUT}"
       - name: Validate release state
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -57,308 +62,242 @@ jobs:
           RELEASE_REF_TYPE: ${{ github.ref_type }}
           RELEASE_MODE: ${{ inputs.mode }}
         run: |
-          if [[ "${RELEASE_REF_TYPE}" != "branch" ]]; then
-            echo "Releases must be dispatched from a branch, not ${RELEASE_REF_TYPE}." >&2
-            exit 1
+          [[ "${RELEASE_REF_TYPE}" == "branch" ]] || { echo "Mobile builds must be dispatched from a branch." >&2; exit 1; }
+          [[ -z "$(git status --porcelain)" ]] || { echo "Release automation requires a clean checkout." >&2; exit 1; }
+          [[ -n "${RELEASE_PROPERTIES_BASE64}" ]] || { echo "NUVIO_LOCAL_PROPERTIES_BASE64 is required to compile release artifacts." >&2; exit 1; }
+          if [[ "${RELEASE_MODE}" != "build-only" ]]; then
+            [[ "${RELEASE_BRANCH}" == "${DEFAULT_BRANCH}" ]] || { echo "${RELEASE_MODE} must run from ${DEFAULT_BRANCH}." >&2; exit 1; }
+            ! git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}" || { echo "Tag ${RELEASE_TAG} already exists." >&2; exit 1; }
+            ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1 || { echo "Release ${RELEASE_TAG} already exists." >&2; exit 1; }
+            unexpected_changes="$(git diff --name-only "${CURRENT_BUMP}..${RELEASE_COMMIT}" | grep -Ev '^(\.github/workflows/(android-release|ci|ios-build|update-store-source)\.yml|store\.json|scripts/(build-ios-ipa|build-ios-testflight|generate-release-notes|prepare-ios-dependencies|release-metadata)\.sh|scripts/update-store-source\.py)$' || true)"
+            [[ -z "${unexpected_changes}" ]] || { echo "The mobile version bump must be the final application change:" >&2; echo "${unexpected_changes}" >&2; exit 1; }
           fi
-          if [[ "${RELEASE_BRANCH}" != "${DEFAULT_BRANCH}" ]]; then
-            echo "Releases must be dispatched from the default branch (${DEFAULT_BRANCH})." >&2
-            exit 1
-          fi
-
-          if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}"; then
-            echo "Tag ${RELEASE_TAG} already exists." >&2
-            exit 1
-          fi
-          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "A GitHub release for ${RELEASE_TAG} already exists." >&2
-            exit 1
-          fi
-
-          unexpected_changes="$(
-            git diff --name-only "${CURRENT_BUMP}..${RELEASE_COMMIT}" \
-              | grep -Ev '^(\.github/workflows/(android-release|ci|update-store-source)\.yml|store\.json|scripts/(build-ios-ipa|generate-release-notes|prepare-ios-dependencies|release-metadata)\.sh|scripts/update-store-source\.py)$' \
-              || true
-          )"
-          if [[ -n "${unexpected_changes}" ]]; then
-            echo "The version bump must be the final application change before release." >&2
-            echo "Unexpected files changed after the bump:" >&2
-            echo "${unexpected_changes}" >&2
-            exit 1
-          fi
-
-          if [[ "${RELEASE_MODE}" != "dry-run" ]]; then
-            required_secrets=(
-              RELEASE_PROPERTIES_BASE64
-              RELEASE_KEYSTORE_BASE64
-            )
+          if [[ "${RELEASE_MODE}" == "publish" ]]; then
+            required_values=(RELEASE_KEYSTORE_BASE64 IOS_CERTIFICATE_BASE64 IOS_CERTIFICATE_PASSWORD IOS_TEAM_ID ASC_PRIVATE_KEY_BASE64 ASC_KEY_ID ASC_ISSUER_ID)
             missing=()
-            for secret_name in "${required_secrets[@]}"; do
-              if [[ -z "${!secret_name}" ]]; then
-                missing+=("${secret_name}")
-              fi
-            done
-            if (( ${#missing[@]} > 0 )); then
-              printf 'Missing required release secrets: %s\n' "${missing[*]}" >&2
-              exit 1
-            fi
+            for value_name in "${required_values[@]}"; do [[ -n "${!value_name}" ]] || missing+=("${value_name}"); done
+            (( ${#missing[@]} == 0 )) || { printf 'Missing required mobile publish values: %s\n' "${missing[*]}" >&2; exit 1; }
           fi
-
       - name: Generate release notes
         env:
           PREVIOUS_BUMP: ${{ steps.release.outputs.previous_bump }}
           CURRENT_BUMP: ${{ steps.release.outputs.current_bump }}
           EXCLUDE_COMMITS: ${{ inputs.exclude_commits }}
         run: |
-          ./scripts/generate-release-notes.sh \
-            --from "${PREVIOUS_BUMP}" \
-            --to "${CURRENT_BUMP}" \
-            --repository "${GITHUB_REPOSITORY}" \
-            --exclude "${EXCLUDE_COMMITS}" \
-            > release-notes.md
-
-          if [[ ! -s release-notes.md ]]; then
-            echo "No release-note commits were found." >&2
-            exit 1
-          fi
-
+          ./scripts/generate-release-notes.sh --from "${PREVIOUS_BUMP}" --to "${CURRENT_BUMP}" --repository "${GITHUB_REPOSITORY}" --exclude "${EXCLUDE_COMMITS}" > generated-release-notes.md
+          [[ -s generated-release-notes.md ]] || { echo "No mobile release-note commits were found." >&2; exit 1; }
           {
-            echo "## ${{ steps.release.outputs.version }} release notes"
+            echo "Nuvio Z mobile ${{ steps.release.outputs.version }} (build ${{ steps.release.outputs.build }})."
             echo
-            cat release-notes.md
-          } >> "${GITHUB_STEP_SUMMARY}"
-
+            echo "Android is published only after this build has been uploaded to TestFlight."
+            echo
+            echo "### Changes"
+            echo
+            cat generated-release-notes.md
+          } > release-notes.md
       - name: Upload release notes
-        if: inputs.mode != 'dry-run'
         uses: actions/upload-artifact@v7
         with:
-          name: release-notes
+          name: nuvio-mobile-${{ steps.release.outputs.version }}-${{ steps.release.outputs.build }}-release-notes
           path: release-notes.md
           if-no-files-found: error
+          retention-days: 14
 
   android:
-    name: Build Android APKs
-    if: inputs.mode != 'dry-run'
+    name: Build Android release APKs
     needs: prepare
     runs-on: ubuntu-latest
     env:
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
-
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Configure release properties
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Configure runtime and optional signing
         run: |
-          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
-          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
-          # character the base64 alphabet does not contain rather than failing.
-          normalise_b64() {
-            printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
-          }
-          # A properties file stored without any encoding: it has KEY= lines and
-          # contains characters base64 never does.
-          looks_like_properties() {
-            printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
-              && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
-          }
-          decode_text_secret() {
-            local name="$1" raw="$2" out="$3" cleaned
-            if looks_like_properties "${raw}"; then
-              echo "::warning::${name} is not base64; storing it as literal file content."
-              printf '%s\n' "${raw}" > "${out}"
-            else
-              cleaned="$(normalise_b64 "${raw}")"
-              echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
-              printf '%s' "${cleaned}" | base64 --decode > "${out}"
-            fi
-            if ! grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' "${out}"; then
-              echo "${name} did not yield a properties file." >&2
-              exit 1
-            fi
-          }
-          decode_binary_secret() {
-            local name="$1" raw="$2" out="$3" cleaned
-            cleaned="$(normalise_b64 "${raw}")"
-            echo "${name}: ${#raw} chars raw, ${#cleaned} base64 characters after cleaning"
-            printf '%s' "${cleaned}" | base64 --decode > "${out}"
-            if [ ! -s "${out}" ] || [ "$(wc -c < "${out}")" -lt 256 ]; then
-              echo "${name} did not yield a plausible keystore." >&2
-              exit 1
-            fi
-          }
-
-          keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
-          decode_binary_secret NUVIO_RELEASE_KEYSTORE_BASE64 "${RELEASE_KEYSTORE_BASE64}" "${keystore_path}"
-          decode_text_secret NUVIO_LOCAL_PROPERTIES_BASE64 "${RELEASE_PROPERTIES_BASE64}" local.properties
-
+          normalise_b64() { printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='; }
+          printf '%s' "$(normalise_b64 "${RELEASE_PROPERTIES_BASE64}")" | base64 --decode > local.properties
+          grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.' local.properties || { echo "Runtime properties secret is invalid." >&2; exit 1; }
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
-          printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> local.properties
-
-          required_properties=(
-            NUVIO_RELEASE_STORE_PASSWORD
-            NUVIO_RELEASE_KEY_ALIAS
-            NUVIO_RELEASE_KEY_PASSWORD
-          )
-          for property_name in "${required_properties[@]}"; do
-            if ! grep -Eq "^${property_name}=.+" local.properties; then
-              echo "Missing required property: ${property_name}" >&2
-              exit 1
-            fi
+          if [[ -n "${RELEASE_KEYSTORE_BASE64}" ]]; then
+            keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
+            printf '%s' "$(normalise_b64 "${RELEASE_KEYSTORE_BASE64}")" | base64 --decode > "${keystore_path}"
+            [[ -s "${keystore_path}" && "$(wc -c < "${keystore_path}")" -ge 256 ]] || { echo "Release keystore is invalid." >&2; exit 1; }
+            printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> local.properties
+            for property_name in NUVIO_RELEASE_STORE_PASSWORD NUVIO_RELEASE_KEY_ALIAS NUVIO_RELEASE_KEY_PASSWORD; do grep -Eq "^${property_name}=.+" local.properties || { echo "Missing ${property_name}." >&2; exit 1; }; done
+            echo "ANDROID_ARTIFACT_SIGNED=true" >> "${GITHUB_ENV}"
+          else
+            sed -i -E '/^[[:space:]]*NUVIO_RELEASE_(STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD)[[:space:]]*=/d' local.properties
+            echo "ANDROID_ARTIFACT_SIGNED=false" >> "${GITHUB_ENV}"
+            echo "::warning::Building unsigned APKs; publish mode never permits this."
+          fi
+      - name: Build release APKs
+        run: |
+          rm -rf androidApp/build/outputs/apk/full/release mobile-artifacts
+          ./gradlew :androidApp:assembleFullRelease --stacktrace
+      - name: Verify and name Android artifacts
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BUILD: ${{ needs.prepare.outputs.build }}
+        run: |
+          set -euo pipefail
+          build_tools="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          aapt="${build_tools}/aapt"; apksigner="${build_tools}/apksigner"
+          mkdir -p mobile-artifacts
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            shopt -s nullglob; matches=(androidApp/build/outputs/apk/full/release/*"${abi}"*.apk); shopt -u nullglob
+            [[ "${#matches[@]}" -eq 1 ]] || { echo "Expected one ${abi} APK, found ${#matches[@]}." >&2; exit 1; }
+            artifact="mobile-artifacts/Nuvio-Z-Android-${abi}-${RELEASE_VERSION}-${RELEASE_BUILD}.apk"
+            cp "${matches[0]}" "${artifact}"
+            badging="$("${aapt}" dump badging "${artifact}" | head -n 1)"
+            [[ "${badging}" == *"name='com.nuvio.app.z'"* && "${badging}" == *"versionCode='${RELEASE_BUILD}'"* && "${badging}" == *"versionName='${RELEASE_VERSION}'"* ]] || { echo "APK metadata mismatch: ${badging}" >&2; exit 1; }
+            if [[ "${ANDROID_ARTIFACT_SIGNED}" == true ]]; then "${apksigner}" verify --verbose "${artifact}"; elif "${apksigner}" verify "${artifact}" >/dev/null 2>&1; then echo "Unexpected signed APK: ${artifact}" >&2; exit 1; fi
           done
-
-          # Trakt is optional for this fork: the build substitutes empty
-          # credentials and only Trakt sign-in is unavailable.
-          optional_properties=(
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
-          )
-          for property_name in "${optional_properties[@]}"; do
-            if ! grep -Eq "^${property_name}=.+" local.properties; then
-              echo "::warning::${property_name} is not set; Trakt will be unavailable in this build."
-            fi
-          done
-
-      - name: Build full release APKs
-        run: ./gradlew :androidApp:assembleFullRelease --stacktrace
-
+          (cd mobile-artifacts && sha256sum *.apk > SHA256SUMS-Android.txt)
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: nuvio-${{ needs.prepare.outputs.version }}-android-full-release
-          path: androidApp/build/outputs/apk/full/release/*.apk
+          name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-android
+          path: mobile-artifacts/
           if-no-files-found: error
+          retention-days: 14
+      - name: Remove Android signing material
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/nuvio-release.jks" local.properties
 
-  ios:
-    name: Build iOS IPA
-    if: inputs.mode != 'dry-run'
+  ios_unsigned:
+    name: Build unsigned iOS verification IPA
+    if: inputs.mode != 'publish'
     needs: prepare
     runs-on: macos-26
     timeout-minutes: 75
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      GRADLE_OPTS: -Dfile.encoding=UTF-8
-      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
       NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Cache Kotlin Native
-        uses: actions/cache@v5
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/cache@v5
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
-          restore-keys: |
-            konan-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Verify Apple toolchain
+      - name: Configure and build unsigned IPA
         run: |
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-
-      - name: Configure runtime properties
-        run: |
-          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
-
-      - name: Prepare iOS dependencies
-        run: ./scripts/prepare-ios-dependencies.sh
-
-      - name: Build unsigned full IPA
-        run: |
-          (
-            while sleep 60; do
-              echo "::group::Build resources $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-              uptime
-              vm_stat
-              ps -Ao pid,etime,%cpu,rss,command -r | head -n 12 || true
-              echo "::endgroup::"
-            done
-          ) &
-          monitor_pid=$!
-          trap 'kill "${monitor_pid}" 2>/dev/null || true' EXIT
+          ./scripts/prepare-ios-dependencies.sh
           ./scripts/build-ios-ipa.sh "${{ needs.prepare.outputs.version }}"
-
-      - name: Upload iOS artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
-          name: nuvio-${{ needs.prepare.outputs.version }}-ios-full-release
-          path: build/ios-ipa/*-full-release.ipa
+          name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-ios-unsigned
+          path: build/ios-ipa/Nuvio-Z-iOS-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-unsigned.ipa
           if-no-files-found: error
+          retention-days: 14
+
+  ios_testflight:
+    name: Sign and upload iOS to TestFlight
+    if: inputs.mode == 'publish'
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: mobile-release
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      NUVIO_IOS_TEAM_ID: ${{ vars.NUVIO_IOS_TEAM_ID }}
+      IOS_CERTIFICATE_BASE64: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+      - name: Install Apple signing material
+        run: |
+          normalise_b64() { printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='; }
+          keychain_path="${RUNNER_TEMP}/nuvio-mobile.keychain-db"; certificate_path="${RUNNER_TEMP}/nuvio-mobile.p12"; api_key_path="${RUNNER_TEMP}/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"; keychain_password="$(openssl rand -hex 32)"
+          printf '%s' "$(normalise_b64 "${IOS_CERTIFICATE_BASE64}")" | base64 --decode > "${certificate_path}"
+          printf '%s' "$(normalise_b64 "${APP_STORE_CONNECT_PRIVATE_KEY_BASE64}")" | base64 --decode > "${api_key_path}"
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"; security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" -k "${keychain_path}" -P "${IOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"; security find-identity -v -p codesigning "${keychain_path}" | grep -F 'Apple Distribution'
+          echo "NUVIO_IOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"; echo "APP_STORE_CONNECT_KEY_PATH=${api_key_path}" >> "${GITHUB_ENV}"
+      - name: Build and upload TestFlight IPA
+        run: |
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          ./scripts/prepare-ios-dependencies.sh
+          ./scripts/build-ios-testflight.sh
+          mkdir -p "${HOME}/.appstoreconnect/private_keys"
+          cp "${APP_STORE_CONNECT_KEY_PATH}" "${HOME}/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios --file "build/ios-testflight/Nuvio-Z-iOS-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-testflight.ipa" --apiKey "${APP_STORE_CONNECT_KEY_ID}" --apiIssuer "${APP_STORE_CONNECT_ISSUER_ID}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-ios-testflight
+          path: build/ios-testflight/Nuvio-Z-iOS-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-testflight.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove Apple signing material
+        if: always()
+        run: |
+          security delete-keychain "${NUVIO_IOS_KEYCHAIN_PATH}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/nuvio-mobile.p12" "${APP_STORE_CONNECT_KEY_PATH}" local.properties "${HOME}/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
   release:
-    name: Create ${{ inputs.mode }} release
-    if: inputs.mode != 'dry-run'
-    needs:
-      - prepare
-      - android
-      - ios
+    name: Publish coordinated mobile release
+    if: inputs.mode == 'publish'
+    needs: [prepare, android, ios_testflight]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_MODE: ${{ inputs.mode }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_BUILD: ${{ needs.prepare.outputs.build }}
       RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
-
     steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8
         with:
+          name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-android
           path: release-assets
-          merge-multiple: true
-
-      - name: Create GitHub release
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-release-notes
+          path: release-assets
+      - name: Verify publish set and create stable GitHub release
         run: |
-          mapfile -t release_files < <(find release-assets -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipa' \) -print | sort)
-          if (( ${#release_files[@]} == 0 )); then
-            echo "No release packages were produced." >&2
-            exit 1
-          fi
-
-          release_args=(
-            "${RELEASE_TAG}"
-            --repo "${GITHUB_REPOSITORY}"
-            --target "${RELEASE_COMMIT}"
-            --title "${RELEASE_VERSION}"
-            --notes-file release-assets/release-notes.md
-          )
-          if [[ "${RELEASE_MODE}" == "draft" ]]; then
-            release_args+=(--draft)
-          fi
-          gh release create "${release_args[@]}" "${release_files[@]}"
+          shopt -s nullglob; apks=(release-assets/Nuvio-Z-Android-*-${RELEASE_VERSION}-${RELEASE_BUILD}.apk); forbidden_ipas=(release-assets/*.ipa)
+          [[ "${#apks[@]}" -eq 4 ]] || { echo "Expected four signed ABI APKs, found ${#apks[@]}." >&2; exit 1; }
+          (( ${#forbidden_ipas[@]} == 0 )) || { echo "iOS IPAs must never be attached to GitHub releases." >&2; exit 1; }
+          [[ -s release-assets/release-notes.md && -s release-assets/SHA256SUMS-Android.txt ]] || { echo "Release notes or checksums are missing." >&2; exit 1; }
+          gh release create "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --target "${RELEASE_COMMIT}" --title "${RELEASE_VERSION}" --notes-file release-assets/release-notes.md "${apks[@]}" release-assets/SHA256SUMS-Android.txt
 
   store:
     name: Update sideload source
     if: inputs.mode == 'publish'
-    needs:
-      - prepare
-      - release
+    needs: [prepare, release]
     permissions:
       contents: write
     uses: ./.github/workflows/update-store-source.yml
