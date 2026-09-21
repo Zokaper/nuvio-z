@@ -159,10 +159,9 @@ jobs:
       # no provisioning profile. The project's embedAndSignAppleFrameworkForXcode build
       # phase skips its signing step when the identity is empty.
       #
-      # Debug configuration deliberately: it carries PRODUCT_BUNDLE_IDENTIFIER
-      # com.nuvio.app, while Release carries com.nuvio.media and pins
-      # CODE_SIGN_IDENTITY = "Apple Development" - wrong for distribution, and wants
-      # fixing along with DEVELOPMENT_TEAM before the first real archive.
+      # Debug deliberately carries the separate com.nuvio.app.z.debug identity. Both
+      # configurations are credential-neutral in source; the release workflow supplies
+      # the team, certificate and App Store Connect key only for a TestFlight archive.
       - name: Build iOS app without signing
         run: |
           set -o pipefail
