@@ -3,6 +3,64 @@
 
 Last updated: 2026-09-21
 
+## Mobile UI pass, stages 5-10: phone lobby and phone Social, render-verified (2026-09-21)
+
+Stages 5-8 of `../HANDOFF-mobile-ui-responsive-pass.md` landed. **Presentation only** - no change
+to the realizer, sync, the barrier, host authority, transport health, the session state machine,
+source matching, RPCs or social behaviour; callbacks were moved, not redefined. Nothing pushed,
+no version bump: `androidApp-full-debug.apk` is `0.4.13-z1.40` / versionCode 125040, the same
+as the last hardware APK, so `adb install -r` accepts it over that install.
+
+**Structure first.** Both screens now split into a state-gathering wrapper and a stateless layout,
+so the desktop render harnesses compose the real thing instead of a replica:
+`WatchPartyLobbyFrame` + `PartyLobbyContent(PartyLobbyModel, PartyLobbyActions)`, and
+`SocialFeed(SocialFeedModel, SocialFeedActions)`. `SocialRenderHarness.SocialFeedSceneBody` (the
+hand-built replica the handoff warned about) is gone.
+
+**Lobby** picks one of four compositions from `nuvioWindowClass()`:
+- wide and not short -> the desktop two-pane (old code, moved verbatim)
+- short and not compact-width -> **landscape phone**: left region (hero, invite card capped at the
+  pane, notices), right region (participant rows, host settings), each scrolling on its own, over
+  a pinned full-width action strip
+- compact width -> **portrait phone**: 64x96 hero with the stage rail as four dots naming only the
+  current step, invite code as its own card, participant rows (name ellipsizes, pill keeps its
+  width), one-line expandable addon notice, host switches beside their explanations, pinned
+  action bar with Change source as a text button beside the host sentence
+- anything else -> the tablet column (old code, moved verbatim)
+
+**Social** gets a phone density chosen inside `socialFeedMetrics` from the window's shape
+(`isPhoneSurface`), never from the nav style: label-style section headings, a row-shaped Watching
+Now card (~100dp, was ~150dp+ stacked), 8dp rhythm and 16dp margins, a header that slims on scroll
+(latched on the feed's own list so it cannot oscillate) and stays slim in landscape, the roster
+first and folded to three with search under it and privacy behind a disclosure, and join-by-code
+as a one-line disclosure at the end. Landscape needed nothing else: the existing grid gives two
+Watching Now and two activity columns at 891dp.
+
+**Verification**
+- mobile `:composeApp:testAndroidHostTest` **2278 / 0 failures** (2277 + `densityFollowsTheWindowsShapeNotItsWidthAlone`); pure suites 8/8
+- desktop `:composeApp:desktopTest` **2425 / 0 failures** after the cherry-picks (the only desktopMain compile); `NavigationBarRenderHarness`, `SocialRenderHarness` and `WatchPartyLobbyRenderHarness` all inside it
+- renders looked at: lobby 5 fixture parties x 411x914 / 891x411 / 360x780 / 320x600 / 800x1280
+  plus desktop 1280x820 and 1920x1080; Social typical/full/empty at the same phone sizes
+- desktop Social scenes (1280-3840, and Home's shelves at every size) **byte-identical** before and
+  after the redesign; only the 420dp scene changed, which is the phone path
+- **Not on a device.** No phone was attached over adb (USB or wireless) for this session, so the
+  consolidated physical pass - the plan's rows 1-11 plus nav/insets - is still owed. The APK below
+  is built from the final state and is ready for it.
+
+**Defects the renders caught before commit:** the invite code ellipsized at 320dp (the Copy pill's
+label now drops below a 340dp card, the code never does); the not-yet-reached stage dots were
+invisible (`outline` on a phone card); the compact error notice was red on pale grey over the
+backdrop (now grounded on the card surface).
+
+**Deferred / known:** join-request "Let in" still hidden while the player chrome is hidden (left
+alone, per the maintainer); the solo-party "Reconnecting to the party…" pill is sync scope; the
+desktop title rail in the lobby harness is a stand-in (it fetches metadata over the network).
+
+Commits - mobile: `06479f313` (stage 5), `b2a18ce8e` (6), `e394abd6c` (7a refactor), `b17110ff0`
+(7b), `3839d94a4` (8), `734fda8c2` (test fixture). Desktop: the same six by cherry-pick
+(`d79c88d6`, `d098792d`, `7692602a`, `91a0ff21`, `e296258f`, `93537c00`) plus the harnesses
+`c757619e`.
+
 ## Mobile UI pass, stages 2-4: first device pass, three defects fixed (2026-09-21)
 
 The responsive/stabilization pass (`../HANDOFF-mobile-ui-responsive-pass.md`, stages 0-4 of 10)

@@ -179,6 +179,19 @@ Both capabilities default off in the backend and must be enabled independently a
 > landscape widths; **not yet run on a handset**, so the AND and iOS columns stay `port` until the
 > Stage F physical pass rather than moving on the strength of a compile.
 
+> **Mobile layout pass, 2026-09-21 (presentation only):** S3's lobby and S1/S2/S5's Social tab
+> now have phone compositions in the shared `commonMain` files rather than the desktop layout at
+> 411dp. The lobby picks one of four compositions from `NuvioWindowClass`: desktop two-pane and
+> the tablet column unchanged; a **portrait phone** gets a compact hero with stage dots, the invite
+> code as its own card, participant rows and a pinned action bar; a **landscape phone** (short
+> height) gets two independently scrolling regions over a pinned action strip. Social chooses a
+> phone density inside `socialFeedMetrics` (label headings, a row-shaped Watching Now card, a
+> scroll-collapsing header that stays collapsed in landscape, a folded roster, join-by-code as a
+> closing disclosure). No party, sync, matching or social behaviour moved; every desktop Social
+> render is byte-identical before and after, and the lobby's desktop branches are the old code,
+> moved verbatim. Render-verified at 320-891dp; the AND and iOS columns
+> stay `port` until the Stage F physical pass, for the same reason as the note above.
+
 ⚠ **Every client publishing presence must omit nulls rather than serialize them.** The backend's
 payload sanitizers now treat an explicit JSON `null` as absent (`202609110002`), but kotlinx defaults
 `explicitNulls` to **true**, and before both halves landed a nullable field serialized as an explicit
