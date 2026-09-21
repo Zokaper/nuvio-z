@@ -194,7 +194,7 @@ jobs:
       - name: Configure and build unsigned IPA
         run: |
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
-          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
           ./scripts/prepare-ios-dependencies.sh
           ./scripts/build-ios-ipa.sh "${{ needs.prepare.outputs.version }}"
       - uses: actions/upload-artifact@v7
@@ -246,7 +246,7 @@ jobs:
       - name: Build and upload TestFlight IPA
         run: |
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
-          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
           ./scripts/prepare-ios-dependencies.sh
           ./scripts/build-ios-testflight.sh
           mkdir -p "${HOME}/.appstoreconnect/private_keys"
