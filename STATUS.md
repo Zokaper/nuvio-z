@@ -3,6 +3,91 @@
 
 Last updated: 2026-09-21
 
+## The z1.38/z6.59 run: the unlock race, and the seek that was eating the buffer (2026-09-21)
+
+Two findings from the `0.4.13-z1.38` / `z6.59` hardware run. **Nothing is published; both repos
+hold the fix on their working branches.**
+
+### 1. Unlock cleared Away only sometimes, because the fix left the same bad read in a second place
+
+Reported as "coming back from lock screen *sometimes* clears away but its inconsistent", which is
+the shape of a race rather than a wrong rule - and it was one. `partyScreenLockedAfter` was fixed
+on 2026-09-20 so that `USER_PRESENT` means unlocked without re-reading the keyguard. The
+`ProcessLifecycleOwner` observer was not: `ON_START` still did `screenLocked = isKeyguardLocked`,
+the same read, through a different door.
+
+Unlocking delivers `ACTION_USER_PRESENT` and the process foreground at nearly the same instant, in
+**no guaranteed order**. `USER_PRESENT` last cleared the lock and the member returned; `ON_START`
+last re-read a keyguard still playing its going-away animation, got `true`, and the member stayed
+Away. The same unlock on the same phone went both ways depending on which landed last, which is
+exactly "sometimes".
+
+`partyScreenLockedOnForeground(heldScreenLocked, keyguardLocked) = held && keyguard` - **one
+direction only**, the same rule shape as `partyStaleAwayNeedsClearing`. A foreground may *clear* a
+lock that is no longer there, which is the whole of what the second chance was for (a broadcast
+dropped while the process was cached); it may never *declare* one. Both orderings now converge.
+
+**Why the tests passed and the phone did not.** `PartyPresenceTest` modelled the unlock only as a
+broadcast, and never modelled `ON_START` arriving after `USER_PRESENT` - so the one ordering that
+failed was the one nothing exercised. `unlockReturnsWatchingWhicheverOfForegroundAndUserPresentLandsLast`
+runs the cycle both ways round with the keyguard answering `true` at every read.
+
+### 2. The buffer -> seek -> buffer loop is two constants, not a detection limit
+
+Reported as the laptop taking "a couple seconds to realise the android is struggling to buffer" and
+keeping "the buffer -> sync ahead -> buffer loop going", with the reasonable guess that this is just
+how fast buffering can be detected. **It is not.** The couple of seconds is
+`WatchPartyGuestBufferingGraceMs = 2_500`, a deliberate choice so a routine one-second rebuffer does
+not stop the film for everyone. The loop is a different thing:
+
+- a guest takes a corrective **seek** once it is `WatchPartySeekThresholdMs = 1_000` behind;
+- the host only **holds** the party after 2.5s of *continuous* buffering.
+
+So any rebuffer between 1s and 2.5s guaranteed a seek while the host was still deciding whether to
+wait - and a seek discards the buffer that had just been rebuilt, which starved the stream again.
+Self-sustaining, and the host's hold never fired to break it because no single rebuffer lasted long
+enough. The two constants were chosen independently and nothing stated their relationship. This is
+the same family as the bug already recorded on `WatchPartyGuestBufferingGraceMs` itself, where it
+being *equal* to the guest's own hold made the host pause and resume on every corrective seek.
+
+**A bounded recent-starvation recovery policy**, inside the existing drift machinery rather than
+beside it. `DriftTracker` gains `starvedAtMs`, recorded by `followPartyTick` before any of its
+guards return - by the time a gap is measurable the starve is over, so asking "is this buffering
+now" always answers no. While recovering, an ordinary corrective seek becomes a nudge instead.
+
+Bounded three ways, because none of these may be suppressed indefinitely:
+
+- `WatchPartyStarveRecoverySeekSuppressionMs = 20_000` - the window, sized so the nudge can
+  actually finish: at 10% max rate, absorbing the ~2.5s the host tolerates takes ~25s.
+- `WatchPartyStarveRecoverySeekOverrideMs = 3_000` - drift past which it seeks anyway. Deliberately
+  just **above** the host's 2.5s grace, so the two mechanisms hand over instead of both standing
+  down. `theStarveOverrideStaysAboveTheHostsBufferingGrace` asserts that ordering, because the pair
+  being ordered the wrong way round is the entire bug.
+- A taken seek clears the starve; the buffer it was protecting is the one that seek just spent.
+
+**Nothing else is suppressed.** Commanded seeks, host scrubs, source-generation changes and Away
+returns are scheduled through `partySeekPlan` against the barrier, and `followPartyTick` returns
+before the tracker is consulted at all - the guard is structural, not a condition that could be got
+wrong. `aCommandedSeekIsUnaffectedByAStarve` pins it. The host's 2.5s hold is untouched.
+
+**Verified here.** 8/8 pure groups; `:composeApp:testAndroidHostTest` **2262 tests, 0 failures**
+(2254 before this change, on the full distribution); `:androidApp:compileFullDebugKotlin`.
+
+Note on that count: the plain `:composeApp:testAndroidHostTest` builds the **playstore**
+distribution and reports **2248**, because `androidFullHostTest` - `AndroidUpdateChannelTest` and
+`PluginScraperCodeFileStoreTest`, 6 between them - is not in that variant. Running it alongside
+`:androidApp:compileFullDebugKotlin` selects `full` and reports 6 more. Both numbers are honest;
+they are different suites, and a 2248 is not a regression against a 2254.
+
+**Still needs hardware.**
+
+- Lock and unlock repeatedly with the party live. The point is the *repetition*: one success never
+  distinguished these two orderings.
+- A guest on a struggling source: the loop must stop. `drift ... action=` should show
+  `TEMPORARY_SPEED` with `starveRecovery=true` after a rebuffer, not `SEEK`.
+- A guest that falls genuinely far behind must still seek, and the host's hold must still fire.
+- A host scrub and an Away return while a guest is freshly rebuffered: both must still seek at once.
+
 ## Phase 6 Away hardware run: three defects found and fixed, none verified again yet (2026-09-21)
 
 The `0.4.13-z1.37` / `z6.58` device run passed on almost everything Away was written for - ordinary

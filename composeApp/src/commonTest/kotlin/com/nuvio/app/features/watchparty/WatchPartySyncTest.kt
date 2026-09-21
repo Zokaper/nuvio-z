@@ -324,6 +324,80 @@ class WatchPartyTimelineTest {
         assertEquals(DriftCorrectionKind.NONE, second.correction.kind)
         assertEquals(0, second.tracker.seekStreak)
     }
+
+    // --- Recovering from a starve -------------------------------------------------------------
+    //
+    // The buffer -> seek -> buffer loop, reported from hardware 2026-09-21. A guest seeks once it
+    // is WatchPartySeekThresholdMs (1s) behind, but the host only holds the party after
+    // WatchPartyGuestBufferingGraceMs (2.5s) of continuous buffering - so a rebuffer anywhere in
+    // between put the guest into a seek that discarded the buffer it had just rebuilt, which
+    // starved it again, while the host was still deciding whether to wait. These pin the handover.
+
+    /** The case from the device: a ~2s rebuffer, recovered, now ~2s behind. Nudge, do not seek. */
+    @Test fun aModerateGapAfterARebufferIsNudgedRatherThanSeeked() {
+        val starved = DriftTracker().starved(nowMs = 1_000)
+        assertTrue(starved.recoveringFromStarve(nowMs = 1_100))
+
+        // Twice, because two consecutive sightings is all it used to take to spend the buffer.
+        val first = starved.next(0, 2_000, 1f, nowMs = 1_100)
+        assertEquals(DriftCorrectionKind.TEMPORARY_SPEED, first.correction.kind)
+        val second = first.tracker.next(0, 2_000, 1f, nowMs = 1_600)
+        assertEquals(DriftCorrectionKind.TEMPORARY_SPEED, second.correction.kind)
+        // Still closing the gap while it declines to seek for it.
+        assertTrue((second.correction.temporarySpeed ?: 1f) > 1f)
+    }
+
+    /** Bounded. A guest still behind when the window runs out takes the seek after all. */
+    @Test fun theStarveSuppressionExpires() {
+        val starved = DriftTracker().starved(nowMs = 1_000)
+        val afterWindow = 1_000 + WatchPartyStarveRecoverySeekSuppressionMs + 1
+        assertFalse(starved.recoveringFromStarve(nowMs = afterWindow))
+
+        val first = starved.next(0, 2_000, 1f, nowMs = afterWindow)
+        assertEquals(DriftCorrectionKind.TEMPORARY_SPEED, first.correction.kind)
+        val second = first.tracker.next(0, 2_000, 1f, nowMs = afterWindow + 500)
+        assertEquals(DriftCorrectionKind.SEEK, second.correction.kind)
+    }
+
+    /** A gap the nudge would take half a minute to close is not a rebuffer to absorb. */
+    @Test fun aLargeGapSeeksEvenWhileRecovering() {
+        val starved = DriftTracker().starved(nowMs = 1_000)
+        val wide = WatchPartyStarveRecoverySeekOverrideMs + 500
+        val first = starved.next(0, wide, 1f, nowMs = 1_100)
+        assertEquals(DriftCorrectionKind.TEMPORARY_SPEED, first.correction.kind)
+        val second = first.tracker.next(0, wide, 1f, nowMs = 1_200)
+        assertEquals(DriftCorrectionKind.SEEK, second.correction.kind)
+        // The seek spent the buffer the policy was protecting, so the starve goes with it.
+        assertEquals(0L, second.tracker.starvedAtMs)
+    }
+
+    /**
+     * The override sits above the host's own grace on purpose.
+     *
+     * If it were below, a guest could suppress its seek for a gap the host had already stopped
+     * waiting for and nobody would act. The two constants being ordered the wrong way round is the
+     * whole bug, so the ordering is asserted rather than left to whoever edits them next.
+     */
+    @Test fun theStarveOverrideStaysAboveTheHostsBufferingGrace() {
+        assertTrue(WatchPartyStarveRecoverySeekOverrideMs > WatchPartyGuestBufferingGraceMs)
+    }
+
+    /**
+     * A commanded seek is not a drift correction and never reaches this policy.
+     *
+     * Host scrubs, source-generation changes and Away returns are all scheduled through
+     * `partySeekPlan` against the barrier, which the caller honours before the tracker is consulted
+     * at all. The guard is structural, so what is pinned here is that the scheduler still produces
+     * a seek for a freshly starved guest - the tracker has no say in it.
+     */
+    @Test fun aCommandedSeekIsUnaffectedByAStarve() {
+        val commanded = tick(positionMs = 60_000, capturedAtPartyMs = 10_000)
+        val plan = partySeekPlan(commanded, partyNowMs = 10_000)
+        assertTrue(plan.resumeAtPartyMs > 10_000)
+        // The freshly starved tracker is not consulted, and the scheduled target is unchanged.
+        assertTrue(DriftTracker().starved(nowMs = 10_000).recoveringFromStarve(nowMs = 10_000))
+        assertEquals(plan.seekToMs, partySeekPlan(commanded, partyNowMs = 10_000).seekToMs)
+    }
 }
 
 class WatchPartyBarrierTest {

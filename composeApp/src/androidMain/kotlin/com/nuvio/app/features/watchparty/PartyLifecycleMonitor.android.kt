@@ -48,15 +48,20 @@ internal actual fun rememberPartyPlatformLifecycle(): PartyPlatformLifecycle {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                // The keyguard is re-read here, not just trusted from the broadcasts. It is the
-                // belt to `ACTION_USER_PRESENT`'s braces: by the time the process is STARTED again
-                // the keyguard has settled, so a lock fact that was missed - a broadcast dropped
-                // while the process was cached, or an unlock straight into the app whose
-                // `USER_PRESENT` raced this - cannot leave the member latched Away with the video
-                // in front of them.
+                // The keyguard is re-read here, not just trusted from the broadcasts, as a
+                // second chance at a lock fact that went missing - a broadcast dropped while the
+                // process was cached, an unlock straight into the app. It may only ever *clear*
+                // the lock, never declare one: this read is the same one `USER_PRESENT` refuses to
+                // make, and unlocking delivers the broadcast and this foreground in no guaranteed
+                // order, so declaring from it made the same unlock return or stay Away depending
+                // on which landed last. The rule is in `partyScreenLockedOnForeground`, with every
+                // other decision.
                 Lifecycle.Event.ON_START -> facts = facts.copy(
                     appForeground = true,
-                    screenLocked = keyguard?.isKeyguardLocked == true,
+                    screenLocked = partyScreenLockedOnForeground(
+                        heldScreenLocked = facts.screenLocked,
+                        keyguardLocked = keyguard?.isKeyguardLocked == true,
+                    ),
                 )
                 Lifecycle.Event.ON_STOP -> facts = facts.copy(appForeground = false)
                 else -> Unit

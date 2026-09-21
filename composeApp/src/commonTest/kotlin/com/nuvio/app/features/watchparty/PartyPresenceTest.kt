@@ -475,6 +475,75 @@ class PartyPresenceTest {
         assertFalse(partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = false))
     }
 
+    // The foreground keyguard re-read, which is the second door the same bad read came through.
+    // `USER_PRESENT` was fixed and this was not, so the unlock raced: whichever of the two landed
+    // last decided the answer, and the phone returned or stayed Away at random. Reported from
+    // hardware 2026-09-21 as "sometimes clears away but its inconsistent".
+
+    @Test
+    fun foregroundNeverDeclaresALockThatWasNotHeld() {
+        // The going-away animation, read at the worst instant. Held false, so it stays false.
+        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = false, keyguardLocked = true))
+        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = false, keyguardLocked = false))
+    }
+
+    @Test
+    fun foregroundStillClearsALockFactThatWentMissing() {
+        // The whole point of re-reading: a dropped broadcast left the lock latched, and a settled
+        // keyguard says it is gone.
+        assertFalse(partyScreenLockedOnForeground(heldScreenLocked = true, keyguardLocked = false))
+        // Genuinely still locked, so it stays locked.
+        assertTrue(partyScreenLockedOnForeground(heldScreenLocked = true, keyguardLocked = true))
+    }
+
+    /**
+     * Both orderings of one unlock, with the keyguard lying at every read.
+     *
+     * Android delivers `ACTION_USER_PRESENT` and the process foreground at nearly the same instant
+     * and in no guaranteed order. This is the assertion the shipped build could only pass half the
+     * time: whichever arrived last used to decide the answer, and only one of them was right.
+     */
+    @Test
+    fun unlockReturnsWatchingWhicheverOfForegroundAndUserPresentLandsLast() {
+        fun unlock(userPresentLast: Boolean): PartyPresenceState {
+            var seq = 0L
+            var state = PartyPresenceState()
+            var screenLocked = false
+            fun push(foreground: Boolean) {
+                seq += 1
+                state = state.observe(
+                    PartyLifecycleFacts(appForeground = foreground, screenLocked = screenLocked, seq = seq),
+                )
+            }
+            // Locked, then the process stops behind the keyguard.
+            screenLocked = partyScreenLockedAfter(PartyScreenSignal.ScreenOff, keyguardLocked = true)
+            push(foreground = true)
+            push(foreground = false)
+            assertEquals(PartyPresence.Away, state.presence)
+
+            // The unlock, delivered both ways round. The keyguard answers `true` at every read,
+            // which is what the S25 does through the dismiss animation.
+            if (userPresentLast) {
+                screenLocked = partyScreenLockedOnForeground(heldScreenLocked = screenLocked, keyguardLocked = true)
+                push(foreground = true)
+                screenLocked = partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = true)
+                push(foreground = true)
+            } else {
+                screenLocked = partyScreenLockedAfter(PartyScreenSignal.UserPresent, keyguardLocked = true)
+                push(foreground = true)
+                screenLocked = partyScreenLockedOnForeground(heldScreenLocked = screenLocked, keyguardLocked = true)
+                push(foreground = true)
+            }
+            return state
+        }
+
+        assertEquals(PartyPresence.Watching, unlock(userPresentLast = true).presence)
+        assertEquals(PartyAwayReason.None, unlock(userPresentLast = true).reason)
+        // The ordering that used to fail, and the reason this test exists.
+        assertEquals(PartyPresence.Watching, unlock(userPresentLast = false).presence)
+        assertEquals(PartyAwayReason.None, unlock(userPresentLast = false).reason)
+    }
+
     /**
      * The whole hardware cycle: watching, lock, unlock, and back to watching.
      *

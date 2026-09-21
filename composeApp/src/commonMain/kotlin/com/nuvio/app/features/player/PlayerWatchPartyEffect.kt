@@ -1473,38 +1473,45 @@ private fun PlayerScreenRuntime.partyPositionInThisFile(positionMs: Long, durati
 private suspend fun PlayerScreenRuntime.followPartyTick(tick: PartyTick, tracker: DriftTracker): DriftTracker {
     val controller = playerController ?: return tracker
     val durationMs = playbackSnapshot.durationMs
+    // Remembered before anything returns, because this is the only pass that can see it. By the
+    // time a gap is measurable the starve that opened it is over, so a correction that asked
+    // "is this player buffering *now*" would always be told no and would spend the freshly rebuilt
+    // buffer on a seek - which is the loop `WatchPartyStarveRecoverySeekSuppressionMs` exists for.
+    val starving = playbackSnapshot.isLoading
+    val starveTracker = if (starving) tracker.starved(currentEpochMs()) else tracker
     // Correcting a stream that has not loaded is how a guest ends up watching a black frame: the
     // seek lands on a player with no timeline, and the play that follows has nothing to play.
-    if (durationMs <= 0L || playbackSnapshot.isLoading) return tracker
+    if (durationMs <= 0L || starving) return starveTracker
     // One authority at a time. Until the clock is locked the database anchor is the better of two
     // imperfect answers, and its effect below is doing the work; two correction paths acting on one
     // player is how a guest gets seeked twice for the same gap.
-    if (!WatchPartySync.isPrecise()) return tracker
+    if (!WatchPartySync.isPrecise()) return starveTracker
     // A seek this client issued is still in flight, so the position everything below would be
     // measured against is the one from *before* it. Correcting against that is what turned one
     // corrective seek into a cascade of them, each aimed further ahead than the last.
-    if (partySeekOutstanding()) return tracker
+    if (partySeekOutstanding()) return starveTracker
     val partyNow = WatchPartySync.partyNowMs()
     // A barrier is already putting this player exactly where it should be. Measuring against a
     // position it is deliberately holding would produce a correction for a gap that is intentional.
-    if (partyNow < partyBarrierAtMs) return tracker
+    if (partyNow < partyBarrierAtMs) return starveTracker
     // And a timeline captured before that barrier is about the party as it was *before* the command
     // everyone just obeyed. The host's next tick is up to half a second behind its own pause, so
     // without this a guest resumes at the barrier and is put straight back by the tick in flight.
-    if (tick.capturedAtPartyMs < partyBarrierAtMs) return tracker
+    if (tick.capturedAtPartyMs < partyBarrierAtMs) return starveTracker
     // Checked against the tick in hand rather than relying on the one the transport happens to
     // hold, so this reads correctly wherever it is called from.
-    if (tick.isStale(partyNow)) return tracker
+    if (tick.isStale(partyNow)) return starveTracker
 
     if (tick.status == WatchPartyStatus.playing) {
         val expected = tick.expectedPositionMs(partyNow).let { partyPositionInThisFile(it, durationMs) }
-            ?: return tracker
+            ?: return starveTracker
         val local = samplePlaybackPosition().positionMs
-        val outcome = tracker.next(local, expected, tick.playbackSpeed)
+        val outcome = starveTracker.next(local, expected, tick.playbackSpeed, nowMs = currentEpochMs())
         partyLog.i {
             "drift localMs=$local expectedMs=$expected driftMs=${expected - local} " +
                 "action=${outcome.correction.kind} offsetMs=${WatchPartySync.state.value.clockOffsetMs} " +
-                "tickAgeMs=${partyNow - tick.capturedAtPartyMs}"
+                "tickAgeMs=${partyNow - tick.capturedAtPartyMs} " +
+                "starveRecovery=${starveTracker.recoveringFromStarve(currentEpochMs())}"
         }
         when (outcome.correction.kind) {
             DriftCorrectionKind.NONE -> applyPartySpeed(tick.playbackSpeed)
@@ -1561,7 +1568,10 @@ private suspend fun PlayerScreenRuntime.followPartyTick(tick: PartyTick, tracker
             controller.pause()
         }
     }
-    return DriftTracker()
+    // A paused party is not drifting, so the nudge and the streak go; the starve does not.
+    // It is time-bounded and expires on its own, and forgetting it here would hand the first
+    // tick after a resume the seek this policy exists to withhold.
+    return DriftTracker(starvedAtMs = starveTracker.starvedAtMs)
 }
 
 /**
