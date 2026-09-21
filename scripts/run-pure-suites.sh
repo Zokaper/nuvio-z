@@ -170,6 +170,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/streams/PlaybackUrlCredentials.kt" \
   "$M/core/network/ThroughputWindow.kt" \
   "$M/core/build/NuvioZVersion.kt" \
+  "$M/core/ui/NuvioWindowClass.kt" \
   "$M/features/playback/ConnectionProbeSettlement.kt" \
   "$M/features/playback/PlaybackStartupWatchdog.kt" \
   "$M/features/playback/PlaybackAttemptLog.kt" \
@@ -180,6 +181,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
   "$T/core/build/NuvioZVersionTest.kt" \
+  "$T/core/ui/NuvioWindowClassTest.kt" \
   "$T/features/playback/ConnectionProbeSettlementTest.kt" \
   "$T/features/playback/PlaybackStartupWatchdogTest.kt" \
   "$T/features/playback/PlaybackAttemptLogTest.kt" \
@@ -193,6 +195,7 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest \
   com.nuvio.app.core.network.ThroughputWindowTest \
   com.nuvio.app.core.build.NuvioZVersionTest \
+  com.nuvio.app.core.ui.NuvioWindowClassTest \
   com.nuvio.app.features.playback.ConnectionProbeSettlementTest \
   com.nuvio.app.features.playback.PlaybackStartupWatchdogTest \
   com.nuvio.app.features.playback.PlaybackAttemptLogTest \
