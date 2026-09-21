@@ -84,8 +84,10 @@ in Phase 0 of `ROADMAP.md`. The State column says what exists; this column says 
 | **held** | built, deliberately off, and a decision is owed before release. No feature is currently held |
 | dropped | not in v1. The reason is in the row and in §11 |
 
-**v1 means all six platforms in one release** - Android, iOS, Windows, macOS, Tizen, webOS - so a
-feature reached by a later phase still targets v1.
+**The desktop/mobile v1 gate covers Windows, macOS, Android and iOS.** Desktop is already live;
+Android and iOS launch together as mobile. Tizen and webOS remain product targets, but their build
+and distribution gate belongs to Phase 9 rather than Phase 7. A TV `port` target therefore does not
+block the desktop/mobile release-engineering phase.
 
 > **Superseded 2026-09-17.** This paragraph used to end: "`ships, **desktop**` on **S3** is the one
 > platform-split target: Watch Together stays desktop-only, per Phase 5." Phase 6 was rescoped to

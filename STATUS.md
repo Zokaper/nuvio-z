@@ -3,6 +3,14 @@
 
 Last updated: 2026-09-21
 
+## Phase 7 opened: Release Engineering v1 (2026-09-22)
+
+Active branch: `codex/phase-7-release-engineering`. `ROADMAP.md` now carries the superseding Phase 7
+scope: live desktop hardening plus Android/iOS release readiness; TV distribution is Phase 9.
+`Docs/RELEASES.md` records the compatibility decision. Desktop keeps its live version/serial/MSI
+lineage; Android and iOS share the mobile version/build lineage; policy is unified without forcing
+the two release families onto equal numbers. No release has been published.
+
 ## Phase 6 closeout: DONE WITH NON-BLOCKING QA DEBT (2026-09-21)
 
 **Phase 6 (Social + Watch Together to mobile) is closed.** The mobile responsive/UI pass was
