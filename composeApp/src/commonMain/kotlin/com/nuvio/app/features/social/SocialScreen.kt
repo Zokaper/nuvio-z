@@ -1,9 +1,5 @@
 package com.nuvio.app.features.social
 
-import com.nuvio.app.features.watchparty.currentEpochMs
-import com.nuvio.app.features.watchparty.WatchPartyStatus
-import com.nuvio.app.features.watchparty.WatchPartyRepository
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -22,15 +18,21 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -65,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,7 +90,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.profiles.parseHexColor
+import com.nuvio.app.features.watchparty.WatchPartyRepository
+import com.nuvio.app.features.watchparty.WatchPartyStatus
+import com.nuvio.app.features.watchparty.currentEpochMs
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -124,6 +131,13 @@ internal data class SocialFeedback(val message: String, val tone: SocialFeedback
 @Composable
 fun SocialScreen(
     modifier: Modifier = Modifier,
+    /**
+     * The tablet floating top bar's height, when there is one.
+     *
+     * Every other tab takes this and this screen did not, so on a tablet its header sat under the
+     * floating bar. Null on a phone, where the status-bar inset below is the whole answer.
+     */
+    topChromePadding: Dp? = null,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
     onOpenContent: (contentType: String, contentId: String, title: String) -> Unit = { _, _, _ -> },
     onJoinParty: (inviteCode: String) -> Unit = {},
@@ -250,7 +264,16 @@ fun SocialScreen(
     // from mobile did not, which left every bare Text and Icon black on the dark background: the
     // search button was invisible rather than broken. Providing it once covers the whole screen.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-        BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        // ⚠ **Horizontal insets belong here, above the metrics.** A display cutout in landscape
+        // is a *side* inset, and `socialFeedMetrics` divides `maxWidth` into columns - so consuming
+        // the cutout after the division would have sized the cards from width the screen does not
+        // own. Applying it on the constraint source means the column count and the cards agree.
+        BoxWithConstraints(
+            modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             // Below this the friends rail cannot hold a search field and a roster side by side with
             // the feed, so it folds back into the feed as a final section - which is also the phone
             // layout, since this screen is shared with mobile.
@@ -273,6 +296,7 @@ fun SocialScreen(
             // width is capped and the parent centres what is left.
             Column(Modifier.fillMaxHeight().widthIn(max = SocialDashboardMaxWidth)) {
                 SocialIdentityHeader(
+                    topChromePadding = topChromePadding,
                     me = state.me,
                     friendCount = state.friends.size,
                     watchingCount = state.watchingNow.size,
@@ -295,11 +319,15 @@ fun SocialScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.widthIn(max = feed.feedWidth).fillMaxWidth().fillMaxHeight(),
+                        // ⚠ Was a flat `110.dp`, which is neither the navigation bar nor the
+                        // floating nav pill but a guess that happened to cover both on one device.
+                        // `nuvioSafeBottomPadding` is the shared answer every other scrollable
+                        // screen already uses, and it tracks the pill's real height.
                         contentPadding = PaddingValues(
                             start = SocialFeedHorizontalPadding,
                             end = SocialFeedHorizontalPadding,
                             top = 16.dp,
-                            bottom = 110.dp,
+                            bottom = nuvioSafeBottomPadding(extra = 12.dp),
                         ),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
@@ -525,7 +553,8 @@ fun SocialScreen(
                             Modifier.width(SocialFriendsRailWidth)
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState())
-                                .padding(start = 4.dp, end = 24.dp, top = 4.dp, bottom = 110.dp),
+                                .padding(start = 4.dp, end = 24.dp, top = 4.dp)
+                                .padding(bottom = nuvioSafeBottomPadding(extra = 12.dp)),
                         ) {
                             SocialFriendsPanel(
                                 state = state,
@@ -570,6 +599,7 @@ fun SocialScreen(
  */
 @Composable
 private fun SocialIdentityHeader(
+    topChromePadding: Dp?,
     me: SocialProfileSummary?,
     friendCount: Int,
     watchingCount: Int,
@@ -583,6 +613,16 @@ private fun SocialIdentityHeader(
     // A horizontal gradient here left two hard edges - one mid-width where it reached transparent,
     // one across the bottom where the Box ended - which read as a mis-drawn panel rather than as a
     // header. Fading downward has no edge to see.
+    // ⚠ **The inset goes on the Row, not on the Box.** The gradient is the header, and a screen
+    // running edge-to-edge wants it to reach up behind the status bar rather than to start below
+    // it - padding the Box would leave a hard-edged band of bare background above the tint, which
+    // is the edge this gradient was reshaped to avoid in the first place.
+    //
+    // `safeDrawing` rather than `statusBars`: it is the same value wherever there is no cutout,
+    // and it is the larger one where there is. This screen is shared with desktop, where both are
+    // zero, so it costs that build nothing.
+    val topInset = topChromePadding
+        ?: WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
     Box(
         Modifier.fillMaxWidth().background(
             Brush.verticalGradient(
@@ -592,7 +632,9 @@ private fun SocialIdentityHeader(
         ),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+            Modifier.fillMaxWidth()
+                .padding(top = topInset)
+                .padding(horizontal = 24.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {

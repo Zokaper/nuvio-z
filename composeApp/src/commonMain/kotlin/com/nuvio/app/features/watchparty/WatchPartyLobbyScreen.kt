@@ -14,15 +14,20 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,8 +41,8 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PriorityHigh
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -78,6 +83,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -88,13 +94,13 @@ import com.nuvio.app.features.details.components.DetailRatingsRow
 import com.nuvio.app.features.details.components.desktopSeasonCountLabel
 import com.nuvio.app.features.details.components.desktopYearLabel
 import com.nuvio.app.features.details.formatRuntimeForDisplay
-import com.nuvio.app.features.watched.WatchedRepository
-import com.nuvio.app.features.watching.application.WatchingState
-import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.profiles.parseHexColor
 import com.nuvio.app.features.social.SocialProfileSummary
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.streams.PartyStreamLaunchPurpose
+import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watching.application.WatchingState
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -218,7 +224,30 @@ fun WatchPartyLobbyScreen(
             // the settings-screen background. The art is most of what makes it a lobby, not a form.
             PartyLobbyBackdrop(party?.content?.poster)
 
-            BoxWithConstraints(Modifier.fillMaxSize()) {
+            // ⚠ **The insets are consumed here, once, above the layout branch.**
+            //
+            // This route is pushed onto the navigator's own back stack rather than hosted in the
+            // tab shell, and the root `Scaffold` consumes nothing by design
+            // (`MainTabsDestination`, `contentWindowInsets = WindowInsets(0)`), so nothing upstream
+            // was ever going to supply these: the back arrow sat at a flat 20dp from the physical
+            // top of the display, under the status bar and under any cutout.
+            //
+            // Applying them on the `BoxWithConstraints` rather than inside each branch is what
+            // makes it impossible for the two-pane and single-pane paths to disagree about the
+            // inset or to apply it twice - and it means `maxWidth` below is the width this screen
+            // actually owns, which is the number the breakpoints must be read from.
+            //
+            // `PartyLobbyBackdrop` stays *outside* it: the artwork is meant to run full-bleed
+            // behind the status bar. Only the content is inset.
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                        ),
+                    ),
+            ) {
                 // A centred `widthIn(max = 1040.dp)` column read as a document with a dead margin
                 // down either side of a desktop window, and still ran off the bottom. Given the
                 // width, the party takes the left and the title takes a rail on the right: the two
@@ -319,7 +348,8 @@ fun WatchPartyLobbyScreen(
                     Row(Modifier.fillMaxSize()) {
                         Column(
                             Modifier.weight(1f).fillMaxHeight()
-                                .padding(start = 40.dp, end = 24.dp, top = 20.dp, bottom = 28.dp),
+                                .padding(start = 40.dp, end = 24.dp, top = 20.dp)
+                                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
                         ) {
                             Column(
                                 Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -372,7 +402,8 @@ fun WatchPartyLobbyScreen(
                             modifier = Modifier
                                 .width(railWidth)
                                 .fillMaxHeight()
-                                .padding(end = 40.dp, top = 20.dp, bottom = 28.dp),
+                                .padding(end = 40.dp, top = 20.dp)
+                                .padding(bottom = nuvioSafeBottomPadding(extra = 8.dp)),
                         )
                     }
                     return@BoxWithConstraints
@@ -380,7 +411,15 @@ fun WatchPartyLobbyScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxHeight().widthIn(max = 1040.dp),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 88.dp),
+                    // 88dp was a literal that cleared nothing in particular. There is no bottom
+                    // nav on this route, so the overlay term is zero - but the system navigation
+                    // bar is not, and this screen never asked for it.
+                    contentPadding = PaddingValues(
+                        start = 24.dp,
+                        end = 24.dp,
+                        top = 20.dp,
+                        bottom = nuvioSafeBottomPadding(extra = 24.dp),
+                    ),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     item { PartyLobbyHeader(requestDeparture) }

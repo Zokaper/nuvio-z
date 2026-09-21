@@ -359,6 +359,7 @@ internal fun AppTabHost(
                         AppScreenTab.Social -> if (socialEnabled) {
                             SocialScreen(
                                 modifier = Modifier.fillMaxSize(),
+                                topChromePadding = state.topChromePadding,
                                 scrollToTopRequests = requests.socialScrollToTopRequests,
                                 onOpenContent = { type, id, title ->
                                     actions.onPosterClick?.invoke(
