@@ -69,8 +69,10 @@ class SocialFeedMetricsTest {
         // would take a third of it back for the artwork. A phone goes further: its card is a row.
         val phone = socialFeedMetrics(420.dp, railVisible = false)
         assertEquals(SocialWatchingNowArtworkWidthCompact, phone.watchingNowArtworkWidth)
-        val tablet = socialFeedMetrics(800.dp, railVisible = false, windowHeight = 1280.dp)
-        assertEquals(SocialWatchingNowArtworkWidth, tablet.watchingNowArtworkWidth)
+        // A 600dp tall window is one column without being a phone: the regular still, not the row's.
+        val narrowTablet = socialFeedMetrics(600.dp, railVisible = false, windowHeight = 1000.dp)
+        assertEquals(1, narrowTablet.watchingNowColumns)
+        assertEquals(SocialWatchingNowArtworkWidth, narrowTablet.watchingNowArtworkWidth)
         val desktop = socialFeedMetrics(1440.dp, railVisible = true)
         assertEquals(SocialWatchingNowArtworkWidthWide, desktop.watchingNowArtworkWidth)
     }
