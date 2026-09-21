@@ -3,6 +3,33 @@
 
 Last updated: 2026-09-21
 
+## Mobile UI pass, stages 2-4: first device pass, three defects fixed (2026-09-21)
+
+The responsive/stabilization pass (`../HANDOFF-mobile-ui-responsive-pass.md`, stages 0-4 of 10)
+was put on the S25 (411x891dp, and 360dp via `wm density 320`) for the first time. Nothing pushed,
+no version bump; the hardware APK is the ordinary `androidApp-full-debug.apk` (`0.4.13-z1.40`).
+
+**Passed on device:** Social portrait/landscape insets (header under the status bar, list end
+clears the nav, landscape cutout side padded); lobby portrait/landscape insets; nav at 411
+(six labels, no clipping) and 360 (clean icon-only); landscape uses upstream's
+`TabletFloatingTopBar`, whose labels are complete; party pill compact placement, gesture
+hand-off (pill drops below the volume pill, no overlap) and the dot-for-tone treatment.
+
+**Found and fixed** (mobile `62769eddb`, `bebe2df44`, `b5551e112`; desktop `931cbfad`,
+`e53c0dfc`, `666de3cb`):
+
+1. **Nav labels gone for good after one scroll.** The fit check fired mid-collapse (padding
+   animates 12->58dp under still-drawn labels) and latched the demote. Now asked only at
+   `labelFraction == 1`. A new harness scene drives the collapse/expand and fails without the fix.
+2. **Lobby rows crushed on a phone.** "Wait for everyone" switch off the card; "End session" one
+   letter wide. `LeadingBesideTrailingRow` wraps by measurement; wide layouts unchanged.
+3. **Landscape party pill with buttons would land on play/pause** (render harness had no
+   transport). Short surface + chrome up: pill at 64dp, buttons inline, one row.
+
+**Not verified live:** the join-request pill (needs a second participant); judged from renders.
+**Seen, not touched (sync scope):** a solo party's pill read "Reconnecting to the party..." for
+the whole session, with realtime at `subscribed-unverified` and polling carrying it.
+
 ## Away return: fixed for the right reason this time, and verified on the phone (2026-09-21)
 
 **The third attempt at this, and the first with evidence instead of a theory.** `z1.38` and `z1.39`
