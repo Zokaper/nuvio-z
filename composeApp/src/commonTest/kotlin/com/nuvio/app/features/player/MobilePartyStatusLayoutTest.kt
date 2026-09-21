@@ -51,6 +51,14 @@ class MobilePartyStatusLayoutTest {
         assertTrue(l.showActions)
     }
 
+    @Test fun aShortWindowWithTheChromeUpKeepsThePillToOneRow() {
+        // Buttons wrapped under the sentence reached the play/pause button on a landscape phone.
+        assertTrue(layout(short = true).singleRow)
+        assertFalse(layout(short = false).singleRow)
+        // Compact is already one line and owns the gesture slot; it keeps its own placement.
+        assertFalse(layout(short = true, controlsVisible = false).singleRow)
+    }
+
     @Test fun blankDetailAndNoActionsDrawNeither() {
         val l = layout(status = PartyStatusBridgeState(visible = true, text = "Playing together"))
         assertFalse(l.showDetail)

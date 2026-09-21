@@ -98,6 +98,16 @@ internal data class MobilePartyStatusLayout(
     val raised: Boolean,
     val showDetail: Boolean,
     val showActions: Boolean,
+    /**
+     * The chrome is up on a short (landscape) surface: the pill sits higher and its buttons share
+     * the sentence's row, so it stays one row tall.
+     *
+     * WARN **A landscape phone has about 100dp between the title block and the transport row.**
+     * At 96dp below the top inset, a pill whose buttons wrap under the sentence is ~88dp tall and
+     * lands on the play/pause button - seen on an S25 at 891x411dp. The render harness draws no
+     * transport controls, so it never showed.
+     */
+    val singleRow: Boolean = false,
 )
 
 internal fun mobilePartyStatusLayout(
@@ -117,6 +127,7 @@ internal fun mobilePartyStatusLayout(
         // On a landscape phone the second line is what would reach down towards the scrub bar.
         showDetail = !compact && !shortSurface && status.detail.isNotBlank(),
         showActions = !compact && !locked && mobilePartyStatusActions(status).isNotEmpty(),
+        singleRow = !compact && shortSurface,
     )
 }
 
@@ -165,7 +176,11 @@ internal fun BoxScope.MobilePartyOverlays(
             shortSurface = nuvioWindowClass().isShortSurface,
         )
         val top by animateDpAsState(
-            targetValue = if (layout.raised) 40.dp else 96.dp,
+            targetValue = when {
+                layout.raised -> 40.dp
+                layout.singleRow -> 64.dp
+                else -> 96.dp
+            },
             animationSpec = tween(NuvioTokens.Motion.normalMillis, easing = NuvioTokens.Motion.standard),
             label = "partyStatusTop",
         )
@@ -241,7 +256,7 @@ internal fun StatusPill(
                         text = status.text,
                         color = Color.White,
                         style = MaterialTheme.nuvioTypeScale.bodyLg.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = if (layout.compact) 1 else 3,
+                        maxLines = if (layout.compact || layout.singleRow) 1 else 3,
                         overflow = TextOverflow.Ellipsis,
                     )
                     // The second line, dimmed: what happened is the headline, what is being done
@@ -256,8 +271,13 @@ internal fun StatusPill(
                         )
                     }
                 }
+                if (layout.singleRow && actions.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        actions.forEach { OverlayButton(it, onEvent) }
+                    }
+                }
             }
-            if (actions.isNotEmpty()) {
+            if (!layout.singleRow && actions.isNotEmpty()) {
                 FlowRow(
                     modifier = Modifier.align(Alignment.End),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
