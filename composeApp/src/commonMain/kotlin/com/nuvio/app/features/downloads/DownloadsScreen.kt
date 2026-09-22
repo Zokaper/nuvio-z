@@ -87,8 +87,8 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var pendingTitleDeletion by remember { mutableStateOf<DownloadTitleGroup?>(null) }
-    val listState = rememberLazyListState()
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
 
     LaunchedEffect(scrollToTopRequests) {
@@ -278,7 +278,7 @@ private fun LazyListScope.downloadsRootContent(
                     }
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                onDelete = { onDeleteDownload(item.id) },
             )
         }
     }
@@ -300,7 +300,7 @@ private fun LazyListScope.downloadsRootContent(
                     }
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { onDeleteDownload(item.id) },
+                onDelete = { DownloadsRepository.cancelDownload(item.id) },
                 queueControls = QueueControls(
                     canMoveUp = index > 0,
                     canMoveDown = index < activeItems.lastIndex,

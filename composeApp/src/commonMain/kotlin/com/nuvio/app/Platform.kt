@@ -7,5 +7,7 @@ interface Platform {
 expect fun getPlatform(): Platform
 
 internal expect val isIos: Boolean
+internal expect val isDesktop: Boolean
+internal expect val isWindows: Boolean
 
-expect fun platformDisplayMaxHeight(): Int?
+expect fun platformDisplayMaxHeight(): Int?

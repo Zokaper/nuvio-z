@@ -45,8 +45,6 @@ actual object PlayerSettingsStorage {
     private const val subtitleUseForcedSubtitlesKey = "subtitle_use_forced_subtitles"
     private const val subtitleShowOnlyPreferredLanguagesKey = "subtitle_show_only_preferred_languages"
     private const val addonSubtitleStartupModeKey = "addon_subtitle_startup_mode"
-    private const val streamReuseLastLinkEnabledKey = "stream_reuse_last_link_enabled"
-    private const val streamReuseLastLinkCacheHoursKey = "stream_reuse_last_link_cache_hours"
     private const val androidPlaybackEngineKey = "android_playback_engine"
     private const val androidLibmpvVideoOutputKey = "android_libmpv_video_output"
     private const val androidLibmpvHardwareDecodingEnabledKey = "android_libmpv_hardware_decoding_enabled"
@@ -56,6 +54,7 @@ actual object PlayerSettingsStorage {
     private const val tunnelingEnabledKey = "tunneling_enabled"
     private const val playbackModeKey = "playback_mode"
     private const val playbackAllowTorrentAutopickKey = "playback_allow_torrent_autopick"
+    private const val playbackPreferEmbeddedSubtitlesKey = "playback_prefer_embedded_subtitles"
     private const val playbackCodecPreferenceKey = "playback_codec_preference"
     private const val playbackDynamicRangePolicyKey = "playback_dynamic_range_policy"
     private const val playbackAudioPreferenceKey = "playback_audio_preference"
@@ -65,6 +64,7 @@ actual object PlayerSettingsStorage {
     private const val playbackMeteredCapHeightKey = "playback_metered_cap_height"
     private const val playbackModeSelectorSeenKey = "playback_mode_selector_seen"
     private const val setupWizardCompletedRevisionKey = "setup_wizard_completed_revision"
+    private const val playbackLanguageMigratedKey = "playback_language_migrated_v1"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -72,6 +72,7 @@ actual object PlayerSettingsStorage {
     private const val streamAutoPlayRegexKey = "stream_auto_play_regex"
     private const val streamAutoPlayTimeoutSecondsKey = "stream_auto_play_timeout_seconds"
     private const val skipIntroEnabledKey = "skip_intro_enabled"
+    private const val autoSkipSegmentTypesKey = "auto_skip_segment_types"
     private const val animeSkipEnabledKey = "animeskip_enabled"
     private const val animeSkipClientIdKey = "animeskip_client_id"
     private const val introDbApiKeyKey = "introdb_api_key"
@@ -100,12 +101,14 @@ actual object PlayerSettingsStorage {
     private const val iosContrastKey = "ios_contrast"
     private const val iosSaturationKey = "ios_saturation"
     private const val iosGammaKey = "ios_gamma"
+    private const val nvidiaRtxSuperResolutionEnabledKey = "nvidia_rtx_super_resolution_enabled"
     private val syncKeys = listOf(
         showLoadingOverlayKey,
         showParentalGuideKey,
         resizeModeKey,
         holdToSpeedEnabledKey,
         holdToSpeedValueKey,
+        nvidiaRtxSuperResolutionEnabledKey,
         touchGesturesEnabledKey,
         externalPlayerEnabledKey,
         externalPlayerForwardSubtitlesKey,
@@ -126,8 +129,6 @@ actual object PlayerSettingsStorage {
         subtitleStripSdhKey,
         subtitleUseForcedSubtitlesKey,
         subtitleShowOnlyPreferredLanguagesKey,
-        streamReuseLastLinkEnabledKey,
-        streamReuseLastLinkCacheHoursKey,
         androidPlaybackEngineKey,
         androidLibmpvVideoOutputKey,
         androidLibmpvHardwareDecodingEnabledKey,
@@ -137,6 +138,7 @@ actual object PlayerSettingsStorage {
         tunnelingEnabledKey,
         playbackModeKey,
         playbackAllowTorrentAutopickKey,
+        playbackPreferEmbeddedSubtitlesKey,
         playbackCodecPreferenceKey,
         playbackDynamicRangePolicyKey,
         playbackAudioPreferenceKey,
@@ -144,8 +146,16 @@ actual object PlayerSettingsStorage {
         playbackQualityCeilingMbpsKey,
         showAdvancedSettingsKey,
         playbackMeteredCapHeightKey,
+        // ⚠ **Tombstone, deliberately kept in `syncKeys` only.** The preference itself is gone -
+        // the first-launch selector it gated was superseded by the setup wizard and nothing had
+        // read it for two releases. The key stays on this list so that a payload written by an
+        // older client, which still exports it, clears the orphaned local value instead of
+        // leaving it on disk forever. Nothing here writes it. Removable once no client in the
+        // wild still exports it.
         playbackModeSelectorSeenKey,
         setupWizardCompletedRevisionKey,
+        playbackLanguageMigratedKey,
+        introSubmitEnabledKey,
         streamAutoPlayModeKey,
         streamAutoPlaySourceKey,
         streamAutoPlaySelectedAddonsKey,
@@ -153,6 +163,7 @@ actual object PlayerSettingsStorage {
         streamAutoPlayRegexKey,
         streamAutoPlayTimeoutSecondsKey,
         skipIntroEnabledKey,
+        autoSkipSegmentTypesKey,
         animeSkipEnabledKey,
         animeSkipClientIdKey,
         streamAutoPlayNextEpisodeEnabledKey,
@@ -180,6 +191,10 @@ actual object PlayerSettingsStorage {
         iosSaturationKey,
         iosGammaKey,
     )
+
+    actual fun loadPlaybackLanguageMigrated(): Boolean? = loadBoolean(playbackLanguageMigratedKey)
+    actual fun savePlaybackLanguageMigrated(migrated: Boolean) =
+        saveBoolean(playbackLanguageMigratedKey, migrated)
 
     private fun loadBoolean(keyBase: String): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
@@ -659,6 +674,16 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(playbackAllowTorrentAutopickKey))
     }
 
+    actual fun loadPlaybackPreferEmbeddedSubtitles(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(playbackPreferEmbeddedSubtitlesKey)
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+
+    actual fun savePlaybackPreferEmbeddedSubtitles(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(playbackPreferEmbeddedSubtitlesKey))
+    }
+
     actual fun loadShowAdvancedSettings(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(showAdvancedSettingsKey)
@@ -689,23 +714,6 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setInteger(
             revision.toLong(),
             forKey = ProfileScopedKey.of(setupWizardCompletedRevisionKey),
-        )
-    }
-
-    actual fun loadPlaybackModeSelectorSeen(): Boolean? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(playbackModeSelectorSeenKey)
-        return if (defaults.objectForKey(key) != null) {
-            defaults.boolForKey(key)
-        } else {
-            null
-        }
-    }
-
-    actual fun savePlaybackModeSelectorSeen(seen: Boolean) {
-        NSUserDefaults.standardUserDefaults.setBool(
-            seen,
-            forKey = ProfileScopedKey.of(playbackModeSelectorSeenKey),
         )
     }
 
@@ -789,6 +797,18 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSkipIntroEnabled(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(skipIntroEnabledKey))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    actual fun loadAutoSkipSegmentTypes(): Set<String>? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(autoSkipSegmentTypesKey)
+        val array = defaults.arrayForKey(key) as? List<String> ?: return null
+        return array.toSet()
+    }
+
+    actual fun saveAutoSkipSegmentTypes(segmentTypes: Set<String>) {
+        NSUserDefaults.standardUserDefaults.setObject(segmentTypes.toList(), forKey = ProfileScopedKey.of(autoSkipSegmentTypesKey))
     }
 
     actual fun loadAnimeSkipEnabled(): Boolean? {
@@ -1042,6 +1062,20 @@ actual object PlayerSettingsStorage {
         saveInt(iosGammaKey, value)
     }
 
+    actual fun loadNvidiaRtxSuperResolutionEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(nvidiaRtxSuperResolutionEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveNvidiaRtxSuperResolutionEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(nvidiaRtxSuperResolutionEnabledKey))
+    }
+
     actual fun exportToSyncPayload(): JsonObject = buildJsonObject {
         loadShowLoadingOverlay()?.let { put(showLoadingOverlayKey, encodeSyncBoolean(it)) }
         loadShowParentalGuide()?.let { put(showParentalGuideKey, encodeSyncBoolean(it)) }
@@ -1095,12 +1129,18 @@ actual object PlayerSettingsStorage {
         loadPlaybackAllowTorrentAutopick()?.let {
             put(playbackAllowTorrentAutopickKey, encodeSyncBoolean(it))
         }
-        loadPlaybackMeteredCapHeight()?.let { put(playbackMeteredCapHeightKey, encodeSyncInt(it)) }
-        loadPlaybackModeSelectorSeen()?.let {
-            put(playbackModeSelectorSeenKey, encodeSyncBoolean(it))
+        loadPlaybackPreferEmbeddedSubtitles()?.let {
+            put(playbackPreferEmbeddedSubtitlesKey, encodeSyncBoolean(it))
         }
+        loadPlaybackMeteredCapHeight()?.let { put(playbackMeteredCapHeightKey, encodeSyncInt(it)) }
         loadSetupWizardCompletedRevision()?.let {
             put(setupWizardCompletedRevisionKey, encodeSyncInt(it))
+        }
+        loadPlaybackLanguageMigrated()?.let {
+            put(playbackLanguageMigratedKey, encodeSyncBoolean(it))
+        }
+        loadIntroSubmitEnabled()?.let {
+            put(introSubmitEnabledKey, encodeSyncBoolean(it))
         }
         loadStreamAutoPlayMode()?.let { put(streamAutoPlayModeKey, encodeSyncString(it)) }
         loadStreamAutoPlaySource()?.let { put(streamAutoPlaySourceKey, encodeSyncString(it)) }
@@ -1109,6 +1149,7 @@ actual object PlayerSettingsStorage {
         loadStreamAutoPlayRegex()?.let { put(streamAutoPlayRegexKey, encodeSyncString(it)) }
         loadStreamAutoPlayTimeoutSeconds()?.let { put(streamAutoPlayTimeoutSecondsKey, encodeSyncInt(it)) }
         loadSkipIntroEnabled()?.let { put(skipIntroEnabledKey, encodeSyncBoolean(it)) }
+        loadAutoSkipSegmentTypes()?.let { put(autoSkipSegmentTypesKey, encodeSyncStringSet(it)) }
         loadAnimeSkipEnabled()?.let { put(animeSkipEnabledKey, encodeSyncBoolean(it)) }
         loadAnimeSkipClientId()?.let { put(animeSkipClientIdKey, encodeSyncString(it)) }
         loadStreamAutoPlayNextEpisodeEnabled()?.let { put(streamAutoPlayNextEpisodeEnabledKey, encodeSyncBoolean(it)) }
@@ -1135,13 +1176,13 @@ actual object PlayerSettingsStorage {
         loadIosContrast()?.let { put(iosContrastKey, encodeSyncInt(it)) }
         loadIosSaturation()?.let { put(iosSaturationKey, encodeSyncInt(it)) }
         loadIosGamma()?.let { put(iosGammaKey, encodeSyncInt(it)) }
+        loadNvidiaRtxSuperResolutionEnabled()?.let { put(nvidiaRtxSuperResolutionEnabledKey, encodeSyncBoolean(it)) }
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
         // ⚠ Read before the clear below - see the Android actual and `mergeMonotonicSyncInt`.
         val localSetupWizardRevision = loadSetupWizardCompletedRevision()
 
-        // Clear only what the payload actually carries - see the Android actual for why.
         syncKeysToClear(syncKeys, payload).forEach { key ->
             NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
@@ -1182,6 +1223,8 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(playbackModeKey)?.let(::savePlaybackMode)
         payload.decodeSyncBoolean(playbackAllowTorrentAutopickKey)
             ?.let(::savePlaybackAllowTorrentAutopick)
+        payload.decodeSyncBoolean(playbackPreferEmbeddedSubtitlesKey)
+            ?.let(::savePlaybackPreferEmbeddedSubtitles)
         payload.decodeSyncString(playbackCodecPreferenceKey)?.let(::savePlaybackCodecPreference)
         payload.decodeSyncString(playbackLanguageStrictnessKey)
             ?.let(::savePlaybackLanguageStrictness)
@@ -1192,8 +1235,6 @@ actual object PlayerSettingsStorage {
             ?.let(::savePlaybackAudioPreference)
         payload.decodeSyncBoolean(showAdvancedSettingsKey)?.let(::saveShowAdvancedSettings)
         payload.decodeSyncInt(playbackMeteredCapHeightKey)?.let(::savePlaybackMeteredCapHeight)
-        payload.decodeSyncBoolean(playbackModeSelectorSeenKey)
-            ?.let(::savePlaybackModeSelectorSeen)
         mergeMonotonicSyncInt(
             local = localSetupWizardRevision,
             remote = payload.decodeSyncInt(setupWizardCompletedRevisionKey),
@@ -1205,9 +1246,12 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(streamAutoPlayRegexKey)?.let(::saveStreamAutoPlayRegex)
         payload.decodeSyncInt(streamAutoPlayTimeoutSecondsKey)?.let(::saveStreamAutoPlayTimeoutSeconds)
         payload.decodeSyncBoolean(skipIntroEnabledKey)?.let(::saveSkipIntroEnabled)
+        payload.decodeSyncStringSet(autoSkipSegmentTypesKey)?.let(::saveAutoSkipSegmentTypes)
         payload.decodeSyncBoolean(animeSkipEnabledKey)?.let(::saveAnimeSkipEnabled)
         payload.decodeSyncString(animeSkipClientIdKey)?.let(::saveAnimeSkipClientId)
         payload.decodeSyncString(introDbApiKeyKey)?.let(::saveIntroDbApiKey)
+        payload.decodeSyncBoolean(introSubmitEnabledKey)?.let(::saveIntroSubmitEnabled)
+        payload.decodeSyncBoolean(playbackLanguageMigratedKey)?.let(::savePlaybackLanguageMigrated)
         payload.decodeSyncBoolean(streamAutoPlayNextEpisodeEnabledKey)?.let(::saveStreamAutoPlayNextEpisodeEnabled)
         payload.decodeSyncBoolean(streamAutoPlayNextEpisodeFallbackEnabledKey)?.let(::saveStreamAutoPlayNextEpisodeFallbackEnabled)
         payload.decodeSyncBoolean(streamAutoPlayPreferBingeGroupKey)?.let(::saveStreamAutoPlayPreferBingeGroup)
@@ -1232,5 +1276,6 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(iosContrastKey)?.let(::saveIosContrast)
         payload.decodeSyncInt(iosSaturationKey)?.let(::saveIosSaturation)
         payload.decodeSyncInt(iosGammaKey)?.let(::saveIosGamma)
+        payload.decodeSyncBoolean(nvidiaRtxSuperResolutionEnabledKey)?.let(::saveNvidiaRtxSuperResolutionEnabled)
     }
 }

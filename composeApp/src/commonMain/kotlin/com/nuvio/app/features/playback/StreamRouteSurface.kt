@@ -51,6 +51,35 @@ fun shouldOfferManualEscape(attempt: Int, elapsedMs: Long): Boolean =
     attempt > 1 || elapsedMs >= MANUAL_ESCAPE_DELAY_MS
 
 /**
+ * Whether the player may offer "Choose source manually" on the loading surface it inherited.
+ *
+ * ⚠ **The button was drawn by the loading surface and wired to a lambda that could not work.**
+ * `PlaybackLoadingHost` draws above `NavDisplay` and passes `PlaybackLoadingController.actions`
+ * straight through, and in the automatic modes those actions belong to `entry<StreamRoute>` -
+ * which has *stopped composing* while the player is on top. Pressing it wrote flags into saved
+ * state nobody would read, exactly as `StreamsRepository.signalManualSourceRequest` documents for
+ * the player's own copy of this button. So a start that hung behind the loading surface offered
+ * a way out that did nothing, and Back - which abandons the play - was the only real exit.
+ *
+ * The player takes the actions over while it is on top and signals-and-pops instead, which is the
+ * path that demonstrably works. This decides whether it may **offer** the button at all, and the
+ * answer is "only where a source list actually exists behind the player":
+ *
+ *  - [routeOffersSourceList] - the route that handed the session over registered an escape of its
+ *    own, so it is still on the back stack with a list on it;
+ *  - [isAutomaticSelection] - an auto-picked launch, whose `StreamRoute` is deliberately retained
+ *    to host the failure chain (`PlayerDestination`'s `skipRetainedStreamRoute`).
+ *
+ * Neither is true of Continue Watching, a next episode, or a resumed download. Those reach the
+ * player with nothing behind them but the details screen, and offering a source list there would
+ * leave `manualSourceRequestPending` set for whatever play came next.
+ */
+fun playerMayOfferSourceList(
+    routeOffersSourceList: Boolean,
+    isAutomaticSelection: Boolean,
+): Boolean = routeOffersSourceList || isAutomaticSelection
+
+/**
  * How long a silent automatic start may run before it offers the source list.
  *
  * Five seconds is past the point where a working debrid mint has answered and well short of
@@ -98,6 +127,8 @@ enum class StreamRouteSurface {
  * without a Compose runtime, which is the only kind of test this route has ever had.
  */
 data class StreamRouteSurfaceInputs(
+    /** A party route that is realizing an already-authoritative source, never choosing one. */
+    val isPartyResolution: Boolean = false,
     /** Classic never covers its list, in any state. */
     val isClassic: Boolean,
     /** `launch.manualSelection || launch.downloadIntent` - the user asked for the list. */
@@ -152,10 +183,9 @@ data class StreamRouteSurfaceInputs(
  *
  * The ordering is the argument:
  *
- * 1. **An uncovered list wins outright.** Classic, a manual launch and every bail-out are the
- *    cases where the list is the answer, and no later rule may cover it again. Every path that
- *    gives up on choosing automatically ends here, which is the "escape hatch" half of the
- *    rule: in Streamlined the list appears when the app could not choose, never otherwise.
+ * 1. **An explicit bail-out wins outright.** Every path that gives up on choosing automatically
+ *    ends here, which is the "escape hatch" half of the rule: the list appears when the app
+ *    could not realize the source, never while a selected party source is still being matched.
  * 2. **Anything after a hand-off stays covered.** Between screens, in both directions: leaving
  *    for the player, and on the way back out to the details screen. It used to uncover the
  *    list on the way back, which was wrong twice over - it flashed a screen the user chose
@@ -163,23 +193,30 @@ data class StreamRouteSurfaceInputs(
  *    immediately re-fetched and the "source loading" screen sat there until a second Back.
  *    **The route must not rest here** - `entry<StreamRoute>` pops itself to details, and falls
  *    back to `manualSourceListRequested` if that pop no-ops.
- * 3. **Instant covers the screen from the start**, because it has no sheet: its equivalent of
+ * 3. **Party resolution is loading, not selection.** Its source is already authoritative, so
+ *    it stays on the progress surface even in Classic mode. This prevents the ordinary source
+ *    list from becoming a one-frame destination before the strict matcher starts.
+ * 4. **Classic/manual selection owns the list** for ordinary playback.
+ * 5. **Instant covers the screen from the start**, because it has no sheet: its equivalent of
  *    the question is the overlay reporting on a decision being made. Without this rule an
  *    Instant play matched nothing and fell to rule 8 - an opaque, empty, pointer-consuming
  *    screen over a source list, which is the exact fault [streamRouteSurface] was written to
  *    kill. Above the dialog rule so the metered question is asked over the overlay rather than
  *    over the list Instant exists to avoid; below the bail-outs so every give-up still wins.
- * 4. The sheet, while it is still the user's to answer.
- * 5. **A question uncovers the list too**, so dismissing the dialog leaves something usable
+ * 6. The sheet, while it is still the user's to answer.
+ * 7. **A question uncovers the list too**, so dismissing the dialog leaves something usable
  *    behind it rather than the opaque surface.
- * 6. The overlay, while the automatic path can still finish.
- * 7. Hand-off, before a decision exists. The only legitimate blank frame there is.
+ * 8. The overlay, while the automatic path can still finish.
+ * 9. Hand-off, before a decision exists. The only legitimate blank frame there is.
  */
 fun streamRouteSurface(inputs: StreamRouteSurfaceInputs): StreamRouteSurface = when {
-    inputs.isClassic || inputs.isManualLaunch || inputs.manualSourceListRequested ->
-        StreamRouteSurface.SourceList
+    inputs.manualSourceListRequested -> StreamRouteSurface.SourceList
 
     inputs.hasNavigatedAway -> StreamRouteSurface.HandOff
+
+    inputs.isPartyResolution -> StreamRouteSurface.ProgressOverlay
+
+    inputs.isClassic || inputs.isManualLaunch -> StreamRouteSurface.SourceList
 
     inputs.isAutoPickRoute && !inputs.qualitySheetDismissed ->
         StreamRouteSurface.ProgressOverlay

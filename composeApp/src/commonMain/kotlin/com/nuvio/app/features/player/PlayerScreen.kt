@@ -3,10 +3,10 @@ package com.nuvio.app.features.player
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.watchparty.PartyContent
-import com.nuvio.app.features.watchparty.SourceFingerprint
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
 
 @Composable
-fun PlayerScreen(
+internal fun PlayerScreen(
     profileId: Int,
     title: String,
     sourceUrl: String,
@@ -20,12 +20,14 @@ fun PlayerScreen(
     streamSubtitle: String?,
     initialBingeGroup: String? = null,
     pauseDescription: String? = null,
-    onBack: () -> Unit,
+    onBack: PlayerBackRequest,
+    onSystemBackHandlerChanged: (handler: (() -> Unit)?) -> Unit = {},
     onOpenInExternalPlayer: ((ExternalPlayerPlaybackRequest) -> Unit)? = null,
     onOpenExternalUrl: ((String) -> Unit)? = null,
     onFatalPlaybackError: (() -> Unit)? = null,
     onPlaybackStarted: (() -> Unit)? = null,
-    onStartWatchTogether: ((PartyContent, SourceFingerprint) -> Unit)? = null,
+    onStartWatchTogether: ((PartyContent, PartySourceDescriptorV2, Long, Float) -> Unit)? = null,
+    onPartyLobbyRequested: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     logo: String? = null,
     poster: String? = null,
@@ -49,6 +51,8 @@ fun PlayerScreen(
     sourceFacts: com.nuvio.app.features.downloads.SourceFacts? = null,
     playbackAttempt: Int = 1,
     expectedRuntimeMinutes: Int? = null,
+    partySourceDescriptor: PartySourceDescriptorV2? = null,
+    automaticSourceSelection: Boolean = false,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -66,11 +70,13 @@ fun PlayerScreen(
             initialBingeGroup = initialBingeGroup,
             pauseDescription = pauseDescription,
             onBack = onBack,
+            onSystemBackHandlerChanged = onSystemBackHandlerChanged,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onOpenExternalUrl = onOpenExternalUrl,
             onFatalPlaybackError = onFatalPlaybackError,
             onPlaybackStarted = onPlaybackStarted,
             onStartWatchTogether = onStartWatchTogether,
+            onPartyLobbyRequested = onPartyLobbyRequested,
             modifier = modifier,
             logo = logo,
             poster = poster,
@@ -94,6 +100,8 @@ fun PlayerScreen(
             sourceFacts = sourceFacts,
             playbackAttempt = playbackAttempt,
             expectedRuntimeMinutes = expectedRuntimeMinutes,
+            partySourceDescriptor = partySourceDescriptor,
+            automaticSourceSelection = automaticSourceSelection,
         )
     )
 }

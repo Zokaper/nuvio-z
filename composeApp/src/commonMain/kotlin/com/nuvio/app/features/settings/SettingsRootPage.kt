@@ -32,7 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.playback.playbackModeName
 import androidx.compose.ui.Alignment
-import com.nuvio.app.core.build.AppVersionConfig
+import com.nuvio.app.core.build.AppVersionPolicy
 import com.nuvio.app.core.build.NuvioZVersion
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_about_based_on_version_format
@@ -65,6 +65,8 @@ import nuvio.composeapp.generated.resources.compose_settings_root_about_section
 import nuvio.composeapp.generated.resources.compose_settings_root_account_section
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_description
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_section
+import nuvio.composeapp.generated.resources.settings_social_description
+import nuvio.composeapp.generated.resources.settings_social_title
 import nuvio.composeapp.generated.resources.whats_new_title
 import nuvio.composeapp.generated.resources.whats_new_version
 import nuvio.composeapp.generated.resources.compose_settings_root_show_advanced
@@ -86,6 +88,7 @@ private const val PRIVACY_POLICY_URL = "https://nuvio.tv/privacy-policy"
 internal fun LazyListScope.settingsRootContent(
     isTablet: Boolean,
     onPlaybackClick: () -> Unit,
+    onSocialClick: () -> Unit,
     onPlaybackModeClick: () -> Unit,
     onAppearanceClick: () -> Unit,
     onAdvancedClick: () -> Unit,
@@ -102,6 +105,8 @@ internal fun LazyListScope.settingsRootContent(
     onDownloadsClick: () -> Unit,
     onAccountClick: () -> Unit,
     onSwitchProfileClick: (() -> Unit)? = null,
+    showDownloadsEntry: Boolean = true,
+    showNotificationsEntry: Boolean = true,
     showAccountSection: Boolean = true,
     showGeneralSection: Boolean = true,
     showAboutSection: Boolean = true,
@@ -115,6 +120,18 @@ internal fun LazyListScope.settingsRootContent(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
+                    val playerSettings by remember {
+                        PlayerSettingsRepository.ensureLoaded()
+                        PlayerSettingsRepository.uiState
+                    }.collectAsStateWithLifecycle()
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_mode),
+                        description = playbackModeName(playerSettings.playbackMode),
+                        icon = Icons.Rounded.PlayArrow,
+                        isTablet = isTablet,
+                        onClick = onPlaybackModeClick,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
                     if (onSwitchProfileClick != null) {
                         SettingsNavigationRow(
                             title = stringResource(Res.string.compose_settings_root_switch_profile_title),
@@ -151,18 +168,6 @@ internal fun LazyListScope.settingsRootContent(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
-                    val playerSettings by remember {
-                        PlayerSettingsRepository.ensureLoaded()
-                        PlayerSettingsRepository.uiState
-                    }.collectAsStateWithLifecycle()
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_mode),
-                        description = playbackModeName(playerSettings.playbackMode),
-                        icon = Icons.Rounded.PlayArrow,
-                        isTablet = isTablet,
-                        onClick = onPlaybackModeClick,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_appearance),
                         description = stringResource(Res.string.compose_settings_root_appearance_description),
@@ -178,14 +183,16 @@ internal fun LazyListScope.settingsRootContent(
                         isTablet = isTablet,
                         onClick = onContentDiscoveryClick,
                     )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.downloads_settings_title),
-                        description = stringResource(Res.string.compose_settings_root_downloads_description),
-                        icon = Icons.Rounded.CloudDownload,
-                        isTablet = isTablet,
-                        onClick = onDownloadsClick,
-                    )
+                    if (showDownloadsEntry) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.downloads_settings_title),
+                            description = stringResource(Res.string.compose_settings_root_downloads_description),
+                            icon = Icons.Rounded.CloudDownload,
+                            isTablet = isTablet,
+                            onClick = onDownloadsClick,
+                        )
+                    }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_playback),
@@ -196,20 +203,30 @@ internal fun LazyListScope.settingsRootContent(
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_social_title),
+                        description = stringResource(Res.string.settings_social_description),
+                        icon = Icons.Rounded.People,
+                        isTablet = isTablet,
+                        onClick = onSocialClick,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_integrations),
                         description = stringResource(Res.string.compose_settings_root_integrations_description),
                         icon = Icons.Rounded.Link,
                         isTablet = isTablet,
                         onClick = onIntegrationsClick,
                     )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.compose_settings_page_notifications),
-                        description = stringResource(Res.string.compose_settings_root_notifications_description),
-                        icon = Icons.Rounded.Notifications,
-                        isTablet = isTablet,
-                        onClick = onNotificationsClick,
-                    )
+                    if (showNotificationsEntry) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.compose_settings_page_notifications),
+                            description = stringResource(Res.string.compose_settings_root_notifications_description),
+                            icon = Icons.Rounded.Notifications,
+                            isTablet = isTablet,
+                            onClick = onNotificationsClick,
+                        )
+                    }
                 }
             }
         }
@@ -253,7 +270,7 @@ internal fun LazyListScope.settingsRootContent(
                             title = stringResource(Res.string.whats_new_title),
                             description = stringResource(
                                 Res.string.whats_new_version,
-                                AppVersionConfig.VERSION_NAME,
+                                AppVersionPolicy.displayVersionName,
                             ),
                             icon = Icons.Rounded.NewReleases,
                             isTablet = isTablet,
@@ -354,19 +371,19 @@ internal fun LazyListScope.settingsRootContent(
             Text(
                 text = stringResource(
                     Res.string.compose_about_version_format,
-                    AppVersionConfig.VERSION_NAME,
-                    AppVersionConfig.VERSION_CODE,
+                    AppVersionPolicy.displayVersionName,
+                    AppVersionPolicy.displayVersionCode,
                 ),
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            NuvioZVersion.vanillaBaseVersion(AppVersionConfig.VERSION_NAME)?.let { baseVersion ->
+            NuvioZVersion.vanillaBaseVersion(AppVersionPolicy.displayVersionName)?.let { basedOnVersionName ->
                 Text(
                     text = stringResource(
                         Res.string.compose_about_based_on_version_format,
-                        baseVersion,
+                        basedOnVersionName,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.bodySmall,

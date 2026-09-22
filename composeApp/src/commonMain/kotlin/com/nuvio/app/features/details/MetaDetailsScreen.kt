@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -164,6 +165,7 @@ import com.kmpalette.rememberDominantColorState
 import com.kmpalette.extensions.painter.rememberPainterDominantColorState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.watch_party_title
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
@@ -174,6 +176,33 @@ private data class ManageDownloadTarget(
     val subtitle: String?,
     val state: ContentDownloadState,
 )
+private const val DetailScrolledBackgroundDefaultMaxAlpha = 0.86f
+private const val DetailScrolledBackgroundCinematicMaxAlpha = 0.36f
+private const val DetailScrolledBackgroundFadeHeroFraction = 0.75f
+
+/**
+ * How far the scrolled background has faded in, 0..1.
+ *
+ * Pure, and shared with desktop verbatim: `DetailScrolledBackgroundTest` in `commonTest` is the
+ * common test for it. This phone detail screen does not draw the scrolled background yet -- its
+ * layout diverges deliberately -- so nothing here calls these two. They live in the same file
+ * under the same names as desktop's so that the shared test has one subject rather than two, and
+ * so Stage H has the primitive ready when the phone layout adopts it.
+ */
+internal fun detailScrolledBackgroundProgress(scrollOffsetPx: Float, heroHeightPx: Int): Float {
+    if (scrollOffsetPx <= 0f || heroHeightPx <= 0) return 0f
+    val fadeDistancePx = heroHeightPx * DetailScrolledBackgroundFadeHeroFraction
+    return (scrollOffsetPx / fadeDistancePx).coerceIn(0f, 1f)
+}
+
+internal fun detailScrolledBackgroundAlpha(
+    scrollOffsetPx: Float,
+    heroHeightPx: Int,
+    maxAlpha: Float = DetailScrolledBackgroundDefaultMaxAlpha,
+): Float {
+    return detailScrolledBackgroundProgress(scrollOffsetPx, heroHeightPx) * maxAlpha.coerceIn(0f, 1f)
+}
+
 private val watchedMarkerDiagnosticLog = Logger.withTag("WatchedMarkerDiag")
 
 @Composable
@@ -1111,15 +1140,6 @@ fun MetaDetailsScreen(
                                 )
                             }
 
-                            if (onWatchTogether != null) {
-                                item(key = "z-watch-together-entry") {
-                                    Button(
-                                        onClick = { onWatchTogether(watchPartyContent) },
-                                        modifier = Modifier.padding(horizontal = contentHorizontalPadding, vertical = 8.dp),
-                                    ) { Text("Watch Together") }
-                                }
-                            }
-
                             configuredMetaSectionItems(
                                 settings = metaScreenSettingsUiState,
                                 meta = meta,
@@ -1134,6 +1154,7 @@ fun MetaDetailsScreen(
                                 onSaveClick = toggleSaved,
                                 onSaveLongClick = openLibraryListPicker,
                                 onWatchedClick = toggleWatched,
+                                onWatchTogetherClick = onWatchTogether?.let { open -> { open(watchPartyContent) } },
                                 onDownloadClick = {
                                     presetDownloadScope = if (meta.type.lowercase() in setOf("series", "show", "tv", "tvshow") || hasEpisodes) {
                                         DownloadScope.SelectedSeasons(emptySet())
@@ -1865,7 +1886,10 @@ private fun DetailHeaderOverlay(
     DetailFloatingHeader(
         meta = meta,
         isSaved = isSaved,
-        progress = headerProgress,
+        progressProvider = { headerProgress },
+        // Live only once the header has faded in -- the exact complement of the hero back
+        // button's own `headerProgress <= 0.05f` guard above.
+        interactive = headerProgress > 0.05f,
         backgroundColor = backgroundColor,
         onBack = onBack,
         onToggleSaved = onToggleSaved,
@@ -1954,6 +1978,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onWatchedClick: () -> Unit,
+    onWatchTogetherClick: (() -> Unit)?,
     onDownloadClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
@@ -2041,6 +2066,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     onSaveClick = onSaveClick,
                     onSaveLongClick = onSaveLongClick,
                     onWatchedClick = onWatchedClick,
+                    onWatchTogetherClick = onWatchTogetherClick,
                     onDownloadClick = onDownloadClick,
                     showManualPlayOption = showManualPlayOption,
                     preferredEpisodeSeasonNumber = preferredEpisodeSeasonNumber,
@@ -2202,6 +2228,7 @@ private fun ConfiguredMetaSections(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onWatchedClick: () -> Unit,
+    onWatchTogetherClick: (() -> Unit)?,
     onDownloadClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
@@ -2333,6 +2360,13 @@ private fun ConfiguredMetaSections(
                             onClick = onSaveClick,
                             onLongClick = onSaveLongClick,
                         ))
+                        onWatchTogetherClick?.let { action ->
+                            add(DetailSecondaryAction(
+                                label = stringResource(Res.string.watch_party_title),
+                                icon = Icons.Rounded.People,
+                                onClick = action,
+                            ))
+                        }
                     },
                     isTablet = isTablet,
                     onPlayClick = onPrimaryPlayClick,

@@ -95,17 +95,15 @@ data class LanguagePreferenceOption(
     val labelRes: StringResource,
 )
 
-object AudioLanguageOption {
-    const val DEFAULT = "default"
-    const val DEVICE = "device"
-    const val ORIGINAL = "original"
-}
+/**
+ * Re-exported from `core/language`, where the sentinels now live so that the source picker can
+ * read them too - see the KDoc there. The names stay in this package because a dozen player call
+ * sites import them from here.
+ */
+typealias AudioLanguageOption = com.nuvio.app.core.language.AudioLanguageOption
 
-object SubtitleLanguageOption {
-    const val NONE = "none"
-    const val DEVICE = "device"
-    const val FORCED = "forced"
-}
+/** Re-exported alongside [AudioLanguageOption]. */
+typealias SubtitleLanguageOption = com.nuvio.app.core.language.SubtitleLanguageOption
 
 val AvailableLanguageOptions: List<LanguagePreferenceOption> = listOf(
     LanguagePreferenceOption("af", Res.string.lang_afrikaans),
@@ -204,11 +202,59 @@ fun normalizeLanguageCode(language: String?): String? =
 fun languageMatchesPreference(trackLanguage: String?, targetLanguage: String): Boolean =
     com.nuvio.app.core.language.languageMatchesPreference(trackLanguage, targetLanguage)
 
+/**
+ * Resolves the 0-based index of the best matching [AudioTrack] based on the user's priority
+ * ordered [preferredLanguages].
+ *
+ * Checks tracks in preference priority order (primary language first, then secondary),
+ * matching normalized language codes (handling ISO-639-1, ISO-639-2 e.g. "eng", "en", "rus", "ru")
+ * and falling back to track label matching if track language is unstated.
+ *
+ * Returns -1 if no track matches the given preferences.
+ */
+fun resolvePreferredAudioTrackIndex(
+    tracks: List<AudioTrack>,
+    preferredLanguages: List<String>,
+): Int {
+    if (tracks.isEmpty() || preferredLanguages.isEmpty()) return -1
+
+    for (preferred in preferredLanguages) {
+        val trimmed = preferred.trim()
+        if (trimmed.isEmpty()) continue
+        val matchIndex = tracks.indexOfFirst { track ->
+            if (languageMatchesPreference(track.language, trimmed)) return@indexOfFirst true
+            if (track.language.isNullOrBlank() && languageMatchesPreference(track.label, trimmed)) return@indexOfFirst true
+            false
+        }
+        if (matchIndex >= 0) return matchIndex
+    }
+    return -1
+}
+
+/**
+ * ⚠ **Built once, because the lookup below is called from composition.**
+ *
+ * `languageLabelResForCode` used to scan [AvailableLanguageOptions] and normalize *each* of its 79
+ * codes on every call, and the player's subtitle menu calls it once per track per language every
+ * time `RenderPlayerRuntimeUi` recomposes. That is 79 normalizations per label, and it was still
+ * costing 67 ms of UI thread at the moment a source is chosen after
+ * `com.nuvio.app.core.language.normalizeLanguageCode` itself had been made allocation-free.
+ *
+ * First entry wins, exactly as the `firstOrNull` it replaces did - hence the explicit
+ * put-if-absent rather than `associate`, which would keep the last.
+ */
+private val LanguageLabelResByNormalizedCode: Map<String, StringResource> by lazy {
+    buildMap {
+        AvailableLanguageOptions.forEach { option ->
+            val normalized = normalizeLanguageCode(option.code) ?: return@forEach
+            if (normalized !in this) put(normalized, option.labelRes)
+        }
+    }
+}
+
 private fun languageLabelResForCode(code: String?): StringResource? {
     val normalized = normalizeLanguageCode(code) ?: return null
-    return AvailableLanguageOptions.firstOrNull {
-        normalizeLanguageCode(it.code) == normalized
-    }?.labelRes
+    return LanguageLabelResByNormalizedCode[normalized]
 }
 
 @Composable

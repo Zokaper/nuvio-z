@@ -5,6 +5,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 version_file="${repository_root}/iosApp/Configuration/Version.xcconfig"
 version="${1:-$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${version_file}" | head -n 1)}"
+build_number="${2:-$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' "${version_file}" | head -n 1)}"
 configuration="${IOS_CONFIGURATION:-Release}"
 case "${configuration}" in
     Debug)
@@ -25,6 +26,10 @@ swiftpm_module_cache="${SWIFTPM_MODULECACHE_OVERRIDE:-${derived_data}/SwiftPMMod
 
 if [[ ! "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
     echo "Invalid IPA version: ${version}" >&2
+    exit 1
+fi
+if [[ ! "${build_number}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid iOS build number: ${build_number}" >&2
     exit 1
 fi
 
@@ -49,20 +54,47 @@ fi
     -sdk iphoneos \
     -destination 'generic/platform=iOS' \
     -derivedDataPath "${derived_data}" \
+    MARKETING_VERSION="${version}" \
+    CURRENT_PROJECT_VERSION="${build_number}" \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY= \
     build
 
-app_path="${derived_data}/Build/Products/${configuration}-iphoneos/Nuvio.app"
-if [[ ! -d "${app_path}" ]]; then
-    echo "iOS build did not produce ${app_path}." >&2
+products_directory="${derived_data}/Build/Products/${configuration}-iphoneos"
+shopt -s nullglob
+built_apps=("${products_directory}"/*.app)
+shopt -u nullglob
+if [[ "${#built_apps[@]}" -ne 1 ]]; then
+    echo "Expected exactly one iOS app in ${products_directory}, found ${#built_apps[@]}." >&2
     exit 1
 fi
+app_path="${built_apps[0]}"
 
 built_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${app_path}/Info.plist")"
 if [[ "${built_version}" != "${version}" ]]; then
     echo "Built iOS version ${built_version} does not match ${version}." >&2
+    exit 1
+fi
+built_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${app_path}/Info.plist")"
+if [[ "${built_number}" != "${build_number}" ]]; then
+    echo "Built iOS number ${built_number} does not match ${build_number}." >&2
+    exit 1
+fi
+expected_bundle_id="com.nuvio.app.z"
+expected_display_name="Nuvio Z"
+if [[ "${configuration}" == "Debug" ]]; then
+    expected_bundle_id="com.nuvio.app.z.debug"
+    expected_display_name="Nuvio Z Debug"
+fi
+built_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${app_path}/Info.plist")"
+if [[ "${built_bundle_id}" != "${expected_bundle_id}" ]]; then
+    echo "Built iOS bundle ${built_bundle_id} does not match ${expected_bundle_id}." >&2
+    exit 1
+fi
+built_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "${app_path}/Info.plist" 2>/dev/null || true)"
+if [[ -n "${built_display_name}" && "${built_display_name}" != "${expected_display_name}" ]]; then
+    echo "Built iOS display name ${built_display_name} does not match ${expected_display_name}." >&2
     exit 1
 fi
 
@@ -102,10 +134,15 @@ output_directory="$(cd "${output_directory}" && pwd -P)"
 package_root="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-ios-ipa.XXXXXX")"
 trap 'rm -rf "${package_root}"' EXIT
 mkdir -p "${package_root}/Payload"
-ditto "${app_path}" "${package_root}/Payload/Nuvio.app"
+ditto "${app_path}" "${package_root}/Payload/Nuvio-Z.app"
 
-ipa_path="${output_directory}/nuvio-${version}-full-${configuration_slug}.ipa"
-temporary_ipa="${package_root}/nuvio-${version}-full-${configuration_slug}.ipa"
+if [[ "${configuration}" == "Debug" ]]; then
+    ipa_filename="${IOS_IPA_NAME:-Nuvio-Z-iOS-${version}-${build_number}-debug-unsigned.ipa}"
+else
+    ipa_filename="${IOS_IPA_NAME:-Nuvio-Z-iOS-${version}-${build_number}-unsigned.ipa}"
+fi
+ipa_path="${output_directory}/${ipa_filename}"
+temporary_ipa="${package_root}/${ipa_filename}"
 (
     cd "${package_root}"
     /usr/bin/zip -qry "${temporary_ipa}" Payload

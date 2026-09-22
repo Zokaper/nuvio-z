@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,8 +39,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.appIconPainter
+import com.nuvio.app.core.ui.secondaryClick
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_actions_menu_label
@@ -66,7 +69,6 @@ fun DetailActionButtons(
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
     val buttonHeight = if (isTablet) 56.dp else 52.dp
-    val iconButtonSize = buttonHeight
     val playShape = RoundedCornerShape(40.dp)
     val hapticFeedback = LocalHapticFeedback.current
     var actionsExpanded by remember { mutableStateOf(false) }
@@ -77,12 +79,26 @@ fun DetailActionButtons(
     )
     val hasSecondaryActions = secondaryActions.isNotEmpty()
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .widthIn(max = if (isTablet) 520.dp else 420.dp)
             .fillMaxWidth()
             .height(buttonHeight),
     ) {
+        // Nuvio Z: a fourth action (Watch Together) overflows a portrait phone. When the expanded
+        // row cannot fit, the circles shrink toward a floor instead of squeezing Play to "Re...".
+        val slots = secondaryActions.size + 1
+        val fullGap = 12.dp
+        val minPlayWidth = 128.dp
+        val fitsAtFullSize = maxWidth >= minPlayWidth + (buttonHeight + fullGap) * slots
+        val fittedGap = if (fitsAtFullSize) fullGap else 8.dp
+        val fittedSize = if (fitsAtFullSize) {
+            buttonHeight
+        } else {
+            ((maxWidth - minPlayWidth) / slots - fittedGap).coerceIn(40.dp, buttonHeight)
+        }
+        val iconButtonSize = lerp(buttonHeight, fittedSize, menuProgress)
+        val actionGap = lerp(fullGap, fittedGap, menuProgress)
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -108,6 +124,7 @@ fun DetailActionButtons(
                             onLongClick = onPlayLongClick,
                             role = Role.Button,
                         )
+                        .secondaryClick(onPlayLongClick)
                         .height(buttonHeight),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
@@ -132,7 +149,7 @@ fun DetailActionButtons(
             }
 
             if (hasSecondaryActions) {
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(actionGap))
                 secondaryActions.forEachIndexed { index, action ->
                     Box(
                         modifier = Modifier
@@ -165,10 +182,10 @@ fun DetailActionButtons(
                     }
 
                     if (index != secondaryActions.lastIndex) {
-                        Spacer(modifier = Modifier.width(12.dp * menuProgress))
+                        Spacer(modifier = Modifier.width(actionGap * menuProgress))
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp * menuProgress))
+                Spacer(modifier = Modifier.width(actionGap * menuProgress))
             }
 
             if (hasSecondaryActions) {
@@ -213,7 +230,7 @@ fun DetailActionButtons(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DetailIconAction(
+internal fun DetailIconAction(
     label: String,
     icon: ImageVector,
     active: Boolean,
@@ -249,7 +266,8 @@ private fun DetailIconAction(
                     onClick = onClick,
                     onLongClick = onLongClick,
                     role = Role.Button,
-                ),
+                )
+                .secondaryClick(onLongClick),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

@@ -50,18 +50,7 @@ data class DetailRoute(
 data class WatchPartyLobbyRoute(
     val inviteCode: String? = null,
     val partyId: String? = null,
-    val contentId: String? = null,
-    val contentType: String? = null,
-    val videoId: String? = null,
     override val title: String? = null,
-    val poster: String? = null,
-    val season: Int? = null,
-    val episode: Int? = null,
-    val episodeTitle: String? = null,
-    val sourceAddonId: String? = null,
-    val sourceInfoHash: String? = null,
-    val sourceFileIndex: Int? = null,
-    val sourceReleaseFingerprint: String? = null,
 ) : AppRoute
 
 @Serializable

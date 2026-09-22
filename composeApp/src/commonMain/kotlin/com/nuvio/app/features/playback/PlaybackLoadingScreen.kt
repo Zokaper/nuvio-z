@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
 // across the two repos - the same trick `PlayerOverlays.kt` already uses, for the same reason.
 // Matching each repo's own convention is also what keeps the hand-off invisible: this screen
 // must decode the backdrop exactly the way its local player does.
-import coil3.compose.AsyncImage as AppAsyncImage
+import com.nuvio.app.core.ui.NuvioAsyncImage as AppAsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
@@ -291,9 +291,15 @@ private fun PlaybackLoadingBand(
     progress: Float?,
     modifier: Modifier = Modifier,
 ) {
-    val namer = rememberLanguageNamer(state.facts)
-    val facts = remember(state.facts, namer) {
-        PlaybackLoadingFacts.facts(state.facts, formatSize, namer)
+    val namer = rememberLanguageNamer(state.facts, state.contentLanguage, state.preferredAudioLanguage)
+    val facts = remember(state.facts, state.contentLanguage, state.preferredAudioLanguage, namer) {
+        PlaybackLoadingFacts.facts(
+            facts = state.facts,
+            formatSize = formatSize,
+            contentLanguage = state.contentLanguage,
+            preferredAudioLanguage = state.preferredAudioLanguage,
+            languageName = namer,
+        )
     }
     val providerLine = remember(state.facts) { PlaybackLoadingFacts.providerLine(state.facts) }
 
@@ -418,9 +424,13 @@ private fun PlaybackLoadingStageLine(state: PlaybackLoadingState) {
  * carry, which is worse than the code itself in a four-character slot - hence the fallback.
  */
 @Composable
-internal fun rememberLanguageNamer(facts: SourceFacts?): (String) -> String {
-    val codes = remember(facts) {
-        (facts?.languages.orEmpty() + facts?.subtitleLanguages.orEmpty()).toList()
+internal fun rememberLanguageNamer(
+    facts: SourceFacts?,
+    contentLanguage: String? = null,
+    preferredAudioLanguage: String? = null,
+): (String) -> String {
+    val codes = remember(facts, contentLanguage, preferredAudioLanguage) {
+        PlaybackLoadingFacts.languageCodesToName(facts, contentLanguage, preferredAudioLanguage).toList()
     }
     val unknown = stringResource(Res.string.subtitle_language_unknown)
     val names = codes.associateWith { code ->
@@ -586,10 +596,14 @@ fun playbackLoadingState(
     facts: SourceFacts? = null,
     failure: PlaybackProgressFailure? = null,
     offerManualEscape: Boolean = false,
+    contentLanguage: String? = null,
+    preferredAudioLanguage: String? = null,
 ): PlaybackLoadingState = PlaybackLoadingState(
     step = step,
     attempt = attempt,
     facts = facts,
     failure = failure,
     offerManualEscape = offerManualEscape,
+    contentLanguage = contentLanguage,
+    preferredAudioLanguage = preferredAudioLanguage,
 )

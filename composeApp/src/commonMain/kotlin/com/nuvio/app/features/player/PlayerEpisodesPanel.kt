@@ -156,6 +156,8 @@ internal data class EpisodeStreamsPanelState(
     val selectedEpisode: MetaVideo? = null,
     val streamsUiState: StreamsUiState = StreamsUiState(),
     val automaticSelectionFailure: PlayerNextEpisodeFailureReason? = null,
+    /** Streamlined's quality rows in place of the release list - the native layer's quality sheet. */
+    val qualityChooser: Boolean = false,
 )
 
 @Composable

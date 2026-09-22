@@ -35,6 +35,12 @@ package com.nuvio.app.features.playback
  *  - [MAX_STARTUP_MS] is the backstop for a source whose buffer creeps forever and never plays a
  *    frame. Without it, "measure progress instead" would trade a false positive for a hang, which
  *    is the worse of the two.
+ *  - Progress is measured from [PlaybackStartupSample.baselineMs], and when an authority outside
+ *    this play moves the playhead - Watch Together aligning a guest - the baseline moves with it
+ *    and [observe] rebases. A commanded seek is somebody else's millisecond, not this source's.
+ *  - A party may stop the clock on a source that has delivered media, and only on that one. A hold
+ *    over a source that has produced nothing leaves every deadline running, because the alternative
+ *    is a dead source no clock can ever end - see [State.hasProvenViability].
  *
  * None of this traps the user meanwhile: [shouldOfferManualEscape] puts the source list one tap
  * away after [MANUAL_ESCAPE_DELAY_MS], so a longer deadline costs a wait somebody can already
@@ -115,6 +121,10 @@ object PlaybackStartupWatchdog {
          *
          * Defaults to 0, which is both the play-from-the-start case and what every caller that
          * has no resume point to declare should leave it at.
+         *
+         * ⚠ **It moves when an authority outside this play moves the playhead, and [observe]
+         * rebases onto it.** Watch Together aligns a guest by seeking it, and a commanded seek is
+         * not startup progress - see the rebase in [observe] for the run that proves it.
          */
         val baselineMs: Long = 0L,
         /**
@@ -122,6 +132,39 @@ object PlaybackStartupWatchdog {
          * Simple candidate handoff or URL existence is NOT evidence of life.
          */
         val hasExternalEvidenceOfLife: Boolean = false,
+        /**
+         * Whether something outside this source is deliberately keeping the player still.
+         *
+         * ⚠ **Without it, Watch Together abandons healthy sources for doing exactly what it asked
+         * them to.** Physically reproduced on two clients: a guest's source loads slowly, the
+         * startup watchdog arms, Watch Together holds the guest at the readiness gate while it
+         * waits for the rest of the party, the host starts, and the host pauses again before the
+         * guest's first frame has settled. The guest is now deliberately parked at 7257ms. Its
+         * buffer stops advancing, because a paused player has nothing to advance for.
+         * [STALL_DEADLINE_MS] runs out twelve seconds later, `onFatalPlaybackError` fires, and the
+         * guest is failed over and popped back to the source list - out of a party that was working.
+         *
+         * A held sample **freezes every deadline** rather than exempting the source from them:
+         * [State.holdMs] accumulates the time and every comparison below runs against
+         * [State.effectiveElapsedMs]. So a party that pauses for an hour costs the source nothing,
+         * and the moment the party lets go the source has exactly the deadline it had left - which
+         * is the difference between "the watchdog is off in a party" and "the watchdog does not
+         * count time nobody was waiting for a frame".
+         *
+         * ⚠ **A hold stops the clock only for a source that has proved it can deliver
+         * media.** It used to stop it for any source at all, and that made a dead one immortal: the
+         * Android host of 2026-09-20 pinned a candidate whose URL served a 21 KB placeholder
+         * claiming 59.4 GB, its own start gate held it at `WAITING_FOR_PARTICIPANTS` while it waited
+         * for the guest, and the guest waited for the host. Held time was frozen from the first poll,
+         * so [NO_PROGRESS_DEADLINE_MS] never arrived, the source could never fail, the chain never
+         * ran, and the party sat on the loading screen indefinitely - seven minutes when the run was
+         * stopped, with no deadline in this file able to end it. A party hold may protect a source
+         * that has earned it; it may not confer immortality on one that has produced nothing. See
+         * [State.hasProvenViability].
+         *
+         * False by default, which is every non-party play and is why their behaviour is unchanged.
+         */
+        val isHeld: Boolean = false,
     ) {
         /**
          * How far this play has moved **from where it started**.
@@ -212,7 +255,53 @@ object PlaybackStartupWatchdog {
         val verdict: Verdict = Verdict.Waiting,
         val reason: Reason? = null,
         val hasEvidenceOfLife: Boolean = false,
-    )
+        /**
+         * Wall-clock this play has spent deliberately held still. See [PlaybackStartupSample.isHeld].
+         *
+         * Every deadline is measured against `elapsedMs - holdMs`, so a hold neither restarts the
+         * clock nor exempts the source from it: it stops the clock, and it starts again where it
+         * stopped.
+         */
+        val holdMs: Long = 0L,
+        /**
+         * The elapsed reading of the previous sample, which is what a held interval is measured
+         * between.
+         *
+         * The caller supplies wall-clock rather than a tick count - Android polls every ~250ms and
+         * desktop every 500ms - so "how long was that hold" can only be the difference between two
+         * readings, never a count of them multiplied by an interval nobody guarantees.
+         */
+        val lastSampleElapsedMs: Long = 0L,
+        /** True while the previous sample was held, so an ending hold still charges nothing. */
+        val wasHeld: Boolean = false,
+        /**
+         * Whether this source has ever delivered a millisecond of media, which is what buys it the
+         * protection of [PlaybackStartupSample.isHeld].
+         *
+         * Sticky, and deliberately *not* derived from [bestProgressMs]: a baseline change rebases
+         * that figure and can carry it back to zero, which would hand a proven source's protection
+         * back and forth as the party seeks it around. Proof is a thing that happened, not a
+         * quantity that survives.
+         *
+         * What counts is [PlaybackStartupSample.progressMs] alone - position or buffer past the
+         * baseline this play is currently expressed against. A parsed duration does not count (it is
+         * a header, not media), an external probe does not count (it is a reachable host, not
+         * media), the URL existing does not count, and a commanded seek does not count, because the
+         * baseline moves with it and the displacement measures zero. Those are exactly the four
+         * facts the 2026-09-20 placeholder had, and it had produced nothing.
+         */
+        val hasProvenViability: Boolean = false,
+        /**
+         * The baseline [bestProgressMs] is currently expressed against.
+         *
+         * Held so [observe] can tell an authoritative move of the playhead from progress. Without
+         * it the two are indistinguishable, because both arrive as a larger `positionMs`.
+         */
+        val baselineMs: Long = 0L,
+    ) {
+        /** Wall-clock this source has actually been given to start in. */
+        val effectiveElapsedMs: Long get() = lastSampleElapsedMs - holdMs
+    }
 
     fun initial(): State = State()
 
@@ -228,6 +317,25 @@ object PlaybackStartupWatchdog {
         if (state.verdict != Verdict.Waiting) return state
         val evidenceOfLife = state.hasEvidenceOfLife || sample.hasEvidenceOfLife
 
+        // The interval that just passed, charged to the hold if either end of it was held.
+        //
+        // Either end, not just this one: a hold that is released between two polls still spent
+        // most of that interval held, and charging it to the source would give a released hold a
+        // free poll interval of stall time it never had. Symmetrically, a hold that *began*
+        // between two polls has already stopped the buffer for part of the interval.
+        val intervalMs = (sample.elapsedMs - state.lastSampleElapsedMs).coerceAtLeast(0L)
+        // Proof first, because it decides whether the hold below stops the clock at all. A source
+        // that has moved media keeps the whole hold mechanism it earned; one that has not is held
+        // by the party *and* measured by this watchdog, so it still reaches its deadline and still
+        // fails over. See [State.hasProvenViability] for the run that cost.
+        val provenViability = state.hasProvenViability || sample.progressMs > 0L
+        val holdMs = if ((sample.isHeld || state.wasHeld) && provenViability) {
+            state.holdMs + intervalMs
+        } else {
+            state.holdMs
+        }
+        val elapsedMs = (sample.elapsedMs - holdMs).coerceAtLeast(0L)
+
         // Started, and *only* this. `isPlaying` on its own is true for an engine that reports
         // itself playing while stuck at zero with an empty buffer, which is precisely the shape
         // of the dead debrid link this watchdog exists for.
@@ -235,47 +343,100 @@ object PlaybackStartupWatchdog {
             return state.copy(
                 verdict = Verdict.Started,
                 hasEvidenceOfLife = true,
+                holdMs = holdMs,
+                lastSampleElapsedMs = sample.elapsedMs,
+                wasHeld = sample.isHeld,
+                baselineMs = sample.baselineMs,
+                hasProvenViability = true,
             )
         }
 
-        val advanced = sample.progressMs > state.bestProgressMs
-        val bestProgressMs = if (advanced) sample.progressMs else state.bestProgressMs
-        val lastAdvanceMs = if (advanced) sample.elapsedMs else state.lastAdvanceMs
+        // ⚠ **A seek Watch Together commanded is not progress this source made, and counting it
+        // as progress abandons the source.** Physically reproduced on the S25, 2026-09-19: the
+        // guest was starving on a 4K remux at 4339 ms when the host's stall guard paused the party
+        // and aligned everyone to 12012 ms. The engine reports a commanded seek target as its
+        // position immediately, so the next sample read 12012 ms of "progress" that no byte had
+        // been fetched for. That flipped the play off the patient [bestProgressMs] <= 0 path and
+        // onto [STALL_DEADLINE_MS], which then ran out against a position only the host could
+        // move - and the only candidate in the party was thrown away as [Reason.Stalled].
+        //
+        // The displacement is removed rather than forgiven: [bestProgressMs] is converted into the
+        // new baseline's units, so the jump itself measures zero and real advancement past the
+        // commanded target still measures normally. Nothing else is touched - `elapsedMs`,
+        // `holdMs` and `lastAdvanceMs` all carry - so a seek neither restarts a deadline nor
+        // buys the source a fresh startup, and a party correcting a guest every few seconds
+        // cannot extend the watchdog indefinitely. Both surviving deadlines at a baseline change
+        // ([MAX_STARTUP_MS] and the [Reason.NeverStarted] pair) are absolute in effective elapsed
+        // time, which is what makes that guarantee hold rather than merely be intended.
+        val rebasedBestProgressMs = if (sample.baselineMs == state.baselineMs) {
+            state.bestProgressMs
+        } else {
+            (state.bestProgressMs + state.baselineMs - sample.baselineMs).coerceAtLeast(0L)
+        }
+        val advanced = sample.progressMs > rebasedBestProgressMs
+        val bestProgressMs = if (advanced) sample.progressMs else rebasedBestProgressMs
+        // Recorded in the same held-time-removed units every deadline is compared in. Stamping it
+        // with raw wall-clock would make one long hold look like one very old advance.
+        //
+        // A hold that has just ended rebases it, which is the difference between freezing the clock
+        // and resuming *safely*. A player parked for a minute has an empty pipeline to refill, and
+        // handing it back whatever fraction of [STALL_DEADLINE_MS] happened to be left when the
+        // party grabbed it would abandon a source for the restart the party itself caused. It gets
+        // the whole deadline, once, on release - and it gets it exactly once, because a source that
+        // is genuinely dead is not held again.
+        val releasedFromHold = state.wasHeld && !sample.isHeld
+        val lastAdvanceMs = when {
+            advanced -> elapsedMs
+            releasedFromHold -> elapsedMs
+            else -> state.lastAdvanceMs
+        }
 
-        fun abandon(reason: Reason) = State(
-            bestProgressMs = bestProgressMs,
+        fun carry(
+            verdict: Verdict = Verdict.Waiting,
+            reason: Reason? = null,
+            progressMs: Long = bestProgressMs,
+        ) = State(
+            bestProgressMs = progressMs,
             lastAdvanceMs = lastAdvanceMs,
-            verdict = Verdict.Abandon,
+            verdict = verdict,
             reason = reason,
             hasEvidenceOfLife = evidenceOfLife,
+            holdMs = holdMs,
+            lastSampleElapsedMs = sample.elapsedMs,
+            wasHeld = sample.isHeld,
+            baselineMs = sample.baselineMs,
+            hasProvenViability = provenViability,
         )
+
+        // Nothing is decided against a player somebody is deliberately holding still **once it
+        // has shown it can deliver media**. A held player that has advanced has no obligation to
+        // advance further, so no absence of advance from it is evidence.
+        //
+        // ⚠ **An unproven source falls through to the deadlines below even while held.** Skipping
+        // them for any held player is what made a dead source immortal inside a party: the hold and
+        // the source's own failure were waiting on each other. The deadline it then meets is the
+        // ordinary one - the same 20 s (or 35 s with evidence of life) a source outside a party
+        // gets - because a party is not a reason to wait longer for nothing at all.
+        if (sample.isHeld && provenViability) return carry()
 
         // Ordered dearest-first: a transfer that has run past the ceiling is [Reason.TooSlow]
         // whatever else is also true of it, and that is the one a log reader most needs told
         // apart from the other two - it is the only verdict that is about the *line* rather
         // than about the source.
-        if (sample.elapsedMs >= MAX_STARTUP_MS) return abandon(Reason.TooSlow)
+        if (elapsedMs >= MAX_STARTUP_MS) return carry(Verdict.Abandon, Reason.TooSlow)
         if (bestProgressMs <= 0L) {
             val deadlineMs = if (evidenceOfLife) {
                 EVIDENCE_OF_LIFE_DEADLINE_MS
             } else {
                 NO_PROGRESS_DEADLINE_MS
             }
-            return if (sample.elapsedMs >= deadlineMs) {
-                abandon(Reason.NeverStarted)
+            return if (elapsedMs >= deadlineMs) {
+                carry(Verdict.Abandon, Reason.NeverStarted)
             } else {
-                State(
-                    bestProgressMs = 0L,
-                    lastAdvanceMs = lastAdvanceMs,
-                    hasEvidenceOfLife = evidenceOfLife,
-                )
+                carry(progressMs = 0L)
             }
         }
-        if (sample.elapsedMs - lastAdvanceMs >= STALL_DEADLINE_MS) return abandon(Reason.Stalled)
-        return State(
-            bestProgressMs = bestProgressMs,
-            lastAdvanceMs = lastAdvanceMs,
-            hasEvidenceOfLife = evidenceOfLife,
-        )
+        if (elapsedMs - lastAdvanceMs >= STALL_DEADLINE_MS) return carry(Verdict.Abandon, Reason.Stalled)
+        return carry()
     }
 }

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.language.normalizeLanguageCode
+import com.nuvio.app.core.language.releaseLanguageEvidenceIn
 import com.nuvio.app.core.language.releaseLanguagesIn
 import com.nuvio.app.core.media.ReleaseTags
 import com.nuvio.app.features.streams.AioParsedFile
@@ -87,8 +88,28 @@ data class SourceFacts(
      * reason: it is what lets a strict preference keep the releases most likely to satisfy it.
      */
     val isMultiLanguage: Boolean = false,
-    /** Normalized subtitle language codes, from the stream's own subtitle list. */
+    /**
+     * [languages] came from a tagged field (Nuvio parsed, AIOStreams parsedFile, plugin), not
+     * from release-name prose. `SourceLanguageInference` ranks the two differently.
+     */
+    val hasStructuredLanguages: Boolean = false,
+    /** Normalized subtitle language codes, from the stream's own sidecar subtitle list. */
     val subtitleLanguages: Set<String> = emptySet(),
+    /**
+     * Subtitle languages the *release name* claims - `VOSTFR`, `ESub`, `ENG.SUBS`, `SUB.ITA`.
+     *
+     * ⚠ **A hint, never proof.** Nothing checks the file before mpv opens it (that would break
+     * IP-bound debrid links), so this may rank a source a little higher and nothing more. Kept
+     * apart from [subtitleLanguages] because those are sidecar files the addon actually listed,
+     * and these, if they exist at all, are inside the container.
+     */
+    val releaseSubtitleLanguages: Set<String> = emptySet(),
+    /** The release name claims several unnamed subtitle tracks - `MultiSubs`. */
+    val claimsMultiSubtitles: Boolean = false,
+    /** `DUBBED`: the audio is not the title's original language, whatever that is. */
+    val claimsDubbedAudio: Boolean = false,
+    /** `HC` / `HardSub`: subtitles burned into the picture - not a track anything can select. */
+    val isHardSubbed: Boolean = false,
     val releaseQuality: String? = null,
     val releaseGroup: String? = null,
     val seeders: Int? = null,
@@ -178,6 +199,15 @@ object SourceFactsExtractor {
             filenames + listOfNotNull(stream.name, stream.description, plugin?.quality)
             ).joinToString(" ")
 
+        // Language prose only: `plugin.quality` names no language, and `plugin.language` is a
+        // tagged field read through `normalizeLanguageValues` below.
+        val languageEvidence = releaseLanguageEvidenceIn(
+            (filenames + listOfNotNull(stream.name, stream.description)).joinToString(" "),
+        )
+        val structuredLanguages = normalizeLanguages(nuvioParsed)
+            .ifEmpty { normalizeLanguages(aio?.parsedFile) }
+            .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
+
         val filenameFacts = filenames.firstOrNull()?.let(::parseTextFacts)
         val pluginFacts = parseTextFacts(
             listOfNotNull(plugin?.quality, plugin?.language).joinToString(" "),
@@ -266,11 +296,10 @@ object SourceFactsExtractor {
                     text = releaseText,
                 ),
             ),
-            languages = normalizeLanguages(nuvioParsed)
-                .ifEmpty { normalizeLanguages(aio?.parsedFile) }
-                .ifEmpty { normalizeLanguageValues(listOfNotNull(plugin?.language)) }
+            languages = structuredLanguages
                 .ifEmpty { filenameFacts?.languages.orEmpty() }
                 .ifEmpty { fallbackFacts.languages },
+            hasStructuredLanguages = structuredLanguages.isNotEmpty(),
             // ⚠ **Not part of the ladder above, and deliberately so.** A structured field can
             // name three languages while the release name is the only place `MULTi` appears,
             // and vice versa. Falling through on first hit would drop whichever came second,
@@ -298,10 +327,17 @@ object SourceFactsExtractor {
             // Subtitles are the other half of "no English audio or subs". A release with the
             // wrong audio but the right subtitle track is not the same as one with neither,
             // and ranking them together threw away the watchable one.
+            //
+            // ⚠ **This used to fall back to `nuvioParsed.languages`** - the *audio* languages - so
+            // any Nuvio-parsed release with no sidecar subtitles "had" subtitles in whatever it was
+            // dubbed in, and the loading band printed `Hindi / Hindi` for a Hindi-only file.
             subtitleLanguages = stream.externalSubtitles
                 .mapNotNull { normalizeLanguageCode(it.language) }
-                .toSet()
-                .ifEmpty { normalizeLanguageValues(nuvioParsed?.languages.orEmpty()) },
+                .toSet(),
+            releaseSubtitleLanguages = languageEvidence.subtitles.codes,
+            claimsMultiSubtitles = languageEvidence.subtitles.isMulti,
+            claimsDubbedAudio = languageEvidence.isDubbed,
+            isHardSubbed = languageEvidence.isHardSubbed,
             releaseQuality = nuvioParsed?.quality?.normalized()
                 ?: aio?.parsedFile?.quality?.normalized()
                 ?: pluginFacts.releaseQuality
@@ -358,11 +394,30 @@ object SourceFactsExtractor {
                 languages.isNotEmpty() || releaseQuality != null
     }
 
+    /**
+     * ⚠ **Every pattern in this object is compiled once, and new ones must be too.**
+     *
+     * These were `Regex(...)` literals inside the parse functions, so each one was compiled afresh
+     * on every call - and [extract] is called per stream, from composition, for the whole list.
+     * Measured on the desktop debug build with 44 streams: 265 ms of UI thread inside
+     * `StreamDestination`'s candidate list, at the moment a source is chosen. Compiling a pattern
+     * is far more expensive than matching one; hoisting them is the entire fix and changes no
+     * behaviour, the patterns being byte-identical to the literals they replace.
+     */
+    private val SIZE_PATTERN =
+        Regex("""(\d+(?:\.\d+)?)\s*(tb|gb|gib|mb|mib)\b""", RegexOption.IGNORE_CASE)
+    private val RESOLUTION_4320_PATTERN = Regex("""\b(8k|4320p?)\b""")
+    private val RESOLUTION_2160_PATTERN = Regex("""\b(4k|2160p?|uhd)\b""")
+    private val RESOLUTION_1440_PATTERN = Regex("""\b1440p?\b""")
+    private val RESOLUTION_1080_PATTERN = Regex("""\b(1080p?|fullhd|fhd)\b""")
+    private val RESOLUTION_720_PATTERN = Regex("""\b(720p?|hd)\b""")
+    private val RESOLUTION_480_PATTERN = Regex("""\b(480p?|sd)\b""")
+    private val FILENAME_RELEASE_GROUP_PATTERN = Regex("""-([A-Za-z0-9][A-Za-z0-9._]{1,31})$""")
+
     private fun parseTextFacts(value: String): TextFacts? {
         if (value.isBlank()) return null
         val lower = value.lowercase()
-        val sizeMatch = Regex("""(\d+(?:\.\d+)?)\s*(tb|gb|gib|mb|mib)\b""", RegexOption.IGNORE_CASE)
-            .find(value)
+        val sizeMatch = SIZE_PATTERN.find(value)
         val sizeBytes = sizeMatch?.let {
             val amount = it.groupValues[1].toDoubleOrNull() ?: return@let null
             val multiplier = when (it.groupValues[2].lowercase()) {
@@ -423,12 +478,12 @@ object SourceFactsExtractor {
     private fun parseResolution(value: String?): VideoResolution? {
         val lower = value?.lowercase() ?: return null
         return when {
-            Regex("""\b(8k|4320p?)\b""").containsMatchIn(lower) -> VideoResolution.UHD_4320
-            Regex("""\b(4k|2160p?|uhd)\b""").containsMatchIn(lower) -> VideoResolution.UHD_2160
-            Regex("""\b1440p?\b""").containsMatchIn(lower) -> VideoResolution.QHD_1440
-            Regex("""\b(1080p?|fullhd|fhd)\b""").containsMatchIn(lower) -> VideoResolution.FULL_HD_1080
-            Regex("""\b(720p?|hd)\b""").containsMatchIn(lower) -> VideoResolution.HD_720
-            Regex("""\b(480p?|sd)\b""").containsMatchIn(lower) -> VideoResolution.SD
+            RESOLUTION_4320_PATTERN.containsMatchIn(lower) -> VideoResolution.UHD_4320
+            RESOLUTION_2160_PATTERN.containsMatchIn(lower) -> VideoResolution.UHD_2160
+            RESOLUTION_1440_PATTERN.containsMatchIn(lower) -> VideoResolution.QHD_1440
+            RESOLUTION_1080_PATTERN.containsMatchIn(lower) -> VideoResolution.FULL_HD_1080
+            RESOLUTION_720_PATTERN.containsMatchIn(lower) -> VideoResolution.HD_720
+            RESOLUTION_480_PATTERN.containsMatchIn(lower) -> VideoResolution.SD
             else -> null
         }
     }
@@ -462,7 +517,7 @@ object SourceFactsExtractor {
 
     private fun parseFilenameReleaseGroup(filename: String): String? {
         val stem = filename.substringBeforeLast('.', filename).trim()
-        val candidate = Regex("""-([A-Za-z0-9][A-Za-z0-9._]{1,31})$""")
+        val candidate = FILENAME_RELEASE_GROUP_PATTERN
             .find(stem)
             ?.groupValues
             ?.get(1)

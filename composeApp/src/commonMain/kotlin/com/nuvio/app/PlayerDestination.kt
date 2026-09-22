@@ -1,15 +1,10 @@
 package com.nuvio.app
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
@@ -17,15 +12,25 @@ import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerScreen
-import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.watchprogress.ResumePromptRepository
-import com.nuvio.app.navigation.*
 import com.nuvio.app.navigation.NuvioNavigator
 import com.nuvio.app.navigation.PlayerRoute
-import kotlinx.coroutines.launch
+import com.nuvio.app.navigation.WatchPartyLobbyRoute
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.playback.PlaybackLoadingController
+import com.nuvio.app.features.streams.StreamsRepository
+import com.nuvio.app.features.watchparty.WatchPartyRepository
+import com.nuvio.app.features.watchparty.PartySourceRealizer
+import com.nuvio.app.features.watchparty.partyRealizationCompletedByLaunch
+import com.nuvio.app.features.watchparty.lobbyOwedOnPlayerExit
+import com.nuvio.app.features.watchparty.matchesPlayback
+import org.jetbrains.compose.resources.stringResource
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_quality_no_match
-import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun PlayerDestination(
@@ -37,70 +42,74 @@ internal fun PlayerDestination(
     onExternalPlayerLaunch: (PlayerLaunch) -> Unit,
     launchExternalPlayer: (ExternalPlayerIntentResult.Success) -> Boolean,
     openExternalStreamUrl: (String) -> Boolean,
+    onSystemBackHandlerChanged: (PlayerRoute, (() -> Unit)?) -> Unit,
 ) {
+    val popBack = rememberGuardedPopBackStack(
+        navController = navController,
+        route = route,
+        beforePop = ResumePromptRepository::markPlayerExitedNormally,
+    )
     val launch = remember(route.launchId) { PlayerLaunchStore.get(route.launchId) }
     if (launch == null) {
-        val onBack = rememberGuardedPopBackStack(navController, route)
         LaunchedEffect(route.launchId) {
-            onBack()
+            popBack()
         }
         Box(modifier = Modifier.fillMaxSize())
         return
     }
-    val onBack = rememberGuardedPopBackStack(navController, route)
-    val detailsRoute = remember(launch.parentMetaType, launch.parentMetaId, launch.title) {
-        DetailRoute(
-            type = launch.parentMetaType,
-            id = launch.parentMetaId,
-            title = launch.title,
-        )
+    val partyUi by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
+    val realization by PartySourceRealizer.state.collectAsStateWithLifecycle()
+    // Tiered, not byte-equal: see `partyRealizationCompletedByLaunch` for the stuck "Matching" pill
+    // an equality test here produced.
+    val retainedPartyKey = partyRealizationCompletedByLaunch(
+        party = partyUi.party,
+        launchContentId = launch.parentMetaId,
+        launchVideoId = launch.videoId,
+        launchDescriptor = launch.partySourceDescriptor,
+        realization = realization,
+    )
+    LaunchedEffect(route.launchId, retainedPartyKey) {
+        retainedPartyKey?.let { PartySourceRealizer.retain(it, launch) }
     }
-    val onBackToDetails: () -> Unit = remember(navController, route, detailsRoute) {
-        {
-            val hasMatchingDetails = navController.routes.any { candidate ->
-                candidate is DetailRoute &&
-                    candidate.type == detailsRoute.type &&
-                    candidate.id == detailsRoute.id
+    var requestedPartyLobbyId by remember { mutableStateOf<String?>(null) }
+    val onBack = rememberGuardedPlayerPopBackStack(
+        navController = navController,
+        route = route,
+        skipRetainedStreamRoute = {
+            launch.autoPickedWithFailureChain && !StreamsRepository.isManualSourceRequestPending
+        },
+        beforePop = {
+            ResumePromptRepository.markPlayerExitedNormally()
+            if (launch.autoPickedWithFailureChain && !StreamsRepository.isManualSourceRequestPending) {
+                StreamsRepository.abandonAutoPlay()
+                StreamsRepository.cancelLoading()
+                PlaybackLoadingController.activeToken?.let(PlaybackLoadingController::close)
             }
-            when {
-                hasMatchingDetails -> navController.navigate(detailsRoute) {
-                    popUpTo<DetailRoute>()
+        },
+        afterPop = {
+            // An explicit request (Open lobby, an accepted join), else the lobby a live party this
+            // player was showing is owed - read against the stack the pop just left behind.
+            val owedLobbyId = requestedPartyLobbyId ?: WatchPartyRepository.uiState.value.party.let { held ->
+                lobbyOwedOnPlayerExit(
+                    held = held,
+                    playerMatchesParty = held?.matchesPlayback(launch.parentMetaId, launch.videoId) == true,
+                    lobbyPartyIdsOnStack = navController.routes.filterIsInstance<WatchPartyLobbyRoute>().map { it.partyId },
+                )
+            }
+            owedLobbyId?.let { partyId ->
+                requestedPartyLobbyId = null
+                navController.navigate(WatchPartyLobbyRoute(partyId = partyId)) {
                     launchSingleTop = true
                 }
-                navController.routes.any { it is StreamRoute } -> navController.navigate(detailsRoute) {
-                    popUpTo<StreamRoute> { inclusive = true }
-                }
-                else -> navController.navigate(detailsRoute) {
-                    popUpTo<PlayerRoute> { inclusive = true }
-                }
             }
-        }
-    }
-    /**
-     * Where Instant goes when a source dies: back to the `StreamRoute` it deliberately left on
-     * the back stack, not out to details.
-     *
-     * That route hosts the whole failure chain - the auto-play effect keyed on
-     * `autoPlayStream`, the retry counter and the "Finding a source" overlay - so popping past
-     * it is what turned a recoverable failure into a dead end and dropped the user on the
-     * details screen mid-play. When the chain is exhausted it is also the right destination:
-     * the plan's fallback is the Classic source list with a reason, and with `autoPlayStream`
-     * cleared that is exactly what `StreamRoute` renders.
-     *
-     * Falls back to details when there is no `StreamRoute` to return to, which the
-     * reuse-last-link and P2P paths can both produce.
-     */
-    val onPlaybackFailureExit: () -> Unit = remember(navController, route, onBackToDetails) {
-        {
-            // The pop is a no-op unless the player is genuinely on top, so it falls through to
-            // the navigating exit rather than leaving the user on a dead player with
-            // `instantFailureHandled` already spent.
-            val popped = navController.routes.any { it is StreamRoute } &&
-                navController.popBackStack(expectedRoute = route)
-            if (!popped) onBackToDetails()
-        }
+        },
+    )
+    val registerSystemBack = remember(route, onSystemBackHandlerChanged) {
+        { handler: (() -> Unit)? -> onSystemBackHandlerChanged(route, handler) }
     }
     val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
+    // Single-shot per launch. The engine can report a fatal error more than once on the way
+    // down, and a second pass would step the chain twice - burning a healthy candidate.
     var instantFailureHandled by rememberSaveable(route.launchId) { mutableStateOf(false) }
     LaunchedEffect(launch.videoId) {
         launch.videoId?.let { ResumePromptRepository.markPlayerEntered(it) }
@@ -141,26 +150,15 @@ internal fun PlayerDestination(
         sourceFacts = launch.sourceFacts,
         playbackAttempt = launch.playbackAttempt,
         expectedRuntimeMinutes = launch.expectedRuntimeMinutes,
-        onBack = onBackToDetails,
-        onStartWatchTogether = { content, fingerprint ->
-            navController.navigate(
-                WatchPartyLobbyRoute(
-                    contentId = content.contentId,
-                    contentType = content.contentType,
-                    videoId = content.videoId,
-                    title = content.title,
-                    poster = content.poster,
-                    season = content.season,
-                    episode = content.episode,
-                    episodeTitle = content.episodeTitle,
-                    sourceAddonId = fingerprint.addonId,
-                    sourceInfoHash = fingerprint.infoHash,
-                    sourceFileIndex = fingerprint.fileIndex,
-                    sourceReleaseFingerprint = fingerprint.releaseFingerprint,
-                ),
-            )
+        partySourceDescriptor = launch.partySourceDescriptor,
+        automaticSourceSelection = launch.autoPickedWithFailureChain,
+        onStartWatchTogether = { _, _, _, _ ->
+            com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.promoteCurrentPlayback()
         },
-        onOpenInExternalPlayer = { request ->
+        onPartyLobbyRequested = { partyId -> requestedPartyLobbyId = partyId },
+        onBack = onBack,
+        onSystemBackHandlerChanged = registerSystemBack,
+        onOpenInExternalPlayer = if (com.nuvio.app.core.build.AppFeaturePolicy.externalPlayerSupported) { { request ->
             val playerLaunch = PlayerLaunch(
                 profileId = launch.profileId,
                 title = launch.title,
@@ -204,35 +202,61 @@ internal fun PlayerDestination(
                     NuvioToastController.show(externalPlayerFailedText)
                 }
             }
-        },
+        } } else null,
         onOpenExternalUrl = { url ->
             openExternalStreamUrl(url)
         },
+        /**
+         * ⚠ **Restored.** This handler existed in `App.kt`'s `MainAppContent` and did not
+         * survive the `0.1.22-alpha` sync, which split that file from ~4,400 lines to 112.
+         * Nothing deleted a file and everything still compiled, so the sync brief's deletion
+         * check could not see it - a lambda simply stopped being passed.
+         *
+         * Three things were dead in production because of it, and they are three of the bugs
+         * this phase was opened for:
+         *
+         *  - `PlaybackStartupWatchdog` arms only when `onFatalPlaybackError != null`
+         *    (`PlayerScreenRuntimeEffects.kt`), so **the watchdog never ran** - a source that
+         *    played no frame was never abandoned;
+         *  - the post-playback-started failover chain never advanced, so a source that opened
+         *    and died was the end of the road;
+         *  - `consumeFailoverRetry()` always answered false, so the stream route read every
+         *    return from the player as a back press.
+         *
+         * `nuvio-z` kept its copy, which is exactly why the loading loop was reported on
+         * desktop only.
+         */
         onFatalPlaybackError = if (launch.autoPickedWithFailureChain) {
             {
                 if (!instantFailureHandled) {
                     instantFailureHandled = true
                     val failed = StreamsRepository.uiState.value.autoPlayStream
-                    // A null `autoPlayStream` here does not mean the chain is
-                    // spent - it means playback started, and `onPlaybackStarted`
-                    // consumed it. That is the common failure: a source that
-                    // opens, plays a second, and dies.
+                    // A null `autoPlayStream` here does not mean the chain is spent - it means
+                    // playback started and `onPlaybackStarted` consumed it. That is the common
+                    // failure: a source that opens, plays a second, and dies.
                     val hasNext = if (failed != null) {
                         StreamsRepository.skipAutoPlayStream(failed)
                     } else {
                         StreamsRepository.failOverAfterPlaybackStarted()
                     }
-                    // Say so, rather than leaving the stream route to guess
-                    // from state a back press produces just as well.
+                    // Say so, rather than leaving the stream route to guess from state a back
+                    // press produces just as well.
                     if (hasNext) StreamsRepository.signalFailoverRetry()
                     if (!hasNext) {
                         StreamsRepository.consumeAutoPlay()
                         NuvioToastController.show(noAutomaticSourceText)
                     }
-                    onPlaybackFailureExit()
+                    // Back to `StreamRoute`, which the automatic modes deliberately leave on
+                    // the back stack because it hosts the chain, the retry counter and the
+                    // loading screen. `popBack` is a no-op unless the player is genuinely on
+                    // top, so a race cannot strand the user on a dead player with
+                    // `instantFailureHandled` already spent.
+                    popBack()
                 }
             }
         } else null,
+        // Retires the chain the moment a frame actually plays, so a later failure falls to
+        // `failOverAfterPlaybackStarted` rather than re-running the source that just worked.
         onPlaybackStarted = if (launch.autoPickedWithFailureChain) {
             { StreamsRepository.consumeAutoPlay() }
         } else null,

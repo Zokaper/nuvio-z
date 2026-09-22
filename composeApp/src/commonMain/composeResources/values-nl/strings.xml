@@ -1046,6 +1046,8 @@
     <string name="settings_playback_subtitle_show_preferred_only">Alleen voorkeurstalen tonen</string>
     <string name="settings_playback_subtitle_show_preferred_only_description">Toon alleen ondertitels die overeenkomen met je voorkeurstalen voor ondertiteling.</string>
     <string name="settings_playback_subtitle_size">Ondertitelgrootte</string>
+    <string name="settings_playback_subtitle_strip_sdh">SDH-informatie verwijderen</string>
+    <string name="settings_playback_subtitle_strip_sdh_description">Verberg geluidsbeschrijvingen en sprekerlabels in tekstondertitels.</string>
     <string name="settings_playback_subtitle_text_color">Tekstkleur</string>
     <string name="settings_playback_subtitle_use_forced">Geforceerde ondertitels gebruiken</string>
     <string name="settings_playback_subtitle_use_forced_description">Geef de voorkeur aan geforceerde ondertitels bij het matchen van je taalinstellingen voor ondertiteling.</string>
@@ -1511,7 +1513,7 @@
     <string name="updates_debug_test_title">Updatebanner testen</string>
     <string name="updates_install_failed">Kan installatie niet starten</string>
     <string name="updates_latest_version">Je gebruikt de nieuwste versie.</string>
-    <string name="updates_message_allow_installs">Schakel app-installaties in voor Nuvio Z en kom daarna terug om door te gaan.</string>
+    <string name="updates_message_allow_installs">Schakel app-installaties in voor Nuvio en kom daarna terug om door te gaan.</string>
     <string name="updates_message_downloading">Update wordt gedownload...</string>
     <string name="updates_message_no_updates">Geen updates gevonden.</string>
     <string name="updates_message_ready">Een nieuwe versie staat klaar om te installeren.</string>

@@ -45,9 +45,42 @@ internal class NuvioNavigator(
         onExternalNavigate?.invoke(route, resolvedOptions.launchSingleTop) ?: backStack.add(route)
     }
 
+    fun canPopBackStack(expectedRoute: AppRoute? = null): Boolean {
+        if (expectedRoute != null && currentRoute != expectedRoute) return false
+        return backStack.size > 1 || onExternalBack != null
+    }
+
     fun popBackStack(expectedRoute: AppRoute? = null): Boolean {
         if (expectedRoute != null && currentRoute != expectedRoute) return false
         if (backStack.size > 1) {
+            backStack.removeAt(backStack.lastIndex)
+            return true
+        }
+        onExternalBack?.invoke()
+        return onExternalBack != null
+    }
+
+    /**
+     * Pops from playback. When [skipRetainedStreamRoute] is true and a [StreamRoute] immediately
+     * precedes the player destination (retained specifically to host the auto-play failure chain),
+     * both destinations are removed atomically so navigation returns directly to the screen preceding
+     * playback without triggering StreamRoute recomposition or loading loops.
+     */
+    fun popPlayerExit(
+        expectedRoute: AppRoute? = null,
+        skipRetainedStreamRoute: Boolean = false,
+    ): Boolean {
+        if (expectedRoute != null && currentRoute != expectedRoute) return false
+        if (backStack.size > 1) {
+            val shouldSkipPrecedingStreamRoute = skipRetainedStreamRoute &&
+                backStack.size > 2 &&
+                backStack.getOrNull(backStack.lastIndex - 1) is StreamRoute
+
+            if (shouldSkipPrecedingStreamRoute) {
+                backStack.subList(backStack.size - 2, backStack.size).clear()
+                return true
+            }
+
             backStack.removeAt(backStack.lastIndex)
             return true
         }

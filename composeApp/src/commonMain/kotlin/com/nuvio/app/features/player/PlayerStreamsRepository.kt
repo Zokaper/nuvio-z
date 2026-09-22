@@ -6,6 +6,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.downloads.AddonSourceKey
 import com.nuvio.app.features.downloads.AioDetectionContext
 import com.nuvio.app.features.downloads.AioStreamsSupport
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
@@ -66,6 +68,16 @@ object PlayerStreamsRepository {
     private var episodeStreamsJob: Job? = null
     private var episodeStreamsRequestKey: String? = null
 
+    /**
+     * The video [episodeStreamsState] currently describes, or null when it describes nothing.
+     *
+     * Set in the same call that resets the state for a new request, so a reader that checks this
+     * before trusting the catalogue can never pair one episode's id with another episode's streams.
+     */
+    @Volatile
+    var episodeStreamsVideoId: String? = null
+        private set
+
     fun loadSources(
         type: String,
         videoId: String,
@@ -74,6 +86,7 @@ object PlayerStreamsRepository {
         forceRefresh: Boolean = false,
     ) {
         fetchStreams(
+            panelName = "sources",
             type = type,
             videoId = videoId,
             season = season,
@@ -94,7 +107,9 @@ object PlayerStreamsRepository {
         episode: Int? = null,
         forceRefresh: Boolean = false,
     ) {
+        episodeStreamsVideoId = videoId
         fetchStreams(
+            panelName = "episodeStreams",
             type = type,
             videoId = videoId,
             season = season,
@@ -119,6 +134,7 @@ object PlayerStreamsRepository {
     fun clearEpisodeStreams() {
         episodeStreamsJob?.cancel()
         episodeStreamsRequestKey = null
+        episodeStreamsVideoId = null
         _episodeStreamsState.value = StreamsUiState()
     }
 
@@ -130,6 +146,7 @@ object PlayerStreamsRepository {
     }
 
     private fun fetchStreams(
+        panelName: String,
         type: String,
         videoId: String,
         season: Int?,
@@ -154,9 +171,11 @@ object PlayerStreamsRepository {
             requestKeyHolder() == requestKey &&
             (current.groups.isNotEmpty() || current.emptyStateReason != null || current.isAnyLoading)
         ) {
+            log.d { "skip $panelName request=$requestKey reason=already-active ${current.streamDiagnostics()}" }
             return
         }
 
+        log.d { "start $panelName request=$requestKey force=$forceRefresh previous=${current.streamDiagnostics()}" }
         setRequestKey(requestKey)
         jobHolder()?.cancel()
         stateFlow.value = StreamsUiState()
@@ -164,7 +183,7 @@ object PlayerStreamsRepository {
         val streamBadgeRules = StreamBadgeSettingsRepository.snapshot()
         val embeddedStreams = MetaDetailsRepository.findEmbeddedStreams(videoId)
         if (embeddedStreams.isNotEmpty()) {
-            log.d { "Using ${embeddedStreams.size} embedded streams for type=$type id=$videoId" }
+            log.d { "using embedded $panelName request=$requestKey streams=${embeddedStreams.size}" }
             val group = AddonStreamGroup(
                 addonName = embeddedStreams.first().addonName,
                 addonId = "embedded",
@@ -180,6 +199,7 @@ object PlayerStreamsRepository {
                 activeAddonIds = setOf("embedded"),
                 isAnyLoading = false,
             )
+            log.d { "finish $panelName request=$requestKey reason=embedded ${stateFlow.value.streamDiagnostics()}" }
             return
         }
 
@@ -202,6 +222,7 @@ object PlayerStreamsRepository {
                 isAnyLoading = false,
                 emptyStateReason = com.nuvio.app.features.streams.StreamsEmptyStateReason.NoAddonsInstalled,
             )
+            log.d { "finish $panelName request=$requestKey reason=no-addons ${stateFlow.value.streamDiagnostics()}" }
             return
         }
 
@@ -228,10 +249,18 @@ object PlayerStreamsRepository {
                 isAnyLoading = false,
                 emptyStateReason = com.nuvio.app.features.streams.StreamsEmptyStateReason.NoCompatibleAddons,
             )
+            log.d {
+                "finish $panelName request=$requestKey reason=no-compatible-addons " +
+                    "installed=${installedAddons.size} ${stateFlow.value.streamDiagnostics()}"
+            }
             return
         }
 
         val installedAddonOrder = streamAddons.map { it.addonName }
+        log.d {
+            "targets $panelName request=$requestKey installed=${installedAddons.size} " +
+                "compatible=${streamAddons.size} plugins=${pluginScrapers.size}"
+        }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
@@ -253,6 +282,7 @@ object PlayerStreamsRepository {
             activeAddonIds = initialGroups.map { it.addonId }.toSet(),
             isAnyLoading = isInitiallyLoading,
         )
+        log.d { "state $panelName request=$requestKey stage=initial ${stateFlow.value.streamDiagnostics()}" }
 
         val job = scope.launch {
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
@@ -283,6 +313,7 @@ object PlayerStreamsRepository {
             }
 
             fun publishStreamGroup(group: AddonStreamGroup) {
+                var nextState: StreamsUiState? = null
                 stateFlow.update { current ->
                     val updated = StreamAutoPlaySelector.orderAddonStreams(
                         groups = current.groups.map { currentGroup ->
@@ -295,7 +326,14 @@ object PlayerStreamsRepository {
                         groups = updated,
                         isAnyLoading = anyLoading,
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
-                    )
+                    ).also { nextState = it }
+                }
+                nextState?.let { state ->
+                    log.d {
+                        "state $panelName request=$requestKey stage=publish addon=${group.addonName} " +
+                            "streams=${group.streams.size} loading=${group.isLoading} " +
+                            "error=${!group.error.isNullOrBlank()} ${state.streamDiagnostics()}"
+                    }
                 }
             }
 
@@ -341,6 +379,7 @@ object PlayerStreamsRepository {
 
                     val displayName = addon.addonName
                     val group = runCatchingUnlessCancelled {
+                        log.d { "fetch $panelName request=$requestKey addon=$displayName" }
                         DownloadsRepository.ensureLoaded()
                         val addonKey = AddonSourceKey(addon.manifest.id, addon.manifest.transportUrl)
                         val aioContext = AioDetectionContext(
@@ -349,25 +388,29 @@ object PlayerStreamsRepository {
                             manifestUrl = addon.manifest.transportUrl,
                             treatAsAioStreams = addonKey in DownloadsRepository.sourcePolicy.value.aioOverrides,
                         )
-                        val enhancedHeaders = AioStreamsSupport.requestHeaders(aioContext)
-                        val payload = fetchAddonResponseText(
-                            url = url,
-                            forceRefresh = forceRefresh,
-                            headers = enhancedHeaders,
-                        )
+                        val enhancedHeaders = AioStreamsSupport.requestHeaders(aioContext) +
+                            if (forceRefresh) mapOf("Cache-Control" to "no-cache") else emptyMap()
+                        val payload = if (enhancedHeaders.isEmpty()) {
+                            fetchAddonResponseText(url)
+                        } else {
+                            httpGetTextWithHeaders(url, enhancedHeaders)
+                        }
                         StreamParser.parse(
                             payload = payload,
                             addonName = displayName,
                             addonId = addon.addonId,
                             addonLogo = addon.manifest.logoUrl,
                             addonManifestUrl = addon.manifest.transportUrl,
+                            partyOriginId = addon.manifest.id,
+                            partyOriginVersion = addon.manifest.version,
                         )
                     }.fold(
                         onSuccess = { streams ->
+                            log.d { "fetched $panelName request=$requestKey addon=$displayName streams=${streams.size}" }
                             AddonStreamGroup(displayName, addon.addonId, streams, isLoading = false)
                         },
                         onFailure = { err ->
-                            log.w(err) { "Failed: ${displayName}" }
+                            log.w(err) { "failed $panelName request=$requestKey addon=$displayName" }
                             AddonStreamGroup(displayName, addon.addonId, emptyList(), isLoading = false, error = err.message)
                         },
                     )
@@ -379,6 +422,7 @@ object PlayerStreamsRepository {
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
                     launch {
+                        log.d { "fetch $panelName request=$requestKey plugin=${scraper.name}" }
                         val completion = PluginRepository.executeScraper(
                             scraper = scraper,
                             tmdbId = pluginContentId(
@@ -391,6 +435,7 @@ object PlayerStreamsRepository {
                             episode = episode,
                         ).fold(
                             onSuccess = { results ->
+                                log.d { "fetched $panelName request=$requestKey plugin=${scraper.name} streams=${results.size}" }
                                 StreamLoadCompletion.PluginScraper(
                                     addonId = providerGroup.addonId,
                                     streams = results.map { result ->
@@ -405,7 +450,7 @@ object PlayerStreamsRepository {
                                 )
                             },
                             onFailure = { error ->
-                                log.w(error) { "Plugin scraper failed: ${scraper.name}" }
+                                log.w(error) { "failed $panelName request=$requestKey plugin=${scraper.name}" }
                                 StreamLoadCompletion.PluginScraper(
                                     addonId = providerGroup.addonId,
                                     streams = emptyList(),
@@ -448,10 +493,12 @@ object PlayerStreamsRepository {
                                         } else {
                                             null
                                         }
-                                        group.copy(
-                                            streams = mergedStreams,
-                                            isLoading = stillLoading,
-                                            error = finalError,
+                                        presentStreamGroup(
+                                            group.copy(
+                                                streams = mergedStreams,
+                                                isLoading = stillLoading,
+                                                error = finalError,
+                                            ),
                                         )
                                     }
                                 },
@@ -471,6 +518,7 @@ object PlayerStreamsRepository {
             for (availabilityJob in debridAvailabilityJobs) {
                 availabilityJob.join()
             }
+            log.d { "complete $panelName request=$requestKey ${stateFlow.value.streamDiagnostics()}" }
             launch {
                 DirectDebridStreamPreparer.prepare(
                     streams = stateFlow.value.groups
@@ -498,11 +546,6 @@ object PlayerStreamsRepository {
         setJob(job)
     }
 }
-private data class PlayerInstalledStreamAddonTarget(
-    val addonName: String,
-    val addonId: String,
-    val manifest: com.nuvio.app.features.addons.AddonManifest,
-)
 
 private fun StreamsUiState.streamDiagnostics(): String {
     val streamCount = groups.sumOf { it.streams.size }

@@ -14,10 +14,8 @@ class PlayerNextEpisodeTransitionTest {
             targetVideoId = "episode-2",
             origin = PlayerNextEpisodeOrigin.AUTOMATIC,
         )
-
         assertTrue(automatic.shouldCountDown())
         assertTrue(automatic.canAcceptManualTap())
-
         val promoted = PlayerNextEpisodeTransitionPolicy.promoteToManual(automatic)
         assertFalse(promoted.shouldCountDown())
         assertFalse(promoted.canAcceptManualTap())
@@ -32,7 +30,6 @@ class PlayerNextEpisodeTransitionTest {
             targetVideoId = "episode-2",
             origin = PlayerNextEpisodeOrigin.MANUAL,
         )
-
         assertEquals(manual, PlayerNextEpisodeTransitionPolicy.promoteToManual(manual))
         assertFalse(manual.canAcceptManualTap())
     }
@@ -45,7 +42,6 @@ class PlayerNextEpisodeTransitionTest {
             targetVideoId = "episode-3",
             origin = PlayerNextEpisodeOrigin.MANUAL,
         )
-
         assertEquals(
             current,
             PlayerNextEpisodeTransitionPolicy.update(
@@ -73,7 +69,6 @@ class PlayerNextEpisodeTransitionTest {
             sourceName = "Addon",
             countdownSeconds = 3,
         )
-
         assertEquals(PlayerNextEpisodePhase.COUNTDOWN, countdown.phase)
         assertEquals("Addon", countdown.sourceName)
         assertEquals(3, countdown.countdownSeconds)

@@ -136,6 +136,12 @@ base moves**.
 
 Settings, About reads: `Nuvio Z 0.6.0-z2 - based on Nuvio 0.6.0`.
 
+**Versions are per release family.** Desktop and mobile follow different vanilla repositories and
+now have live, different lineages. Desktop keeps its existing version, release serial, MSI
+ProductVersion and upgrade identity. Android and iOS share the mobile marketing version and build
+number. The two families apply the same `<vanilla>-z<revision>` and monotonic-order rules, but their
+literal versions and serials are not coupled. See `Docs/RELEASES.md`.
+
 ### Release ordering is a serial, not the version string
 
 The name can no longer be trusted to sort, because a Z version follows vanilla's number and vanilla

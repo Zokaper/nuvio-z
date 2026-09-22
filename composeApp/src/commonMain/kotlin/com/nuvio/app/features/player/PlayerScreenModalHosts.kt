@@ -15,7 +15,7 @@ internal fun PlayerScreenModalHosts(
     pendingP2pSwitch: PendingPlayerP2pSwitch?,
     onPendingP2pSwitchChanged: (PendingPlayerP2pSwitch?) -> Unit,
     onP2pEpisodeStreamSelected: (StreamItem, MetaVideo, Boolean) -> Unit,
-    onP2pSourceStreamSelected: (StreamItem) -> Unit,
+    onP2pSourceStreamSelected: (StreamItem, Boolean) -> Unit,
     onNextEpisodeAutoPlayCancelled: () -> Unit,
     showAudioModal: Boolean,
     audioTracks: List<AudioTrack>,
@@ -98,7 +98,7 @@ internal fun PlayerScreenModalHosts(
                 if (episode != null) {
                     onP2pEpisodeStreamSelected(pending.stream, episode, pending.isAutoPlay)
                 } else {
-                    onP2pSourceStreamSelected(pending.stream)
+                    onP2pSourceStreamSelected(pending.stream, pending.userSelected)
                 }
             },
             onDismiss = {

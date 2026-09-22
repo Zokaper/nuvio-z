@@ -227,6 +227,8 @@ fun SetupSpecimenBand(
     tabLayout: Boolean,
     nextUpLabel: String,
     modifier: Modifier = Modifier,
+    scale: Float = 1f,
+    wide: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
 
@@ -270,6 +272,7 @@ fun SetupSpecimenBand(
                     cornerRadiusDp = posterCornerRadiusDp,
                     landscape = landscapeCards,
                     showTitles = showCardTitles,
+                    scale = scale,
                 )
 
                 SetupSpecimen.Home -> SpecimenHome(
@@ -279,6 +282,8 @@ fun SetupSpecimenBand(
                     blurNextUp = blurNextUp,
                     cornerRadiusDp = posterCornerRadiusDp,
                     nextUpLabel = nextUpLabel,
+                    scale = scale,
+                    wide = wide,
                 )
 
                 SetupSpecimen.Details -> SpecimenDetails(
@@ -287,15 +292,20 @@ fun SetupSpecimenBand(
                     blurUnwatched = blurUnwatchedEpisodes,
                     tabLayout = tabLayout,
                     cornerRadiusDp = posterCornerRadiusDp,
+                    scale = scale,
+                    wide = wide,
                 )
 
                 SetupSpecimen.Theme -> SpecimenTheme(
                     cornerRadiusDp = posterCornerRadiusDp,
+                    scale = scale,
+                    wide = wide,
                 )
 
                 SetupSpecimen.Diagram -> SetupDiagram(
                     step = step,
                     playbackMode = playbackMode,
+                    scale = scale,
                 )
             }
         }
@@ -318,13 +328,19 @@ private fun SpecimenCards(
     cornerRadiusDp: Int,
     landscape: Boolean,
     showTitles: Boolean,
+    scale: Float = 1f,
 ) {
-    val targetWidth = if (landscape) landscapePosterWidth(posterWidthDp) else posterWidthDp.dp
-    val targetHeight = if (landscape) {
-        landscapePosterHeightForWidth(targetWidth)
+    // ⚠ Scaling the card here is **fidelity, not decoration**. `ShelfComponents.kt` draws catalog
+    // posters at `NuvioDesktopCatalogShelfPosterScale = 1.4f` on desktop, so a specimen that drew
+    // them at the raw setting would be showing a smaller card than the app is about to.
+    val baseWidth = if (landscape) landscapePosterWidth(posterWidthDp) else posterWidthDp.dp
+    val baseHeight = if (landscape) {
+        landscapePosterHeightForWidth(baseWidth)
     } else {
         (posterWidthDp / PosterAspectRatio).dp
     }
+    val targetWidth = baseWidth * scale
+    val targetHeight = baseHeight * scale
 
     val width by animateDpAsState(
         targetValue = targetWidth,
@@ -346,10 +362,10 @@ private fun SpecimenCards(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
         SetupSampleTitle.rowItems.forEach { item ->
             SpecimenCard(
                 item = item,
@@ -360,9 +376,18 @@ private fun SpecimenCards(
                 showTitle = showTitles,
             )
         }
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
     }
 }
+
+/**
+ * The gutter every rail starts and ends with.
+ *
+ * ⚠ Scaled rather than fixed, because it is what makes a rail read as running off the edge of a
+ * screen rather than stopping short of one. At desktop scale a 16 dp gutter against a 200 dp card
+ * looks like a mistake.
+ */
+private val SpecimenEdgePadding = 16.dp
 
 @Composable
 private fun SpecimenCard(
@@ -449,14 +474,31 @@ private fun SpecimenHeroBanner(
     item: MetaPreview,
     height: Dp,
     logoHeight: Dp,
+    wide: Boolean = false,
+    logoMaxWidth: Dp = 190.dp,
 ) {
     val tokens = MaterialTheme.nuvio
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
+            // ⚠ **A ratio on desktop, a fixed height on a phone, and this is the whole reason the
+            // preview stopped looking like the app.** 150 dp is right against a phone's ~400 dp
+            // of width (2.7:1). Kept as a fixed height on a desktop pane it becomes a letterbox
+            // strip - the wider the window, the flatter it gets - which is what "it's still the
+            // mobile version" was pointing at. Tying the height to the width instead means the
+            // banner is the same *shape* at every size, which is what the real hero does.
+            .then(
+                if (wide) {
+                    Modifier.aspectRatio(WideHeroAspectRatio)
+                } else {
+                    Modifier.height(height)
+                },
+            )
             .background(tokens.colors.surfaceCard),
-        contentAlignment = Alignment.BottomCenter,
+        // Bottom-start on desktop: `DesktopDetailHero` puts its text column at `BottomStart` with
+        // a horizontal inset, and a logo centred in a 1200 dp banner reads as a title card rather
+        // than as this app's hero.
+        contentAlignment = if (wide) Alignment.BottomStart else Alignment.BottomCenter,
     ) {
         AsyncImage(
             model = item.banner,
@@ -474,15 +516,18 @@ private fun SpecimenHeroBanner(
                 ),
         )
         Column(
-            modifier = Modifier.padding(bottom = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(
+                start = if (wide) 32.dp else 0.dp,
+                bottom = if (wide) 26.dp else 12.dp,
+            ),
+            horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             AsyncImage(
                 model = item.logo,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.height(logoHeight).widthIn(max = 190.dp),
+                modifier = Modifier.height(logoHeight).widthIn(max = logoMaxWidth),
             )
             Text(
                 text = item.name,
@@ -493,6 +538,18 @@ private fun SpecimenHeroBanner(
         }
     }
 }
+
+/**
+ * The banner's shape on a desktop pane.
+ *
+ * 3.2:1 rather than the phone's 2.7:1: a desktop pane is wider than it is tall, so a banner cut to
+ * the phone's ratio would eat most of the band and leave the Continue Watching row - which is the
+ * other half of what this step is about - with nowhere to go.
+ */
+private const val WideHeroAspectRatio = 3.2f
+
+/** The details mock's hero. Flatter than the home banner, exactly as it is on a phone. */
+private const val WideDetailHeroAspectRatio = 4.2f
 
 // --- home ----------------------------------------------------------------------------------
 
@@ -515,12 +572,14 @@ private fun SpecimenHome(
     blurNextUp: Boolean,
     cornerRadiusDp: Int,
     nextUpLabel: String,
+    scale: Float = 1f,
+    wide: Boolean = false,
 ) {
     val item = SetupSampleTitle.rowItems.first()
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp * scale),
     ) {
         AnimatedVisibility(
             visible = heroEnabled,
@@ -530,7 +589,16 @@ private fun SpecimenHome(
             enter = fadeIn(tween(FadeTweenMillis)) + expandVertically(tween(ShapeTweenMillis)),
             exit = fadeOut(tween(FadeTweenMillis / 2)) + shrinkVertically(tween(ShapeTweenMillis)),
         ) {
-            SpecimenHeroBanner(item = item, height = 150.dp, logoHeight = 34.dp)
+            // ⚠ The logo is sized against the *banner*, not scaled from the phone value. A 34 dp
+            // logo multiplied by the specimen scale is 48 dp, which in a 400 dp-tall cinematic
+            // banner reads as a caption rather than as the title treatment the real hero gives it.
+            SpecimenHeroBanner(
+                item = item,
+                height = 150.dp,
+                logoHeight = if (wide) 92.dp else 34.dp,
+                wide = wide,
+                logoMaxWidth = if (wide) 420.dp else 190.dp,
+            )
         }
 
         // ⚠ Height budget for `SetupSpecimen.Home` (330 dp): 150 banner + 14 gap + the tallest
@@ -543,6 +611,7 @@ private fun SpecimenHome(
             blurNextUp = blurNextUp,
             cornerRadiusDp = cornerRadiusDp,
             nextUpLabel = nextUpLabel,
+            scale = scale,
         )
     }
 }
@@ -561,6 +630,7 @@ private fun SpecimenContinueWatching(
     blurNextUp: Boolean,
     cornerRadiusDp: Int,
     nextUpLabel: String,
+    scale: Float = 1f,
 ) {
     val inProgress = SetupSampleTitle.rowItems[0]
     val nextUp = SetupSampleTitle.rowItems[1]
@@ -574,10 +644,10 @@ private fun SpecimenContinueWatching(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp * scale),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
         SpecimenContinueWatchingCard(
             item = inProgress,
             style = style,
@@ -586,6 +656,7 @@ private fun SpecimenContinueWatching(
             radius = radius,
             progress = SetupSampleTitle.continueWatchingProgress,
             caption = SetupSampleTitle.continueWatchingCaption,
+            scale = scale,
         )
         SpecimenContinueWatchingCard(
             item = nextUp,
@@ -595,8 +666,9 @@ private fun SpecimenContinueWatching(
             radius = radius,
             progress = null,
             caption = nextUpLabel,
+            scale = scale,
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
     }
 }
 
@@ -609,6 +681,7 @@ private fun SpecimenContinueWatchingCard(
     radius: Dp,
     progress: Float?,
     caption: String,
+    scale: Float = 1f,
 ) {
     val tokens = MaterialTheme.nuvio
     // The episode-thumbnail toggle picks the still over the show's own artwork, and in the
@@ -660,27 +733,27 @@ private fun SpecimenContinueWatchingCard(
 
     when (style) {
         ContinueWatchingSectionStyle.Card -> Column(
-            modifier = Modifier.width(206.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.width(206.dp * scale),
+            verticalArrangement = Arrangement.spacedBy(8.dp * scale),
         ) {
-            Artwork(Modifier.fillMaxWidth().height(116.dp))
+            Artwork(Modifier.fillMaxWidth().height(116.dp * scale))
             SpecimenCaption(title = item.name, caption = caption)
         }
 
         ContinueWatchingSectionStyle.Wide -> Row(
-            modifier = Modifier.width(268.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.width(268.dp * scale),
+            horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Artwork(Modifier.width(124.dp).height(70.dp))
+            Artwork(Modifier.width(124.dp * scale).height(70.dp * scale))
             SpecimenCaption(title = item.name, caption = caption, modifier = Modifier.weight(1f))
         }
 
         ContinueWatchingSectionStyle.Poster -> Column(
-            modifier = Modifier.width(112.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.width(112.dp * scale),
+            verticalArrangement = Arrangement.spacedBy(8.dp * scale),
         ) {
-            Artwork(Modifier.fillMaxWidth().height((112 / PosterAspectRatio).dp))
+            Artwork(Modifier.fillMaxWidth().height((112 / PosterAspectRatio).dp * scale))
             SpecimenCaption(title = item.name, caption = caption)
         }
     }
@@ -735,6 +808,8 @@ private fun SpecimenDetails(
     blurUnwatched: Boolean,
     tabLayout: Boolean,
     cornerRadiusDp: Int,
+    scale: Float = 1f,
+    wide: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
     val backdropUrl = SetupSampleTitle.backgroundUrl(SetupSampleTitle.featuredImdbId)
@@ -783,9 +858,17 @@ private fun SpecimenDetails(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(96.dp)
+                    // Same reasoning as the home banner: a ratio on desktop so the hero keeps its
+                    // shape at any pane width, a fixed height on a phone where the width is known.
+                    .then(
+                        if (wide) {
+                            Modifier.aspectRatio(WideDetailHeroAspectRatio)
+                        } else {
+                            Modifier.height(96.dp)
+                        },
+                    )
                     .background(tokens.colors.surfaceCard),
-                contentAlignment = Alignment.BottomCenter,
+                contentAlignment = if (wide) Alignment.BottomStart else Alignment.BottomCenter,
             ) {
                 AsyncImage(
                     model = backdropUrl,
@@ -804,9 +887,13 @@ private fun SpecimenDetails(
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .height(28.dp)
-                        .widthIn(max = 164.dp),
+                        .padding(
+                            start = if (wide) 32.dp else 0.dp,
+                            bottom = if (wide) 22.dp else 10.dp,
+                        )
+                        // Same reasoning as the home banner's logo: sized against the hero.
+                        .height(if (wide) 70.dp else 28.dp)
+                        .widthIn(max = if (wide) 340.dp else 164.dp),
                 )
             }
 
@@ -815,7 +902,7 @@ private fun SpecimenDetails(
             // 16 dp here. Same colour rule and the same `usesBackdropBackground` gate.
             if (mode.usesBackdropBackground) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(16.dp).background(
+                    modifier = Modifier.fillMaxWidth().height(16.dp * scale).background(
                         Brush.verticalGradient(
                             listOf(
                                 seamColor.copy(alpha = 0.98f),
@@ -826,18 +913,23 @@ private fun SpecimenDetails(
                     ),
                 )
             } else {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(10.dp * scale))
             }
 
             SpecimenEpisodes(
                 style = episodeCardStyle,
                 blurUnwatched = blurUnwatched,
                 cornerRadiusDp = cornerRadiusDp,
+                scale = scale,
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(14.dp * scale))
 
-            SpecimenDetailSections(tabLayout = tabLayout, cornerRadiusDp = cornerRadiusDp)
+            SpecimenDetailSections(
+                tabLayout = tabLayout,
+                cornerRadiusDp = cornerRadiusDp,
+                scale = scale,
+            )
         }
     }
 }
@@ -856,7 +948,7 @@ private fun SpecimenDetails(
  * **0.45**. If that treatment changes, change it here.
  */
 @Composable
-private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
+private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int, scale: Float = 1f) {
     val tokens = MaterialTheme.nuvio
     val radius by animateDpAsState(
         targetValue = cornerRadiusDp.dp,
@@ -885,13 +977,13 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
     ) { tabbed ->
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp * scale),
         ) {
             if (tabbed) {
                 // One heading row over one rail: the sections now share a place on the page,
                 // which is the whole claim the toggle makes.
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.padding(horizontal = SpecimenEdgePadding * scale),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     titles.forEachIndexed { index, title ->
@@ -900,7 +992,7 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
                                 text = "|",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = tokens.colors.textPrimary.copy(alpha = 0.45f),
-                                modifier = Modifier.padding(horizontal = 8.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp * scale),
                             )
                         }
                         Text(
@@ -924,9 +1016,9 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
                 }
                 Crossfade(targetState = selectedTab, label = "specimen_tab_content") { tab ->
                     when (tab) {
-                        1 -> SpecimenTrailerRail(radius = radius)
-                        2 -> SpecimenDetailFacts()
-                        else -> SpecimenCastRail()
+                        1 -> SpecimenTrailerRail(radius = radius, scale = scale)
+                        2 -> SpecimenDetailFacts(scale = scale)
+                        else -> SpecimenCastRail(scale = scale)
                     }
                 }
             } else {
@@ -938,10 +1030,10 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
                 // band, and two headings each with content is enough to read as "these are
                 // separate sections down the page". The tabbed state is the one that has to be
                 // complete, because it is the one making a claim.
-                SpecimenSectionHeading(castTitle)
-                SpecimenCastRail()
-                SpecimenSectionHeading(trailersTitle)
-                SpecimenTrailerRail(radius = radius)
+                SpecimenSectionHeading(castTitle, scale = scale)
+                SpecimenCastRail(scale = scale)
+                SpecimenSectionHeading(trailersTitle, scale = scale)
+                SpecimenTrailerRail(radius = radius, scale = scale)
             }
         }
     }
@@ -954,20 +1046,23 @@ private fun SpecimenDetailSections(tabLayout: Boolean, cornerRadiusDp: Int) {
  * revision 5's heading over an empty rail, one indirection further along.
  */
 @Composable
-private fun SpecimenDetailFacts() {
+private fun SpecimenDetailFacts(scale: Float = 1f) {
     val tokens = MaterialTheme.nuvio
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = SpecimenColumnMaxWidth * scale)
+            .padding(horizontal = SpecimenEdgePadding * scale),
+        verticalArrangement = Arrangement.spacedBy(6.dp * scale),
     ) {
         SetupSampleTitle.detailFacts.forEach { (label, value) ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp * scale)) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
                     color = tokens.colors.textMuted,
                     maxLines = 1,
-                    modifier = Modifier.width(74.dp),
+                    modifier = Modifier.width(74.dp * scale),
                 )
                 Text(
                     text = value,
@@ -982,16 +1077,26 @@ private fun SpecimenDetailFacts() {
 }
 
 @Composable
-private fun SpecimenSectionHeading(title: String) {
+private fun SpecimenSectionHeading(title: String, scale: Float = 1f) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.nuvio.colors.textPrimary,
         maxLines = 1,
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier.padding(horizontal = SpecimenEdgePadding * scale),
     )
 }
+
+/**
+ * How wide a specimen's *column* content is allowed to get.
+ *
+ * ⚠ Applies only to the parts that are a column rather than a rail - the episode List style and
+ * the Details facts. A rail overflowing a wide pane reads correctly (it is a row that continues
+ * off screen); a two-column text block stretched to 1200 dp just looks abandoned, with a short
+ * value stranded a long way from its label.
+ */
+private val SpecimenColumnMaxWidth = 460.dp
 
 /**
  * The cast row: circular avatars carrying initials, with a name under each.
@@ -1007,24 +1112,24 @@ private fun SpecimenSectionHeading(title: String) {
  * revision 5's rails looked like nothing had loaded.
  */
 @Composable
-private fun SpecimenCastRail() {
+private fun SpecimenCastRail(scale: Float = 1f) {
     val tokens = MaterialTheme.nuvio
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp * scale),
     ) {
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
         SetupSampleTitle.castNames.forEach { name ->
             Column(
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier.width(52.dp * scale),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp * scale),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(40.dp * scale)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
@@ -1045,7 +1150,7 @@ private fun SpecimenCastRail() {
                 )
             }
         }
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
     }
 }
 
@@ -1058,18 +1163,18 @@ private fun SpecimenCastRail() {
  * `img.youtube.com/vi/<key>/hqdefault.jpg`, and there is no key to hardcode here.
  */
 @Composable
-private fun SpecimenTrailerRail(radius: Dp) {
+private fun SpecimenTrailerRail(radius: Dp, scale: Float = 1f) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
     ) {
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
         SetupSampleTitle.rowItems.take(5).forEach { item ->
             Box(
                 modifier = Modifier
-                    .width(84.dp)
+                    .width(84.dp * scale)
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(radius))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -1087,7 +1192,7 @@ private fun SpecimenTrailerRail(radius: Dp) {
                 )
             }
         }
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
     }
 }
 
@@ -1152,6 +1257,7 @@ private fun SpecimenEpisodes(
     style: MetaEpisodeCardStyle,
     blurUnwatched: Boolean,
     cornerRadiusDp: Int,
+    scale: Float = 1f,
 ) {
     val radius by animateDpAsState(
         targetValue = cornerRadiusDp.dp,
@@ -1164,19 +1270,19 @@ private fun SpecimenEpisodes(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
         ) {
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
             SetupSampleTitle.episodes.forEach { episode ->
                 Column(
-                    modifier = Modifier.width(176.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.width(176.dp * scale),
+                    verticalArrangement = Arrangement.spacedBy(6.dp * scale),
                 ) {
                     SpecimenEpisodeStill(
                         episode = episode,
                         blurred = blurUnwatched,
                         radius = radius,
-                        modifier = Modifier.fillMaxWidth().height(84.dp),
+                        modifier = Modifier.fillMaxWidth().height(84.dp * scale),
                     )
                     SpecimenCaption(
                         title = "${episode.episodeNumber}. ${episode.title}",
@@ -1184,24 +1290,30 @@ private fun SpecimenEpisodes(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(SpecimenEdgePadding * scale))
         }
 
+        // ⚠ Capped on a wide pane. Every other style here is a rail that overflows, but this one
+        // is a full-width column: left unbounded it becomes a 96 dp thumbnail followed by a
+        // thousand dp of empty row with a short title stranded at the left of it.
         MetaEpisodeCardStyle.List -> Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = SpecimenColumnMaxWidth * scale)
+                .padding(horizontal = SpecimenEdgePadding * scale),
+            verticalArrangement = Arrangement.spacedBy(10.dp * scale),
         ) {
             SetupSampleTitle.episodes.take(2).forEach { episode ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SpecimenEpisodeStill(
                         episode = episode,
                         blurred = blurUnwatched,
                         radius = radius,
-                        modifier = Modifier.width(96.dp).height(54.dp),
+                        modifier = Modifier.width(96.dp * scale).height(54.dp * scale),
                     )
                     SpecimenCaption(
                         title = "${episode.episodeNumber}. ${episode.title}",
@@ -1263,7 +1375,7 @@ private fun SpecimenEpisodeStill(
  * not - which is the honest picture of how much of the app a palette changes.
  */
 @Composable
-private fun SpecimenTheme(cornerRadiusDp: Int) {
+private fun SpecimenTheme(cornerRadiusDp: Int, scale: Float = 1f, wide: Boolean = false) {
     val tokens = MaterialTheme.nuvio
     val radius by animateDpAsState(
         targetValue = cornerRadiusDp.dp,
@@ -1271,16 +1383,23 @@ private fun SpecimenTheme(cornerRadiusDp: Int) {
         label = "specimen_theme_radius",
     )
     val item = SetupSampleTitle.rowItems.first()
+    val posterWidth = 96.dp * scale
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        // ⚠ Bounded on a wide pane. This is a single card-sized arrangement, not a rail: the
+        // accent button below is `fillMaxWidth` inside a `weight(1f)`, so on a 1200 dp pane it
+        // became a 52:1 accent bar with one word centred in it. Capped, it stays a button.
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (wide) Modifier.widthIn(max = SpecimenThemeMaxWidth * scale) else Modifier)
+            .padding(horizontal = SpecimenEdgePadding * scale),
+        horizontalArrangement = Arrangement.spacedBy(14.dp * scale),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .width(96.dp)
-                .height((96 / PosterAspectRatio).dp)
+                .width(posterWidth)
+                .height(posterWidth / PosterAspectRatio)
                 .clip(RoundedCornerShape(radius))
                 .background(tokens.colors.surfaceCard),
         ) {
@@ -1293,12 +1412,12 @@ private fun SpecimenTheme(cornerRadiusDp: Int) {
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp * scale),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(38.dp)
+                    .height(38.dp * scale)
                     .clip(RoundedCornerShape(999.dp))
                     .background(tokens.colors.accent),
                 contentAlignment = Alignment.Center,
@@ -1316,7 +1435,7 @@ private fun SpecimenTheme(cornerRadiusDp: Int) {
                 progress = 0.42f,
                 fillColor = tokens.colors.accent,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp * scale)) {
                 item.genres.take(2).forEach { genre ->
                     Text(
                         text = genre,
@@ -1325,10 +1444,13 @@ private fun SpecimenTheme(cornerRadiusDp: Int) {
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
                             .background(tokens.colors.accent.copy(alpha = 0.16f))
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 10.dp * scale, vertical = 5.dp * scale),
                     )
                 }
             }
         }
     }
 }
+
+/** Wide enough for a poster beside a real button, narrow enough that the button stays one. */
+private val SpecimenThemeMaxWidth = 620.dp

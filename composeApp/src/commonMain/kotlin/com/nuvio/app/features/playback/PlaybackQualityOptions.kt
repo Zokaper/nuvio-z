@@ -726,6 +726,13 @@ object PlaybackQualityOptions {
                 ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
             secondaryAudioLanguage = context.secondaryAudioLanguage
                 ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
+            // `OFF` means "do not consider language", and subtitles are a language. Dropping these
+            // here rather than in the bonus itself keeps the one switch honest: with `OFF` set,
+            // every language key falls out of the comparator together.
+            preferredSubtitleLanguage = context.preferredSubtitleLanguage
+                ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
+            secondarySubtitleLanguage = context.secondarySubtitleLanguage
+                ?.takeIf { context.languageStrictness != LanguageStrictness.OFF },
             codecPreference = context.codecPreference,
             audioPreference = context.audioPreference,
             dynamicRangePolicy = context.dynamicRangePolicy.takeIf {

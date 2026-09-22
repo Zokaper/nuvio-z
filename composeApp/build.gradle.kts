@@ -41,6 +41,12 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     abstract val supabaseFallbackUrl: Property<String>
 
     @get:Input
+    abstract val zSupabaseUrl: Property<String>
+
+    @get:Input
+    abstract val zSupabasePublishableKey: Property<String>
+
+    @get:Input
     abstract val sentryDsn: Property<String>
 
     @get:Input
@@ -62,6 +68,15 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val URL = "${supabaseUrl.get()}"
                 |    const val ANON_KEY = "${supabaseAnonKey.get()}"
                 |    const val FALLBACK_URL = "${supabaseFallbackUrl.get()}"
+                |}
+                |
+                |// Nuvio Z's own backend, which holds only Z's social surface. Accounts and profiles
+                |// stay on the official backend above; the two are bridged by the z-session exchange.
+                |// Blank when unconfigured, which disables every social surface rather than failing.
+                |object ZSupabaseConfig {
+                |    const val URL = "${zSupabaseUrl.get()}"
+                |    const val PUBLISHABLE_KEY = "${zSupabasePublishableKey.get()}"
+                |    val isConfigured: Boolean = URL.isNotBlank() && PUBLISHABLE_KEY.isNotBlank()
                 |}
                 """.trimMargin()
             )
@@ -343,6 +358,8 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
+    zSupabaseUrl.set(runtimeConfigValue("NUVIO_Z_SUPABASE_URL"))
+    zSupabasePublishableKey.set(runtimeConfigValue("NUVIO_Z_SUPABASE_PUBLISHABLE_KEY"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
     sentryEnvironment.set(
         when {

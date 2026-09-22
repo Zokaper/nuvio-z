@@ -471,6 +471,102 @@ class PlaybackSourceSelectorTest {
         assertEquals("hindi-only", result.stream.name)
     }
 
+    /**
+     * The shipped default, and the reason it changed.
+     *
+     * REQUIRE was the default for a real reported failure, and it never once ran: the audio
+     * preference it was strict about arrives as the sentinel `device`, and the picker discarded
+     * every sentinel before ranking read it. Resolving them makes strictness live for the first
+     * time, so shipping it live *and* strict in one change would have altered what plays for every
+     * existing install at once, on a preference none of them had stated.
+     */
+    @Test
+    fun preferIsTheShippedDefaultNowThatRequireFinallyBites() {
+        assertEquals(
+            LanguageStrictness.PREFER,
+            PlaybackSelectionContext(isEpisode = false).languageStrictness,
+        )
+    }
+
+    /**
+     * ⚠ **The root-cause regression.** A profile that never opened the language dialog carries
+     * `device`, and under the old code that reached the selector as null - so REQUIRE partitioned
+     * nothing and the setting was decorative. Resolved through the shared seam it is a real code,
+     * and the partition happens.
+     */
+    @Test
+    fun theDeviceSentinelNowReachesTheSelectorAsARealLanguage() {
+        val resolved = resolveRankableLanguages(
+            preferredAudio = "device",
+            secondaryAudio = null,
+            preferredSubtitle = "none",
+            secondarySubtitle = null,
+            deviceLanguages = listOf("en"),
+            contentOriginalLanguage = null,
+        )
+        val context = CONTEXT.copy(
+            preferredAudioLanguage = resolved.audio,
+            languageStrictness = LanguageStrictness.REQUIRE,
+        )
+
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("hindi-only", languages = setOf("hi")),
+                languageCandidate("english", languages = setOf("en")),
+            ),
+            context,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("english", result.stream.name)
+    }
+
+    /**
+     * The anime pairing, at the selector rather than the comparator: `original` resolves to the
+     * title's language and the partition runs on it, so the file that opens is the Japanese one.
+     */
+    @Test
+    fun originalAudioPartitionsOnTheTitlesOwnLanguage() {
+        val resolved = resolveRankableLanguages(
+            preferredAudio = "original",
+            secondaryAudio = null,
+            preferredSubtitle = "en",
+            secondarySubtitle = null,
+            deviceLanguages = listOf("en"),
+            contentOriginalLanguage = "ja",
+        )
+        val context = CONTEXT.copy(
+            preferredAudioLanguage = resolved.audio,
+            preferredSubtitleLanguage = resolved.subtitle,
+            languageStrictness = LanguageStrictness.REQUIRE,
+        )
+
+        val result = PlaybackSourceSelector.select(
+            listOf(
+                languageCandidate("dub", languages = setOf("en")),
+                languageCandidate("sub", languages = setOf("ja"), subtitles = setOf("en")),
+            ),
+            context,
+        )
+
+        assertIs<PlaybackSelectionResult.Play>(result)
+        assertEquals("sub", result.stream.name)
+    }
+
+    /** And on a title whose language meta never reported, it stays out of the way entirely. */
+    @Test
+    fun originalAudioOnAnUnknownTitlePartitionsNothing() {
+        val resolved = resolveRankableLanguages(
+            preferredAudio = "original",
+            secondaryAudio = null,
+            preferredSubtitle = "none",
+            secondarySubtitle = null,
+            deviceLanguages = listOf("en"),
+            contentOriginalLanguage = null,
+        )
+        assertNull(resolved.audio)
+    }
+
     @Test
     fun languageIsIgnoredEntirelyWhenTheUserTurnsItOff() {
         val result = PlaybackSourceSelector.select(
@@ -568,6 +664,18 @@ class PlaybackSourceSelectorTest {
     private companion object {
         const val HASH = "0123456789012345678901234567890123456789"
         val CONTEXT = PlaybackSelectionContext(runtimeMinutes = 55, isEpisode = true)
-        val ENGLISH = CONTEXT.copy(preferredAudioLanguage = "en")
+
+        /**
+         * ⚠ Strictness is stated here rather than inherited, because the shipped default moved.
+         *
+         * It was REQUIRE; it is PREFER, now that resolving the sentinels has made it capable of
+         * doing anything at all. Most of the tests below were written to pin REQUIRE's partition
+         * behaviour, so they say REQUIRE. The default itself is pinned by
+         * `preferIsTheShippedDefaultNowThatRequireFinallyBites`.
+         */
+        val ENGLISH = CONTEXT.copy(
+            preferredAudioLanguage = "en",
+            languageStrictness = LanguageStrictness.REQUIRE,
+        )
     }
 }

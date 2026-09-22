@@ -56,6 +56,8 @@ import com.nuvio.app.features.details.MetaScreenSectionItem
 import com.nuvio.app.features.details.MetaScreenSectionKey
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
+import com.nuvio.app.features.details.desktopHeroOwnedMetaSectionKeys
+import com.nuvio.app.isDesktop
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_reorder
 import nuvio.composeapp.generated.resources.action_reset
@@ -178,8 +180,9 @@ internal fun LazyListScope.metaScreenSettingsContent(
             },
         ) {
             SettingsGroup(isTablet = isTablet) {
+                val sectionItems = uiState.items.visibleMetaSectionSettingsItems()
                 MetaSectionReorderableList(
-                    items = uiState.items,
+                    items = sectionItems,
                     isTablet = isTablet,
                     tabLayout = uiState.tabLayout,
                 )
@@ -264,7 +267,11 @@ private fun MetaSectionReorderableList(
     val reorderableLazyListState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
     ) { from, to ->
-        MetaScreenSettingsRepository.moveByIndex(from.index, to.index)
+        val fromKey = items.getOrNull(from.index)?.key
+        val toKey = items.getOrNull(to.index)?.key
+        if (fromKey != null && toKey != null) {
+            MetaScreenSettingsRepository.moveByKey(fromKey, toKey)
+        }
         hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
@@ -465,6 +472,13 @@ private fun TabGroupChip(
         ),
     )
 }
+
+private fun List<MetaScreenSectionItem>.visibleMetaSectionSettingsItems(): List<MetaScreenSectionItem> =
+    if (!isDesktop) {
+        this
+    } else {
+        filterNot { it.key in desktopHeroOwnedMetaSectionKeys }
+    }
 
 private val MetaScreenBackgroundMode.labelRes: StringResource
     get() = when (this) {

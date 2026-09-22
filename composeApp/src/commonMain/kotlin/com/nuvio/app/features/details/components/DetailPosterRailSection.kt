@@ -12,8 +12,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.isDesktop
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.NuvioShelfSection
+import com.nuvio.app.core.ui.nuvioShelfHoverOverdraw
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.stableKey
@@ -35,15 +37,23 @@ fun DetailPosterRailSection(
 ) {
     if (items.isEmpty()) return
 
+    val rowHoverInset = if (isDesktop) DetailRailHoverInset else 0.dp
+    val rowEdgePadding = headerHorizontalPadding + horizontalScrollPadding + rowHoverInset
+
     Column(modifier = modifier.fillMaxWidth()) {
         NuvioShelfSection(
             title = if (showHeader) title else "",
             entries = items,
+            rowModifier = Modifier
+                .nuvioHorizontalScrollBleed(horizontalScrollPadding)
+                .nuvioShelfHoverOverdraw(rowHoverInset),
             headerHorizontalPadding = headerHorizontalPadding,
             rowContentPadding = PaddingValues(
-                horizontal = headerHorizontalPadding + horizontalScrollPadding,
+                start = rowEdgePadding,
+                top = rowHoverInset,
+                end = rowEdgePadding,
+                bottom = rowHoverInset,
             ),
-            rowModifier = Modifier.nuvioHorizontalScrollBleed(horizontalScrollPadding),
             key = { item -> item.stableKey() },
         ) { item ->
             HomePosterCard(
@@ -74,3 +84,5 @@ fun DetailPosterRailSection(
             }
     }
 }
+
+private val DetailRailHoverInset = 20.dp

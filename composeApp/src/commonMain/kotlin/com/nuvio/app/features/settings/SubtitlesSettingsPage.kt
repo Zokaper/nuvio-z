@@ -17,6 +17,7 @@ import com.nuvio.app.features.player.languageLabelForCode
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
+import com.nuvio.app.features.player.subtitleFontSizeRangeSp
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.*
@@ -34,16 +35,23 @@ import org.jetbrains.compose.resources.stringResource
  * The dialogs these rows open still live in `PlaybackSettingsPage.kt`, which is where every
  * settings dialog in this package lives; only the rows moved.
  */
-internal fun LazyListScope.subtitlesSettingsContent(isTablet: Boolean) {
+internal fun LazyListScope.subtitlesSettingsContent(
+    isTablet: Boolean,
+    onOpenPlaybackLanguage: () -> Unit,
+) {
     item {
-        SubtitlesSettingsSection(isTablet = isTablet)
+        SubtitlesSettingsSection(
+            isTablet = isTablet,
+            onOpenPlaybackLanguage = onOpenPlaybackLanguage,
+        )
     }
 }
 
 @Composable
-private fun SubtitlesSettingsSection(isTablet: Boolean) {
-    var showPreferredSubtitleDialog by remember { mutableStateOf(false) }
-    var showSecondarySubtitleDialog by remember { mutableStateOf(false) }
+private fun SubtitlesSettingsSection(
+    isTablet: Boolean,
+    onOpenPlaybackLanguage: () -> Unit,
+) {
     var showAddonSubtitleStartupModeDialog by remember { mutableStateOf(false) }
     var showSubtitleTextColorDialog by remember { mutableStateOf(false) }
     var showSubtitleBackgroundColorDialog by remember { mutableStateOf(false) }
@@ -53,8 +61,6 @@ private fun SubtitlesSettingsSection(isTablet: Boolean) {
     // between the repositories, so twenty more value parameters would be twenty more hand-ports.
     // This is the pattern `advancedSettingsContent` and `SettingsRootPage` already follow.
     val autoPlayPlayerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
-    val preferredSubtitleLanguage = autoPlayPlayerSettings.preferredSubtitleLanguage
-    val secondaryPreferredSubtitleLanguage = autoPlayPlayerSettings.secondaryPreferredSubtitleLanguage
     val useLibass = autoPlayPlayerSettings.useLibass
     val libassRenderType = autoPlayPlayerSettings.libassRenderType
     val androidPlaybackEngine = autoPlayPlayerSettings.androidPlaybackEngine
@@ -67,34 +73,24 @@ private fun SubtitlesSettingsSection(isTablet: Boolean) {
             title = stringResource(Res.string.settings_subtitles_section_languages),
             isTablet = isTablet,
         ) {
-            // External + forwarding enabled: the language pickers still apply, because the
-            // external player is being handed the subtitle track this chooses. External +
-            // forwarding disabled: nothing here reaches anything.
+            // With an external player on, nothing in this section reaches anything: it picks its
+            // own subtitles and renders them itself. The *language* rows are the exception, which
+            // is part of why they moved - they still apply when subtitle forwarding is on, and
+            // they now say so where they are drawn.
             val isExternalPlayer = autoPlayPlayerSettings.externalPlayerEnabled
-            val isForwardingSubtitles = autoPlayPlayerSettings.externalPlayerForwardSubtitles
-            val subtitleLanguageEnabled = !isExternalPlayer || isForwardingSubtitles
             val otherSubtitleOptionsEnabled = !isExternalPlayer
 
             SettingsGroup(isTablet = isTablet) {
+                // ⚠ **A pointer, not a duplicate.** The two language pickers moved to
+                // Playback - Language, beside the audio ones, because they are one answer to one
+                // question. A settings search for "subtitle language" still lands here, so the
+                // row that used to be the answer now says where the answer went. Restating the
+                // current value would make it look editable from two places.
                 SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-                    description = when (preferredSubtitleLanguage) {
-                        SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
-                        SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-                        SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
-                        else -> languageLabelForCode(preferredSubtitleLanguage)
-                    },
-                    enabled = subtitleLanguageEnabled,
+                    title = stringResource(Res.string.settings_subtitles_languages_moved),
+                    description = stringResource(Res.string.settings_subtitles_languages_moved_description),
                     isTablet = isTablet,
-                    onClick = { showPreferredSubtitleDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_secondary_subtitle_language),
-                    description = languageLabelForCode(secondaryPreferredSubtitleLanguage),
-                    enabled = subtitleLanguageEnabled,
-                    isTablet = isTablet,
-                    onClick = { showSecondarySubtitleDialog = true },
+                    onClick = onOpenPlaybackLanguage,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -123,6 +119,21 @@ private fun SubtitlesSettingsSection(isTablet: Boolean) {
                     },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                // Read by all three native bridges since they were written and writable from
+                // nowhere, so it has been stuck off for every user who ever wanted it.
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_subtitle_strip_sdh),
+                    description = stringResource(Res.string.settings_playback_subtitle_strip_sdh_description),
+                    checked = autoPlayPlayerSettings.subtitleStyle.stripSdh,
+                    enabled = otherSubtitleOptionsEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = { enabled ->
+                        PlayerSettingsRepository.setSubtitleStyle(
+                            autoPlayPlayerSettings.subtitleStyle.copy(stripSdh = enabled),
+                        )
+                    },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_playback_addon_subtitle_startup_mode),
                     description = addonSubtitleStartupModeLabel(autoPlayPlayerSettings.addonSubtitleStartupMode),
@@ -144,7 +155,7 @@ private fun SubtitlesSettingsSection(isTablet: Boolean) {
                     title = stringResource(Res.string.settings_playback_subtitle_size),
                     value = subtitleStyle.fontSizeSp,
                     valueText = stringResource(Res.string.compose_player_font_size_value, subtitleStyle.fontSizeSp),
-                    valueRange = 12..40,
+                    valueRange = subtitleFontSizeRangeSp,
                     step = 2,
                     isTablet = isTablet,
                     enabled = subtitleRenderingEnabled,
@@ -237,43 +248,6 @@ private fun SubtitlesSettingsSection(isTablet: Boolean) {
                 }
             }
         }
-    }
-
-    if (showPreferredSubtitleDialog) {
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-            options = listOf(
-                LanguageSelectionOption(SubtitleLanguageOption.NONE, stringResource(Res.string.settings_playback_option_none)),
-                LanguageSelectionOption(SubtitleLanguageOption.DEVICE, stringResource(Res.string.settings_playback_option_device_language)),
-                LanguageSelectionOption(SubtitleLanguageOption.FORCED, stringResource(Res.string.settings_playback_option_forced)),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = preferredSubtitleLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setPreferredSubtitleLanguage(value ?: SubtitleLanguageOption.NONE)
-                showPreferredSubtitleDialog = false
-            },
-            onDismiss = { showPreferredSubtitleDialog = false },
-        )
-    }
-
-    if (showSecondarySubtitleDialog) {
-        LanguageSelectionDialog(
-            title = stringResource(Res.string.settings_playback_secondary_subtitle_language),
-            options = listOf(
-                LanguageSelectionOption(null, stringResource(Res.string.settings_playback_option_none)),
-                LanguageSelectionOption(SubtitleLanguageOption.FORCED, stringResource(Res.string.settings_playback_option_forced)),
-            ) + AvailableLanguageOptions.map { option ->
-                LanguageSelectionOption(option.code, stringResource(option.labelRes))
-            },
-            selectedValue = secondaryPreferredSubtitleLanguage,
-            onSelect = { value ->
-                PlayerSettingsRepository.setSecondaryPreferredSubtitleLanguage(value)
-                showSecondarySubtitleDialog = false
-            },
-            onDismiss = { showSecondarySubtitleDialog = false },
-        )
     }
 
     if (showAddonSubtitleStartupModeDialog) {

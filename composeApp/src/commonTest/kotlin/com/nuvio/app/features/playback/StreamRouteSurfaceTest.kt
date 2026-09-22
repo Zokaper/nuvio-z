@@ -15,6 +15,7 @@ import kotlin.test.assertTrue
 class StreamRouteSurfaceTest {
 
     private fun inputs(
+        isPartyResolution: Boolean = false,
         isClassic: Boolean = false,
         isManualLaunch: Boolean = false,
         manualSourceListRequested: Boolean = false,
@@ -25,6 +26,7 @@ class StreamRouteSurfaceTest {
         isAutoPlaybackStarting: Boolean = false,
         awaitingUserAnswer: Boolean = false,
     ) = StreamRouteSurfaceInputs(
+        isPartyResolution = isPartyResolution,
         isClassic = isClassic,
         isManualLaunch = isManualLaunch,
         manualSourceListRequested = manualSourceListRequested,
@@ -41,6 +43,43 @@ class StreamRouteSurfaceTest {
         assertEquals(
             StreamRouteSurface.SourceList,
             streamRouteSurface(inputs(isClassic = true, isAutoPlaybackStarting = true)),
+        )
+    }
+
+    @Test
+    fun partyResolutionNeverEntersTheOrdinarySourceListBeforeMatching() {
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isClassic = true,
+                ),
+            ),
+        )
+        assertEquals(
+            StreamRouteSurface.ProgressOverlay,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isManualLaunch = true,
+                    awaitingUserAnswer = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun partyResolutionOnlyUncoversTheListAfterAnExplicitBailOut() {
+        assertEquals(
+            StreamRouteSurface.SourceList,
+            streamRouteSurface(
+                inputs(
+                    isPartyResolution = true,
+                    isClassic = true,
+                    manualSourceListRequested = true,
+                ),
+            ),
         )
     }
 
@@ -77,6 +116,28 @@ class StreamRouteSurfaceTest {
         // ...or a wait long enough that the wait itself is the problem.
         assertEquals(true, shouldOfferManualEscape(attempt = 1, elapsedMs = MANUAL_ESCAPE_DELAY_MS))
         assertEquals(false, shouldOfferManualEscape(attempt = 1, elapsedMs = MANUAL_ESCAPE_DELAY_MS - 1))
+    }
+
+    @Test
+    fun thePlayerOffersTheSourceListOnlyWhereOneExists() {
+        // The route handed the session over and kept its own escape registered, so its list is
+        // still on the back stack for the pop to land on.
+        assertEquals(
+            true,
+            playerMayOfferSourceList(routeOffersSourceList = true, isAutomaticSelection = false),
+        )
+        // An auto-picked launch retains `StreamRoute` deliberately, to host the failure chain.
+        assertEquals(
+            true,
+            playerMayOfferSourceList(routeOffersSourceList = false, isAutomaticSelection = true),
+        )
+        // Continue Watching, a next episode and a resumed download reach the player with nothing
+        // behind them but the details screen. Offering a list there would leave
+        // `manualSourceRequestPending` set for whatever play came next.
+        assertEquals(
+            false,
+            playerMayOfferSourceList(routeOffersSourceList = false, isAutomaticSelection = false),
+        )
     }
 
     @Test

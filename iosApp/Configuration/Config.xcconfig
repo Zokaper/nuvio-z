@@ -1,6 +1,7 @@
 #include? "Version.xcconfig"
 
-TEAM_ID=
+// Set NUVIO_IOS_TEAM_ID in CI or a developer-only xcconfig when signing is enabled.
+// It is intentionally empty in source control so the project remains credential-neutral.
+NUVIO_IOS_TEAM_ID=
 
-PRODUCT_NAME=Nuvio
-PRODUCT_BUNDLE_IDENTIFIER=com.nuvio.app.Nuvio$(TEAM_ID)
+PRODUCT_NAME=Nuvio Z

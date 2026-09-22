@@ -12,5 +12,9 @@ actual object SocialStorage {
     actual fun savePayload(profileId: String, payload: String) { preferences?.edit()?.putString("state_$profileId", payload)?.apply() }
     actual fun loadOutbox(profileId: String): String? = preferences?.getString("outbox_$profileId", null)
     actual fun saveOutbox(profileId: String, payload: String) { preferences?.edit()?.putString("outbox_$profileId", payload)?.apply() }
+    actual fun loadAbandonedJoinRequests(profileId: String): String? = preferences?.getString("abandoned_join_$profileId", null)
+    actual fun saveAbandonedJoinRequests(profileId: String, payload: String?) {
+        preferences?.edit()?.apply { if (payload == null) remove("abandoned_join_$profileId") else putString("abandoned_join_$profileId", payload) }?.apply()
+    }
 }
 

@@ -1,20 +1,13 @@
 name: Debug release
 
-# Publishes an Android debug APK to the debug update channel, so an installed
-# debug build can update itself from inside the app.
+# Publishes an Android debug APK and iOS Debug unsigned IPA to the debug update channel.
 #
 # The channel is GitHub **prereleases** tagged `debug-v*`. The stable updater
 # discards prereleases, so the two lines cannot see each other and the release
 # flow is untouched - see "The debug update line" in STATUS.md.
 #
-# This existed only as a manual ritual before: bump DEBUG_BUILD, build locally,
-# `gh release create`. That meant a debug build could only come from a machine
-# with a working Gradle, which the agent sandbox is not, and it made the whole
-# device-testing loop depend on the maintainer being at their desk.
-#
-# Signing needs no secret: `androidApp/nuvio-debug.keystore` is committed on
-# purpose, because AGP's per-machine default debug key produces APKs that cannot
-# update each other. The release keystore is not here and must stay that way.
+# Android: package `com.nuvio.app.z.debug`, signed with committed debug keystore.
+# iOS: bundle `com.nuvio.app.z.debug`, display name `Nuvio Z Debug`, unsigned IPA for SideStore.
 
 on:
   workflow_dispatch:
@@ -27,23 +20,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build and publish debug APK
+  prepare:
+    name: Resolve debug version
     runs-on: ubuntu-latest
-    env:
-      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-      GH_TOKEN: ${{ github.token }}
-
+    outputs:
+      marketing_version: ${{ steps.version.outputs.marketing_version }}
+      debug_build: ${{ steps.version.outputs.debug_build }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      project_version: ${{ steps.version.outputs.project_version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
 
       - name: Resolve debug version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           config=iosApp/Configuration/Version.xcconfig
-          # Debug and stable build ordering are independent, so their counters stay separate.
           debug_config=iosApp/Configuration/DebugVersion.xcconfig
           read_value() {
             sed -nE "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p" "$1" | head -1
@@ -58,19 +54,30 @@ jobs:
 
           version="${marketing}.${debug_build}"
           tag="debug-v${version}"
+          echo "marketing_version=${marketing}" >> "${GITHUB_OUTPUT}"
+          echo "debug_build=${debug_build}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          # The versionCode androidApp/build.gradle.kts will derive, restated here
-          # so a mismatch shows up in the log rather than on the device.
-          echo "Publishing ${tag} (expected versionCode $((project * 1000 + debug_build)))"
+          echo "project_version=${project}" >> "${GITHUB_OUTPUT}"
 
-          # A tag is single-use, exactly as it is on the release line: republishing
-          # one would leave installs that already took it stranded on older code
-          # with a newer name. Bump DEBUG_BUILD instead.
+          echo "Publishing ${tag} (expected Android versionCode $((project * 1000 + debug_build)))"
+
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "::error::${tag} already exists. Bump DEBUG_BUILD in ${debug_config} and dispatch again."
             exit 1
           fi
+
+  android_debug:
+    name: Build Android debug APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -83,9 +90,6 @@ jobs:
 
       - name: Cap Gradle memory for hosted runners
         run: |
-          # gradle.properties asks for 12G heap, which is more than a standard
-          # hosted runner has. Values in GRADLE_USER_HOME take precedence over
-          # the project file, so override without touching the repository.
           mkdir -p "${HOME}/.gradle"
           {
             echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
@@ -94,24 +98,15 @@ jobs:
 
       - name: Configure runtime properties
         run: |
-          # Copied from ci.yml rather than shared, because the two workflows must
-          # not be able to break each other. Without the secret the build still
-          # succeeds but ships with no backend, so sign-in and Trakt will not work
-          # - which is worth knowing before spending a device session on it.
           if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
             echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set; building without backend configuration."
             : > local.properties
             exit 0
           fi
 
-          # Secrets have arrived with a UTF-8 BOM in front of the base64, and
-          # variously wrapped, CRLF-terminated or URL-safe encoded. Drop every
-          # character the base64 alphabet does not contain rather than failing.
           normalise_b64() {
             printf '%s' "$1" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/='
           }
-          # A properties file stored without any encoding: it has KEY= lines and
-          # contains characters base64 never does.
           looks_like_properties() {
             printf '%s' "$1" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=' \
               && printf '%s' "$1" | LC_ALL=C grep -q '[:.]'
@@ -135,8 +130,6 @@ jobs:
           decode_text_secret LOCAL_PROPERTIES_BASE64 "${LOCAL_PROPERTIES_BASE64}" local.properties
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
 
-      # --stacktrace is deliberately omitted: on a Kotlin compilation failure it
-      # emits ~150 lines of Gradle internals that bury the actual 'e:' errors.
       - name: Run Android host tests
         run: |
           set -o pipefail
@@ -146,11 +139,15 @@ jobs:
             exit 1
           }
 
-      # Copied from ci.yml. The inline `grep -E '^e: '` above catches a Kotlin
-      # compile error, but a *test* failure produces no `e:` lines at all, and
-      # the raw job log is long enough that reading it back through the API
-      # returns only post-job cache noise. Without this a red run says "tests
-      # failed" and nothing else.
+      - name: Guard the Android update channel (full distribution)
+        run: |
+          set -o pipefail
+          ./gradlew :composeApp:testAndroidHostTest -Pnuvio.android.distribution=full --tests 'com.nuvio.app.features.updater.AndroidUpdateChannelTest' --console=plain 2>&1 | tee build.log || {
+            echo "::error::The Android debug/stable update channel wiring is broken"
+            grep -E '^e: ' build.log | head -60
+            exit 1
+          }
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v7
@@ -169,8 +166,7 @@ jobs:
             exit 1
           }
 
-      - name: Identify the APK
-        id: apk
+      - name: Identify and stage Android APK
         run: |
           set -euo pipefail
           apk="$(find androidApp/build/outputs/apk/full/debug -name '*.apk' | head -1)"
@@ -178,30 +174,150 @@ jobs:
             echo "::error::No debug APK was produced"
             exit 1
           fi
-          echo "path=${apk}" >> "${GITHUB_OUTPUT}"
 
-          # Print what the device will actually see. The updater compares these,
-          # so a wrong versionCode here is a build that silently never offers
-          # itself - the failure mode this counter exists to prevent.
           aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt2 | sort | tail -1 || true)"
           if [[ -n "${aapt}" ]]; then
             "${aapt}" dump badging "${apk}" | grep -E "^package:" || true
           fi
 
-      - name: Publish to the debug channel
+          mkdir -p debug-artifacts
+          cp "${apk}" debug-artifacts/androidApp-full-debug.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-debug-android
+          path: debug-artifacts/androidApp-full-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  ios_debug:
+    name: Build iOS Debug unsigned IPA
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
+      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      IOS_CONFIGURATION: Debug
+      IOS_IPA_NAME: Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Konan dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Configure and build iOS Debug unsigned IPA
+        run: |
+          if [[ -n "${RELEASE_PROPERTIES_BASE64}" ]]; then
+            printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
+            sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
+          else
+            : > local.properties
+          fi
+          ./scripts/prepare-ios-dependencies.sh
+          ./scripts/build-ios-ipa.sh "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.debug_build }}"
+
+      - name: Upload iOS Debug artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-debug-ios
+          path: build/ios-ipa/${{ env.IOS_IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to debug channel
+    needs: [prepare, android_debug, ios_debug]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: nuvio-debug-android
+          path: release-assets
+
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: nuvio-debug-ios
+          path: release-assets
+
+      - name: Compute checksums
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS-Debug.txt
+          cat SHA256SUMS-Debug.txt
+
+      - name: Publish GitHub prerelease
         run: |
           set -euo pipefail
-          gh release create "${{ steps.version.outputs.tag }}" "${{ steps.apk.outputs.path }}" \
+          ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
+          gh release create "${{ needs.prepare.outputs.tag }}" \
+            release-assets/androidApp-full-debug.apk \
+            "release-assets/${ipa_name}" \
+            release-assets/SHA256SUMS-Debug.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
-            --title "Debug ${{ steps.version.outputs.version }}" \
+            --title "Debug ${{ needs.prepare.outputs.version }}" \
             --prerelease \
             --notes "Debug build from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA}\`.
 
-          Installs as \`com.nuvio.app.z.debug\`, side by side with the release app.
-          Signed with the committed debug keystore, so it updates over any debug
-          build from \`0.4.9-beta.1\` onwards.
+          Contains:
+          - Android Debug APK (\`androidApp-full-debug.apk\`, package \`com.nuvio.app.z.debug\`)
+          - iOS Debug Unsigned IPA (\`${ipa_name}\`, bundle \`com.nuvio.app.z.debug\`, display name \`Nuvio Z Debug\`)
+
+          Installs as \`com.nuvio.app.z.debug\` side-by-side with stable Nuvio Z.
+          Signed with the committed debug keystore for Android; unsigned IPA for SideStore sideloading on iOS.
 
           Not a release. The stable updater ignores prereleases."
 
-          echo "Published ${{ steps.version.outputs.tag }}"
+          echo "Published ${{ needs.prepare.outputs.tag }}"
+
+      - name: Update SideStore debug source feed
+        run: |
+          set -euo pipefail
+          ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
+          notes_file="${RUNNER_TEMP}/debug-notes.txt"
+          echo "Debug build ${{ needs.prepare.outputs.version }} (build ${{ needs.prepare.outputs.debug_build }}) for SideStore." > "${notes_file}"
+          python3 scripts/update-store-source.py \
+            --source distribution/sidestore/source-debug.json \
+            --ipa "release-assets/${ipa_name}" \
+            --expected-bundle-id com.nuvio.app.z.debug \
+            --release-notes "${notes_file}" \
+            --release-version "${{ needs.prepare.outputs.version }}" \
+            --release-date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --download-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ needs.prepare.outputs.tag }}/${ipa_name}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add distribution/sidestore/source-debug.json
+          git commit -m "chore(store): update source-debug.json for ${{ needs.prepare.outputs.version }} [skip ci]" || echo "No changes to commit"
+          git push origin "HEAD:${GITHUB_REF_NAME}" || echo "Could not push to branch directly"
+
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            distribution/sidestore/source-debug.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber

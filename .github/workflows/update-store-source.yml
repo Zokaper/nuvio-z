@@ -4,6 +4,16 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. debug-v0.4.13-z1.41 or v0.4.13-z1)"
+        required: true
+        type: string
+      version:
+        description: "Release version override"
+        required: false
+        type: string
   workflow_call:
     inputs:
       tag:
@@ -27,7 +37,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
-      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      RELEASE_VERSION: ${{ inputs.version || '' }}
       RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
 
     steps:
@@ -82,30 +92,62 @@ jobs:
           ipa_name="$(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")"
           release_date="$(jq -r '.published_at // empty' "${release_json}")"
           download_url="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .browser_download_url' "${release_json}")"
+          is_prerelease="$(jq -r '.prerelease' "${release_json}")"
 
           if [[ -z "${release_date}" ]]; then
             echo "Published release ${RELEASE_TAG} has no publication date." >&2
             exit 1
           fi
 
+          if [[ "${is_prerelease}" == "true" || "${RELEASE_TAG}" == debug-v* ]]; then
+            echo "Processing DEBUG prerelease ${RELEASE_TAG} -> updating source-debug.json"
+            target_source="distribution/sidestore/source-debug.json"
+            expected_bundle_id="com.nuvio.app.z.debug"
+          else
+            echo "Processing STABLE release ${RELEASE_TAG} -> updating source.json"
+            target_source="distribution/sidestore/source.json"
+            expected_bundle_id="com.nuvio.app.z"
+          fi
+          echo "TARGET_SOURCE=${target_source}" >> "${GITHUB_ENV}"
+          echo "EXPECTED_BUNDLE_ID=${expected_bundle_id}" >> "${GITHUB_ENV}"
+
           jq -rj '.body // ""' "${release_json}" > "${release_notes}"
+          version="${RELEASE_VERSION}"
+          if [[ -z "${version}" ]]; then
+            if [[ "${RELEASE_TAG}" == debug-v* ]]; then
+              version="${RELEASE_TAG#debug-v}"
+            elif [[ "${RELEASE_TAG}" == v* ]]; then
+              version="${RELEASE_TAG#v}"
+            else
+              version="${RELEASE_TAG}"
+            fi
+          fi
+
           python3 scripts/update-store-source.py \
-            --source store.json \
+            --source "${target_source}" \
             --ipa "source-assets/${ipa_name}" \
+            --expected-bundle-id "${expected_bundle_id}" \
             --release-notes "${release_notes}" \
-            --release-version "${RELEASE_VERSION}" \
+            --release-version "${version}" \
             --release-date "${release_date}" \
             --download-url "${download_url}"
 
       - name: Commit sideload source
         run: |
-          if [[ -z "$(git status --porcelain -- store.json)" ]]; then
-            echo "store.json is already current for ${RELEASE_VERSION}."
+          if [[ -z "$(git status --porcelain -- "${TARGET_SOURCE}")" ]]; then
+            echo "${TARGET_SOURCE} is already current for ${RELEASE_VERSION}."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add store.json
-          git commit -m "chore(store): publish ${RELEASE_VERSION}"
+          git add "${TARGET_SOURCE}"
+          git commit -m "chore(store): update $(basename "${TARGET_SOURCE}") for ${RELEASE_VERSION} [skip ci]"
           git push origin "HEAD:${RELEASE_BRANCH}"
+
+      - name: Upload source feed to release
+        run: |
+          gh release upload "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            "${TARGET_SOURCE}" \
+            --clobber

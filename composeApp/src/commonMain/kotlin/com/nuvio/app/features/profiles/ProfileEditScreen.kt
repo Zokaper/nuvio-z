@@ -45,16 +45,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
-import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.accentBrush
-import com.nuvio.app.core.ui.appTheme
 import com.nuvio.app.features.membership.CosmeticEntitlement
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.membership.ProfileBackgroundRepository
@@ -547,7 +548,7 @@ private fun AvatarChoiceItem(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
-    val palette = ThemeColors.getColorPalette(MaterialTheme.appTheme)
+    val palette = MaterialTheme.themePalette
     Box(
         modifier = Modifier
             .size(size)

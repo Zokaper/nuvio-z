@@ -1167,7 +1167,7 @@
     <string name="updates_downloading_progress">Letöltés: %1$d%</string>
     <string name="updates_install_failed">Nem sikerült elindítani a telepítést</string>
     <string name="updates_latest_version">A legfrissebb verziót használod.</string>
-    <string name="updates_message_allow_installs">Engedélyezd az alkalmazások telepítését a Nuvio Z számára, majd térj vissza és folytasd.</string>
+    <string name="updates_message_allow_installs">Engedélyezd az alkalmazások telepítését a Nuvio számára, majd térj vissza és folytasd.</string>
     <string name="updates_message_downloading">Frissítés letöltése...</string>
     <string name="updates_message_no_updates">Nem találhatók frissítések.</string>
     <string name="updates_message_ready">Az új verzió készen áll a telepítésre.</string>
@@ -1916,6 +1916,8 @@
     <string name="entity_browse_type">Típus</string>
     <string name="entity_browse_catalogue">Katalógus</string>
     <string name="entity_browse_about">Névjegy</string>
+    <string name="entity_browse_title_count_one">%d cím</string>
+    <string name="entity_browse_title_count_other">%d cím</string>
     <string name="player_external_loading_subtitles">Feliratok betöltése a kiegészítőkből...</string>
     <string name="player_external_downloading_subtitles">Feliratok letöltése...</string>
     <plurals name="entity_browse_title_count">

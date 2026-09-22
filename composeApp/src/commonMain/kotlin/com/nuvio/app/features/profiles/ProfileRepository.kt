@@ -26,6 +26,7 @@ import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.search.SearchHistoryRepository
 import com.nuvio.app.features.search.SearchRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
@@ -43,6 +44,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -67,6 +71,7 @@ object ProfileRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("ProfileRepository")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val profileSwitchMutex = Mutex()
     private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
 
     private val _state = MutableStateFlow(ProfileState())
@@ -147,7 +152,15 @@ object ProfileRepository {
         }
     }
 
-    fun selectProfile(profileIndex: Int) {
+    suspend fun switchToProfile(profileIndex: Int) {
+        profileSwitchMutex.withLock {
+            withContext(Dispatchers.Default) {
+                selectProfile(profileIndex)
+            }
+        }
+    }
+
+    private fun selectProfile(profileIndex: Int) {
         activeProfileIndex = profileIndex
         val selectedProfile = _state.value.profiles.find { it.profileIndex == profileIndex }
         _state.value = _state.value.copy(
@@ -178,6 +191,7 @@ object ProfileRepository {
         ContinueWatchingPreferencesRepository.onProfileChanged()
         com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache.onProfileChanged()
         EpisodeReleaseNotificationsRepository.onProfileChanged()
+        SocialFeaturePreferencesRepository.onProfileChanged()
         TmdbSettingsRepository.onProfileChanged()
         MdbListSettingsRepository.onProfileChanged()
         SearchHistoryRepository.onProfileChanged()

@@ -28,6 +28,14 @@ val releaseStorePassword = localProps.getProperty("NUVIO_RELEASE_STORE_PASSWORD"
 val releaseKeyAlias = localProps.getProperty("NUVIO_RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() }
 val releaseKeyPassword = localProps.getProperty("NUVIO_RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
 val releaseKeystore = releaseStoreFile?.let(rootProject::file)
+val unsignedReleaseRequested = providers.gradleProperty("nuvio.android.unsignedRelease")
+    .map(String::toBooleanStrict)
+    .getOrElse(false)
+val releaseSigningValues = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+val hasReleaseSigning = !unsignedReleaseRequested && releaseSigningValues.all { it != null }
+if (!unsignedReleaseRequested && releaseSigningValues.any { it != null } && !hasReleaseSigning) {
+    error("Android release signing is partially configured; provide all NUVIO_RELEASE_* signing properties or none")
+}
 fun envOrLocalProperty(key: String): String? =
     providers.environmentVariable(key).orNull?.trim()?.takeIf { it.isNotBlank() }
         ?: localProps.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
@@ -145,7 +153,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "../composeApp/proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("release")
+            // Build-only CI intentionally supports an unsigned release artifact when production
+            // credentials are unavailable. Publication verifies a complete signing configuration
+            // and refuses unsigned APKs before creating a GitHub release.
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
             ndk {
                 debugSymbolLevel = "FULL"
             }

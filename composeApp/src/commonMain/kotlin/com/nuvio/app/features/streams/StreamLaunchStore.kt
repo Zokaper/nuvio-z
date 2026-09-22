@@ -1,5 +1,23 @@
 package com.nuvio.app.features.streams
 
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+
+enum class PartyStreamLaunchPurpose {
+    /** The host is choosing a credential-free fingerprint; no media may be resolved or opened. */
+    SELECT_SOURCE,
+    /** Every member is resolving the already-selected fingerprint for synchronized playback. */
+    RESOLVE_PLAYBACK,
+}
+
+data class PartyStreamLaunchContext(
+    val partyId: String,
+    val isHost: Boolean,
+    val contentGeneration: Int,
+    val sourceGeneration: Int,
+    val targetFingerprint: PartySourceDescriptorV2? = null,
+    val purpose: PartyStreamLaunchPurpose = PartyStreamLaunchPurpose.RESOLVE_PLAYBACK,
+)
+
 data class StreamLaunch(
     val profileId: Int,
     val type: String,
@@ -28,6 +46,8 @@ data class StreamLaunch(
      * discarding the intent behind the button that was actually pressed.
      */
     val downloadIntent: Boolean = false,
+    /** Party preflight keeps selection in this route instead of immediately opening the player. */
+    val partyContext: PartyStreamLaunchContext? = null,
 )
 
 object StreamLaunchStore {

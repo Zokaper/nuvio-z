@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.foundation.background
+import com.nuvio.app.core.ui.platformPointerNavigationGuard
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -9,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntSize
@@ -19,12 +21,14 @@ import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_airs_prefix
 import nuvio.composeapp.generated.resources.compose_player_downloaded
 import nuvio.composeapp.generated.resources.compose_player_resize_fill
 import nuvio.composeapp.generated.resources.compose_player_resize_fit
+import nuvio.composeapp.generated.resources.compose_player_resize_stretch
 import nuvio.composeapp.generated.resources.compose_player_resize_zoom
 import nuvio.composeapp.generated.resources.generic_unknown
 import nuvio.composeapp.generated.resources.parental_alcohol
@@ -38,6 +42,7 @@ import nuvio.composeapp.generated.resources.parental_violence
 import nuvio.composeapp.generated.resources.compose_player_tba
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     LockPlayerToLandscape()
@@ -67,6 +72,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     val episodeStreamsRepoState by PlayerStreamsRepository.episodeStreamsState.collectAsStateWithLifecycle()
     val metaUiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
     val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+    val watchPartyUiState by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
     val addonSubtitles by SubtitleRepository.addonSubtitles.collectAsStateWithLifecycle()
     val isLoadingAddonSubtitles by SubtitleRepository.isLoading.collectAsStateWithLifecycle()
 
@@ -76,7 +82,8 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     BoxWithConstraints(
         modifier = args.modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .platformPointerNavigationGuard(),
     ) {
         val density = LocalDensity.current
         val horizontalSafePadding = playerHorizontalSafePadding()
@@ -107,6 +114,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         runtime.resizeModeFitLabel = stringResource(Res.string.compose_player_resize_fit)
         runtime.resizeModeFillLabel = stringResource(Res.string.compose_player_resize_fill)
         runtime.resizeModeZoomLabel = stringResource(Res.string.compose_player_resize_zoom)
+        runtime.resizeModeStretchLabel = stringResource(Res.string.compose_player_resize_stretch)
         runtime.downloadedLabel = stringResource(Res.string.compose_player_downloaded)
         runtime.airsPrefix = stringResource(Res.string.compose_player_airs_prefix)
         runtime.tbaLabel = stringResource(Res.string.compose_player_tba)
@@ -127,11 +135,15 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
                 args.parentMetaId,
             )?.videos ?: emptyList()
         }
-        if (runtime.lastSyncedSettingsResizeMode != playerSettingsUiState.resizeMode) {
-            runtime.resizeMode = playerSettingsUiState.resizeMode
-            runtime.lastSyncedSettingsResizeMode = playerSettingsUiState.resizeMode
+        val settingsResizeMode = playerSettingsUiState.resizeMode.supportedOnCurrentPlatform()
+        if (runtime.lastSyncedSettingsResizeMode != settingsResizeMode) {
+            runtime.resizeMode = settingsResizeMode
+            runtime.lastSyncedSettingsResizeMode = settingsResizeMode
         }
         runtime.resetIdentityStateIfNeeded()
+        // Ordered after the identity reset, which is what restores the launch resume point, and
+        // before the surface below reads the initial position for this composition.
+        runtime.applyWatchPartyStartPosition(watchPartyUiState.party)
 
         val keepScreenAwake = runtime.errorMessage == null &&
             (runtime.playbackSnapshot.isPlaying ||

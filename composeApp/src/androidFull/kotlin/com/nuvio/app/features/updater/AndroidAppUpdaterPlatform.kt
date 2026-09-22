@@ -41,7 +41,11 @@ object AndroidAppUpdaterPlatform {
 
     fun getSupportedAbis(): List<String> = Build.SUPPORTED_ABIS?.toList().orEmpty()
 
+    /** Test seam only: host tests have no Context, so they could otherwise never see a debug build. */
+    internal var debugBuildOverrideForTest: Boolean? = null
+
     fun isDebugBuild(): Boolean {
+        debugBuildOverrideForTest?.let { return it }
         val context = appContext ?: return false
         return context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     }
@@ -55,7 +59,7 @@ object AndroidAppUpdaterPlatform {
         }.apply()
     }
 
-    suspend fun downloadApk(
+    suspend fun downloadUpdateAsset(
         assetUrl: String,
         assetName: String,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
@@ -124,7 +128,7 @@ object AndroidAppUpdaterPlatform {
         context.startActivity(intent)
     }
 
-    fun installDownloadedApk(path: String): Result<Unit> = runCatching {
+    fun installDownloadedUpdate(path: String): Result<Unit> = runCatching {
         val context = requireContext()
         val apkFile = File(path)
         check(apkFile.exists()) { runBlocking { getString(Res.string.updates_downloaded_file_missing) } }

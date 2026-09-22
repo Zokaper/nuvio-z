@@ -2,7 +2,13 @@ package com.nuvio.app.features.player
 
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.watchparty.PartyContent
-import com.nuvio.app.features.watchparty.SourceFingerprint
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+
+internal typealias PlayerReleaseBeforeBack = (
+    onReleased: () -> Unit,
+    onReleaseFailed: (String) -> Unit,
+) -> Unit
+internal typealias PlayerBackRequest = (releaseBeforeBack: PlayerReleaseBeforeBack) -> Unit
 
 internal data class PlayerScreenArgs(
     val profileId: Int,
@@ -17,12 +23,14 @@ internal data class PlayerScreenArgs(
     val streamSubtitle: String?,
     val initialBingeGroup: String?,
     val pauseDescription: String?,
-    val onBack: () -> Unit,
+    val onBack: PlayerBackRequest,
+    val onSystemBackHandlerChanged: (handler: (() -> Unit)?) -> Unit = {},
     val onOpenInExternalPlayer: ((ExternalPlayerPlaybackRequest) -> Unit)?,
     val onOpenExternalUrl: ((String) -> Unit)?,
     val onFatalPlaybackError: (() -> Unit)? = null,
     val onPlaybackStarted: (() -> Unit)? = null,
-    val onStartWatchTogether: ((PartyContent, SourceFingerprint) -> Unit)? = null,
+    val onStartWatchTogether: ((PartyContent, PartySourceDescriptorV2, Long, Float) -> Unit)? = null,
+    val onPartyLobbyRequested: ((String) -> Unit)? = null,
     val modifier: Modifier,
     val logo: String?,
     val poster: String?,
@@ -62,4 +70,10 @@ internal data class PlayerScreenArgs(
      * the user is already watching.
      */
     val expectedRuntimeMinutes: Int? = null,
+    val partySourceDescriptor: PartySourceDescriptorV2? = null,
+    /**
+     * The route chose this source automatically (`PlayerLaunch.autoPickedWithFailureChain`).
+     * Gates "Prefer built-in subtitles", which must leave a hand-picked source alone.
+     */
+    val automaticSourceSelection: Boolean = false,
 )

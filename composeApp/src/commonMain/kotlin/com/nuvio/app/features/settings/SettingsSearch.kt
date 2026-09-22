@@ -1,10 +1,12 @@
 package com.nuvio.app.features.settings
 
 import nuvio.composeapp.generated.resources.compose_settings_page_subtitles
+import nuvio.composeapp.generated.resources.settings_social_description
+import nuvio.composeapp.generated.resources.settings_social_title
 import nuvio.composeapp.generated.resources.settings_subtitles_section_languages
 import nuvio.composeapp.generated.resources.settings_subtitles_section_rendering
 import nuvio.composeapp.generated.resources.settings_playback_section_source_preferences
-import nuvio.composeapp.generated.resources.settings_playback_section_audio
+import nuvio.composeapp.generated.resources.settings_playback_section_language
 import nuvio.composeapp.generated.resources.settings_playback_audio_preference
 import nuvio.composeapp.generated.resources.settings_playback_audio_preference_description
 import androidx.compose.animation.AnimatedVisibility
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -88,6 +91,9 @@ internal data class SettingsSearchEntry(
 @Composable
 internal fun settingsSearchEntries(
     pluginsEnabled: Boolean,
+    downloadsEnabled: Boolean,
+    notificationsEnabled: Boolean,
+    externalPlayerSupported: Boolean,
     supportersContributorsPageEnabled: Boolean,
     accountDeletionEnabled: Boolean,
     personalMediaAddonCopyEnabled: Boolean,
@@ -108,6 +114,7 @@ internal fun settingsSearchEntries(
     val contentDiscoveryPage = stringResource(Res.string.compose_settings_page_content_discovery)
     val downloadsPage = stringResource(Res.string.downloads_settings_title)
     val playbackPage = stringResource(Res.string.compose_settings_page_playback)
+    val socialPage = stringResource(Res.string.settings_social_title)
     val streamsPage = stringResource(Res.string.compose_settings_page_streams)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)
     val notificationsPage = stringResource(Res.string.compose_settings_page_notifications)
@@ -117,6 +124,7 @@ internal fun settingsSearchEntries(
     val detailPage = stringResource(Res.string.compose_settings_page_meta_screen)
     val continueWatchingPage = stringResource(Res.string.compose_settings_page_continue_watching)
     val posterStylePage = stringResource(Res.string.compose_settings_page_poster_customization)
+    val hoverPreviewPage = stringResource(Res.string.compose_settings_page_hover_preview)
     val addonsPage = stringResource(Res.string.compose_settings_page_addons)
     val pluginsPage = stringResource(Res.string.compose_settings_page_plugins)
     val collectionsPage = stringResource(Res.string.collections_header)
@@ -231,6 +239,16 @@ internal fun settingsSearchEntries(
         category = advancedCategory,
         icon = Icons.Rounded.Tune,
     )
+    // ⚠ Indexed unconditionally, in both states of the preference. Settings search is how
+    // somebody who turned the social layer off finds their way back to it, so hiding the entry
+    // when it is off would hide the only route back behind the very switch it controls.
+    addPage(
+        page = SettingsPage.Social,
+        key = "social",
+        title = socialPage,
+        description = stringResource(Res.string.settings_social_description),
+        icon = Icons.Rounded.People,
+    )
     addPage(
         page = SettingsPage.ContentDiscovery,
         key = "content-discovery",
@@ -238,14 +256,16 @@ internal fun settingsSearchEntries(
         description = stringResource(Res.string.compose_settings_root_content_discovery_description),
         icon = Icons.Rounded.Extension,
     )
-    add(
-        key = "downloads",
-        title = downloadsPage,
-        description = stringResource(Res.string.compose_settings_root_downloads_description),
-        category = generalCategory,
-        icon = Icons.Rounded.CloudDownload,
-        target = SettingsSearchTarget.Downloads,
-    )
+    if (downloadsEnabled) {
+        add(
+            key = "downloads",
+            title = downloadsPage,
+            description = stringResource(Res.string.compose_settings_root_downloads_description),
+            category = generalCategory,
+            icon = Icons.Rounded.CloudDownload,
+            target = SettingsSearchTarget.Downloads,
+        )
+    }
     addPage(
         page = SettingsPage.Playback,
         key = "playback",
@@ -267,13 +287,15 @@ internal fun settingsSearchEntries(
         description = stringResource(Res.string.compose_settings_root_integrations_description),
         icon = Icons.Rounded.Link,
     )
-    addPage(
-        page = SettingsPage.Notifications,
-        key = "notifications",
-        title = notificationsPage,
-        description = stringResource(Res.string.compose_settings_root_notifications_description),
-        icon = Icons.Rounded.Notifications,
-    )
+    if (notificationsEnabled) {
+        addPage(
+            page = SettingsPage.Notifications,
+            key = "notifications",
+            title = notificationsPage,
+            description = stringResource(Res.string.compose_settings_root_notifications_description),
+            icon = Icons.Rounded.Notifications,
+        )
+    }
     if (supportersContributorsPageEnabled) {
         addPage(
             page = SettingsPage.SupportersContributors,
@@ -445,12 +467,30 @@ internal fun settingsSearchEntries(
         category = advancedCategory,
         icon = Icons.Rounded.Tune,
     )
+    if (DesktopRendererSettings.isSupported) {
+        addRow(
+            page = SettingsPage.Advanced,
+            key = "desktop-opengl-renderer",
+            title = stringResource(Res.string.settings_advanced_opengl_renderer),
+            description = stringResource(Res.string.settings_advanced_opengl_renderer_description),
+            pageLabel = advancedPage,
+            section = stringResource(Res.string.settings_advanced_section_windows_graphics),
+            category = advancedCategory,
+            icon = Icons.Rounded.Tune,
+        )
+    }
     if (SentrySettingsRepository.isSupported) {
         addRow(
             page = SettingsPage.Advanced,
             key = "sentry-crash-reports",
             title = stringResource(Res.string.settings_advanced_sentry_reports),
-            description = stringResource(Res.string.settings_advanced_sentry_reports_subtitle),
+            description = stringResource(
+                if (SentrySettingsPlatform.usesDesktopCopy) {
+                    Res.string.settings_advanced_sentry_reports_subtitle_desktop
+                } else {
+                    Res.string.settings_advanced_sentry_reports_subtitle
+                },
+            ),
             pageLabel = advancedPage,
             section = stringResource(Res.string.settings_advanced_section_diagnostics),
             category = advancedCategory,
@@ -481,6 +521,15 @@ internal fun settingsSearchEntries(
         description = stringResource(Res.string.settings_appearance_poster_customization_description),
         icon = Icons.Rounded.Tune,
     )
+    if (isDesktop) {
+        addPage(
+            page = SettingsPage.HoverPreview,
+            key = "hover-preview",
+            title = hoverPreviewPage,
+            description = stringResource(Res.string.settings_appearance_hover_preview_description),
+            icon = Icons.Rounded.Style,
+        )
+    }
 
     addPage(
         page = SettingsPage.Addons,
@@ -532,7 +581,7 @@ internal fun settingsSearchEntries(
     val playbackPlayer = stringResource(Res.string.settings_playback_section_player)
     val playbackSourcePreferences =
         stringResource(Res.string.settings_playback_section_source_preferences)
-    val playbackAudio = stringResource(Res.string.settings_playback_section_audio)
+    val playbackLanguage = stringResource(Res.string.settings_playback_section_language)
     val subtitlesPage = stringResource(Res.string.compose_settings_page_subtitles)
     val subtitlesLanguages = stringResource(Res.string.settings_subtitles_section_languages)
     val subtitlesRendering = stringResource(Res.string.settings_subtitles_section_rendering)
@@ -583,96 +632,139 @@ internal fun settingsSearchEntries(
         pageLabel = playbackPage,
         section = playbackPlayer,
         icon = Icons.Rounded.PlayArrow,
-        rows = listOfNotNull(
-            PlaybackSearchRow(
-                "audio-preference",
-                stringResource(Res.string.settings_playback_audio_preference),
-                stringResource(Res.string.settings_playback_audio_preference_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "playback-mode",
-                stringResource(Res.string.settings_playback_mode),
-                stringResource(Res.string.settings_playback_mode_description),
-            ),
-            PlaybackSearchRow(
-                "playback-torrent-autopick",
-                stringResource(Res.string.settings_playback_allow_torrent_autopick),
-                stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "playback-codec-preference",
-                stringResource(Res.string.settings_playback_codec_preference),
-                stringResource(Res.string.settings_playback_codec_preference_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "playback-dynamic-range",
-                stringResource(Res.string.settings_playback_dynamic_range),
-                stringResource(Res.string.settings_playback_dynamic_range_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "playback-language-strictness",
-                stringResource(Res.string.settings_playback_language_strictness),
-                stringResource(Res.string.settings_playback_language_strictness_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "playback-quality-ceiling",
-                stringResource(Res.string.settings_playback_quality_ceiling),
-                stringResource(Res.string.settings_playback_quality_ceiling_description),
-                sectionOverride = playbackSourcePreferences,
-            ),
-            PlaybackSearchRow(
-                "loading-overlay",
-                stringResource(Res.string.settings_playback_show_loading_overlay),
-                stringResource(Res.string.settings_playback_show_loading_overlay_description),
-            ),
-            PlaybackSearchRow(
-                "external-player",
-                stringResource(Res.string.settings_playback_external_player),
-                stringResource(Res.string.settings_playback_external_player_description_android),
-            ),
-            if (isIos) PlaybackSearchRow(
-                "external-player-app",
-                stringResource(Res.string.settings_playback_external_player_app),
-            ) else null,
-            PlaybackSearchRow(
-                "hold-to-speed",
-                stringResource(Res.string.settings_playback_hold_to_speed),
-                stringResource(Res.string.settings_playback_hold_to_speed_description),
-            ),
-            PlaybackSearchRow(
-                "touch-gestures",
-                stringResource(Res.string.settings_playback_touch_gestures),
-                stringResource(Res.string.settings_playback_touch_gestures_description),
-            ),
-            PlaybackSearchRow("hold-speed", stringResource(Res.string.settings_playback_hold_speed)),
-        ),
+        rows = buildList {
+            add(
+                PlaybackSearchRow(
+                    "playback-mode",
+                    stringResource(Res.string.settings_playback_mode),
+                    stringResource(Res.string.settings_playback_mode_description),
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-prefer-embedded-subtitles",
+                    stringResource(Res.string.settings_playback_prefer_embedded_subtitles),
+                    stringResource(Res.string.settings_playback_prefer_embedded_subtitles_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-torrent-autopick",
+                    stringResource(Res.string.settings_playback_allow_torrent_autopick),
+                    stringResource(Res.string.settings_playback_allow_torrent_autopick_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-codec-preference",
+                    stringResource(Res.string.settings_playback_codec_preference),
+                    stringResource(Res.string.settings_playback_codec_preference_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-dynamic-range",
+                    stringResource(Res.string.settings_playback_dynamic_range),
+                    stringResource(Res.string.settings_playback_dynamic_range_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-language-strictness",
+                    stringResource(Res.string.settings_playback_language_strictness),
+                    stringResource(Res.string.settings_playback_language_strictness_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "playback-quality-ceiling",
+                    stringResource(Res.string.settings_playback_quality_ceiling),
+                    stringResource(Res.string.settings_playback_quality_ceiling_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "audio-preference",
+                    stringResource(Res.string.settings_playback_audio_preference),
+                    stringResource(Res.string.settings_playback_audio_preference_description),
+                    sectionOverride = playbackSourcePreferences,
+                ),
+            )
+            add(
+                PlaybackSearchRow(
+                    "loading-overlay",
+                    stringResource(Res.string.settings_playback_show_loading_overlay),
+                    stringResource(Res.string.settings_playback_show_loading_overlay_description),
+                ),
+            )
+            if (externalPlayerSupported) {
+                add(
+                    PlaybackSearchRow(
+                        "external-player",
+                        stringResource(Res.string.settings_playback_external_player),
+                        stringResource(Res.string.settings_playback_external_player_description_android),
+                    ),
+                )
+            }
+            if (externalPlayerSupported && isIos) {
+                add(
+                    PlaybackSearchRow(
+                        "external-player-app",
+                        stringResource(Res.string.settings_playback_external_player_app),
+                    ),
+                )
+            }
+            if (!isDesktop) {
+                add(
+                    PlaybackSearchRow(
+                        "hold-to-speed",
+                        stringResource(Res.string.settings_playback_hold_to_speed),
+                        stringResource(Res.string.settings_playback_hold_to_speed_description),
+                    ),
+                )
+                add(
+                    PlaybackSearchRow(
+                        "touch-gestures",
+                        stringResource(Res.string.settings_playback_touch_gestures),
+                        stringResource(Res.string.settings_playback_touch_gestures_description),
+                    ),
+                )
+                add(PlaybackSearchRow("hold-speed", stringResource(Res.string.settings_playback_hold_speed)))
+            }
+        },
     )
     addPlaybackRows(
         addRow = ::addRow,
         pageLabel = playbackPage,
-        section = playbackAudio,
+        // ⚠ The two subtitle rows used to send the user to the Subtitles page, because that
+        // is where they were. They are on Playback - Language now, beside the audio pair,
+        // and a search row that lands on the page a setting has left is worse than no row.
+        section = playbackLanguage,
         icon = Icons.Rounded.PlayArrow,
         rows = listOf(
             PlaybackSearchRow("preferred-audio", stringResource(Res.string.settings_playback_preferred_audio_language)),
             PlaybackSearchRow("secondary-audio", stringResource(Res.string.settings_playback_secondary_audio_language)),
+            PlaybackSearchRow("preferred-subtitles", stringResource(Res.string.settings_playback_preferred_subtitle_language)),
+            PlaybackSearchRow("secondary-subtitles", stringResource(Res.string.settings_playback_secondary_subtitle_language)),
+        ),
+    )
+    addPlaybackRows(
+        addRow = ::addRow,
+        pageLabel = subtitlesPage,
+        page = SettingsPage.Subtitles,
+        section = subtitlesLanguages,
+        icon = Icons.Rounded.PlayArrow,
+        rows = listOf(
             PlaybackSearchRow(
-                "preferred-subtitles",
-                stringResource(Res.string.settings_playback_preferred_subtitle_language),
-                sectionOverride = subtitlesLanguages,
-                pageOverride = SettingsPage.Subtitles,
-                pageLabelOverride = subtitlesPage,
-            ),
-            PlaybackSearchRow(
-                "secondary-subtitles",
-                stringResource(Res.string.settings_playback_secondary_subtitle_language),
-                sectionOverride = subtitlesLanguages,
-                pageOverride = SettingsPage.Subtitles,
-                pageLabelOverride = subtitlesPage,
+                "subtitle-strip-sdh",
+                stringResource(Res.string.settings_playback_subtitle_strip_sdh),
+                stringResource(Res.string.settings_playback_subtitle_strip_sdh_description),
             ),
         ),
     )
@@ -937,24 +1029,26 @@ internal fun settingsSearchEntries(
         )
     }
 
-    val notificationsAlerts = stringResource(Res.string.settings_notifications_section_alerts)
-    addRow(
-        page = SettingsPage.Notifications,
-        key = "episode-release-alerts",
-        title = stringResource(Res.string.settings_notifications_episode_release_alerts),
-        description = stringResource(Res.string.settings_notifications_episode_release_alerts_description),
-        pageLabel = notificationsPage,
-        section = notificationsAlerts,
-        icon = Icons.Rounded.Notifications,
-    )
-    addRow(
-        page = SettingsPage.Notifications,
-        key = "notification-test",
-        title = stringResource(Res.string.settings_notifications_test_title),
-        pageLabel = notificationsPage,
-        section = stringResource(Res.string.settings_notifications_section_test),
-        icon = Icons.Rounded.Notifications,
-    )
+    if (notificationsEnabled) {
+        val notificationsAlerts = stringResource(Res.string.settings_notifications_section_alerts)
+        addRow(
+            page = SettingsPage.Notifications,
+            key = "episode-release-alerts",
+            title = stringResource(Res.string.settings_notifications_episode_release_alerts),
+            description = stringResource(Res.string.settings_notifications_episode_release_alerts_description),
+            pageLabel = notificationsPage,
+            section = notificationsAlerts,
+            icon = Icons.Rounded.Notifications,
+        )
+        addRow(
+            page = SettingsPage.Notifications,
+            key = "notification-test",
+            title = stringResource(Res.string.settings_notifications_test_title),
+            pageLabel = notificationsPage,
+            section = stringResource(Res.string.settings_notifications_section_test),
+            icon = Icons.Rounded.Notifications,
+        )
+    }
 
     addRow(
         page = SettingsPage.TraktAuthentication,

@@ -20,6 +20,8 @@ object StreamParser {
         addonId: String,
         addonLogo: String? = null,
         addonManifestUrl: String? = null,
+        partyOriginId: String? = null,
+        partyOriginVersion: String? = null,
     ): List<StreamItem> {
         val root = json.parseToJsonElement(payload).jsonObject
         val streamsArray = root["streams"] as? JsonArray ?: return emptyList()
@@ -49,6 +51,9 @@ object StreamParser {
                 addonName = addonName,
                 addonId = addonId,
                 addonManifestUrl = addonManifestUrl,
+                partyOriginKind = "addon",
+                partyOriginId = partyOriginId,
+                partyOriginVersion = partyOriginVersion,
                 addonLogo = addonLogo,
                 streamType = normalizeStreamType(obj.string("type")),
                 clientResolve = clientResolve,

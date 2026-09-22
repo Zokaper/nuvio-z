@@ -1,8 +1,8 @@
 package com.nuvio.app.features.settings
 
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -68,23 +68,37 @@ import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
+import com.nuvio.app.isWindows
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.settings_advanced_discord_rich_presence
+import nuvio.composeapp.generated.resources.settings_advanced_discord_rich_presence_description
+import nuvio.composeapp.generated.resources.settings_advanced_opengl_renderer
+import nuvio.composeapp.generated.resources.settings_advanced_opengl_renderer_description
+import nuvio.composeapp.generated.resources.settings_advanced_opengl_renderer_external_description
+import nuvio.composeapp.generated.resources.settings_advanced_section_discord
+import nuvio.composeapp.generated.resources.settings_advanced_section_windows_graphics
+import nuvio.composeapp.generated.resources.settings_advanced_sentry_reports_subtitle_desktop
 import nuvio.composeapp.generated.resources.sentry_disable_dialog_subtitle
+import nuvio.composeapp.generated.resources.sentry_disable_dialog_subtitle_desktop
 import nuvio.composeapp.generated.resources.sentry_disable_dialog_title
 import nuvio.composeapp.generated.resources.sentry_enable_dialog_subtitle
+import nuvio.composeapp.generated.resources.sentry_enable_dialog_subtitle_desktop
 import nuvio.composeapp.generated.resources.sentry_enable_dialog_title
 import nuvio.composeapp.generated.resources.sentry_help_body
+import nuvio.composeapp.generated.resources.sentry_help_body_desktop
 import nuvio.composeapp.generated.resources.sentry_help_title
 import nuvio.composeapp.generated.resources.sentry_keep_enabled
 import nuvio.composeapp.generated.resources.sentry_not_sent_body
 import nuvio.composeapp.generated.resources.sentry_not_sent_title
 import nuvio.composeapp.generated.resources.sentry_sent_body
+import nuvio.composeapp.generated.resources.sentry_sent_body_desktop
 import nuvio.composeapp.generated.resources.sentry_sent_title
 import nuvio.composeapp.generated.resources.sentry_turn_off
 import nuvio.composeapp.generated.resources.sentry_turn_on
@@ -120,6 +134,37 @@ internal fun LazyListScope.advancedSettingsContent(
             }
         }
     }
+    if (DesktopRendererSettings.isSupported) {
+        item {
+            val externallyControlled = remember { DesktopRendererSettings.isExternallyControlled }
+            var useOpenGl by remember { mutableStateOf(DesktopRendererSettings.useOpenGl) }
+
+            SettingsSection(
+                title = stringResource(Res.string.settings_advanced_section_windows_graphics),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_advanced_opengl_renderer),
+                        description = stringResource(
+                            if (externallyControlled) {
+                                Res.string.settings_advanced_opengl_renderer_external_description
+                            } else {
+                                Res.string.settings_advanced_opengl_renderer_description
+                            },
+                        ),
+                        checked = useOpenGl,
+                        enabled = !externallyControlled,
+                        isTablet = isTablet,
+                        onCheckedChange = { enabled ->
+                            DesktopRendererSettings.setUseOpenGl(enabled)
+                            useOpenGl = enabled
+                        },
+                    )
+                }
+            }
+        }
+    }
     // The self-test row shares the Diagnostics heading rather than raising a second one, so the
     // section has to survive Sentry being unsupported on a platform - otherwise the button
     // disappears with it.
@@ -145,7 +190,13 @@ internal fun LazyListScope.advancedSettingsContent(
                     if (SentrySettingsRepository.isSupported) {
                         SettingsSwitchRow(
                             title = stringResource(Res.string.settings_advanced_sentry_reports),
-                            description = stringResource(Res.string.settings_advanced_sentry_reports_subtitle),
+                            description = stringResource(
+                                if (SentrySettingsPlatform.usesDesktopCopy) {
+                                    Res.string.settings_advanced_sentry_reports_subtitle_desktop
+                                } else {
+                                    Res.string.settings_advanced_sentry_reports_subtitle
+                                },
+                            ),
                             checked = sentryEnabled,
                             isTablet = isTablet,
                             onCheckedChange = { showSentryDialog = true },
@@ -178,6 +229,30 @@ internal fun LazyListScope.advancedSettingsContent(
                         showSentryDialog = false
                     },
                 )
+            }
+        }
+    }
+    if (DiscordRichPresenceRepository.isSupported) {
+        item {
+            val discordEnabledFlow = remember {
+                DiscordRichPresenceRepository.ensureLoaded()
+                DiscordRichPresenceRepository.enabled
+            }
+            val discordEnabled by discordEnabledFlow.collectAsStateWithLifecycle()
+
+            SettingsSection(
+                title = stringResource(Res.string.settings_advanced_section_discord),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_advanced_discord_rich_presence),
+                        description = stringResource(Res.string.settings_advanced_discord_rich_presence_description),
+                        checked = discordEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = DiscordRichPresenceRepository::setEnabled,
+                    )
+                }
             }
         }
     }
@@ -250,10 +325,15 @@ private fun SentrySettingsDialog(
                 Spacer(modifier = Modifier.height(tokens.spacing.controlGap))
                 Text(
                     text = stringResource(
-                        if (enabled) {
-                            Res.string.sentry_disable_dialog_subtitle
-                        } else {
-                            Res.string.sentry_enable_dialog_subtitle
+                        when {
+                            enabled && SentrySettingsPlatform.usesDesktopCopy -> {
+                                Res.string.sentry_disable_dialog_subtitle_desktop
+                            }
+                            enabled -> Res.string.sentry_disable_dialog_subtitle
+                            SentrySettingsPlatform.usesDesktopCopy -> {
+                                Res.string.sentry_enable_dialog_subtitle_desktop
+                            }
+                            else -> Res.string.sentry_enable_dialog_subtitle
                         },
                     ),
                     style = MaterialTheme.typography.bodyLarge,
@@ -265,11 +345,23 @@ private fun SentrySettingsDialog(
                 ) {
                     SentryInfoSection(
                         title = stringResource(Res.string.sentry_help_title),
-                        body = stringResource(Res.string.sentry_help_body),
+                        body = stringResource(
+                            if (SentrySettingsPlatform.usesDesktopCopy) {
+                                Res.string.sentry_help_body_desktop
+                            } else {
+                                Res.string.sentry_help_body
+                            },
+                        ),
                     )
                     SentryInfoSection(
                         title = stringResource(Res.string.sentry_sent_title),
-                        body = stringResource(Res.string.sentry_sent_body),
+                        body = stringResource(
+                            if (SentrySettingsPlatform.usesDesktopCopy) {
+                                Res.string.sentry_sent_body_desktop
+                            } else {
+                                Res.string.sentry_sent_body
+                            },
+                        ),
                     )
                     SentryInfoSection(
                         title = stringResource(Res.string.sentry_not_sent_title),
@@ -549,6 +641,23 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
             }
         }
 
+        if (isWindows) {
+            SettingsSection(
+                title = stringResource(Res.string.settings_playback_nvidia_rtx_video_section),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_nvidia_rtx_super_resolution),
+                        description = stringResource(Res.string.settings_playback_nvidia_rtx_super_resolution_desc),
+                        checked = autoPlayPlayerSettings.nvidiaRtxSuperResolutionEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setNvidiaRtxSuperResolutionEnabled,
+                    )
+                }
+            }
+        }
+
         if (P2pSettingsRepository.isVisible) {
             SettingsSection(
                 title = stringResource(Res.string.settings_playback_section_p2p),
@@ -576,56 +685,58 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                         isTablet = isTablet,
                         onCheckedChange = P2pSettingsRepository::setHideTorrentStats,
                     )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_p2p_profile_title),
-                        description = p2pProfileLabel(p2pSettings.torrentProfile),
-                        isTablet = isTablet,
-                        onClick = { showP2pProfileDialog = true },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_p2p_cache_size_title),
-                        description = p2pCacheSizeLabel(p2pSettings.cacheSize),
-                        isTablet = isTablet,
-                        onClick = { showP2pCacheSizeDialog = true },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    val cacheClearAvailable = p2pStreamingState !is P2pStreamingState.Connecting &&
-                        p2pStreamingState !is P2pStreamingState.Streaming &&
-                        !p2pCacheState.isClearing
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_p2p_clear_cache_title),
-                        description = when {
-                            p2pCacheState.isClearing ->
-                                stringResource(Res.string.settings_p2p_clear_cache_clearing)
-                            !cacheClearAvailable ->
-                                stringResource(Res.string.settings_p2p_clear_cache_playback_active)
-                            p2pCacheClearFailed ->
-                                stringResource(Res.string.settings_p2p_clear_cache_failed)
-                            p2pCacheClearResult != null -> stringResource(
-                                Res.string.settings_p2p_clear_cache_done,
-                                formatP2pCacheBytes(p2pCacheClearResult!!.reclaimedBytes),
-                            )
-                            !p2pCacheState.hasMeasurement ->
-                                stringResource(Res.string.settings_p2p_clear_cache_usage_pending)
-                            else -> stringResource(
-                                Res.string.settings_p2p_clear_cache_usage,
-                                formatP2pCacheBytes(p2pCacheState.usedBytes),
-                            )
-                        },
-                        enabled = cacheClearAvailable,
-                        isTablet = isTablet,
-                        onClick = {
-                            p2pCacheClearResult = null
-                            p2pCacheClearFailed = false
-                            coroutineScope.launch {
-                                runCatching { P2pStreamingEngine.clearCache() }
-                                    .onSuccess { p2pCacheClearResult = it }
-                                    .onFailure { p2pCacheClearFailed = true }
-                            }
-                        },
-                    )
+                    if (!isDesktop) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_p2p_profile_title),
+                            description = p2pProfileLabel(p2pSettings.torrentProfile),
+                            isTablet = isTablet,
+                            onClick = { showP2pProfileDialog = true },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_p2p_cache_size_title),
+                            description = p2pCacheSizeLabel(p2pSettings.cacheSize),
+                            isTablet = isTablet,
+                            onClick = { showP2pCacheSizeDialog = true },
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        val cacheClearAvailable = p2pStreamingState !is P2pStreamingState.Connecting &&
+                            p2pStreamingState !is P2pStreamingState.Streaming &&
+                            !p2pCacheState.isClearing
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_p2p_clear_cache_title),
+                            description = when {
+                                p2pCacheState.isClearing ->
+                                    stringResource(Res.string.settings_p2p_clear_cache_clearing)
+                                !cacheClearAvailable ->
+                                    stringResource(Res.string.settings_p2p_clear_cache_playback_active)
+                                p2pCacheClearFailed ->
+                                    stringResource(Res.string.settings_p2p_clear_cache_failed)
+                                p2pCacheClearResult != null -> stringResource(
+                                    Res.string.settings_p2p_clear_cache_done,
+                                    formatP2pCacheBytes(p2pCacheClearResult!!.reclaimedBytes),
+                                )
+                                !p2pCacheState.hasMeasurement ->
+                                    stringResource(Res.string.settings_p2p_clear_cache_usage_pending)
+                                else -> stringResource(
+                                    Res.string.settings_p2p_clear_cache_usage,
+                                    formatP2pCacheBytes(p2pCacheState.usedBytes),
+                                )
+                            },
+                            enabled = cacheClearAvailable,
+                            isTablet = isTablet,
+                            onClick = {
+                                p2pCacheClearResult = null
+                                p2pCacheClearFailed = false
+                                coroutineScope.launch {
+                                    runCatching { P2pStreamingEngine.clearCache() }
+                                        .onSuccess { p2pCacheClearResult = it }
+                                        .onFailure { p2pCacheClearFailed = true }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -773,7 +884,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
 
     }
 
-    if (showP2pProfileDialog) {
+    if (showP2pProfileDialog && !isDesktop) {
         IosEnumSelectionDialog(
             title = stringResource(Res.string.settings_p2p_profile_title),
             options = P2pTorrentProfile.entries,
@@ -797,7 +908,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
         )
     }
 
-    if (showP2pCacheSizeDialog) {
+    if (showP2pCacheSizeDialog && !isDesktop) {
         IosEnumSelectionDialog(
             title = stringResource(Res.string.settings_p2p_cache_size_title),
             options = P2pCacheSize.entries,

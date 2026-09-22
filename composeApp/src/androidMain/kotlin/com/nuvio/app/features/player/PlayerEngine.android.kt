@@ -46,6 +46,11 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.app.core.debug.ThrottledDataSourceFactory
 import com.nuvio.app.core.debug.isDebugBuild
+import com.nuvio.app.features.playback.VideoPresentationVerdict
+import com.nuvio.app.features.playback.VideoTrackCensus
+import com.nuvio.app.features.playback.classifyVideoPresentation
+import com.nuvio.app.features.playback.isFatalVideoPresentation
+import com.nuvio.app.features.playback.videoPresentationLogCode
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
@@ -53,6 +58,8 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -98,6 +105,32 @@ private class PlaybackDiagnostics {
     var attempt: Int = 0
 }
 
+/**
+ * What is known so far about whether this source can put a picture on the screen.
+ *
+ * A mutable holder rather than Compose state, and remembered on the player rather than on the
+ * source, because the listener that writes it is installed in a `DisposableEffect(exoPlayer)`
+ * that outlives a source change - a `remember(playerSourceKey)` read from inside it would be
+ * captured once and then be the *previous* source's box for the rest of the player's life.
+ * [reset] is called where the source genuinely changes: at prepare.
+ */
+private class VideoPresentationDiagnostics {
+    /** A `Tracks` callback has arrived, so an absent video group means absent rather than pending. */
+    var tracksSettled: Boolean = false
+    var renderedFirstFrame: Boolean = false
+    /** The last verdict logged, so a settled state costs one line and not one per callback. */
+    var reportedVerdict: VideoPresentationVerdict? = null
+    /** A fatal verdict is acted on once; the chain advances from the first report, not every one. */
+    var fatalReported: Boolean = false
+
+    fun reset() {
+        tracksSettled = false
+        renderedFirstFrame = false
+        reportedVerdict = null
+        fatalReported = false
+    }
+}
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 actual fun PlatformPlayerSurface(
@@ -114,10 +147,18 @@ actual fun PlatformPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
+    // Desktop's native HTML controls page drives playback through these; media3 draws its
+    // own controls, so Android accepts them to satisfy the shared contract and uses none.
+    playerControlsState: PlayerControlsState,
+    onPlayerControlsAction: (PlayerControlsAction) -> Boolean,
+    onPlayerControlsEvent: (String, Double) -> Boolean,
+    onPlayerControlsScrubChange: (Long) -> Boolean,
+    onPlayerControlsScrubFinished: (Long) -> Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    sourceAvailable: Boolean,
 ) {
     val playerSettings = remember {
         PlayerSettingsRepository.ensureLoaded()
@@ -135,6 +176,14 @@ actual fun PlatformPlayerSurface(
     var activeEngine by remember(playerSourceKey, playerSettings.androidPlaybackEngine) {
         mutableStateOf(playerSettings.androidPlaybackEngine.initialAndroidEngine())
     }
+    val latestOnPlayerControlsEvent = rememberUpdatedState(onPlayerControlsEvent)
+    val latestOnPlayerControlsScrubFinished = rememberUpdatedState(onPlayerControlsScrubFinished)
+    val externalTransport = remember {
+        PlayerExternalTransport(
+            onEvent = { type, value -> latestOnPlayerControlsEvent.value(type, value) },
+            onSeek = { positionMs -> latestOnPlayerControlsScrubFinished.value(positionMs) },
+        )
+    }
 
     when (activeEngine) {
         ResolvedAndroidPlaybackEngine.ExoPlayer -> ExoPlayerSurface(
@@ -151,6 +200,7 @@ actual fun PlatformPlayerSurface(
             initialPositionRequestKey = initialPositionRequestKey,
             resizeMode = resizeMode,
             useNativeController = useNativeController,
+            externalTransport = externalTransport,
             onInitialPositionHandled = onInitialPositionHandled,
             onControllerReady = onControllerReady,
             onSnapshot = onSnapshot,
@@ -184,6 +234,7 @@ actual fun PlatformPlayerSurface(
                 videoOutput = playerSettings.androidLibmpvVideoOutput,
                 hardwareDecodingEnabled = playerSettings.androidLibmpvHardwareDecodingEnabled,
                 yuv420pEnabled = playerSettings.androidLibmpvYuv420pEnabled,
+                externalTransport = externalTransport,
                 onControllerReady = onControllerReady,
                 onSnapshot = onSnapshot,
                 onError = onError,
@@ -220,6 +271,7 @@ private fun ExoPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
+    externalTransport: PlayerExternalTransport,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
@@ -275,7 +327,7 @@ private fun ExoPlayerSurface(
 
     val initialMediaItem = remember(playerSourceKey, externalSubtitles) {
         val subtitleConfigs = externalSubtitles.mapNotNull { subtitle ->
-            val mimeType = resolveSubtitleMimeType(subtitle.url, subtitle.headers)
+            val mimeType = resolveSubtitleMimeTypeBlocking(subtitle.url, subtitle.headers)
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
                 .setMimeType(mimeType)
                 .setLanguage(subtitle.language)
@@ -447,14 +499,14 @@ private fun ExoPlayerSurface(
             context = context,
             controls = AndroidPlayerNowPlayingController.PlaybackControls(
                 play = {
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
+                    externalTransport.play {
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    }
                 },
-                pause = exoPlayer::pause,
-                seekTo = { positionMs -> exoPlayer.seekTo(positionMs.coerceAtLeast(0L)) },
-                seekBy = { offsetMs ->
-                    exoPlayer.seekTo((exoPlayer.currentPosition + offsetMs).coerceAtLeast(0L))
-                },
+                pause = { externalTransport.pause(exoPlayer::pause) },
+                seekTo = { positionMs -> externalTransport.seekTo(positionMs) },
+                seekBy = { offsetMs -> externalTransport.seekTo(exoPlayer.currentPosition + offsetMs) },
             ),
         )
     }
@@ -469,12 +521,15 @@ private fun ExoPlayerSurface(
         onDispose { nowPlayingController.release() }
     }
 
+    val videoPresentation = remember(exoPlayer) { VideoPresentationDiagnostics() }
+
     LaunchedEffect(exoPlayer, resolvedMediaItem, initialPositionRequestKey) {
         val mediaItem = resolvedMediaItem ?: return@LaunchedEffect
         val requestedStartPositionMs = fallbackStartPositionMs
             ?: initialPositionMs?.takeIf { it > 0L }
         playbackDiagnostics.attempt += 1
         playbackDiagnostics.prepareStartedAtMs = SystemClock.elapsedRealtime()
+        videoPresentation.reset()
         Log.i(
             PLAYER_DIAGNOSTIC_TAG,
             "prepare begin attempt=${playbackDiagnostics.attempt} " +
@@ -525,12 +580,14 @@ private fun ExoPlayerSurface(
         }
         PlayerPictureInPictureManager.registerTogglePlaybackCallback {
             if (exoPlayer.isPlaying) {
-                exoPlayer.pause()
+                externalTransport.pause(exoPlayer::pause)
             } else {
-                if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
-                    exoPlayer.seekTo(0L)
+                externalTransport.play {
+                    if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                        exoPlayer.seekTo(0L)
+                    }
+                    exoPlayer.play()
                 }
-                exoPlayer.play()
             }
         }
 
@@ -551,6 +608,60 @@ private fun ExoPlayerSurface(
                 return
             }
             latestOnError.value(error.localizedMessage ?: runBlocking { getString(Res.string.player_unable_to_play_stream) })
+        }
+
+        /**
+         * Classifies a black picture from **track evidence**, and acts on exactly one verdict.
+         *
+         * ⚠ **`STATE_READY` with no first frame is not a diagnosis, and must never be used as
+         * one.** It is equally true of an undecodable profile, a selector that chose nothing, a
+         * surface that is not attached, and a healthy remux a keyframe away from its first
+         * picture. `classifyVideoPresentation` separates those four from the census rather than
+         * from a clock, and only `NoSupportedVideoTrack` - every video track asked, every renderer
+         * said no - ends the source. The other two failures are this app's, and failing over would
+         * hide a bug behind a retry that cannot fix it.
+         */
+        fun evaluateVideoPresentation(at: String) {
+            val census = exoPlayer.videoTrackCensus()
+            val verdict = classifyVideoPresentation(
+                census = census,
+                tracksSettled = videoPresentation.tracksSettled,
+                hasRenderedFirstFrame = videoPresentation.renderedFirstFrame,
+            )
+            if (verdict != videoPresentation.reportedVerdict) {
+                videoPresentation.reportedVerdict = verdict
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoPresentation=${videoPresentationLogCode(verdict)} at=$at " +
+                        "attempt=${playbackDiagnostics.attempt} " +
+                        "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
+                        "groups=${census.groupCount} tracks=${census.trackCount} " +
+                        "supported=${census.supportedTrackCount} " +
+                        "selected=${census.selectedTrackCount} " +
+                        "selectedSupported=${census.selectedSupportedTrackCount} " +
+                        "playbackState=${exoPlayer.playbackState} " +
+                        "videoSize=${exoPlayer.videoSize.width}x${exoPlayer.videoSize.height}",
+                )
+                // The census names the counts; this names the tracks, so the codec question is
+                // answered by the same log line that raised it.
+                if (
+                    verdict == VideoPresentationVerdict.NoSupportedVideoTrack ||
+                    verdict == VideoPresentationVerdict.NoSelectedVideoTrack
+                ) {
+                    exoPlayer.logCurrentTracks("videoPresentation:${videoPresentationLogCode(verdict)}")
+                }
+            }
+            if (isFatalVideoPresentation(verdict) && !videoPresentation.fatalReported) {
+                videoPresentation.fatalReported = true
+                Log.e(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoPresentation fatal: ${census.trackCount} video track(s) in " +
+                        "${census.groupCount} group(s), none decodable by this device",
+                )
+                latestOnError.value(
+                    runBlocking { getString(Res.string.player_no_supported_video_track) },
+                )
+            }
         }
 
         val listener = object : Player.Listener {
@@ -587,7 +698,7 @@ private fun ExoPlayerSurface(
                                 .setMediaId(sourceUrl)
                                 .apply {
                                     val subtitleConfigs = externalSubtitles.mapNotNull { subtitle ->
-                                        val mimeType = resolveSubtitleMimeType(subtitle.url, subtitle.headers)
+                                        val mimeType = resolveSubtitleMimeTypeBlocking(subtitle.url, subtitle.headers)
                                         MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
                                             .setMimeType(mimeType)
                                             .setLanguage(subtitle.language)
@@ -634,6 +745,7 @@ private fun ExoPlayerSurface(
                     fallbackStartPositionMs = null
                     latestOnError.value(null)
                     exoPlayer.logCurrentTracks("STATE_READY")
+                    evaluateVideoPresentation("STATE_READY")
                 }
                 syncPlayerViewKeepScreenOn()
                 dispatchExoPlayerSnapshot()
@@ -657,13 +769,37 @@ private fun ExoPlayerSurface(
                         "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
                         "positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)}",
                 )
+                videoPresentation.renderedFirstFrame = true
+                evaluateVideoPresentation("firstFrame")
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                // Watch Together drives the rate to close drift, and a rate change is one of the two
+                // candidates for the picture freezing under running audio after a party resync
+                // (2026-09-18 S25 run). Logged so a trace can say which.
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "speed=${playbackParameters.speed} positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)} " +
+                        "isPlaying=${exoPlayer.isPlaying}",
+                )
                 dispatchExoPlayerSnapshot()
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
+                // Dimensions arrive from the *decoder*, so a non-zero size here proves the video
+                // pipeline got as far as producing an output format - which, paired with a
+                // `firstFrame` line that never comes, is what separates a presentation failure
+                // from a decode failure. It reported nothing at all during the twenty-seven
+                // minutes of audio-only playback it was most needed for.
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "videoSize=${videoSize.width}x${videoSize.height} " +
+                        "pixelRatio=${videoSize.pixelWidthHeightRatio} " +
+                        "rotationDegrees=${videoSize.unappliedRotationDegrees} " +
+                        "attempt=${playbackDiagnostics.attempt} " +
+                        "elapsedMs=${diagnosticElapsedSince(playbackDiagnostics.prepareStartedAtMs)} " +
+                        "firstFrame=${videoPresentation.renderedFirstFrame}",
+                )
                 latestOnSnapshot.value(exoPlayer.snapshot())
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     videoAspectRatio = videoSize.width.toFloat() / videoSize.height.toFloat()
@@ -673,6 +809,10 @@ private fun ExoPlayerSurface(
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 Log.d(TAG, "onTracksChanged: ${tracks.groups.size} groups total")
                 exoPlayer.logCurrentTracks("onTracksChanged")
+                // The demuxer has answered, so an absent video group now means absent rather than
+                // pending - which is the whole difference between `Unknown` and a verdict.
+                videoPresentation.tracksSettled = true
+                evaluateVideoPresentation("onTracksChanged")
                 pendingAudioTrackSelection.firstOrNull()?.let { selection ->
                     if (tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }) {
                         pendingAudioTrackSelection.clear()
@@ -696,7 +836,25 @@ private fun ExoPlayerSurface(
 
         }
         exoPlayer.addListener(listener)
+        // A frozen picture over running audio is the video renderer dropping late frames to catch
+        // the audio clock - which is exactly what this reports. Batched by ExoPlayer, so it costs a
+        // line per burst, not per frame.
+        val droppedFramesListener = object : AnalyticsListener {
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                Log.i(
+                    PLAYER_DIAGNOSTIC_TAG,
+                    "droppedFrames=$droppedFrames overMs=$elapsedMs " +
+                        "positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)} speed=${exoPlayer.playbackParameters.speed}",
+                )
+            }
+        }
+        exoPlayer.addAnalyticsListener(droppedFramesListener)
         onDispose {
+            exoPlayer.removeAnalyticsListener(droppedFramesListener)
             PlayerPictureInPictureManager.registerPausePlaybackCallback(null)
             PlayerPictureInPictureManager.registerTogglePlaybackCallback(null)
             exoPlayer.removeListener(listener)
@@ -753,6 +911,18 @@ private fun ExoPlayerSurface(
                     exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
                 }
 
+                override fun samplePositionMs(): Long = exoPlayer.currentPosition.coerceAtLeast(0L)
+
+                override fun seekToExact(positionMs: Long) {
+                    withTemporaryExactSeek(
+                        current = exoPlayer.seekParameters,
+                        exact = SeekParameters.EXACT,
+                        setParameters = exoPlayer::setSeekParameters,
+                    ) {
+                        exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
+                    }
+                }
+
                 override fun seekBy(offsetMs: Long) {
                     exoPlayer.seekTo((exoPlayer.currentPosition + offsetMs).coerceAtLeast(0L))
                 }
@@ -788,6 +958,14 @@ private fun ExoPlayerSurface(
 
                 override fun selectAudioTrack(index: Int) {
                     exoPlayer.selectTrackByIndex(C.TRACK_TYPE_AUDIO, index)
+                }
+
+                override fun applyAudioLanguagePreferences(languages: List<String>) {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .setPreferredAudioLanguages(*languages.toTypedArray())
+                        .build()
                 }
 
                 override fun selectSubtitleTrack(index: Int) {
@@ -916,7 +1094,7 @@ private fun ExoPlayerSurface(
                     Log.d(TAG, "clearExternalSubtitleAndSelect: done, pending=$trackIndex position=$currentPosition")
                 }
 
-                override fun applySubtitleStyle(style: SubtitleStyleState) {
+                override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                     currentSubtitleStyle = style
                     playerViewRef?.applySubtitleStyle(style, pipSubtitleScale)
                 }
@@ -1001,6 +1179,7 @@ private fun LibmpvPlayerSurface(
     videoOutput: AndroidLibmpvVideoOutput,
     hardwareDecodingEnabled: Boolean,
     yuv420pEnabled: Boolean,
+    externalTransport: PlayerExternalTransport,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
@@ -1022,10 +1201,14 @@ private fun LibmpvPlayerSurface(
             AndroidPlayerNowPlayingController(
                 context = context,
                 controls = AndroidPlayerNowPlayingController.PlaybackControls(
-                    play = { view.setPaused(false) },
-                    pause = { view.setPaused(true) },
-                    seekTo = { positionMs -> view.seekToMs(positionMs) },
-                    seekBy = { offsetMs -> view.seekByMs(offsetMs) },
+                    play = { externalTransport.play { view.setPaused(false) } },
+                    pause = { externalTransport.pause { view.setPaused(true) } },
+                    seekTo = { positionMs -> externalTransport.seekTo(positionMs) },
+                    seekBy = { offsetMs ->
+                        coroutineScope.launch {
+                            externalTransport.seekTo(view.snapshot().positionMs + offsetMs)
+                        }
+                    },
                 ),
             )
         }
@@ -1179,12 +1362,14 @@ private fun LibmpvPlayerSurface(
             coroutineScope.launch {
                 val snapshot = view.snapshot()
                 if (snapshot.isPlaying) {
-                    view.setPaused(true)
+                    externalTransport.pause { view.setPaused(true) }
                 } else {
-                    if (snapshot.isEnded) {
-                        view.seekToMs(0L)
+                    externalTransport.play {
+                        if (snapshot.isEnded) {
+                            view.seekToMs(0L)
+                        }
+                        view.setPaused(false)
                     }
-                    view.setPaused(false)
                 }
             }
         }
@@ -1398,8 +1583,31 @@ private class NuvioLibmpvView(
 
     fun seekToMs(positionMs: Long) {
         executeMpv {
-            mpv.command("seek", (positionMs.coerceAtLeast(0L) / 1000.0).toString(), "absolute")
+            mpv.command(*mpvAbsoluteSeekArguments(positionMs, exact = false))
         }
+    }
+
+    fun seekToExactMs(positionMs: Long) {
+        executeMpv {
+            mpv.command(*mpvAbsoluteSeekArguments(positionMs, exact = true))
+        }
+    }
+
+    fun samplePositionMs(): Long? {
+        if (released.get()) return null
+        return runCatching {
+            runBlocking {
+                withContext(mpvDispatcher) {
+                    if (released.get()) {
+                        null
+                    } else {
+                        mpv.getPropertyDouble("time-pos")
+                            ?.takeIf { it.isFinite() && it >= 0.0 }
+                            ?.let { (it * 1000.0).toLong() }
+                    }
+                }
+            }
+        }.getOrNull()
     }
 
     suspend fun snapshot(): PlayerPlaybackSnapshot {
@@ -1428,6 +1636,14 @@ private class NuvioLibmpvView(
         val isCacheBuffering = cacheBufferingState != null && cacheBufferingState in 0 until 100
         val isLoading = pausedForCache ||
             (!paused && !ended && (seeking || isCacheBuffering || (idle && durationMs <= 0L)))
+        val engineReadiness = mpvEngineReadiness(
+            pausedForCache = pausedForCache,
+            cacheBuffering = isCacheBuffering,
+            paused = paused,
+            seeking = seeking,
+            idle = idle,
+            durationMs = durationMs,
+        )
         val videoWidth = mpv.getPropertyInt("video-out-params/dw")
             ?: mpv.getPropertyInt("video-params/dw")
             ?: 0
@@ -1445,13 +1661,16 @@ private class NuvioLibmpvView(
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             engineName = "libmpv",
+            engineReadiness = engineReadiness,
         )
     }
 
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
         executeMpv {
             when (resizeMode) {
-                PlayerResizeMode.Fit -> {
+                // Stretch is not implemented on libmpv either; it behaves as Fit.
+                PlayerResizeMode.Fit,
+                PlayerResizeMode.Stretch -> {
                     mpv.setPropertyDouble("panscan", 0.0)
                     mpv.setPropertyString("video-aspect-override", "no")
                 }
@@ -1483,6 +1702,10 @@ private class NuvioLibmpvView(
             override fun pause() = setPaused(true)
 
             override fun seekTo(positionMs: Long) = this@NuvioLibmpvView.seekToMs(positionMs)
+
+            override fun samplePositionMs(): Long? = this@NuvioLibmpvView.samplePositionMs()
+
+            override fun seekToExact(positionMs: Long) = this@NuvioLibmpvView.seekToExactMs(positionMs)
 
             override fun seekBy(offsetMs: Long) = this@NuvioLibmpvView.seekByMs(offsetMs)
 
@@ -1541,6 +1764,16 @@ private class NuvioLibmpvView(
                 }
             }
 
+            override fun applyAudioLanguagePreferences(languages: List<String>) {
+                executeMpv {
+                    mpv.setPropertyString("alang", languages.joinToString(","))
+                    mpv.getPropertyString("aid")?.takeIf { it.toIntOrNull() != null }?.let { currentId ->
+                        mpv.setPropertyString("aid", currentId)
+                    }
+                    mpv.setPropertyString("aid", "auto")
+                }
+            }
+
             override fun selectSubtitleTrack(index: Int) {
                 if (index < 0) {
                     executeMpv { mpv.setPropertyString("sid", "no") }
@@ -1595,7 +1828,7 @@ private class NuvioLibmpvView(
                 }
             }
 
-            override fun applySubtitleStyle(style: SubtitleStyleState) {
+            override fun applySubtitleStyle(style: SubtitleStyleState, useLibass: Boolean) {
                 executeMpv {
                     mpv.setPropertyString("sub-ass-override", "no")
                     mpv.setPropertyString("sub-color", style.textColor.toMpvColor())
@@ -1711,6 +1944,26 @@ private fun Int.logIfMpvError(option: String) {
 private fun Double?.toMillis(): Long =
     this?.takeIf { it.isFinite() && it > 0.0 }?.let { (it * 1000.0).toLong() } ?: 0L
 
+internal inline fun <T> withTemporaryExactSeek(
+    current: T,
+    exact: T,
+    setParameters: (T) -> Unit,
+    seek: () -> Unit,
+) {
+    setParameters(exact)
+    try {
+        seek()
+    } finally {
+        setParameters(current)
+    }
+}
+
+internal fun mpvAbsoluteSeekArguments(positionMs: Long, exact: Boolean): Array<String> = arrayOf(
+    "seek",
+    (positionMs.coerceAtLeast(0L) / 1000.0).toString(),
+    if (exact) "absolute+exact" else "absolute",
+)
+
 private fun MPVNode.nodeString(key: String): String? =
     runCatching { this[key]?.asString() }.getOrNull()?.takeIf { it.isNotBlank() }
 
@@ -1768,7 +2021,64 @@ private fun ExoPlayer.snapshot(): PlayerPlaybackSnapshot {
         videoWidth = videoWidth,
         videoHeight = videoHeight,
         engineName = "ExoPlayer",
+        engineReadiness = engineReadiness(),
     )
+}
+
+/**
+ * ExoPlayer's own verdict about whether it can present media now.
+ *
+ * `STATE_BUFFERING` is not conditioned on `playWhenReady`: a player told to pause while holding
+ * media sits in `STATE_READY`, so a buffering state means the engine has genuinely run dry even when
+ * the party has this member paused - which is exactly the case a buffered-ahead heuristic cannot
+ * see. The engine leaves that state on its own rebuffer condition, which the load control above sets
+ * to five seconds, so nothing in this app should be guessing at the instant it will resume.
+ *
+ * `STATE_IDLE` is no source at all rather than an empty one, and `STATE_ENDED` is not waiting for
+ * anything, so neither is starvation.
+ */
+/**
+ * libmpv's own cache verdict, which is what decides when it will resume - not a buffer constant
+ * chosen here.
+ *
+ * `paused-for-cache` is the engine saying it stopped because the cache ran dry, and it is reported
+ * independently of the `pause` flag, so a member the party has paused still tells the truth about its
+ * cache. `cache-buffering-state` is the percentage of cache fill until playback may run, and it is
+ * read whatever the pause flag says.
+ *
+ * ⚠ **That last part used to carry `&& !paused`, on the theory that a deliberate pause could
+ * leave a stale percentage standing.** Measured against the shipped libmpv on 2026-09-20 and it does
+ * not: the property reads 100 whenever mpv is not buffering - playing and paused alike - and during a
+ * refill *while the player was held paused from outside* it climbed 0 → 96 → 100 live, which is
+ * exactly the case the guard was invented for. Keeping the guard cost the readiness barrier its whole
+ * answer: a member seeked into an unbuffered region while the party holds it paused reported `Ready`
+ * with an empty cache, which is the one thing the barrier exists to not do.
+ *
+ * A seek in flight is a transition rather than an answer, and the caller's fallback reads it better
+ * than either verdict would.
+ */
+internal fun mpvEngineReadiness(
+    pausedForCache: Boolean,
+    cacheBuffering: Boolean,
+    paused: Boolean,
+    seeking: Boolean,
+    idle: Boolean,
+    durationMs: Long,
+): PlayerEngineReadiness = when {
+    durationMs <= 0L && idle -> PlayerEngineReadiness.NoSource
+    pausedForCache -> PlayerEngineReadiness.Buffering
+    cacheBuffering -> PlayerEngineReadiness.Buffering
+    seeking -> PlayerEngineReadiness.Unknown
+    else -> PlayerEngineReadiness.Ready
+}
+
+private fun ExoPlayer.engineReadiness(): PlayerEngineReadiness = exoPlayerEngineReadiness(playbackState)
+
+/** [engineReadiness] as a function of the state alone, so the mapping can be tested without an engine. */
+internal fun exoPlayerEngineReadiness(playbackState: Int): PlayerEngineReadiness = when (playbackState) {
+    Player.STATE_IDLE -> PlayerEngineReadiness.NoSource
+    Player.STATE_BUFFERING -> PlayerEngineReadiness.Buffering
+    else -> PlayerEngineReadiness.Ready
 }
 
 private fun ExoPlayer.videoDimensions(): Pair<Int, Int> {
@@ -1882,6 +2192,9 @@ private fun PlayerResizeMode.toExoResizeMode(): Int =
         PlayerResizeMode.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         PlayerResizeMode.Fill -> AspectRatioFrameLayout.RESIZE_MODE_FILL
         PlayerResizeMode.Zoom -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        // Not implemented on Android: falls back to Fit, matching desktop's own Android
+        // mapping. Stage H owns whether the phone player offers Stretch at all.
+        PlayerResizeMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 
 private fun PlayerView.syncLibassOverlay(
@@ -2110,21 +2423,106 @@ private fun ExoPlayer.selectTrackByPredicate(
     return false
 }
 
+/**
+ * Every track the demuxer produced, one line each.
+ *
+ * ⚠ **VIDEO used to be built and then skipped.** This function computed a `VIDEO` label and
+ * the very next statement was `if (group.type != TEXT && group.type != AUDIO) continue`, so no
+ * video line was ever printed. That is why twenty-seven minutes of audio-only playback on debug
+ * `.32` produced logs that could not say whether the video track was supported, selected, or
+ * even present - the one question the run existed to answer.
+ *
+ * ⚠ **Per track, not per format index 0.** The old body read `getFormat(0)` and described the
+ * whole group by it. A group routinely carries several tracks, and `Tracks.Group` answers
+ * `isSupported`/`isSelected` per track index - so describing a five-track adaptive group by its
+ * first entry reports on a track the selector may never have considered.
+ */
 private fun ExoPlayer.logCurrentTracks(context: String) {
     Log.d(TAG, "--- logCurrentTracks ($context) ---")
     Log.d(TAG, "  textDisabled=${trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)}")
-    for (group in currentTracks.groups) {
+    for ((groupIndex, group) in currentTracks.groups.withIndex()) {
         val typeName = when (group.type) {
             C.TRACK_TYPE_AUDIO -> "AUDIO"
             C.TRACK_TYPE_TEXT -> "TEXT"
             C.TRACK_TYPE_VIDEO -> "VIDEO"
             else -> "OTHER(${group.type})"
         }
-        if (group.type != C.TRACK_TYPE_TEXT && group.type != C.TRACK_TYPE_AUDIO) continue
-        val format = group.mediaTrackGroup.getFormat(0)
-        Log.d(TAG, "  group type=$typeName id=${format.id} lang=${format.language} label=${format.label} selected=${group.isSelected} supported=${group.isSupported}")
+        if (
+            group.type != C.TRACK_TYPE_TEXT &&
+            group.type != C.TRACK_TYPE_AUDIO &&
+            group.type != C.TRACK_TYPE_VIDEO
+        ) continue
+        for (trackIndex in 0 until group.length) {
+            val format = group.getTrackFormat(trackIndex)
+            // Both answers, because they mean different things and only one of them is fatal.
+            // `supported` is the strict one Media3 gives by default; `decodable` allows a format
+            // that merely exceeds the device's advertised capability headroom, which the default
+            // track selector will still choose and which usually plays. Reporting the strict
+            // answer as "unsupported codec" would call every 4K file on a 1080p-rated decoder
+            // undecodable.
+            val common = "  group=$groupIndex track=$trackIndex type=$typeName id=${format.id} " +
+                "selected=${group.isTrackSelected(trackIndex)} " +
+                "supported=${group.isTrackSupported(trackIndex)} " +
+                "decodable=${group.isTrackSupported(trackIndex, true)}"
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                // Everything needed to answer "is this decodable, and by what" without a second
+                // run: the MIME the extractor assigned, the codec string the container carried,
+                // and the frame geometry a renderer capability check is made against.
+                Log.d(
+                    TAG,
+                    "$common mime=${format.sampleMimeType} codecs=${format.codecs} " +
+                        "size=${format.width}x${format.height} fps=${format.frameRate} " +
+                        "bitrate=${format.bitrate} rotation=${format.rotationDegrees}",
+                )
+            } else {
+                Log.d(TAG, "$common lang=${format.language} label=${format.label} mime=${format.sampleMimeType}")
+            }
+        }
     }
+    Log.d(TAG, "  videoCensus=${videoTrackCensus()}")
     Log.d(TAG, "--- end logCurrentTracks ---")
+}
+
+/**
+ * The three numbers [classifyVideoPresentation] separates the four black-picture causes with.
+ *
+ * Counted per track for the reason spelled out on [VideoTrackCensus.supportedTrackCount]: the
+ * selector may choose any track in a group, so a group-level answer is an answer about a
+ * different question.
+ *
+ * ⚠ **`allowExceedsCapabilities` is true here, and that is not laxity.** Media3's strict
+ * answer is false for any format above the device's advertised decoder headroom - a 4K remux on a
+ * decoder rated for 1080p - and `DefaultTrackSelector` will select such a track anyway when
+ * nothing better exists, because the advertised figures are conservative and it usually plays.
+ * Counting those as unsupported would make [VideoPresentationVerdict.NoSupportedVideoTrack], the
+ * one fatal verdict, fire on healthy high-bitrate sources. The strict answer is still printed
+ * per track by `logCurrentTracks`, where it diagnoses rather than decides.
+ */
+private fun ExoPlayer.videoTrackCensus(): VideoTrackCensus {
+    var groupCount = 0
+    var trackCount = 0
+    var supported = 0
+    var selected = 0
+    var selectedSupported = 0
+    for (group in currentTracks.groups) {
+        if (group.type != C.TRACK_TYPE_VIDEO) continue
+        groupCount++
+        for (trackIndex in 0 until group.length) {
+            trackCount++
+            val isSupported = group.isTrackSupported(trackIndex, /* allowExceedsCapabilities= */ true)
+            val isSelected = group.isTrackSelected(trackIndex)
+            if (isSupported) supported++
+            if (isSelected) selected++
+            if (isSupported && isSelected) selectedSupported++
+        }
+    }
+    return VideoTrackCensus(
+        groupCount = groupCount,
+        trackCount = trackCount,
+        supportedTrackCount = supported,
+        selectedTrackCount = selected,
+        selectedSupportedTrackCount = selectedSupported,
+    )
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -2313,82 +2711,16 @@ private class SubtitleOffsetRenderer(
     }
 }
 
-private fun resolveSubtitleMimeType(url: String, headers: Map<String, String>? = null): String {
-    probeSubtitleHeaders(url, headers)?.let { (contentType, contentDisposition) ->
-        mapSubtitleMime(contentType)?.let { return it }
-        filenameFromContentDisposition(contentDisposition)?.let(::guessSubtitleMime)?.let { return it }
-    }
-    return guessSubtitleMime(url)
-}
-
-private fun probeSubtitleHeaders(url: String, headers: Map<String, String>? = null): Pair<String?, String?>? {
-    val methods = listOf("HEAD", "GET")
-    methods.forEach { method ->
-        runCatching {
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 5_000
-                readTimeout = 5_000
-                instanceFollowRedirects = true
-                setRequestProperty("Accept", "*/*")
-                headers?.forEach { (key, value) ->
-                    setRequestProperty(key, value)
-                }
-            }
-            try {
-                connection.responseCode
-                connection.contentType to connection.getHeaderField("Content-Disposition")
-            } finally {
-                connection.disconnect()
-            }
-        }.getOrNull()?.let { return it }
-    }
-    return null
-}
-
-private fun mapSubtitleMime(contentType: String?): String? {
-    val normalized = contentType
-        ?.substringBefore(';')
-        ?.trim()
-        ?.lowercase()
-        ?: return null
-
-    return when (normalized) {
-        "application/x-subrip",
-        "application/srt",
-        "text/srt",
-        "text/plain" -> MimeTypes.APPLICATION_SUBRIP
-        "text/vtt",
-        "application/vtt" -> MimeTypes.TEXT_VTT
-        "text/x-ssa",
-        "text/ssa",
-        "text/ass",
-        "application/x-ssa" -> MimeTypes.TEXT_SSA
-        "application/ttml+xml",
-        "text/xml",
-        "application/xml" -> MimeTypes.APPLICATION_TTML
-        else -> null
-    }
-}
-
-private fun filenameFromContentDisposition(contentDisposition: String?): String? =
-    contentDisposition
-        ?.substringAfter("filename=", missingDelimiterValue = "")
-        ?.trim()
-        ?.trim('"')
-        ?.takeIf { it.isNotEmpty() }
-
-private fun guessSubtitleMime(url: String): String {
-    val lower = url.lowercase()
-    return when {
-        lower.contains(".srt") -> MimeTypes.APPLICATION_SUBRIP
-        lower.contains(".vtt") || lower.contains(".webvtt") -> MimeTypes.TEXT_VTT
-        lower.contains(".ass") || lower.contains(".ssa") -> MimeTypes.TEXT_SSA
-        lower.contains(".ttml") || lower.contains(".dfxp") || lower.contains(".xml") -> MimeTypes.APPLICATION_TTML
-        else -> MimeTypes.TEXT_VTT
-    }
-}
-
+// The subtitle MIME resolver that used to live here now lives in
+// PlaybackSubtitleMime.android.kt, which the Phase 6 convergence brought across as its own
+// file. The body is identical; keeping a private copy here made every call site ambiguous.
+//
+// Composition call sites below use resolveSubtitleMimeTypeBlocking, which is what this file
+// has always done -- a blocking HEAD/GET inside remember {}. That runs on the main thread,
+// where the probe's runCatching swallows NetworkOnMainThreadException, so on Android the
+// probe has in practice always fallen through to guessing from the URL. Preserved exactly as
+// it behaves today rather than quietly restructured here; Stage E owns the player contract
+// and is where moving it off the main thread belongs.
 private fun diagnosticElapsedSince(startedAtMs: Long): Long =
     if (startedAtMs <= 0L) -1L else (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
 

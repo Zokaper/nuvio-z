@@ -1,6 +1,7 @@
 package com.nuvio.app.core.sync
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.isDesktop
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.SupabaseProvider
@@ -14,6 +15,7 @@ import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.player.PlayerSettingsStorage
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -59,7 +61,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-private const val PUSH_DEBOUNCE_MS = 1500L
+private const val PUSH_DEBOUNCE_MS = 500L
 
 object ProfileSettingsSync {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -80,6 +82,9 @@ object ProfileSettingsSync {
     private var skipNextPushSignature: String? = null
 
     private var observeJob: Job? = null
+
+    private val profileSettingsPlatform: String
+        get() = if (isDesktop) DESKTOP_SYNC_PLATFORM else MOBILE_SYNC_PLATFORM
 
     fun startObserving() {
         if (observeJob?.isActive == true) return
@@ -110,7 +115,7 @@ object ProfileSettingsSync {
 
                 val params = buildJsonObject {
                     put("p_profile_id", profileId)
-                    put("p_platform", MOBILE_SYNC_PLATFORM)
+                    put("p_platform", profileSettingsPlatform)
                 }
                 val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profile_settings_blob", params)
                 if (ProfileRepository.activeProfileId != profileId) return@withLock false
@@ -173,8 +178,10 @@ object ProfileSettingsSync {
     private fun observeLocalChangesAndPush() {
         val signatureFlows = listOf(
             ThemeSettingsRepository.selectedThemePreference.map { "theme" },
+            ThemeSettingsRepository.customThemePreference.map { "custom_theme_colors" },
             ThemeSettingsRepository.amoledEnabled.map { "amoled" },
             ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.map { "liquid_glass_tab_bar" },
+            ThemeSettingsRepository.desktopNavigationLayout.map { "desktop_navigation_layout" },
             ThemeSettingsRepository.navBarStyle.map { "nav_bar_style" },
             PosterCardStyleRepository.uiState.map { "poster_card_style" },
             CardDepthStyleRepository.uiState.map { "card_depth_style" },
@@ -189,6 +196,7 @@ object ProfileSettingsSync {
             TrackingSettingsRepository.uiState.map { "trakt_settings" },
             TraktCommentsSettings.enabled.map { "trakt_comments" },
             EpisodeReleaseNotificationsRepository.uiState.map { "episode_release_alerts" },
+            SocialFeaturePreferencesRepository.uiState.map { "social_features" },
         )
 
         observeJob = scope.launch {
@@ -212,7 +220,7 @@ object ProfileSettingsSync {
     private suspend fun pushToRemoteLocked(profileId: Int, blob: MobileProfileSettingsBlob) {
         val params = buildJsonObject {
             put("p_profile_id", profileId)
-            put("p_platform", MOBILE_SYNC_PLATFORM)
+            put("p_platform", profileSettingsPlatform)
             put("p_settings_json", json.encodeToJsonElement(MobileProfileSettingsBlob.serializer(), blob))
             putSyncOriginClientId()
         }
@@ -251,6 +259,9 @@ object ProfileSettingsSync {
                 traktCommentsSettings = TraktCommentsStorage.exportToSyncPayload(),
                 notificationsSettings = NotificationsSettingsPayload(
                     episodeReleaseAlertsEnabled = EpisodeReleaseNotificationsRepository.uiState.value.isEnabled,
+                ),
+                socialFeatures = SocialFeaturesPayload(
+                    socialFeaturesEnabled = SocialFeaturePreferencesRepository.exportStoredPreference(),
                 ),
             ),
         )
@@ -325,6 +336,7 @@ object ProfileSettingsSync {
         TraktCommentsSettings.onProfileChanged()
 
         EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
+        SocialFeaturePreferencesRepository.applyFromSync(blob.features.socialFeatures.socialFeaturesEnabled)
     }
 
     private fun ensureRepositoriesLoaded() {
@@ -342,12 +354,33 @@ object ProfileSettingsSync {
         TrackingSettingsRepository.ensureLoaded()
         TraktCommentsSettings.ensureLoaded()
         EpisodeReleaseNotificationsRepository.ensureLoaded()
+        SocialFeaturePreferencesRepository.ensureLoaded()
     }
 
     private fun buildSignature(blob: MobileProfileSettingsBlob): String =
         json.encodeToString(MobileProfileSettingsBlob.serializer(), blob)
 
-    private fun currentObservedStateSignature(): String = buildSignature(exportSettingsBlob())
+    private fun currentObservedStateSignature(): String = listOf(
+        "theme=${ThemeSettingsRepository.selectedTheme.value.name}",
+        "amoled=${ThemeSettingsRepository.amoledEnabled.value}",
+        "liquid_glass_tab_bar=${ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.value}",
+        "desktop_navigation_layout=${ThemeSettingsRepository.desktopNavigationLayout.value.name}",
+        "nav_bar_style=${ThemeSettingsRepository.navBarStyle.value.key}",
+        "poster_card_style=${PosterCardStyleRepository.uiState.value}",
+        "card_depth_style=${CardDepthStyleRepository.uiState.value}",
+        "player=${PlayerSettingsRepository.uiState.value}",
+        "stream_badges=${StreamBadgeSettingsRepository.uiState.value}",
+        "debrid=${DebridSettingsRepository.uiState.value}",
+        "tmdb=${TmdbSettingsRepository.uiState.value}",
+        "mdblist=${MdbListSettingsRepository.uiState.value}",
+        "meta=${MetaScreenSettingsRepository.uiState.value}",
+        "collection_mobile_settings=${CollectionMobileSettingsRepository.uiState.value}",
+        "continue=${ContinueWatchingPreferencesRepository.uiState.value}",
+        "trakt_settings=${TrackingSettingsRepository.uiState.value}",
+        "trakt_comments=${TraktCommentsSettings.enabled.value}",
+        "episode_release_alerts=${EpisodeReleaseNotificationsRepository.uiState.value.isEnabled}",
+        "social_features=${SocialFeaturePreferencesRepository.uiState.value.storedPreference}",
+    ).joinToString(separator = "||")
 
 }
 
@@ -373,11 +406,32 @@ private data class MobileProfileSettingsFeatures(
     @SerialName("trakt_settings_payload") val traktSettingsPayload: String = "",
     @SerialName("trakt_comments_settings") val traktCommentsSettings: JsonObject = JsonObject(emptyMap()),
     @SerialName("notifications_settings") val notificationsSettings: NotificationsSettingsPayload = NotificationsSettingsPayload(),
+    @SerialName("social_features") val socialFeatures: SocialFeaturesPayload = SocialFeaturesPayload(),
 )
 
 @Serializable
 private data class NotificationsSettingsPayload(
     @SerialName("episode_release_alerts_enabled") val episodeReleaseAlertsEnabled: Boolean = false,
+)
+
+/**
+ * Whether the social product layer is switched on for this profile.
+ *
+ * ⚠ **Nullable, and it is the only field on this blob that has to be.** Three states must survive
+ * the round trip and only two of them are booleans: never answered, explicitly on, explicitly off.
+ * A blob written by a build that predates this field decodes to null, which
+ * `SocialFeaturePreferencesRepository.applyFromSync` treats as "the remote has not caught up"
+ * rather than as "the user chose off" - the same rule `syncKeysToClear` encodes, and the reason a
+ * pull once wiped every playback setting the remote had never heard of.
+ *
+ * It is a typed sub-payload rather than a field on `player_settings` because whether the social
+ * layer exists is an application-level preference, not a player setting - and because the player
+ * blob carries `mergeMonotonicSyncInt`, which is right for a revision that may only rise and
+ * exactly wrong for a preference the user may switch back off.
+ */
+@Serializable
+private data class SocialFeaturesPayload(
+    @SerialName("social_features_enabled") val socialFeaturesEnabled: Boolean? = null,
 )
 
 @Serializable

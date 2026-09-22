@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
+import com.nuvio.app.isDesktop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -70,6 +72,9 @@ fun NuvioFloatingPrompt(
     onAction: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    header: String? = null,
+    actionIcon: ImageVector = Icons.Filled.PlayArrow,
+    showProgress: Boolean = true,
     autoDismissMs: Long = AutoDismissDelayMs,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -121,6 +126,13 @@ fun NuvioFloatingPrompt(
     ) {
         Box(
             modifier = Modifier
+                .then(
+                    if (isDesktop) {
+                        Modifier.widthIn(max = tokens.components.sheetMaxWidth)
+                    } else {
+                        Modifier
+                    },
+                )
                 .fillMaxWidth()
                 .padding(bottom = navBarBottom + NuvioTokens.Space.s72)
                 .padding(horizontal = tokens.spacing.screenHorizontal)
@@ -191,7 +203,7 @@ fun NuvioFloatingPrompt(
                             contentAlignment = Alignment.Center,
                         ) {
                             if (imageUrl != null) {
-                                AsyncImage(
+                                NuvioAsyncImage(
                                     model = imageUrl,
                                     contentDescription = null,
                                     modifier = Modifier.matchParentSize(),
@@ -205,7 +217,7 @@ fun NuvioFloatingPrompt(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                text = stringResource(Res.string.floating_prompt_continue_where_left_off),
+                                text = header ?: stringResource(Res.string.floating_prompt_continue_where_left_off),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = tokens.colors.textMuted,
                             )
@@ -235,7 +247,7 @@ fun NuvioFloatingPrompt(
                                 shape = tokens.shapes.avatar,
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
+                                    imageVector = actionIcon,
                                     contentDescription = actionLabel,
                                     modifier = Modifier.size(tokens.icons.md),
                                 )
@@ -243,25 +255,27 @@ fun NuvioFloatingPrompt(
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(tokens.shapes.chip)
-                            .background(tokens.colors.playerTimelineTrack)
-                            .height(NuvioTokens.Space.s8)
-                            .padding(tokens.borders.thin),
-                    ) {
+                    if (showProgress && progressFraction > 0f) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
-                                .height(NuvioTokens.Space.s6)
-                                .clip(tokens.shapes.chip),
+                                .fillMaxWidth()
+                                .clip(tokens.shapes.chip)
+                                .background(tokens.colors.playerTimelineTrack)
+                                .height(NuvioTokens.Space.s8)
+                                .padding(tokens.borders.thin),
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .matchParentSize()
-                                    .background(tokens.colors.playerTimelineFill),
-                            )
+                                    .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
+                                    .height(NuvioTokens.Space.s6)
+                                    .clip(tokens.shapes.chip),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(tokens.colors.playerTimelineFill),
+                                )
+                            }
                         }
                     }
                 }

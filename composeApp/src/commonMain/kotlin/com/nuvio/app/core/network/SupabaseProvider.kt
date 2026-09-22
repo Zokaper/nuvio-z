@@ -13,14 +13,25 @@ import io.ktor.client.plugins.HttpRequestRetry
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.http.HttpHeaders
 import io.ktor.http.takeFrom
+import kotlin.concurrent.Volatile
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 
 object SupabaseProvider {
+    private val clientLock = SynchronizedObject()
+    @Volatile
     private var cachedClient: SupabaseClient? = null
     private val rateLimitCoordinator = BackendRateLimitCoordinator()
 
+    // ⚠ Must never build two clients. Startup touches `client` from several threads at once, and
+    // each client owns its own Auth. AuthRepository watches the sessionStatus of whichever instance
+    // it saw first; if sign-in then ran on the other one, the session was saved to storage but the
+    // app never saw it - the login screen stayed put until a restart loaded the saved session.
     @OptIn(SupabaseInternal::class)
     val client: SupabaseClient
-        get() = cachedClient ?: createClient().also { cachedClient = it }
+        get() = cachedClient ?: synchronized(clientLock) {
+            cachedClient ?: createClient().also { cachedClient = it }
+        }
 
     @OptIn(SupabaseInternal::class)
     private fun createClient(): SupabaseClient {
@@ -105,8 +116,9 @@ object SupabaseProvider {
     }
 
     suspend fun reset() {
-        val previous = cachedClient
-        cachedClient = null
+        val previous = synchronized(clientLock) {
+            cachedClient.also { cachedClient = null }
+        }
         rateLimitCoordinator.clear()
         previous?.close()
     }

@@ -37,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
@@ -46,6 +47,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
+import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.firstEnabledManifestError
@@ -57,7 +59,9 @@ import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.HomeSkeletonRow
+import com.nuvio.app.core.ui.posterGridColumnCountForCatalogWidth
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
+import com.nuvio.app.isDesktop
 import com.nuvio.app.features.watched.WatchedRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -86,6 +90,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun SearchScreen(
     modifier: Modifier = Modifier,
+    topChromePadding: Dp? = null,
     listState: LazyListState = rememberLazyListState(),
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
@@ -215,8 +220,16 @@ fun SearchScreen(
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
     ) {
-        val discoverColumns = remember(maxWidth) {
-            posterGridColumnCountForWidth(maxWidth)
+        val posterCardStyle = rememberPosterCardStyleUiState()
+        val discoverColumns = remember(maxWidth, maxHeight, posterCardStyle.widthDp, isDesktop) {
+            if (isDesktop) {
+                posterGridColumnCountForCatalogWidth(
+                    screenWidth = maxWidth,
+                    basePosterWidthDp = posterCardStyle.widthDp,
+                )
+            } else {
+                posterGridColumnCountForWidth(maxWidth)
+            }
         }
         val homeSectionPadding = remember(maxWidth) {
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
@@ -229,6 +242,7 @@ fun SearchScreen(
 
         NuvioScreen(
             horizontalPadding = 0.dp,
+            topPadding = if (topChromePadding != null) 0.dp else null,
             listState = listState,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -246,6 +260,7 @@ fun SearchScreen(
                     NuvioScreenHeader(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        topPadding = topChromePadding,
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -315,7 +330,7 @@ fun SearchScreen(
                     isWaitingForSearch -> {
                         items(2) {
                             HomeSkeletonRow(
-                                modifier = Modifier.padding(horizontal = homeSectionPadding),
+                                horizontalPadding = homeSectionPadding,
                             )
                         }
                     }
@@ -323,7 +338,7 @@ fun SearchScreen(
                     (uiState.isLoading || addonManifestsLoading) && uiState.sections.isEmpty() -> {
                         items(2) {
                             HomeSkeletonRow(
-                                modifier = Modifier.padding(horizontal = homeSectionPadding),
+                                horizontalPadding = homeSectionPadding,
                             )
                         }
                     }
@@ -371,7 +386,7 @@ fun SearchScreen(
                         if (uiState.isLoading) {
                             item(key = "search_loading_more") {
                                 HomeSkeletonRow(
-                                    modifier = Modifier.padding(horizontal = homeSectionPadding),
+                                    horizontalPadding = homeSectionPadding,
                                 )
                             }
                         }

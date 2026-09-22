@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
@@ -38,9 +39,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.nuvioCardDepth
+import com.nuvio.app.core.ui.nuvioDesktopDragScroll
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.details.MetaTrailer
@@ -163,10 +165,13 @@ fun DetailTrailersSection(
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val sizing = trailerSectionSizing(maxWidth.value, userCornerRadius)
+            val rowState = rememberLazyListState()
             LazyRow(
+                state = rowState,
                 modifier = Modifier
                     .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .nuvioDesktopDragScroll(rowState),
                 contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
                 horizontalArrangement = Arrangement.spacedBy(sizing.cardSpacing),
             ) {

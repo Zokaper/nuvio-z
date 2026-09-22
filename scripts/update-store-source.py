@@ -20,13 +20,23 @@ INFO_PATTERN = re.compile(r"^Payload/[^/]+\.app(?:/PlugIns/[^/]+\.appex)?/Info\.
 
 
 def parse_args() -> argparse.Namespace:
+    default_source = (
+        Path("distribution/sidestore/source.json")
+        if Path("distribution/sidestore/source.json").exists()
+        else Path("store.json")
+    )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--source", default=default_source, type=Path)
     parser.add_argument("--ipa", required=True, type=Path)
     parser.add_argument("--release-notes", required=True, type=Path)
     parser.add_argument("--release-version", required=True)
     parser.add_argument("--release-date", required=True)
     parser.add_argument("--download-url", required=True)
+    parser.add_argument(
+        "--expected-bundle-id",
+        default="com.nuvio.app.z",
+        help="Expected CFBundleIdentifier for the target application (defaults to com.nuvio.app.z)",
+    )
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -97,8 +107,13 @@ def validate_download_url(value: str) -> None:
 
 def find_app(source: dict, bundle_identifier: str) -> dict:
     matches = [app for app in source["apps"] if app.get("bundleIdentifier") == bundle_identifier]
-    if len(matches) != 1:
-        raise ValueError(f"source must contain exactly one app with bundle identifier {bundle_identifier}")
+    if not matches:
+        known = [app.get("bundleIdentifier") for app in source.get("apps", [])]
+        raise ValueError(
+            f"source does not contain an app with bundle identifier '{bundle_identifier}'. Known apps in source: {known}"
+        )
+    if len(matches) > 1:
+        raise ValueError(f"source contains multiple apps with bundle identifier '{bundle_identifier}'")
     return matches[0]
 
 
@@ -141,6 +156,10 @@ def main() -> int:
     source = read_source(args.source)
     app_info, privacy = read_ipa_metadata(args.ipa)
     bundle_identifier = require_string(app_info, "CFBundleIdentifier", "application Info.plist")
+    if bundle_identifier != args.expected_bundle_id:
+        raise ValueError(
+            f"IPA CFBundleIdentifier '{bundle_identifier}' does not match expected bundle identifier '{args.expected_bundle_id}'"
+        )
     version = require_string(app_info, "CFBundleShortVersionString", "application Info.plist")
     build_version = require_string(app_info, "CFBundleVersion", "application Info.plist")
     minimum_os = require_string(app_info, "MinimumOSVersion", "application Info.plist")

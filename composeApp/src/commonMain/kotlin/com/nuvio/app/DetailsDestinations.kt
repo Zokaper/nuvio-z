@@ -3,19 +3,19 @@ package com.nuvio.app
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import com.nuvio.app.features.details.MetaDetailsScreen
+import com.nuvio.app.features.player.PlayerExitDiagnostics
+import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.details.PersonDetailScreen
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
-import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.tmdb.TmdbEntityKind
 import com.nuvio.app.features.tmdb.TmdbService
-import com.nuvio.app.navigation.*
 import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.EntityBrowseRoute
 import com.nuvio.app.navigation.NuvioNavigator
@@ -26,27 +26,6 @@ import nuvio.composeapp.generated.resources.person_role_creator
 import nuvio.composeapp.generated.resources.person_role_director
 import nuvio.composeapp.generated.resources.person_role_writer
 import org.jetbrains.compose.resources.stringResource
-
-/**
- * The download twin of [ContentPlayAction]: same identity fields, no playback position.
- *
- * Named here beside its sibling because both are threaded from [MainAppContent] through the
- * details destination, and a bare 12-parameter function type at each site is unreadable.
- */
-internal typealias ContentDownloadAction = (
-    type: String,
-    videoId: String,
-    parentMetaId: String,
-    parentMetaType: String,
-    title: String,
-    logo: String?,
-    poster: String?,
-    background: String?,
-    seasonNumber: Int?,
-    episodeNumber: Int?,
-    episodeTitle: String?,
-    episodeThumbnail: String?,
-) -> Unit
 
 internal typealias ContentPlayAction = (
     type: String,
@@ -100,8 +79,7 @@ internal fun DetailsDestination(
     navController: NuvioNavigator,
     onPlay: ContentPlayAction,
     onPlayManually: ContentPlayAction,
-    onDownloadManually: ContentDownloadAction,
-    onPlayDownloadedItem: (DownloadItem) -> Unit,
+    onWatchTogether: (PartyContent) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
@@ -114,25 +92,16 @@ internal fun DetailsDestination(
         type = route.type,
         id = route.id,
         onBack = onBack,
-        onWatchTogether = { content ->
-            navController.navigate(
-                WatchPartyLobbyRoute(
-                    contentId = content.contentId,
-                    contentType = content.contentType,
-                    videoId = content.videoId,
-                    title = content.title,
-                    poster = content.poster,
-                    season = content.season,
-                    episode = content.episode,
-                    episodeTitle = content.episodeTitle,
-                ),
-            )
-        },
         onPlay = onPlay,
         onPlayManually = onPlayManually,
-        onDownloadManually = onDownloadManually,
-        onPlayDownloadedItem = onPlayDownloadedItem,
+        onWatchTogether = onWatchTogether,
         onOpenMeta = onOpenMeta,
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                drawContent()
+                PlayerExitDiagnostics.recordT2("DetailsDestination")
+            },
         onCastClick = { person, avatarTransitionKey ->
             val tmdbId = person.tmdbId
             if (tmdbId != null && tmdbId > 0) {
@@ -169,7 +138,6 @@ internal fun DetailsDestination(
         },
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
-        modifier = Modifier.fillMaxSize(),
     )
 }
 

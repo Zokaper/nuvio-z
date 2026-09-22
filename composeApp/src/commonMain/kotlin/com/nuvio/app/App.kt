@@ -1,9 +1,12 @@
 package com.nuvio.app
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
@@ -15,6 +18,7 @@ import coil3.svg.SvgDecoder
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.configurePlatformImageLoader
+import com.nuvio.app.core.ui.desktopUiScaleForWindow
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.TabsRoute
@@ -92,8 +96,20 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
     val amoledEnabled by remember {
         ThemeSettingsRepository.amoledEnabled
     }.collectAsStateWithLifecycle()
+    val desktopUiZoom by remember {
+        ThemeSettingsRepository.desktopUiZoom
+    }.collectAsStateWithLifecycle()
 
-    NuvioTheme(appTheme = selectedTheme, amoled = amoledEnabled) {
-        content()
+    val customThemeColors by ThemeSettingsRepository.customThemeColors.collectAsStateWithLifecycle()
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        NuvioTheme(
+            appTheme = selectedTheme,
+            amoled = amoledEnabled,
+            desktopUiScale = desktopUiScaleForWindow(maxWidth.value, maxHeight.value) * desktopUiZoom.factor,
+            customThemeColors = customThemeColors,
+        ) {
+            content()
+        }
     }
 }

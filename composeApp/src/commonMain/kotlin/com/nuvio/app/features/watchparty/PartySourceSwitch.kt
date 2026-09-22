@@ -1,0 +1,129 @@
+package com.nuvio.app.features.watchparty
+
+/** What an active player must do about the party's currently authoritative source. */
+sealed interface PartySourceHandoff {
+    /** Nothing to do: no party, no authoritative source, or this player is already playing it. */
+    data object None : PartySourceHandoff
+
+    /**
+     * The party moved to a source this player is not playing, and it must be adopted in place.
+     *
+     * "In place" is the whole point of the stage this belongs to: the route, the controller and the
+     * HWND survive, the old source keeps playing until the new one is ready, and nothing navigates.
+     */
+    data class Adopt(
+        val target: PartySourceDescriptorV2,
+        val sourceGeneration: Int,
+    ) : PartySourceHandoff
+}
+
+/**
+ * Decides whether an active player owes the party a source transition.
+ *
+ * [handledSourceGeneration] is the generation this player has already acted on - adopted, or found
+ * it was already playing. It is what stops a transition from being attempted twice, and it is
+ * deliberately *not* cleared by failure: a source the party moved to and this client could not
+ * realize stays failed for that generation rather than being retried forever against a catalogue
+ * that has already answered.
+ *
+ * A local descriptor that already matches the target at an exact tier is not a transition. That is
+ * the ordinary case for whoever picked the source, and for anyone whose realization arrived through
+ * the lobby - re-adopting there would restart playback for no reason.
+ */
+fun decidePartySourceHandoff(
+    party: WatchPartyState?,
+    localDescriptor: PartySourceDescriptorV2?,
+    handledSourceGeneration: Int?,
+): PartySourceHandoff {
+    val target = party?.sourceFingerprint ?: return PartySourceHandoff.None
+    if (handledSourceGeneration == party.sourceGeneration) return PartySourceHandoff.None
+    if (localDescriptor != null && partySourceMatchTier(target, localDescriptor) in PartyExactMatchTiers) {
+        return PartySourceHandoff.None
+    }
+    return PartySourceHandoff.Adopt(target = target, sourceGeneration = party.sourceGeneration)
+}
+
+/** The tiers that mean "this is the party's release", as opposed to a watchable alternate. */
+val PartyExactMatchTiers = setOf(
+    PartySourceMatchTier.ExactTorrentFile,
+    PartySourceMatchTier.ExactOriginRelease,
+    PartySourceMatchTier.ExactRelease,
+    PartySourceMatchTier.EquivalentMedia,
+)
+
+/**
+ * Whether this member may move the party to a different source.
+ *
+ * The same permission the rest of the party's controls use: the host always may, and a guest may
+ * only while the party is collaborative. A guest picking a source in host-only mode changes their
+ * own playback and nothing else - which is an alternate, not a party source change.
+ */
+fun WatchPartyState.allowsSourceChangeBy(profileId: String?): Boolean {
+    if (profileId == null) return false
+    if (hostProfileId == profileId) return true
+    return controlMode == WatchPartyControlMode.collaborative
+}
+
+/**
+ * Whether a locally picked source may be published to the party as its new authoritative one.
+ *
+ * A source change is a deliberate, one-time generation advance, so it is gated three ways: the
+ * party must be playing this exact content, the member must be permitted, and the pick must not be
+ * the source the party is already on - republishing that would advance the generation for a change
+ * nobody made, and every other client would tear down a perfectly good realization for it.
+ */
+fun shouldPublishPartySourceChange(
+    party: WatchPartyState?,
+    profileId: String?,
+    picked: PartySourceDescriptorV2?,
+    publishedSourceGeneration: Int?,
+    timelineChanged: Boolean = false,
+    explicitHostSelection: Boolean = false,
+): Boolean {
+    if (party == null || picked == null) return false
+    if (!party.allowsSourceChangeBy(profileId)) return false
+    // The one-shot guard, and it is *not* conditional: whatever the reason for publishing, a
+    // generation this client has already advanced may not be advanced again. Recomposition, a
+    // retried effect and a second poll of the same state all land here, and "exactly once" is this
+    // line.
+    if (publishedSourceGeneration == party.sourceGeneration) return false
+    val current = party.sourceFingerprint
+    // ⚠ **Two callers may narrow the duplicate test, and both exist because that test is a
+    // heuristic standing in for a verdict the caller sometimes actually has.**
+    //
+    // [timelineChanged] is the first, and it bypasses the test outright.
+    //
+    // The test refuses anything inside [PartyExactMatchTiers], which is right for a hand-picked
+    // source - re-picking what the party is already on, or something indistinguishable from it, is a
+    // generation advance for a change nobody made. It is wrong for a host whose own chain has moved
+    // it, and it was wrong twice over: a re-cut file carries the *same* descriptor, and a look-alike
+    // release is `EquivalentMedia`, which this set contains. Both are a different timeline and both
+    // were swallowed here while `partySourceTimelineDecision` said to publish them.
+    //
+    // So the host realignment path passes its own verdict instead, and that verdict is the narrow
+    // thing - `AdvancePartySource`, which a same-release tier only reaches on a proven duration
+    // contradiction. Every other caller keeps this test exactly as it was, and the one-shot guard
+    // above applies to all of them alike.
+    //
+    // [explicitHostSelection] is the second, and it is narrower still: it does not open the door,
+    // it moves it. A host that reaches into the sources panel and picks a *different release* has
+    // said what the party watches - that is what the panel means when the host opens it - and
+    // `EquivalentMedia` is precisely "another release that looks alike", so refusing it left the
+    // party on a timeline the host had visibly chosen to leave, with the UI reporting the change it
+    // had just declined to make. Re-picking the party's own release stays refused, because that is
+    // still a generation advance for a change nobody made: the host may change the release, it may
+    // not republish the one already playing.
+    //
+    // Only the *host* moves the door. A guest picking in collaborative mode is permitted to change
+    // the party source and keeps the full test, because a guest's pick is a guest's opinion about a
+    // timeline it does not define - it may not promote a look-alike into the party's timeline, and
+    // a guest's local fallback never reaches this function at all.
+    val hostChoosing = explicitHostSelection && party.hostProfileId == profileId
+    val duplicateTiers = if (hostChoosing) PartySameReleaseTiers else PartyExactMatchTiers
+    if (
+        !timelineChanged &&
+        current != null &&
+        partySourceMatchTier(current, picked) in duplicateTiers
+    ) return false
+    return true
+}

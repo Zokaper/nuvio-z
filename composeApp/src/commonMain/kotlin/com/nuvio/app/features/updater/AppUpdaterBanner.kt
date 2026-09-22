@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.AppTheme
+import com.nuvio.app.core.ui.themePalette
+import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.appTheme
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.whatsnew.ReleaseNoteLine
@@ -149,7 +151,7 @@ fun AppUpdaterHost(
         )
     }
 
-    if (state.showUnknownSourcesDialog) {
+    if (state.showInstallPermissionDialog) {
         UnknownSourcesDialog(
             onContinue = controller::resumeInstallation,
             onDismiss = controller::dismissDialog,
@@ -179,11 +181,8 @@ private fun AppUpdateBanner(
     )
     val containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val isWhiteTheme = MaterialTheme.appTheme == AppTheme.WHITE
-    val progressColor = if (isWhiteTheme) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
+    val progressBrush = MaterialTheme.themePalette.accentBrush()
+    val progressAlpha = if (isWhiteTheme) 0.18f else 1f
     val dividerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
     val debugTestComplete = state.isDebugTest && !state.isDownloading && !state.isUpdateAvailable
     val subtitle = when {
@@ -194,7 +193,7 @@ private fun AppUpdateBanner(
         )
         state.isDownloading -> stringResource(Res.string.updates_preparing_download)
         debugTestComplete -> stringResource(Res.string.updates_debug_test_complete)
-        state.downloadedApkPath != null -> stringResource(Res.string.updates_message_ready)
+        state.downloadedUpdatePath != null -> stringResource(Res.string.updates_message_ready)
         else -> stringResource(Res.string.updates_title_available)
     }
     val updateLabel = listOfNotNull(
@@ -209,7 +208,8 @@ private fun AppUpdateBanner(
                 drawRect(containerColor)
                 if (progress > 0f) {
                     drawRect(
-                        color = progressColor,
+                        brush = progressBrush,
+                        alpha = progressAlpha,
                         size = Size(width = size.width * progress, height = size.height),
                     )
                 }
@@ -275,13 +275,13 @@ private fun AppUpdateBanner(
 
             if (!state.isDownloading && !debugTestComplete) {
                 Button(
-                    onClick = if (state.downloadedApkPath != null) onInstall else onDownload,
-                    enabled = state.downloadedApkPath != null || state.isUpdateAvailable,
+                    onClick = if (state.downloadedUpdatePath != null) onInstall else onDownload,
+                    enabled = state.downloadedUpdatePath != null || state.isUpdateAvailable,
                     modifier = Modifier.heightIn(min = 40.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        if (state.downloadedApkPath != null) {
+                        if (state.downloadedUpdatePath != null) {
                             stringResource(Res.string.action_install)
                         } else if (state.errorMessage != null) {
                             stringResource(Res.string.action_retry)

@@ -322,8 +322,8 @@ internal fun SettingsNavigationRow(
                 }
             }
         }
-            if (isAdvanced) AdvancedSettingBadge()
-            trailingContent?.invoke(this)
+        if (isAdvanced) AdvancedSettingBadge()
+        trailingContent?.invoke(this)
     }
 }
 

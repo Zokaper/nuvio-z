@@ -11,6 +11,7 @@ internal actual fun currentDeviceClientMetadata(): DeviceClientMetadata {
     val platform = "${device.systemName()} ${device.systemVersion}".trim()
 
     return DeviceClientMetadata(
+        clientName = "Nuvio Mobile",
         deviceName = deviceName,
         platform = platform,
     )

@@ -163,13 +163,27 @@ object NuvioTokens {
         val label = 0.8.sp
     }
 
+    /**
+     * ⚠ The width bands here are **derived from [NuvioWindowBreakpoints], not repeated**.
+     *
+     * Those constants are import-free so the classifier can be run by the pure suites, and they
+     * are the single source of truth for where a layout changes shape. Writing 600 or 840 again
+     * here would be the second copy, and a second copy is how the Social tab, the lobby and these
+     * tokens ended up disagreeing about the same window in the first place.
+     *
+     * `phone`, `largePhone`, `desktop` and `playerWide` have no counterpart in the classifier -
+     * they are art-direction sizes rather than layout-shape thresholds - so they stay literal.
+     */
     object Breakpoint {
         val phone = 0.dp
         val largePhone = 420.dp
-        val tablet = 600.dp
-        val largeTablet = 840.dp
+        val tablet = NuvioWindowBreakpoints.MEDIUM_WIDTH_DP.dp
+        val largeTablet = NuvioWindowBreakpoints.EXPANDED_WIDTH_DP.dp
         val desktop = 1024.dp
         val playerWide = 1280.dp
+
+        /** Where the Watch Together lobby splits into two panes. Was `PartyTwoPaneMinWidth`. */
+        val partyTwoPane = NuvioWindowBreakpoints.WIDE_WIDTH_DP.dp
     }
 
     object Z {

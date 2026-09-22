@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.isDesktop
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
@@ -13,7 +14,14 @@ import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.core.network.NetworkQualityRepository
 import com.nuvio.app.core.network.NetworkThroughputMeter
 import com.nuvio.app.features.streams.StreamItem
+import co.touchlab.kermit.Logger
+import com.nuvio.app.features.watchparty.PartySourceDescriptorV2
+import com.nuvio.app.features.watchparty.WatchPartyState
+import com.nuvio.app.features.watchparty.shouldPublishPartySourceChange
+import com.nuvio.app.features.watchparty.matchesPlayback
+import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.streams.p2pSentinelUrl
+import com.nuvio.app.features.watchparty.toPartySourceDescriptor
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import nuvio.composeapp.generated.resources.Res
@@ -21,6 +29,7 @@ import nuvio.composeapp.generated.resources.playback_source_failed_advancing
 import nuvio.composeapp.generated.resources.playback_source_failed_advancing_unnamed
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
+import com.nuvio.app.features.watchparty.ownsNextEpisodeChoice
 
 internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     stream: StreamItem,
@@ -48,7 +57,6 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
     }
     return true
 }
-
 internal fun PlayerScreenRuntime.isP2pStream(stream: StreamItem): Boolean =
     stream.needsLocalDebridResolve && stream.p2pInfoHash != null
 
@@ -150,6 +158,7 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activePartySourceDescriptor = stream.toPartySourceDescriptor()
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
@@ -293,21 +302,193 @@ internal fun PlayerScreenRuntime.matchesActiveSource(stream: StreamItem): Boolea
 }
 
 /**
- * A source the *user* picked from the sources panel.
+ * A source the *user* picked from a sources panel.
  *
- * Only this refunds the credential-refresh budget. [switchToSource] itself must not: it also
- * serves in-player source changes and re-entrant debrid resolution, so refunding there would hand
- * an automatic retry of a dying source a fresh budget every attempt - which is the shape of the
- * loop this budget exists to stop.
+ * **Both** panels, and that is the point of it being one function. The Compose panel and the
+ * native/HTML controls draw the same list for the same person, so a pick in either is the same
+ * event and has to reach the party the same way; the native one called [switchToSource] instead,
+ * and a host changing source moved nobody but itself. See the call sites in
+ * `PlayerScreenRuntimeUi.kt`, and `PlayerSourcePickRoutingTest`, which asserts they agree.
  */
 internal fun PlayerScreenRuntime.switchToUserSelectedSource(stream: StreamItem) {
+    markSourceUserSelected()
+    // A pick that stops at the P2P consent dialog has not happened yet. Publishing here would
+    // move the whole party onto a source this member may be about to cancel, and cancelling
+    // leaves nothing behind to withdraw it with. The continuation publishes it instead, once the
+    // dialog is answered - see [switchToUserSelectedSourceAfterP2pConsent].
+    if (userSelectedSourceAwaitsP2pConsent(stream)) {
+        pendingP2pSwitch = PendingPlayerP2pSwitch(
+            stream = stream,
+            episode = null,
+            isAutoPlay = false,
+            userSelected = true,
+        )
+        return
+    }
+    publishPartySourceChange(stream)
+    switchToSource(stream)
+}
+
+/**
+ * The bookkeeping every explicit pick does, whichever panel it came from.
+ *
+ * Only a user pick refunds the credential-refresh budget. [switchToSource] itself must not: it
+ * also serves in-player source changes and re-entrant debrid resolution, so refunding there would
+ * hand an automatic retry of a dying source a fresh budget every attempt - which is the shape of
+ * the loop this budget exists to stop.
+ */
+private fun PlayerScreenRuntime.markSourceUserSelected() {
     credentialRefreshesUsed = 0
     credentialRefreshAttemptedSourceUrl = null
     // An explicit pick retires the automatic chain. Without this the eight-second watchdog
     // still fires against the chosen source, and a large remux that is merely slow to prepare
     // gets swapped out for a source the user did not ask for.
     nextEpisodeFallbacks = emptyList()
-    switchToSource(stream)
+    // A hand-picked source: "Prefer built-in subtitles" steps aside for the rest of this player.
+    activeSourceAutoPicked = false
+}
+
+/**
+ * Whether picking [stream] will stop at the P2P consent dialog rather than change the source.
+ *
+ * Deliberately the same four facts [shouldRequestP2pConsentForPlayerControls] asks, so the two
+ * panels cannot drift into disagreeing about which picks are deferred.
+ */
+internal fun PlayerScreenRuntime.userSelectedSourceAwaitsP2pConsent(stream: StreamItem): Boolean =
+    shouldRequestP2pConsentForPlayerControls(
+        isP2pStream = isP2pStream(stream),
+        shouldResolveToPlayableStream = DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream),
+        p2pSettingsVisible = P2pSettingsRepository.isVisible,
+        p2pEnabled = P2pSettingsRepository.uiState.value.p2pEnabled,
+    )
+
+/**
+ * A user pick resumed on the far side of the P2P consent dialog.
+ *
+ * The party hears about it *here* rather than where it was picked, because until the dialog was
+ * answered there was nothing to hear: a member that cancels has not changed source, and a party
+ * told otherwise would have moved every guest onto a stream nobody started.
+ *
+ * Only reached when the pending switch was flagged [PendingPlayerP2pSwitch.userSelected]. The
+ * automatic chain reaches the same dialog - [switchToP2pSourceStream] parks its own pending
+ * switch - and must stay local when that one is answered, exactly as it does everywhere else.
+ */
+internal fun PlayerScreenRuntime.switchToUserSelectedSourceAfterP2pConsent(stream: StreamItem) {
+    markSourceUserSelected()
+    publishPartySourceChange(stream)
+    switchToP2pSourceStream(stream)
+}
+
+/**
+ * Moves the whole party to the source this member just picked, exactly once.
+ *
+ * Only an explicit pick reaches here, and only while the party is playing this content and this
+ * member is permitted to change it. Everything else - an automatic chain step, a debrid
+ * re-resolution, a credential re-mint, a guest's alternate under host-only control - changes local
+ * playback and says nothing to the party, because none of those is somebody choosing what everyone
+ * watches.
+ *
+ * The generation is advanced with the one the party is currently on as the expected value, so two
+ * members picking at the same instant produce one advance and one rejection rather than two
+ * advances. `partyPublishedSourceGeneration` is the local half of the same guarantee: a retry or a
+ * recomposition of the same pick cannot advance it twice.
+ *
+ * For the **host**, a pick of a different release advances the party even when the two look alike
+ * enough to score `EquivalentMedia`. That tier is the one the automatic paths must treat as a
+ * duplicate and the one a person cannot have meant: the host opened the panel and chose another
+ * release, and the party's timeline is whatever the host is watching. Re-picking the release the
+ * party is already on is still refused, for either member.
+ */
+private fun PlayerScreenRuntime.publishPartySourceChange(stream: StreamItem) {
+    val party = WatchPartyRepository.uiState.value.party
+        ?.takeIf { it.matchesPlayback(parentMetaId, playbackSession.videoId) }
+        ?: return
+    val picked = stream.toPartySourceDescriptor() ?: return
+    if (
+        !shouldPublishPartySourceChange(
+            party = party,
+            profileId = WatchPartyRepository.uiState.value.activeProfileId,
+            picked = picked,
+            publishedSourceGeneration = partyPublishedSourceGeneration,
+            // Only this call site sets it, and only because only this one is a person. The guard's
+            // duplicate test cannot tell a host deliberately changing release from a realization
+            // that flapped onto a look-alike, so for the host it narrows to the party's own
+            // release: re-picking what is playing is still refused, picking a different release is
+            // now the authoritative change the sources panel says it is.
+            explicitHostSelection = true,
+        )
+    ) return
+    partyPublishedSourceGeneration = party.sourceGeneration
+    // This player is already on the new source the moment `switchToSource` runs, so it owes the
+    // party no adoption for the generation it is about to create.
+    partyHandledSourceGeneration = party.sourceGeneration + 1
+    scope.launch {
+        WatchPartyRepository.selectSource(
+            fingerprint = picked,
+            expectedSourceGeneration = party.sourceGeneration,
+        ).onFailure {
+            // The advance was refused - somebody else moved the party first. The local swap still
+            // stands as an alternate, and the authoritative source is whatever the party says it
+            // is: releasing both latches lets the next snapshot decide, including by handing this
+            // player back to a source it has just left.
+            partyPublishedSourceGeneration = null
+            partyHandledSourceGeneration = null
+        }
+    }
+}
+
+/** The same tag the party effect logs under, so a realignment reads in sequence with the gate. */
+private val sourceActionsPartyLog = Logger.withTag("WatchPartyPlayer")
+
+/**
+ * Moves the party onto the release the *host* has ended up on, after its own chain moved it there.
+ *
+ * The automatic chain is local by design and stays local for everything that produces another URL
+ * for the same bytes - see `partySourceTimelineDecision`. This is the one case it cannot be: the
+ * host defines the party's timeline, so a host on a different release has already changed what the
+ * shared timestamp means, and the only honest thing left is to say so. The party then does what it
+ * does for a hand-picked source: the generation advances, the start gate closes, every guest
+ * re-realizes against the new descriptor, and the readiness barrier starts everyone together.
+ *
+ * Guarded exactly as the deliberate pick is - `shouldPublishPartySourceChange` refuses a
+ * republication of the source the party is already on, and `partyPublishedSourceGeneration` refuses
+ * a second advance for the same generation - because a realization that flaps must not turn into a
+ * party that re-realizes on every flap.
+ */
+internal fun PlayerScreenRuntime.publishHostPartySourceRealignment(
+    party: WatchPartyState,
+    descriptor: PartySourceDescriptorV2,
+    timelineChanged: Boolean = false,
+) {
+    if (
+        !shouldPublishPartySourceChange(
+            party = party,
+            profileId = WatchPartyRepository.uiState.value.activeProfileId,
+            picked = descriptor,
+            publishedSourceGeneration = partyPublishedSourceGeneration,
+            // The caller's verdict, which is stronger than the duplicate heuristic and is the
+            // only thing that reaches this function: `AdvancePartySource`. Without it the guard
+            // refuses a re-cut file as a duplicate descriptor and a look-alike release as an
+            // equivalent, and the party keeps a timeline the host has already left - the same
+            // silent divergence this path exists to end, arriving by the one door left open.
+            timelineChanged = timelineChanged,
+        )
+    ) return
+    partyPublishedSourceGeneration = party.sourceGeneration
+    partyHandledSourceGeneration = party.sourceGeneration + 1
+    sourceActionsPartyLog.i {
+        "host source realignment party=${party.id} generation=${party.sourceGeneration} " +
+            "release=${descriptor.releaseFingerprint}"
+    }
+    scope.launch {
+        WatchPartyRepository.selectSource(
+            fingerprint = descriptor,
+            expectedSourceGeneration = party.sourceGeneration,
+        ).onFailure {
+            partyPublishedSourceGeneration = null
+            partyHandledSourceGeneration = null
+        }
+    }
 }
 
 internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
@@ -360,6 +541,7 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activePartySourceDescriptor = stream.toPartySourceDescriptor()
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
@@ -450,6 +632,7 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeStreamSubtitle = downloadItem.streamSubtitle
     activeProviderName = downloadItem.providerName.ifBlank { downloadedLabel }
     activeProviderAddonId = downloadItem.providerAddonId
+    activePartySourceDescriptor = null
     currentStreamBingeGroup = null
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
@@ -461,9 +644,37 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeInitialProgressFraction = epResumeFraction
     shouldPlay = true
     controlsVisible = true
+    // A downloaded episode has no descriptor a guest could match, so the party moves to the new
+    // episode with no source and waits for the host to pick a shareable one. Leaving it on the
+    // previous episode while the host watches this one would be the worse answer.
+    publishPartyEpisodeChange(episode, descriptor = null)
 }
 
+/**
+ * Whether this player decides its own next episode, or follows a party that decides for it.
+ *
+ * ⚠ **The countdown is host-only, and this is the whole of that rule.** A guest running its own
+ * autoplay-next would advance one client while the party stayed where it was, and two members
+ * choosing different episodes is precisely what one authoritative `content_generation` exists to
+ * prevent. A guest gets the party's own loading and barrier feedback instead of a countdown it
+ * cannot honour.
+ *
+ * Read against the party's *content*: a member watching something else with a party open in the
+ * background is having an ordinary evening and keeps their Next episode button.
+ */
+internal val PlayerScreenRuntime.ownsNextEpisode: Boolean
+    get() {
+        val partyUi = WatchPartyRepository.uiState.value
+        return ownsNextEpisodeChoice(
+            party = partyUi.party,
+            profileId = partyUi.activeProfileId,
+            localContentId = parentMetaId,
+            localVideoId = playbackSession.videoId,
+        )
+    }
+
 internal fun PlayerScreenRuntime.playNextEpisode() {
+    if (!ownsNextEpisode) return
     resolveNextEpisodeVideo()?.let { episode ->
         startNextEpisodeResolution(episode, PlayerNextEpisodeOrigin.AUTOMATIC)
     }
@@ -476,6 +687,7 @@ internal fun PlayerScreenRuntime.playNextEpisode() {
  * source rules made the button appear inert and could bypass the active playback mode.
  */
 internal fun PlayerScreenRuntime.playNextEpisodeFromControls() {
+    if (!ownsNextEpisode) return
     val nextVideo = resolveNextEpisodeVideo() ?: return
     val existing = nextEpisodeTransition
     if (existing.targetVideoId == nextVideo.id && existing.isActive) {
@@ -721,10 +933,49 @@ private fun PlayerScreenRuntime.openEpisodeQualitySheet(episode: MetaVideo) {
         season = episode.season,
         episode = episode.episode,
     )
+    if (isDesktop) {
+        // The Compose sheet would sit under the native video surface. The native controls layer
+        // draws the same rows in its episode list - see `PlayerEpisodeQualityChooser.kt`.
+        episodeQualitySheetEpisode = null
+        episodeStreamsPanelState = EpisodeStreamsPanelState(
+            showStreams = true,
+            selectedEpisode = episode,
+            qualityChooser = true,
+        )
+        showEpisodesPanel = true
+        controlsVisible = false
+        return
+    }
     episodeStreamsPanelState = EpisodeStreamsPanelState(selectedEpisode = episode)
     episodeQualitySheetEpisode = episode
     showEpisodesPanel = false
     controlsVisible = false
+}
+
+/**
+ * A row chosen in the native Streamlined chooser, resolved the way the Compose sheet's
+ * `onOptionSelected` resolves one. Returns the stream to start, or null when the list was opened
+ * instead (or the row no longer exists).
+ */
+internal fun PlayerScreenRuntime.resolveEpisodeQualityChoice(index: Int): StreamItem? {
+    val episode = episodeStreamsPanelState.selectedEpisode ?: return null
+    val context = streamlinedEpisodeSelectionContext(playerSettingsUiState, episode)
+    val choice = episodeQualityChoices(episodeStreamsRepoState, context).getOrNull(index) ?: return null
+    return when (val pick = decideEpisodeQualityPick(choice, context)) {
+        is EpisodeQualityPick.Play -> {
+            // The rest of the row, so a source that dies advances within the chosen quality.
+            nextEpisodeFallbacks = pick.fallbacks.take(com.nuvio.app.features.playback.PlaybackProgress.MAX_ATTEMPTS - 1)
+            pick.stream
+        }
+        EpisodeQualityPick.ShowSourceList -> {
+            openEpisodeSourceList(
+                episode,
+                automaticSelectionFailure = PlayerNextEpisodeFailureReason.NO_SAFE_CANDIDATE
+                    .takeIf { choice is EpisodeQualityChoice.Option },
+            )
+            null
+        }
+    }
 }
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {
@@ -840,6 +1091,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activePartySourceDescriptor = stream.toPartySourceDescriptor()
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
@@ -851,4 +1103,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeInitialProgressFraction = resume.fraction
     shouldPlay = true
     controlsVisible = true
+    // Every way of changing episode converges here, so this is where a host moves the party.
+    // A no-op for a guest and for a host already on this content.
+    publishPartyEpisodeChange(episode, activePartySourceDescriptor)
 }

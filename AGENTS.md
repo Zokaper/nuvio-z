@@ -764,6 +764,15 @@ Things that legitimately differ, and must **never** be copied:
 `features/setup/SetupHomeStill.kt` (a genuinely per-target file), and everything
 under `desktopMain`.
 
+⚠ **`androidFull/.../updater/AppUpdaterPlatform.android.kt` is per-repository.**
+Here the debuggable APK *is* the debug channel's build (`com.nuvio.app.z.debug`):
+`releaseSource.debugChannel` follows `isDebugBuild`, and `currentVersionName` is
+`DEBUG_VERSION_NAME` for it. Desktop's copy of the same file keeps its Android
+debug APK on the release line. The Phase 6 convergence merge (e606c2290) took
+desktop's, and `debug-v0.4.13-z1.29` could not see `.30`. `AndroidUpdateChannelTest`
+(full distribution, `-Pnuvio.android.distribution=full`) now fails if that happens
+again. It runs in `ci.yml` and in the `debug-release.yml` gate.
+
 **`desktopMain` has no counterpart in `nuvio-z`.** Any `expect` declaration needs
 a **desktop actual** in `NuvioZDesktop` as well as the android and ios ones. This
 has broken the desktop build twice (`publishNativeTabTitles`, then nearly
@@ -834,19 +843,21 @@ the tag as `v0.6.0-z1+127`. The updater compares on it and falls back to the old
 when the suffix is absent. The Android version code is unaffected; it is independent and already
 monotonic. Full scheme, and the one-time bridge release it needs, in `Docs/UPSTREAM.md`.
 
-**From `0.4.0-beta` (2026-08-07) the two apps share one version name.** Before that
-they ran independent lines inherited from upstream Nuvio - mobile had reached
-`0.3.10` and desktop `0.1.23-alpha`, which meant nothing to each other. A single
-number means "Nuvio Z 0.4.0-beta" is the same product on both platforms.
+**Phase 7 corrected the attempted single-number model.** Desktop shipped and hotfixed on its live
+`0.1.23-alpha-z*` line while mobile remained on `0.4.13-z1`; forcing those values back together
+would put installed desktop users at risk for no product benefit. `Docs/RELEASES.md` is now the
+release-policy source: desktop is one compatibility family, Android+iOS are one mobile family, and
+the families share semantics rather than literal version or serial values.
 
 Rules:
 
-- `MARKETING_VERSION` (nuvio-z) and `VERSION_NAME` (NuvioZDesktop) are **always
-  equal**. Bump both, in the same release.
-- The internal codes stay independent and **only ever increase**.
-  `CURRENT_PROJECT_VERSION` *is* the Android `versionCode`
-  (`androidApp/build.gradle.kts`); lowering it means existing installs can never
-  update again. It does not need to match the desktop's `VERSION_CODE`.
+- `MARKETING_VERSION` is shared by Android and iOS. `CURRENT_PROJECT_VERSION` is Android's
+  `versionCode` and iOS's `CFBundleVersion`; both only ever increase.
+- Desktop `VERSION_NAME`, `VERSION_CODE` and `RELEASE_SERIAL` stay on the live desktop lineage.
+  The stable MSI upgrade UUID and `2.0.<RELEASE_SERIAL>` ProductVersion mapping are compatibility
+  contracts. Do not change them to match mobile.
+- Desktop and mobile release serials are repository-local monotonic order values. Neither is
+  required to equal the other.
 - Stay pre-1.0 until the app has earned it. `1.0.0` should mean device-verified,
   not just green tests.
 - A `-beta` suffix is safe for the in-app updater: `parseVersionParts` reads the
@@ -890,11 +901,12 @@ which is what makes this survivable rather than fatal.
 than editing by hand (`--show` prints both, plus the debug channel's next tag).
 `--desktop-debug <n>` moves the debug counter.
 
-Steps:
+Steps for the release family being shipped:
 
 1. Land all the work, including the `STATUS.md` update, on the branch.
 2. Merge into `main` (nuvio-z) / `Dev` (NuvioZDesktop).
-3. **Bump the version as the final commit.** Nothing else may change after it.
+3. **Bump that family's version and monotonic order/build as the final commit.** Nothing else may
+   change after it. Android and iOS move together; desktop moves independently.
 4. Push, then dispatch the release workflow **against `main` / `Dev`**.
 
 The bump-last rule is enforced. `Validate release state` runs

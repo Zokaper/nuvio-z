@@ -25,6 +25,10 @@ data class StreamItem(
     val addonName: String,
     val addonId: String,
     val addonManifestUrl: String? = null,
+    /** Public logical source identity. Unlike [addonId], this never contains a URL. */
+    val partyOriginKind: String? = null,
+    val partyOriginId: String? = null,
+    val partyOriginVersion: String? = null,
     val addonLogo: String? = null,
     val streamType: String? = null,
     val behaviorHints: StreamBehaviorHints = StreamBehaviorHints(),

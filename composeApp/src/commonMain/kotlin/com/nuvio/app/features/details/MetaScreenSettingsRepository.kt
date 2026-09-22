@@ -27,10 +27,15 @@ enum class MetaScreenSectionKey {
     MORE_LIKE_THIS,
     ;
 
-    
+
     val canBeTabbed: Boolean
         get() = this != ACTIONS && this != OVERVIEW
 }
+
+val desktopHeroOwnedMetaSectionKeys: Set<MetaScreenSectionKey> = setOf(
+    MetaScreenSectionKey.ACTIONS,
+    MetaScreenSectionKey.OVERVIEW,
+)
 
 data class MetaScreenSectionItem(
     val key: MetaScreenSectionKey,
@@ -39,16 +44,6 @@ data class MetaScreenSectionItem(
     val enabled: Boolean,
     val order: Int,
     val tabGroup: Int? = null,
-)
-
-data class MetaScreenSettingsUiState(
-    val items: List<MetaScreenSectionItem> = emptyList(),
-    val backgroundMode: MetaScreenBackgroundMode = MetaScreenBackgroundMode.Normal,
-    val cinematicBackground: Boolean = false,
-    val heroTrailerPlayback: Boolean = false,
-    val tabLayout: Boolean = false,
-    val episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
-    val blurUnwatchedEpisodes: Boolean = false,
 )
 
 enum class MetaScreenBackgroundMode {
@@ -74,10 +69,22 @@ enum class MetaScreenBackgroundMode {
             DominantColor -> "dominant_color"
         }
 
+        val Default: MetaScreenBackgroundMode = DominantColor
+
         fun fromLegacyCinematic(enabled: Boolean): MetaScreenBackgroundMode =
-            if (enabled) Cinematic else Normal
+            if (enabled) Cinematic else Default
     }
 }
+
+data class MetaScreenSettingsUiState(
+    val items: List<MetaScreenSectionItem> = emptyList(),
+    val backgroundMode: MetaScreenBackgroundMode = MetaScreenBackgroundMode.Default,
+    val cinematicBackground: Boolean = MetaScreenBackgroundMode.Default.usesBackdropBackground,
+    val heroTrailerPlayback: Boolean = false,
+    val tabLayout: Boolean = false,
+    val episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
+    val blurUnwatchedEpisodes: Boolean = false,
+)
 
 enum class MetaEpisodeCardStyle {
     Horizontal,
@@ -96,6 +103,16 @@ enum class MetaEpisodeCardStyle {
             List -> "list"
         }
     }
+}
+
+internal fun MetaScreenSectionItem.tabGroupForRendering(
+    episodeCardStyle: MetaEpisodeCardStyle,
+): Int? = if (
+    key == MetaScreenSectionKey.EPISODES && episodeCardStyle == MetaEpisodeCardStyle.List
+) {
+    null
+} else {
+    tabGroup
 }
 
 @Serializable
@@ -145,6 +162,11 @@ object MetaScreenSettingsRepository {
             descriptionRes = Res.string.meta_section_overview_description,
         ),
         MetaScreenSectionDefinition(
+            key = MetaScreenSectionKey.EPISODES,
+            titleRes = Res.string.settings_meta_episodes,
+            descriptionRes = Res.string.meta_section_episodes_description,
+        ),
+        MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.DOWNLOADS,
             titleRes = Res.string.meta_section_downloads_title,
             descriptionRes = Res.string.meta_section_downloads_description,
@@ -170,11 +192,6 @@ object MetaScreenSettingsRepository {
             descriptionRes = Res.string.meta_section_trailers_description,
         ),
         MetaScreenSectionDefinition(
-            key = MetaScreenSectionKey.EPISODES,
-            titleRes = Res.string.settings_meta_episodes,
-            descriptionRes = Res.string.meta_section_episodes_description,
-        ),
-        MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.DETAILS,
             titleRes = Res.string.meta_section_details_title,
             descriptionRes = Res.string.meta_section_details_description,
@@ -196,7 +213,7 @@ object MetaScreenSettingsRepository {
 
     private var hasLoaded = false
     private var preferences: MutableMap<MetaScreenSectionKey, StoredMetaScreenSectionPreference> = mutableMapOf()
-    private var backgroundMode: MetaScreenBackgroundMode = MetaScreenBackgroundMode.Normal
+    private var backgroundMode: MetaScreenBackgroundMode = MetaScreenBackgroundMode.Default
     private var heroTrailerPlayback: Boolean = false
     private var tabLayout: Boolean = false
     private var episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal
@@ -235,7 +252,7 @@ object MetaScreenSettingsRepository {
     fun onProfileChanged() {
         hasLoaded = false
         preferences.clear()
-        backgroundMode = MetaScreenBackgroundMode.Normal
+        backgroundMode = MetaScreenBackgroundMode.Default
         heroTrailerPlayback = false
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
@@ -343,7 +360,7 @@ object MetaScreenSettingsRepository {
     fun clearLocalState() {
         hasLoaded = false
         preferences.clear()
-        backgroundMode = MetaScreenBackgroundMode.Normal
+        backgroundMode = MetaScreenBackgroundMode.Default
         heroTrailerPlayback = false
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
@@ -388,7 +405,7 @@ object MetaScreenSettingsRepository {
     fun resetToDefaults() {
         ensureLoaded()
         preferences.clear()
-        backgroundMode = MetaScreenBackgroundMode.Normal
+        backgroundMode = MetaScreenBackgroundMode.Default
         heroTrailerPlayback = false
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
@@ -398,14 +415,16 @@ object MetaScreenSettingsRepository {
         persist()
     }
 
-    fun moveByIndex(fromIndex: Int, toIndex: Int) {
+    fun moveByKey(fromKey: MetaScreenSectionKey, toKey: MetaScreenSectionKey) {
         ensureLoaded()
+        if (fromKey == toKey) return
         val orderedKeys = definitions
             .sortedBy { definition -> preferences[definition.key]?.order ?: Int.MAX_VALUE }
             .map { it.key }
             .toMutableList()
-        if (fromIndex !in orderedKeys.indices || toIndex !in orderedKeys.indices) return
-        if (fromIndex == toIndex) return
+        val fromIndex = orderedKeys.indexOf(fromKey)
+        val toIndex = orderedKeys.indexOf(toKey)
+        if (fromIndex == -1 || toIndex == -1) return
         orderedKeys.add(toIndex, orderedKeys.removeAt(fromIndex))
         orderedKeys.forEachIndexed { newIndex, sectionKey ->
             val current = preferences[sectionKey] ?: return@forEachIndexed

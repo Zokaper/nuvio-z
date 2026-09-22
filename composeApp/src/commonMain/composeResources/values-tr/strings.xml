@@ -579,7 +579,7 @@
     <string name="settings_appearance_amoled_description">OLED ekranlar için saf siyah arka planlar kullan.</string>
     <string name="settings_appearance_app_icon">Uygulama Simgesi</string>
     <string name="settings_appearance_app_icon_arctic_blue">Kutup Mavisi</string>
-    <string name="settings_appearance_app_icon_android_confirmation_message">%1$s olarak değiştirmek Nuvio'yu kapatacaktır. Devam etmek için Tamam'a dokunun.</string>
+    <string name="settings_appearance_app_icon_android_confirmation_message">%1$s olarak değiştirmek için Nuvio yeniden başlatılmalıdır. Devam etmek için Tamam'a dokunun.</string>
     <string name="settings_appearance_app_icon_android_confirmation_title">Uygulama Simgesi Değiştirilsin mi?</string>
     <string name="settings_appearance_app_icon_change_failed">Simge değiştirilemedi. Lütfen tekrar deneyin.</string>
     <string name="settings_appearance_app_icon_copper">Bakır</string>
@@ -1511,7 +1511,7 @@
     <string name="updates_debug_test_title">Test güncelleme afişi</string>
     <string name="updates_install_failed">Kurulum başlatılamadı</string>
     <string name="updates_latest_version">En güncel sürümü kullanıyorsun.</string>
-    <string name="updates_message_allow_installs">Nuvio Z için uygulama kurulumlarına izin ver, sonra geri gelip devam et.</string>
+    <string name="updates_message_allow_installs">Nuvio için uygulama kurulumlarına izin ver, sonra geri gelip devam et.</string>
     <string name="updates_message_downloading">Güncelleme indiriliyor...</string>
     <string name="updates_message_no_updates">Güncelleme bulunamadı.</string>
     <string name="updates_message_ready">Yeni sürüm kurulmaya hazır.</string>
@@ -2074,6 +2074,7 @@
     <string name="cw_airs_date">Yayın tarihi: %1$s</string>
     <string name="cw_airs_today">Bugün yayında</string>
     <string name="cw_airs_tomorrow">Yarın yayında</string>
+    <string name="cw_airs_in_days_format">Yayın tarihi: %1$d gün sonra</string>
     <plurals name="cw_airs_in_days">
         <item quantity="one">Yayın tarihi: %1$d gün sonra</item>
         <item quantity="other">Yayın tarihi: %1$d gün sonra</item>
@@ -2081,6 +2082,7 @@
     <string name="cw_airs_date_short">%1$s</string>
     <string name="cw_airs_today_short">Bugün</string>
     <string name="cw_airs_tomorrow_short">Yarın</string>
+    <string name="cw_airs_in_days_short_format">%1$d gün sonra</string>
     <plurals name="cw_airs_in_days_short">
         <item quantity="one">%1$d gün sonra</item>
         <item quantity="other">%1$d gün sonra</item>

@@ -60,12 +60,13 @@ object PlaybackSourceProbe {
     /** Enough to see the status, the type and the reported length. Nothing is buffered. */
     const val PROBE_RANGE_HEADER: String = "bytes=0-1"
 
-    /**
-     * Bounded well under a debrid mint, which is the slowest thing this can legitimately wait
-     * behind. Past it the probe is abandoned and the source is played unjudged - a probe that
-     * delays a working play is worse than a probe that misses.
-     */
-    const val PROBE_TIMEOUT_MS: Long = 2_500L
+    // ⚠ **There is deliberately no timeout constant here any more.** There was one, at 2,500 ms,
+    // and it was a lie: `httpRequestRaw`'s desktop actual blocks inside `Dispatchers.IO`, so
+    // `withTimeoutOrNull` had no suspension point to cancel at and the first real measurement
+    // came back at 8,115 ms - eight seconds added to a play. A bound that cannot be enforced is
+    // worse than none, because the caller writes code as though it holds. See
+    // `probePlaybackSource`: the probe is unbounded and must be run beside the attach, never
+    // awaited before it.
 
     /**
      * The absolute ceiling for "this cannot be the feature".
