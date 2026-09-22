@@ -302,8 +302,13 @@ jobs:
           ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
           notes_file="${RUNNER_TEMP}/debug-notes.txt"
           echo "Debug build ${{ needs.prepare.outputs.version }} (build ${{ needs.prepare.outputs.debug_build }}) for SideStore." > "${notes_file}"
+
+          canonical_dir="${RUNNER_TEMP}/canonical-main"
+          rm -rf "${canonical_dir}"
+          git clone --depth 1 --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${canonical_dir}"
+
           python3 scripts/update-store-source.py \
-            --source distribution/sidestore/source-debug.json \
+            --source "${canonical_dir}/distribution/sidestore/source-debug.json" \
             --ipa "release-assets/${ipa_name}" \
             --expected-bundle-id com.nuvio.app.z.debug \
             --release-notes "${notes_file}" \
@@ -311,12 +316,37 @@ jobs:
             --release-date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --download-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ needs.prepare.outputs.tag }}/${ipa_name}"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add distribution/sidestore/source-debug.json
-          git commit -m "chore(store): update source-debug.json for ${{ needs.prepare.outputs.version }} [skip ci]" || echo "No changes to commit"
-          git push origin "HEAD:${GITHUB_REF_NAME}" || echo "Could not push to branch directly"
+          if git -C "${canonical_dir}" status --porcelain | grep -q "source\.json"; then
+            echo "::error::Stable source.json was unexpectedly modified by debug release" >&2
+            exit 1
+          fi
 
+          if git -C "${canonical_dir}" diff --quiet "${canonical_dir}/distribution/sidestore/source-debug.json"; then
+            echo "Canonical source-debug.json on main is already current."
+          else
+            git -C "${canonical_dir}" config user.name "github-actions[bot]"
+            git -C "${canonical_dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "${canonical_dir}" add distribution/sidestore/source-debug.json
+            git -C "${canonical_dir}" commit -m "chore(store): update source-debug.json for ${{ needs.prepare.outputs.version }} [skip ci]"
+
+            pushed=0
+            for attempt in 1 2 3; do
+              if git -C "${canonical_dir}" push origin main; then
+                pushed=1
+                break
+              fi
+              echo "Push to main failed (attempt ${attempt}/3). Re-fetching latest main..."
+              sleep 2
+              git -C "${canonical_dir}" pull --rebase origin main
+            done
+
+            if [[ "${pushed}" -ne 1 ]]; then
+              echo "::error::Failed to push canonical source-debug.json to main after 3 attempts" >&2
+              exit 1
+            fi
+          fi
+
+          cp "${canonical_dir}/distribution/sidestore/source-debug.json" distribution/sidestore/source-debug.json
           gh release upload "${{ needs.prepare.outputs.tag }}" \
             distribution/sidestore/source-debug.json \
             --repo "${GITHUB_REPOSITORY}" \

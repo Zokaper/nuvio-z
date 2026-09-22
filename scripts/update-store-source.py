@@ -117,10 +117,26 @@ def find_app(source: dict, bundle_identifier: str) -> dict:
     return matches[0]
 
 
+def parse_build_number(value: str) -> int | None:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def update_versions(app: dict, entry: dict) -> None:
     versions = app.get("versions")
     if not isinstance(versions, list):
         raise ValueError("source app versions must be an array")
+
+    new_build = parse_build_number(entry.get("buildVersion"))
+    if versions and new_build is not None:
+        latest_build = parse_build_number(versions[0].get("buildVersion"))
+        if latest_build is not None and latest_build > new_build:
+            raise ValueError(
+                f"stale/lower build {entry['buildVersion']} cannot overwrite newer canonical build {versions[0].get('buildVersion')}"
+            )
+
     retained = []
     for version in versions:
         if not isinstance(version, dict):
