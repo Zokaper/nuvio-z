@@ -104,10 +104,17 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
         ).also { diagnostics.computerCheck(it) }
     }
 
-    override fun installAppleDeviceSupport(): OperationResult = run(
-        "winget", "install", "--id", "Apple.iTunes", "-e", "--source", "winget",
-        "--accept-package-agreements", "--accept-source-agreements", timeoutSeconds = 900,
-    )
+    override fun installAppleDeviceSupport(): OperationResult {
+        val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iTunes64Setup.exe")
+        val downloaded = download(
+            "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
+            target,
+        )
+        if (!downloaded.success) return downloaded
+        val installed = run(target.toString(), timeoutSeconds = 900)
+        return if (installed.success) OperationResult(true, "Apple's desktop iTunes installer finished. Checking device communication again.", installed.exitCode)
+        else OperationResult(false, "Apple's installer did not complete successfully. Try it again or open the technical details below.", installed.exitCode, installed.details)
+    }
 
     override fun isDeviceConnected(): Boolean {
         val result = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if (Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.InstanceId -like 'USB\\VID_05AC*' -or ${'$'}_.FriendlyName -match 'iPhone|iPad|Apple Mobile Device' }) { exit 0 } else { exit 1 }")

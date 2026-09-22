@@ -259,7 +259,7 @@ private fun StepPage(
                 when (step) {
                     SetupStep.WELCOME -> WelcomeContent(state)
                     SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> CheckContent(check, step, working, state.appleSupportConfirmed, onInstallApple, onAppleSupportAlreadyInstalled, onRecheck)
-                    SetupStep.CONNECT_IPHONE -> ConnectContent(deviceDetected, deviceTransportReady, working, onRecheck, onOpenAppleServices)
+                    SetupStep.CONNECT_IPHONE -> ConnectContent(deviceDetected, deviceTransportReady, working, onRecheck, onOpenAppleServices, onInstallApple)
                     SetupStep.LOCAL_DEV_VPN -> Instructions(listOf("Install LocalDevVPN from the App Store.", "Open LocalDevVPN and allow the VPN configuration.", "Make sure the iPhone is on Wi-Fi, then tap Connect."))
                     SetupStep.ILOADER_INSTALL -> IloaderContent(iloaderDetected, working, onInstallIloader, onRecheck, onOpenIloader)
                     SetupStep.SIDESTORE_INSTALL -> SideStoreInstallContent(onOpenIloader)
@@ -319,7 +319,7 @@ private fun StepPage(
     }
 }
 
-@Composable private fun ConnectContent(detected: Boolean, transportReady: Boolean, working: Boolean, onRecheck: () -> Unit, onOpenAppleServices: () -> Unit) {
+@Composable private fun ConnectContent(detected: Boolean, transportReady: Boolean, working: Boolean, onRecheck: () -> Unit, onOpenAppleServices: () -> Unit, onRepairAppleSupport: () -> Unit) {
     Instructions(listOf("Connect your iPhone by USB.", "Unlock it.", "If asked “Trust This Computer?”, tap Trust.", "Enter the iPhone passcode.", "Make sure the iPhone is connected to Wi-Fi."))
     Spacer(Modifier.height(18.dp))
     Text(if (detected) "✓ iPhone detected by Windows" else "Waiting for iPhone…", color = if (detected) Color(0xFF67D99B) else Color(0xFFFFC857), fontWeight = FontWeight.Bold)
@@ -333,7 +333,9 @@ private fun StepPage(
         Spacer(Modifier.height(12.dp))
         Text("iloader cannot work until Windows' Apple Mobile Device Service is reachable. Restarting that service usually fixes the usbmuxd error.", color = Color(0xFFFFC857))
         Spacer(Modifier.height(12.dp))
-        Button(enabled = !working, onClick = onOpenAppleServices) { Text("Open Windows Services") }
+        Button(enabled = !working, onClick = onRepairAppleSupport) { Text("Repair with Apple's desktop installer") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(enabled = !working, onClick = onOpenAppleServices) { Text("Open Windows Services") }
         Spacer(Modifier.height(10.dp))
         Instructions(listOf("Close iloader and iTunes/Apple Devices, then unplug the iPhone.", "In Windows Services, open Apple Mobile Device Service.", "Set Startup type to Automatic, then Stop and Start the service.", "Restart Windows, reconnect and trust the iPhone, then open iTunes/Apple Devices once."))
     }

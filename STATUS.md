@@ -74,6 +74,15 @@ problem, opens Windows Services, and embeds Apple's AMDS restart sequence. This 
 in our guided UI instead of discovering it only after iloader opens. The probe was verified against
 the local physical iPhone/AMDS setup and the portable app still builds with **14 / 14** tests.
 
+The first 1.0.3 CI attempt exposed the actual regression before publication: the GUI had replaced
+the CLI's proven direct Apple `iTunes64Setup.exe` with `winget Apple.iTunes`. A package being listed
+by winget did not guarantee that Apple Mobile Device Support/usbmuxd was installed and live, while
+the original physical CLI run's Apple desktop installer did exactly that without a reboot. The GUI
+now downloads and launches the same official Apple installer URL as the retained CLI. If Windows
+sees the phone but usbmuxd is absent, **Repair with Apple's desktop installer** is the recommended
+first action; restarting AMDS is the fallback rather than the happy path. The intermediate artifact
+was never published as a prerelease.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**
