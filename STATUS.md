@@ -83,6 +83,13 @@ sees the phone but usbmuxd is absent, **Repair with Apple's desktop installer** 
 first action; restarting AMDS is the fallback rather than the happy path. The intermediate artifact
 was never published as a prerelease.
 
+The corrected portable packages passed both jobs in dedicated build run `35762793455` and were
+published as prerelease `ios-setup-v1.0.3-beta.1`. The Windows ZIP SHA-256 is
+`6450D2647316C99509EB59931A66300B7ED437A45FE13295B060C80586A36071`; the macOS ZIP SHA-256 is
+`F688CEC67D145D9D88B18537C7D33FDFCC793452A4DDEE30026883B8664570FA`. The release was created
+with the SideStore-source workflow temporarily disabled and that workflow was immediately restored
+to active, so neither source feed was changed.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**
