@@ -174,11 +174,14 @@ jobs:
     if: inputs.mode != 'publish'
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 75
+    timeout-minutes: 120
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      # Keep the proven hosted-macOS split from ios-build.yml. Giving Gradle and
+      # Kotlin/Native 4.5G each exceeds the runner's ~7G total and makes the Release
+      # framework spend the whole timeout in compileKotlinIosArm64.
+      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
     steps:
       - uses: actions/checkout@v6
@@ -209,10 +212,12 @@ jobs:
     if: inputs.mode == 'publish'
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     environment: mobile-release
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
       NUVIO_IOS_TEAM_ID: ${{ vars.NUVIO_IOS_TEAM_ID }}
       IOS_CERTIFICATE_BASE64: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.NUVIO_IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}

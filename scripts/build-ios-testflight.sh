@@ -36,7 +36,15 @@ cd "${repository_root}"
 rm -rf "${archive_path}" "${output_directory}"
 mkdir -p "$(dirname "${archive_path}")" "${output_directory}" "$(dirname "${export_options}")"
 
-env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
+build_environment=(env NUVIO_IOS_DISTRIBUTION=full)
+if [[ -n "${NUVIO_GRADLE_JVMARGS:-}" ]]; then
+    build_environment+=("ORG_GRADLE_PROJECT_org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS}")
+fi
+if [[ -n "${NUVIO_KOTLIN_NATIVE_JVMARGS:-}" ]]; then
+    build_environment+=("ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}")
+fi
+
+"${build_environment[@]}" xcodebuild \
     -project iosApp/iosApp.xcodeproj \
     -scheme iosApp \
     -configuration Release \
