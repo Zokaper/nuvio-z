@@ -118,6 +118,10 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                             check = withContext(Dispatchers.IO) { ops.checkComputer() }
                         }
                     },
+                    onAppleSupportAlreadyInstalled = {
+                        controller.confirmAppleSupportInstalled()
+                        sync()
+                    },
                     onRecheck = {
                         runOperation("Checking again…", {
                             when (state.currentStep) {
@@ -139,7 +143,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
             }
             val autoVerified = when (state.currentStep) {
                 SetupStep.COMPUTER_CHECK -> check?.let { it.supportedOs.state == CheckState.PASS && it.internet.state == CheckState.PASS } == true
-                SetupStep.APPLE_DEVICE_SUPPORT -> check?.canContinue == true
+                SetupStep.APPLE_DEVICE_SUPPORT -> check?.canContinue == true || state.appleSupportConfirmed
                 SetupStep.CONNECT_IPHONE -> deviceDetected || state.advancedDeviceOverride
                 SetupStep.ILOADER_INSTALL -> iloaderDetected
                 else -> false
@@ -220,6 +224,7 @@ private fun StepPage(
     onConfirmed: (Boolean) -> Unit,
     onRepair: () -> Unit,
     onInstallApple: () -> Unit,
+    onAppleSupportAlreadyInstalled: () -> Unit,
     onRecheck: () -> Unit,
     onInstallIloader: () -> Unit,
     onOpenIloader: () -> Unit,
@@ -236,7 +241,7 @@ private fun StepPage(
             Column(Modifier.padding(24.dp)) {
                 when (step) {
                     SetupStep.WELCOME -> WelcomeContent(state)
-                    SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> CheckContent(check, step, working, onInstallApple, onRecheck)
+                    SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> CheckContent(check, step, working, state.appleSupportConfirmed, onInstallApple, onAppleSupportAlreadyInstalled, onRecheck)
                     SetupStep.CONNECT_IPHONE -> ConnectContent(deviceDetected, working, onRecheck)
                     SetupStep.LOCAL_DEV_VPN -> Instructions(listOf("Install LocalDevVPN from the App Store.", "Open LocalDevVPN and allow the VPN configuration.", "Make sure the iPhone is on Wi-Fi, then tap Connect."))
                     SetupStep.ILOADER_INSTALL -> IloaderContent(iloaderDetected, working, onInstallIloader, onRecheck, onOpenIloader)
@@ -279,12 +284,20 @@ private fun StepPage(
     }
 }
 
-@Composable private fun CheckContent(check: ComputerCheck?, step: SetupStep, working: Boolean, onInstall: () -> Unit, onRecheck: () -> Unit) {
+@Composable private fun CheckContent(check: ComputerCheck?, step: SetupStep, working: Boolean, appleSupportConfirmed: Boolean, onInstall: () -> Unit, onAlreadyInstalled: () -> Unit, onRecheck: () -> Unit) {
     if (working && check == null) { CircularProgressIndicator(); return }
     check?.let { value ->
         listOfNotNull(value.supportedOs, value.internet, value.appleSupport, value.appleService).forEach { CheckRow(it) }
         Spacer(Modifier.height(18.dp))
-        if (!value.canContinue && step == SetupStep.APPLE_DEVICE_SUPPORT) Button(enabled = !working, onClick = onInstall) { Text("Install recommended Apple device support") }
+        if (!value.canContinue && step == SetupStep.APPLE_DEVICE_SUPPORT) {
+            Button(enabled = !working, onClick = onInstall) { Text("Install recommended Apple device support") }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(enabled = !working && !appleSupportConfirmed, onClick = onAlreadyInstalled) {
+                Text(if (appleSupportConfirmed) "Installed — continue with Next" else "iTunes or Apple Devices is already installed")
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("The next page still verifies that Windows can actually detect your iPhone over USB.", color = Color(0xFF9AA9C0), fontSize = 13.sp)
+        }
         Spacer(Modifier.height(8.dp)); OutlinedButton(enabled = !working, onClick = onRecheck) { Text("Check again") }
     }
 }

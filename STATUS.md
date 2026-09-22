@@ -53,6 +53,16 @@ including the stopped-service regression. Installer-only `ios-setup-v*` prerelea
 excluded from `update-store-source.yml`, so publishing the portable GUI cannot mutate either
 SideStore feed or be mistaken for a mobile debug release.
 
+### Acceptance hotfix 1.0.2
+
+The same tester's machine still reported iTunes as current through winget while the service,
+registry/driver-directory and current-user Store-package probes remained invisible to the setup
+process. Automatic detection now also uses `winget list --id Apple.iTunes -e`, the same package
+authority used by the install button, and diagnostics record each Apple probe separately. Step 3
+also has an explicit **iTunes or Apple Devices is already installed** escape from detection-only
+failure. This is safe because it advances only to Step 4, whose actual USB Apple-device detection
+remains mandatory. Setup tests are now **14 / 14**.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**

@@ -10,6 +10,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SetupControllerTest {
+    @Test fun wingetInstalledPackageIsAnAppleSupportSignal() {
+        assertTrue(appleSupportDetected(registryOrDriver = false, serviceInstalled = false, wingetInstalled = true))
+        assertFalse(appleSupportDetected(registryOrDriver = false, serviceInstalled = false, wingetInstalled = false))
+    }
+
+    @Test fun explicitAppleSupportConfirmationLeavesUsbDetectionAsNextGate() {
+        val controller = at(SetupStep.APPLE_DEVICE_SUPPORT)
+        controller.confirmAppleSupportInstalled()
+        assertTrue(controller.state.appleSupportConfirmed)
+        assertTrue(controller.advance(autoVerified = true))
+        assertEquals(SetupStep.CONNECT_IPHONE, controller.state.currentStep)
+        assertFalse(controller.advance(autoVerified = false))
+    }
+
     @Test fun installedAppleSupportDoesNotBlockOnOneServiceState() {
         val check = ComputerCheck(
             supportedOs = CheckResult("Windows", CheckState.PASS),

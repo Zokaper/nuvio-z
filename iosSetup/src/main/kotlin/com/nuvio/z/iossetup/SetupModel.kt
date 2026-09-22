@@ -41,6 +41,7 @@ data class SetupState(
     val manualConfirmations: Set<SetupStep> = emptySet(),
     val repairMode: Boolean = false,
     val advancedDeviceOverride: Boolean = false,
+    val appleSupportConfirmed: Boolean = false,
 ) {
     val sourceUrl: String get() = channel.sourceUrl
     val sourceDeepLink: String get() = "sidestore://source?url=" +
@@ -67,3 +68,6 @@ data class OperationResult(
     val exitCode: Int? = null,
     val details: String = "",
 )
+
+fun appleSupportDetected(registryOrDriver: Boolean, serviceInstalled: Boolean, wingetInstalled: Boolean): Boolean =
+    registryOrDriver || serviceInstalled || wingetInstalled

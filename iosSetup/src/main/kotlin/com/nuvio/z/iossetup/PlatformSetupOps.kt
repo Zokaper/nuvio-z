@@ -73,22 +73,27 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
         val is64 = System.getenv("PROCESSOR_ARCHITEW6432") != null || System.getProperty("os.arch").contains("64")
         val service = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Service -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'Apple.*Mobile|MobileDevice' -or ${'$'}_.DisplayName -match 'Apple Mobile Device' } | Select-Object -First 1 -ExpandProperty Status")
         val registry = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if ((Test-Path 'HKLM:\\SOFTWARE\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path (Join-Path ${'$'}env:ProgramFiles 'Common Files\\Apple\\Mobile Device Support')) -or (Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'AppleInc\\.(iTunes|AppleDevices)' })) { exit 0 } else { exit 1 }")
+        val winget = run("winget", "list", "--id", "Apple.iTunes", "-e", "--source", "winget", "--accept-source-agreements", timeoutSeconds = 60)
         val serviceInstalled = service.exitCode == 0 && service.details.isNotBlank()
+        val serviceRunning = service.details.contains("Running", true)
+        val installed = appleSupportDetected(registry.success, serviceInstalled, winget.success)
+        diagnostics.appleProbes(registry.success, serviceInstalled, serviceRunning, winget.success)
         return ComputerCheck(
             CheckResult("64-bit Windows", if (is64) CheckState.PASS else CheckState.FAIL, if (is64) "Supported" else "A 64-bit Windows computer is required."),
             CheckResult("Internet connection", if (hasInternet()) CheckState.PASS else CheckState.FAIL, "Needed to download iloader and the Nuvio Z source."),
-            CheckResult("Apple device support", if (registry.success || serviceInstalled) CheckState.PASS else CheckState.ACTION, if (registry.success || serviceInstalled) "Installed" else "Install Apple's iPhone drivers."),
+            CheckResult("Apple device support", if (installed) CheckState.PASS else CheckState.ACTION, if (installed) "Installed" else "Install Apple's iPhone drivers."),
             CheckResult(
                 "Apple Mobile Device Service",
                 when {
-                    service.details.contains("Running", true) -> CheckState.PASS
+                    serviceRunning -> CheckState.PASS
                     serviceInstalled -> CheckState.ACTION
                     else -> CheckState.ACTION
                 },
                 when {
-                    service.details.contains("Running", true) -> "Running"
+                    serviceRunning -> "Running"
                     serviceInstalled -> "Installed but not running yet. You can continue; iPhone detection is the final check."
                     registry.success -> "Apple device support is installed. The service may start when the iPhone is connected."
+                    winget.success -> "iTunes is installed. The USB connection on the next page will verify its drivers."
                     else -> "Not detected yet."
                 },
             ),

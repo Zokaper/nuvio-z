@@ -27,6 +27,11 @@ class SetupController(
         persist()
     }
 
+    fun confirmAppleSupportInstalled() {
+        state = state.copy(appleSupportConfirmed = true)
+        persist()
+    }
+
     fun canAdvance(autoVerified: Boolean = false): Boolean = when (state.currentStep) {
         SetupStep.WELCOME -> true
         SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT, SetupStep.CONNECT_IPHONE,
