@@ -13,6 +13,8 @@ SKIP_PREREQUISITES=false
 SKIP_DEVICE_WAIT=false
 DIAGNOSTIC_ONLY=false
 
+DEVELOPER_MODE=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --source-url)
@@ -35,12 +37,17 @@ while [[ $# -gt 0 ]]; do
             DIAGNOSTIC_ONLY=true
             shift
             ;;
+        -d|--developer)
+            DEVELOPER_MODE=true
+            shift
+            ;;
         -h|--help)
             cat << 'EOF'
 Usage: ./setup-macos.sh [options]
 
 Options:
   --source-url <url>      Custom SideStore source JSON URL
+  -d, --developer        Enable developer mode (Nuvio Z Debug channel)
   --skip-prerequisites   Skip system and driver prerequisite checks
   --skip-device-wait     Skip waiting for a connected iPhone (dry-run/test mode)
   --diagnostic-only      Run environment checks and exit
@@ -415,10 +422,27 @@ guide_phone_approvals() {
 # ------------------------------------------------------------------------------
 generate_html_helper() {
     local source_url="$1"
+    local is_dev="${2:-false}"
     local encoded_url
     encoded_url="$(python3 -c "import urllib.parse; print(urllib.parse.quote('''${source_url}''', safe=''))" 2>/dev/null || echo "${source_url}")"
     local deep_link="sidestore://source?url=${encoded_url}"
     local html_path="/tmp/nuvio-z-sidestore-helper.html"
+
+    local app_name="Nuvio Z"
+    local page_title="Nuvio Z — SideStore Source Setup"
+    local badge_text="Nuvio Z iOS Sideload"
+    local accent_color="#1e88e5"
+    local accent_hover="#1565c0"
+    local warning_banner=""
+
+    if [[ "${is_dev}" == true ]]; then
+        app_name="Nuvio Z Debug"
+        page_title="Nuvio Z Debug — Developer Channel"
+        badge_text="Nuvio Z iOS Debug (Developer Channel)"
+        accent_color="#e65100"
+        accent_hover="#bf360c"
+        warning_banner='<div style="background: rgba(230, 81, 0, 0.15); border: 1px solid #e65100; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #ffb74d; text-align: left;"><strong>DEVELOPER PREVIEW:</strong><ul style="margin: 6px 0 0 16px; padding: 0;"><li>Installs separately from stable Nuvio Z as <code>com.nuvio.app.z.debug</code>.</li><li>Uses its own independent application container and data.</li><li>Consumes an additional SideStore app slot (all 3 slots used when both installed).</li></ul></div>'
+    fi
 
     cat << EOF > "${html_path}"
 <!DOCTYPE html>
@@ -426,7 +450,7 @@ generate_html_helper() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nuvio Z — SideStore Source Setup</title>
+<title>${page_title}</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -434,8 +458,8 @@ generate_html_helper() {
     --border: #30363d;
     --text: #c9d1d9;
     --heading: #f0f6fc;
-    --accent: #1e88e5;
-    --accent-hover: #1565c0;
+    --accent: ${accent_color};
+    --accent-hover: ${accent_hover};
     --code-bg: #090d13;
   }
   body {
@@ -538,9 +562,10 @@ generate_html_helper() {
 </head>
 <body>
 <div class="container">
-  <div class="badge">Nuvio Z iOS Sideload</div>
-  <h1>Add Nuvio Z to SideStore</h1>
+  <div class="badge">${badge_text}</div>
+  <h1>Add ${app_name} to SideStore</h1>
   <p class="subtitle">Scan the QR code with your iPhone Camera to automatically add the source, or copy the URL below.</p>
+  ${warning_banner}
 
   <div class="qr-box">
     <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encoded_url}" alt="SideStore Source QR Code" />
@@ -558,7 +583,7 @@ generate_html_helper() {
       <li>Open your iPhone <strong>Camera</strong> and point it at the QR code above.</li>
       <li>Tap the yellow prompt <strong>"Open in SideStore"</strong>.</li>
       <li>In SideStore, tap <strong>"Add Source"</strong>.</li>
-      <li>Go to the <strong>Browse</strong> tab, find <strong>Nuvio Z</strong>, and tap <strong>Install</strong>!</li>
+      <li>Go to the <strong>Browse</strong> tab, find <strong>${app_name}</strong>, and tap <strong>Install</strong>!</li>
     </ol>
   </div>
 
@@ -567,7 +592,7 @@ generate_html_helper() {
   </div>
 
   <p class="footer-note">
-    Remember to refresh Nuvio Z in SideStore every 5-6 days with LocalDevVPN enabled to keep your 7-day developer certificate active.
+    Remember to refresh ${app_name} in SideStore every 5-6 days with LocalDevVPN enabled to keep your 7-day developer certificate active.
   </p>
 </div>
 
@@ -589,11 +614,19 @@ EOF
 
 guide_source_and_install() {
     local source_url="$1"
-    write_step_header 7 7 "Adding Nuvio Z Source & Installing App"
+    local is_dev="${2:-false}"
+    local app_name="Nuvio Z"
+    if [[ "${is_dev}" == true ]]; then
+        app_name="Nuvio Z Debug"
+    fi
+    local app_name_upper
+    app_name_upper="$(echo "${app_name}" | tr '[:lower:]' '[:upper:]')"
+
+    write_step_header 7 7 "Adding ${app_name} Source & Installing App"
 
     write_working "Generating interactive QR code and setup helper..."
     local helper_path
-    helper_path="$(generate_html_helper "${source_url}")"
+    helper_path="$(generate_html_helper "${source_url}" "${is_dev}")"
     write_success "Helper page created at: ${helper_path}"
 
     write_working "Opening helper page in your default browser..."
@@ -601,7 +634,7 @@ guide_source_and_install() {
 
     echo ""
     printf '%s===================================================================%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
-    printf '%s                     ADD NUVIO Z SOURCE                            %s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+    printf '%s                     ADD %-15s SOURCE             %s\n' "${COLOR_CYAN}" "${app_name_upper}" "${COLOR_RESET}"
     printf '%s===================================================================%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
     echo ""
     printf '%sA browser window has opened with a crisp QR code.%s\n' "${COLOR_WHITE}" "${COLOR_RESET}"
@@ -620,18 +653,18 @@ guide_source_and_install() {
     printf '%s  4. Tap "Add".%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
     echo ""
     printf '%s-------------------------------------------------------------------%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
-    printf '%sINSTALLING NUVIO Z:%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}"
+    printf '%sINSTALLING %s:%s\n' "${COLOR_YELLOW}" "${app_name_upper}" "${COLOR_RESET}"
     printf '%s  1. Make sure LocalDevVPN is active on your iPhone.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
     printf '%s  2. In SideStore, tap the "Browse" tab at the bottom.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
-    printf '%s  3. You will see "Nuvio Z" in the list.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
-    printf '%s  4. Tap "FREE" or "INSTALL" next to Nuvio Z.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
+    printf '%s  3. You will see "%s" in the list.%s\n' "${COLOR_GRAY}" "${app_name}" "${COLOR_RESET}"
+    printf '%s  4. Tap "FREE" or "INSTALL" next to %s.%s\n' "${COLOR_GRAY}" "${app_name}" "${COLOR_RESET}"
     printf '%s  5. Wait for SideStore to download, sign, and install.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
-    printf '%s  6. Nuvio Z will appear on your Home Screen!%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
+    printf '%s  6. %s will appear on your Home Screen!%s\n' "${COLOR_GRAY}" "${app_name}" "${COLOR_RESET}"
     printf '%s-------------------------------------------------------------------%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
     echo ""
 
-    write_action_box "Install Nuvio Z" \
-        "Confirm that you have added the source and installed Nuvio Z" \
+    write_action_box "Install ${app_name}" \
+        "Confirm that you have added the source and installed ${app_name}" \
         "onto your iPhone screen."
 }
 
@@ -688,13 +721,42 @@ main() {
         return 0
     fi
 
+    if [[ "${DEVELOPER_MODE}" == true ]]; then
+        echo ""
+        printf '%s===================================================================%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}"
+        printf '%s              DEVELOPER / DEBUG CHANNEL REQUESTED                  %s\n' "${COLOR_YELLOW}" "${COLOR_RESET}"
+        printf '%s===================================================================%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}"
+        echo ""
+        printf '%sYou have enabled --developer mode.%s\n' "${COLOR_WHITE}" "${COLOR_RESET}"
+        printf '%sPlease review the following before continuing:%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}"
+        printf '%s  1. BUNDLE ID: Installs "Nuvio Z Debug" (com.nuvio.app.z.debug).%s\n' "${COLOR_WHITE}" "${COLOR_RESET}"
+        printf '%s  2. INDEPENDENT CONTAINER: Runs side-by-side with stable Nuvio Z%s\n' "${COLOR_WHITE}" "${COLOR_RESET}"
+        printf '%s     with separate local databases, logs, and settings.%s\n' "${COLOR_WHITE}" "${COLOR_RESET}"
+        printf '%s  3. APPLE APP SLOTS: Free Apple Developer accounts allow a MAXIMUM%s\n' "${COLOR_RED}" "${COLOR_RESET}"
+        printf '%s     of 3 active sideloaded apps. SideStore (1) + Nuvio Z (1) +%s\n' "${COLOR_RED}" "${COLOR_RESET}"
+        printf '%s     Nuvio Z Debug (1) will use ALL 3 AVAILABLE SLOTS.%s\n' "${COLOR_RED}" "${COLOR_RESET}"
+        printf '%s  4. STABILITY: Debug builds contain unreleased code, experimental%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
+        printf '%s     features, and verbose logging.%s\n' "${COLOR_GRAY}" "${COLOR_RESET}"
+        echo ""
+        printf '%sAre you sure you want to proceed with the Developer Channel? (y/N): %s' "${COLOR_WHITE}" "${COLOR_RESET}"
+        read -r answer
+        if [[ ! "${answer}" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+            write_alert "Developer mode cancelled by user. Exiting."
+            return 0
+        fi
+        write_success "Developer mode confirmed."
+        if [[ "${SOURCE_URL}" == "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json" ]]; then
+            SOURCE_URL="https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source-debug.json"
+        fi
+    fi
+
     test_system_environment
     ensure_apple_device_support
     wait_for_connected_phone
     guide_local_dev_vpn
     ensure_iloader
     guide_phone_approvals
-    guide_source_and_install "${SOURCE_URL}"
+    guide_source_and_install "${SOURCE_URL}" "${DEVELOPER_MODE}"
     show_completion_summary
 }
 

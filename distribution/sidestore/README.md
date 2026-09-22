@@ -191,10 +191,42 @@ When a new version of Nuvio Z is released:
 
 | Link Type | URL |
 |---|---|
-| **Canonical Source URL** | `https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json` |
-| **Release Asset Source** | `https://github.com/Zokaper/nuvio-z/releases/latest/download/source.json` |
-| **SideStore Deep Link** | `sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2FZokaper%2Fnuvio-z%2Fmain%2Fdistribution%2Fsidestore%2Fsource.json` |
-| **AltStore Deep Link** | `altstore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2FZokaper%2Fnuvio-z%2Fmain%2Fdistribution%2Fsidestore%2Fsource.json` |
+| **Canonical Source URL (Stable)** | `https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json` |
+| **Release Asset Source (Stable)** | `https://github.com/Zokaper/nuvio-z/releases/latest/download/source.json` |
+| **SideStore Deep Link (Stable)** | `sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2FZokaper%2Fnuvio-z%2Fmain%2Fdistribution%2Fsidestore%2Fsource.json` |
+| **AltStore Deep Link (Stable)** | `altstore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2FZokaper%2Fnuvio-z%2Fmain%2Fdistribution%2Fsidestore%2Fsource.json` |
+| **Developer Source URL (Debug)** | `https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source-debug.json` |
+| **SideStore Deep Link (Debug)** | `sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2FZokaper%2Fnuvio-z%2Fmain%2Fdistribution%2Fsidestore%2Fsource-debug.json` |
+
+---
+
+## Developer Channel (Advanced)
+
+For testers, contributors, and developers wanting to try preview builds before they reach stable release, Nuvio Z provides an isolated **Developer Channel**:
+
+- **Independent Bundle Identifier**: `com.nuvio.app.z.debug` (Display name: `Nuvio Z Debug`).
+- **Side-by-Side Coexistence**: Can be installed simultaneously alongside the stable `com.nuvio.app.z` release. iOS creates a completely independent application container, sandbox, database, settings, and keychain partition.
+- **App Slot Accounting (Free Apple Accounts)**: Free Apple Developer accounts allow a maximum of **3 active sideloaded apps**.
+  - SideStore: 1 slot
+  - Nuvio Z (Stable): 1 slot
+  - Nuvio Z Debug: 1 slot
+  - *Installing both stable and debug releases alongside SideStore will consume all 3 available slots (3/3).*
+
+### Launching in Developer Mode
+
+To run the bootstrap scripts targeting the Developer Channel:
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy Bypass -File distribution\sidestore\setup-windows.ps1 -DeveloperMode
+```
+
+**macOS (Terminal):**
+```bash
+./distribution/sidestore/setup-macos.sh --developer
+```
+
+The script will prompt for confirmation explaining the 3-app slot usage before switching the source to `source-debug.json`.
 
 ---
 

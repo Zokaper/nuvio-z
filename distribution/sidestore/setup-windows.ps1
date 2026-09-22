@@ -30,6 +30,7 @@ param(
     [switch]$SkipPrerequisites,
     [switch]$SkipAppleDriverCheck,
     [switch]$SkipDeviceWait,
+    [switch]$DeveloperMode,
     [switch]$DiagnosticOnly
 )
 
@@ -612,12 +613,33 @@ function Guide-PhoneApprovals {
 # Step 7: Add Nuvio Z Source & HTML Helper
 # -------------------------------------------------------------------------
 function Generate-HtmlHelper {
-    param([string]$SourceUrl)
+    param(
+        [string]$SourceUrl,
+        [switch]$IsDeveloperMode
+    )
 
     $encodedSourceUrl = [Uri]::EscapeDataString($SourceUrl)
     $sideStoreDeepLink = "sidestore://source?url=$encodedSourceUrl"
     $altStoreDeepLink = "altstore://source?url=$encodedSourceUrl"
     $htmlPath = Join-Path $env:TEMP "nuvio-z-sidestore-helper.html"
+
+    $appName = if ($IsDeveloperMode) { "Nuvio Z Debug" } else { "Nuvio Z" }
+    $pageTitle = if ($IsDeveloperMode) { "Nuvio Z Debug - Developer Channel" } else { "Nuvio Z - SideStore Source Setup" }
+    $badgeText = if ($IsDeveloperMode) { "Nuvio Z iOS Debug (Developer Channel)" } else { "Nuvio Z iOS Sideload" }
+    $accentColor = if ($IsDeveloperMode) { "#e65100" } else { "#1e88e5" }
+    $accentHover = if ($IsDeveloperMode) { "#bf360c" } else { "#1565c0" }
+    $warningBanner = if ($IsDeveloperMode) {
+@"
+  <div style="background: rgba(230, 81, 0, 0.15); border: 1px solid #e65100; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #ffb74d; text-align: left;">
+    <strong>DEVELOPER PREVIEW:</strong>
+    <ul style="margin: 6px 0 0 16px; padding: 0;">
+      <li>Installs separately from stable Nuvio Z as <code>com.nuvio.app.z.debug</code>.</li>
+      <li>Uses its own independent application container and data.</li>
+      <li>Consumes an additional SideStore app slot (all 3 slots used when both installed).</li>
+    </ul>
+  </div>
+"@
+    } else { "" }
 
     $htmlContent = @"
 <!DOCTYPE html>
@@ -625,7 +647,7 @@ function Generate-HtmlHelper {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nuvio Z — SideStore Source Setup</title>
+<title>$pageTitle</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -633,8 +655,8 @@ function Generate-HtmlHelper {
     --border: #30363d;
     --text: #c9d1d9;
     --heading: #f0f6fc;
-    --accent: #1e88e5;
-    --accent-hover: #1565c0;
+    --accent: $accentColor;
+    --accent-hover: $accentHover;
     --success: #2ea043;
     --code-bg: #090d13;
   }
@@ -663,68 +685,65 @@ function Generate-HtmlHelper {
     display: inline-block;
     background: rgba(30, 136, 229, 0.15);
     color: var(--accent);
+    border: 1px solid var(--accent);
     padding: 4px 12px;
     border-radius: 20px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
+    letter-spacing: 0.5px;
     margin-bottom: 12px;
   }
   h1 {
     color: var(--heading);
+    font-size: 24px;
     margin: 0 0 8px 0;
-    font-size: 26px;
   }
   p.subtitle {
-    color: #8b949e;
-    margin: 0 0 24px 0;
+    color: var(--text);
     font-size: 14px;
+    margin: 0 0 24px 0;
     line-height: 1.5;
   }
   .qr-box {
     background: #ffffff;
-    padding: 20px;
     border-radius: 12px;
+    padding: 16px;
     display: inline-block;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    margin-bottom: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   }
   .qr-box img {
     display: block;
     width: 220px;
     height: 220px;
   }
-  .instructions {
-    text-align: left;
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin: 20px 0;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .instructions ol {
-    margin: 0;
-    padding-left: 20px;
-  }
-  .instructions li {
-    margin-bottom: 6px;
-  }
   .url-box {
     background: var(--code-bg);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px 14px;
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 12px;
-    word-break: break-all;
-    text-align: left;
     color: #58a6ff;
-    margin-bottom: 16px;
+    word-break: break-all;
+    margin-bottom: 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 8px;
+  }
+  .instructions {
+    text-align: left;
+    background: rgba(110, 118, 129, 0.1);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 13px;
+    margin-bottom: 24px;
+    line-height: 1.6;
+  }
+  .instructions ol {
+    margin: 8px 0 0 18px;
+    padding: 0;
   }
   .btn-copy {
     background: #21262d;
@@ -767,10 +786,10 @@ function Generate-HtmlHelper {
 </head>
 <body>
 <div class="container">
-  <div class="badge">Nuvio Z iOS Sideload</div>
-  <h1>Add Nuvio Z to SideStore</h1>
+  <div class="badge">$badgeText</div>
+  <h1>Add $appName to SideStore</h1>
   <p class="subtitle">Scan the QR code with your iPhone Camera to automatically add the source, or copy the URL below.</p>
-
+$warningBanner
   <div class="qr-box">
     <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=$encodedSourceUrl" alt="SideStore Source QR Code" />
   </div>
@@ -787,7 +806,7 @@ function Generate-HtmlHelper {
       <li>Open your iPhone <strong>Camera</strong> and point it at the QR code above.</li>
       <li>Tap the yellow prompt <strong>"Open in SideStore"</strong>.</li>
       <li>In SideStore, tap <strong>"Add Source"</strong>.</li>
-      <li>Go to the <strong>Browse</strong> tab, find <strong>Nuvio Z</strong>, and tap <strong>Install</strong>!</li>
+      <li>Go to the <strong>Browse</strong> tab, find <strong>$appName</strong>, and tap <strong>Install</strong>!</li>
     </ol>
   </div>
 
@@ -796,7 +815,7 @@ function Generate-HtmlHelper {
   </div>
 
   <p class="footer-note">
-    Remember to refresh Nuvio Z in SideStore every 5-6 days with LocalDevVPN enabled to keep your 7-day developer certificate active.
+    Remember to refresh $appName in SideStore every 5-6 days with LocalDevVPN enabled to keep your 7-day developer certificate active.
   </p>
 </div>
 
@@ -819,13 +838,21 @@ function copyUrl() {
 }
 
 function Guide-SourceAndInstall {
-    param([string]$SourceUrl)
+    param(
+        [string]$SourceUrl,
+        [switch]$IsDeveloperMode
+    )
 
-    Write-StepHeader 7 7 "Adding Nuvio Z Source & Installing App"
+    $stepTitle = if ($IsDeveloperMode) {
+        "Adding Nuvio Z Debug Source & Installing App"
+    } else {
+        "Adding Nuvio Z Source & Installing App"
+    }
+    Write-StepHeader 7 7 $stepTitle
 
     # Generate and open HTML helper
     Write-Working "Generating interactive QR code and setup helper..."
-    $helperPath = Generate-HtmlHelper -SourceUrl $SourceUrl
+    $helperPath = Generate-HtmlHelper -SourceUrl $SourceUrl -IsDeveloperMode:$IsDeveloperMode
     Write-Success "Helper page created at: $helperPath"
     Write-Working "Opening helper page in your default browser..."
     try {
@@ -836,10 +863,11 @@ function Guide-SourceAndInstall {
 
     $encoded = [Uri]::EscapeDataString($SourceUrl)
     $deepLink = "sidestore://source?url=$encoded"
+    $targetApp = if ($IsDeveloperMode) { "Nuvio Z Debug" } else { "Nuvio Z" }
 
     Write-Host ""
     Write-Styled "===================================================================" Cyan
-    Write-Styled "                     ADD NUVIO Z SOURCE                            " Cyan
+    Write-Styled "                     ADD $(if ($IsDeveloperMode) { 'NUVIO Z DEBUG' } else { 'NUVIO Z' }) SOURCE                            " Cyan
     Write-Styled "===================================================================" Cyan
     Write-Host ""
     Write-Styled "A browser window has opened with a crisp QR code." White
@@ -858,18 +886,18 @@ function Guide-SourceAndInstall {
     Write-Styled "  4. Tap 'Add'." Gray
     Write-Host ""
     Write-Styled "-------------------------------------------------------------------" DarkGray
-    Write-Styled "INSTALLING NUVIO Z:" Yellow
+    Write-Styled "INSTALLING $($targetApp.ToUpper()):" Yellow
     Write-Styled "  1. Make sure LocalDevVPN is active on your iPhone." Gray
     Write-Styled "  2. In SideStore, tap the 'Browse' tab at the bottom." Gray
-    Write-Styled "  3. You will see 'Nuvio Z' in the list." Gray
-    Write-Styled "  4. Tap 'FREE' or 'INSTALL' next to Nuvio Z." Gray
+    Write-Styled "  3. You will see '$targetApp' in the list." Gray
+    Write-Styled "  4. Tap 'FREE' or 'INSTALL' next to $targetApp." Gray
     Write-Styled "  5. Wait for SideStore to download, sign, and install." Gray
-    Write-Styled "  6. Nuvio Z will appear on your Home Screen!" Gray
+    Write-Styled "  6. $targetApp will appear on your Home Screen!" Gray
     Write-Styled "-------------------------------------------------------------------" DarkGray
     Write-Host ""
 
-    Write-ActionBox "Install Nuvio Z" @(
-        "Confirm that you have added the source and installed Nuvio Z",
+    Write-ActionBox "Install $targetApp" @(
+        "Confirm that you have added the source and installed $targetApp",
         "onto your iPhone screen."
     )
 }
@@ -949,13 +977,41 @@ function Main {
             return
         }
 
+        if ($DeveloperMode) {
+            Write-Host ""
+            Write-Styled "===================================================================" Yellow
+            Write-Styled "              DEVELOPER / DEBUG CHANNEL REQUESTED                  " Yellow
+            Write-Styled "===================================================================" Yellow
+            Write-Host ""
+            Write-Styled "You have enabled -DeveloperMode." White
+            Write-Styled "Please review the following before continuing:" Yellow
+            Write-Styled "  1. BUNDLE ID: Installs 'Nuvio Z Debug' (com.nuvio.app.z.debug)." White
+            Write-Styled "  2. INDEPENDENT CONTAINER: Runs side-by-side with stable Nuvio Z" White
+            Write-Styled "     with separate local databases, logs, and settings." White
+            Write-Styled "  3. APPLE APP SLOTS: Free Apple Developer accounts allow a MAXIMUM" Red
+            Write-Styled "     of 3 active sideloaded apps. SideStore (1) + Nuvio Z (1) +" Red
+            Write-Styled "     Nuvio Z Debug (1) will use ALL 3 AVAILABLE SLOTS." Red
+            Write-Styled "  4. STABILITY: Debug builds contain unreleased code, experimental" Gray
+            Write-Styled "     features, and verbose logging." Gray
+            Write-Host ""
+            $answer = Read-Host "Are you sure you want to proceed with the Developer Channel? (y/N)"
+            if ($answer -notmatch '^(y|yes)$') {
+                Write-Alert "Developer mode cancelled by user. Exiting."
+                return
+            }
+            Write-Success "Developer mode confirmed."
+            if (-not $PSBoundParameters.ContainsKey('SourceUrl')) {
+                $SourceUrl = "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source-debug.json"
+            }
+        }
+
         Test-SystemEnvironment
         Ensure-AppleDeviceSupport
         Wait-ForConnectedPhone
         Guide-LocalDevVpn
         Ensure-Iloader
         Guide-PhoneApprovals
-        Guide-SourceAndInstall -SourceUrl $SourceUrl
+        Guide-SourceAndInstall -SourceUrl $SourceUrl -IsDeveloperMode:$DeveloperMode
         Show-CompletionSummary
     } catch {
         Write-Host ""
