@@ -86,6 +86,7 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryScreen
 import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.library.LibrarySortOption
+import com.nuvio.app.features.library.LibraryTopSwitcher
 import com.nuvio.app.features.player.PlayerBackReleaseGuard
 import com.nuvio.app.features.player.PlayerBackRequest
 import com.nuvio.app.features.player.PlayerExitDiagnostics
@@ -169,6 +170,7 @@ internal data class AppTabState(
     val libraryDisintegrationRequest: DisintegrationRequest<String>? = null,
     val continueWatchingDisintegrationRequest: DisintegrationRequest<String>? = null,
     val requestedSettingsPageName: String? = null,
+    val librarySubDestination: LibrarySubDestination = LibrarySubDestination.Library,
 )
 
 internal data class AppTabRequests(
@@ -187,6 +189,7 @@ internal data class AppTabActions(
     val onLibraryPosterClick: ((LibraryItem) -> Unit)? = null,
     val onLibraryPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
     val onLibrarySectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
+    val onLibrarySubDestinationChanged: ((LibrarySubDestination) -> Unit)? = null,
     val onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     val onConnectCloudClick: (() -> Unit)? = null,
     val onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
@@ -331,22 +334,52 @@ internal fun AppTabHost(
                         }
 
                         AppScreenTab.Library -> {
-                            LibraryScreen(
-                                modifier = Modifier.fillMaxSize(),
-                                topChromePadding = state.topChromePadding,
-                                scrollToTopRequests = requests.libraryScrollToTopRequests,
-                                onPosterClick = actions.onLibraryPosterClick,
-                                onPosterLongClick = actions.onLibraryPosterLongClick,
-                                onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
-                                onCloudFilePlay = actions.onCloudFilePlay,
-                                onConnectCloudClick = actions.onConnectCloudClick,
-                                disintegrationRequest = state.libraryDisintegrationRequest,
-                            )
+                            if (AppFeaturePolicy.downloadsEnabled && state.librarySubDestination == LibrarySubDestination.Downloads) {
+                                DownloadsScreen(
+                                    topChromePadding = state.topChromePadding,
+                                    onOpenDownload = actions.onOpenDownload ?: {},
+                                    scrollToTopRequests = requests.downloadsScrollToTopRequests,
+                                    onNavigateToShow = actions.onDownloadShowClick,
+                                    onOpenSettings = actions.onDownloadsSettingsClick,
+                                    onChooseBatchEntryManually = actions.onChooseBatchEntryManually,
+                                    topSwitcher = {
+                                        LibraryTopSwitcher(
+                                            selectedDestination = LibrarySubDestination.Downloads,
+                                            onDestinationSelected = { dest ->
+                                                actions.onLibrarySubDestinationChanged?.invoke(dest)
+                                            },
+                                        )
+                                    },
+                                )
+                            } else {
+                                LibraryScreen(
+                                    modifier = Modifier.fillMaxSize(),
+                                    topChromePadding = state.topChromePadding,
+                                    scrollToTopRequests = requests.libraryScrollToTopRequests,
+                                    onPosterClick = actions.onLibraryPosterClick,
+                                    onPosterLongClick = actions.onLibraryPosterLongClick,
+                                    onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
+                                    onCloudFilePlay = actions.onCloudFilePlay,
+                                    onConnectCloudClick = actions.onConnectCloudClick,
+                                    disintegrationRequest = state.libraryDisintegrationRequest,
+                                    topSwitcher = if (AppFeaturePolicy.downloadsEnabled) {
+                                        {
+                                            LibraryTopSwitcher(
+                                                selectedDestination = LibrarySubDestination.Library,
+                                                onDestinationSelected = { dest ->
+                                                    actions.onLibrarySubDestinationChanged?.invoke(dest)
+                                                },
+                                            )
+                                        }
+                                    } else null,
+                                )
+                            }
                         }
 
                         AppScreenTab.Downloads -> {
                             if (AppFeaturePolicy.downloadsEnabled) {
                                 DownloadsScreen(
+                                    topChromePadding = state.topChromePadding,
                                     onOpenDownload = actions.onOpenDownload ?: {},
                                     scrollToTopRequests = requests.downloadsScrollToTopRequests,
                                     onNavigateToShow = actions.onDownloadShowClick,
@@ -669,30 +702,6 @@ internal fun TabletFloatingTopBar(
                             )
                         },
                     )
-                    if (AppFeaturePolicy.downloadsEnabled) {
-                        TabletTopPillItem(
-                            label = stringResource(Res.string.compose_nav_downloads),
-                            selected = selectedTab == AppScreenTab.Downloads,
-                            onClick = { onTabSelected(AppScreenTab.Downloads) },
-                            labelFraction = labelFraction,
-                            pillHeight = pillHeight,
-                            expandedHorizontalPadding = expandedHorizontalPadding,
-                            collapsedHorizontalPadding = iconCollapsedPadding,
-                            textStyle = labelTextStyle,
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Filled.Download,
-                                    contentDescription = stringResource(Res.string.compose_nav_downloads),
-                                    modifier = Modifier.size(navIconSize),
-                                    tint = if (selectedTab == AppScreenTab.Downloads) {
-                                        tokens.colors.textPrimary
-                                    } else {
-                                        Color.White.copy(alpha = 0.70f)
-                                    },
-                                )
-                            },
-                        )
-                    }
                     // The social tab is a feature the user can switch off; see SocialFeatureGate.
                     if (socialEnabled) {
                         TabletTopPillItem(
@@ -1003,21 +1012,6 @@ internal fun DesktopHoverSidebar(
                         modifier = Modifier.size(DesktopSidebarIconSize),
                         tint = color,
                     )
-                }
-                if (AppFeaturePolicy.downloadsEnabled) {
-                    DesktopSidebarItem(
-                        label = stringResource(Res.string.compose_nav_downloads),
-                        selected = selectedTab == AppScreenTab.Downloads,
-                        expanded = sidebarExpanded,
-                        onClick = { selectTab(AppScreenTab.Downloads) },
-                    ) { color ->
-                        Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = stringResource(Res.string.compose_nav_downloads),
-                            modifier = Modifier.size(DesktopSidebarIconSize),
-                            tint = color,
-                        )
-                    }
                 }
                 if (socialEnabled) {
                     DesktopSidebarItem(

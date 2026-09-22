@@ -85,7 +85,11 @@ fun PresetDownloadDialog(
     var selectedSeasons by remember(meta.id, initialScope) {
         mutableStateOf(
             if (initialScope is DownloadScope.SelectedSeasons) {
-                DownloadBatchPlanner.defaultSelectedSeasons(currentSeason, availableSeasons)
+                if (initialScope.seasons.isNotEmpty()) {
+                    initialScope.seasons
+                } else {
+                    DownloadBatchPlanner.defaultSelectedSeasons(currentSeason, availableSeasons)
+                }
             } else {
                 emptySet()
             },

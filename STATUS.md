@@ -1,6 +1,34 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
+
+## Phase 8 Batch 2 — iOS downloads and navigation hardening (2026-09-23)
+
+Continuation work is on `gemini/phase-8-ios-downloads-nav-hardening`; it preserves and completes
+the interrupted Gemini patch. The `.42` device pass established the following physical facts:
+
+- individual episode download and offline playback pass;
+- screen-off transfer fails (it stops, then foreground recovery shows a synthetic retry);
+- six native iPhone tabs produce a `More` destination;
+- whole-title context-menu Download does not produce a usable batch;
+- Live Activity shows dishonest unknown progress and can remain after completion;
+- the season download control is unreadable.
+
+Code-fixed for `.43`, awaiting physical validation: a stable per-bundle background
+`URLSessionDownloadTask` session with durable task metadata and relaunch attachment; no
+background-triggered repository pause; Library + Downloads as one top-level destination; old
+Downloads intent/deep-link/toast migration; whole-title season targeting; honest Live Activity
+states and orphan cleanup; semantic season-control colors; and removal of inert iOS navigation
+appearance choices. Legacy `.42` `.part` files restart once rather than risk corrupt concatenation.
+Android shares the routing, batch, Library and color changes and requires physical spot-checking.
+The desktop completed-file report belongs to `NuvioZDesktop` (this repository has no desktop
+downloads actual) and remains an explicit desktop retest.
+
+The inherited pure-suite state was **799 / 799** (the previous 790 plus Gemini's 9 reconciler
+tests). After completing the reconciler and Live Activity policy matrices it is **812 / 812**.
+The Android host suite is **2,311 / 2,311** and common Kotlin metadata compiles. Final iOS CI run, `.43`
+tag/artifact hashes and feed verification are filled in only after those gates actually complete;
+none is represented here as physical verification.
 
 ## Phase 8 — iOS Device Validation & Bringup Audit (2026-09-22)
 

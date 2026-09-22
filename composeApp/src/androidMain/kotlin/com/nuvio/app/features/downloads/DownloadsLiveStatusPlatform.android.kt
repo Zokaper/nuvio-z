@@ -276,6 +276,8 @@ internal actual object DownloadsLiveStatusPlatform {
                 val total = item.totalBytes?.let(::formatBytes)
                 if (total != null) {
                     runBlocking { getString(Res.string.downloads_live_downloading_with_total, detail, downloaded, total) }
+                } else if (item.downloadedBytes <= 0L) {
+                    runBlocking { getString(Res.string.downloads_status_waiting_to_start) }
                 } else {
                     runBlocking { getString(Res.string.downloads_live_downloading, detail, downloaded) }
                 }

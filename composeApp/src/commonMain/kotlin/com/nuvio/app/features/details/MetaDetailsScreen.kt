@@ -1157,7 +1157,11 @@ fun MetaDetailsScreen(
                                 onWatchTogetherClick = onWatchTogether?.let { open -> { open(watchPartyContent) } },
                                 onDownloadClick = {
                                     presetDownloadScope = if (meta.type.lowercase() in setOf("series", "show", "tv", "tvshow") || hasEpisodes) {
-                                        DownloadScope.SelectedSeasons(emptySet())
+                                        val releasedSeasons = meta.videos.mapNotNull { it.season }.filter { it > 0 }.toSet()
+                                        // This is the title-level action, so its scope is the whole
+                                        // released title. Episode and season controls provide the
+                                        // narrower entry points and remain unchanged.
+                                        DownloadScope.SelectedSeasons(releasedSeasons)
                                     } else {
                                         DownloadScope.Movie
                                     }

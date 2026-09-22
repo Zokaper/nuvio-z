@@ -18,6 +18,31 @@ enum class AppScreenTab {
     }
 }
 
+enum class LibrarySubDestination {
+    Library,
+    Downloads,
+    ;
+
+    companion object {
+        fun fromName(name: String?): LibrarySubDestination =
+            entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: Library
+    }
+}
+
+sealed interface NavigationIntent {
+    data class Tab(
+        val tab: AppScreenTab,
+        val librarySubDestination: LibrarySubDestination? = null,
+    ) : NavigationIntent
+
+    companion object {
+        fun fromTab(tab: AppScreenTab): NavigationIntent = when (tab) {
+            AppScreenTab.Downloads -> Tab(AppScreenTab.Library, LibrarySubDestination.Downloads)
+            else -> Tab(tab)
+        }
+    }
+}
+
 /**
  * The tab to actually show for a requested [tab].
  *
@@ -31,15 +56,21 @@ enum class AppScreenTab {
  * the launch `initialTab` - because that is where a tab whose surfaces no longer exist would
  * otherwise become a route with nothing on it. Without this, turning the social layer off and
  * relaunching lands on an empty Social tab that no navigation item can leave.
+ *
+ * [AppScreenTab.Downloads] is unified into [AppScreenTab.Library] across platforms to preserve
+ * mobile bottom navigation constraints (including the iOS 5-tab limit).
  */
-fun coerceAvailableTab(tab: AppScreenTab, socialEnabled: Boolean): AppScreenTab =
-    if (tab == AppScreenTab.Social && !socialEnabled) AppScreenTab.Home else tab
+fun coerceAvailableTab(tab: AppScreenTab, socialEnabled: Boolean): AppScreenTab = when {
+    tab == AppScreenTab.Downloads -> AppScreenTab.Library
+    tab == AppScreenTab.Social && !socialEnabled -> AppScreenTab.Home
+    else -> tab
+}
 
 internal fun AppScreenTab.toNativeNavigationTab(): NativeNavigationTab = when (this) {
     AppScreenTab.Home -> NativeNavigationTab.Home
     AppScreenTab.Search -> NativeNavigationTab.Search
     AppScreenTab.Library -> NativeNavigationTab.Library
-    AppScreenTab.Downloads -> NativeNavigationTab.Downloads
+    AppScreenTab.Downloads -> NativeNavigationTab.Library
     AppScreenTab.Social -> NativeNavigationTab.Social
     AppScreenTab.Settings -> NativeNavigationTab.Settings
 }

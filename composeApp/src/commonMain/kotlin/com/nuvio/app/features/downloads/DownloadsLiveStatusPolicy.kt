@@ -1,0 +1,62 @@
+package com.nuvio.app.features.downloads
+
+/** Import-free policy for choosing and presenting the one download shown by live status UI. */
+internal object DownloadsLiveStatusPolicy {
+    enum class State {
+        FINDING_SOURCES,
+        PREPARING,
+        WAITING,
+        STARTING,
+        DOWNLOADING,
+        RETRYING,
+        PAUSED,
+        FAILED,
+        COMPLETED,
+    }
+
+    data class Candidate(
+        val id: String,
+        val state: State,
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long? = null,
+        val updatedAtEpochMs: Long = 0L,
+    )
+
+    data class Presentation(
+        val candidate: Candidate,
+        val progressPercent: Int?,
+    )
+
+    fun select(
+        items: List<Candidate>,
+        resolvingBatch: Candidate? = null,
+    ): Presentation? {
+        val item = items
+            .asSequence()
+            .filter { it.state != State.COMPLETED && it.state != State.FINDING_SOURCES }
+            .sortedWith(compareBy<Candidate> { priority(it.state) }.thenByDescending { it.updatedAtEpochMs })
+            .firstOrNull()
+
+        val selected = item ?: resolvingBatch?.takeIf { it.state == State.FINDING_SOURCES } ?: return null
+        val percent = selected.totalBytes
+            ?.takeIf { it > 0L }
+            ?.let { total ->
+                ((selected.downloadedBytes.coerceAtLeast(0L).toDouble() / total.toDouble()) * 100.0)
+                    .toInt()
+                    .coerceIn(0, 100)
+            }
+        return Presentation(selected, percent)
+    }
+
+    private fun priority(state: State): Int = when (state) {
+        State.DOWNLOADING -> 0
+        State.PREPARING -> 1
+        State.RETRYING -> 2
+        State.WAITING -> 3
+        State.STARTING -> 4
+        State.PAUSED -> 5
+        State.FAILED -> 6
+        State.FINDING_SOURCES -> 7
+        State.COMPLETED -> 8
+    }
+}

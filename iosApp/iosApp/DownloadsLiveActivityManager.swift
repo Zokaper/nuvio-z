@@ -49,11 +49,11 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
     @available(iOS 16.1, *)
     private func apply(_ payload: DownloadsLiveStatusPayload?) async {
-        let existing = Activity<DownloadsLiveActivityAttributes>.activities.first
+        let allActivities = Activity<DownloadsLiveActivityAttributes>.activities
 
         guard let payload else {
-            if let existing {
-                await existing.end(dismissalPolicy: .immediate)
+            for activity in allActivities {
+                await activity.end(dismissalPolicy: .immediate)
             }
             return
         }
@@ -64,12 +64,15 @@ final class DownloadsLiveActivityManager {
             transferredText: transferredText(payload)
         )
 
-        if let existing, existing.attributes.downloadId == payload.id {
-            await existing.update(using: state)
+        if let matching = allActivities.first(where: { $0.attributes.downloadId == payload.id }) {
+            await matching.update(using: state)
+            for orphan in allActivities where orphan.id != matching.id {
+                await orphan.end(dismissalPolicy: .immediate)
+            }
             return
         }
 
-        if let existing {
+        for existing in allActivities {
             await existing.end(dismissalPolicy: .immediate)
         }
 
@@ -88,6 +91,18 @@ final class DownloadsLiveActivityManager {
 #endif
 
     private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
+        if payload.totalBytes == nil && payload.downloadedBytes == 0 {
+            switch payload.status.lowercased() {
+            case "finding_sources": return "Finding sources"
+            case "preparing": return "Preparing"
+            case "waiting": return "Waiting"
+            case "starting": return "Starting"
+            case "retrying": return "Retrying"
+            case "paused": return "Paused"
+            case "failed": return "Failed"
+            default: break
+            }
+        }
         let downloaded = formatBytes(payload.downloadedBytes)
         if let total = payload.totalBytes {
             return "\(downloaded) / \(formatBytes(total))"

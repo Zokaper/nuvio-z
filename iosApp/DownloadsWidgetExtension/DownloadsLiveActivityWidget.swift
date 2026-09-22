@@ -32,7 +32,7 @@ struct DownloadsLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(progressLabel(context.state.progressPercent))
+                    Text(progressLabel(context.state.progressPercent, status: context.state.status))
                         .font(.title3.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.white)
                 }
@@ -49,9 +49,15 @@ struct DownloadsLiveActivityWidget: Widget {
                             .lineLimit(1)
                             .minimumScaleFactor(0.9)
                             .truncationMode(.tail)
-                        ProgressView(value: normalizedProgress(context.state.progressPercent))
-                            .progressViewStyle(.linear)
-                            .tint(appBlue)
+                        if context.state.progressPercent >= 0 {
+                            ProgressView(value: normalizedProgress(context.state.progressPercent))
+                                .progressViewStyle(.linear)
+                                .tint(appBlue)
+                        } else {
+                            ProgressView()
+                                .progressViewStyle(.linear)
+                                .tint(appBlue)
+                        }
                         HStack {
                             Text(context.state.transferredText)
                                 .font(.caption.monospacedDigit())
@@ -68,9 +74,16 @@ struct DownloadsLiveActivityWidget: Widget {
             } compactLeading: {
                 AccentGlyphView()
             } compactTrailing: {
-                Text(progressLabel(context.state.progressPercent))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(appBlue)
+                if context.state.progressPercent >= 0 {
+                    Text(progressLabel(context.state.progressPercent, status: context.state.status))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(appBlue)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(appBlue)
+                        .scaleEffect(0.6)
+                }
             } minimal: {
                 AccentGlyphView()
             }
@@ -79,8 +92,18 @@ struct DownloadsLiveActivityWidget: Widget {
         }
     }
 
-    private func progressLabel(_ progressPercent: Int) -> String {
-        if progressPercent < 0 { return "--%" }
+    private func progressLabel(_ progressPercent: Int, status: String) -> String {
+        if progressPercent < 0 {
+            switch status.lowercased() {
+            case "finding_sources": return "Finding…"
+            case "preparing": return "Preparing…"
+            case "waiting": return "Waiting"
+            case "retrying": return "Retrying"
+            case "paused": return "Paused"
+            case "failed": return "Failed"
+            default: return "Starting…"
+            }
+        }
         return "\(max(0, min(100, progressPercent)))%"
     }
 
@@ -91,9 +114,14 @@ struct DownloadsLiveActivityWidget: Widget {
 
     private func statusLabel(_ status: String) -> String {
         switch status.lowercased() {
+        case "finding_sources": return "Finding sources"
         case "downloading": return "Downloading"
+        case "starting": return "Starting"
+        case "waiting": return "Waiting"
+        case "retrying": return "Retrying"
         case "paused": return "Paused"
         case "failed": return "Failed"
+        case "preparing": return "Preparing"
         default: return "Active"
         }
     }

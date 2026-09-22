@@ -895,6 +895,96 @@ object DownloadsRepository {
     // the fact, and by then the download it belongs to may already be running a newer
     // attempt. Only the attempt that currently holds the slot may speak for it.
 
+    internal fun reconcileIosBackgroundProgress(downloadId: String, bytes: Long, totalBytes: Long?) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            mutateLocked(downloadId, immediate = false) { current ->
+                if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) current
+                else current.copy(
+                    status = DownloadStatus.Downloading,
+                    downloadedBytes = maxOf(current.downloadedBytes, bytes.coerceAtLeast(0L)),
+                    totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                    activity = DownloadActivity.TRANSFERRING,
+                    nextRetryAtEpochMs = null,
+                    errorMessage = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
+    }
+
+    internal fun reconcileIosBackgroundCompletion(downloadId: String, localFileUri: String, totalBytes: Long) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val current = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return@synchronized
+            if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) return@synchronized
+            activeHandles.remove(downloadId)
+            transferSamples.remove(downloadId)
+            if (isImplausiblySmallForMedia(totalBytes, current.expectedSizeBytes)) {
+                DownloadsPlatformDownloader.removeFile(localFileUri)
+                val attempt = current.attemptCount + 1
+                val retry = shouldRetry(DownloadFailureReason.SourceNotReady, attempt, current.canReresolveSource)
+                mutateLocked(downloadId, immediate = true) { item ->
+                    item.copy(
+                        status = if (retry) DownloadStatus.Queued else DownloadStatus.Failed,
+                        downloadedBytes = 0L,
+                        attemptCount = attempt,
+                        nextRetryAtEpochMs = if (retry) DownloadsClock.nowEpochMs() +
+                            retryBackoffMs(attempt, DownloadFailureReason.SourceNotReady) else null,
+                        activity = if (retry) DownloadActivity.RETRY_BACKOFF else null,
+                        errorMessage = runBlocking { getString(Res.string.downloads_error_source_not_ready) },
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+            } else {
+                mutateLocked(downloadId, immediate = true) { item ->
+                    item.copy(
+                        status = DownloadStatus.Completed,
+                        pauseReason = null,
+                        localFileUri = localFileUri,
+                        downloadedBytes = totalBytes,
+                        totalBytes = totalBytes,
+                        attemptCount = 0,
+                        nextRetryAtEpochMs = null,
+                        activity = null,
+                        errorMessage = null,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+            }
+        }
+        startPendingTransfers()
+    }
+
+    internal fun reconcileIosBackgroundFailure(
+        downloadId: String,
+        reason: DownloadFailureReason,
+        message: String,
+        downloadedBytes: Long,
+    ) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val current = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return@synchronized
+            if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) return@synchronized
+            activeHandles.remove(downloadId)
+            transferSamples.remove(downloadId)
+            val attempt = current.attemptCount + 1
+            val retry = shouldRetry(reason, attempt, current.canReresolveSource)
+            mutateLocked(downloadId, immediate = true) { item ->
+                item.copy(
+                    status = if (retry) DownloadStatus.Queued else DownloadStatus.Failed,
+                    downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                    attemptCount = attempt,
+                    nextRetryAtEpochMs = if (retry) DownloadsClock.nowEpochMs() + retryBackoffMs(attempt, reason) else null,
+                    activity = if (retry) DownloadActivity.RETRY_BACKOFF else null,
+                    errorMessage = message,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
+        startPendingTransfers()
+    }
+
     private fun onTransferOpened(
         downloadId: String,
         generation: Long,
@@ -1613,6 +1703,7 @@ object DownloadsRepository {
             return
         }
         val request = DownloadPlatformRequest(
+            downloadId = item.id,
             sourceUrl = sourceUrl,
             sourceHeaders = item.sourceHeaders,
             destinationFileName = item.fileName,

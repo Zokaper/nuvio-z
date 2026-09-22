@@ -489,7 +489,8 @@ private class AndroidDownloadsTaskHandle(
 private fun String.toLocalFileOrNull(): File? {
     return runCatching {
         if (startsWith("file:")) {
-            File(URI(this))
+            runCatching { File(URI(this)) }.getOrNull()
+                ?: File(removePrefix("file://").removePrefix("file:"))
         } else {
             File(this)
         }

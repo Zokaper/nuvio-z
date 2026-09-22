@@ -15,39 +15,59 @@ internal actual object DownloadsLiveStatusPlatform {
     }
 
     private var lastPayload: String? = null
+    private var currentItems: List<DownloadItem> = emptyList()
+    private var currentBatches: List<DownloadBatch> = emptyList()
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
-        val primary = items
-            .filter { item ->
-                item.status == DownloadStatus.Downloading ||
-                    item.status == DownloadStatus.Queued ||
-                    item.status == DownloadStatus.Paused ||
-                    item.status == DownloadStatus.Failed
-            }
-            .sortedWith(
-                compareBy<DownloadItem> { statusPriority(it.status) }
-                    .thenByDescending { it.updatedAtEpochMs },
-            )
-            .firstOrNull()
+        currentItems = items
+        updatePayload()
+    }
 
-        val payload = primary?.let { item ->
-            json.encodeToString(
-                DownloadsLiveStatusPayload(
-                    id = item.id,
-                    title = item.title,
-                    subtitle = item.displaySubtitle,
-                    status = item.status.name,
-                    downloadedBytes = item.downloadedBytes,
-                    totalBytes = item.totalBytes,
-                    progressPercent = if (item.totalBytes != null && item.totalBytes > 0L) {
-                        ((item.downloadedBytes.toDouble() / item.totalBytes.toDouble()) * 100.0)
-                            .toInt()
-                            .coerceIn(0, 100)
-                    } else {
-                        -1
-                    },
-                ),
-            )
+    actual fun onBatchesChanged(batches: List<DownloadBatch>) {
+        currentBatches = batches
+        updatePayload()
+    }
+
+    private fun updatePayload() {
+        val eligibleItems = currentItems.filter { it.status != DownloadStatus.Completed }
+        val candidatesById = eligibleItems.associateBy { it.id }
+        val activeBatch = currentBatches.firstOrNull { it.status == DownloadBatchStatus.Resolving }
+        val presentation = DownloadsLiveStatusPolicy.select(
+            items = eligibleItems.map { it.liveActivityCandidate() },
+            resolvingBatch = activeBatch?.let {
+                DownloadsLiveStatusPolicy.Candidate(it.id, DownloadsLiveStatusPolicy.State.FINDING_SOURCES)
+            },
+        )
+        val primaryItem = presentation?.candidate?.id?.let(candidatesById::get)
+
+        val payload = when {
+            primaryItem != null -> {
+                json.encodeToString(
+                    DownloadsLiveStatusPayload(
+                        id = primaryItem.id,
+                        title = primaryItem.title,
+                        subtitle = primaryItem.displaySubtitle,
+                        status = primaryItem.liveActivityStatus(),
+                        downloadedBytes = primaryItem.downloadedBytes,
+                        totalBytes = primaryItem.totalBytes,
+                        progressPercent = presentation.progressPercent ?: -1,
+                    ),
+                )
+            }
+            activeBatch != null -> {
+                json.encodeToString(
+                    DownloadsLiveStatusPayload(
+                        id = activeBatch.id,
+                        title = activeBatch.title,
+                        subtitle = "Finding sources",
+                        status = "FINDING_SOURCES",
+                        downloadedBytes = 0L,
+                        totalBytes = null,
+                        progressPercent = -1,
+                    ),
+                )
+            }
+            else -> null
         }
 
         if (payload == lastPayload) return
@@ -63,19 +83,32 @@ internal actual object DownloadsLiveStatusPlatform {
         NSNotificationCenter.defaultCenter.postNotificationName(notificationName, null)
     }
 
-    /**
-     * No iOS surface shows preparation yet. The payload above drives a single live
-     * item, and a second one would need matching Swift work; the Downloads tab shows
-     * the same state in-app on every platform.
-     */
-    actual fun onBatchesChanged(batches: List<DownloadBatch>) = Unit
+    private fun DownloadItem.liveActivityCandidate() = DownloadsLiveStatusPolicy.Candidate(
+        id = id,
+        state = liveActivityState(),
+        downloadedBytes = downloadedBytes,
+        totalBytes = totalBytes,
+        updatedAtEpochMs = updatedAtEpochMs,
+    )
 
-    private fun statusPriority(status: DownloadStatus): Int = when (status) {
-        DownloadStatus.Downloading -> 0
-        DownloadStatus.Queued -> 1
-        DownloadStatus.Paused -> 2
-        DownloadStatus.Failed -> 3
-        DownloadStatus.Completed -> 4
+    private fun DownloadItem.liveActivityStatus(): String = liveActivityState().name
+
+    private fun DownloadItem.liveActivityState(): DownloadsLiveStatusPolicy.State = when (status) {
+        DownloadStatus.Downloading -> when {
+            activity == DownloadActivity.RESOLVING_SOURCE -> DownloadsLiveStatusPolicy.State.PREPARING
+            downloadedBytes <= 0L -> DownloadsLiveStatusPolicy.State.STARTING
+            else -> DownloadsLiveStatusPolicy.State.DOWNLOADING
+        }
+        DownloadStatus.Queued -> when {
+            activity == DownloadActivity.RETRY_BACKOFF || isWaitingForRetry(DownloadsClock.nowEpochMs()) -> DownloadsLiveStatusPolicy.State.RETRYING
+            activity == DownloadActivity.WAITING_FOR_CONNECTION ||
+                activity == DownloadActivity.WAITING_FOR_PROVIDER ||
+                activity == DownloadActivity.QUEUED_FOR_SLOT -> DownloadsLiveStatusPolicy.State.WAITING
+            else -> DownloadsLiveStatusPolicy.State.STARTING
+        }
+        DownloadStatus.Paused -> DownloadsLiveStatusPolicy.State.PAUSED
+        DownloadStatus.Failed -> DownloadsLiveStatusPolicy.State.FAILED
+        DownloadStatus.Completed -> DownloadsLiveStatusPolicy.State.COMPLETED
     }
 }
 

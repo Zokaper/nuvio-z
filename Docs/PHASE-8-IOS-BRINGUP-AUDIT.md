@@ -1,8 +1,71 @@
 # Phase 8 — iOS Device Validation & Bringup Audit
 
-**Branch**: `gemini/phase-8-ios-bringup-audit`  
-**Base**: `codex/ios-setup-gui-v1` (aligned with Phase 7 merge on `main`)  
+**Branch**: `gemini/phase-8-ios-downloads-nav-hardening`
+**Base**: `codex/ios-setup-gui-v1` (aligned with Phase 7 merge on `main`)
 **Target**: Do NOT merge to `main`. Physical iPhone QA pass (SideStore Debug bringup).
+
+---
+
+## Batch 2 — physical `.42` findings and `.43` fixes
+
+The `.42` device pass invalidated this document's earlier claim that the iOS downloader was a
+background implementation. It used a default `URLSession` data task, streamed bytes into `.part`
+itself, and explicitly paused the repository in `applicationDidEnterBackground`. Locking the phone
+therefore stopped the transfer and foreground recovery surfaced a fake retry. `.43` replaces that
+path with one stable, bundle-specific background session (`<bundle-id>.downloads.background.v1`),
+system-owned download tasks, durable task descriptions containing the Nuvio download id and
+destination, existing-task enumeration before creation, and the existing AppDelegate background
+event completion-handler bridge. User pause suspends the native task; screen lock does not.
+
+Legacy `.42` `.part` files are deliberately restarted once. They were written by an unrelated data
+task and have no system resume record, so combining them with a background task's temporary file
+cannot prove byte continuity. The pure reconciler still pins Range behavior: only an aligned 206
+may append, a 200 replaces, an exact 416 means complete, and a misaligned 206/overlong 416 restarts.
+
+Physically confirmed on `.42`:
+
+- an individual episode completed and played offline;
+- screen lock stopped an active transfer and foregrounding showed `Retrying 1/5`;
+- six native phone tabs pushed Social/Profile into `More`;
+- whole-title context-menu Download found sources but created no visible batch;
+- the season download control was unreadable;
+- Live Activity began with `0 KB` / `--%` and could remain at stale progress after completion.
+
+Code-fixed for `.43`, awaiting physical validation:
+
+- whole-title selection now carries real seasons and legacy empty `SelectedSeasons` means all
+  released non-special seasons;
+- Library and Downloads are one top-level destination with an in-page switch; old Downloads
+  intents, deep links, toasts, saved tab values and native requests canonicalize to
+  `Library → Downloads`, leaving five iPhone tabs;
+- Live Activity distinguishes finding sources, preparing, waiting, starting, unknown-size
+  downloading, known progress, retrying, paused and failed; percent is absent without a total,
+  and completion clears all orphan activities;
+- the season control uses theme `onSurface`/`error` colors;
+- iOS no longer exposes navigation-style or Liquid Glass settings that cannot affect its
+  always-native iOS 26 phone bar.
+
+Android shares the whole-title, canonical Downloads routing, Library information architecture,
+semantic-color and completed-playback seams. Its notification already uses indeterminate progress
+for unknown totals; `.43` also replaces the initial `0 B` subtitle with `Starting…`. These are
+code-verified only and require an Android device spot-check.
+
+Desktop completed-file playback is not implemented in this mobile repository: it has no desktop
+`DownloadsPlatformDownloader` actual. The reported desktop failure belongs to `NuvioZDesktop` and
+remains a dedicated physical/implementation retest there; no speculative mobile change was made.
+
+### Navigation-setting support matrix after Batch 2
+
+| Surface | Navigation owner | User-visible style choice |
+|---|---|---|
+| Android phone/tablet | Compose | Adaptive / Expanded / Compact / Classic remain visible and effective. |
+| iOS below 26 | Native SwiftUI tab container | Compose style choices hidden; no separate Liquid Glass switch. |
+| iOS 26+ phone | Native SwiftUI tabs / system material | Compose style choices hidden; system styling is automatic. |
+| iPad | Native SwiftUI tab container | Compose style choices hidden; form-factor behavior stays system-owned. |
+| Desktop concept | Desktop navigation shell | Desktop-supported navigation controls remain; Downloads is reached inside Library. |
+
+The removed Liquid Glass row had no independent behavior to control, and Settings search no longer
+indexes it. This leaves no iOS-visible choice whose value is ignored by the active native container.
 
 ---
 
@@ -191,37 +254,41 @@ Currently, `setupWizardCompletedRevision` is written to `PlayerSettingsRepositor
 | Component | Status | Verification & Evidence |
 |:---|:---:|:---|
 | **Download Queue Engine** | **Fully Implemented** | `DownloadsPlatformDownloader.ios.kt` implements complete queue management with concurrent transfer limits. |
-| **Background NSURLSession** | **Fully Implemented** | Native background sessions with `handleDownloadsBackgroundEvents` delegate. |
-| **Byte Range Resumption** | **Fully Implemented** | HTTP `Range: bytes=X-` resumption from `.part` files with `resumesSystemPauses = true`. |
-| **File Finalization & Storage** | **Fully Implemented** | POSIX `fwrite` file streaming with atomic rename via `NSFileManager.moveItemAtPath`. |
-| **Live Activities / Notifications**| **Fully Implemented** | `DownloadsLiveStatusPlatform.ios.kt` emits notifications to `NSNotificationCenter` with serialized payloads. |
-| **Navigation Target** | **FIXED** | Restored `downloads` tab in `ContentView.swift` (Bug 6); fixed `DownloadsDestination` route in `SettingsDestinations.kt`. |
+| **Background NSURLSession** | **Code-fixed for `.43`** | Stable bundle-specific background session, `URLSessionDownloadTask`, durable task identity, relaunch enumeration and the AppDelegate completion-handler bridge. Physical lock/relaunch validation remains open. |
+| **Pause / resume** | **Code-fixed for `.43`** | User pause suspends the native task and reattaches it on resume; normal app backgrounding does not pause. |
+| **Legacy `.part` migration** | **Controlled restart** | `.42` data-task partials restart once because no native resume record can prove byte continuity. The pure reconciler rejects misaligned 206 responses. |
+| **File Finalization & Storage** | **Code-fixed for `.43`** | iOS temporary download URL moves to `.part`, byte completion is verified, then the file is moved into its final location before repository completion. |
+| **Live Activities / Notifications**| **Code-fixed for `.43`** | Honest preparation/wait/retry states, indeterminate progress for unknown totals, deterministic promotion/clearing, and orphan ActivityKit cleanup. Physical completion/cancel/failure validation remains open. |
+| **Navigation Target** | **Code-fixed for `.43`** | Downloads is an internal Library surface. Legacy Downloads intents and persisted selections canonicalize to Library → Downloads across separate native iOS Compose controllers. |
 | **Offline Playback** | **Shared Implementation** | `DownloadsStorage.ios.kt` resolves local file URLs for player consumption. |
 
-**Verdict**: Downloads on iOS is **fully implemented and capable**. The observed breakdown was caused by route navigation target misdirection (`DownloadsSettingsRoute` pointing to the wrong screen) and the native tab collision (Bug 6).
+**Verdict**: `.42` proved foreground download and offline playback, but not background transfer.
+`.43` contains the real background-session architecture and must not be called physically verified
+until the lock, relaunch and completion-while-suspended checklist passes.
 
 ---
 
 ## 5. Verification & Testing
 
 ### Test Execution Results
-* **Pure Test Suites**: Ran `scripts/run-pure-suites.sh` via Git Bash.
-  * All 8 pure test suite groups executed cleanly (676+ tests).
-  * 0 failures, 0 errors.
+* **Pure Test Suites**: all 8 groups pass, **812 / 812**.
+* **Android host tests**: `:composeApp:testAndroidHostTest` passes, **2,311 / 2,311**.
+* **Common compilation**: `:composeApp:compileCommonMainKotlinMetadata` passes.
 * **Targeted Tests Added**:
-  1. `com.nuvio.app.navigation.BottomNavItemIdentityTest`:
-     * Asserts distinct identity for `Downloads` and `Social` in `AppScreenTab`.
-     * Asserts distinct identity for `Downloads` and `Social` in `NativeNavigationTab`.
-     * Asserts bidirectional lossless round-trip between Compose tabs and native bridge tabs.
-  2. `com.nuvio.app.features.setup.SetupWizardStepsTest`:
-     * Asserts `appGateMustNotReportReadyWhileSetupWizardIsActive`: validates that `isAppReady` cannot emit `true` while the first-run wizard is active, preventing SwiftUI touch shutoff.
-     * Asserts `appGateMustNotReportReadyWhileOnDemandSetupWizardIsActive`: validates on-demand wizard readiness gating.
+  1. `IosBackgroundTransferReconcilerTest`: stable session identity, relaunch attach, duplicate prevention,
+     bytes, missing/stale/failed tasks, pause/cancel, completion, legacy partials and 200/206/416 boundaries.
+  2. `DownloadsLiveStatusPolicyTest`: preparation/retry labels, unknown and known totals, final clearing,
+     queued-item promotion and active-transfer priority.
+  3. `PresetDownloadsTest`: movie/episode/season scopes and legacy whole-title season expansion.
+  4. Navigation tests: old Downloads intent and saved-tab canonicalization to Library → Downloads while
+     Social remains a separate top-level destination.
 
 ---
 
-## 6. Physical Verification Checklist for iPhone QA
+## 6. `.43` Physical Verification Checklist
 
-To be verified on physical iPhone via SideStore Debug build:
+To be verified on physical devices via the SideStore debug build. None of these unchecked rows is
+claimed by the code or CI results above.
 
 1. [ ] **Watch Together Dock**:
    * Initiate a Watch Together join request while on Home screen.
@@ -238,16 +305,38 @@ To be verified on physical iPhone via SideStore Debug build:
    * Open Settings tab.
    * Verify "Run setup again" and "What's new" rows are visible.
    * Tap "Run setup again" -> verify wizard opens above the app and all buttons respond to touch. Tap Close/Dismiss -> verify clean return to Settings.
-5. [ ] **Bottom Navigation Tabs**:
-   * Verify 6 distinct tabs: Home, Search, Library, Downloads, Social, Settings.
-   * Verify Downloads has the download arrow icon and opens the downloads screen.
-   * Verify Social has the person icon and opens the social feed.
-6. [ ] **Streamlined Quality Sheet Preferences**:
+5. [ ] **Background download**:
+   * Start a large download, lock the phone for at least two minutes, and verify the Live Activity advances.
+   * Unlock and verify bytes continued without a background-only `Retrying` transition.
+   * Repeat with Home/app switching and complete one transfer while the app remains backgrounded.
+6. [ ] **Whole-title entry points**:
+   * Series context menu → Download → View; verify Library → Downloads opens and episodes queue.
+   * Repeat for a movie. Verify episode and season entry points still enqueue independently.
+7. [ ] **Known-good episode baseline**:
+   * Download one episode, wait for completion, disable the network, and play the local file.
+8. [ ] **Season control**:
+   * Verify the season Download button is readable in light/dark themes, then complete and play a season item.
+9. [ ] **Live Activity lifecycle**:
+   * Observe Finding sources, Preparing/Starting, unknown-total downloading, known progress, retry, and pause.
+   * Complete, cancel, fail, and delete transfers; verify no orphan remains after its represented row is gone.
+   * Complete one item while another remains and verify the next item is promoted.
+10. [ ] **Five-item navigation**:
+   * Verify Home, Search, Library, Social, and Profile/Settings appear with no `More` tab.
+   * Inside Library switch between Library and Downloads in one tap.
+   * Verify View Downloads, notification actions, old Downloads deep links, and a saved Downloads tab all land on Library → Downloads.
+11. [ ] **iOS-visible navigation settings**:
+   * Inspect every visible navigation-style option on iPhone/iPad and verify each changes the UI.
+   * Verify Compose-only style choices are absent while native SwiftUI tabs own navigation.
+12. [ ] **Streamlined Quality Sheet Preferences**:
    * Open a title in Streamlined playback mode to show the quality sheet.
    * Tap "Adjust preferences".
    * Verify `PlaybackPreferencesDialog` renders cleanly on top of the sheet, responds to touch, and dismisses back to the quality sheet.
-7. [ ] **Playback Loading Screen Safe Area**:
+13. [ ] **Playback Loading Screen Safe Area**:
    * Start playback of any title in portrait.
    * Verify top back button is safely below Dynamic Island / notch.
    * Rotate to landscape.
    * Verify back button and bottom metadata band are safely indented past the camera notch on the side.
+14. [ ] **Android shared-change spot check**:
+   * Whole-title Download and View Downloads routing.
+   * Five-item top navigation and Library/Downloads switch, including saved Downloads-tab migration.
+   * Preparing/unknown-total notification wording, semantic season/download button colors, and completed local playback.

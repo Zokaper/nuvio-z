@@ -43,7 +43,8 @@ class BottomNavItemIdentityTest {
         for (tab in allTabs) {
             val nativeTab = tab.toNativeNavigationTab()
             val roundTripTab = nativeTab.toAppScreenTab()
-            assertEquals(tab, roundTripTab, "Tab $tab failed round-trip conversion")
+            val expected = if (tab == AppScreenTab.Downloads) AppScreenTab.Library else tab
+            assertEquals(expected, roundTripTab, "Tab $tab failed canonical conversion")
         }
     }
 }

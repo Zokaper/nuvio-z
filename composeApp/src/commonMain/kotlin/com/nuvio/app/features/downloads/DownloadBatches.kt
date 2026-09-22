@@ -200,7 +200,11 @@ object DownloadBatchPlanner {
             is DownloadScope.Episode -> setOf(scope.season)
             is DownloadScope.Season -> setOf(scope.season)
             is DownloadScope.SeasonUnwatched -> setOf(scope.season)
-            is DownloadScope.SelectedSeasons -> scope.seasons
+            is DownloadScope.SelectedSeasons -> if (scope.seasons.isNotEmpty()) {
+                scope.seasons
+            } else {
+                episodes.mapNotNull { it.season }.filter { it > 0 }.toSet()
+            }
             DownloadScope.Movie -> emptySet()
         }
         return episodes

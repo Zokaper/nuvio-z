@@ -73,6 +73,20 @@ object CurrentReleaseNotes {
             category = WhatsNewCategory.BugFixes,
             items = listOfNotNull(
                 WhatsNewItem(
+                    title = "Downloads now continue with the screen off",
+                    description = "On iPhone, locking the screen used to stop the transfer and " +
+                        "turn normal backgrounding into a retry. Downloads now use the system " +
+                        "background transfer service, reconnect after a relaunch, and keep user " +
+                        "pause separate from screen lock.",
+                ),
+                WhatsNewItem(
+                    title = "Whole-show downloads and progress are honest",
+                    description = "Downloading a title from its menu now queues its released " +
+                        "episodes, and Library has a clear Downloads view. iPhone progress no " +
+                        "longer invents a percentage before the file size is known or leaves a " +
+                        "finished Live Activity behind.",
+                ),
+                WhatsNewItem(
                     title = "A failing source no longer loops",
                     description = "A debrid link that died shortly after starting was retried " +
                         "endlessly - the player reopened on the loading screen, played a second, " +
