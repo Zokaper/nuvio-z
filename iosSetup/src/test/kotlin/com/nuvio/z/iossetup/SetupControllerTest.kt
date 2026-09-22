@@ -10,6 +10,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SetupControllerTest {
+    @Test fun installedAppleSupportDoesNotBlockOnOneServiceState() {
+        val check = ComputerCheck(
+            supportedOs = CheckResult("Windows", CheckState.PASS),
+            internet = CheckResult("Internet", CheckState.PASS),
+            appleSupport = CheckResult("Apple support", CheckState.PASS),
+            appleService = CheckResult("Apple service", CheckState.ACTION, "Installed but stopped"),
+        )
+        assertTrue(check.canContinue)
+    }
+
     @Test fun cannotAdvancePastIphoneWithoutDetectionOrExplicitOverride() {
         val controller = at(SetupStep.CONNECT_IPHONE)
         assertFalse(controller.advance(autoVerified = false))

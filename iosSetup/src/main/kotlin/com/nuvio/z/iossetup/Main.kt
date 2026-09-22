@@ -54,6 +54,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     var iloaderDetected by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf<OperationResult?>(null) }
     var working by remember { mutableStateOf(false) }
+    var workingLabel by remember { mutableStateOf("") }
     var showAdvanced by remember { mutableStateOf(developerFlag) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var showRepair by remember { mutableStateOf(state.repairMode) }
@@ -61,13 +62,15 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     val scope = rememberCoroutineScope()
 
     fun sync() { state = controller.state; diagnostics.step(state.currentStep) }
-    fun runOperation(block: () -> OperationResult, after: () -> Unit = {}) {
+    fun runOperation(label: String, block: () -> OperationResult, after: suspend () -> Unit = {}) {
         working = true
+        workingLabel = label
         operation = null
         scope.launch {
             operation = withContext(Dispatchers.IO) { block() }
-            working = false
             after()
+            working = false
+            workingLabel = ""
         }
     }
 
@@ -106,11 +109,17 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                     iloaderDetected = iloaderDetected,
                     operation = operation,
                     working = working,
+                    workingLabel = workingLabel,
                     onConfirmed = { controller.confirmCurrent(it); sync() },
                     onRepair = { showRepair = true; controller.setRepairMode(true); sync() },
-                    onInstallApple = { runOperation(ops::installAppleDeviceSupport) { check = ops.checkComputer() } },
+                    onInstallApple = {
+                        runOperation("Downloading and installing Apple device support…", ops::installAppleDeviceSupport) {
+                            workingLabel = "Installation finished. Checking Apple device support again…"
+                            check = withContext(Dispatchers.IO) { ops.checkComputer() }
+                        }
+                    },
                     onRecheck = {
-                        runOperation({
+                        runOperation("Checking again…", {
                             when (state.currentStep) {
                                 SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> { check = ops.checkComputer(); OperationResult(check?.canContinue == true, "Checks updated.") }
                                 SetupStep.CONNECT_IPHONE -> { deviceDetected = ops.isDeviceConnected(); OperationResult(deviceDetected, if (deviceDetected) "iPhone detected." else "No iPhone detected yet.") }
@@ -119,8 +128,13 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                             }
                         })
                     },
-                    onInstallIloader = { runOperation(ops::installIloader) { iloaderDetected = ops.findIloader() != null } },
-                    onOpenIloader = { runOperation(ops::openIloader) },
+                    onInstallIloader = {
+                        runOperation("Downloading and installing the current official iloader…", ops::installIloader) {
+                            workingLabel = "Installation finished. Checking for iloader…"
+                            iloaderDetected = withContext(Dispatchers.IO) { ops.findIloader() != null }
+                        }
+                    },
+                    onOpenIloader = { runOperation("Opening iloader…", ops::openIloader) },
                 )
             }
             val autoVerified = when (state.currentStep) {
@@ -163,7 +177,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     )
     if (showRepair) RepairPairingDialog(
         deviceDetected = deviceDetected,
-        onOpenIloader = { runOperation(ops::openIloader) },
+        onOpenIloader = { runOperation("Opening iloader…", ops::openIloader) },
         onDismiss = { showRepair = false },
     )
     if (showDiagnostics) DiagnosticsDialog(
@@ -202,6 +216,7 @@ private fun StepPage(
     iloaderDetected: Boolean,
     operation: OperationResult?,
     working: Boolean,
+    workingLabel: String,
     onConfirmed: (Boolean) -> Unit,
     onRepair: () -> Unit,
     onInstallApple: () -> Unit,
@@ -234,6 +249,10 @@ private fun StepPage(
                     SetupStep.INSTALL_NUVIO -> InstallNuvioContent(state)
                     SetupStep.FINISH -> FinishContent()
                 }
+                if (working) {
+                    Spacer(Modifier.height(18.dp))
+                    WorkingBanner(workingLabel)
+                }
                 if (operation != null) {
                     Spacer(Modifier.height(16.dp))
                     ResultBanner(operation)
@@ -265,8 +284,8 @@ private fun StepPage(
     check?.let { value ->
         listOfNotNull(value.supportedOs, value.internet, value.appleSupport, value.appleService).forEach { CheckRow(it) }
         Spacer(Modifier.height(18.dp))
-        if (!value.canContinue && step == SetupStep.APPLE_DEVICE_SUPPORT) Button(onClick = onInstall) { Text("Install recommended Apple device support") }
-        Spacer(Modifier.width(8.dp)); OutlinedButton(onClick = onRecheck) { Text("Check again") }
+        if (!value.canContinue && step == SetupStep.APPLE_DEVICE_SUPPORT) Button(enabled = !working, onClick = onInstall) { Text("Install recommended Apple device support") }
+        Spacer(Modifier.height(8.dp)); OutlinedButton(enabled = !working, onClick = onRecheck) { Text("Check again") }
     }
 }
 
@@ -343,6 +362,7 @@ private fun StepPage(
 @Composable private fun CheckRow(value: CheckResult) { Row(Modifier.fillMaxWidth().padding(vertical = 7.dp)) { Text(if (value.state == CheckState.PASS) "✓" else "!", color = if (value.state == CheckState.PASS) Color(0xFF67D99B) else Color(0xFFFFC857), fontWeight = FontWeight.Bold); Spacer(Modifier.width(12.dp)); Column { Text(value.label, fontWeight = FontWeight.SemiBold); if (value.detail.isNotBlank()) Text(value.detail, color = Color(0xFF9AA9C0), fontSize = 13.sp) } } }
 @Composable private fun StatusPill(text: String) { Surface(color = if (text == "Complete" || text == "Ready") Color(0xFF174B37) else Color(0xFF4A3914), shape = RoundedCornerShape(99.dp)) { Text(text, Modifier.padding(horizontal = 12.dp, vertical = 5.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold) } }
 @Composable private fun ResultBanner(result: OperationResult) { Surface(color = if (result.success) Color(0xFF173E31) else Color(0xFF4A2E20), shape = RoundedCornerShape(10.dp)) { Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(result.message); if (result.details.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(result.details.take(1_000), fontSize = 11.sp, color = Color(0xFFB8C4D8)) } } } }
+@Composable private fun WorkingBanner(label: String) { Surface(color = Color(0xFF152D50), shape = RoundedCornerShape(10.dp)) { Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(label.ifBlank { "Working…" }, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(10.dp)); LinearProgressIndicator(Modifier.fillMaxWidth()) } } }
 
 @Composable
 private fun AdvancedDialog(state: SetupState, onDismiss: () -> Unit, onStable: () -> Unit, onDeveloper: () -> Unit, onRepair: () -> Unit, onOverride: (Boolean) -> Unit, onStartOver: () -> Unit) {

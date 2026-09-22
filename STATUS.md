@@ -36,6 +36,23 @@ packaged Windows executable launched and remained responsive, and the existing S
 isolation suite passed all stable/debug cross-talk checks. Physical iPhone flow and macOS runtime
 remain acceptance-test work; CI packaging is tracked by the dedicated workflow.
 
+### Acceptance hotfix 1.0.1
+
+The first tester installed iTunes successfully but the Apple Device Support page stayed blocked.
+The page had made one exact `Apple Mobile Device Service == Running` probe part of its completion
+condition even after the driver/package probe succeeded. Detection now recognizes registry,
+installed-package, driver-directory and Apple mobile-service variants; installed Apple device
+support completes that page even if the service is stopped or starts only when the phone is
+connected. The next page's real USB-device detection remains the authoritative gate, so this does
+not let the wizard skip the prerequisite in practice.
+
+Automated operations now draw an in-page indeterminate progress bar and a concrete activity label
+for downloading/installing Apple support, downloading/installing iloader, rechecking, and opening
+iloader. Buttons remain disabled while the operation is active. `:iosSetup:test` is now **12 / 12**,
+including the stopped-service regression. Installer-only `ios-setup-v*` prereleases are explicitly
+excluded from `update-store-source.yml`, so publishing the portable GUI cannot mutate either
+SideStore feed or be mistaken for a mobile debug release.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**

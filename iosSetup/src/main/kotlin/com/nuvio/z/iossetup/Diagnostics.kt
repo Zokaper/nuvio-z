@@ -6,7 +6,7 @@ import java.time.Instant
 
 class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().resolveSibling("diagnostics.log")) {
     init {
-        log("Nuvio Z iOS Setup 1.0.0 started")
+        log("Nuvio Z iOS Setup 1.0.1 started")
         log("OS=${System.getProperty("os.name")} ${System.getProperty("os.version")}; arch=${System.getProperty("os.arch")}")
     }
 

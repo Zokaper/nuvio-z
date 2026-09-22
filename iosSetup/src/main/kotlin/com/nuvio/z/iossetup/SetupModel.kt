@@ -58,8 +58,7 @@ data class ComputerCheck(
     val appleService: CheckResult?,
 ) {
     val canContinue: Boolean get() = supportedOs.state == CheckState.PASS &&
-        internet.state == CheckState.PASS && appleSupport.state == CheckState.PASS &&
-        (appleService == null || appleService.state == CheckState.PASS)
+        internet.state == CheckState.PASS && appleSupport.state == CheckState.PASS
 }
 
 data class OperationResult(
