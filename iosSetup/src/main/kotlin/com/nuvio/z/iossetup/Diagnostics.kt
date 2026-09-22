@@ -6,12 +6,13 @@ import java.time.Instant
 
 class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().resolveSibling("diagnostics.log")) {
     init {
-        log("Nuvio Z iOS Setup 1.0.2 started")
+        log("Nuvio Z iOS Setup 1.0.3 started")
         log("OS=${System.getProperty("os.name")} ${System.getProperty("os.version")}; arch=${System.getProperty("os.arch")}")
     }
 
     fun step(step: SetupStep) = log("wizard_step=${step.name}")
     fun deviceDetected(value: Boolean) = log("device_detected=$value")
+    fun deviceTransportReady(value: Boolean) = log("usbmuxd_ready=$value")
     fun iloader(path: Path?, version: String? = null) = log("iloader_path=${path ?: "not_found"} iloader_version=${version?.ifBlank { "unknown" } ?: "unknown"}")
     fun computerCheck(value: ComputerCheck) = log("computer_check os=${value.supportedOs.state} internet=${value.internet.state} apple=${value.appleSupport.state} service=${value.appleService?.state ?: "n/a"}")
     fun appleProbes(registryOrDriver: Boolean, serviceInstalled: Boolean, serviceRunning: Boolean, wingetInstalled: Boolean) =

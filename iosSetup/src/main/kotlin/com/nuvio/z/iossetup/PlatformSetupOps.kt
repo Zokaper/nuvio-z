@@ -3,6 +3,8 @@ package com.nuvio.z.iossetup
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -16,6 +18,8 @@ interface PlatformSetupOps {
     fun checkComputer(): ComputerCheck
     fun installAppleDeviceSupport(): OperationResult
     fun isDeviceConnected(): Boolean
+    fun isDeviceTransportReady(): Boolean
+    fun openAppleServiceManager(): OperationResult
     fun findIloader(): Path?
     fun installIloader(): OperationResult
     fun openIloader(): OperationResult
@@ -110,6 +114,18 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
         return result.success.also { diagnostics.deviceDetected(it) }
     }
 
+    override fun isDeviceTransportReady(): Boolean = runCatching {
+        Socket().use { socket -> socket.connect(InetSocketAddress("127.0.0.1", 27015), 1_500) }
+        true
+    }.getOrDefault(false).also { diagnostics.deviceTransportReady(it) }
+
+    override fun openAppleServiceManager(): OperationResult = try {
+        ProcessBuilder("mmc.exe", "services.msc").start()
+        OperationResult(true, "Windows Services opened. Find Apple Mobile Device Service, set it to Automatic, then stop and start it.")
+    } catch (error: Exception) {
+        OperationResult(false, "Could not open Windows Services.", details = error.message.orEmpty())
+    }
+
     override fun findIloader(): Path? {
         val roots = listOfNotNull(
             System.getenv("LOCALAPPDATA")?.let { Path.of(it, "Programs", "iloader", "iloader.exe") },
@@ -164,6 +180,10 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
         val usb = run("/usr/sbin/system_profiler", "SPUSBDataType", "-detailLevel", "mini", timeoutSeconds = 20)
         return (usb.success && (usb.details.contains("iPhone", true) || usb.details.contains("iPad", true))).also { diagnostics.deviceDetected(it) }
     }
+
+    override fun isDeviceTransportReady(): Boolean = true.also { diagnostics.deviceTransportReady(it) }
+
+    override fun openAppleServiceManager(): OperationResult = OperationResult(true, "Apple device communication is built into macOS.")
 
     override fun findIloader(): Path? = listOf(
         Path.of("/Applications/iloader.app"), Path.of(System.getProperty("user.home"), "Applications", "iloader.app")

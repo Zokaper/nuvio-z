@@ -63,6 +63,17 @@ also has an explicit **iTunes or Apple Devices is already installed** escape fro
 failure. This is safe because it advances only to Step 4, whose actual USB Apple-device detection
 remains mandatory. Setup tests are now **14 / 14**.
 
+### Acceptance hotfix 1.0.3
+
+The next physical run reached iloader, which then reported **failed to connect to devices:
+usbmuxd**. Windows PnP visibility is not sufficient evidence for iloader: its transport also needs
+Apple Mobile Device Service's usbmuxd endpoint. The Connect iPhone page now checks both the real
+USB device and `127.0.0.1:27015`, logs `usbmuxd_ready`, and will not present the normal Next path
+until both are live. If Windows sees the phone but usbmuxd is unavailable, the wizard names the
+problem, opens Windows Services, and embeds Apple's AMDS restart sequence. This keeps the failure
+in our guided UI instead of discovering it only after iloader opens. The probe was verified against
+the local physical iPhone/AMDS setup and the portable app still builds with **14 / 14** tests.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**

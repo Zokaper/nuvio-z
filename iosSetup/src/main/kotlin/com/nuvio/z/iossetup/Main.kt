@@ -51,6 +51,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     var state by remember { mutableStateOf(controller.state) }
     var check by remember { mutableStateOf<ComputerCheck?>(null) }
     var deviceDetected by remember { mutableStateOf(false) }
+    var deviceTransportReady by remember { mutableStateOf(ops.isMac) }
     var iloaderDetected by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf<OperationResult?>(null) }
     var working by remember { mutableStateOf(false) }
@@ -89,6 +90,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
         if (state.currentStep == SetupStep.CONNECT_IPHONE || state.currentStep == SetupStep.PAIRING) {
             while (true) {
                 deviceDetected = withContext(Dispatchers.IO) { ops.isDeviceConnected() }
+                deviceTransportReady = withContext(Dispatchers.IO) { ops.isDeviceTransportReady() }
                 delay(2_000)
             }
         }
@@ -106,6 +108,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                     state = state,
                     check = check,
                     deviceDetected = deviceDetected,
+                    deviceTransportReady = deviceTransportReady,
                     iloaderDetected = iloaderDetected,
                     operation = operation,
                     working = working,
@@ -126,7 +129,18 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                         runOperation("Checking again…", {
                             when (state.currentStep) {
                                 SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> { check = ops.checkComputer(); OperationResult(check?.canContinue == true, "Checks updated.") }
-                                SetupStep.CONNECT_IPHONE -> { deviceDetected = ops.isDeviceConnected(); OperationResult(deviceDetected, if (deviceDetected) "iPhone detected." else "No iPhone detected yet.") }
+                                SetupStep.CONNECT_IPHONE -> {
+                                    deviceDetected = ops.isDeviceConnected()
+                                    deviceTransportReady = ops.isDeviceTransportReady()
+                                    OperationResult(
+                                        deviceDetected && deviceTransportReady,
+                                        when {
+                                            !deviceDetected -> "No iPhone detected yet."
+                                            !deviceTransportReady -> "Windows sees the iPhone, but Apple device communication is not ready."
+                                            else -> "iPhone and Apple device communication detected."
+                                        },
+                                    )
+                                }
                                 SetupStep.ILOADER_INSTALL -> { iloaderDetected = ops.findIloader() != null; OperationResult(iloaderDetected, if (iloaderDetected) "iloader is installed." else "iloader was not found.") }
                                 else -> OperationResult(true, "Checked.")
                             }
@@ -138,13 +152,14 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                             iloaderDetected = withContext(Dispatchers.IO) { ops.findIloader() != null }
                         }
                     },
+                    onOpenAppleServices = { runOperation("Opening Windows Services…", ops::openAppleServiceManager) },
                     onOpenIloader = { runOperation("Opening iloader…", ops::openIloader) },
                 )
             }
             val autoVerified = when (state.currentStep) {
                 SetupStep.COMPUTER_CHECK -> check?.let { it.supportedOs.state == CheckState.PASS && it.internet.state == CheckState.PASS } == true
                 SetupStep.APPLE_DEVICE_SUPPORT -> check?.canContinue == true || state.appleSupportConfirmed
-                SetupStep.CONNECT_IPHONE -> deviceDetected || state.advancedDeviceOverride
+                SetupStep.CONNECT_IPHONE -> (deviceDetected && deviceTransportReady) || state.advancedDeviceOverride
                 SetupStep.ILOADER_INSTALL -> iloaderDetected
                 else -> false
             }
@@ -217,6 +232,7 @@ private fun StepPage(
     state: SetupState,
     check: ComputerCheck?,
     deviceDetected: Boolean,
+    deviceTransportReady: Boolean,
     iloaderDetected: Boolean,
     operation: OperationResult?,
     working: Boolean,
@@ -227,6 +243,7 @@ private fun StepPage(
     onAppleSupportAlreadyInstalled: () -> Unit,
     onRecheck: () -> Unit,
     onInstallIloader: () -> Unit,
+    onOpenAppleServices: () -> Unit,
     onOpenIloader: () -> Unit,
 ) {
     val step = state.currentStep
@@ -242,7 +259,7 @@ private fun StepPage(
                 when (step) {
                     SetupStep.WELCOME -> WelcomeContent(state)
                     SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> CheckContent(check, step, working, state.appleSupportConfirmed, onInstallApple, onAppleSupportAlreadyInstalled, onRecheck)
-                    SetupStep.CONNECT_IPHONE -> ConnectContent(deviceDetected, working, onRecheck)
+                    SetupStep.CONNECT_IPHONE -> ConnectContent(deviceDetected, deviceTransportReady, working, onRecheck, onOpenAppleServices)
                     SetupStep.LOCAL_DEV_VPN -> Instructions(listOf("Install LocalDevVPN from the App Store.", "Open LocalDevVPN and allow the VPN configuration.", "Make sure the iPhone is on Wi-Fi, then tap Connect."))
                     SetupStep.ILOADER_INSTALL -> IloaderContent(iloaderDetected, working, onInstallIloader, onRecheck, onOpenIloader)
                     SetupStep.SIDESTORE_INSTALL -> SideStoreInstallContent(onOpenIloader)
@@ -302,11 +319,25 @@ private fun StepPage(
     }
 }
 
-@Composable private fun ConnectContent(detected: Boolean, working: Boolean, onRecheck: () -> Unit) {
+@Composable private fun ConnectContent(detected: Boolean, transportReady: Boolean, working: Boolean, onRecheck: () -> Unit, onOpenAppleServices: () -> Unit) {
     Instructions(listOf("Connect your iPhone by USB.", "Unlock it.", "If asked “Trust This Computer?”, tap Trust.", "Enter the iPhone passcode.", "Make sure the iPhone is connected to Wi-Fi."))
     Spacer(Modifier.height(18.dp))
-    Text(if (detected) "✓ iPhone detected" else "Waiting for iPhone…", color = if (detected) Color(0xFF67D99B) else Color(0xFFFFC857), fontWeight = FontWeight.Bold)
-    if (!detected) { Spacer(Modifier.height(12.dp)); OutlinedButton(enabled = !working, onClick = onRecheck) { Text("Check again") } }
+    Text(if (detected) "✓ iPhone detected by Windows" else "Waiting for iPhone…", color = if (detected) Color(0xFF67D99B) else Color(0xFFFFC857), fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        if (transportReady) "✓ Apple device communication is ready" else "! Apple device communication is not ready",
+        color = if (transportReady) Color(0xFF67D99B) else Color(0xFFFFC857),
+        fontWeight = FontWeight.Bold,
+    )
+    if (detected && !transportReady) {
+        Spacer(Modifier.height(12.dp))
+        Text("iloader cannot work until Windows' Apple Mobile Device Service is reachable. Restarting that service usually fixes the usbmuxd error.", color = Color(0xFFFFC857))
+        Spacer(Modifier.height(12.dp))
+        Button(enabled = !working, onClick = onOpenAppleServices) { Text("Open Windows Services") }
+        Spacer(Modifier.height(10.dp))
+        Instructions(listOf("Close iloader and iTunes/Apple Devices, then unplug the iPhone.", "In Windows Services, open Apple Mobile Device Service.", "Set Startup type to Automatic, then Stop and Start the service.", "Restart Windows, reconnect and trust the iPhone, then open iTunes/Apple Devices once."))
+    }
+    if (!detected || !transportReady) { Spacer(Modifier.height(12.dp)); OutlinedButton(enabled = !working, onClick = onRecheck) { Text("Check again") } }
 }
 
 @Composable private fun IloaderContent(detected: Boolean, working: Boolean, onInstall: () -> Unit, onRecheck: () -> Unit, onOpen: () -> Unit) {
