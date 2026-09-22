@@ -1,0 +1,30 @@
+{
+  "name": "Nuvio Z",
+  "subtitle": "Community edition of Nuvio with Watch Together & Debrid",
+  "description": "Nuvio Z is a free, open-source multiplatform media streaming app featuring synchronized Watch Together, multi-provider Debrid streaming, custom player engines, and curated media browsing.",
+  "website": "https://github.com/Zokaper/nuvio-z",
+  "iconURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+  "tintColor": "#1E88E5",
+  "sourceURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json",
+  "featuredApps": [
+    "com.nuvio.app.z"
+  ],
+  "apps": [
+    {
+      "name": "Nuvio Z",
+      "bundleIdentifier": "com.nuvio.app.z",
+      "developerName": "Zokaper",
+      "subtitle": "Stream without boundaries — Watch Together, Debrid, and native playback.",
+      "localizedDescription": "Nuvio Z is a free, open-source media app for your phone, desktop, and TV.\n\nBring your own sources. Nuvio Z turns them into a library with synchronized Watch Together, multi-provider Debrid support, artwork, ratings, subtitles, and your place saved on every screen.",
+      "iconURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "tintColor": "#1E88E5",
+      "category": "entertainment",
+      "versions": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}

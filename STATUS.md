@@ -1,7 +1,54 @@
-
 # Nuvio Z Status
 
 Last updated: 2026-09-22
+
+## iOS Sideload Distribution via SideStore & iloader (2026-09-22)
+
+**iOS distribution path added: unsigned IPA releases via SideStore/AltStore source.**
+Following upstream Nuvio's distribution model, Nuvio Z now distributes unsigned iOS IPAs directly
+through GitHub Releases and provides an official SideStore source feed. A fully-guided bootstrap
+experience has been implemented for both Windows (PowerShell) and macOS (Bash).
+
+### What landed
+
+- **Guided Bootstrap Scripts**:
+  - `distribution/sidestore/setup-windows.ps1`: 7-step guided terminal experience for Windows.
+    Checks 64-bit OS and internet connectivity; checks and offers automatic installation for Apple
+    Mobile Device drivers/iTunes; auto-detects USB connection; guides on-device LocalDevVPN setup;
+    downloads and launches official `nab138/iloader`; walks through developer certificate trust and
+    iOS 16+ Developer Mode approvals; generates and launches an interactive HTML helper with a crisp
+    QR code and deep links (`sidestore://source?url=...`) to add the Nuvio Z source and install;
+    explains 7-day wireless refreshing and in-app updates.
+  - `distribution/sidestore/setup-macos.sh`: Parity implementation for macOS with native device
+    detection, DMG mounting, standard OS security / Gatekeeper approval guidance (no automatic quarantine
+    bypass), and HTML QR code helper launching.
+- **Safety & Correctness Pass**:
+  - Removed automatic Gatekeeper quarantine bypass (`xattr -dr com.apple.quarantine`); user guided through
+    Apple's standard Privacy & Security approval flow.
+  - Clarified pairing file lifespan: corrected UI/docs to state that the computer is normally only needed
+    for initial setup, but pairing files can expire (iOS updates, device resets, or Apple lifecycle), requiring
+    re-pairing via iloader.
+  - Explicit Wi-Fi requirements: both scripts and docs explicitly state that an active Wi-Fi connection on
+    the iPhone is strictly required (cellular data alone is not supported for SideStore loopback).
+  - Release-time bundle ID invariant: `scripts/update-store-source.py` strictly validates extracted IPA
+    `CFBundleIdentifier` against `--expected-bundle-id` (`com.nuvio.app.z`), failing loudly on mismatch.
+  - Sideload source workflow audit: confirmed recursion safety, validated `contents: write` permissions,
+    added `[skip ci]` to metadata commits, and verified fail-visible behavior on branch protection rejections.
+- **SideStore Source Metadata**:
+  - `distribution/sidestore/source.json`: Canonical AltStore/SideStore source feed for Nuvio Z
+    (`com.nuvio.app.z`), configured with `sourceURL` for automatic app updates.
+- **Source Sync & Release Automation**:
+  - `scripts/update-store-source.py`: Updated to target `distribution/sidestore/source.json` by default,
+    updating versions, checksums, and app permissions from compiled unsigned IPAs.
+  - `.github/workflows/android-release.yml`: Release publication now publishes signed Android APKs
+    alongside the unsigned iOS IPA, `SHA256SUMS-iOS.txt`, `setup-windows.ps1`, and `setup-macos.sh`.
+    Unsigned IPA compilation (`ios_unsigned`) runs in all modes (`build-only`, `dry-run`, `publish`).
+  - `.github/workflows/update-store-source.yml`: Updated to synchronize `distribution/sidestore/source.json`,
+    commit feed updates to `main`, and attach `source.json` as a release asset on published releases.
+- **Documentation & User Guide**:
+  - `distribution/sidestore/README.md`: Comprehensive walkthrough covering architecture, prerequisites,
+    step-by-step installation, 7-day refreshing, updates, deep links, security guarantees, and FAQ.
+  - `Docs/RELEASES.md`: Updated to document the SideStore unsigned IPA distribution model.
 
 ## Phase 7 closeout: Release Engineering v1 (2026-09-22)
 

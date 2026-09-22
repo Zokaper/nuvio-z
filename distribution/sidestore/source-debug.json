@@ -1,0 +1,30 @@
+{
+  "name": "Nuvio Z Debug",
+  "subtitle": "Developer channel for experimental Nuvio Z builds",
+  "description": "Nuvio Z Debug is the developer preview feed for Nuvio Z. Installs side-by-side with stable Nuvio Z with isolated app storage and test features.",
+  "website": "https://github.com/Zokaper/nuvio-z",
+  "iconURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/iosApp/iosApp/Assets.xcassets/AppIconGraphite.appiconset/app-icon-1024.png",
+  "tintColor": "#607D8B",
+  "sourceURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source-debug.json",
+  "featuredApps": [
+    "com.nuvio.app.z.debug"
+  ],
+  "apps": [
+    {
+      "name": "Nuvio Z Debug",
+      "bundleIdentifier": "com.nuvio.app.z.debug",
+      "developerName": "Zokaper",
+      "subtitle": "Developer preview — experimental builds and side-by-side testing.",
+      "localizedDescription": "Nuvio Z Debug is the experimental development channel of Nuvio Z. It installs side-by-side with your standard Nuvio Z installation with separate storage and settings.",
+      "iconURL": "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/iosApp/iosApp/Assets.xcassets/AppIconGraphite.appiconset/app-icon-1024.png",
+      "tintColor": "#607D8B",
+      "category": "developer-tools",
+      "versions": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}

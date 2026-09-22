@@ -153,23 +153,23 @@ The coordinator is `.github/workflows/android-release.yml` (`Build Mobile Releas
 # Any branch: signed Android when secrets exist, otherwise unsigned; unsigned iOS verification IPA.
 gh workflow run android-release.yml --repo Zokaper/nuvio-z --ref <branch> -f mode=build-only
 
-# main only: full artifact-producing rehearsal, no tag, release, or TestFlight upload.
+# main only: full artifact-producing rehearsal, no tag or public release created.
 gh workflow run android-release.yml --repo Zokaper/nuvio-z --ref main -f mode=dry-run
 
-# main only: TestFlight upload must succeed before the signed Android release becomes visible.
+# main only: coordinated release publishing signed Android APKs and unsigned iOS IPA for SideStore.
 gh workflow run android-release.yml --repo Zokaper/nuvio-z --ref main -f mode=publish
 ```
 
 There is intentionally no Android-only stable publish mode and no GitHub draft mode. Publish:
 
-1. validates the default branch, unused stable tag, clean checkout, final version bump and all
-   Android/Apple secrets;
+1. validates the default branch, unused stable tag, clean checkout, final version bump and required
+   Android keystore signing secrets;
 2. builds four ABI-specific, metadata-checked, signed APKs;
-3. archives/signs iOS and uploads the same marketing version/build to TestFlight;
-4. only after TestFlight accepts the upload, creates a non-prerelease GitHub release containing
-   the APKs and checksums. The IPA is retained as a private workflow artifact and is never attached
-   to GitHub;
-5. updates the sideload source.
+3. builds the unsigned iOS release IPA (`Nuvio-Z-iOS-<version>-<build>-unsigned.ipa`);
+4. creates a non-prerelease GitHub release containing the 4 APKs, SHA256SUMS-Android.txt, the unsigned
+   IPA, SHA256SUMS-iOS.txt, `setup-windows.ps1` and `setup-macos.sh`;
+5. updates the SideStore sideload source (`distribution/sidestore/source.json`), commits the feed update
+   to `main`, and attaches `source.json` to the release.
 
 Local Android commands:
 
@@ -192,8 +192,8 @@ On macOS, the credential-free verification command is:
 ```
 
 It validates the version, build, bundle ID, arm64 executable, widget and absence of a signature,
-then produces `Nuvio-Z-iOS-<version>-<build>-unsigned.ipa`. This IPA is compile evidence only; do
-not install, distribute or attach it to a release.
+then produces `Nuvio-Z-iOS-<version>-<build>-unsigned.ipa`. This unsigned IPA is published to GitHub
+Releases for SideStore/AltStore sideloading distribution, accompanied by `distribution/sidestore/source.json`.
 
 ## TestFlight setup and manual steps
 
