@@ -13,6 +13,7 @@ import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.collection.FolderDetailScreen
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsScreen
+import com.nuvio.app.features.downloads.DownloadsSettingsScreen
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.settings.SettingsScreen
@@ -73,14 +74,8 @@ internal fun DownloadsDestination(
     onOpenDownload: (DownloadItem) -> Unit,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
-    DownloadsScreen(
+    DownloadsSettingsScreen(
         onBack = onBack,
-        onOpenDownload = onOpenDownload,
-        onNavigateToShow = if (useNativeNavigation) {
-            { showId, title -> navController.navigate(DownloadShowRoute(showId, title)) }
-        } else {
-            null
-        },
     )
 }
 

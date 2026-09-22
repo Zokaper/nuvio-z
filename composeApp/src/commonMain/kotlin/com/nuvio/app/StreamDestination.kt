@@ -2218,24 +2218,26 @@ internal fun StreamDestination(
                     qualitySheetDismissed = true
                     leaveToDetails()
                 },
-            )
-        }
-        if (showPlaybackPreferences) {
-            PlaybackPreferencesDialog(
-                languageStrictness = playerSettings.playbackLanguageStrictness,
-                dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
-                qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps,
-                // Straight through the real setters, so the grid behind this
-                // rebuilds from the same state the next play will use. A
-                // preview-only copy would be a second source of truth for a
-                // decision the user is watching the result of.
-                onLanguageStrictnessChange =
-                    PlayerSettingsRepository::setPlaybackLanguageStrictness,
-                onDynamicRangePolicyChange =
-                    PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
-                onQualityCeilingChange =
-                    PlayerSettingsRepository::setPlaybackQualityCeilingMbps,
-                onDismiss = { showPlaybackPreferences = false },
+                preferencesDialog = if (showPlaybackPreferences) {
+                    {
+                        PlaybackPreferencesDialog(
+                            languageStrictness = playerSettings.playbackLanguageStrictness,
+                            dynamicRangePolicy = playerSettings.playbackDynamicRangePolicy,
+                            qualityCeilingMbps = playerSettings.playbackQualityCeilingMbps,
+                            // Straight through the real setters, so the grid behind this
+                            // rebuilds from the same state the next play will use. A
+                            // preview-only copy would be a second source of truth for a
+                            // decision the user is watching the result of.
+                            onLanguageStrictnessChange =
+                                PlayerSettingsRepository::setPlaybackLanguageStrictness,
+                            onDynamicRangePolicyChange =
+                                PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
+                            onQualityCeilingChange =
+                                PlayerSettingsRepository::setPlaybackQualityCeilingMbps,
+                            onDismiss = { showPlaybackPreferences = false },
+                        )
+                    }
+                } else null,
             )
         }
         if (awaitingMeteredAnswer) {

@@ -52,9 +52,9 @@ object AuthRepository {
 
         sessionStatusJob = scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
-                if (AuthStorage.loadAnonymousUserId() != null) return@collect
                 when (status) {
                     is SessionStatus.Authenticated -> {
+                        AuthStorage.clearAnonymousUserId()
                         val user = status.session.user
                         val userId = user?.id.orEmpty()
                         if (!validateRemoteSession(userId)) return@collect
@@ -65,7 +65,9 @@ object AuthRepository {
                         )
                     }
                     is SessionStatus.NotAuthenticated -> {
-                        _state.value = AuthState.Unauthenticated
+                        if (AuthStorage.loadAnonymousUserId() == null) {
+                            _state.value = AuthState.Unauthenticated
+                        }
                     }
                     is SessionStatus.Initializing -> {
                         if (AuthStorage.loadAnonymousUserId() == null) {
@@ -73,7 +75,9 @@ object AuthRepository {
                         }
                     }
                     is SessionStatus.RefreshFailure -> {
-                        _state.value = AuthState.Unauthenticated
+                        if (AuthStorage.loadAnonymousUserId() == null) {
+                            _state.value = AuthState.Unauthenticated
+                        }
                     }
                 }
             }
@@ -117,6 +121,18 @@ object AuthRepository {
             this.email = email
             this.password = password
         }
+        val session = SupabaseProvider.client.auth.currentSessionOrNull()
+        val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
+        val userId = user?.id.orEmpty()
+        if (userId.isNotBlank()) {
+            AuthStorage.clearAnonymousUserId()
+            validatedRemoteUserId = userId
+            _state.value = AuthState.Authenticated(
+                userId = userId,
+                email = user?.email ?: email,
+                isAnonymous = false,
+            )
+        }
         Unit
     }.onFailure { e ->
         log.e(e) { "Email sign-up failed" }
@@ -129,6 +145,18 @@ object AuthRepository {
         SupabaseProvider.client.auth.signInWith(Email) {
             this.email = email
             this.password = password
+        }
+        AuthStorage.clearAnonymousUserId()
+        val session = SupabaseProvider.client.auth.currentSessionOrNull()
+        val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
+        val userId = user?.id.orEmpty()
+        if (userId.isNotBlank()) {
+            validatedRemoteUserId = userId
+            _state.value = AuthState.Authenticated(
+                userId = userId,
+                email = user?.email ?: email,
+                isAnonymous = false,
+            )
         }
     }.onFailure { e ->
         log.e(e) { "Email sign-in failed" }

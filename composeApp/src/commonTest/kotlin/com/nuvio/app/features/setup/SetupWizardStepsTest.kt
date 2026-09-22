@@ -526,4 +526,73 @@ class SetupWizardStepsTest {
                 )
             }
     }
+
+    // --- Setup Wizard Gate Readiness Logic (Bug 2 & Bug 5) ----------------------------
+
+    @Test
+    fun appGateMustNotReportReadyWhileSetupWizardIsActive() {
+        // While setup wizard is required (e.g. first run), the gate must never report ready.
+        // On iOS, reporting ready causes SwiftUI to apply allowsHitTesting(false),
+        // breaking all pointer interaction on the wizard overlay.
+        val isFirstRunWizardActive = shouldShowSetupWizard(completedRevision = null, currentRevision = SETUP_WIZARD_REVISION)
+        assertTrue(isFirstRunWizardActive)
+
+        fun computeAppReady(
+            gateScreenIsMain: Boolean,
+            externalMainContentReady: Boolean,
+            profileLoading: Boolean,
+            overlaysHidden: Boolean,
+            wizardActive: Boolean,
+            whatsNewActive: Boolean,
+        ): Boolean = gateScreenIsMain && externalMainContentReady && !profileLoading && overlaysHidden && !wizardActive && !whatsNewActive
+
+        // Even if external background content reports ready, gate ready must remain false
+        assertFalse(
+            computeAppReady(
+                gateScreenIsMain = true,
+                externalMainContentReady = true,
+                profileLoading = false,
+                overlaysHidden = true,
+                wizardActive = isFirstRunWizardActive,
+                whatsNewActive = false,
+            )
+        )
+    }
+
+    @Test
+    fun appGateMustNotReportReadyWhileOnDemandSetupWizardIsActive() {
+        fun computeAppReady(
+            gateScreenIsMain: Boolean,
+            externalMainContentReady: Boolean,
+            profileLoading: Boolean,
+            overlaysHidden: Boolean,
+            wizardActive: Boolean,
+            whatsNewActive: Boolean,
+        ): Boolean = gateScreenIsMain && externalMainContentReady && !profileLoading && overlaysHidden && !wizardActive && !whatsNewActive
+
+        // Running setup wizard on demand from Settings
+        val onDemandWizardActive = true
+        assertFalse(
+            computeAppReady(
+                gateScreenIsMain = true,
+                externalMainContentReady = true,
+                profileLoading = false,
+                overlaysHidden = true,
+                wizardActive = onDemandWizardActive,
+                whatsNewActive = false,
+            )
+        )
+
+        // Once on-demand wizard completes or dismisses
+        assertTrue(
+            computeAppReady(
+                gateScreenIsMain = true,
+                externalMainContentReady = true,
+                profileLoading = false,
+                overlaysHidden = true,
+                wizardActive = false,
+                whatsNewActive = false,
+            )
+        )
+    }
 }

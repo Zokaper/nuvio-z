@@ -2,6 +2,47 @@
 
 Last updated: 2026-09-22
 
+## Phase 8 — iOS Device Validation & Bringup Audit (2026-09-22)
+
+**Physical-iPhone QA bringup completed on branch `gemini/phase-8-ios-bringup-audit`.**
+All 9 physical-iPhone findings were traced, root-caused, cross-checked against Android, and audited
+mobile-wide for bug-class prevalence. 8 issues resolved with targeted fixes; Issue 4 (platform settings
+ownership) formally deferred with comprehensive architectural specification and migration blueprint.
+
+- **Issue 1 (Watch Together Join Indicator Obscured)**: Anchored mobile `WatchTogetherDock` to
+  `Alignment.TopEnd` with `safeDrawing.only(Top) + 12.dp`, avoiding bottom navigation bar (64–84dp)
+  and notification toast conflicts.
+- **Issue 2 (Setup Wizard Non-Interactive on iOS)**: Fixed `AppGate` readiness gate race condition
+  where fast background home query triggered `onAppReady(true)` and caused SwiftUI
+  `AppGateComposeView` to apply `.allowsHitTesting(false)`. Gate now holds readiness and delays
+  `onMainContentMountChanged(true)` while `isSetupWizardActive` or `isWhatsNewActive`.
+- **Issue 3 (Email Sign-In / Sign-Up Unreliable)**: Fixed anonymous user retention trap in
+  `AuthRepository`. Removed `sessionStatus.collect` drop when anonymous ID was present, immediately
+  cleared anonymous user ID on successful auth, and synchronously updated `_state.value = Authenticated`.
+- **Issue 4 (Platform Settings Ownership)**: DEFERRED. Documented architectural analysis of cross-device
+  settings collisions. Recommended Hybrid A + C model where global profile preferences remain synced
+  via Supabase while platform-specific hardware capabilities and wizard completion revisions reside in
+  device-local storage (`nuvio_device_settings`).
+- **Issue 5 (Settings Parity & Run Setup Again Missing)**: Added `runSetupAgainRequests` and
+  `whatsNewRequests` channels to `AppGateController` and connected iOS `bypassAppGate = true` root
+  tabs, enabling on-demand setup wizard and release notes.
+- **Issue 6 (Social vs Downloads Navigation Bar Collision)**: Restored `downloads` tab and
+  `socialCoordinator` in `ContentView.swift`. Downloads and Social tabs now operate independently
+  with dedicated icons, labels, and coordinators.
+- **Issue 7 (Downloads Route Mismatch & iOS Storage Parity)**: Repaired `DownloadsDestination`
+  in `SettingsDestinations.kt` to route to `DownloadsSettingsScreen` instead of `DownloadsScreen`.
+  Confirmed iOS native background download engine (`NSURLSession` + file storage) is operational.
+- **Issue 8 (Playback Preferences Dialog Layered Behind Sheet)**: Plumbed `preferencesDialog`
+  slot directly into `PlaybackQualitySheet`, rendering preferences inside the sheet's active
+  `UIViewController` hierarchy on iOS and within the modal bottom sheet container.
+- **Issue 9 (Playback Startup Insets & Dynamic Island Collision)**: Replaced `safeContent` with
+  `safeDrawing` in `PlaybackLoadingScreen`, adding explicit `WindowInsets.safeDrawing.only(Top + Start)`
+  padding to back button and horizontal/bottom insets to metadata and loading bands.
+- **Pure Test Suites**: All 8 pure test suite groups (790 tests total) pass cleanly. Added unit
+  regression suites in `BottomNavItemIdentityTest` and `SetupWizardStepsTest`.
+- **Audit Documentation**: Canonical audit published in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`.
+
+
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 
 **A portable Compose Desktop setup wizard now replaces the terminal bootstrap as the intended

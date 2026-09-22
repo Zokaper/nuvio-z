@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -157,8 +157,8 @@ fun PlaybackLoadingScreen(
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
-                    .padding(top = 20.dp, start = horizontalPadding),
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start))
+                    .padding(top = 16.dp, start = horizontalPadding),
                 containerColor = Color.Black.copy(alpha = 0.3f),
                 contentColor = Color.White,
                 buttonSize = 44.dp,
@@ -173,7 +173,9 @@ fun PlaybackLoadingScreen(
             logo = logo,
             title = title,
             entryProgress = entryProgress,
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
         )
 
         PlaybackLoadingBand(
@@ -184,9 +186,10 @@ fun PlaybackLoadingScreen(
             progress = progress,
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
                 .graphicsLayer { alpha = PlaybackLoadingMotion.bandAlpha(entryProgress) }
                 .padding(horizontal = horizontalPadding)
-                .padding(bottom = 48.dp),
+                .padding(bottom = 32.dp),
         )
     }
 }

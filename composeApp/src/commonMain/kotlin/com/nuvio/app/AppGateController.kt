@@ -8,15 +8,27 @@ import kotlinx.coroutines.flow.update
 
 class AppGateController {
     private val profileSelectionChannel = Channel<Unit>(Channel.BUFFERED)
+    private val runSetupAgainChannel = Channel<Unit>(Channel.BUFFERED)
+    private val whatsNewChannel = Channel<Unit>(Channel.BUFFERED)
     private val _mainContentReady = MutableStateFlow(false)
     private val _contentGeneration = MutableStateFlow(0)
 
     internal val profileSelectionRequests = profileSelectionChannel.receiveAsFlow()
+    internal val runSetupAgainRequests = runSetupAgainChannel.receiveAsFlow()
+    internal val whatsNewRequests = whatsNewChannel.receiveAsFlow()
     internal val mainContentReady = _mainContentReady.asStateFlow()
     internal val contentGeneration = _contentGeneration.asStateFlow()
 
     fun requestProfileSelection() {
         profileSelectionChannel.trySend(Unit)
+    }
+
+    fun requestRunSetupAgain() {
+        runSetupAgainChannel.trySend(Unit)
+    }
+
+    fun requestWhatsNew() {
+        whatsNewChannel.trySend(Unit)
     }
 
     internal fun beginContentReload() {

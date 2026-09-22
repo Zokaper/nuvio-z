@@ -2,6 +2,12 @@ package com.nuvio.app
 
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.BoxWithConstraints
 import com.nuvio.app.features.watchparty.PartyJoinHandoffInfo
 import com.nuvio.app.features.watchparty.PartyJoinHandoff
@@ -2402,11 +2408,22 @@ internal fun MainAppContent(
             // draw across on desktop; the player mirrors the request in its own controls instead.
             if (currentRoute !is PlayerRoute && currentRoute !is StreamRoute) {
                 val outgoingJoin by OutgoingJoinRequestStore.state.collectAsStateWithLifecycle()
-                BoxWithConstraints(Modifier.fillMaxSize().zIndex(19f), contentAlignment = Alignment.BottomEnd) {
+                val dockAlignment = if (isDesktop) Alignment.BottomEnd else Alignment.TopEnd
+                val topInset = if (!isDesktop) {
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
+                } else {
+                    0.dp
+                }
+                val dockPadding = if (isDesktop) {
+                    PaddingValues(end = 20.dp, bottom = 24.dp)
+                } else {
+                    PaddingValues(end = 16.dp, top = topInset + 12.dp)
+                }
+                BoxWithConstraints(Modifier.fillMaxSize().zIndex(19f), contentAlignment = dockAlignment) {
                     WatchTogetherDock(
                         state = outgoingJoin,
                         windowWidth = maxWidth,
-                        modifier = Modifier.padding(end = 20.dp, bottom = 24.dp),
+                        modifier = Modifier.padding(dockPadding),
                     )
                 }
             }
