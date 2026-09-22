@@ -31,7 +31,7 @@ internal actual object DownloadsLiveStatusPlatform {
     private fun updatePayload() {
         val eligibleItems = currentItems.filter { it.status != DownloadStatus.Completed }
         val candidatesById = eligibleItems.associateBy { it.id }
-        val activeBatch = currentBatches.firstOrNull { it.status == DownloadBatchStatus.Resolving }
+        val activeBatch = currentBatches.firstOrNull { it.isPreparing }
         val presentation = DownloadsLiveStatusPolicy.select(
             items = eligibleItems.map { it.liveActivityCandidate() },
             resolvingBatch = activeBatch?.let {

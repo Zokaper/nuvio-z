@@ -25,9 +25,6 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
-import platform.Foundation.setAllowsCellularAccess
-import platform.Foundation.setAllowsConstrainedNetworkAccess
-import platform.Foundation.setAllowsExpensiveNetworkAccess
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
 import platform.UIKit.UIApplication
@@ -156,7 +153,7 @@ private object IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDe
         val handle = IosBackgroundTaskHandle(request.downloadId)
         val metadata = NativeTaskMetadata(request.downloadId, request.destinationFileName, request.knownTotalBytes)
         session.getAllTasksWithCompletionHandler { tasks ->
-            val existing = tasks
+            val existing = tasks.orEmpty()
                 .filterIsInstance<NSURLSessionDownloadTask>()
                 .firstOrNull { NativeTaskMetadata.decode(it.taskDescription)?.downloadId == request.downloadId }
             if (existing != null) {
@@ -204,7 +201,7 @@ private object IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDe
 
     fun suspend(downloadId: String) {
         session.getAllTasksWithCompletionHandler { tasks ->
-            tasks.filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
+            tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
                 if (NativeTaskMetadata.decode(task.taskDescription)?.downloadId == downloadId) {
                     task.suspend()
                     synchronized(stateLock) { contexts[task.taskIdentifier] }
@@ -216,7 +213,7 @@ private object IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDe
 
     fun cancelForDestination(destinationFileName: String) {
         session.getAllTasksWithCompletionHandler { tasks ->
-            tasks.filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
+            tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
                 if (NativeTaskMetadata.decode(task.taskDescription)?.destinationFileName == destinationFileName) {
                     synchronized(stateLock) { cancelledTaskIds += task.taskIdentifier }
                     task.cancel()
