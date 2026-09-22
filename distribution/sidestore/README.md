@@ -1,6 +1,11 @@
 # Nuvio Z — iOS Sideloading (SideStore Distribution)
 
-This directory contains the official SideStore distribution metadata and guided bootstrap scripts for installing **Nuvio Z** on iOS devices without requiring TestFlight or a paid Apple Developer account.
+This directory contains the official SideStore distribution metadata and the advanced fallback scripts for installing **Nuvio Z** on iOS devices without requiring TestFlight or a paid Apple Developer account.
+
+The intended end-user path is the portable **Nuvio Z iOS Setup** desktop wizard in `iosSetup/`.
+Download the Windows or macOS ZIP from the dedicated **Build iOS Setup GUI** workflow, extract it,
+and open the bundled application. It separates every human-controlled SideStore step, persists
+non-sensitive progress, and never treats iloader closing as proof that SideStore or pairing was set up.
 
 ---
 
@@ -50,6 +55,23 @@ Normally, the computer is only needed for initial setup. If SideStore's pairing 
 ---
 
 ## Quick Start
+
+### Portable GUI (recommended)
+
+- **Windows:** extract `Nuvio-Z-iOS-Setup-Windows-x64.zip`, then double-click
+  `Nuvio Z iOS Setup.exe` inside the extracted folder.
+- **macOS:** extract `Nuvio-Z-iOS-Setup-macOS.zip`, then open `Nuvio Z iOS Setup.app`.
+  If an unsigned acceptance build is blocked, use macOS **System Settings → Privacy & Security →
+  Open Anyway**. The setup utility does not remove quarantine attributes or bypass Gatekeeper.
+
+The application includes its own Java runtime. It does not install itself, add a Start Menu entry,
+or require administrator rights merely to launch. Windows may request elevation later only when
+installing genuine Apple device prerequisites.
+
+### Advanced fallback and diagnostics
+
+The scripts below remain available for maintainers, troubleshooting, and environments where the
+GUI cannot run. They are no longer the normal onboarding path.
 
 ### Windows (PowerShell)
 

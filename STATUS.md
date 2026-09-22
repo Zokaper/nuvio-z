@@ -2,6 +2,40 @@
 
 Last updated: 2026-09-22
 
+## Nuvio Z iOS Setup GUI v1 (2026-09-22)
+
+**A portable Compose Desktop setup wizard now replaces the terminal bootstrap as the intended
+SideStore onboarding path.** The PowerShell and shell scripts remain in place as advanced fallback
+and diagnostic tools. No Nuvio Z IPA, stable release, or release workflow was changed.
+
+- New `iosSetup/` Kotlin/JVM + Compose Desktop module packages a self-contained jpackage app-image
+  for Windows and macOS. The acceptance artifacts are portable ZIPs; no MSI/PKG installation is
+  required to run the setup utility.
+- The explicit 14-step state machine keeps USB detection, iloader installation, SideStore
+  appearance, pairing placement, profile trust, Developer Mode, first refresh, source addition and
+  Nuvio Z installation as separate gates. A child-process exit is not a state-machine event, so
+  closing iloader cannot advance any human-controlled step.
+- Stable is the default. The Debug developer channel is available only through Advanced settings
+  or `--developer`, and requires a deliberate warning confirmation before selecting
+  `source-debug.json` / `com.nuvio.app.z.debug`.
+- Progress is stored in per-user app data as `setup-state.json`; it contains only the schema,
+  current/completed steps, channel and boolean confirmation/repair/override flags. Credentials,
+  Apple Account details, 2FA codes and tokens have no model fields and are not logged.
+- Current official SideStore guidance is reflected in separate install, pairing, trust, Developer
+  Mode and first-refresh pages. Pairing repair includes Reset Pairing File, Delete Stored Pairing,
+  re-trust, Manage Pairing File, Place and the required green success message.
+- The source page makes manual URL copy/paste the reliable path and keeps a locally generated ZXing
+  QR as optional convenience. A round-trip decode test pins the exact `sidestore://source?url=...`
+  payload.
+- `.github/workflows/ios-setup-build.yml` builds and uploads
+  `Nuvio-Z-iOS-Setup-Windows-x64.zip` and `Nuvio-Z-iOS-Setup-macOS.zip` without attaching either to
+  normal Nuvio Z releases.
+
+Local verification: `:iosSetup:test` **11 / 11**, `:iosSetup:createDistributable` successful,
+packaged Windows executable launched and remained responsive, and the existing SideStore feed
+isolation suite passed all stable/debug cross-talk checks. Physical iPhone flow and macOS runtime
+remain acceptance-test work; CI packaging is tracked by the dedicated workflow.
+
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
 **First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**
