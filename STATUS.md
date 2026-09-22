@@ -41,6 +41,13 @@ ownership) formally deferred with comprehensive architectural specification and 
 - **Pure Test Suites**: All 8 pure test suite groups (790 tests total) pass cleanly. Added unit
   regression suites in `BottomNavItemIdentityTest` and `SetupWizardStepsTest`.
 - **Audit Documentation**: Canonical audit published in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`.
+- **Debug Prerelease 0.4.13-z1.42**: Published for physical iPhone QA validation via SideStore Developer Channel.
+  - GitHub Actions Run: `35773022968` (all 4 jobs green).
+  - Release: [`debug-v0.4.13-z1.42`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.42)
+  - iOS IPA: `Nuvio-Z-iOS-0.4.13-z1-42-debug-unsigned.ipa` (73,004,543 bytes, SHA-256 `0983212e7f61f0d3ae3f63d2d226d7dd4e7109f18e027465f2a7613da2b5013e`).
+  - Identity: `com.nuvio.app.z.debug`, `Nuvio Z Debug`, unsigned, contains `DownloadsWidgetExtension.appex` (`com.nuvio.app.z.debug.DownloadsWidgetExtension`).
+  - Android APK: `androidApp-full-debug.apk` (151,789,765 bytes, SHA-256 `9ef2faf32aaac876b8e9a0a2db82c8e92d86692e214ccd47e42f7b04214c9753`).
+  - Feed: `distribution/sidestore/source-debug.json` updated; `source.json` untouched. Feed isolation tests 6/6 pass.
 
 
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
