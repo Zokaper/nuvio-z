@@ -149,7 +149,7 @@ jobs:
           aapt="${build_tools}/aapt"; apksigner="${build_tools}/apksigner"
           mkdir -p mobile-artifacts
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
-            shopt -s nullglob; matches=(androidApp/build/outputs/apk/full/release/*"${abi}"*.apk); shopt -u nullglob
+            shopt -s nullglob; matches=(androidApp/build/outputs/apk/full/release/*-full-"${abi}"-release*.apk); shopt -u nullglob
             [[ "${#matches[@]}" -eq 1 ]] || { echo "Expected one ${abi} APK, found ${#matches[@]}." >&2; exit 1; }
             artifact="mobile-artifacts/Nuvio-Z-Android-${abi}-${RELEASE_VERSION}-${RELEASE_BUILD}.apk"
             cp "${matches[0]}" "${artifact}"
