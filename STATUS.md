@@ -1,15 +1,64 @@
 
 # Nuvio Z Status
 
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
-## Phase 7 opened: Release Engineering v1 (2026-09-22)
+## Phase 7 closeout: Release Engineering v1 (2026-09-22)
 
-Active branch: `codex/phase-7-release-engineering`. `ROADMAP.md` now carries the superseding Phase 7
-scope: live desktop hardening plus Android/iOS release readiness; TV distribution is Phase 9.
-`Docs/RELEASES.md` records the compatibility decision. Desktop keeps its live version/serial/MSI
-lineage; Android and iOS share the mobile version/build lineage; policy is unified without forcing
-the two release families onto equal numbers. No release has been published.
+**Phase 7 is complete.** The superseding road-map scope is live-desktop release hardening plus
+joint Android/iOS release readiness; Tizen and webOS distribution moved to Phase 9. Desktop keeps
+its installed-user version/serial/MSI lineage. Android and iOS share the mobile marketing version
+and build number. The policy and channel semantics are unified without forcing the two families
+onto equal numbers. The operational runbook is `Docs/RELEASES.md`. No stable release, tag,
+TestFlight upload or updater-visible artifact was created.
+
+### What landed
+
+- Stable and debug updater channels now fail closed. Stable rejects drafts, every prerelease,
+  `debug-v*`, malformed tags and missing/excess serials; debug requires both a prerelease and the
+  debug tag grammar. Equal/lower serials remain non-updates, so rollback is forward-only.
+- `Build Mobile Release` has real `build-only`, `dry-run` and `publish` modes. Build-only/dry-run
+  produce four metadata-checked ABI APKs, checksums, release notes and an unsigned iOS verification
+  IPA. Publish requires both signing families, uploads iOS to TestFlight first, and only then may
+  create the stable GitHub APK release. There is no Android-only stable or public unsigned-IPA path.
+- Android release signing is explicit: all keystore fields or none; partial configuration fails.
+  Credential-free verification requires `-Pnuvio.android.unsignedRelease=true`. Stable remains
+  `com.nuvio.app.z`; debug remains isolated at `com.nuvio.app.z.debug`.
+- iOS is now `Nuvio Z`, stable bundle `com.nuvio.app.z` with matching widget identity, and the
+  debug `.debug` family. The historical team and signing identity were removed from source. The
+  unsigned packaging script validates version/build/bundle/arm64/widget/signature; the TestFlight
+  script provides the automatic-provisioning archive/export/upload seam without storing credentials.
+- Release guards cover source branch/ref, clean checkout, duplicate tag/release, final bump,
+  release notes, missing/partial secrets, stale outputs, artifact count/name/metadata/signature,
+  and forbidden IPA publication. The first rehearsal caught and fixed the x86 glob also matching
+  x86_64 (`f64f3c602`).
+
+### Verification and artifacts
+
+- pure suites: **8/8, 788 tests** on mobile; **8/8, 778 tests** on desktop
+- mobile `:composeApp:testAndroidHostTest`: **2286 / 0 failures**
+- desktop `:composeApp:desktopTest`: **2427 / 0 failures**, BUILD SUCCESSFUL
+- Android debug: `androidApp-full-debug.apk`, `com.nuvio.app.z.debug`,
+  `0.4.13-z1.40` / versionCode `125040`
+- Android release: four explicit unsigned ABI APKs, `com.nuvio.app.z`,
+  `0.4.13-z1` / versionCode `125`; signing-ready and locally verified unsigned
+- desktop local: stable `Nuvio-Z-Windows-x64-0.1.23-alpha-z6.msi` at ProductVersion
+  `2.0.131`; debug `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.61.msi` at `1.45.61`
+- desktop build-only CI `35666931626`: Windows x64 MSI, macOS arm64 DMG, macOS x86_64 DMG,
+  release notes and consolidated checksums all verified; publish job skipped
+- mobile build-only CI `35710339961` (active run on `ae9324ec6` with bounded 3G/4G memory and 120m timeout, superseding `35702518407`): four Android ABI artifacts plus checksums and release notes verified; TestFlight/GitHub publication jobs skipped; unsigned iOS verification IPA in flight
+- both release workflows pass `actionlint`; release metadata and iOS shell scripts pass their
+  syntax/contract checks
+
+### Credentials and next phase
+
+The existing Android CI keystore secret produced signature-verified build-only APKs; no signing
+material was exposed or committed. Apple still requires the Developer team id, distribution
+certificate/password, and App Store Connect key/id/issuer plus the app/identifier/capability
+records. Those values and the exact account-side TestFlight steps are listed in
+`Docs/RELEASES.md`; none is committed. Phase 8 owns Apple credentials, the first signed upload,
+processing/group/beta-review steps, physical iPhone QA and launch fixes. Missing Apple access did
+not block this credential-neutral Phase 7 seam.
 
 ## Phase 6 closeout: DONE WITH NON-BLOCKING QA DEBT (2026-09-21)
 
