@@ -2,6 +2,39 @@
 
 Last updated: 2026-09-22
 
+## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
+
+**First-Ever iOS Debug Release published & Hidden SideStore Developer Channel established.**
+As part of our dual-track SideStore distribution system, iOS debug builds now publish automatically
+alongside Android debug APKs, and a dedicated Developer Channel provides side-by-side sideloading.
+
+### 1. First-Ever iOS Debug Release (debug-v0.4.13-z1.41)
+- **GitHub Actions Run**: `35729744670` completed all jobs successfully (`Resolve debug version`, `Build Android debug APK`, `Build iOS Debug unsigned IPA`, `Publish to debug channel`).
+- **Release**: [`debug-v0.4.13-z1.41`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.41) (GitHub prerelease, invisible to stable updater).
+- **iOS Artifact**: `Nuvio-Z-iOS-0.4.13-z1-41-debug-unsigned.ipa` (72,903,576 bytes).
+  - SHA256: `5a5102889a3c613ec5ef92c8ee2a9d392df0a56c70ca0914ecc5fd4cfe70972a` (verified against `SHA256SUMS-Debug.txt`).
+  - Bundle Identifier: `com.nuvio.app.z.debug` (confirmed via extracted `Info.plist`).
+  - Display Name: `Nuvio Z Debug` (confirmed via extracted `Info.plist`).
+  - Code Signature: Unsigned (verified no `_CodeSignature` in IPA archive).
+  - Deployment Target: iOS 16.1+ (`MinimumOSVersion: 16.1`).
+
+### 2. SideStore Developer Channel (source-debug.json)
+- **Feed Isolation**:
+  - `distribution/sidestore/source-debug.json`: Dedicated SideStore source containing only `Nuvio Z Debug` (`com.nuvio.app.z.debug`).
+  - `distribution/sidestore/source.json`: Remains strictly stable-only (`com.nuvio.app.z`).
+  - Unit test suite `scripts/test-store-source.py` added and passing; verifies bidirectional cross-talk prevention via `--expected-bundle-id`.
+- **Interactive Bootstrap Integration**:
+  - Windows (`setup-windows.ps1 -DeveloperMode`) and macOS (`setup-macos.sh --developer`).
+  - Mandatory interactive confirmation prompt (default No) detailing:
+    1. Bundle ID: `com.nuvio.app.z.debug`.
+    2. Independent app container: side-by-side coexistence with separate database, preferences, and keychain partition.
+    3. Apple Account slot limits: Free accounts allow 3 active sideloaded apps. SideStore (1) + Stable (1) + Debug (1) = 3/3 (all slots consumed).
+  - Switches default source URL to `source-debug.json`.
+  - Generates developer-styled HTML setup helper (orange accent, developer preview warning, QR code, deep links).
+- **CI / Automation Isolation**:
+  - `.github/workflows/debug-release.yml`: Automatically updates `source-debug.json` and attaches it to the debug prerelease.
+  - `.github/workflows/update-store-source.yml`: Routes prereleases to `source-debug.json` (`com.nuvio.app.z.debug`) and stable releases to `source.json` (`com.nuvio.app.z`), with `workflow_dispatch` support.
+
 ## iOS Sideload Distribution via SideStore & iloader (2026-09-22)
 
 **iOS distribution path added: unsigned IPA releases via SideStore/AltStore source.**

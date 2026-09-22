@@ -295,3 +295,29 @@ jobs:
           Not a release. The stable updater ignores prereleases."
 
           echo "Published ${{ needs.prepare.outputs.tag }}"
+
+      - name: Update SideStore debug source feed
+        run: |
+          set -euo pipefail
+          ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
+          notes_file="${RUNNER_TEMP}/debug-notes.txt"
+          echo "Debug build ${{ needs.prepare.outputs.version }} (build ${{ needs.prepare.outputs.debug_build }}) for SideStore." > "${notes_file}"
+          python3 scripts/update-store-source.py \
+            --source distribution/sidestore/source-debug.json \
+            --ipa "release-assets/${ipa_name}" \
+            --expected-bundle-id com.nuvio.app.z.debug \
+            --release-notes "${notes_file}" \
+            --release-version "${{ needs.prepare.outputs.version }}" \
+            --release-date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --download-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ needs.prepare.outputs.tag }}/${ipa_name}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add distribution/sidestore/source-debug.json
+          git commit -m "chore(store): update source-debug.json for ${{ needs.prepare.outputs.version }} [skip ci]" || echo "No changes to commit"
+          git push origin "HEAD:${GITHUB_REF_NAME}" || echo "Could not push to branch directly"
+
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            distribution/sidestore/source-debug.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
