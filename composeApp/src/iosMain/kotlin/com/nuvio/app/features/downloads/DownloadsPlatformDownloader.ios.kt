@@ -37,7 +37,7 @@ private val backgroundSessionCompletionHandlers = mutableMapOf<String, () -> Uni
 
 fun handleDownloadsBackgroundEvents(identifier: String, completionHandler: () -> Unit) {
     backgroundSessionCompletionHandlers[identifier] = completionHandler
-    IosBackgroundDownloadManager.activate(identifier)
+    backgroundDownloadManager.activate(identifier)
 }
 
 /** Retained for binary compatibility with `.42`; normal backgrounding no longer pauses anything. */
@@ -50,7 +50,7 @@ internal actual object DownloadsPlatformDownloader {
     actual fun freeStorageBytes(): Long = -1L
 
     actual fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle =
-        IosBackgroundDownloadManager.start(request, listener)
+        backgroundDownloadManager.start(request, listener)
 
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
@@ -61,7 +61,7 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
-        IosBackgroundDownloadManager.cancelForDestination(destinationFileName)
+        backgroundDownloadManager.cancelForDestination(destinationFileName)
         return removePathIfExists("${downloadsDirectoryPath()}/$destinationFileName.part")
     }
 
@@ -118,8 +118,10 @@ private data class NativeTaskContext(
     var lastProgressAtEpochMs: Long = 0L,
 )
 
+private val backgroundDownloadManager by lazy { IosBackgroundDownloadManager() }
+
 @OptIn(ExperimentalForeignApi::class)
-private object IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDelegateProtocol {
+private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDelegateProtocol {
     private val stateLock = SynchronizedObject()
     private val contexts = mutableMapOf<ULong, NativeTaskContext>()
     private val cancelledTaskIds = mutableSetOf<ULong>()
@@ -341,7 +343,7 @@ private object IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDe
 private class IosBackgroundTaskHandle(private val downloadId: String) : DownloadsTaskHandle {
     private var task: NSURLSessionDownloadTask? = null
     fun attach(task: NSURLSessionDownloadTask) { this.task = task }
-    override fun cancel() { IosBackgroundDownloadManager.suspend(downloadId) }
+    override fun cancel() { backgroundDownloadManager.suspend(downloadId) }
 }
 
 @OptIn(ExperimentalForeignApi::class)
