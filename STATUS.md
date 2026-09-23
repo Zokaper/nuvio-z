@@ -63,7 +63,17 @@ Verification: local, after a clean results dir and `--rerun-tasks`:
 - Android host suite **2,346 / 2,346**;
 - `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
 
-The new regressions are in `IosBackgroundTransferReconcilerTest`. iOS CI and the `.45` publication are recorded below once green. Nothing here is physical verification.
+The new regressions are in `IosBackgroundTransferReconcilerTest`.
+
+CI on the branch:
+- `ci.yml` passed: run `35923370814`.
+- `ios-build.yml` passed: run `35923371207`, covering the Kotlin framework device and simulator links and the unsigned Xcode build. The first attempt, `35922141103`, failed because `NSURLSessionTaskState` imports as constants in Kotlin/Native; this was fixed in `cb95f4bf2`.
+
+Published [`debug-v0.4.13-z1.45`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.45) from `cb95f4bf2` (run `35926684747`):
+- a prerelease with the Android debug APK and the iOS Debug unsigned IPA;
+- the SideStore debug feed was updated on `main` by the workflow (`f3fb3e6eb`, feed file only).
+
+Nothing here is physical verification.
 
 Next: physical `.45` pass (checklist in the audit doc, section 8). Send the diagnostics folder if
 the freeze recurs.
