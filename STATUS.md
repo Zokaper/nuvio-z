@@ -39,6 +39,18 @@ an empty native-app inventory even while Windows reported the window responsive;
 therefore still a manual/CI artifact review item. Physical end-to-end iPhone setup and macOS runtime
 remain acceptance-test work.
 
+Dedicated packaging run `35887695630` passed on Windows and macOS from commit `fb769eabc`.
+The verified prerelease payloads are:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,887,527 bytes — SHA-256
+  `B4CD369546FAC567957EC7CBDB5D29A585462205013C59267EA95A5ABD3373B2`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,927,536 bytes — SHA-256
+  `4420231AC647E02A354C3C7339BD1E87D10A3A0E57C6A092D1045494919BC230`
+
+Both ZIP central directories were read successfully after download. They contain self-contained app
+images, not MSI/PKG installers. The intended publication is installer-only prerelease
+`ios-setup-v1.1.0-beta.1`; the SideStore feed workflow excludes `ios-setup-v*` tags.
+
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 
 **A portable Compose Desktop setup wizard now replaces the terminal bootstrap as the intended
