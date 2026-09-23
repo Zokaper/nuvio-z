@@ -61,13 +61,13 @@ The first live 1.1 test found two usability problems before the release was acce
    the optional `winget` fallback is capped at 12 seconds; two network endpoints are checked with
    explicit four-second bounds; and an inconclusive result is a yellow warning that still permits
    Continue. Actual downloads retain their bounded request and actionable retry error. Two new tests
-   pin weak-connectivity continuation and the unsupported-OS block. Setup tests are **21 / 21**,
+   pin weak-connectivity continuation and the unsupported-OS block. Setup tests are **20 / 20**,
    including the five-phase mapping.
 2. **The first visual pass was too dense.** Fourteen sidebar rows, a status pill, a success card and
    a visual-panel success treatment repeated the same state. The rail now shows five calm phases plus
-   one current-step label; the page uses a small step breadcrumb; the duplicate green success card is
-   gone; and the narrower visual panel owns one compact `Done when` summary. Numbered instructions,
-   exact completion gates and collapsed contextual troubleshooting remain intact.
+   one current-step label; the page uses a small step breadcrumb; and the duplicate success card and
+   poster-like right panel are gone. The instructions sit in one centered readable-width column.
+   Numbered actions, exact completion gates and collapsed contextual troubleshooting remain intact.
 
 The corrected portable package is version 1.1.1. Treat `ios-setup-v1.1.0-beta.1` as superseded and
 publish 1.1.1 as the recommended prerelease after cross-platform packaging.

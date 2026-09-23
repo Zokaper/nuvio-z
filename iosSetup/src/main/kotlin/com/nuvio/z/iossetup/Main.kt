@@ -241,8 +241,8 @@ private fun StepPage(
 ) {
     val step = state.currentStep
     val guide = guidanceFor(step, state)
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 4.dp)) {
+    Box(modifier) {
+        Column(Modifier.widthIn(max = 940.dp).fillMaxHeight().align(Alignment.TopCenter).verticalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
             Text("STEP ${step.ordinal + 1} OF ${SetupStep.entries.size}  ·  ${phaseFor(step).title.uppercase()}", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(Modifier.height(9.dp))
             Text(pageTitle(step, state), fontSize = 31.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
@@ -279,7 +279,6 @@ private fun StepPage(
             }
             Spacer(Modifier.height(12.dp))
         }
-        StepVisualPanel(step, state, Modifier.width(290.dp))
     }
 }
 

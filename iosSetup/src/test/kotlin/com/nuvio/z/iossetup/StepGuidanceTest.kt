@@ -10,7 +10,6 @@ class StepGuidanceTest {
             val guide = guidanceFor(step)
             assertTrue(guide.purpose.length > 30, "$step needs a useful purpose")
             assertTrue(guide.success.length > 20, "$step needs an explicit success state")
-            assertTrue(guide.visualTitle.isNotBlank(), "$step needs a visual title")
             if (step !in setOf(SetupStep.WELCOME)) {
                 assertTrue(guide.troubleshooting.isNotEmpty(), "$step needs contextual troubleshooting")
             }
@@ -48,11 +47,6 @@ class StepGuidanceTest {
         expected.forEach { (step, phrase) ->
             assertTrue(phrase in confirmationText(step, state), "$step confirmation should name '$phrase'")
         }
-    }
-
-    @Test fun everyStepMapsToOneDistinctVisual() {
-        val visuals = SetupStep.entries.map { guidanceFor(it).visual }
-        assertEquals(SetupStep.entries.size, visuals.distinct().size)
     }
 
     @Test fun simplifiedProgressPhasesCoverTheWholeFlowInOrder() {
