@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
@@ -114,7 +113,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     }
 
     val autoVerified = when (state.currentStep) {
-        SetupStep.COMPUTER_CHECK -> check?.let { it.supportedOs.state == CheckState.PASS && it.internet.state == CheckState.PASS } == true
+        SetupStep.COMPUTER_CHECK -> check?.let { it.supportedOs.state == CheckState.PASS && it.internet.state != CheckState.FAIL } == true
         SetupStep.APPLE_DEVICE_SUPPORT -> check?.canContinue == true || state.appleSupportConfirmed
         SetupStep.CONNECT_IPHONE -> (deviceDetected && transportReady) || state.advancedDeviceOverride
         SetupStep.ILOADER_INSTALL -> iloaderDetected
@@ -122,7 +121,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     }
 
     Row(Modifier.fillMaxSize().background(AppBackground)) {
-        ProgressRail(state, controller.activeSteps(), Modifier.width(254.dp).fillMaxHeight())
+        ProgressRail(state, controller.activeSteps(), Modifier.width(218.dp).fillMaxHeight())
         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 32.dp, vertical = 22.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { showDiagnostics = true }) { Text("Help & diagnostics") }
@@ -203,30 +202,32 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
 @Composable
 private fun ProgressRail(state: SetupState, steps: List<SetupStep>, modifier: Modifier) {
     val currentIndex = steps.indexOf(state.currentStep)
+    val currentPhase = phaseFor(state.currentStep)
+    val currentPhaseIndex = SetupPhase.entries.indexOf(currentPhase)
     Column(modifier.background(RailColor).padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Nuvio Z", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text("iPhone setup assistant", color = TextSecondary, fontSize = 13.sp)
-        Text("Step ${currentIndex + 1} of ${steps.size}", color = BlueText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
-        Spacer(Modifier.height(14.dp))
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            steps.forEachIndexed { index, step ->
-                val completed = step in state.completedSteps
-                val current = step == state.currentStep
-                val pending = current && step.manual && step !in state.manualConfirmations
-                val marker = when { completed -> Color(0xFF25895B); pending -> Color(0xFF795A18); current -> Color(0xFF245EAF); else -> Color(0xFF28384D) }
-                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = RoundedCornerShape(99.dp), color = marker) {
-                        Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) { Text(if (completed) "✓" else "${index + 1}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+        Text("iPhone setup", color = TextSecondary, fontSize = 13.sp)
+        Spacer(Modifier.height(26.dp))
+        Column(Modifier.weight(1f)) {
+            SetupPhase.entries.forEachIndexed { index, phase ->
+                val completed = index < currentPhaseIndex
+                val current = phase == currentPhase
+                Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(99.dp), color = when { completed -> Color(0xFF25895B); current -> Color(0xFF245EAF); else -> Color(0xFF28384D) }) {
+                        Box(Modifier.size(27.dp), contentAlignment = Alignment.Center) {
+                            Text(if (completed) "✓" else "${index + 1}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(step.title, color = if (current || completed) Color.White else TextMuted, fontSize = 12.sp, fontWeight = if (current) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (current) Text(if (pending) "Needs your confirmation" else "Current step", color = if (pending) Warning else BlueText, fontSize = 10.sp)
-                    }
+                    Text(phase.title, color = if (current || completed) Color.White else TextMuted, fontSize = 13.sp, fontWeight = if (current) FontWeight.Bold else FontWeight.Normal)
                 }
             }
+            Spacer(Modifier.height(24.dp))
+            Text("CURRENT STEP", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("${currentIndex + 1} of ${steps.size}", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp))
+            Text(state.currentStep.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
         }
-        Surface(color = Color(0xFF14243A), shape = RoundedCornerShape(12.dp)) { Text("Progress saves automatically", Modifier.padding(12.dp), color = TextSecondary, fontSize = 11.sp) }
+        Text("Progress saves automatically", color = TextMuted, fontSize = 11.sp)
     }
 }
 
@@ -242,8 +243,8 @@ private fun StepPage(
     val guide = guidanceFor(step, state)
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(end = 4.dp)) {
-            StatusPill(statusFor(step, device, transport, iloader, state))
-            Spacer(Modifier.height(12.dp))
+            Text("STEP ${step.ordinal + 1} OF ${SetupStep.entries.size}  ·  ${phaseFor(step).title.uppercase()}", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(Modifier.height(9.dp))
             Text(pageTitle(step, state), fontSize = 31.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(Modifier.height(8.dp))
             Text(guide.purpose, color = TextSecondary, fontSize = 15.sp, lineHeight = 22.sp)
@@ -269,8 +270,6 @@ private fun StepPage(
                     }
                     if (working) { Spacer(Modifier.height(18.dp)); WorkingBanner(workingLabel) }
                     if (operation != null) { Spacer(Modifier.height(16.dp)); ResultBanner(operation) }
-                    Spacer(Modifier.height(20.dp))
-                    ExpectedSuccess(guide.success)
                     if (step.manual && step != SetupStep.FINISH) {
                         Spacer(Modifier.height(16.dp))
                         ManualConfirmation(confirmationText(step, state), step in state.manualConfirmations, onConfirmed)
@@ -280,7 +279,7 @@ private fun StepPage(
             }
             Spacer(Modifier.height(12.dp))
         }
-        StepVisualPanel(step, state, Modifier.width(330.dp))
+        StepVisualPanel(step, state, Modifier.width(290.dp))
     }
 }
 
@@ -303,7 +302,17 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 }
 
 @Composable private fun CheckContent(check: ComputerCheck?, step: SetupStep, working: Boolean, confirmed: Boolean, onInstall: () -> Unit, onAlreadyInstalled: () -> Unit, onRecheck: () -> Unit) {
-    if (working && check == null) { CircularProgressIndicator(); return }
+    if (working && check == null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Checking your computer…", color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("This should take less than 15 seconds, even on a slow connection.", color = TextSecondary, fontSize = 12.sp)
+            }
+        }
+        return
+    }
     check?.let { value ->
         listOfNotNull(value.supportedOs, value.internet, value.appleSupport, value.appleService).forEach { CheckRow(it) }
         if (!value.canContinue && step == SetupStep.APPLE_DEVICE_SUPPORT) {
@@ -383,15 +392,6 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
     Spacer(Modifier.height(10.dp)); InfoCallout("If pairing expires later", "Reopen this assistant and choose Advanced settings → Repair SideStore. This can happen after an iOS update or reset.")
 }
 
-@Composable private fun ExpectedSuccess(text: String) {
-    Surface(color = Color(0xFF123526), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-            Text("✓", color = Success, fontWeight = FontWeight.Bold, fontSize = 18.sp); Spacer(Modifier.width(10.dp))
-            Column { Text("SUCCESS LOOKS LIKE", color = Success, fontSize = 10.sp, fontWeight = FontWeight.Bold); Text(text, color = Color.White, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
-        }
-    }
-}
-
 @Composable private fun ManualConfirmation(text: String, confirmed: Boolean, onConfirmed: (Boolean) -> Unit) {
     Surface(color = if (confirmed) Color(0xFF123526) else Color(0xFF172D4B), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -429,7 +429,6 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 @Composable private fun Callout(background: Color, accent: Color, title: String, text: String) { Surface(color = background, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text(title, color = accent, fontWeight = FontWeight.Bold, fontSize = 13.sp); Text(text, color = Color.White, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) } } }
 @Composable private fun CheckRow(value: CheckResult) { val pass = value.state == CheckState.PASS; Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.Top) { Text(if (pass) "✓" else "!", color = if (pass) Success else Warning, fontWeight = FontWeight.Bold); Spacer(Modifier.width(11.dp)); Column { Text(value.label, color = Color.White, fontWeight = FontWeight.SemiBold); if (value.detail.isNotBlank()) Text(value.detail, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp) } } }
 @Composable private fun LiveStatusRow(success: Boolean, text: String) { Surface(color = if (success) Color(0xFF123526) else Color(0xFF3B3018), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp)) { Text(if (success) "✓" else "…", color = if (success) Success else Warning, fontWeight = FontWeight.Bold); Spacer(Modifier.width(10.dp)); Text(text, color = Color.White, fontWeight = FontWeight.SemiBold) } } }
-@Composable private fun StatusPill(text: String) { val pair = when (text) { "Complete", "Ready", "Ready to continue" -> Color(0xFF174B37) to Success; "Needs attention", "Waiting for confirmation", "Waiting for iPhone" -> Color(0xFF4A3914) to Warning; else -> Color(0xFF193A68) to BlueText }; Surface(color = pair.first, shape = RoundedCornerShape(99.dp)) { Text(text, Modifier.padding(horizontal = 12.dp, vertical = 5.dp), color = pair.second, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }
 @Composable private fun ResultBanner(result: OperationResult) { Surface(color = if (result.success) Color(0xFF173E31) else Color(0xFF4A2E20), shape = RoundedCornerShape(10.dp)) { Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(result.message, color = Color.White); if (result.details.isNotBlank()) Text(result.details.take(1_000), color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp)) } } }
 @Composable private fun WorkingBanner(label: String) { Surface(color = Color(0xFF152D50), shape = RoundedCornerShape(10.dp)) { Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(label.ifBlank { "Working…" }, color = Color.White, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(10.dp)); LinearProgressIndicator(Modifier.fillMaxWidth()) } } }
 
@@ -449,5 +448,4 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 @Composable private fun DiagnosticsDialog(report: String, onDismiss: () -> Unit) { AlertDialog(onDismissRequest = onDismiss, title = { Text("Help & diagnostics") }, text = { Column { Text("Each page has step-specific help. This report is useful for support and excludes credentials, verification codes, tokens, and secrets.", color = TextSecondary); Spacer(Modifier.height(10.dp)); Surface(color = Color(0xFF0C1422), shape = RoundedCornerShape(8.dp)) { Text(report, Modifier.padding(12.dp).heightIn(max = 300.dp).verticalScroll(rememberScrollState()), color = Color.White, fontSize = 11.sp) }; Spacer(Modifier.height(10.dp)); Button(onClick = { copyText(report) }) { Text("Copy diagnostics") } } }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }) }
 
 private fun copyText(value: String) { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(value), null) }
-private fun statusFor(step: SetupStep, device: Boolean, transport: Boolean, iloader: Boolean, state: SetupState) = when { step in state.completedSteps -> "Complete"; step == SetupStep.CONNECT_IPHONE && (!device || !transport) -> "Waiting for iPhone"; step == SetupStep.ILOADER_INSTALL && !iloader -> "Needs attention"; step.manual && step !in state.manualConfirmations -> "Waiting for confirmation"; step.manual -> "Ready to continue"; else -> "Ready" }
 private fun pageTitle(step: SetupStep, state: SetupState) = when (step) { SetupStep.INSTALL_NUVIO -> "Install ${state.channel.appName}"; SetupStep.ADD_SOURCE -> "Add ${state.channel.appName} to SideStore"; else -> step.title }

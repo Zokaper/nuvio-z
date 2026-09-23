@@ -55,6 +55,16 @@ class StepGuidanceTest {
         assertEquals(SetupStep.entries.size, visuals.distinct().size)
     }
 
+    @Test fun simplifiedProgressPhasesCoverTheWholeFlowInOrder() {
+        val phases = SetupStep.entries.map(::phaseFor)
+        assertEquals(SetupPhase.entries, phases.distinct())
+        assertEquals(SetupPhase.GET_READY, phaseFor(SetupStep.WELCOME))
+        assertEquals(SetupPhase.CONNECT, phaseFor(SetupStep.CONNECT_IPHONE))
+        assertEquals(SetupPhase.SET_UP_SIDESTORE, phaseFor(SetupStep.PAIRING))
+        assertEquals(SetupPhase.INSTALL_NUVIO, phaseFor(SetupStep.ADD_SOURCE))
+        assertEquals(SetupPhase.FINISH, phaseFor(SetupStep.FINISH))
+    }
+
     private fun assertContainsAll(text: String, vararg phrases: String) {
         phrases.forEach { phrase -> assertTrue(phrase in text, "Missing '$phrase' in: $text") }
     }

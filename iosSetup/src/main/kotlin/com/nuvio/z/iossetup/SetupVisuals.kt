@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,16 +36,15 @@ fun StepVisualPanel(step: SetupStep, state: SetupState, modifier: Modifier = Mod
     Surface(
         modifier = modifier.fillMaxHeight(),
         color = Color(0xFF101B2D),
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 2.dp,
+        shape = RoundedCornerShape(20.dp),
     ) {
         Column(
-            Modifier.padding(28.dp),
+            Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("WHAT SUCCESS LOOKS LIKE", color = PanelBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-            Spacer(Modifier.height(22.dp))
+            Text("VISUAL GUIDE", color = PanelBlue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            Spacer(Modifier.height(18.dp))
             when (guide.visual) {
                 StepVisual.WELCOME -> DeviceFlow("Computer", "Guided setup", "iPhone")
                 StepVisual.COMPUTER -> ChecklistVisual(listOf("64-bit computer", "Internet connection", "Ready to continue"))
@@ -63,10 +61,17 @@ fun StepVisualPanel(step: SetupStep, state: SetupState, modifier: Modifier = Mod
                 StepVisual.INSTALL -> PhoneScreen("SideStore · Browse", listOf(state.channel.appName, "Installed  ✓"), success = true)
                 StepVisual.FINISH -> ChecklistVisual(listOf("SideStore installed", "Pairing ready", "${state.channel.appName} installed"))
             }
-            Spacer(Modifier.height(24.dp))
-            Text(guide.visualTitle, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(8.dp))
-            Text(guide.visualCaption, color = PanelMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(20.dp))
+            Text(guide.visualTitle, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
+            Text(guide.visualCaption, color = PanelMuted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Surface(color = Color(0xFF123526), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("DONE WHEN", color = PanelGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(guide.success, color = Color.White, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
     }
 }

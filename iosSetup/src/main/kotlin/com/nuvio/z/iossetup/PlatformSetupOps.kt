@@ -11,6 +11,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
 
 interface PlatformSetupOps {
     val platformName: String
@@ -49,13 +50,35 @@ abstract class ProcessPlatformOps(protected val diagnostics: Diagnostics) : Plat
         result
     }
 
-    protected fun hasInternet(): Boolean = runCatching {
-        val connection = URI("https://github.com").toURL().openConnection() as HttpURLConnection
-        connection.requestMethod = "HEAD"
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 5_000
-        connection.responseCode in 200..399
-    }.getOrDefault(false)
+    protected fun internetCheck(): CheckResult {
+        val reachable = listOf("https://github.com", STABLE_SOURCE_URL)
+            .map { url ->
+                CompletableFuture.supplyAsync {
+                    runCatching {
+                        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+                        try {
+                            connection.requestMethod = "HEAD"
+                            connection.connectTimeout = 4_000
+                            connection.readTimeout = 4_000
+                            connection.setRequestProperty("User-Agent", "Nuvio-Z-iOS-Setup")
+                            connection.responseCode in 200..399
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }.getOrDefault(false)
+                }
+            }
+            .any { it.join() }
+        return if (reachable) {
+            CheckResult("Internet connection", CheckState.PASS, "Online")
+        } else {
+            CheckResult(
+                "Internet connection",
+                CheckState.ACTION,
+                "Couldn’t verify the connection right now. You can continue, but downloads will need internet.",
+            )
+        }
+    }
 
     protected fun download(url: String, destination: Path): OperationResult = try {
         Files.createDirectories(destination.parent)
@@ -75,16 +98,27 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
 
     override fun checkComputer(): ComputerCheck {
         val is64 = System.getenv("PROCESSOR_ARCHITEW6432") != null || System.getProperty("os.arch").contains("64")
-        val service = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Service -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'Apple.*Mobile|MobileDevice' -or ${'$'}_.DisplayName -match 'Apple Mobile Device' } | Select-Object -First 1 -ExpandProperty Status")
-        val registry = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if ((Test-Path 'HKLM:\\SOFTWARE\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path (Join-Path ${'$'}env:ProgramFiles 'Common Files\\Apple\\Mobile Device Support')) -or (Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'AppleInc\\.(iTunes|AppleDevices)' })) { exit 0 } else { exit 1 }")
-        val winget = run("winget", "list", "--id", "Apple.iTunes", "-e", "--source", "winget", "--accept-source-agreements", timeoutSeconds = 60)
+        val serviceFuture = CompletableFuture.supplyAsync {
+            run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Service -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'Apple.*Mobile|MobileDevice' -or ${'$'}_.DisplayName -match 'Apple Mobile Device' } | Select-Object -First 1 -ExpandProperty Status")
+        }
+        val registryFuture = CompletableFuture.supplyAsync {
+            run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if ((Test-Path 'HKLM:\\SOFTWARE\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path (Join-Path ${'$'}env:ProgramFiles 'Common Files\\Apple\\Mobile Device Support')) -or (Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'AppleInc\\.(iTunes|AppleDevices)' })) { exit 0 } else { exit 1 }")
+        }
+        val wingetFuture = CompletableFuture.supplyAsync {
+            run("winget", "list", "--id", "Apple.iTunes", "-e", "--source", "winget", "--accept-source-agreements", timeoutSeconds = 12)
+        }
+        val internetFuture = CompletableFuture.supplyAsync(::internetCheck)
+        val service = serviceFuture.join()
+        val registry = registryFuture.join()
+        val winget = wingetFuture.join()
+        val internet = internetFuture.join()
         val serviceInstalled = service.exitCode == 0 && service.details.isNotBlank()
         val serviceRunning = service.details.contains("Running", true)
         val installed = appleSupportDetected(registry.success, serviceInstalled, winget.success)
         diagnostics.appleProbes(registry.success, serviceInstalled, serviceRunning, winget.success)
         return ComputerCheck(
             CheckResult("64-bit Windows", if (is64) CheckState.PASS else CheckState.FAIL, if (is64) "Supported" else "A 64-bit Windows computer is required."),
-            CheckResult("Internet connection", if (hasInternet()) CheckState.PASS else CheckState.FAIL, "Needed to download iloader and the Nuvio Z source."),
+            internet,
             CheckResult("Apple device support", if (installed) CheckState.PASS else CheckState.ACTION, if (installed) "Installed" else "Install Apple's iPhone drivers."),
             CheckResult(
                 "Apple Mobile Device Service",
@@ -175,7 +209,7 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
         val supported = System.getProperty("os.name").lowercase().contains("mac")
         return ComputerCheck(
             CheckResult("macOS", if (supported) CheckState.PASS else CheckState.FAIL, "Apple device support is built in."),
-            CheckResult("Internet connection", if (hasInternet()) CheckState.PASS else CheckState.FAIL),
+            internetCheck(),
             CheckResult("Apple device support", CheckState.PASS, "Built into macOS"),
             null,
         ).also { diagnostics.computerCheck(it) }

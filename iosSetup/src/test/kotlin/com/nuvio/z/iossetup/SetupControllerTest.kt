@@ -34,6 +34,26 @@ class SetupControllerTest {
         assertTrue(check.canContinue)
     }
 
+    @Test fun inconclusiveInternetProbeDoesNotTrapUserOnComputerCheck() {
+        val check = ComputerCheck(
+            supportedOs = CheckResult("Windows", CheckState.PASS),
+            internet = CheckResult("Internet", CheckState.ACTION, "Could not verify"),
+            appleSupport = CheckResult("Apple support", CheckState.PASS),
+            appleService = null,
+        )
+        assertTrue(check.canContinue)
+    }
+
+    @Test fun unsupportedComputerStillCannotContinue() {
+        val check = ComputerCheck(
+            supportedOs = CheckResult("Windows", CheckState.FAIL),
+            internet = CheckResult("Internet", CheckState.ACTION),
+            appleSupport = CheckResult("Apple support", CheckState.PASS),
+            appleService = null,
+        )
+        assertFalse(check.canContinue)
+    }
+
     @Test fun cannotAdvancePastIphoneWithoutDetectionOrExplicitOverride() {
         val controller = at(SetupStep.CONNECT_IPHONE)
         assertFalse(controller.advance(autoVerified = false))

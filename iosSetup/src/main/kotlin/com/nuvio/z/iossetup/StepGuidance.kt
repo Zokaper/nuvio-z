@@ -17,6 +17,23 @@ enum class StepVisual {
     FINISH,
 }
 
+enum class SetupPhase(val title: String) {
+    GET_READY("Get ready"),
+    CONNECT("Connect iPhone"),
+    SET_UP_SIDESTORE("Set up SideStore"),
+    INSTALL_NUVIO("Install Nuvio Z"),
+    FINISH("Finish"),
+}
+
+fun phaseFor(step: SetupStep): SetupPhase = when (step) {
+    SetupStep.WELCOME, SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> SetupPhase.GET_READY
+    SetupStep.CONNECT_IPHONE, SetupStep.LOCAL_DEV_VPN -> SetupPhase.CONNECT
+    SetupStep.ILOADER_INSTALL, SetupStep.SIDESTORE_INSTALL, SetupStep.PAIRING,
+    SetupStep.TRUST_PROFILE, SetupStep.DEVELOPER_MODE, SetupStep.SIDESTORE_PRIME -> SetupPhase.SET_UP_SIDESTORE
+    SetupStep.ADD_SOURCE, SetupStep.INSTALL_NUVIO -> SetupPhase.INSTALL_NUVIO
+    SetupStep.FINISH -> SetupPhase.FINISH
+}
+
 data class TroubleTip(
     val problem: String,
     val recovery: List<String>,
