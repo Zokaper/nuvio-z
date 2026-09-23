@@ -1,6 +1,43 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
+
+## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
+
+**The portable SideStore/iloader assistant now reads and behaves like a guided consumer setup flow,
+without changing its working setup operations or turning it into an MSI-style installer.**
+
+- Replaced the small manual-step checkbox with an explicit success statement and a full-width
+  **I've completed this step** action. The footer explains that confirmation is required, then
+  changes to **Continue** only after the named result is confirmed. Confirmations remain persisted.
+- Added a typed guidance model for all 14 steps: purpose, expected success, contextual failure cases,
+  recovery actions, visual type, visual title and visual caption. `StepGuidanceTest` pins complete
+  mapping, distinct visuals, exact manual confirmations and the required device/iloader/pairing/
+  trust/Developer Mode/LocalDevVPN/source/install failure coverage.
+- Added a permanent right-side reference panel that changes on every step. It includes the USB and
+  Trust prompt flow, LocalDevVPN connected state, iloader windows, pairing success, iPhone Settings
+  paths, Developer Mode restart state, first refresh, source QR/manual-entry choice and completion
+  checklist. All illustrations are local Compose UI; setup does not depend on remote artwork.
+- Made manual source entry the first-class path with a prominent URL and copy button. The locally
+  generated deep-link QR remains a convenience in the visual panel, with manual paste called out as
+  the fallback.
+- Reworked the progress rail to distinguish completed, current, waiting-for-confirmation and future
+  steps, show `Step n of 14`, and remind the user that progress saves automatically. Resume copy now
+  explains that starting over clears wizard progress but does not undo phone changes.
+- Defined the complete dark color scheme explicitly (`onPrimary`, `onSurface`, variants and callout
+  text), and gave every status, callout, panel and button explicit high-contrast foregrounds. This
+  removes the inherited black-on-navy combinations in the prior UI.
+- Stable remains the default. Developer Channel and the USB-detection override remain under
+  **Advanced settings** with stronger warnings; Debug still requires deliberate confirmation and
+  explains separate data plus the three-slot impact.
+- Version advanced from 1.0.3 to 1.1.0. The output remains a self-contained portable app image.
+
+Verification on Windows: `:iosSetup:test` **18 / 18** and `:iosSetup:createDistributable` successful
+with Temurin JDK 21. The packaged `Nuvio Z iOS Setup.exe` launched and exposed a responsive native
+window. Automated screenshot inspection was attempted twice, but the computer-use connector returned
+an empty native-app inventory even while Windows reported the window responsive; visual capture is
+therefore still a manual/CI artifact review item. Physical end-to-end iPhone setup and macOS runtime
+remain acceptance-test work.
 
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 
