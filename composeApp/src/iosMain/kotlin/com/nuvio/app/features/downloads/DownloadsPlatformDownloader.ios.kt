@@ -25,7 +25,8 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
-import platform.Foundation.NSURLSessionTaskState
+import platform.Foundation.NSURLSessionTaskStateRunning
+import platform.Foundation.NSURLSessionTaskStateSuspended
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
@@ -275,8 +276,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private fun loadInventory(tasks: List<NSURLSessionDownloadTask>) {
         tasks.forEach { task ->
             val state = task.state
-            if (state != NSURLSessionTaskState.NSURLSessionTaskStateRunning &&
-                state != NSURLSessionTaskState.NSURLSessionTaskStateSuspended
+            if (state != NSURLSessionTaskStateRunning &&
+                state != NSURLSessionTaskStateSuspended
             ) return@forEach
             val downloadId = NativeTaskMetadata.decode(task.taskDescription)?.downloadId ?: return@forEach
             val existing = tasksById[downloadId]
@@ -306,7 +307,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             val live = tasksById.map { (downloadId, task) ->
                 IosBackgroundTransferReconciler.LiveTransfer(
                     downloadId = downloadId,
-                    running = task.state == NSURLSessionTaskState.NSURLSessionTaskStateRunning,
+                    running = task.state == NSURLSessionTaskStateRunning,
                     downloadedBytes = task.countOfBytesReceived.coerceAtLeast(0L),
                     totalBytes = task.countOfBytesExpectedToReceive.takeIf { it > 0L },
                 )
@@ -439,8 +440,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private fun advanceIfBackgrounded() {
         if (!isBackgrounded || !inventoryLoaded) return
         val snapshot = DownloadsRepository.nativeSchedulingSnapshot()
-        val running = tasksById.filterValues { it.state == NSURLSessionTaskState.NSURLSessionTaskStateRunning }.keys
-        val suspended = tasksById.filterValues { it.state == NSURLSessionTaskState.NSURLSessionTaskStateSuspended }.keys
+        val running = tasksById.filterValues { it.state == NSURLSessionTaskStateRunning }.keys
+        val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys
         val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
             maxConcurrent = DownloadsRepository.MAX_CONCURRENT_TRANSFERS,
             runningIds = running,
