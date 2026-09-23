@@ -138,5 +138,33 @@ class SetupControllerTest {
         assertEquals(SetupStep.PAIRING, controller.state.currentStep)
     }
 
+    @Test fun completingSetupShowsAndPersistsDedicatedCompletionState() {
+        val dir = kotlin.io.path.createTempDirectory("nuvio-setup-complete")
+        val store = ProgressStore(dir.resolve("state.json"))
+        val controller = SetupController(SetupState(currentStep = SetupStep.FINISH), store, false)
+
+        assertTrue(controller.finish())
+        assertTrue(controller.state.setupCompleted)
+        assertTrue(SetupStep.FINISH in controller.state.completedSteps)
+
+        val resumed = SetupController(store.load()!!, store, false)
+        assertEquals(SetupStep.FINISH, resumed.state.currentStep)
+        assertTrue(resumed.state.setupCompleted)
+    }
+
+    @Test fun setupCannotBeCompletedBeforeTheFinalStep() {
+        val controller = at(SetupStep.INSTALL_NUVIO)
+        assertFalse(controller.finish())
+        assertFalse(controller.state.setupCompleted)
+    }
+
+    @Test fun returnToStartClearsCompletedState() {
+        val controller = at(SetupStep.FINISH)
+        assertTrue(controller.finish())
+        controller.startOver()
+        assertEquals(SetupStep.WELCOME, controller.state.currentStep)
+        assertFalse(controller.state.setupCompleted)
+    }
+
     private fun at(step: SetupStep) = SetupController(SetupState(currentStep = step), isMac = false)
 }

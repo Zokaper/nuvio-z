@@ -57,8 +57,18 @@ class SetupController(
         return true
     }
 
+    fun finish(): Boolean {
+        if (state.currentStep != SetupStep.FINISH) return false
+        state = state.copy(
+            completedSteps = state.completedSteps + SetupStep.FINISH,
+            setupCompleted = true,
+        )
+        persist()
+        return true
+    }
+
     fun enterRepairPairing() {
-        state = state.copy(currentStep = SetupStep.PAIRING, repairMode = true)
+        state = state.copy(currentStep = SetupStep.PAIRING, repairMode = true, setupCompleted = false)
         persist()
     }
 

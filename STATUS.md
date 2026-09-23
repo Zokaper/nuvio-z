@@ -10,17 +10,15 @@ without changing its working setup operations or turning it into an MSI-style in
 - Replaced the small manual-step checkbox with an explicit success statement and a full-width
   **I've completed this step** action. The footer explains that confirmation is required, then
   changes to **Continue** only after the named result is confirmed. Confirmations remain persisted.
-- Added a typed guidance model for all 14 steps: purpose, expected success, contextual failure cases,
-  recovery actions, visual type, visual title and visual caption. `StepGuidanceTest` pins complete
-  mapping, distinct visuals, exact manual confirmations and the required device/iloader/pairing/
-  trust/Developer Mode/LocalDevVPN/source/install failure coverage.
-- Added a permanent right-side reference panel that changes on every step. It includes the USB and
-  Trust prompt flow, LocalDevVPN connected state, iloader windows, pairing success, iPhone Settings
-  paths, Developer Mode restart state, first refresh, source QR/manual-entry choice and completion
-  checklist. All illustrations are local Compose UI; setup does not depend on remote artwork.
+- Added a typed guidance model for all 14 steps: purpose, expected success, contextual failure cases
+  and recovery actions. `StepGuidanceTest` pins complete mapping, exact manual confirmations and the
+  required device/iloader/pairing/trust/Developer Mode/LocalDevVPN/source/install failure coverage.
+- The first live pass tried a permanent right-side reference panel, but it repeated the written
+  instructions and read like a poster. It was removed after maintainer review; the content now gets
+  the width and attention, while contextual help stays collapsed until requested.
 - Made manual source entry the first-class path with a prominent URL and copy button. The locally
-  generated deep-link QR remains a convenience in the visual panel, with manual paste called out as
-  the fallback.
+  generated deep-link QR remains available behind a small optional disclosure, with manual paste
+  called out as the reliable fallback.
 - Reworked the progress rail to distinguish completed, current, waiting-for-confirmation and future
   steps, show `Step n of 14`, and remind the user that progress saves automatically. Resume copy now
   explains that starting over clears wizard progress but does not undo phone changes.
@@ -32,7 +30,7 @@ without changing its working setup operations or turning it into an MSI-style in
   explains separate data plus the three-slot impact.
 - Version advanced from 1.0.3 to 1.1.0. The output remains a self-contained portable app image.
 
-Verification on Windows: `:iosSetup:test` **18 / 18** and `:iosSetup:createDistributable` successful
+Verification on Windows: `:iosSetup:test` **23 / 23** and `:iosSetup:createDistributable` successful
 with Temurin JDK 21. The packaged `Nuvio Z iOS Setup.exe` launched and exposed a responsive native
 window. Automated screenshot inspection was attempted twice, but the computer-use connector returned
 an empty native-app inventory even while Windows reported the window responsive; visual capture is
@@ -60,14 +58,20 @@ The first live 1.1 test found two usability problems before the release was acce
    was treated as proof that the computer was offline. The independent probes now run concurrently;
    the optional `winget` fallback is capped at 12 seconds; two network endpoints are checked with
    explicit four-second bounds; and an inconclusive result is a yellow warning that still permits
-   Continue. Actual downloads retain their bounded request and actionable retry error. Two new tests
-   pin weak-connectivity continuation and the unsupported-OS block. Setup tests are **20 / 20**,
-   including the five-phase mapping.
+   Continue. Actual downloads retain their bounded request and actionable retry error. Two tests
+   pin weak-connectivity continuation and the unsupported-OS block.
 2. **The first visual pass was too dense.** Fourteen sidebar rows, a status pill, a success card and
    a visual-panel success treatment repeated the same state. The rail now shows five calm phases plus
    one current-step label; the page uses a small step breadcrumb; and the duplicate success card and
    poster-like right panel are gone. The instructions sit in one centered readable-width column.
    Numbered actions, exact completion gates and collapsed contextual troubleshooting remain intact.
+3. **The old Finish action unexpectedly returned to Welcome.** The final instructions now explain
+   in plain language that a refresh renews Apple's seven-day permission while an update installs a
+   newer app without removing data. They provide separate exact flows for each, explain that routine
+   refreshes do not need the computer or USB, and reserve pairing repair for explicit pairing errors.
+   **Complete setup** now opens a dedicated persisted completion page; only the deliberate **Return
+   to start** action clears wizard progress. Three new controller tests pin completion, persistence,
+   early-finish rejection and reset behavior. The complete setup suite is **23 / 23**.
 
 The corrected portable package is version 1.1.1. Treat `ios-setup-v1.1.0-beta.1` as superseded and
 publish 1.1.1 as the recommended prerelease after cross-platform packaging.

@@ -42,6 +42,7 @@ data class SetupState(
     val repairMode: Boolean = false,
     val advancedDeviceOverride: Boolean = false,
     val appleSupportConfirmed: Boolean = false,
+    val setupCompleted: Boolean = false,
 ) {
     val sourceUrl: String get() = channel.sourceUrl
     val sourceDeepLink: String get() = "sidestore://source?url=" +

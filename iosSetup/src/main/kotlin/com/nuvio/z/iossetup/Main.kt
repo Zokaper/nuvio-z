@@ -1,6 +1,7 @@
 package com.nuvio.z.iossetup
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,7 +80,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     var showAdvanced by remember { mutableStateOf(developerFlag) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var showRepair by remember { mutableStateOf(state.repairMode) }
-    var showResume by remember { mutableStateOf(state.currentStep != SetupStep.WELCOME) }
+    var showResume by remember { mutableStateOf(state.currentStep != SetupStep.WELCOME && !state.setupCompleted) }
     val scope = rememberCoroutineScope()
 
     fun sync() { state = controller.state; diagnostics.step(state.currentStep) }
@@ -127,7 +128,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                 TextButton(onClick = { showDiagnostics = true }) { Text("Help & diagnostics") }
                 TextButton(onClick = { showAdvanced = true }) { Text("Advanced settings") }
             }
-            StepPage(
+            if (!state.setupCompleted) StepPage(
                 Modifier.weight(1f).fillMaxWidth(), state, check, deviceDetected, transportReady,
                 iloaderDetected, operation, working, workingLabel,
                 onConfirmed = { controller.confirmCurrent(it); sync() },
@@ -170,13 +171,18 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                 onOpenServices = { runOperation("Opening Windows Services…", ops::openAppleServiceManager) },
                 onOpenIloader = { runOperation("Opening iloader…", ops::openIloader) },
             )
-            NavigationBar(
+            if (!state.setupCompleted) NavigationBar(
                 state.currentStep,
                 controller.canAdvance(autoVerified) && !working,
                 state.currentStep in state.manualConfirmations,
                 onBack = { controller.back(); sync() },
                 onNext = { controller.advance(autoVerified); sync() },
-                onDone = { controller.startOver(); sync() },
+                onDone = { controller.finish(); sync() },
+            )
+            else CompletedPage(
+                state = state,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                onReturnToStart = { controller.startOver(); sync() },
             )
         }
     }
@@ -210,8 +216,8 @@ private fun ProgressRail(state: SetupState, steps: List<SetupStep>, modifier: Mo
         Spacer(Modifier.height(26.dp))
         Column(Modifier.weight(1f)) {
             SetupPhase.entries.forEachIndexed { index, phase ->
-                val completed = index < currentPhaseIndex
-                val current = phase == currentPhase
+                val completed = state.setupCompleted || index < currentPhaseIndex
+                val current = !state.setupCompleted && phase == currentPhase
                 Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(99.dp), color = when { completed -> Color(0xFF25895B); current -> Color(0xFF245EAF); else -> Color(0xFF28384D) }) {
                         Box(Modifier.size(27.dp), contentAlignment = Alignment.Center) {
@@ -223,9 +229,14 @@ private fun ProgressRail(state: SetupState, steps: List<SetupStep>, modifier: Mo
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Text("CURRENT STEP", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text("${currentIndex + 1} of ${steps.size}", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp))
-            Text(state.currentStep.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
+            if (state.setupCompleted) {
+                Text("SETUP COMPLETED", color = Success, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("Your iPhone is ready", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 5.dp))
+            } else {
+                Text("CURRENT STEP", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("${currentIndex + 1} of ${steps.size}", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp))
+                Text(state.currentStep.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
+            }
         }
         Text("Progress saves automatically", color = TextMuted, fontSize = 11.sp)
     }
@@ -287,7 +298,7 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
     Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(enabled = step != SetupStep.WELCOME, onClick = onBack) { Text("Back") }
         Spacer(Modifier.weight(1f))
-        if (step == SetupStep.FINISH) Button(onClick = onDone) { Text("Finish") }
+        if (step == SetupStep.FINISH) Button(onClick = onDone) { Text("Complete setup") }
         else Button(enabled = canAdvance, onClick = onNext, modifier = Modifier.widthIn(min = 150.dp)) {
             Text(when { step == SetupStep.WELCOME -> "Start setup"; step.manual && !confirmed -> "Confirm above to continue"; else -> "Continue" })
         }
@@ -366,6 +377,7 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 }
 
 @Composable private fun SourceContent(state: SetupState) {
+    var showQr by remember { mutableStateOf(false) }
     Text("Recommended: add the source manually. This works even when camera scanning or deep links do not.", color = TextSecondary)
     Spacer(Modifier.height(10.dp)); Surface(color = Color(0xFF0C1626), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
@@ -375,7 +387,17 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
         }
     }
     Spacer(Modifier.height(12.dp)); Instructions(listOf("On iPhone, open SideStore → Sources.", "Tap +.", "Paste the copied URL.", "Tap Add and wait for ${state.channel.appName} to appear."))
-    Text("Prefer the QR? Scan the code in the panel. Manual entry above is always available.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+    Spacer(Modifier.height(10.dp)); TextButton(onClick = { showQr = !showQr }) { Text(if (showQr) "Hide optional QR code" else "Show optional QR code") }
+    if (showQr) {
+        val qr = remember(state.sourceDeepLink) { QrCode.image(state.sourceDeepLink) }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = Color.White, shape = RoundedCornerShape(12.dp)) {
+                Image(qr, "QR code for the ${state.channel.appName} SideStore source", Modifier.size(150.dp).padding(8.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Text("Scan this with the iPhone camera. If it does not open SideStore, use the manual URL above.", color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+    }
 }
 
 @Composable private fun InstallNuvioContent(state: SetupState) {
@@ -385,10 +407,62 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 
 @Composable private fun FinishContent(state: SetupState) {
     InfoRows(listOf("SideStore is installed and trusted", "Wireless pairing is configured", "${state.channel.appName} is installed"))
-    Spacer(Modifier.height(14.dp)); Text("Keep your apps active", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-    Text("Free Apple Accounts sign apps for seven days. Refresh every 5–6 days so the counter never reaches zero.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
-    Spacer(Modifier.height(12.dp)); Instructions(listOf("Unplug USB.", "Keep the iPhone on Wi-Fi.", "Connect LocalDevVPN.", "Open SideStore → My Apps.", "Tap Refresh All and wait for success."))
-    Spacer(Modifier.height(10.dp)); InfoCallout("If pairing expires later", "Reopen this assistant and choose Advanced settings → Repair SideStore. This can happen after an iOS update or reset.")
+    Spacer(Modifier.height(14.dp)); InfoCallout(
+        "Refresh and update mean different things",
+        "Refresh renews Apple’s seven-day permission so the app keeps opening. Update installs a newer Nuvio Z version. Neither action removes your app data.",
+    )
+    Spacer(Modifier.height(16.dp)); Text("Every 5–6 days: refresh your apps", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Text("Do this before the DAYS counter reaches zero. You normally do not need this computer or a USB cable.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
+    Spacer(Modifier.height(10.dp)); Instructions(listOf(
+        "Connect the iPhone to Wi-Fi.",
+        "Open LocalDevVPN and wait until it says Connected.",
+        "Open SideStore → My Apps.",
+        "Tap Refresh All and wait for the success message.",
+        "Check that SideStore and ${state.channel.appName} show 7 DAYS again.",
+    ))
+    Spacer(Modifier.height(16.dp)); Text("When a Nuvio Z update is available", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Text("SideStore will show an Update button for ${state.channel.appName}. Updates install over the existing app, so your settings and data stay in place.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
+    Spacer(Modifier.height(10.dp)); Instructions(listOf(
+        "Connect Wi-Fi and LocalDevVPN, just like a refresh.",
+        "Open SideStore → My Apps and tap Update beside ${state.channel.appName}.",
+        "Wait for installation to finish, then open ${state.channel.appName} normally.",
+        "If no update appears, open SideStore → Sources, refresh the source, then check My Apps again.",
+    ))
+    Spacer(Modifier.height(12.dp)); InfoCallout("Only come back for a repair", "If SideStore specifically says the pairing file is missing or expired, reopen this assistant and choose Advanced settings → Repair SideStore pairing. This can happen after an iOS update or reset.")
+}
+
+@Composable
+private fun CompletedPage(state: SetupState, modifier: Modifier, onReturnToStart: () -> Unit) {
+    Box(modifier) {
+        Column(
+            Modifier.widthIn(max = 760.dp).align(Alignment.TopCenter).verticalScroll(rememberScrollState()).padding(top = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Surface(shape = RoundedCornerShape(99.dp), color = Color(0xFF25895B)) {
+                Box(Modifier.size(58.dp), contentAlignment = Alignment.Center) {
+                    Text("✓", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Text("Setup completed", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("${state.channel.appName} is ready on your iPhone.", color = TextSecondary, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(24.dp))
+            ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = CardColor)) {
+                Column(Modifier.padding(24.dp)) {
+                    SectionLabel("FROM NOW ON")
+                    Spacer(Modifier.height(12.dp))
+                    InfoRows(listOf(
+                        "Refresh in SideStore every 5–6 days with Wi-Fi and LocalDevVPN connected.",
+                        "Install ${state.channel.appName} updates from SideStore when an Update button appears.",
+                        "Use Advanced settings → Repair SideStore pairing only if SideStore asks for it.",
+                        "You can close this assistant now.",
+                    ))
+                }
+            }
+            Spacer(Modifier.height(22.dp))
+            OutlinedButton(onClick = onReturnToStart) { Text("Return to start") }
+        }
+    }
 }
 
 @Composable private fun ManualConfirmation(text: String, confirmed: Boolean, onConfirmed: (Boolean) -> Unit) {
