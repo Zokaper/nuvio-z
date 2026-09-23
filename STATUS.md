@@ -26,9 +26,11 @@ downloads actual) and remains an explicit desktop retest.
 
 The inherited pure-suite state was **799 / 799** (the previous 790 plus Gemini's 9 reconciler
 tests). After completing the reconciler and Live Activity policy matrices it is **812 / 812**.
-The Android host suite is **2,311 / 2,311** and common Kotlin metadata compiles. Final iOS CI run, `.43`
-tag/artifact hashes and feed verification are filled in only after those gates actually complete;
-none is represented here as physical verification.
+The Android host suite is **2,311 / 2,311** and common Kotlin metadata compiles.
+The dedicated native iOS build succeeded in GitHub Actions run `35810809573` following commit
+`64d349231` (declaring the background download manager as a class with a lazy singleton reference to satisfy Kotlin/Native
+LLVM lowering). Normal CI passed in run `35810809530`. Debug counter is bumped to 43 for `.43` publication.
+None is represented here as physical verification.
 
 ## Phase 8 — iOS Device Validation & Bringup Audit (2026-09-22)
 
