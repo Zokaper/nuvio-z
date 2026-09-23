@@ -73,8 +73,15 @@ The first live 1.1 test found two usability problems before the release was acce
    to start** action clears wizard progress. Three new controller tests pin completion, persistence,
    early-finish rejection and reset behavior. The complete setup suite is **23 / 23**.
 
-The corrected portable package is version 1.1.1. Treat `ios-setup-v1.1.0-beta.1` as superseded and
-publish 1.1.1 as the recommended prerelease after cross-platform packaging.
+The corrected portable package is version 1.1.1. Cross-platform packaging run `35905528893` passed
+on Windows and macOS from code commit `629261efa`. Both ZIP central directories were read
+successfully. The recommended prerelease is `ios-setup-v1.1.1-beta.1`; the earlier
+`ios-setup-v1.1.0-beta.1` is marked superseded. Final payloads:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,863,389 bytes — SHA-256
+  `335690A1F7535BF39270E7BC51FB732C1E34B82157114B0BA1F71F76170A61A8`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,903,211 bytes — SHA-256
+  `A6C114AEFF4F9F5500760D024220CF8010B0E7CA777108F56AA9E546F19D1746`
 
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 
