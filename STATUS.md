@@ -2,6 +2,72 @@
 
 Last updated: 2026-09-23
 
+## Phase 8 Batch 4 — iOS queue ownership (`.45`) (2026-09-23)
+
+Active branch: `claude/phase-8-ios-queue-ownership`, from `gemini/phase-8-ios-background-orchestration`
+(`ac84da767`, the `.44` commit). Not merged to `main`; debug prerelease only.
+
+Physical `.44` findings:
+- the season stayed at `Queued #1`;
+- after reopening, #3 and #4 started first, then fell back to Queued;
+- screen-off was unreliable;
+- intermittent total input freeze (Delete on a Downloads episode reproduces it).
+
+Root causes and the new ownership model are in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`
+("Batch 4"). In short:
+- `.44` ran a second, native scheduler on a persisted copy of the queue whose `RUNNING` meant "the
+  repository has claimed it", not "a task exists".
+- Its journal demoted items the repository was resolving.
+- Every progress tick did queue sync and Live Activity work.
+
+Code changes:
+- **`IosBackgroundTransferReconciler.kt`:** the `.44` prepared-state/journal/codec machinery is
+  replaced by two pure policies:
+  - `scheduleNextTransfers`: slots are running tasks ∪ repository claims; strict FIFO with a stale
+    boundary; suspended tasks are resumed.
+  - `planAdoption`: adopt real running tasks in queue order, suspend any beyond capacity, cancel
+    ones nobody wants, and re-queue stale `Downloading` in place with no attempt charged.
+- **`DownloadsPlatformDownloader.ios.kt`:** all state is confined to the session's serial delegate
+  queue. There is no lock, one task per download, and an inventory from `getAllTasks` before any
+  task is created.
+  - Background slot-fill pulls `DownloadsRepository.nativeSchedulingSnapshot()`.
+  - Tasks with no listener are handed to `claimNativeTransfer`.
+  - Progress is reported at most once a second.
+  - The background-session completion handler is called on main.
+  - `recoversSystemPauses` is now `false`: nothing on iOS has resumed a system pause since `.43`.
+  - The `.44` NSUserDefaults keys are deleted.
+- **`DownloadsRepository.kt`:**
+  - Scheduling defers while iOS is backgrounded and is held until the platform inventory arrives
+    (3 s fallback). This runs on load, profile change and return to the foreground.
+  - Adoption and native claims go through the normal generation-fenced listener.
+  - Removed: the `.43`/`.44` direct `reconcileIosBackground*` paths, the per-publish native sync
+    and the journal. Every completion now goes through `onTransferCompleted`'s
+    implausibly-small check.
+- **`expect` surface:** the three `.44` members are replaced by `schedulingDeferredToPlatform`,
+  `requestTransferInventory`, `suspendTransfer` and `cancelTransfer`, with no-op Android actuals.
+  **`NuvioZDesktop` needs the same four no-op actuals at the next merge** (`requestTransferInventory`
+  must call `onResult(null)`).
+- **Live Activity:**
+  - progress-only payload writes are limited to one a second;
+  - the queue summary and "Finding sources" are localized (new Z strings block);
+  - `DownloadsLiveActivityManager.swift` applies updates serially, latest wins.
+- **Freeze:** not root-caused. The candidates are a main-thread stall (the progress floods above are
+  fixed) or a window-level view taking touches (`AppGateComposeView`, Issue 2's sibling). The Debug
+  configuration only adds:
+  - `FreezeDiagnostics.swift`: a watchdog, a touch hit-test probe, a window/overlay dump on
+    background, gate notes and MetricKit hangs;
+  - Files-app visibility, so the logs can be retrieved from `Nuvio Z Debug/nuvio_diagnostics`.
+
+Verification: local, after a clean results dir and `--rerun-tasks`:
+- pure suites **841 / 841**;
+- Android host suite **2,346 / 2,346**;
+- `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
+
+The new regressions are in `IosBackgroundTransferReconcilerTest`. iOS CI and the `.45` publication are recorded below once green. Nothing here is physical verification.
+
+Next: physical `.45` pass (checklist in the audit doc, section 8). Send the diagnostics folder if
+the freeze recurs.
+
 ## Phase 8 Batch 3 — iOS background queue, completion journaling, and stable Live Activity (2026-09-23)
 
 Continuation work is on `gemini/phase-8-ios-background-orchestration`, branched from `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`).

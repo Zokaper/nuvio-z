@@ -1,8 +1,117 @@
 # Phase 8 — iOS Device Validation & Bringup Audit
 
-**Branch**: `gemini/phase-8-ios-background-orchestration`
+**Branch**: `claude/phase-8-ios-queue-ownership` (from `gemini/phase-8-ios-background-orchestration`, `ac84da767`)
 **Base**: `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`) (aligned with Phase 7 merge on `main`)
 **Target**: Do NOT merge to `main`. Physical iPhone QA pass (SideStore Debug bringup).
+
+---
+
+## Batch 4 — physical `.44` findings and the `.45` queue-ownership fix
+
+Branch `claude/phase-8-ios-queue-ownership`, from `gemini/phase-8-ios-background-orchestration`
+(`ac84da767`). Physical `.44` on iPhone:
+
+- season sources resolved, but the season sat at `Queued #1`;
+- after reopening, #3 and #4 started instead of #1 and #2, then fell back to Queued;
+- screen-off continuation was unreliable;
+- the app sometimes stopped taking any input (native tab bar included) until it was left and
+  re-entered. Delete on a Downloads episode reproduces it; it was also seen once scrolling Home.
+
+### Root causes (established from the `.43 → .44` diff)
+
+1. **Two schedulers with two meanings of "running".** `.44` pushed a persisted copy of the queue
+   to native code on *every* repository publish and mapped repository `Downloading` to native
+   `RUNNING`. The repository marks #1/#2 `Downloading` *before* it resolves their sources, so
+   no task exists yet. The native scheduler counted slots from real tasks (zero) and immediately
+   started the first two `PREPARED` items: #3 and #4.
+2. **Persisted `RUNNING` was sticky.** The merge preserved `RUNNING`, so after a force-quit
+   (which cancels background tasks) or a process death, those entries were never scheduled again,
+   and every relaunch skipped past them.
+3. **The journal fought the repository.**
+   - `NeedsSourceRefresh`, applied at the top of every `startPendingTransfers`, demoted the item the
+     repository was *resolving* back to Queued. Its resolver then gave up, leaving #1 at Queued #1.
+   - `TaskStarted` marked natively started items `Downloading` with no handle, so the reclaim sweep
+     re-queued them (charging an attempt) while their tasks kept running: the "back to Queued".
+   - Listener-delivered failures were journaled too, costing two attempts each.
+4. **Unbounded hot-path work.**
+   - Each native advance re-marked the stale head and appended a journal event, because the next
+     sync reset it to `PREPARED`. The journal grew without bound and was re-decoded in full on
+     each append.
+   - Every `didWriteData` ran `getAllTasks` plus a Live Activity write.
+   - Every repository progress publish rewrote the prepared queue.
+   - Separately, and older than `.44`, `shouldReportProgress` reports on 512 KB *or* 500 ms. At
+     debrid speeds that is dozens of publishes a second per transfer, each a recomposition plus a
+     Live Activity notification to the main queue, and each of those an unawaited ActivityKit
+     `Task`.
+
+`.44`'s premise that Kotlin "cannot run" when a transfer ends in the background is not right for
+this purpose. Delegate callbacks *are* Kotlin, running in-process, and the repository persists
+synchronously. What cannot run while suspended is a network round trip, i.e. re-minting a
+source URL. That is the only thing the background scheduler has to work around.
+
+### The ownership model in `.45`
+
+| Layer | Owns | Never |
+| --- | --- | --- |
+| Repository | queue order, user intent, every start while the app is active | treats persisted `Downloading` as proof of a transfer |
+| Repository's persisted items | the prepared queue: URL, headers and resolvedAt for each queued item | — |
+| `URLSession` tasks | the only proof of "running"; one task per download, seeded from `getAllTasks` before any task is created | — |
+| Completed files | reported to the repository, which still applies the implausibly-small / expected-size check | become authoritative by existing on disk |
+
+- **No lock in the native layer.**
+  - All native state is confined to the session's serial delegate queue. Everything else only
+    enqueues onto it.
+  - Native code calls the repository, but the repository never waits on the queue, so the
+    nested-lock hazard is gone.
+- **While the app is active,** the repository schedules and native code only executes.
+- **While the app is in the background,** the repository defers (`schedulingDeferredToPlatform`).
+  When a slot frees, the session pulls `nativeSchedulingSnapshot()` (queued items in order, plus
+  the repository's in-memory claims) and starts the next item:
+  - Slots = 2 − |running tasks ∪ claims|. An item the repository is still resolving keeps its slot.
+  - Strict FIFO. The first stale or blank URL is a boundary, reported once per background stay.
+  - A suspended task is resumed, never duplicated.
+- **Uncontrolled tasks are claimed.** Any task with no listener (started in the background, or
+  found after a relaunch) is handed to `claimNativeTransfer`. The repository adopts it with a
+  normal generation-fenced listener, asks for it to be suspended (over capacity, or user-paused),
+  or has it cancelled (download gone, finished or failed).
+- **Adoption on launch and on return to the foreground.** The repository holds scheduling, reads
+  the real task inventory, and applies `planAdoption`:
+  - running tasks are adopted in queue order, up to 2;
+  - the rest are suspended, not cancelled;
+  - `Downloading` items with no running task are re-queued at the same position with no attempt
+    charged (stale-`RUNNING` recovery);
+  - then the queue fills remaining slots FIFO.
+  - A 3 s timeout covers a lost answer. Duplicates stay impossible either way.
+- **Retired:** the `.44` prepared-queue and journal `NSUserDefaults` keys are deleted on first
+  launch of `.45`.
+- **Also fixed:**
+  - native progress reaches the queue at most once a second;
+  - progress-only Live Activity writes are limited to one a second;
+  - the Swift Live Activity manager applies one update at a time, latest wins;
+  - the background-session completion handler is now invoked on the main thread;
+  - iOS no longer claims it resumes system pauses (nothing has done so since `.43`), so the queue
+    reclaims them;
+  - the Live Activity queue summary and "Finding sources" subtitle are localized.
+
+### The freeze: hypotheses, not a cause
+
+Input dies everywhere, including the UIKit tab bar, and leaving the app clears it. That fits two
+faults:
+- **(a) A main-thread stall.** The progress floods above are real contributors and are fixed in
+  `.45`.
+- **(b) A window-level view taking touches.** The candidate is the full-screen
+  `AppGateComposeView` above the tab view, whose `.allowsHitTesting(!isAppReady)` failed the same
+  way once before (Issue 2).
+
+Neither is established. The debug build now ships `FreezeDiagnostics.swift` (`#if DEBUG` only):
+- a main-thread watchdog;
+- the view each touch lands on;
+- a window/overlay dump on every trip to the background;
+- gate readiness notes;
+- MetricKit hang call stacks.
+
+These are written to `Documents/nuvio_diagnostics/`, which Debug exposes in Files. If `.45` still
+freezes, those logs decide (a) versus (b).
 
 ---
 
@@ -409,3 +518,27 @@ To be verified on physical iPhone via SideStore debug build `0.4.13-z1.44`:
 5. [ ] **User Pause vs Screen Lock**:
    * Pausing a download explicitly from UI pauses the native task and persists paused state.
    * Locking the screen maintains active byte transfer and advances the native queue.
+
+## 8. `.45` Physical Verification Checklist
+
+SideStore debug build `0.4.13-z1.45`. Installing over `.44` also exercises the upgrade path, since
+`.44` may have left stale RUNNING entries.
+
+1. [ ] **Order and concurrency.** Download a 6-episode season. #1 and #2 start first, #3 starts
+   only when one finishes, and never more than 2 run at once.
+2. [ ] **Screen off.** Lock the phone mid-season for 20+ minutes.
+   - The running items finish, and the next item starts if its link is under 15 minutes old.
+   - After a stale item, the queue waits there instead of skipping ahead.
+   - Unlock and open the app: the waiting item resolves and the queue continues in order.
+3. [ ] **Relaunch.**
+   - (a) Swipe the app away mid-download and reopen: the queue order is kept, items resume at their
+     positions, and there are no duplicate rows or double progress.
+   - (b) Leave it backgrounded overnight: any transfers still running are adopted where they are,
+     and nothing jumps ahead of them.
+4. [ ] **Pause / resume / delete** on an active item, a queued item and a completed episode.
+5. [ ] **Freeze (Delete ×10, then Home scrolled to the bottom several times).** If input dies:
+   note the time, leave the app, come back, then send `Files > On My iPhone > Nuvio Z Debug >
+   nuvio_diagnostics`.
+6. [ ] **Live Activity.** One activity with a steady primary item. The summary reads
+   "2 downloading • N remaining" in the app language, and the activity ends when the queue
+   empties.

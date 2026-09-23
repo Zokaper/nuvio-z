@@ -52,11 +52,15 @@ internal actual object DownloadsPlatformDownloader {
     // when it may run, so a system pause here really is temporary.
     actual val recoversSystemPauses: Boolean = true
 
-    actual fun syncPreparedTransfers(transfers: List<IosBackgroundTransferReconciler.IosPreparedTransfer>) = Unit
+    actual fun schedulingDeferredToPlatform(): Boolean = false
 
-    actual fun pollJournalEvents(): List<IosBackgroundTransferReconciler.IosJournalEvent> = emptyList()
+    actual fun requestTransferInventory(
+        onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit,
+    ) = onResult(null)
 
-    actual fun acknowledgeJournalEvents(eventIds: Set<String>) = Unit
+    actual fun suspendTransfer(downloadId: String) = Unit
+
+    actual fun cancelTransfer(downloadId: String) = Unit
 
     private var appContext: Context? = null
 

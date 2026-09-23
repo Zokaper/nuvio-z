@@ -2865,4 +2865,9 @@
     <!-- Nuvio Z playback diagnostics. Surfaced only from a track-capability verdict, never
          from a timer: see VideoPresentation.kt. -->
     <string name="player_no_supported_video_track">This device cannot decode the video in this source.</string>
+
+    <!-- Nuvio Z iOS downloads Live Activity queue summary. -->
+    <string name="downloads_live_queue_active">%1$d downloading</string>
+    <string name="downloads_live_queue_remaining">%1$d remaining</string>
+    <string name="downloads_live_queue_active_remaining">%1$d downloading • %2$d remaining</string>
 </resources>

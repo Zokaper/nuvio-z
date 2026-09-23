@@ -232,12 +232,15 @@ ordering stays identical.
 | **D13** | **Batch reconciliation** - deleting everything from the Downloads tab used to leave series pages showing phantom "downloading" episodes. Reconciliation runs on publish and on load-from-disk, so already-broken installs heal on next launch. `FAILED` is excluded so discovery failures stay reviewable. | shipped | ships | yes | yes | yes | **no** |
 | **D14** | **Tappable downloads toast** - unwinds the nav stack back to the tabs so the Downloads tab is actually visible from the details screen you started at. Typed action rather than a lambda, so navigation stays out of `core/ui`. Duration 2.5 s to 5 s. | shipped | ships | yes | yes | yes | **no** |
 | **D15** | **Desktop download E2E harness** - the real repository and the real downloader over a raw socket with injectable faults. 30 local scenarios plus opt-in real-TorBox runs. It reproduced four production faults before their fixes: permanent re-mint failure retrying forever, a hung provider holding a slot forever, a same-sized different file appended to the old part file and marked complete, and a truncated replacement accepted at its shorter total. | shipped | ships | n/a | n/a | yes | n/a |
+| **D16** | **iOS background transfers and queue ownership** - downloads run as background `URLSession` tasks that survive screen lock and relaunch. The repository owns the queue, a live task is the only proof a download is running, and relaunch adopts the tasks that really exist instead of reordering. While the app is backgrounded the session starts the next queued item when a slot frees, strict FIFO, and stops at the first item whose source link has gone stale. `.44` ran two schedulers against one queue and started #3/#4 ahead of #1/#2; `.45` replaced it. Plus a Live Activity with one stable session and a queue summary. | debug (`.45`) | ships | n/a | yes | n/a | n/a |
 
-\* **D6 iOS gap:** the Downloads tab falls back to a generic system symbol; there is no Nuvio Z tab
-asset for it.
+\* **D6 on phones:** since `.43` Downloads is reached through Library's Library / Downloads
+switch rather than its own tab, to stay within iOS's five native tabs. The same shared change took
+it out of the tablet top bar and the desktop sidebar as well. That is unreviewed for desktop and
+awaits a decision (Phase 8 audit, Batch 4 UI review).
 
-**D12 gap:** the live-status hook is a **no-op on iOS and desktop**. Both only show preparation
-inside the Downloads tab; neither has an equivalent of the Android ongoing notification.
+**D12 gap:** the live-status hook is a **no-op on desktop**. iOS has a Live Activity (D16) in
+debug builds; desktop only shows preparation inside the Downloads tab.
 
 **Known limitation, all platforms:** a batch **cannot be cancelled while it is preparing** - the
 coordinator would re-save it.

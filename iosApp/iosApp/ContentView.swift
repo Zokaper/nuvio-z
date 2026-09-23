@@ -614,6 +614,9 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     func updateAppReady(_ ready: Bool) {
+#if DEBUG
+        FreezeDiagnostics.shared.note("appReady=\(ready) mounted=\(isMainContentMounted)")
+#endif
         isAppReady = ready
         if !ready {
             isProfileSwitcherPresented = false
@@ -622,6 +625,9 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     func setMainContentMounted(_ mounted: Bool) {
+#if DEBUG
+        FreezeDiagnostics.shared.note("mainContentMounted=\(mounted) appReady=\(isAppReady)")
+#endif
         isMainContentMounted = mounted
         if !mounted {
             isMainContentVisible = false

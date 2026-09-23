@@ -93,6 +93,7 @@ object DownloadsRepository {
             loadFromDiskLocked()
             startNetworkObserverLocked()
         }
+        adoptPlatformTransfers()
         startPendingTransfers()
     }
 
@@ -195,6 +196,7 @@ object DownloadsRepository {
 
     fun onProfileChanged() {
         synchronized(stateLock) { loadFromDiskLocked() }
+        adoptPlatformTransfers()
         startPendingTransfers()
     }
 
@@ -896,96 +898,6 @@ object DownloadsRepository {
     // the fact, and by then the download it belongs to may already be running a newer
     // attempt. Only the attempt that currently holds the slot may speak for it.
 
-    internal fun reconcileIosBackgroundProgress(downloadId: String, bytes: Long, totalBytes: Long?) {
-        ensureLoaded()
-        synchronized(stateLock) {
-            mutateLocked(downloadId, immediate = false) { current ->
-                if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) current
-                else current.copy(
-                    status = DownloadStatus.Downloading,
-                    downloadedBytes = maxOf(current.downloadedBytes, bytes.coerceAtLeast(0L)),
-                    totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                    activity = DownloadActivity.TRANSFERRING,
-                    nextRetryAtEpochMs = null,
-                    errorMessage = null,
-                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                )
-            }
-        }
-    }
-
-    internal fun reconcileIosBackgroundCompletion(downloadId: String, localFileUri: String, totalBytes: Long) {
-        ensureLoaded()
-        synchronized(stateLock) {
-            val current = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return@synchronized
-            if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) return@synchronized
-            activeHandles.remove(downloadId)
-            transferSamples.remove(downloadId)
-            if (isImplausiblySmallForMedia(totalBytes, current.expectedSizeBytes)) {
-                DownloadsPlatformDownloader.removeFile(localFileUri)
-                val attempt = current.attemptCount + 1
-                val retry = shouldRetry(DownloadFailureReason.SourceNotReady, attempt, current.canReresolveSource)
-                mutateLocked(downloadId, immediate = true) { item ->
-                    item.copy(
-                        status = if (retry) DownloadStatus.Queued else DownloadStatus.Failed,
-                        downloadedBytes = 0L,
-                        attemptCount = attempt,
-                        nextRetryAtEpochMs = if (retry) DownloadsClock.nowEpochMs() +
-                            retryBackoffMs(attempt, DownloadFailureReason.SourceNotReady) else null,
-                        activity = if (retry) DownloadActivity.RETRY_BACKOFF else null,
-                        errorMessage = runBlocking { getString(Res.string.downloads_error_source_not_ready) },
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                }
-            } else {
-                mutateLocked(downloadId, immediate = true) { item ->
-                    item.copy(
-                        status = DownloadStatus.Completed,
-                        pauseReason = null,
-                        localFileUri = localFileUri,
-                        downloadedBytes = totalBytes,
-                        totalBytes = totalBytes,
-                        attemptCount = 0,
-                        nextRetryAtEpochMs = null,
-                        activity = null,
-                        errorMessage = null,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                }
-            }
-        }
-        startPendingTransfers()
-    }
-
-    internal fun reconcileIosBackgroundFailure(
-        downloadId: String,
-        reason: DownloadFailureReason,
-        message: String,
-        downloadedBytes: Long,
-    ) {
-        ensureLoaded()
-        synchronized(stateLock) {
-            val current = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return@synchronized
-            if (current.status == DownloadStatus.Paused || current.status == DownloadStatus.Completed) return@synchronized
-            activeHandles.remove(downloadId)
-            transferSamples.remove(downloadId)
-            val attempt = current.attemptCount + 1
-            val retry = shouldRetry(reason, attempt, current.canReresolveSource)
-            mutateLocked(downloadId, immediate = true) { item ->
-                item.copy(
-                    status = if (retry) DownloadStatus.Queued else DownloadStatus.Failed,
-                    downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                    attemptCount = attempt,
-                    nextRetryAtEpochMs = if (retry) DownloadsClock.nowEpochMs() + retryBackoffMs(attempt, reason) else null,
-                    activity = if (retry) DownloadActivity.RETRY_BACKOFF else null,
-                    errorMessage = message,
-                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                )
-            }
-        }
-        startPendingTransfers()
-    }
-
     private fun onTransferOpened(
         downloadId: String,
         generation: Long,
@@ -1312,9 +1224,15 @@ object DownloadsRepository {
     // --- Queue scheduling ---------------------------------------------------------
 
     private fun startPendingTransfers() {
-        ensureLoaded()
-        reconcileIosBackgroundJournal()
+        // While iOS is in the background the session fills freed slots itself (see
+        // IosBackgroundTransferReconciler). Starting here as well is how `.44` ran two
+        // schedulers against one queue.
+        if (DownloadsPlatformDownloader.schedulingDeferredToPlatform()) return
         synchronized(stateLock) {
+            // Until the platform has said which transfers really exist, an item recorded
+            // as downloading may or may not have one: reclaiming it or starting another
+            // would reorder or duplicate them.
+            if (awaitingPlatformInventory) return@synchronized
             reclaimLostTransfersLocked()
             if (connectivityFeed.states.value.blocksMediaDownloads()) {
                 val waiting = _uiState.value.items.filter { it.status == DownloadStatus.Queued }
@@ -1706,16 +1624,7 @@ object DownloadsRepository {
             }
             return
         }
-        val request = DownloadPlatformRequest(
-            downloadId = item.id,
-            sourceUrl = sourceUrl,
-            sourceHeaders = item.sourceHeaders,
-            destinationFileName = item.fileName,
-            allowMeteredNetwork = item.allowMeteredNetwork,
-            knownTotalBytes = item.totalBytes,
-            resumeEtag = item.resumeEtag,
-            resumeLastModified = item.resumeLastModified,
-        )
+        val request = item.toPlatformRequest(sourceUrl)
         // The item is already published as downloading by the time this runs, so a
         // platform that refuses to start would strand it there with no handle. Android
         // does exactly that when the system declines to schedule the background job.
@@ -1811,13 +1720,25 @@ object DownloadsRepository {
     private class ActiveTransfer(val generation: Long) : DownloadsTaskHandle {
         private var handle: DownloadsTaskHandle? = null
         private var cancelled = false
+        private var abandoned = false
 
         fun attach(started: DownloadsTaskHandle) {
+            if (abandoned) return
             if (cancelled) {
                 started.cancel()
             } else {
                 handle = started
             }
+        }
+
+        /**
+         * Gives the slot up without stopping anything. Used when the platform hands the
+         * same download's real transfer to a newer attempt: cancelling here would stop
+         * that transfer, because on iOS a handle addresses the download, not the attempt.
+         */
+        fun abandon() {
+            abandoned = true
+            handle = null
         }
 
         override fun cancel() {
@@ -1991,7 +1912,6 @@ object DownloadsRepository {
         val reconciledBatches = reconcileBatches(_batches.value, normalized)
         _batches.value = reconciledBatches
         notifyLiveStatusPlatform()
-        syncPreparedTransfersLocked(normalized)
         if (
             normalized != stored.items ||
             reconciledBatches != stored.batches ||
@@ -1999,7 +1919,6 @@ object DownloadsRepository {
         ) {
             persistLocked(immediate = true)
         }
-        reconcileIosBackgroundJournal()
         prepareUpcomingTransfers()
     }
 
@@ -2028,7 +1947,6 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(items = items)
         _batches.value = reconcileBatches(_batches.value, items)
         notifyLiveStatusPlatform()
-        syncPreparedTransfersLocked(items)
         persistLocked(immediate = immediate)
     }
 
@@ -2139,62 +2057,276 @@ object DownloadsRepository {
         return copy(activity = inferred)
     }
 
-    fun reconcileIosBackgroundJournal() {
-        ensureLoaded()
-        val events = runCatching { DownloadsPlatformDownloader.pollJournalEvents() }.getOrNull().orEmpty()
-        if (events.isEmpty()) return
+    // --- Platform-held transfers (iOS) --------------------------------------------
+    //
+    // A background URLSession task survives suspension and relaunch on its own, so on
+    // iOS the queue has to learn what is really running rather than trust what it wrote
+    // down. Ownership rules and the `.44` failure they replace are in
+    // IosBackgroundTransferReconciler. Everywhere else the platform keeps no transfers
+    // across a process death, reports none, and none of this does anything.
 
-        var needsRefreshIds = emptySet<String>()
+    /** Scheduling is held while this is set; see [startPendingTransfers]. */
+    private var awaitingPlatformInventory = false
+    private var platformInventoryGeneration = 0L
+
+    /** Long enough for `getAllTasks`, short enough that a lost answer is not noticed. */
+    private const val PLATFORM_INVENTORY_TIMEOUT_MS = 3_000L
+
+    private fun adoptPlatformTransfers() {
+        holdSchedulingForPlatformInventory()
+        requestPlatformInventory()
+    }
+
+    /** Stops the queue from starting or reclaiming anything until the inventory arrives. */
+    internal fun holdSchedulingForPlatformInventory() {
         synchronized(stateLock) {
-            val currentItems = _uiState.value.items
-            val reconciledStates = currentItems.map { it.toReconciledState() }
-            val result = IosBackgroundTransferReconciler.reconcileJournal(reconciledStates, events)
-            if (result.acknowledgedEventIds.isNotEmpty()) {
-                DownloadsPlatformDownloader.acknowledgeJournalEvents(result.acknowledgedEventIds)
-            }
-            needsRefreshIds = result.needsRefreshIds
-            val stateMap = result.updatedItems.associateBy { it.id }
-            val updatedItems = currentItems.map { current ->
-                val state = stateMap[current.id] ?: return@map current
-                current.applyReconciledState(state)
-            }
-            if (updatedItems != currentItems) {
-                publishLocked(updatedItems, immediate = true)
-            }
-        }
-
-        if (needsRefreshIds.isNotEmpty()) {
-            prepareUpcomingTransfers()
+            awaitingPlatformInventory = true
+            platformInventoryGeneration += 1
         }
     }
 
-    private fun syncPreparedTransfersLocked(items: List<DownloadItem>) {
-        val prepared = items.filter {
-            (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued) &&
-                !it.sourceUrl.isNullOrBlank()
-        }.map { item ->
-            IosBackgroundTransferReconciler.IosPreparedTransfer(
-                downloadId = item.id,
-                destinationFileName = item.fileName,
-                sourceUrl = item.sourceUrl.orEmpty(),
-                sourceHeaders = item.sourceHeaders,
-                knownTotalBytes = item.totalBytes ?: item.expectedSizeBytes,
-                queuePosition = item.queuePosition,
-                title = item.title,
-                subtitle = item.displaySubtitle,
-                sourceUrlResolvedAtEpochMs = item.sourceUrlResolvedAtEpochMs,
-                allowMeteredNetwork = item.allowMeteredNetwork,
-                state = if (item.status == DownloadStatus.Downloading) {
-                    IosBackgroundTransferReconciler.IosPreparedState.RUNNING
+    internal fun requestPlatformInventory() {
+        val generation = synchronized(stateLock) { platformInventoryGeneration }
+        DownloadsPlatformDownloader.requestTransferInventory { live ->
+            onPlatformInventory(generation, live)
+        }
+        val stillWaiting = synchronized(stateLock) {
+            awaitingPlatformInventory && platformInventoryGeneration == generation
+        }
+        if (!stillWaiting) return
+        scope.launch {
+            delay(PLATFORM_INVENTORY_TIMEOUT_MS)
+            val released = synchronized(stateLock) {
+                if (awaitingPlatformInventory && platformInventoryGeneration == generation) {
+                    awaitingPlatformInventory = false
+                    true
                 } else {
-                    IosBackgroundTransferReconciler.IosPreparedState.PREPARED
-                },
-            )
-        }
-        runCatching {
-            DownloadsPlatformDownloader.syncPreparedTransfers(prepared)
+                    false
+                }
+            }
+            // Duplicates stay impossible without the answer: the session never holds two
+            // tasks for one download and a start attaches to the one it has.
+            if (released) startPendingTransfers()
         }
     }
+
+    /**
+     * Takes over the tasks the session really holds.
+     *
+     * Running tasks are adopted where they stand, so a relaunch keeps the order the
+     * session was already working in; items recorded as downloading with nothing behind
+     * them go back to the queue at the same position without being charged an attempt.
+     */
+    private fun onPlatformInventory(
+        generation: Long,
+        live: List<IosBackgroundTransferReconciler.LiveTransfer>?,
+    ) {
+        if (live == null) {
+            synchronized(stateLock) {
+                if (platformInventoryGeneration == generation) awaitingPlatformInventory = false
+            }
+            return
+        }
+        synchronized(stateLock) {
+            if (platformInventoryGeneration != generation) return
+            awaitingPlatformInventory = false
+            val items = _uiState.value.items
+            val plan = IosBackgroundTransferReconciler.planAdoption(
+                items = items.map { it.toAdoptionItem(claimed = it.id in activeHandles) },
+                live = live,
+                maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+            )
+            plan.cancel.forEach(DownloadsPlatformDownloader::cancelTransfer)
+            plan.suspend.forEach(DownloadsPlatformDownloader::suspendTransfer)
+
+            val requeue = plan.requeue.toSet()
+            val adopt = plan.adopt.toSet()
+            if (requeue.isNotEmpty() || adopt.isNotEmpty()) {
+                val liveById = live.associateBy { it.downloadId }
+                val now = DownloadsClock.nowEpochMs()
+                publishLocked(
+                    items.map { item ->
+                        when (item.id) {
+                            in requeue -> item.copy(
+                                status = DownloadStatus.Queued,
+                                pauseReason = null,
+                                activity = DownloadActivity.QUEUED_FOR_SLOT,
+                                nextRetryAtEpochMs = null,
+                                updatedAtEpochMs = now,
+                            )
+                            in adopt -> {
+                                val transfer = liveById.getValue(item.id)
+                                item.copy(
+                                    status = DownloadStatus.Downloading,
+                                    pauseReason = null,
+                                    activity = DownloadActivity.TRANSFERRING,
+                                    downloadedBytes = maxOf(item.downloadedBytes, transfer.downloadedBytes),
+                                    totalBytes = transfer.totalBytes ?: item.totalBytes,
+                                    nextRetryAtEpochMs = null,
+                                    errorMessage = null,
+                                    // The session reported nothing while the app was
+                                    // suspended; that silence is not a stall.
+                                    updatedAtEpochMs = now,
+                                )
+                            }
+                            else -> item
+                        }
+                    },
+                    immediate = true,
+                )
+            }
+            plan.adopt.forEach { downloadId ->
+                _uiState.value.items.firstOrNull { it.id == downloadId }?.let(::adoptPlatformTransferLocked)
+            }
+        }
+        startPendingTransfers()
+    }
+
+    private fun adoptPlatformTransferLocked(item: DownloadItem) {
+        val transfer = ActiveTransfer(++nextTransferGeneration)
+        activeHandles[item.id] = transfer
+        // The platform attaches to the task it already has; the URL is only a fallback
+        // for a task that ended between the inventory and now.
+        val handle = runCatching {
+            DownloadsPlatformDownloader.start(
+                request = item.toPlatformRequest(item.sourceUrl.orEmpty()),
+                listener = RepositoryTransferListener(item.id, transfer.generation),
+            )
+        }.getOrNull()
+        if (handle == null) {
+            activeHandles.remove(item.id)
+            return
+        }
+        transfer.attach(handle)
+    }
+
+    /**
+     * Called by the session for a task nobody is listening to: one it started in the
+     * background, or one it found after a relaunch.
+     *
+     * [finishing] is set when the task has already ended. Its result is delivered whatever
+     * the capacity, since the slot frees the moment it is, and even for a download the
+     * user paused - a finished file is better recorded than thrown away.
+     */
+    internal fun claimNativeTransfer(
+        downloadId: String,
+        handle: DownloadsTaskHandle,
+        finishing: Boolean,
+    ): NativeTransferClaim {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val item = _uiState.value.items.firstOrNull { it.id == downloadId }
+                ?: return NativeTransferClaim.Cancel
+            if (item.status == DownloadStatus.Completed || item.status == DownloadStatus.Failed) {
+                return NativeTransferClaim.Cancel
+            }
+            if (!finishing) {
+                if (item.status == DownloadStatus.Paused && item.pauseReason != DownloadPauseReason.System) {
+                    return NativeTransferClaim.Suspend
+                }
+                if (activeHandles.keys.count { it != downloadId } >= MAX_CONCURRENT_TRANSFERS) {
+                    return NativeTransferClaim.Suspend
+                }
+            }
+            // An attempt still resolving a URL for this download has been overtaken by
+            // the real transfer. Its resolver is fenced on the generation and gives up.
+            activeHandles.remove(downloadId)?.abandon()
+            val transfer = ActiveTransfer(++nextTransferGeneration)
+            transfer.attach(handle)
+            activeHandles[downloadId] = transfer
+            val now = DownloadsClock.nowEpochMs()
+            mutateLocked(downloadId, immediate = true) { current ->
+                current.copy(
+                    status = DownloadStatus.Downloading,
+                    pauseReason = null,
+                    activity = DownloadActivity.TRANSFERRING,
+                    nextRetryAtEpochMs = null,
+                    errorMessage = null,
+                    updatedAtEpochMs = now,
+                )
+            }
+            return NativeTransferClaim.Adopted(RepositoryTransferListener(downloadId, transfer.generation))
+        }
+    }
+
+    /**
+     * The queue as the background scheduler may use it: queued items in order with the
+     * URLs they already hold, and the slots the repository is holding.
+     *
+     * A source with no origin to re-mint from is a plain URL that does not expire, so it
+     * is always fresh; only debrid-resolved ones age out.
+     */
+    internal fun nativeSchedulingSnapshot(): NativeSchedulingSnapshot {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val now = DownloadsClock.nowEpochMs()
+            val prepared = _uiState.value.items
+                .filter { it.status == DownloadStatus.Queued && !it.sizeApprovalRequired }
+                .map { item ->
+                    IosBackgroundTransferReconciler.IosPreparedTransfer(
+                        downloadId = item.id,
+                        destinationFileName = item.fileName,
+                        sourceUrl = item.sourceUrl.orEmpty(),
+                        sourceHeaders = item.sourceHeaders,
+                        knownTotalBytes = item.totalBytes,
+                        queuePosition = item.queuePosition,
+                        sourceUrlResolvedAtEpochMs = if (item.sourceOrigin == null) {
+                            now
+                        } else {
+                            item.sourceUrlResolvedAtEpochMs
+                        },
+                        allowMeteredNetwork = item.allowMeteredNetwork,
+                        notBeforeEpochMs = item.nextRetryAtEpochMs,
+                    )
+                }
+            return NativeSchedulingSnapshot(prepared, activeHandles.keys.toSet())
+        }
+    }
+
+    /** The background queue reached an item whose source URL has gone stale. */
+    internal fun onNativeSourceRefreshNeeded(downloadId: String) {
+        _uiState.value.items.firstOrNull { it.id == downloadId }?.let {
+            DownloadDiagnostics.resolving(it)
+        }
+        prepareUpcomingTransfers()
+    }
+
+    /**
+     * The app is going to the background: refresh the URLs the session will need while
+     * there is still time to, so it can keep advancing after the screen locks.
+     */
+    internal fun onPlatformBackground() {
+        prepareUpcomingTransfers()
+    }
+
+    private fun DownloadItem.toAdoptionItem(claimed: Boolean) =
+        IosBackgroundTransferReconciler.AdoptionItem(
+            id = id,
+            state = when (status) {
+                DownloadStatus.Downloading -> IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING
+                DownloadStatus.Queued -> IosBackgroundTransferReconciler.AdoptionState.QUEUED
+                DownloadStatus.Paused -> if (pauseReason == DownloadPauseReason.System) {
+                    IosBackgroundTransferReconciler.AdoptionState.SYSTEM_PAUSED
+                } else {
+                    IosBackgroundTransferReconciler.AdoptionState.USER_PAUSED
+                }
+                DownloadStatus.Failed -> IosBackgroundTransferReconciler.AdoptionState.FAILED
+                DownloadStatus.Completed -> IosBackgroundTransferReconciler.AdoptionState.COMPLETED
+            },
+            queuePosition = queuePosition,
+            claimed = claimed,
+        )
+
+    private fun DownloadItem.toPlatformRequest(sourceUrl: String) = DownloadPlatformRequest(
+        downloadId = id,
+        sourceUrl = sourceUrl,
+        sourceHeaders = sourceHeaders,
+        destinationFileName = fileName,
+        allowMeteredNetwork = allowMeteredNetwork,
+        knownTotalBytes = totalBytes,
+        resumeEtag = resumeEtag,
+        resumeLastModified = resumeLastModified,
+    )
 
     private var isPreparingUpcomingSources = false
 
@@ -2246,58 +2378,6 @@ object DownloadsRepository {
         }
     }
 
-    private fun DownloadItem.toReconciledState(): IosBackgroundTransferReconciler.ReconciledItemState {
-        val repState = when (status) {
-            DownloadStatus.Downloading -> IosBackgroundTransferReconciler.RepositoryState.DOWNLOADING
-            DownloadStatus.Queued -> IosBackgroundTransferReconciler.RepositoryState.QUEUED
-            DownloadStatus.Paused -> IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED
-            DownloadStatus.Completed -> IosBackgroundTransferReconciler.RepositoryState.COMPLETED
-            DownloadStatus.Failed -> IosBackgroundTransferReconciler.RepositoryState.FAILED
-        }
-        return IosBackgroundTransferReconciler.ReconciledItemState(
-            id = id,
-            state = repState,
-            downloadedBytes = downloadedBytes,
-            totalBytes = totalBytes,
-            localFileUri = localFileUri,
-            attemptCount = attemptCount,
-            nextRetryAtEpochMs = nextRetryAtEpochMs,
-            isWaitingForProvider = activity == DownloadActivity.WAITING_FOR_PROVIDER,
-            isUserPaused = status == DownloadStatus.Paused && pauseReason == DownloadPauseReason.User,
-            canReresolveSource = canReresolveSource,
-            errorMessage = errorMessage,
-            updatedAtEpochMs = updatedAtEpochMs,
-        )
-    }
-
-    private fun DownloadItem.applyReconciledState(state: IosBackgroundTransferReconciler.ReconciledItemState): DownloadItem {
-        val nextStatus = when (state.state) {
-            IosBackgroundTransferReconciler.RepositoryState.DOWNLOADING -> DownloadStatus.Downloading
-            IosBackgroundTransferReconciler.RepositoryState.QUEUED -> DownloadStatus.Queued
-            IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED -> DownloadStatus.Paused
-            IosBackgroundTransferReconciler.RepositoryState.COMPLETED -> DownloadStatus.Completed
-            IosBackgroundTransferReconciler.RepositoryState.FAILED -> DownloadStatus.Failed
-            IosBackgroundTransferReconciler.RepositoryState.MISSING -> status
-        }
-        val nextActivity = when {
-            state.isWaitingForProvider -> DownloadActivity.WAITING_FOR_PROVIDER
-            nextStatus == DownloadStatus.Downloading -> DownloadActivity.TRANSFERRING
-            nextStatus == DownloadStatus.Queued && state.nextRetryAtEpochMs != null -> DownloadActivity.RETRY_BACKOFF
-            nextStatus == DownloadStatus.Queued -> DownloadActivity.QUEUED_FOR_SLOT
-            else -> null
-        }
-        return copy(
-            status = nextStatus,
-            downloadedBytes = state.downloadedBytes,
-            totalBytes = state.totalBytes ?: totalBytes,
-            localFileUri = state.localFileUri ?: localFileUri,
-            attemptCount = state.attemptCount,
-            nextRetryAtEpochMs = state.nextRetryAtEpochMs,
-            activity = nextActivity,
-            errorMessage = state.errorMessage,
-            updatedAtEpochMs = state.updatedAtEpochMs,
-        )
-    }
 }
 
 @Serializable

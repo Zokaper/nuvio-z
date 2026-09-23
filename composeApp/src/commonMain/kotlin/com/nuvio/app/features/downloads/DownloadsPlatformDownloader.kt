@@ -80,9 +80,24 @@ internal expect object DownloadsPlatformDownloader {
      */
     val recoversSystemPauses: Boolean
 
-    fun syncPreparedTransfers(transfers: List<IosBackgroundTransferReconciler.IosPreparedTransfer>)
+    /**
+     * True while the platform, not the repository, decides what starts next.
+     *
+     * iOS only, and only while the app is in the background: the suspended app cannot
+     * re-mint source URLs, so the native session fills freed slots itself from what the
+     * repository persisted. Everywhere else this is always false.
+     */
+    fun schedulingDeferredToPlatform(): Boolean
 
-    fun pollJournalEvents(): List<IosBackgroundTransferReconciler.IosJournalEvent>
+    /**
+     * Reports the transfers the platform really holds, or null where it keeps none
+     * across process deaths. May answer on any thread.
+     */
+    fun requestTransferInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit)
 
-    fun acknowledgeJournalEvents(eventIds: Set<String>)
+    /** Stops a platform-held transfer, keeping its bytes. */
+    fun suspendTransfer(downloadId: String)
+
+    /** Drops a platform-held transfer outright. */
+    fun cancelTransfer(downloadId: String)
 }

@@ -10,6 +10,11 @@ final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
     private var observer: NSObjectProtocol?
+    // Main-thread only. Payload notifications used to start one unawaited Task each, so a
+    // burst of progress ran ActivityKit updates concurrently and out of order, and two of
+    // them could both find no activity and both request one.
+    private var isApplying = false
+    private var needsReapply = false
 
     private init() {}
 
@@ -31,9 +36,17 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
         guard #available(iOS 16.1, *) else { return }
 
-        let payload = loadPayload()
-        Task {
-            await apply(payload)
+        if isApplying {
+            needsReapply = true
+            return
+        }
+        isApplying = true
+        Task { @MainActor in
+            repeat {
+                needsReapply = false
+                await apply(loadPayload())
+            } while needsReapply
+            isApplying = false
         }
 #endif
     }

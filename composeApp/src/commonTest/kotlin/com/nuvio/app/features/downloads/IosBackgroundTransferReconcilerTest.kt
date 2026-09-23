@@ -66,174 +66,296 @@ class IosBackgroundTransferReconcilerTest {
         assertFalse(result.isSuccess); assertTrue(result.shouldRestartFromZero)
     }
 
-    // --- Native queue scheduler tests ----------------------------------------------
+    // --- Background scheduler (`.45` ownership) -------------------------------------
 
-    @Test fun schedulerFillsSlotsByQueueRank() {
-        val now = 1_000_000L
-        val queue = listOf(
-            prepared("d3", queuePos = 3, resolvedAt = now),
-            prepared("d1", queuePos = 1, resolvedAt = now),
-            prepared("d4", queuePos = 4, resolvedAt = now),
-            prepared("d2", queuePos = 2, resolvedAt = now),
+    private val now = 10_000_000L
+    private val fresh = now - 60_000L
+    private val stale = now - 20L * 60L * 1000L
+
+    @Test fun schedulerFillsSlotsInQueueOrder() {
+        val plan = schedule(
+            queue = listOf(prepared("d3", 3), prepared("d1", 1), prepared("d4", 4), prepared("d2", 2)),
         )
-        val plan = r.scheduleNextTransfers(
+        assertEquals(listOf("d1", "d2"), plan.toStart.map { it.downloadId })
+        assertNull(plan.refreshBoundary)
+    }
+
+    /** The `.44` fault: #1 and #2 claimed and resolving, with no task yet, must not free their slots. */
+    @Test fun claimedButResolvingItemsHoldTheirSlots() {
+        val plan = schedule(
+            claimed = setOf("d1", "d2"),
+            queue = listOf(prepared("d3", 3), prepared("d4", 4)),
+        )
+        assertTrue(plan.toStart.isEmpty())
+    }
+
+    @Test fun oneClaimAndOneRunningTaskLeaveNoSlot() {
+        val plan = schedule(
+            running = setOf("d1"),
+            claimed = setOf("d2"),
+            queue = listOf(prepared("d3", 3)),
+        )
+        assertTrue(plan.toStart.isEmpty())
+    }
+
+    @Test fun claimAndRunningTaskForTheSameItemTakeOneSlot() {
+        val plan = schedule(
+            running = setOf("d1"),
+            claimed = setOf("d1"),
+            queue = listOf(prepared("d2", 2), prepared("d3", 3)),
+        )
+        assertEquals(listOf("d2"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun backgroundCompletionStartsTheNextFreshItem() {
+        // d1 finished (no longer running or queued); d2 still running.
+        val plan = schedule(
+            running = setOf("d2"),
+            queue = listOf(prepared("d3", 3), prepared("d4", 4)),
+        )
+        assertEquals(listOf("d3"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun staleHeadIsAFifoBoundaryNotSomethingToSkip() {
+        val plan = schedule(
+            running = setOf("d1"),
+            queue = listOf(prepared("d2", 2, resolvedAt = stale), prepared("d3", 3)),
+        )
+        assertTrue(plan.toStart.isEmpty())
+        assertEquals("d2", plan.refreshBoundary?.downloadId)
+    }
+
+    @Test fun blankUrlIsAlsoABoundary() {
+        val plan = schedule(queue = listOf(prepared("d1", 1, url = ""), prepared("d2", 2)))
+        assertTrue(plan.toStart.isEmpty())
+        assertEquals("d1", plan.refreshBoundary?.downloadId)
+    }
+
+    @Test fun freshItemsAheadOfTheBoundaryStillStart() {
+        val plan = schedule(
+            queue = listOf(prepared("d1", 1), prepared("d2", 2, resolvedAt = stale), prepared("d3", 3)),
+        )
+        assertEquals(listOf("d1"), plan.toStart.map { it.downloadId })
+        assertEquals("d2", plan.refreshBoundary?.downloadId)
+    }
+
+    @Test fun suspendedTaskIsResumedNotDuplicatedAndNeedsNoFreshUrl() {
+        val plan = schedule(
+            suspended = setOf("d1"),
+            queue = listOf(prepared("d1", 1, resolvedAt = stale), prepared("d2", 2)),
+        )
+        assertEquals(listOf("d1", "d2"), plan.toStart.map { it.downloadId })
+        assertEquals(setOf("d1"), plan.toResume)
+    }
+
+    @Test fun suspendedTasksHoldNoSlot() {
+        val plan = schedule(
+            suspended = setOf("d9"),
+            queue = listOf(prepared("d1", 1), prepared("d2", 2)),
+        )
+        assertEquals(2, plan.toStart.size)
+    }
+
+    @Test fun runningTasksAreNeverStartedAgain() {
+        val plan = schedule(
+            running = setOf("d1"),
+            queue = listOf(prepared("d1", 1), prepared("d2", 2)),
+        )
+        assertEquals(listOf("d2"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun finishedItemAwaitingCompletionIsNotRestarted() {
+        val plan = schedule(finished = setOf("d1"), queue = listOf(prepared("d1", 1), prepared("d2", 2)))
+        assertEquals(listOf("d2"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun duplicateQueueEntriesStartOnce() {
+        val plan = schedule(queue = listOf(prepared("d1", 1), prepared("d1", 1)))
+        assertEquals(listOf("d1"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun itemInRetryBackoffIsPassedOverNotABoundary() {
+        val plan = schedule(
+            queue = listOf(prepared("d1", 1, notBefore = now + 60_000L), prepared("d2", 2)),
+        )
+        assertEquals(listOf("d2"), plan.toStart.map { it.downloadId })
+        assertNull(plan.refreshBoundary)
+    }
+
+    @Test fun concurrencyNeverExceedsTwo() {
+        val queue = (1..6).map { prepared("d$it", it.toLong()) }
+        listOf(
+            emptySet<String>() to emptySet<String>(),
+            setOf("d1") to emptySet(),
+            setOf("d1") to setOf("d2"),
+            setOf("d1", "d2") to setOf("d3"),
+        ).forEach { (running, claimed) ->
+            val plan = schedule(running = running, claimed = claimed, queue = queue)
+            assertEquals(maxOf(0, 2 - (running + claimed).size), plan.toStart.size, "running=$running claimed=$claimed")
+        }
+    }
+
+    // --- Adoption on launch and on return to the foreground --------------------------
+
+    /** Relaunch with #3 and #4 really running: adopt them, do not start #1 and #2 on top. */
+    @Test fun relaunchAdoptsRealTasksWithoutReordering() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("d1", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 1),
+                adoption("d2", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 2),
+                adoption("d3", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 3),
+                adoption("d4", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 4),
+            ),
+            live = listOf(live("d3"), live("d4")),
             maxConcurrent = 2,
-            activeDownloadIds = emptySet(),
-            preparedQueue = queue,
-            nowEpochMs = now,
         )
-        assertEquals(2, plan.tasksToStart.size)
-        assertEquals("d1", plan.tasksToStart[0].downloadId)
-        assertEquals("d2", plan.tasksToStart[1].downloadId)
-        assertEquals(2, plan.runningCount)
-        assertEquals(2, plan.remainingCount)
+        assertEquals(listOf("d3", "d4"), plan.adopt)
+        assertTrue(plan.suspend.isEmpty())
+        assertTrue(plan.cancel.isEmpty())
+        assertTrue(plan.requeue.isEmpty())
     }
 
-    @Test fun schedulerAdvancesNextPreparedWhenSlotFrees() {
-        val now = 1_000_000L
-        val queue = listOf(
-            prepared("d1", queuePos = 1, state = IosBackgroundTransferReconciler.IosPreparedState.COMPLETED),
-            prepared("d2", queuePos = 2, state = IosBackgroundTransferReconciler.IosPreparedState.RUNNING),
-            prepared("d3", queuePos = 3, resolvedAt = now),
-            prepared("d4", queuePos = 4, resolvedAt = now),
-        )
-        // d1 completed, so active set only has d2
-        val plan = r.scheduleNextTransfers(
+    /** `.44`'s stale RUNNING, or a force-quit: recorded as downloading, no task behind it. */
+    @Test fun downloadingWithNoTaskIsRequeuedInPlace() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1),
+                adoption("d2", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 2),
+            ),
+            live = emptyList(),
             maxConcurrent = 2,
-            activeDownloadIds = setOf("d2"),
-            preparedQueue = queue,
-            nowEpochMs = now,
         )
-        assertEquals(1, plan.tasksToStart.size)
-        assertEquals("d3", plan.tasksToStart[0].downloadId)
-        assertEquals(2, plan.runningCount)
-        assertEquals(1, plan.remainingCount)
+        assertEquals(listOf("d1", "d2"), plan.requeue)
+        assertTrue(plan.adopt.isEmpty())
     }
 
-    @Test fun schedulerDoesNotDuplicateAlreadyActiveTasks() {
-        val now = 1_000_000L
-        val queue = listOf(
-            prepared("d1", queuePos = 1, resolvedAt = now),
-            prepared("d2", queuePos = 2, resolvedAt = now),
-        )
-        val plan = r.scheduleNextTransfers(
+    @Test fun downloadingWithOnlyASuspendedTaskIsRequeued() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1)),
+            live = listOf(live("d1", running = false)),
             maxConcurrent = 2,
-            activeDownloadIds = setOf("d1", "d2"),
-            preparedQueue = queue,
-            nowEpochMs = now,
         )
-        assertTrue(plan.tasksToStart.isEmpty())
-        assertEquals(2, plan.runningCount)
+        assertEquals(listOf("d1"), plan.requeue)
+        assertTrue(plan.adopt.isEmpty())
     }
 
-    @Test fun schedulerDetectsExpiredPreparedSourceAndPausesStrictFifo() {
-        val now = 2_000_000L
-        val fresh = now - 60_000L // 1 min ago
-        val expired = now - (20L * 60L * 1000L) // 20 mins ago (freshness is 15 mins)
-
-        val queue = listOf(
-            prepared("d1", queuePos = 1, resolvedAt = fresh),
-            prepared("d2", queuePos = 2, resolvedAt = expired),
-            prepared("d3", queuePos = 3, resolvedAt = fresh),
-        )
-        val plan = r.scheduleNextTransfers(
+    @Test fun downloadingThatTheRepositoryAlreadyHoldsIsLeftAlone() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true)),
+            live = emptyList(),
             maxConcurrent = 2,
-            activeDownloadIds = emptySet(),
-            preparedQueue = queue,
-            nowEpochMs = now,
-            strictFifo = true,
         )
-        assertEquals(1, plan.tasksToStart.size)
-        assertEquals("d1", plan.tasksToStart[0].downloadId)
-        assertEquals(1, plan.tasksNeedingRefresh.size)
-        assertEquals("d2", plan.tasksNeedingRefresh[0].downloadId)
-        // Strict FIFO: d3 must not be started ahead of d2!
-        assertFalse(plan.tasksToStart.any { it.downloadId == "d3" })
+        assertTrue(plan.requeue.isEmpty())
     }
 
-    // --- Journal reconciliation tests ----------------------------------------------
-
-    @Test fun journalReconcilesProgressAndCompletionIdempotently() {
-        val item = itemState("d1", IosBackgroundTransferReconciler.RepositoryState.DOWNLOADING, downloaded = 100, total = 1000)
-        val events = listOf(
-            IosBackgroundTransferReconciler.IosJournalEvent.Progress("e1", "d1", 500, 1000, 10),
-            IosBackgroundTransferReconciler.IosJournalEvent.Completed("e2", "d1", "file:///path/d1.mp4", 1000, 20),
-            // Duplicate completion event arriving later:
-            IosBackgroundTransferReconciler.IosJournalEvent.Completed("e3", "d1", "file:///path/d1.mp4", 1000, 25),
-            // Out of order stale progress after completion:
-            IosBackgroundTransferReconciler.IosJournalEvent.Progress("e4", "d1", 600, 1000, 30),
+    @Test fun runningTasksBeyondCapacityAreSuspendedInQueueOrder() {
+        val plan = r.planAdoption(
+            items = (1..4).map { adoption("d$it", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, it.toLong()) },
+            live = (1..4).map { live("d$it") },
+            maxConcurrent = 2,
         )
-
-        val result = r.reconcileJournal(listOf(item), events)
-        val updated = result.updatedItems[0]
-
-        assertEquals(IosBackgroundTransferReconciler.RepositoryState.COMPLETED, updated.state)
-        assertEquals(1000, updated.downloadedBytes)
-        assertEquals("file:///path/d1.mp4", updated.localFileUri)
-        assertEquals(setOf("e1", "e2", "e3", "e4"), result.acknowledgedEventIds)
+        assertEquals(listOf("d1", "d2"), plan.adopt)
+        assertEquals(setOf("d3", "d4"), plan.suspend.toSet())
     }
 
-    @Test fun journalReconcilerNeedsSourceRefreshMarksWaiting() {
-        val item = itemState("d2", IosBackgroundTransferReconciler.RepositoryState.QUEUED)
-        val events = listOf(
-            IosBackgroundTransferReconciler.IosJournalEvent.NeedsSourceRefresh("e1", "d2", "Source link expired", 50),
+    @Test fun resolvingClaimKeepsItsSlotDuringAdoption() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true),
+                adoption("d3", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 3),
+                adoption("d4", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 4),
+            ),
+            live = listOf(live("d3"), live("d4")),
+            maxConcurrent = 2,
         )
-        val result = r.reconcileJournal(listOf(item), events)
-        val updated = result.updatedItems[0]
-
-        assertEquals(IosBackgroundTransferReconciler.RepositoryState.QUEUED, updated.state)
-        assertTrue(updated.isWaitingForProvider)
-        assertEquals("Source link expired", updated.errorMessage)
-        assertEquals(setOf("d2"), result.needsRefreshIds)
+        assertEquals(listOf("d3"), plan.adopt)
+        assertEquals(listOf("d4"), plan.suspend)
     }
 
-    @Test fun journalReconcilerRespectsUserPause() {
-        val item = itemState("d1", IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED, isUserPaused = true)
-        val events = listOf(
-            IosBackgroundTransferReconciler.IosJournalEvent.Progress("e1", "d1", 500, 1000, 10),
-            IosBackgroundTransferReconciler.IosJournalEvent.Completed("e2", "d1", "file:///path/d1.mp4", 1000, 20),
+    @Test fun alreadyHeldRunningTaskIsNotAdoptedTwice() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true),
+                adoption("d2", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 2),
+            ),
+            live = listOf(live("d1"), live("d2")),
+            maxConcurrent = 2,
         )
-        val result = r.reconcileJournal(listOf(item), events)
-        val updated = result.updatedItems[0]
-
-        assertEquals(IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED, updated.state)
-        assertTrue(updated.isUserPaused)
+        assertEquals(listOf("d2"), plan.adopt)
     }
 
-    // --- Codec roundtrip tests ----------------------------------------------------
-
-    @Test fun preparedTransferCodecRoundtrips() {
-        val original = IosBackgroundTransferReconciler.IosPreparedTransfer(
-            downloadId = "down_123%special|name",
-            destinationFileName = "movie|season 1.mp4",
-            sourceUrl = "https://example.com/stream?token=abc%7Cxyz",
-            sourceHeaders = mapOf("Authorization" to "Bearer 123", "X-Custom" to "val=1"),
-            knownTotalBytes = 1_048_576L,
-            queuePosition = 42L,
-            title = "Lanterns S01E01",
-            subtitle = "Episode 1",
-            sourceUrlResolvedAtEpochMs = 1_700_000_000L,
-            allowMeteredNetwork = true,
-            state = IosBackgroundTransferReconciler.IosPreparedState.PREPARED,
+    @Test fun tasksForGoneFinishedOrFailedDownloadsAreCancelled() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("done", IosBackgroundTransferReconciler.AdoptionState.COMPLETED, 1),
+                adoption("bad", IosBackgroundTransferReconciler.AdoptionState.FAILED, 2),
+            ),
+            live = listOf(live("done"), live("bad"), live("deleted")),
+            maxConcurrent = 2,
         )
-        val encoded = r.encodePreparedTransfer(original)
-        val decoded = r.decodePreparedTransfer(encoded)
-        assertEquals(original, decoded)
+        assertEquals(setOf("done", "bad", "deleted"), plan.cancel.toSet())
+        assertTrue(plan.adopt.isEmpty())
     }
 
-    @Test fun journalEventCodecRoundtripsAllTypes() {
-        val events = listOf(
-            IosBackgroundTransferReconciler.IosJournalEvent.Progress("e1", "d1", 500L, 1000L, 100L),
-            IosBackgroundTransferReconciler.IosJournalEvent.Completed("e2", "d1", "file:///path/movie.mp4", 1000L, 200L),
-            IosBackgroundTransferReconciler.IosJournalEvent.Failed("e3", "d2", DownloadFailureReason.SourceExpired, "Link expired | invalid", 0L, 300L),
-            IosBackgroundTransferReconciler.IosJournalEvent.NeedsSourceRefresh("e4", "d2", "Refresh required", 400L),
-            IosBackgroundTransferReconciler.IosJournalEvent.TaskStarted("e5", "d3", 42L, 500L),
-            IosBackgroundTransferReconciler.IosJournalEvent.TaskCancelled("e6", "d4", 600L),
+    @Test fun userPausedRunningTaskIsSuspendedNotAdopted() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.USER_PAUSED, 1)),
+            live = listOf(live("d1"), live("d1-not-there", running = false)),
+            maxConcurrent = 2,
         )
-        val encoded = r.encodeJournalEvents(events)
-        val decoded = r.decodeJournalEvents(encoded)
-        assertEquals(events, decoded)
+        assertEquals(listOf("d1"), plan.suspend)
+        assertTrue(plan.adopt.isEmpty())
     }
+
+    @Test fun systemPausedRunningTaskIsAdopted() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.SYSTEM_PAUSED, 1)),
+            live = listOf(live("d1")),
+            maxConcurrent = 2,
+        )
+        assertEquals(listOf("d1"), plan.adopt)
+    }
+
+    private fun schedule(
+        running: Set<String> = emptySet(),
+        claimed: Set<String> = emptySet(),
+        suspended: Set<String> = emptySet(),
+        finished: Set<String> = emptySet(),
+        queue: List<IosBackgroundTransferReconciler.IosPreparedTransfer>,
+    ) = r.scheduleNextTransfers(
+        maxConcurrent = 2,
+        runningIds = running,
+        claimedIds = claimed,
+        suspendedIds = suspended,
+        finishedIds = finished,
+        preparedQueue = queue,
+        nowEpochMs = now,
+    )
+
+    private fun prepared(
+        id: String,
+        queuePos: Long,
+        resolvedAt: Long? = fresh,
+        url: String = "https://example.invalid/$id.mkv",
+        notBefore: Long? = null,
+    ) = IosBackgroundTransferReconciler.IosPreparedTransfer(
+        downloadId = id,
+        destinationFileName = "$id.mkv",
+        sourceUrl = url,
+        queuePosition = queuePos,
+        sourceUrlResolvedAtEpochMs = resolvedAt,
+        notBeforeEpochMs = notBefore,
+    )
+
+    private fun adoption(
+        id: String,
+        state: IosBackgroundTransferReconciler.AdoptionState,
+        queuePos: Long,
+        claimed: Boolean = false,
+    ) = IosBackgroundTransferReconciler.AdoptionItem(id, state, queuePos, claimed)
+
+    private fun live(id: String, running: Boolean = true) =
+        IosBackgroundTransferReconciler.LiveTransfer(id, running)
 
     private fun snapshot(
         repositoryState: IosBackgroundTransferReconciler.RepositoryState,
@@ -243,34 +365,5 @@ class IosBackgroundTransferReconcilerTest {
         destinationExists: Boolean = false,
     ) = IosBackgroundTransferReconciler.Snapshot(
         repositoryState, nativeState, repositoryBytes, nativeBytes, destinationExists,
-    )
-
-    private fun prepared(
-        id: String,
-        queuePos: Long,
-        resolvedAt: Long? = 1_000_000L,
-        state: IosBackgroundTransferReconciler.IosPreparedState = IosBackgroundTransferReconciler.IosPreparedState.PREPARED,
-    ) = IosBackgroundTransferReconciler.IosPreparedTransfer(
-        downloadId = id,
-        destinationFileName = "$id.mp4",
-        sourceUrl = "https://example.com/$id.mp4",
-        knownTotalBytes = 1000L,
-        queuePosition = queuePos,
-        sourceUrlResolvedAtEpochMs = resolvedAt,
-        state = state,
-    )
-
-    private fun itemState(
-        id: String,
-        state: IosBackgroundTransferReconciler.RepositoryState,
-        downloaded: Long = 0,
-        total: Long? = null,
-        isUserPaused: Boolean = false,
-    ) = IosBackgroundTransferReconciler.ReconciledItemState(
-        id = id,
-        state = state,
-        downloadedBytes = downloaded,
-        totalBytes = total,
-        isUserPaused = isUserPaused,
     )
 }

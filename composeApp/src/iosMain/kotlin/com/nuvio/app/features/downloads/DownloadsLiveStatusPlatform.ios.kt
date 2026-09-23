@@ -1,20 +1,39 @@
 package com.nuvio.app.features.downloads
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.downloads_batch_state_discovering
+import nuvio.composeapp.generated.resources.downloads_live_queue_active
+import nuvio.composeapp.generated.resources.downloads_live_queue_active_remaining
+import nuvio.composeapp.generated.resources.downloads_live_queue_remaining
+import org.jetbrains.compose.resources.getString
+
+/**
+ * A payload that differs from the last one only in bytes is written at most this often.
+ *
+ * Every write posts a notification the Live Activity manager handles on the main queue,
+ * and each one became an ActivityKit update. With progress arriving several times a
+ * second per transfer that was a steady stream of main-queue work for a number nobody
+ * can read that fast. State changes are never held back.
+ */
+private const val PROGRESS_ONLY_WRITE_INTERVAL_MS = 1_000L
 
 internal actual object DownloadsLiveStatusPlatform {
-    const val NOTIFICATION_NAME = "NuvioDownloadsLiveStatusUpdated"
-    const val USER_DEFAULTS_PAYLOAD_KEY = "nuvio.downloads.live_status.payload"
+    private const val NOTIFICATION_NAME = "NuvioDownloadsLiveStatusUpdated"
+    private const val USER_DEFAULTS_PAYLOAD_KEY = "nuvio.downloads.live_status.payload"
 
     private val json = Json {
         encodeDefaults = true
     }
 
     private var lastPayload: String? = null
+    private var lastPayloadShape: DownloadsLiveStatusPayload? = null
+    private var lastWriteAtEpochMs = 0L
     private var lastSelectedDownloadId: String? = null
     private var currentItems: List<DownloadItem> = emptyList()
     private var currentBatches: List<DownloadBatch> = emptyList()
@@ -29,10 +48,17 @@ internal actual object DownloadsLiveStatusPlatform {
         updatePayload()
     }
 
-    fun writePayloadDirect(payload: DownloadsLiveStatusPayload?) {
+    private fun writePayload(payload: DownloadsLiveStatusPayload?) {
         val encoded = payload?.let { json.encodeToString(it) }
         if (encoded == lastPayload) return
+        val shape = payload?.copy(downloadedBytes = 0L, progressPercent = 0)
+        val now = DownloadsClock.nowEpochMs()
+        if (shape != null && shape == lastPayloadShape && now - lastWriteAtEpochMs < PROGRESS_ONLY_WRITE_INTERVAL_MS) {
+            return
+        }
         lastPayload = encoded
+        lastPayloadShape = shape
+        lastWriteAtEpochMs = now
 
         val defaults = NSUserDefaults.standardUserDefaults
         if (encoded == null) {
@@ -69,14 +95,14 @@ internal actual object DownloadsLiveStatusPlatform {
                     progressPercent = presentation.progressPercent ?: -1,
                     activeCount = presentation.activeCount,
                     remainingCount = presentation.remainingCount,
-                    queueSummaryText = presentation.queueSummaryText,
+                    queueSummaryText = queueSummaryText(presentation.activeCount, presentation.remainingCount),
                 )
             }
             activeBatch != null -> {
                 DownloadsLiveStatusPayload(
                     id = activeBatch.id,
                     title = activeBatch.title,
-                    subtitle = "Finding sources",
+                    subtitle = runBlocking { getString(Res.string.downloads_batch_state_discovering) },
                     status = "FINDING_SOURCES",
                     downloadedBytes = 0L,
                     totalBytes = null,
@@ -89,8 +115,22 @@ internal actual object DownloadsLiveStatusPlatform {
             else -> null
         }
 
-        writePayloadDirect(payload)
+        writePayload(payload)
     }
+
+    /** The localized form of [DownloadsLiveStatusPolicy.buildSummaryText]; the policy stays resource-free. */
+    private fun queueSummaryText(activeCount: Int, remainingCount: Int): String? {
+        if (DownloadsLiveStatusPolicy.buildSummaryText(activeCount, remainingCount) == null) return null
+        return runBlocking { localizedQueueSummary(activeCount, remainingCount) }
+    }
+
+    private suspend fun localizedQueueSummary(activeCount: Int, remainingCount: Int): String =
+        when {
+            activeCount > 1 && remainingCount > 0 ->
+                getString(Res.string.downloads_live_queue_active_remaining, activeCount, remainingCount)
+            activeCount > 1 -> getString(Res.string.downloads_live_queue_active, activeCount)
+            else -> getString(Res.string.downloads_live_queue_remaining, remainingCount)
+        }
 
     private fun DownloadItem.liveActivityCandidate() = DownloadsLiveStatusPolicy.Candidate(
         id = id,
