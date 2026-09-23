@@ -79,4 +79,10 @@ internal expect object DownloadsPlatformDownloader {
      * to release it and the queue has to take it back itself.
      */
     val recoversSystemPauses: Boolean
+
+    fun syncPreparedTransfers(transfers: List<IosBackgroundTransferReconciler.IosPreparedTransfer>)
+
+    fun pollJournalEvents(): List<IosBackgroundTransferReconciler.IosJournalEvent>
+
+    fun acknowledgeJournalEvents(eventIds: Set<String>)
 }

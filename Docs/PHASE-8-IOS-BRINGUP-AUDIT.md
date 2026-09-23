@@ -1,8 +1,52 @@
 # Phase 8 — iOS Device Validation & Bringup Audit
 
-**Branch**: `gemini/phase-8-ios-downloads-nav-hardening`
-**Base**: `codex/ios-setup-gui-v1` (aligned with Phase 7 merge on `main`)
+**Branch**: `gemini/phase-8-ios-background-orchestration`
+**Base**: `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`) (aligned with Phase 7 merge on `main`)
 **Target**: Do NOT merge to `main`. Physical iPhone QA pass (SideStore Debug bringup).
+
+---
+
+## Batch 3 — physical `.43` findings and `.44` background orchestration & Live Activity stability
+
+Physical testing of debug prerelease `0.4.13-z1.43` on physical iPhone confirmed:
+- **Native transfer continues while screen is off (PASS)**: Native `NSURLSessionDownloadTask` maintains
+  byte transfer in the background without suspension.
+- **Stalled completion bookkeeping when screen is off (FAIL)**: When a download finishes while locked,
+  the file is finalized to disk by the native delegate, but Kotlin/Compose state does not update
+  until the app is foregrounded. Root cause: the Kotlin runtime is paused while suspended; callbacks
+  into Kotlin cannot reliably execute or persist state before iOS freezes the process.
+- **Stalled queue advancement when screen is off (FAIL)**: Subsequent items in a season or bulk batch
+  do not start downloading while the phone remains locked. Root cause: Kotlin coroutines cannot execute
+  in the background to resolve debrid download URLs.
+- **Live Activity churn & collision during concurrent downloads (FAIL)**: Under concurrent downloads,
+  the Live Activity flickered, progress ping-ponged between items, or the activity was terminated by
+  ActivityKit. Root cause: activity identity was tied to individual `downloadId`s (causing recreation loops),
+  and primary selection sorted by raw update timestamps.
+
+### Architectural fixes in `.44`:
+
+1. **Durable Completion Journal (`nuvio.ios_downloads.journal.v1`)**:
+   - Native delegate callbacks write atomic completion/failure/progress records directly into `NSUserDefaults`.
+   - On app wake or foreground resume, `DownloadsRepository.reconcileIosBackgroundJournal()` polls the journal,
+     reconciles state idempotently via `IosBackgroundTransferReconciler.reconcileJournal()`, and acknowledges processed events.
+2. **Ahead-of-Time Source Preparation**:
+   - While awake and connected, the app resolves direct URLs for up to 5 upcoming items in approved batches.
+   - Each prepared item has an expiration timestamp (15-minute TTL aligned with Real-Debrid / debrid provider link validity).
+   - Descriptors are persisted in native storage (`nuvio.ios_downloads.prepared_queue.v1`).
+3. **Synchronous Native Queue Advancement**:
+   - When a native download completes in the background, `advanceNativeQueueLocked()` synchronously runs inside
+     `URLSession(didFinishDownloadingToURL)`. If an active slot is available (max concurrency: 2) and the next prepared
+     item is fresh, the native download task is launched immediately before the system completion handler returns.
+4. **Strict FIFO Queue Ordering at Stale Boundaries**:
+   - If the next queued item's prepared link has expired (>15m), the native scheduler halts queue advancement at that
+     boundary, emits a `NeedsSourceRefresh` journal event, and waits for foreground resumption. It does not skip ahead,
+     preventing out-of-order episode downloads and cascading link expirations.
+5. **Stable Live Activity Session Identity & Sticky Selection**:
+   - Live Activity uses a stable session key (`nuvio.downloads.session`).
+   - Dynamic attributes live in `ContentState`, enabling in-place updates via `apply(payload)` without recreation.
+   - Primary item selection is **sticky** on the lowest `queuePosition` (lowest queue rank) until that item completes or is cancelled.
+   - Presentation includes active and remaining counts (`2 downloading • 3 remaining`).
+   - Direct native payload updates are dispatched from the native delegate callbacks during background downloads.
 
 ---
 
@@ -340,3 +384,28 @@ claimed by the code or CI results above.
    * Whole-title Download and View Downloads routing.
    * Five-item top navigation and Library/Downloads switch, including saved Downloads-tab migration.
    * Preparing/unknown-total notification wording, semantic season/download button colors, and completed local playback.
+## 7. `.44` Physical Verification Checklist
+
+To be verified on physical iPhone via SideStore debug build `0.4.13-z1.44`:
+
+1. [ ] **Multi-Episode Screen-Off Queue Advancement**:
+   * Queue 3+ episodes from a series in Library → Downloads.
+   * Lock the phone while Episode 1 is actively downloading.
+   * Wait for Episode 1 to complete (~2-3 minutes depending on network/size).
+   * Verify via Live Activity that Episode 2 starts automatically without unlocking or waking the device.
+2. [ ] **Background Completion Bookkeeping**:
+   * With screen locked, allow a download to finish.
+   * Unlock the phone and open Nuvio Z.
+   * Verify the download appears immediately in Completed state with offline playback badge, without showing `Waiting` or `Retrying`.
+3. [ ] **Live Activity Stability under Concurrent Downloads**:
+   * Start 2 concurrent downloads.
+   * Check Dynamic Island and Lock Screen Live Activity.
+   * Verify Live Activity shows the primary item consistently without flickering or ping-ponging progress between the two.
+   * Verify the queue summary shows `2 downloading • X remaining`.
+4. [ ] **Debrid 15-Minute Link Freshness Boundary**:
+   * Queue multiple episodes, then lock phone for >15 minutes after earlier episodes complete.
+   * Verify queue safely pauses at the stale boundary without downloading corrupt/expired URLs out of order.
+   * Reopen the app: verify fresh URLs are resolved immediately and queue resumes.
+5. [ ] **User Pause vs Screen Lock**:
+   * Pausing a download explicitly from UI pauses the native task and persists paused state.
+   * Locking the screen maintains active byte transfer and advances the native queue.

@@ -25,6 +25,7 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSUserDefaults
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
 import platform.UIKit.UIApplication
@@ -87,6 +88,17 @@ internal actual object DownloadsPlatformDownloader {
         )
         return true
     }
+
+    actual fun syncPreparedTransfers(transfers: List<IosBackgroundTransferReconciler.IosPreparedTransfer>) {
+        backgroundDownloadManager.syncPreparedTransfers(transfers)
+    }
+
+    actual fun pollJournalEvents(): List<IosBackgroundTransferReconciler.IosJournalEvent> =
+        backgroundDownloadManager.pollJournalEvents()
+
+    actual fun acknowledgeJournalEvents(eventIds: Set<String>) {
+        backgroundDownloadManager.acknowledgeJournalEvents(eventIds)
+    }
 }
 
 private data class NativeTaskMetadata(
@@ -125,6 +137,12 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private val stateLock = SynchronizedObject()
     private val contexts = mutableMapOf<ULong, NativeTaskContext>()
     private val cancelledTaskIds = mutableSetOf<ULong>()
+    private var lastSelectedDownloadId: String? = null
+    private var eventSeq: Long = 0L
+
+    private val PREPARED_QUEUE_KEY = "nuvio.downloads.ios_native_queue.v1"
+    private val JOURNAL_KEY = "nuvio.downloads.ios_native_journal.v1"
+
     private val sessionIdentifier = IosBackgroundTransferReconciler.sessionIdentifier(
         NSBundle.mainBundle.bundleIdentifier,
     )
@@ -149,6 +167,42 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
 
     fun activate(identifier: String) {
         if (identifier == sessionIdentifier) session
+    }
+
+    fun syncPreparedTransfers(transfers: List<IosBackgroundTransferReconciler.IosPreparedTransfer>) {
+        synchronized(stateLock) {
+            val existing = loadPreparedQueue()
+            val existingById = existing.associateBy { it.downloadId }
+            val merged = transfers.map { incoming ->
+                val current = existingById[incoming.downloadId]
+                if (current != null && current.state in setOf(
+                        IosBackgroundTransferReconciler.IosPreparedState.RUNNING,
+                        IosBackgroundTransferReconciler.IosPreparedState.COMPLETED,
+                    )
+                ) {
+                    incoming.copy(state = current.state)
+                } else {
+                    incoming
+                }
+            }
+            savePreparedQueue(merged)
+            advanceNativeQueueLocked()
+        }
+    }
+
+    fun pollJournalEvents(): List<IosBackgroundTransferReconciler.IosJournalEvent> {
+        return synchronized(stateLock) {
+            loadJournal()
+        }
+    }
+
+    fun acknowledgeJournalEvents(eventIds: Set<String>) {
+        if (eventIds.isEmpty()) return
+        synchronized(stateLock) {
+            val current = loadJournal()
+            val remaining = current.filter { it.eventId !in eventIds }
+            saveJournal(remaining)
+        }
     }
 
     fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle {
@@ -178,6 +232,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                 taskDescription = metadata.encode()
             }
             attach(task, metadata, listener, handle)
+            recordPreparedState(request.downloadId, IosBackgroundTransferReconciler.IosPreparedState.RUNNING)
             listener.onOpened(0L, request.knownTotalBytes, null, null)
             listener.onProgress(0L, request.knownTotalBytes)
             task.resume()
@@ -206,8 +261,17 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
                 if (NativeTaskMetadata.decode(task.taskDescription)?.downloadId == downloadId) {
                     task.suspend()
-                    synchronized(stateLock) { contexts[task.taskIdentifier] }
-                        ?.listener?.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
+                    synchronized(stateLock) {
+                        recordPreparedState(downloadId, IosBackgroundTransferReconciler.IosPreparedState.PREPARED)
+                        appendJournalEvent(
+                            IosBackgroundTransferReconciler.IosJournalEvent.TaskCancelled(
+                                eventId = nextEventId(),
+                                downloadId = downloadId,
+                                epochMs = DownloadsClock.nowEpochMs(),
+                            ),
+                        )
+                        contexts[task.taskIdentifier]
+                    }?.listener?.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
                 }
             }
         }
@@ -216,8 +280,21 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     fun cancelForDestination(destinationFileName: String) {
         session.getAllTasksWithCompletionHandler { tasks ->
             tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>().forEach { task ->
-                if (NativeTaskMetadata.decode(task.taskDescription)?.destinationFileName == destinationFileName) {
-                    synchronized(stateLock) { cancelledTaskIds += task.taskIdentifier }
+                val meta = NativeTaskMetadata.decode(task.taskDescription)
+                if (meta?.destinationFileName == destinationFileName) {
+                    synchronized(stateLock) {
+                        cancelledTaskIds += task.taskIdentifier
+                        meta.downloadId.let { did ->
+                            recordPreparedState(did, IosBackgroundTransferReconciler.IosPreparedState.CANCELLED)
+                            appendJournalEvent(
+                                IosBackgroundTransferReconciler.IosJournalEvent.TaskCancelled(
+                                    eventId = nextEventId(),
+                                    downloadId = did,
+                                    epochMs = DownloadsClock.nowEpochMs(),
+                                ),
+                            )
+                        }
+                    }
                     task.cancel()
                 }
             }
@@ -234,22 +311,33 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val metadata = NativeTaskMetadata.decode(downloadTask.taskDescription) ?: return
         val total = totalBytesExpectedToWrite.takeIf { it > 0L } ?: metadata.knownTotalBytes
         val context = synchronized(stateLock) { contexts[downloadTask.taskIdentifier] }
+        val now = DownloadsClock.nowEpochMs()
+
         if (context == null) {
             DownloadsRepository.reconcileIosBackgroundProgress(metadata.downloadId, totalBytesWritten, total)
-            return
+        } else {
+            if (!context.opened) {
+                context.listener.onOpened(0L, total, null, null)
+                context.opened = true
+            }
+            if (context.lastProgressBytes < 0L || shouldReportProgress(
+                    totalBytesWritten, context.lastProgressBytes, now, context.lastProgressAtEpochMs,
+                ) || (total != null && totalBytesWritten >= total)
+            ) {
+                context.lastProgressBytes = totalBytesWritten
+                context.lastProgressAtEpochMs = now
+                context.listener.onProgress(totalBytesWritten.coerceAtLeast(0L), total)
+            }
         }
-        if (!context.opened) {
-            context.listener.onOpened(0L, total, null, null)
-            context.opened = true
-        }
-        val now = DownloadsClock.nowEpochMs()
-        if (context.lastProgressBytes < 0L || shouldReportProgress(
-                totalBytesWritten, context.lastProgressBytes, now, context.lastProgressAtEpochMs,
-            ) || (total != null && totalBytesWritten >= total)
-        ) {
-            context.lastProgressBytes = totalBytesWritten
-            context.lastProgressAtEpochMs = now
-            context.listener.onProgress(totalBytesWritten.coerceAtLeast(0L), total)
+
+        // Periodically update native Live Activity while screen is locked
+        synchronized(stateLock) {
+            session.getAllTasksWithCompletionHandler { tasks ->
+                val active = tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>()
+                synchronized(stateLock) {
+                    updateNativeLiveActivityLocked(active, loadPreparedQueue())
+                }
+            }
         }
     }
 
@@ -262,64 +350,171 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val response = downloadTask.response as? NSHTTPURLResponse
         val statusCode = response?.statusCode?.toInt() ?: 200
         val context = synchronized(stateLock) { contexts[downloadTask.taskIdentifier] }
+        val now = DownloadsClock.nowEpochMs()
+
         if (statusCode !in 200..299) {
-            deliverFailure(metadata, context, failureReasonForHttpStatus(statusCode), runBlocking {
-                getString(Res.string.network_request_failed_http, statusCode)
-            }, downloadTask.countOfBytesReceived.coerceAtLeast(0L))
+            val failureReason = failureReasonForHttpStatus(statusCode)
+            val msg = runBlocking { getString(Res.string.network_request_failed_http, statusCode) }
+            synchronized(stateLock) {
+                recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                appendJournalEvent(
+                    IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                        eventId = nextEventId(),
+                        downloadId = metadata.downloadId,
+                        reason = failureReason,
+                        message = msg,
+                        downloadedBytes = downloadTask.countOfBytesReceived.coerceAtLeast(0L),
+                        epochMs = now,
+                    ),
+                )
+            }
+            deliverFailure(metadata, context, failureReason, msg, downloadTask.countOfBytesReceived.coerceAtLeast(0L))
+            advanceQueueAndNotify()
             return
         }
+
         val sourcePath = didFinishDownloadingToURL.path ?: return
         val destinationPath = "${downloadsDirectoryPath()}/${metadata.destinationFileName}"
         val partPath = "$destinationPath.part"
         removePathIfExists(partPath)
         if (!NSFileManager.defaultManager.moveItemAtPath(sourcePath, partPath, null)) {
-            deliverFailure(metadata, context, DownloadFailureReason.Transient, runBlocking {
-                getString(Res.string.downloads_error_finalize_file_failed)
-            }, 0L)
+            val msg = runBlocking { getString(Res.string.downloads_error_finalize_file_failed) }
+            synchronized(stateLock) {
+                recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                appendJournalEvent(
+                    IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                        eventId = nextEventId(),
+                        downloadId = metadata.downloadId,
+                        reason = DownloadFailureReason.Transient,
+                        message = msg,
+                        downloadedBytes = 0L,
+                        epochMs = now,
+                    ),
+                )
+            }
+            deliverFailure(metadata, context, DownloadFailureReason.Transient, msg, 0L)
+            advanceQueueAndNotify()
             return
         }
+
         val bytes = fileSizeOrNull(partPath) ?: 0L
         val responseTotal = response?.valueForHTTPHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0L }
         val expected = responseTotal ?: metadata.knownTotalBytes
         when (evaluateCompletion(bytes, expected)) {
             is DownloadCompletion.Short -> {
-                deliverFailure(metadata, context, DownloadFailureReason.Incomplete, runBlocking {
-                    getString(Res.string.downloads_error_incomplete_transfer)
-                }, bytes)
+                val msg = runBlocking { getString(Res.string.downloads_error_incomplete_transfer) }
+                synchronized(stateLock) {
+                    recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                    appendJournalEvent(
+                        IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                            eventId = nextEventId(),
+                            downloadId = metadata.downloadId,
+                            reason = DownloadFailureReason.Incomplete,
+                            message = msg,
+                            downloadedBytes = bytes,
+                            epochMs = now,
+                        ),
+                    )
+                }
+                deliverFailure(metadata, context, DownloadFailureReason.Incomplete, msg, bytes)
+                advanceQueueAndNotify()
                 return
             }
             is DownloadCompletion.Overrun -> {
                 removePathIfExists(partPath)
-                deliverFailure(metadata, context, DownloadFailureReason.SourceChanged, runBlocking {
-                    getString(Res.string.downloads_error_source_changed)
-                }, 0L)
+                val msg = runBlocking { getString(Res.string.downloads_error_source_changed) }
+                synchronized(stateLock) {
+                    recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                    appendJournalEvent(
+                        IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                            eventId = nextEventId(),
+                            downloadId = metadata.downloadId,
+                            reason = DownloadFailureReason.SourceChanged,
+                            message = msg,
+                            downloadedBytes = 0L,
+                            epochMs = now,
+                        ),
+                    )
+                }
+                deliverFailure(metadata, context, DownloadFailureReason.SourceChanged, msg, 0L)
+                advanceQueueAndNotify()
                 return
             }
             DownloadCompletion.Complete -> Unit
         }
+
         removePathIfExists(destinationPath)
         if (!NSFileManager.defaultManager.moveItemAtPath(partPath, destinationPath, null)) {
-            deliverFailure(metadata, context, DownloadFailureReason.Transient, runBlocking {
-                getString(Res.string.downloads_error_finalize_file_failed)
-            }, bytes)
+            val msg = runBlocking { getString(Res.string.downloads_error_finalize_file_failed) }
+            synchronized(stateLock) {
+                recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                appendJournalEvent(
+                    IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                        eventId = nextEventId(),
+                        downloadId = metadata.downloadId,
+                        reason = DownloadFailureReason.Transient,
+                        message = msg,
+                        downloadedBytes = bytes,
+                        epochMs = now,
+                    ),
+                )
+            }
+            deliverFailure(metadata, context, DownloadFailureReason.Transient, msg, bytes)
+            advanceQueueAndNotify()
             return
         }
+
         val uri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
+
+        // Record completion event in durable journal
+        synchronized(stateLock) {
+            recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.COMPLETED)
+            appendJournalEvent(
+                IosBackgroundTransferReconciler.IosJournalEvent.Completed(
+                    eventId = nextEventId(),
+                    downloadId = metadata.downloadId,
+                    localFileUri = uri,
+                    totalBytes = bytes,
+                    epochMs = now,
+                ),
+            )
+        }
+
         if (context != null) context.listener.onCompleted(uri, bytes)
         else DownloadsRepository.reconcileIosBackgroundCompletion(metadata.downloadId, uri, bytes)
         context?.completed = true
+
+        // Advance native background queue immediately
+        advanceQueueAndNotify()
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
         val metadata = NativeTaskMetadata.decode(task.taskDescription) ?: return
         val context = synchronized(stateLock) { contexts.remove(task.taskIdentifier) }
         val cancelled = synchronized(stateLock) { cancelledTaskIds.remove(task.taskIdentifier) }
+        val now = DownloadsClock.nowEpochMs()
+
         if (didCompleteWithError != null && !cancelled && context?.completed != true) {
+            val msg = didCompleteWithError.localizedDescription.ifBlank { runBlocking { getString(Res.string.download_failed) } }
+            synchronized(stateLock) {
+                recordPreparedState(metadata.downloadId, IosBackgroundTransferReconciler.IosPreparedState.FAILED)
+                appendJournalEvent(
+                    IosBackgroundTransferReconciler.IosJournalEvent.Failed(
+                        eventId = nextEventId(),
+                        downloadId = metadata.downloadId,
+                        reason = DownloadFailureReason.Transient,
+                        message = msg,
+                        downloadedBytes = task.countOfBytesReceived.coerceAtLeast(0L),
+                        epochMs = now,
+                    ),
+                )
+            }
             deliverFailure(
                 metadata, context, DownloadFailureReason.Transient,
-                didCompleteWithError.localizedDescription.ifBlank { runBlocking { getString(Res.string.download_failed) } },
+                msg,
                 task.countOfBytesReceived.coerceAtLeast(0L),
             )
+            advanceQueueAndNotify()
         }
     }
 
@@ -327,6 +522,186 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val identifier = session.configuration.identifier ?: return
         backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
     }
+
+    private fun advanceQueueAndNotify() {
+        session.getAllTasksWithCompletionHandler { tasks ->
+            synchronized(stateLock) {
+                advanceNativeQueueLocked()
+                val active = tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>()
+                updateNativeLiveActivityLocked(active, loadPreparedQueue())
+            }
+        }
+    }
+
+    private fun advanceNativeQueueLocked() {
+        val prepared = loadPreparedQueue()
+        val now = DownloadsClock.nowEpochMs()
+        session.getAllTasksWithCompletionHandler { tasks ->
+            val activeTasks = tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>()
+            val activeIds = activeTasks.mapNotNull {
+                NativeTaskMetadata.decode(it.taskDescription)?.downloadId
+            }.toSet()
+
+            synchronized(stateLock) {
+                val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
+                    maxConcurrent = DownloadsRepository.MAX_CONCURRENT_TRANSFERS,
+                    activeDownloadIds = activeIds,
+                    preparedQueue = prepared,
+                    nowEpochMs = now,
+                    strictFifo = true,
+                )
+
+                // Start tasks
+                plan.tasksToStart.forEach { candidate ->
+                    val metadata = NativeTaskMetadata(candidate.downloadId, candidate.destinationFileName, candidate.knownTotalBytes)
+                    val task = session.downloadTaskWithRequest(buildNativeRequestFromPrepared(candidate)).apply {
+                        taskDescription = metadata.encode()
+                    }
+                    recordPreparedState(candidate.downloadId, IosBackgroundTransferReconciler.IosPreparedState.RUNNING)
+                    appendJournalEvent(
+                        IosBackgroundTransferReconciler.IosJournalEvent.TaskStarted(
+                            eventId = nextEventId(),
+                            downloadId = candidate.downloadId,
+                            taskIdentifier = task.taskIdentifier.toLong(),
+                            epochMs = now,
+                        ),
+                    )
+                    task.resume()
+                }
+
+                // Record tasks needing refresh
+                plan.tasksNeedingRefresh.forEach { candidate ->
+                    recordPreparedState(candidate.downloadId, IosBackgroundTransferReconciler.IosPreparedState.NEEDS_SOURCE_REFRESH)
+                    appendJournalEvent(
+                        IosBackgroundTransferReconciler.IosJournalEvent.NeedsSourceRefresh(
+                            eventId = nextEventId(),
+                            downloadId = candidate.downloadId,
+                            message = "Source expired; needs foreground refresh",
+                            epochMs = now,
+                        ),
+                    )
+                }
+
+                updateNativeLiveActivityLocked(activeTasks, loadPreparedQueue())
+            }
+        }
+    }
+
+    private fun updateNativeLiveActivityLocked(
+        tasks: List<NSURLSessionDownloadTask>,
+        preparedQueue: List<IosBackgroundTransferReconciler.IosPreparedTransfer>,
+    ) {
+        val activeCandidates = tasks.mapNotNull { task ->
+            val meta = NativeTaskMetadata.decode(task.taskDescription) ?: return@mapNotNull null
+            val bytes = task.countOfBytesReceived.coerceAtLeast(0L)
+            val expected = task.countOfBytesExpectedToReceive.takeIf { it > 0L } ?: meta.knownTotalBytes
+            val prep = preparedQueue.firstOrNull { it.downloadId == meta.downloadId }
+            DownloadsLiveStatusPolicy.Candidate(
+                id = meta.downloadId,
+                state = DownloadsLiveStatusPolicy.State.DOWNLOADING,
+                downloadedBytes = bytes,
+                totalBytes = expected,
+                queuePosition = prep?.queuePosition ?: 0L,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        val remainingCandidates = preparedQueue
+            .filter { prep ->
+                prep.state == IosBackgroundTransferReconciler.IosPreparedState.PREPARED &&
+                    activeCandidates.none { it.id == prep.downloadId }
+            }
+            .map { prep ->
+                DownloadsLiveStatusPolicy.Candidate(
+                    id = prep.downloadId,
+                    state = DownloadsLiveStatusPolicy.State.WAITING,
+                    downloadedBytes = 0L,
+                    totalBytes = prep.knownTotalBytes,
+                    queuePosition = prep.queuePosition,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+
+        val allCandidates = activeCandidates + remainingCandidates
+        val presentation = DownloadsLiveStatusPolicy.select(
+            items = allCandidates,
+            currentSelectedId = lastSelectedDownloadId,
+        )
+
+        val selectedMeta = presentation?.candidate?.id?.let { selId ->
+            preparedQueue.firstOrNull { it.downloadId == selId }
+        }
+        lastSelectedDownloadId = presentation?.candidate?.id
+
+        val payload = when {
+            presentation != null && selectedMeta != null -> {
+                DownloadsLiveStatusPayload(
+                    id = selectedMeta.downloadId,
+                    title = selectedMeta.title.ifBlank { "Downloads" },
+                    subtitle = selectedMeta.subtitle.ifBlank { "Downloading" },
+                    status = presentation.candidate.state.name,
+                    downloadedBytes = presentation.candidate.downloadedBytes,
+                    totalBytes = presentation.candidate.totalBytes,
+                    progressPercent = presentation.progressPercent ?: -1,
+                    activeCount = presentation.activeCount,
+                    remainingCount = presentation.remainingCount,
+                    queueSummaryText = presentation.queueSummaryText,
+                )
+            }
+            presentation != null -> {
+                DownloadsLiveStatusPayload(
+                    id = presentation.candidate.id,
+                    title = "Downloads",
+                    subtitle = "Downloading",
+                    status = presentation.candidate.state.name,
+                    downloadedBytes = presentation.candidate.downloadedBytes,
+                    totalBytes = presentation.candidate.totalBytes,
+                    progressPercent = presentation.progressPercent ?: -1,
+                    activeCount = presentation.activeCount,
+                    remainingCount = presentation.remainingCount,
+                    queueSummaryText = presentation.queueSummaryText,
+                )
+            }
+            else -> null
+        }
+
+        DownloadsLiveStatusPlatform.writePayloadDirect(payload)
+    }
+
+    private fun loadPreparedQueue(): MutableList<IosBackgroundTransferReconciler.IosPreparedTransfer> {
+        val stored = NSUserDefaults.standardUserDefaults.stringForKey(PREPARED_QUEUE_KEY)
+        return IosBackgroundTransferReconciler.decodePreparedTransfers(stored).toMutableList()
+    }
+
+    private fun savePreparedQueue(queue: List<IosBackgroundTransferReconciler.IosPreparedTransfer>) {
+        val encoded = IosBackgroundTransferReconciler.encodePreparedTransfers(queue)
+        NSUserDefaults.standardUserDefaults.setObject(encoded, forKey = PREPARED_QUEUE_KEY)
+    }
+
+    private fun recordPreparedState(downloadId: String, state: IosBackgroundTransferReconciler.IosPreparedState) {
+        val current = loadPreparedQueue()
+        val updated = current.map {
+            if (it.downloadId == downloadId) it.copy(state = state) else it
+        }
+        savePreparedQueue(updated)
+    }
+
+    private fun loadJournal(): MutableList<IosBackgroundTransferReconciler.IosJournalEvent> {
+        val stored = NSUserDefaults.standardUserDefaults.stringForKey(JOURNAL_KEY)
+        return IosBackgroundTransferReconciler.decodeJournalEvents(stored).toMutableList()
+    }
+
+    private fun saveJournal(journal: List<IosBackgroundTransferReconciler.IosJournalEvent>) {
+        val encoded = IosBackgroundTransferReconciler.encodeJournalEvents(journal)
+        NSUserDefaults.standardUserDefaults.setObject(encoded, forKey = JOURNAL_KEY)
+    }
+
+    private fun appendJournalEvent(event: IosBackgroundTransferReconciler.IosJournalEvent) {
+        val current = loadJournal()
+        current.add(event)
+        saveJournal(current)
+    }
+
+    private fun nextEventId(): String = "${DownloadsClock.nowEpochMs()}_${++eventSeq}"
 
     private fun deliverFailure(
         metadata: NativeTaskMetadata,
@@ -357,6 +732,19 @@ private fun buildNativeRequest(request: DownloadPlatformRequest): NSMutableURLRe
         setAllowsExpensiveNetworkAccess(request.allowMeteredNetwork)
         setAllowsConstrainedNetworkAccess(request.allowMeteredNetwork)
         request.sourceHeaders.forEach { (key, value) -> setValue(value, key) }
+    }
+
+@OptIn(ExperimentalForeignApi::class)
+private fun buildNativeRequestFromPrepared(prepared: IosBackgroundTransferReconciler.IosPreparedTransfer): NSMutableURLRequest =
+    NSMutableURLRequest(
+        NSURL(string = prepared.sourceUrl), NSURLRequestReloadIgnoringLocalCacheData,
+        DOWNLOAD_REQUEST_TIMEOUT_SECONDS,
+    ).apply {
+        setHTTPMethod("GET")
+        setAllowsCellularAccess(prepared.allowMeteredNetwork)
+        setAllowsExpensiveNetworkAccess(prepared.allowMeteredNetwork)
+        setAllowsConstrainedNetworkAccess(prepared.allowMeteredNetwork)
+        prepared.sourceHeaders.forEach { (key, value) -> setValue(value, key) }
     }
 
 @OptIn(ExperimentalForeignApi::class)

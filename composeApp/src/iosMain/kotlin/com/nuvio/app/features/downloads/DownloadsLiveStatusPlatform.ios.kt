@@ -7,14 +7,15 @@ import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 
 internal actual object DownloadsLiveStatusPlatform {
-    private const val notificationName = "NuvioDownloadsLiveStatusUpdated"
-    private const val userDefaultsPayloadKey = "nuvio.downloads.live_status.payload"
+    const val NOTIFICATION_NAME = "NuvioDownloadsLiveStatusUpdated"
+    const val USER_DEFAULTS_PAYLOAD_KEY = "nuvio.downloads.live_status.payload"
 
     private val json = Json {
         encodeDefaults = true
     }
 
     private var lastPayload: String? = null
+    private var lastSelectedDownloadId: String? = null
     private var currentItems: List<DownloadItem> = emptyList()
     private var currentBatches: List<DownloadBatch> = emptyList()
 
@@ -28,6 +29,20 @@ internal actual object DownloadsLiveStatusPlatform {
         updatePayload()
     }
 
+    fun writePayloadDirect(payload: DownloadsLiveStatusPayload?) {
+        val encoded = payload?.let { json.encodeToString(it) }
+        if (encoded == lastPayload) return
+        lastPayload = encoded
+
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (encoded == null) {
+            defaults.removeObjectForKey(USER_DEFAULTS_PAYLOAD_KEY)
+        } else {
+            defaults.setObject(encoded, forKey = USER_DEFAULTS_PAYLOAD_KEY)
+        }
+        NSNotificationCenter.defaultCenter.postNotificationName(NOTIFICATION_NAME, null)
+    }
+
     private fun updatePayload() {
         val eligibleItems = currentItems.filter { it.status != DownloadStatus.Completed }
         val candidatesById = eligibleItems.associateBy { it.id }
@@ -37,50 +52,44 @@ internal actual object DownloadsLiveStatusPlatform {
             resolvingBatch = activeBatch?.let {
                 DownloadsLiveStatusPolicy.Candidate(it.id, DownloadsLiveStatusPolicy.State.FINDING_SOURCES)
             },
+            currentSelectedId = lastSelectedDownloadId,
         )
         val primaryItem = presentation?.candidate?.id?.let(candidatesById::get)
+        lastSelectedDownloadId = primaryItem?.id ?: activeBatch?.id
 
         val payload = when {
             primaryItem != null -> {
-                json.encodeToString(
-                    DownloadsLiveStatusPayload(
-                        id = primaryItem.id,
-                        title = primaryItem.title,
-                        subtitle = primaryItem.displaySubtitle,
-                        status = primaryItem.liveActivityStatus(),
-                        downloadedBytes = primaryItem.downloadedBytes,
-                        totalBytes = primaryItem.totalBytes,
-                        progressPercent = presentation.progressPercent ?: -1,
-                    ),
+                DownloadsLiveStatusPayload(
+                    id = primaryItem.id,
+                    title = primaryItem.title,
+                    subtitle = primaryItem.displaySubtitle,
+                    status = primaryItem.liveActivityStatus(),
+                    downloadedBytes = primaryItem.downloadedBytes,
+                    totalBytes = primaryItem.totalBytes,
+                    progressPercent = presentation.progressPercent ?: -1,
+                    activeCount = presentation.activeCount,
+                    remainingCount = presentation.remainingCount,
+                    queueSummaryText = presentation.queueSummaryText,
                 )
             }
             activeBatch != null -> {
-                json.encodeToString(
-                    DownloadsLiveStatusPayload(
-                        id = activeBatch.id,
-                        title = activeBatch.title,
-                        subtitle = "Finding sources",
-                        status = "FINDING_SOURCES",
-                        downloadedBytes = 0L,
-                        totalBytes = null,
-                        progressPercent = -1,
-                    ),
+                DownloadsLiveStatusPayload(
+                    id = activeBatch.id,
+                    title = activeBatch.title,
+                    subtitle = "Finding sources",
+                    status = "FINDING_SOURCES",
+                    downloadedBytes = 0L,
+                    totalBytes = null,
+                    progressPercent = -1,
+                    activeCount = 1,
+                    remainingCount = 0,
+                    queueSummaryText = null,
                 )
             }
             else -> null
         }
 
-        if (payload == lastPayload) return
-        lastPayload = payload
-
-        val defaults = NSUserDefaults.standardUserDefaults
-        if (payload == null) {
-            defaults.removeObjectForKey(userDefaultsPayloadKey)
-        } else {
-            defaults.setObject(payload, forKey = userDefaultsPayloadKey)
-        }
-
-        NSNotificationCenter.defaultCenter.postNotificationName(notificationName, null)
+        writePayloadDirect(payload)
     }
 
     private fun DownloadItem.liveActivityCandidate() = DownloadsLiveStatusPolicy.Candidate(
@@ -88,6 +97,7 @@ internal actual object DownloadsLiveStatusPlatform {
         state = liveActivityState(),
         downloadedBytes = downloadedBytes,
         totalBytes = totalBytes,
+        queuePosition = queuePosition,
         updatedAtEpochMs = updatedAtEpochMs,
     )
 
@@ -113,7 +123,7 @@ internal actual object DownloadsLiveStatusPlatform {
 }
 
 @Serializable
-private data class DownloadsLiveStatusPayload(
+internal data class DownloadsLiveStatusPayload(
     val id: String,
     val title: String,
     val subtitle: String,
@@ -121,4 +131,7 @@ private data class DownloadsLiveStatusPayload(
     val downloadedBytes: Long,
     val totalBytes: Long? = null,
     val progressPercent: Int,
+    val activeCount: Int = 1,
+    val remainingCount: Int = 0,
+    val queueSummaryText: String? = null,
 )

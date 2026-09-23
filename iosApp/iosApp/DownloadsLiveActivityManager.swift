@@ -59,34 +59,31 @@ final class DownloadsLiveActivityManager {
         }
 
         let state = DownloadsLiveActivityAttributes.ContentState(
+            title: payload.title,
+            subtitle: payload.subtitle,
             status: payload.status,
             progressPercent: payload.progressPercent,
-            transferredText: transferredText(payload)
+            transferredText: transferredText(payload),
+            queueSummaryText: payload.queueSummaryText
         )
 
-        if let matching = allActivities.first(where: { $0.attributes.downloadId == payload.id }) {
-            await matching.update(using: state)
-            for orphan in allActivities where orphan.id != matching.id {
+        // Stable session identity: update existing activity if present, otherwise request one
+        if let existing = allActivities.first {
+            await existing.update(using: state)
+            for orphan in allActivities where orphan.id != existing.id {
                 await orphan.end(dismissalPolicy: .immediate)
             }
-            return
+        } else {
+            let attributes = DownloadsLiveActivityAttributes(
+                sessionKey: "nuvio.downloads.session"
+            )
+
+            _ = try? Activity<DownloadsLiveActivityAttributes>.request(
+                attributes: attributes,
+                contentState: state,
+                pushType: nil
+            )
         }
-
-        for existing in allActivities {
-            await existing.end(dismissalPolicy: .immediate)
-        }
-
-        let attributes = DownloadsLiveActivityAttributes(
-            downloadId: payload.id,
-            title: payload.title,
-            subtitle: payload.subtitle
-        )
-
-        _ = try? Activity<DownloadsLiveActivityAttributes>.request(
-            attributes: attributes,
-            contentState: state,
-            pushType: nil
-        )
     }
 #endif
 
@@ -122,14 +119,15 @@ final class DownloadsLiveActivityManager {
 @available(iOS 16.1, *)
 struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
+        let title: String
+        let subtitle: String
         let status: String
         let progressPercent: Int
         let transferredText: String
+        let queueSummaryText: String?
     }
 
-    let downloadId: String
-    let title: String
-    let subtitle: String
+    let sessionKey: String
 }
 #endif
 
@@ -141,4 +139,7 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let progressPercent: Int
+    let activeCount: Int?
+    let remainingCount: Int?
+    let queueSummaryText: String?
 }

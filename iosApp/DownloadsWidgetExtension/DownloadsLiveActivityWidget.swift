@@ -4,14 +4,15 @@ import WidgetKit
 
 struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
+        let title: String
+        let subtitle: String
         let status: String
         let progressPercent: Int
         let transferredText: String
+        let queueSummaryText: String?
     }
 
-    let downloadId: String
-    let title: String
-    let subtitle: String
+    let sessionKey: String
 }
 
 @available(iOSApplicationExtension 16.1, *)
@@ -38,17 +39,23 @@ struct DownloadsLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(context.attributes.title)
+                        Text(context.state.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.86)
                             .truncationMode(.tail)
-                        Text(context.attributes.subtitle)
+                        Text(context.state.subtitle)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.82))
                             .lineLimit(1)
                             .minimumScaleFactor(0.9)
                             .truncationMode(.tail)
+                        if let summary = context.state.queueSummaryText, !summary.isEmpty {
+                            Text(summary)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(appBlue)
+                                .lineLimit(1)
+                        }
                         if context.state.progressPercent >= 0 {
                             ProgressView(value: normalizedProgress(context.state.progressPercent))
                                 .progressViewStyle(.linear)
@@ -125,7 +132,6 @@ struct DownloadsLiveActivityWidget: Widget {
         default: return "Active"
         }
     }
-
 }
 
 @available(iOSApplicationExtension 16.1, *)
@@ -143,15 +149,21 @@ private struct DownloadActivityLockScreenView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(context.attributes.title)
+                        Text(context.state.title)
                             .font(.headline.weight(.semibold))
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(context.attributes.subtitle)
+                        Text(context.state.subtitle)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.82))
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let summary = context.state.queueSummaryText, !summary.isEmpty {
+                            Text(summary)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(Color(red: 144.0 / 255.0, green: 202.0 / 255.0, blue: 249.0 / 255.0))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 10)
                     Text(progressLabel(context.state.progressPercent))

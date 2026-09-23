@@ -2,6 +2,41 @@
 
 Last updated: 2026-09-23
 
+## Phase 8 Batch 3 — iOS background queue, completion journaling, and stable Live Activity (2026-09-23)
+
+Continuation work is on `gemini/phase-8-ios-background-orchestration`, branched from `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`).
+Physical `.43` validation confirmed native `NSURLSessionDownloadTask` maintains byte delivery while the screen is locked,
+resolving the raw transport boundary. However, it surfaced three higher-level orchestration boundaries:
+
+1. **Stalled completion bookkeeping**: Downloads finishing while suspended had their files saved to sandbox disk, but
+   Kotlin/Compose state did not finalize until app foregrounding because the Kotlin runtime is paused while suspended.
+2. **Stalled queue advancement**: Subsequent queued items in a multi-episode batch did not start while locked because
+   Kotlin coroutines cannot run in background to resolve debrid download URLs.
+3. **Live Activity churn & concurrency collision**: Live Activity flickered, progress ping-ponged between concurrent downloads,
+   and ActivityKit rejected rapid recreation loops caused by tying activity lifecycle to individual `downloadId`s.
+
+Code-fixed for `.44`:
+- **Durable Completion Journal**: Native delegate synchronously logs atomic events (`COMPLETED`, `FAILED`, `NEEDS_SOURCE_REFRESH`, `PROGRESS`)
+  to `NSUserDefaults` (`nuvio.ios_downloads.journal.v1`). `DownloadsRepository.reconcileIosBackgroundJournal()` idempotently reconciles
+  and acknowledges events on app resume via pure reconciler `IosBackgroundTransferReconciler.kt`.
+- **Ahead-of-Time Source Preparation**: While foregrounded, resolves direct URLs for up to 5 upcoming items in approved batches with
+  15-minute debrid TTL, persisting descriptors in `nuvio.ios_downloads.prepared_queue.v1`.
+- **Synchronous Native Queue Scheduler**: When a transfer finishes in background, `advanceNativeQueueLocked()` checks active slots
+  (concurrency limit: 2) and launches the next fresh prepared transfer immediately before the background completion handler returns.
+- **Strict FIFO Queue Ordering at Stale Boundaries**: If the next queued item's prepared link is stale (>15m), the native scheduler halts
+  queue advancement at that boundary, records `NeedsSourceRefresh`, and pauses until foreground wake. It preserves episode order without
+  corrupting downstream transfers.
+- **Stable Live Activity Identity & Sticky Selection**: Migrated to a single persistent session (`sessionKey = "nuvio.downloads.session"`).
+  Selection policy prioritizes lowest queue rank and remains sticky to prevent flip-flop. Presentation includes queue summary text
+  (e.g., `2 downloading • 3 remaining`). Native layer directly updates the Live Activity payload during background transfers.
+
+Verification:
+- Pure test suites: **825 / 825 passing** (+13 new pure tests in `IosBackgroundTransferReconcilerTest` and `DownloadsLiveStatusPolicyTest`).
+- Android host suite: **2,324 / 2,324 passing** (+13 new tests).
+- Kotlin metadata: `compileCommonMainKotlinMetadata` passes cleanly.
+- Debug build counter: bumped to 44 (`DEBUG_BUILD=44`) for `0.4.13-z1.44` prerelease.
+- Status: Awaiting physical `.44` device validation.
+
 ## Phase 8 Batch 2 — iOS downloads and navigation hardening (2026-09-23)
 
 Continuation work is on `gemini/phase-8-ios-downloads-nav-hardening`; it preserves and completes

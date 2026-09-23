@@ -885,6 +885,7 @@ object DownloadsRepository {
             notifyBatchLiveStatusPlatform()
             persistLocked()
         }
+        prepareUpcomingTransfers()
         return queued
     }
 
@@ -1311,6 +1312,8 @@ object DownloadsRepository {
     // --- Queue scheduling ---------------------------------------------------------
 
     private fun startPendingTransfers() {
+        ensureLoaded()
+        reconcileIosBackgroundJournal()
         synchronized(stateLock) {
             reclaimLostTransfersLocked()
             if (connectivityFeed.states.value.blocksMediaDownloads()) {
@@ -1373,6 +1376,7 @@ object DownloadsRepository {
 
             scheduleRetryWakeLocked()
         }
+        prepareUpcomingTransfers()
     }
 
     /**
@@ -1987,6 +1991,7 @@ object DownloadsRepository {
         val reconciledBatches = reconcileBatches(_batches.value, normalized)
         _batches.value = reconciledBatches
         notifyLiveStatusPlatform()
+        syncPreparedTransfersLocked(normalized)
         if (
             normalized != stored.items ||
             reconciledBatches != stored.batches ||
@@ -1994,6 +1999,8 @@ object DownloadsRepository {
         ) {
             persistLocked(immediate = true)
         }
+        reconcileIosBackgroundJournal()
+        prepareUpcomingTransfers()
     }
 
     private fun mutateLocked(
@@ -2021,6 +2028,7 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(items = items)
         _batches.value = reconcileBatches(_batches.value, items)
         notifyLiveStatusPlatform()
+        syncPreparedTransfersLocked(items)
         persistLocked(immediate = immediate)
     }
 
@@ -2129,6 +2137,166 @@ object DownloadsRepository {
             DownloadStatus.Completed, DownloadStatus.Failed -> null
         }
         return copy(activity = inferred)
+    }
+
+    fun reconcileIosBackgroundJournal() {
+        ensureLoaded()
+        val events = runCatching { DownloadsPlatformDownloader.pollJournalEvents() }.getOrNull().orEmpty()
+        if (events.isEmpty()) return
+
+        var needsRefreshIds = emptySet<String>()
+        synchronized(stateLock) {
+            val currentItems = _uiState.value.items
+            val reconciledStates = currentItems.map { it.toReconciledState() }
+            val result = IosBackgroundTransferReconciler.reconcileJournal(reconciledStates, events)
+            if (result.acknowledgedEventIds.isNotEmpty()) {
+                DownloadsPlatformDownloader.acknowledgeJournalEvents(result.acknowledgedEventIds)
+            }
+            needsRefreshIds = result.needsRefreshIds
+            val stateMap = result.updatedItems.associateBy { it.id }
+            val updatedItems = currentItems.map { current ->
+                val state = stateMap[current.id] ?: return@map current
+                current.applyReconciledState(state)
+            }
+            if (updatedItems != currentItems) {
+                publishLocked(updatedItems, immediate = true)
+            }
+        }
+
+        if (needsRefreshIds.isNotEmpty()) {
+            prepareUpcomingTransfers()
+        }
+    }
+
+    private fun syncPreparedTransfersLocked(items: List<DownloadItem>) {
+        val prepared = items.filter {
+            (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued) &&
+                !it.sourceUrl.isNullOrBlank()
+        }.map { item ->
+            IosBackgroundTransferReconciler.IosPreparedTransfer(
+                downloadId = item.id,
+                destinationFileName = item.fileName,
+                sourceUrl = item.sourceUrl.orEmpty(),
+                sourceHeaders = item.sourceHeaders,
+                knownTotalBytes = item.totalBytes ?: item.expectedSizeBytes,
+                queuePosition = item.queuePosition,
+                title = item.title,
+                subtitle = item.displaySubtitle,
+                sourceUrlResolvedAtEpochMs = item.sourceUrlResolvedAtEpochMs,
+                allowMeteredNetwork = item.allowMeteredNetwork,
+                state = if (item.status == DownloadStatus.Downloading) {
+                    IosBackgroundTransferReconciler.IosPreparedState.RUNNING
+                } else {
+                    IosBackgroundTransferReconciler.IosPreparedState.PREPARED
+                },
+            )
+        }
+        runCatching {
+            DownloadsPlatformDownloader.syncPreparedTransfers(prepared)
+        }
+    }
+
+    private var isPreparingUpcomingSources = false
+
+    private fun prepareUpcomingTransfers() {
+        scope.launch {
+            var shouldRun = false
+            var toPrepare: List<DownloadItem> = emptyList()
+            synchronized(stateLock) {
+                if (!isPreparingUpcomingSources) {
+                    isPreparingUpcomingSources = true
+                    shouldRun = true
+                    val now = DownloadsClock.nowEpochMs()
+                    toPrepare = _uiState.value.items
+                        .filter {
+                            it.status == DownloadStatus.Queued &&
+                                it.sourceOrigin != null &&
+                                (it.sourceUrl == null || it.isSourceUrlStale(now))
+                        }
+                        .sortedBy { it.queuePosition }
+                        .take(5)
+                }
+            }
+            if (!shouldRun || toPrepare.isEmpty()) {
+                if (shouldRun) {
+                    synchronized(stateLock) { isPreparingUpcomingSources = false }
+                }
+                return@launch
+            }
+
+            try {
+                for (item in toPrepare) {
+                    val refreshed = refreshSourceUrl(item)
+                    if (refreshed is RefreshedDownloadSource.Ready) {
+                        synchronized(stateLock) {
+                            val current = _uiState.value.items.firstOrNull { it.id == item.id }
+                            if (current != null && current.status == DownloadStatus.Queued) {
+                                mutateLocked(item.id, immediate = true) {
+                                    refreshed.item
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                synchronized(stateLock) {
+                    isPreparingUpcomingSources = false
+                }
+            }
+        }
+    }
+
+    private fun DownloadItem.toReconciledState(): IosBackgroundTransferReconciler.ReconciledItemState {
+        val repState = when (status) {
+            DownloadStatus.Downloading -> IosBackgroundTransferReconciler.RepositoryState.DOWNLOADING
+            DownloadStatus.Queued -> IosBackgroundTransferReconciler.RepositoryState.QUEUED
+            DownloadStatus.Paused -> IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED
+            DownloadStatus.Completed -> IosBackgroundTransferReconciler.RepositoryState.COMPLETED
+            DownloadStatus.Failed -> IosBackgroundTransferReconciler.RepositoryState.FAILED
+        }
+        return IosBackgroundTransferReconciler.ReconciledItemState(
+            id = id,
+            state = repState,
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
+            localFileUri = localFileUri,
+            attemptCount = attemptCount,
+            nextRetryAtEpochMs = nextRetryAtEpochMs,
+            isWaitingForProvider = activity == DownloadActivity.WAITING_FOR_PROVIDER,
+            isUserPaused = status == DownloadStatus.Paused && pauseReason == DownloadPauseReason.User,
+            canReresolveSource = canReresolveSource,
+            errorMessage = errorMessage,
+            updatedAtEpochMs = updatedAtEpochMs,
+        )
+    }
+
+    private fun DownloadItem.applyReconciledState(state: IosBackgroundTransferReconciler.ReconciledItemState): DownloadItem {
+        val nextStatus = when (state.state) {
+            IosBackgroundTransferReconciler.RepositoryState.DOWNLOADING -> DownloadStatus.Downloading
+            IosBackgroundTransferReconciler.RepositoryState.QUEUED -> DownloadStatus.Queued
+            IosBackgroundTransferReconciler.RepositoryState.USER_PAUSED -> DownloadStatus.Paused
+            IosBackgroundTransferReconciler.RepositoryState.COMPLETED -> DownloadStatus.Completed
+            IosBackgroundTransferReconciler.RepositoryState.FAILED -> DownloadStatus.Failed
+            IosBackgroundTransferReconciler.RepositoryState.MISSING -> status
+        }
+        val nextActivity = when {
+            state.isWaitingForProvider -> DownloadActivity.WAITING_FOR_PROVIDER
+            nextStatus == DownloadStatus.Downloading -> DownloadActivity.TRANSFERRING
+            nextStatus == DownloadStatus.Queued && state.nextRetryAtEpochMs != null -> DownloadActivity.RETRY_BACKOFF
+            nextStatus == DownloadStatus.Queued -> DownloadActivity.QUEUED_FOR_SLOT
+            else -> null
+        }
+        return copy(
+            status = nextStatus,
+            downloadedBytes = state.downloadedBytes,
+            totalBytes = state.totalBytes ?: totalBytes,
+            localFileUri = state.localFileUri ?: localFileUri,
+            attemptCount = state.attemptCount,
+            nextRetryAtEpochMs = state.nextRetryAtEpochMs,
+            activity = nextActivity,
+            errorMessage = state.errorMessage,
+            updatedAtEpochMs = state.updatedAtEpochMs,
+        )
     }
 }
 
