@@ -226,6 +226,24 @@ internal object IosBackgroundTransferReconciler {
         return release
     }
 
+    /**
+     * The size a finished background download should have.
+     *
+     * A 206 answers a range request - the session resumes that way after a dropped
+     * connection - so its Content-Length is only the last range. The whole file's size is
+     * the total in Content-Range, or the size known before the transfer began.
+     */
+    fun finishedTransferTotal(
+        statusCode: Int,
+        contentLength: Long?,
+        contentRange: String?,
+        knownTotalBytes: Long?,
+    ): Long? = if (statusCode == 206) {
+        parseContentRangeTotal(contentRange) ?: knownTotalBytes
+    } else {
+        contentLength ?: knownTotalBytes
+    }
+
     /** How long a running task may sit with every byte received before it counts as stuck. */
     const val STALLED_AT_END_GRACE_MS = 2L * 60L * 1000L
 

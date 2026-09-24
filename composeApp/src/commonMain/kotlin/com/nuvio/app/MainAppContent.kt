@@ -1139,6 +1139,7 @@ internal fun MainAppContent(
             resumeProgressFraction: Float?,
             manualSelection: Boolean,
             startFromBeginning: Boolean,
+            downloadIntent: Boolean = false,
         ) {
             val targetResumePositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L)
             val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
@@ -1209,6 +1210,7 @@ internal fun MainAppContent(
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
                     startFromBeginning = startFromBeginning,
+                    downloadIntent = downloadIntent,
                 ),
             )
             navController.navigate(
@@ -1572,23 +1574,30 @@ internal fun MainAppContent(
                                 onDownloadShowClick = { showId, title ->
                                     navController.navigate(DownloadShowRoute(showId, title))
                                 },
+                                // Download mode: tapping a source opens the download preset
+                                // sheet for this episode. It used to open the ordinary manual
+                                // source list, where a tap starts playback.
                                 onChooseBatchEntryManually = { batch, entry ->
-                                    onPlayManually(
-                                        batch.parentMetaType,
-                                        entry.videoId,
-                                        batch.parentMetaId,
-                                        batch.parentMetaType,
-                                        batch.title,
-                                        batch.logo,
-                                        batch.poster,
-                                        batch.background,
-                                        entry.season,
-                                        entry.episode,
-                                        entry.title.takeIf { entry.season != null },
-                                        null,
-                                        null,
-                                        null,
-                                        null,
+                                    launchPlaybackWithDownloadPreference(
+                                        type = batch.parentMetaType,
+                                        videoId = entry.videoId,
+                                        parentMetaId = batch.parentMetaId,
+                                        parentMetaType = batch.parentMetaType,
+                                        title = batch.title,
+                                        logo = batch.logo,
+                                        poster = batch.poster,
+                                        background = batch.background,
+                                        seasonNumber = entry.season,
+                                        episodeNumber = entry.episode,
+                                        episodeTitle = entry.title.takeIf { entry.season != null },
+                                        episodeThumbnail = null,
+                                        pauseDescription = null,
+                                        runtimeMinutes = entry.runtimeMinutes,
+                                        resumePositionMs = null,
+                                        resumeProgressFraction = null,
+                                        manualSelection = true,
+                                        startFromBeginning = false,
+                                        downloadIntent = true,
                                     )
                                 },
                                 onJoinParty = { code ->

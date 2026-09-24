@@ -2,6 +2,39 @@
 
 Last updated: 2026-09-24
 
+## Phase 8 Batch 7 — `.48` stabilization after physical `.47` (2026-09-24)
+
+`.47` made the diagnostics readable, and the `.46` logs explain Pilot (`Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`,
+"Batch 7"). In short:
+- iOS resumed Pilot's transfer with range requests, and the last response was a 206;
+- `.46` sized the file from that 206's Content-Length, called it an overrun, and deleted it;
+- the retry attached to the finished task, which a `===` comparison had left in `tasksById`, and
+  "resumed" it. That is a no-op, so the row stayed at 282.9 / 282.9.
+
+`.47` did not cover this path.
+
+Fixes (`DownloadsPlatformDownloader.ios.kt`, `IosBackgroundTransferReconciler.kt`):
+- tasks are matched by `taskIdentifier`;
+- `dropFinishedTasks()` runs before every inventory and start;
+- a 206 is sized from Content-Range (`finishedTransferTotal`, 3 new tests).
+
+Also: the batch's **Choose source manually** opened the player. It now opens the download-intent
+source list (`MainAppContent.kt`, 1 call site).
+
+**Scope held by maintainer decision:**
+- no source-selection redesign;
+- no "nearest acceptable source" automation;
+- no review-card redesign.
+
+All of that is queued as the **cross-platform Downloads UX and source-policy pass** ("Phase 8
+follow-up" in `ROADMAP.md`). Concurrency stays at the submitted window of 12 (Batch 6 decision).
+
+Debug counter 48. Not published until the maintainer asks.
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **859 / 859**;
+- Android host suite **2,371 / 2,371**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. The quick iOS build on push is the gate for the iOS Kotlin change.
+
 ## Phase 8 Batch 6 — `.47` follow-ups to physical `.46` (2026-09-24)
 
 Physical `.46`: **locked-screen downloading works. Do not regress the submitted window.**

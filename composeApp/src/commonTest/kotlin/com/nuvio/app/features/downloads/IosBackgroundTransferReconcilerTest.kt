@@ -310,6 +310,24 @@ class IosBackgroundTransferReconcilerTest {
         assertFalse(r.isStalledAtEnd(true, 100, 100, fullSinceEpochMs = null, nowEpochMs = Long.MAX_VALUE))
     }
 
+    /** Pilot, `.46`: five transactions, last one a 206 for the remaining range. */
+    @Test fun resumed206IsSizedFromContentRangeNotContentLength() {
+        assertEquals(
+            296_733_318L,
+            r.finishedTransferTotal(206, contentLength = 1_048_576L, contentRange = "bytes 295684742-296733317/296733318", knownTotalBytes = null),
+        )
+    }
+
+    @Test fun resumed206WithoutATotalFallsBackToTheKnownSize() {
+        assertEquals(500L, r.finishedTransferTotal(206, 100L, "bytes 400-499/*", knownTotalBytes = 500L))
+        assertNull(r.finishedTransferTotal(206, 100L, null, knownTotalBytes = null))
+    }
+
+    @Test fun plain200IsSizedFromContentLength() {
+        assertEquals(1_000L, r.finishedTransferTotal(200, 1_000L, null, knownTotalBytes = 900L))
+        assertEquals(900L, r.finishedTransferTotal(200, null, null, knownTotalBytes = 900L))
+    }
+
     // --- Submission order ---------------------------------------------------------------
 
     @Test fun resolvedItemsAreReleasedInQueueOrder() {

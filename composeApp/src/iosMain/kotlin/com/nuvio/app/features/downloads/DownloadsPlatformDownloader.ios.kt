@@ -355,6 +355,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
 
     fun requestInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit) {
         whenReady {
+            dropFinishedTasks()
             val now = DownloadsClock.nowEpochMs()
             tasksById.entries.toList().forEach { (downloadId, task) ->
                 val received = task.countOfBytesReceived
@@ -405,6 +406,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val metadata = NativeTaskMetadata(request.downloadId, request.destinationFileName, request.knownTotalBytes)
         whenReady {
             request.queuePosition?.let { positionsById[request.downloadId] = it }
+            dropFinishedTasks()
             tasksById[request.downloadId]?.let { existing ->
                 attach(existing, metadata, listener)
                 existing.resume()
@@ -441,6 +443,30 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             logCreate(task, request.downloadId, request.queuePosition, request.sourceUrlResolvedAtEpochMs)
         }
         return handle
+    }
+
+    /**
+     * Forgets tasks that have already finished.
+     *
+     * Only a running or suspended task can still transfer anything. Attaching to a finished
+     * one reports its last byte count as live progress and then waits for callbacks that
+     * never come.
+     */
+    private fun dropFinishedTasks() {
+        tasksById.entries
+            .filter { (_, task) ->
+                task.state != NSURLSessionTaskStateRunning && task.state != NSURLSessionTaskStateSuspended
+            }
+            .forEach { (downloadId, task) ->
+                DownloadsProbeLog.event(
+                    "drop_finished",
+                    "id" to downloadId,
+                    "task" to task.taskIdentifier.toLong(),
+                    "state" to task.state.toLong(),
+                )
+                tasksById.remove(downloadId)
+                positionsById.remove(downloadId)
+            }
     }
 
     private fun createTask(metadata: NativeTaskMetadata, request: NSMutableURLRequest): NSURLSessionDownloadTask {
@@ -517,7 +543,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
 
     private fun cancelTaskLocked(downloadId: String, task: NSURLSessionDownloadTask) {
         DownloadsProbeLog.event("cancel", "id" to downloadId, "task" to task.taskIdentifier.toLong())
-        if (tasksById[downloadId] === task) {
+        if (tasksById[downloadId]?.taskIdentifier == task.taskIdentifier) {
             tasksById.remove(downloadId)
             positionsById.remove(downloadId)
         }
@@ -696,10 +722,21 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         }
         val bytes = fileSizeOrNull(partPath) ?: 0L
         val responseTotal = response?.valueForHTTPHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0L }
-        val expected = responseTotal ?: metadata.knownTotalBytes
+        val contentRange = response?.valueForHTTPHeaderField("Content-Range")
+        // After a dropped connection the session resumes with a range request, and the last
+        // response is a 206 whose Content-Length covers only that range. `.46` compared the
+        // whole file with it, called Pilot an overrun and deleted a complete download.
+        val expected = IosBackgroundTransferReconciler.finishedTransferTotal(
+            statusCode = statusCode,
+            contentLength = responseTotal,
+            contentRange = contentRange,
+            knownTotalBytes = metadata.knownTotalBytes,
+        )
         val sizes = arrayOf<Pair<String, Any?>>(
             "bytes" to bytes,
             "contentLength" to responseTotal,
+            "contentRangeTotal" to parseContentRangeTotal(contentRange),
+            "expected" to expected,
             "known" to metadata.knownTotalBytes,
             "http" to statusCode,
         )
@@ -744,7 +781,11 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val cancelled = cancelledTaskIds.remove(task.taskIdentifier)
         fullSinceByTask.remove(task.taskIdentifier)
         var context = contexts.remove(task.taskIdentifier)
-        if (downloadTask != null && tasksById[metadata.downloadId] === downloadTask) {
+        // Matched by identifier, never by reference. `.46` compared the delegate's task with
+        // the stored one using `===`, and Kotlin/Native does not promise one wrapper per
+        // Objective-C object: finished tasks stayed in this map, and a retry attached to
+        // one and "resumed" it - a no-op on a finished task - which froze Pilot at 100%.
+        if (tasksById[metadata.downloadId]?.taskIdentifier == task.taskIdentifier) {
             tasksById.remove(metadata.downloadId)
             positionsById.remove(metadata.downloadId)
         }

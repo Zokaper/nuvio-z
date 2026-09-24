@@ -6,6 +6,60 @@
 
 ---
 
+## Batch 7 — physical `.47` findings and the `.48` stabilization fixes
+
+The `.47` Debug build exposed `nuvio_diagnostics` in Files. The `.46` logs survived the update and
+settled the Pilot question.
+
+### Pilot at 282.9 / 282.9 MB: root cause, from the `.46` log
+
+Pilot is `muficv0w_h`, task 17.
+
+1. **iOS finished the transfer.** `metrics` shows `transactions: 5`, and `finish` shows `http: 206`
+   and `bytes: 296733318`, which is 282.9 MiB. The connection dropped several times and the session
+   resumed it with range requests. `didFinishDownloadingToURL` fired, and `didCompleteWithError`
+   fired with no error.
+2. **The size check read the wrong header.** `.46` compared the finished file with the last
+   response's Content-Length. For a 206, that is only the final range, so the whole file looked
+   like an **overrun**. The `.part` file was deleted and `onFailed(SourceChanged)` went to the
+   repository. `onCompleted` was never sent, and the destination file never existed.
+3. **The finished task stayed in `tasksById`.** `didCompleteWithError` removed it only when
+   `tasksById[id] === task`. That reference comparison fails for the delegate's task: Kotlin/Native
+   does not promise one wrapper per Objective-C object. The `.47` log proves it: after every
+   `complete`, the next `inventory_task` still lists the task with `state: 3` (Completed) and
+   `listened: false`.
+4. **The retry attached to the finished task.** At the next unlock, the `.46` log shows `resume` for
+   task 17. `start()` found the stale finished task and attached to it, which reported
+   282.9 / 282.9 as live progress. It then called `resume()`, which does nothing on a finished task.
+   No callback ever came, so the row stayed at full size, and the old Live Activity kept picking it
+   as the active item.
+
+**`.47` would not have caught it:**
+- `isStalledAtEnd` needs a Running task;
+- `releaseLost` needs no task in the inventory, but the stale Completed task was there.
+
+`.48` fixes each link:
+- `didCompleteWithError` and `cancelTaskLocked` match tasks by `taskIdentifier`, not reference;
+- `dropFinishedTasks()` removes any task that is neither Running nor Suspended, before every
+  inventory and every start, so nothing can attach to a finished task (logged as `drop_finished`);
+- `finishedTransferTotal` sizes a 206 from Content-Range, falling back to the known size, and never
+  from Content-Length. It is pure and tested. `finalize` now logs `contentRangeTotal` and
+  `expected`.
+
+### Other `.47` findings
+
+- **Downloads continued while locked.** In the log, all six Lanterns episodes finished during
+  locked wakes, each with `finalize outcome=complete` and a repository completion.
+- **Six at once:** unchanged, by decision (Batch 6).
+- **"Choose source manually" opened the player.** It called the generic manual-play action. It now
+  opens the same source list with `downloadIntent = true`, where a tap opens the download preset
+  sheet (Classic's existing download path). `reconcileBatches` then moves the entry to Queued. This
+  is a stop-gap; see below.
+- **The review UI is rough, and a "nearest acceptable source" option was requested.** Deliberately
+  **not** done in stabilization. The maintainer queued a cross-platform Downloads UX and
+  source-policy pass ("Phase 8 follow-up" in `ROADMAP.md`). A prototype of automatic
+  nearest-to-cap selection and a redesigned review card was written and removed before commit.
+
 ## Batch 6 — physical `.46` findings and the `.47` follow-ups
 
 Physical `.46`: **downloads keep going while the phone is locked.** The submitted-window
@@ -767,3 +821,16 @@ SideStore debug build `0.4.13-z1.47`. The `.46` checklist (section 9) still appl
 6. [ ] **Nothing stays at 100%.** In the `.47` logs, every task that reaches its full size is
    followed by `finalize outcome=complete` and a `repo` completion line, a `stalled_at_end`, or a
    `release_lost_claim`. No row stays at full size without becoming Completed or retrying.
+
+## 11. `.48` Physical Verification Checklist
+
+SideStore debug build `0.4.13-z1.48`. Sections 9 and 10 still apply. In addition:
+
+1. [ ] **No row frozen at full size.** Queue a season on a connection that drops, such as Wi-Fi to
+   cellular while locked. Every episode completes. In the log, any `finish` with `http: 206` is
+   followed by `finalize outcome=complete`, with `expected` equal to the file size.
+2. [ ] **Finished tasks are forgotten.** After completions, the next `inventory_task` lines list no
+   `state: 3` tasks. Any that were left show a `drop_finished` line instead.
+3. [ ] **Choose source manually downloads.** From Needs your attention, Choose source manually opens
+   the source list. Tapping a source opens the download preset sheet, not the player. Pick a preset:
+   the episode leaves Needs your attention and queues.
