@@ -2,6 +2,89 @@
 
 Last updated: 2026-09-24
 
+## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
+
+> ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
+> decision. The next stable Android/iOS release waits for **Phase 9 — Downloads Redesign** and
+> its release gate (`ROADMAP.md`, Phase 9 §L). The `debug-v*` prereleases are QA artifacts only.
+> Do not read "Phase 8 closed" as permission to publish mobile stable.
+
+**Roadmap renumbered:** Phase 9 is now **Downloads Redesign**, a full phase (it was queued as a
+"Phase 8 follow-up"). TV / Tizen / webOS moves to **Phase 10** with its scope unchanged. The
+per-item evidence and debt tables are in `ROADMAP.md`, Phase 8. This section records the closeout
+mechanics.
+
+**Branches and merges:**
+- Mobile: `claude/phase-8-ios-queue-ownership` (last code commit `223443bf1`) merged to `main` as
+  `fcffb844f` (feed conflict resolved to `main`'s canonical `source-debug.json`), then the
+  closeout fix `4b172884c` on `main`; the branch was fast-forwarded to it.
+- Desktop: the Phase 8 shared Kotlin is on `NuvioZDesktop` branch
+  `claude/phase-8-shared-convergence` (`04538a637`), **not merged to `Dev`**. It carries:
+  - the `commonMain`/`commonTest` diff `cd08ca322..223443bf1` and the unbuilt
+    `androidMain`/`iosMain` copies, 3-way applied;
+  - desktop's own `strings.xml` plus Phase 8's new Z block;
+  - `MetaDetailsScreen.kt` (never copied), with the whole-title season scope ported by hand to
+    both of desktop's call sites;
+  - six new `DownloadsPlatformDownloader.desktop.kt` actuals: `maxConcurrentTransfers = 2`,
+    `ownsTransferLiveness = false`, and no-op `schedulingDeferredToPlatform`,
+    `requestTransferInventory` (answers `null`), `suspendTransfer` and `cancelTransfer`.
+
+  **Why not `Dev`:** the shared `.43` navigation change moves Downloads under Library, and that
+  also takes Downloads out of the **desktop sidebar**, which was never reviewed for desktop.
+  Desktop is live, so this waits for Phase 9 §J. The branch stays mergeable, and the ledger (D6)
+  says so. `iosApp/` in the desktop repo was already a stale, unbuilt copy before Phase 8 and was
+  not touched.
+- Desktop pre-existing: `codex/phase-7-release-engineering` (48 commits: the Phase 7 desktop
+  release hardening) is **still not on `Dev`**. The convergence branch is cut from it. The next
+  desktop release from `Dev` would not carry the Phase 7 guards until that merge happens. This is a
+  maintainer call and is recorded here rather than made silently.
+
+**One must-fix found at closeout, fixed (`4b172884c`).** `prepareUpcomingTransfers` (from `.44`)
+resolves the next queued sources ahead of their slots so the iOS background session can chain past
+the submitted window. It ran on **every** platform. On Android and desktop it contacted providers
+while offline and resolved episodes ahead of their turn, breaking the Phase 3 queue contract.
+`NuvioZDesktop`'s `DesktopDownloadQueueE2ETest` ("unresolved sources wait for slots and never
+resolve while offline") failed deterministically on the convergence branch. It now returns
+unless `ownsTransferLiveness` is set, so iOS is byte-for-byte unchanged and Android/desktop are back
+to pre-`.44` behaviour. This is not in the `.48` build. The next Android debug build carries it,
+and no new build was cut for it.
+
+**`.48`:** published. [`debug-v0.4.13-z1.48`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.48)
+is a prerelease targeting `223443bf1` (Debug release run `36014554236`, 2026-09-24 14:59 UTC). It
+contains the unsigned IPA `Nuvio-Z-iOS-0.4.13-z1-48-debug-unsigned.ipa` (sha256 `fab650c1…a76c5a74`), the
+APK `androidApp-full-debug.apk` (sha256 `d34ad0a1…0e93a00f`), `SHA256SUMS-Debug.txt` and
+`source-debug.json`. The canonical SideStore debug feed on `main` lists `com.nuvio.app.z.debug`
+`0.4.13-z1.48` (48) first, with a matching sha (`f2e4369ff`, feed file only). `.48` is the final
+Phase 8 debug build. It does **not** contain `4b172884c`.
+
+**Verification at closeout:**
+- Mobile, local, on `223443bf1` and again on `4b172884c` (results dir deleted, `--rerun-tasks`):
+  pure suites **859 / 859** (8 groups); Android host suite **2,371 / 2,371**; `compileCommonMainKotlinMetadata` and
+  `:androidApp:compileFullDebugKotlin` pass.
+- Release guards: `scripts/test-store-source.py` passes (feed isolation, cross-talk, stale-build
+  race, workflow static checks). `release-metadata.sh` resolves stable `0.4.13-z1+127`, and nothing
+  was tagged or published.
+- CI: `ci.yml` passed on `223443bf1` (`36014183651`), `ecfd5fd48`, `fcffb844f` (`36017025481`) and
+  `4b172884c` (`36021522325`). The push quick iOS check passed on `223443bf1` (`36014182993`).
+- **Full iOS checkpoint** (`ios-build.yml` by `workflow_dispatch`: the device framework link,
+  the simulator framework link, and the unsigned Xcode app): **passed** on the merge `fcffb844f` (run `36017039908`): device
+  link, simulator link and unsigned Xcode build all succeeded. It was re-dispatched on the final `main` `4b172884c`
+  (run `36022650848`, iOS no-op change). Its result was pending when this was written; check the run.
+- Desktop, on the convergence branch: JBR SDK, results dir deleted, `--rerun-tasks`: pure **780 / 780**;
+  `compileKotlinDesktop` passes; `desktopTest` **2,512 / 2,512** after the fix (the first run was 2,511 / 2,512,
+  with the E2E regression above). No MSI was built and nothing was published.
+
+**Physically validated on iPhone during Phase 8** (SideStore Debug builds):
+- foreground episode download and offline playback (`.42`);
+- byte delivery under lock (`.43`);
+- queue order, and the Delete freeze gone (`.45`);
+- **downloads continuing while locked** (`.46`, and the `.47` log with six episodes completing
+  in locked wakes);
+- diagnostics in Files (`.47`).
+
+**Not physically run:** the `.48` fixes, and most `.43`-`.48` checklist rows. **No UltraReview
+was run.** Ultra 2 is still held.
+
 ## Phase 8 Batch 7 — `.48` stabilization after physical `.47` (2026-09-24)
 
 `.47` made the diagnostics readable, and the `.46` logs explain Pilot (`Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`,
