@@ -2,6 +2,57 @@
 
 Last updated: 2026-09-24
 
+## Phase 9 — Downloads Redesign: IN PROGRESS (opened 2026-09-24)
+
+**Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
+the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `NuvioZDesktop`
+`claude/phase-9-downloads`. Shared commits reach desktop by **cherry-pick** of the mobile commit
+(a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
+diff), plus desktop-only actuals.
+
+**What the maintainer reported at the opening (the standing question):**
+- iOS `.48`: checklist not formally run; "Choose source manually" downloads; downloads functional.
+- **Android: screen off -> rows read "Waiting for connection" on return; no notification at all.**
+- **Desktop: a friend on the live release, offline on a plane, pressed play on a downloaded
+  Modern Family episode -> error dialog -> OK -> the app closed.** Worked later online. That
+  "dialog, then exit" is Compose Desktop's default window exception handler: an uncaught
+  exception, not a file fault. **Not yet reproduced** - see the offline harness below.
+
+**Stage 0 (done):** desktop `Dev` got Phase 7 and the Phase 8 convergence as two separate
+`--no-ff` merges after verifying Phase 7 on its own (`desktopTest` 2,427/2,427 on `9a1489645`).
+`Dev` = `ca11c0cb7`, tree identical to the tested convergence (2,512/2,512). Pushed.
+
+**Checkpoint 1 (`c4ba61523`; desktop `7ab4d6edc` + actual):**
+- Android: downloads ask for `POST_NOTIFICATIONS` at the first request; the user-initiated
+  job's schedule result is checked, with a `dataSync` foreground-worker fallback; a
+  `ConnectivityManager` callback re-checks connectivity on every change; foreground and host
+  start resume System-paused items (`resumeSystemPausedDownloads` had no production caller).
+  One summary notification (the host's own id) + a per-title/season "finished" notification.
+  Debug builds log to `Download/NuvioZ-diagnostics/`.
+- Offline play, all platforms: `LocalPlaybackPolicy` (offline never reaches for the network),
+  missing-file message, offline title page -> Downloads view, offline autoplay through
+  downloaded episodes (stops at a gap), damaged-local-file message, offline Home banner.
+- Verification: pure 872/872, Android host 2,392/2,392, desktop 2,533/2,533. **No device yet.**
+- Published for QA: mobile `debug-v0.4.13-z1.49` (run `36045406001`), desktop debug 62
+  (run `36047294182`).
+
+**Stage 5 policy core (`8207ceba9`):** `DownloadPolicy` / `DownloadSizeLevels` /
+`DownloadEntryRouter` (pure), `DownloadSourceSelector`, `DownloadPolicyRepository` with its own
+`download_policy` sync payload and preset migration. Not wired into any flow yet. Size-level
+numbers are **provisional** until calibrated and reviewed. Pure 883/883, host 2,425/2,425.
+Also fixed: `SocialFeaturePreferencesStorage` was never initialized on Android.
+
+**Offline reproduction harness (desktop):** the shipped runtime is Java 17, so the resolver SPI
+is unavailable; `-Djdk.net.hosts.file=<file listing only localhost>` makes one JVM offline.
+`offline-repro.ps1` runs an installed build against a *copy* of its data (`APPDATA` redirected),
+with `-Dnuvio.debugTools=true` so the release build writes its debug log. A synthetic Completed
+Modern Family S01E01 (libmpv-encoded) can be injected. Startup offline was verified clean; the
+play-path clicks need the maintainer. Tools are in the session scratchpad; they move into
+`NuvioZDesktop/scripts/` with the next desktop commit.
+
+**Next:** stage 4 engine simplification (presentation layer, per-profile store, device settings),
+stage 6 flows UI, then 7-9. The iOS window stays at 12.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
