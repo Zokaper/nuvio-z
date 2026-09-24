@@ -2,7 +2,28 @@
 
 **Branch**: `claude/phase-8-ios-queue-ownership` (from `gemini/phase-8-ios-background-orchestration`, `ac84da767`)
 **Base**: `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`) (aligned with Phase 7 merge on `main`)
-**Target**: Do NOT merge to `main`. Physical iPhone QA pass (SideStore Debug bringup).
+**Target**: ~~Do NOT merge to `main`.~~ **Closed 2026-09-24; merged to `main` at the Phase 8 closeout.**
+No stable mobile release and no TestFlight upload follow it: mobile stable waits for Phase 9
+(Downloads Redesign). See `ROADMAP.md`.
+
+---
+
+## Closeout (2026-09-24)
+
+Phase 8 closed as **DONE WITH DOCUMENTED DEBT**, and `.48` is the final Phase 8 debug build. The
+phase-level record is in `ROADMAP.md`, Phase 8: the evidence levels and where each piece of inherited
+debt went. The verification record is in `STATUS.md`, "Phase 8 closeout". In one line each:
+
+- **Physically proven:** downloads keep going while the iPhone is locked (`.46` submitted window,
+  confirmed again by the `.47` logs). Do not regress it.
+- **Not physically run:** the `.48` checklist (§11) and most rows of §6-§10. They carry into
+  Phase 9's iOS validation. Nothing in them may be marked done without a device result.
+- **Moved to Phase 9 — Downloads Redesign:** concurrency of the submitted window, the
+  Needs-attention and review-card redesign, nearest-acceptable-source selection, the
+  download-specific source policy and manual download-source surface, and settings ownership (Issue 4).
+- **Moved to the mobile stable release gate:** `NowPlayingController` bypassing the party
+  transport, iOS `engineReadiness`, the iOS Social/Watch Together hardware pass, and Apple
+  credentials/TestFlight.
 
 ---
 
@@ -57,7 +78,8 @@ Pilot is `muficv0w_h`, task 17.
   is a stop-gap; see below.
 - **The review UI is rough, and a "nearest acceptable source" option was requested.** Deliberately
   **not** done in stabilization. The maintainer queued a cross-platform Downloads UX and
-  source-policy pass ("Phase 8 follow-up" in `ROADMAP.md`). A prototype of automatic
+  source-policy pass, now **Phase 9 — Downloads Redesign** in `ROADMAP.md` (queued as a "Phase 8
+  follow-up" at the time). A prototype of automatic
   nearest-to-cap selection and a redesigned review card was written and removed before commit.
 
 ## Batch 6 — physical `.46` findings and the `.47` follow-ups

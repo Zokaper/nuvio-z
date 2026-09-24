@@ -26,8 +26,8 @@ source list (`MainAppContent.kt`, 1 call site).
 - no "nearest acceptable source" automation;
 - no review-card redesign.
 
-All of that is queued as the **cross-platform Downloads UX and source-policy pass** ("Phase 8
-follow-up" in `ROADMAP.md`). Concurrency stays at the submitted window of 12 (Batch 6 decision).
+All of that is queued as the **cross-platform Downloads UX and source-policy pass**, now **Phase 9 — Downloads
+Redesign** in `ROADMAP.md` (it was "Phase 8 follow-up" when written). Concurrency stays at the submitted window of 12 (Batch 6 decision).
 
 Debug counter 48. Not published until the maintainer asks.
 
@@ -522,7 +522,7 @@ experience has been implemented for both Windows (PowerShell) and macOS (Bash).
 ## Phase 7 closeout: Release Engineering v1 (2026-09-22)
 
 **Phase 7 is complete.** The superseding road-map scope is live-desktop release hardening plus
-joint Android/iOS release readiness; Tizen and webOS distribution moved to Phase 9. Desktop keeps
+joint Android/iOS release readiness; Tizen and webOS distribution moved to Phase 9 (the TV phase, renumbered Phase 10 on 2026-09-24). Desktop keeps
 its installed-user version/serial/MSI lineage. Android and iOS share the mobile marketing version
 and build number. The policy and channel semantics are unified without forcing the two families
 onto equal numbers. The operational runbook is `Docs/RELEASES.md`. No stable release, tag,
@@ -2125,7 +2125,7 @@ nothing in its CI compiles them. Every desktop→mobile sync must gate on the *m
 ## Phase 6 opened and rescoped: Social **+ Watch Together** to mobile (2026-09-17)
 
 **Planning only. No code was touched in any repo.** Deliverables: `ROADMAP.md` (Phase 6 rescoped,
-Phase 9 TV target set, stale ordering/review-budget text corrected), `Docs/Z-FEATURES.md` revision 8
+Phase 9 (now Phase 10) TV target set, stale ordering/review-budget text corrected), `Docs/Z-FEATURES.md` revision 8
 (Android/iOS/TV targets), and `PLAN-phase-6-social-watch-together-mobile.md` at the workspace root.
 
 ⚠ **`ROADMAP.md` and the `PLAN-*.md` files are not under version control** - the workspace root has
