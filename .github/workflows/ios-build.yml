@@ -6,6 +6,12 @@ name: iOS build
 # Android job disables iosArm64/iosSimulatorArm64 outright.
 #
 # macOS runners bill at 10x the Linux rate, so this does not run on every push.
+#
+# Two depths. A push runs the quick check: the device framework and the Xcode app, which is
+# everything a shipped IPA contains. A manual run (workflow_dispatch) - the one to use before a
+# stable or TestFlight release - also links the simulator framework. For debug iteration the
+# Debug release workflow is the faster gate: it compiles the same app with a warm Konan cache
+# and publishes nothing unless both builds pass.
 on:
   workflow_dispatch:
   push:
@@ -79,6 +85,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # The Kotlin/Native toolchain and its platform libraries. Without this every run
+      # downloads and unpacks them before linking; the Debug release job already caches it.
+      - name: Cache Konan dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
       # All 38 of MPVKit's targets are .binaryTarget(url:checksum:) against mpvkit/MPVKit
       # GitHub releases - libmpv, ffmpeg, MoltenVK and friends, prebuilt. Nothing is
       # compiled from source here (mpv.sh and the sparse-image entry in .gitignore are
@@ -146,7 +160,10 @@ jobs:
             exit 1
           }
 
+      # Manual runs only: the Xcode build below targets devices, so on a push this is a
+      # second full link (about 15 minutes) that nothing ships.
       - name: Link Kotlin framework (simulator)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -o pipefail
           ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --console=plain 2>&1 | tee kotlin-sim.log || {
