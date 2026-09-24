@@ -26,7 +26,11 @@ sealed class DownloadScope {
 
     @Serializable
     @SerialName("selected_seasons")
-    data class SelectedSeasons(val seasons: Set<Int>) : DownloadScope()
+    data class SelectedSeasons(
+        val seasons: Set<Int>,
+        /** The whole-show chooser's "Only unwatched episodes" (Phase 9). */
+        val unwatchedOnly: Boolean = false,
+    ) : DownloadScope()
 }
 
 @Serializable
@@ -65,6 +69,13 @@ data class DownloadBatchEntry(
      */
     val sourceOrigin: DownloadSourceOrigin? = null,
     val failureMessage: String? = null,
+    /** Why this entry waits for the user (Phase 9); null on entries from before stage 6. */
+    val decision: DownloadEntryDecisionKind? = null,
+    /**
+     * Whether discovery found at least one source that could become a download. False means
+     * "Choose manually" would open a list of rows that all fail, so it is not offered.
+     */
+    val hasUsableSources: Boolean? = null,
 ) {
     /**
      * The source picked for review is a debrid torrent the service has not cached.
@@ -80,11 +91,20 @@ data class DownloadBatchEntry(
                 (approval.sourceOrigin ?: sourceOrigin).isKnownUncached()
         }
 
-    /** Only a source the user picks can move this entry forward. */
+    /**
+     * Only a source the user picks can move this entry forward - and there is one to pick.
+     * Nothing cached / no sources are excluded: their honest actions are Check again and Remove.
+     */
     val needsManualSource: Boolean
-        get() = state == DownloadBatchEntryState.SKIPPED ||
-            state == DownloadBatchEntryState.FAILED ||
-            (state == DownloadBatchEntryState.APPROVAL_NEEDED && selectsUncachedDebrid)
+        get() = (
+            state == DownloadBatchEntryState.SKIPPED ||
+                state == DownloadBatchEntryState.FAILED ||
+                (state == DownloadBatchEntryState.APPROVAL_NEEDED && selectsUncachedDebrid)
+            ) && DownloadFlowRules.offersChooseManually(decision, hasUsableSources)
+
+    /** Nothing usable was found; re-running discovery is the only thing that can change that. */
+    val canCheckAgain: Boolean
+        get() = state == DownloadBatchEntryState.SKIPPED && DownloadFlowRules.offersCheckAgain(decision)
 
     /** Waiting only for the user to accept an unknown size or unclear metadata. */
     val canBeApproved: Boolean
@@ -113,7 +133,8 @@ data class DownloadBatch(
     val logo: String? = null,
     val poster: String? = null,
     val background: String? = null,
-    val presetSnapshot: DownloadPreset,
+    /** The retired preset a pre-Phase-9 batch was started with; null from stage 6 on. */
+    val presetSnapshot: DownloadPreset? = null,
     val sourcePolicySnapshot: DownloadSourcePolicy,
     val entries: List<DownloadBatchEntry>,
     val allowMeteredNetwork: Boolean = false,
@@ -258,6 +279,7 @@ object DownloadBatchPlanner {
                 }
             }
             .filter { scope !is DownloadScope.SeasonUnwatched || !it.watched }
+            .filter { scope !is DownloadScope.SelectedSeasons || !scope.unwatchedOnly || !it.watched }
             .filter { it.season != 0 || 0 in selectedSeasons }
             .filter {
                 downloadLogicalKey(parentMetaId, it.season, it.episode) !in existingLogicalKeys

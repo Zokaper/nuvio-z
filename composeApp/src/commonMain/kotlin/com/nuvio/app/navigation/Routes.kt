@@ -101,6 +101,13 @@ data class DownloadShowRoute(
     override val title: String,
 ) : DownloadsDestinationRoute
 
+/** Manual, several episodes: pick each episode's source (Phase 9). */
+@Serializable
+data class DownloadChooseSourcesRoute(
+    val batchId: String,
+    override val title: String = "",
+) : DownloadsDestinationRoute
+
 @Serializable
 data class AddonsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 

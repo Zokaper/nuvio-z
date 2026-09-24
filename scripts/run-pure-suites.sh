@@ -171,6 +171,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$M/features/downloads/DownloadsLiveStatusPolicy.kt" \
   "$M/features/downloads/LocalPlaybackPolicy.kt" \
   "$M/features/downloads/DownloadPolicy.kt" \
+  "$M/features/downloads/DownloadFlowRules.kt" \
   "$M/features/streams/PlaybackUrlCredentials.kt" \
   "$M/core/network/ThroughputWindow.kt" \
   "$M/core/build/NuvioZVersion.kt" \
@@ -186,6 +187,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-standalone" \
   "$T/features/downloads/DownloadsLiveStatusPolicyTest.kt" \
   "$T/features/downloads/LocalPlaybackPolicyTest.kt" \
   "$T/features/downloads/DownloadPolicyTest.kt" \
+  "$T/features/downloads/DownloadFlowRulesTest.kt" \
   "$T/features/streams/PlaybackUrlCredentialsTest.kt" \
   "$T/core/network/ThroughputWindowTest.kt" \
   "$T/core/build/NuvioZVersionTest.kt" \
@@ -204,6 +206,7 @@ java -cp "$WORK/out-standalone:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.downloads.DownloadsLiveStatusPolicyTest \
   com.nuvio.app.features.downloads.LocalPlaybackPolicyTest \
   com.nuvio.app.features.downloads.DownloadPolicyTest \
+  com.nuvio.app.features.downloads.DownloadFlowRulesTest \
   com.nuvio.app.features.streams.PlaybackUrlCredentialsTest \
   com.nuvio.app.core.network.ThroughputWindowTest \
   com.nuvio.app.core.build.NuvioZVersionTest \

@@ -642,13 +642,14 @@ fun NuvioToastHost(
                         color = tokens.colors.textPrimary,
                     )
                     val action = currentToast.action
+                    val effect = currentToast.effect
                     val actionLabel = currentToast.actionLabel
-                    if (action != null && !actionLabel.isNullOrBlank()) {
+                    if ((action != null || effect != null) && !actionLabel.isNullOrBlank()) {
                         NuvioActionLabel(
                             text = actionLabel,
                             onClick = {
                                 NuvioToastController.dismiss(currentToast.id)
-                                onAction(action)
+                                if (effect != null) effect() else if (action != null) onAction(action)
                             },
                         )
                     }
@@ -664,6 +665,11 @@ data class NuvioToastMessage(
     val durationMillis: Long,
     val actionLabel: String? = null,
     val action: NuvioToastAction? = null,
+    /**
+     * A local effect instead of a destination - Undo, Change. Never navigation: that stays a
+     * typed [NuvioToastAction] resolved by the host.
+     */
+    val effect: (() -> Unit)? = null,
 )
 
 object NuvioToastController {
@@ -676,6 +682,7 @@ object NuvioToastController {
         durationMillis: Long = 2500L,
         actionLabel: String? = null,
         action: NuvioToastAction? = null,
+        effect: (() -> Unit)? = null,
     ) {
         nextToastId += 1L
         _currentToast.value = NuvioToastMessage(
@@ -684,6 +691,7 @@ object NuvioToastController {
             durationMillis = durationMillis,
             actionLabel = actionLabel,
             action = action,
+            effect = effect,
         )
     }
 

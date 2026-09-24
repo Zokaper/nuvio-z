@@ -163,6 +163,15 @@ object DownloadsRepository {
         }
     }
 
+    /** This profile's current download of an episode or film, straight from the store. */
+    fun currentItemFor(parentMetaId: String, seasonNumber: Int?, episodeNumber: Int?): DownloadItem? {
+        ensureLoaded()
+        val key = downloadLogicalKey(parentMetaId = parentMetaId, seasonNumber = seasonNumber, episodeNumber = episodeNumber)
+        return synchronized(DownloadStore.lock) {
+            DownloadStore.allItems.firstOrNull { it.logicalContentKey == key && DownloadStore.isInActiveView(it) }
+        }
+    }
+
     fun findPlayableDownloadByVideoId(videoId: String?): DownloadItem? {
         ensureLoaded()
         val normalizedVideoId = videoId?.trim().orEmpty()
@@ -782,11 +791,17 @@ object DownloadsRepository {
         }
     }
 
-    fun queueBatch(batchId: String, approveUnknownSizes: Boolean): Int {
+    /**
+     * Queues the batch's ready entries (and, with [approveUnknownSizes], the ones waiting for the
+     * user's OK). [onlyEntryIds] limits it to those entries - "Download what fits", "Allow" on one
+     * card.
+     */
+    fun queueBatch(batchId: String, approveUnknownSizes: Boolean, onlyEntryIds: Set<String>? = null): Int {
         ensureLoaded()
         val batch = DownloadStore.batches.value.firstOrNull { it.id == batchId } ?: return 0
         var queued = 0
         val updatedEntries = batch.entries.map { entry ->
+            if (onlyEntryIds != null && entry.id !in onlyEntryIds) return@map entry
             val selection = entry.selection
             val canQueue =
                 (entry.state == DownloadBatchEntryState.READY && selection is SourceSelectionResult.Selected) ||

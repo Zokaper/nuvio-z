@@ -115,6 +115,10 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadFlowController
+import com.nuvio.app.features.downloads.DownloadFlowEvent
+import com.nuvio.app.features.downloads.DownloadFlowHost
+import com.nuvio.app.features.downloads.manualDownloadStreamLaunch
 import com.nuvio.app.features.downloads.DownloadBatch
 import com.nuvio.app.features.downloads.DownloadBatchEntry
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -1268,6 +1272,23 @@ internal fun MainAppContent(
             )
         }
 
+        // The download flow's navigation (Phase 9). A manual pick opens the download source
+        // list directly - never the local-play shortcut above, and never the player.
+        LaunchedEffect(Unit) {
+            DownloadFlowController.events.collect { event ->
+                when (event) {
+                    is DownloadFlowEvent.OpenManualSourceList -> {
+                        val launchId = StreamLaunchStore.put(
+                            manualDownloadStreamLaunch(activePlaybackProfileId, event.title, event.target),
+                        )
+                        navController.navigate(StreamRoute(launchId = launchId, title = event.title.title))
+                    }
+                    is DownloadFlowEvent.OpenChooseSources ->
+                        navController.navigate(DownloadChooseSourcesRoute(batchId = event.batchId))
+                }
+            }
+        }
+
         val onPlay: ContentPlayAction =
             { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, runtimeMinutes, resumePositionMs ->
                 launchPlaybackWithDownloadPreference(
@@ -1627,29 +1648,9 @@ internal fun MainAppContent(
                                 // Download mode: tapping a source opens the download preset
                                 // sheet for this episode. It used to open the ordinary manual
                                 // source list, where a tap starts playback.
-                                onChooseBatchEntryManually = { batch, entry ->
-                                    launchPlaybackWithDownloadPreference(
-                                        type = batch.parentMetaType,
-                                        videoId = entry.videoId,
-                                        parentMetaId = batch.parentMetaId,
-                                        parentMetaType = batch.parentMetaType,
-                                        title = batch.title,
-                                        logo = batch.logo,
-                                        poster = batch.poster,
-                                        background = batch.background,
-                                        seasonNumber = entry.season,
-                                        episodeNumber = entry.episode,
-                                        episodeTitle = entry.title.takeIf { entry.season != null },
-                                        episodeThumbnail = null,
-                                        pauseDescription = null,
-                                        runtimeMinutes = entry.runtimeMinutes,
-                                        resumePositionMs = null,
-                                        resumeProgressFraction = null,
-                                        manualSelection = true,
-                                        startFromBeginning = false,
-                                        downloadIntent = true,
-                                    )
-                                },
+                                // "Choose manually" on an attention card: the download source
+                                // list, where a tap enqueues and nothing ever plays.
+                                onChooseBatchEntryManually = DownloadFlowController::chooseEntryManually,
                                 onJoinParty = { code ->
                                     coroutineScope.launch {
                                         WatchPartyRepository.join(inviteCode = code).onSuccess {
@@ -1960,6 +1961,12 @@ internal fun MainAppContent(
                         route = route,
                         navController = navController,
                         onOpenDownload = ::openDownloadedItem,
+                    )
+                }
+                entry<DownloadChooseSourcesRoute> { route ->
+                    DownloadChooseSourcesDestination(
+                        route = route,
+                        navController = navController,
                     )
                 }
                 entry<AddonsSettingsRoute> { route ->
@@ -2509,6 +2516,10 @@ internal fun MainAppContent(
                         modifier = Modifier.padding(dockPadding),
                     )
                 }
+            }
+
+            if (AppFeaturePolicy.downloadsEnabled) {
+                DownloadFlowHost()
             }
 
             NuvioToastHost(

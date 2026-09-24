@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.streams.StreamDebridCacheState
+
 /**
  * Picks a download source under a [DownloadPolicy]. Replaces `PresetSourceSelector` (Phase 9).
  *
@@ -127,6 +129,13 @@ object DownloadSourceSelector {
     }
 
     fun cacheEvidence(candidate: DownloadSourceCandidate): DownloadCacheEvidence {
+        // The service's own answer, from the local cache check discovery runs, beats anything
+        // the addon's text claims.
+        when (candidate.stream.debridCacheStatus?.state) {
+            StreamDebridCacheState.CACHED -> return DownloadCacheEvidence.CACHED
+            StreamDebridCacheState.NOT_CACHED -> return DownloadCacheEvidence.NOT_USABLE
+            else -> Unit
+        }
         val ready = candidate.facts.isDebridReady
         val debridBacked = candidate.sourceOrigin != null
         return when {
@@ -137,6 +146,44 @@ object DownloadSourceSelector {
             else -> DownloadCacheEvidence.PLAIN_HTTP
         }
     }
+
+    /** At least one candidate Automatic or Assisted could download, whatever its size. */
+    fun hasUsable(candidates: List<DownloadSourceCandidate>, context: Context): Boolean =
+        candidates.any {
+            context.addonFilter.allowsResult(it.addonKey, it.facts) &&
+                isAutomaticCandidate(it) &&
+                cacheEvidence(it) != DownloadCacheEvidence.NOT_USABLE
+        }
+
+    /**
+     * Known not to be cached: the Manual list shows these disabled. `Unknown` stays selectable
+     * there - the realizer checks it at slot start (plan section 4.2a).
+     */
+    /** [isKnownNotCached] for a row of the download source list. */
+    fun isKnownNotCached(stream: com.nuvio.app.features.streams.StreamItem): Boolean =
+        stream.debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED ||
+            SourceFactsExtractor.extract(stream).isDebridReady == false
+
+    fun isKnownNotCached(candidate: DownloadSourceCandidate): Boolean =
+        candidate.stream.debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED ||
+            candidate.facts.isDebridReady == false
+
+    /**
+     * The best source at exactly [height] under the policy's size level, or the smallest above it
+     * - used where the user named the resolution (Use nearest, an Assisted row).
+     */
+    fun bestAt(candidates: List<DownloadSourceCandidate>, height: Int, context: Context): DownloadDecision? {
+        val group = candidates.filter {
+            context.addonFilter.allowsResult(it.addonKey, it.facts) &&
+                isAutomaticCandidate(it) &&
+                cacheEvidence(it) != DownloadCacheEvidence.NOT_USABLE &&
+                it.facts.resolution?.height == height
+        }
+        if (group.isEmpty()) return null
+        return pickWithinLimit(group, height, context) ?: overLimit(group, context)
+    }
+
+    fun limitAt(height: Int, context: Context): Long? = limitFor(height, context)
 
     private fun pickWithinLimit(
         group: List<DownloadSourceCandidate>,

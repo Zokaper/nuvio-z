@@ -135,7 +135,7 @@ object DownloadPolicyRepository {
         _policy.value = DownloadPolicyMigration.fromPresets(
             lastUsedPreset = runCatching {
                 DownloadsRepository.ensureLoaded()
-                DownloadsRepository.batches.value.firstOrNull()?.presetSnapshot
+                DownloadsRepository.batches.value.firstNotNullOfOrNull { it.presetSnapshot }
             }.getOrNull(),
         )
         persist()

@@ -21,6 +21,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +40,7 @@ import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.downloads.ContentDownloadState
 import com.nuvio.app.features.downloads.DownloadPresence
+import com.nuvio.app.features.downloads.DownloadDeleteConfirmDialog
 import com.nuvio.app.features.downloads.DownloadsRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -215,11 +220,23 @@ fun DownloadManageSheet(
                     else -> Unit
                 }
 
+                var confirmDelete by remember(item.id) { mutableStateOf(false) }
                 DownloadSheetActionRow(
                     icon = Icons.Rounded.Delete,
                     label = stringResource(Res.string.action_delete),
-                    onClick = { DownloadsRepository.cancelDownload(item.id); dismiss() },
+                    onClick = { confirmDelete = true },
                 )
+                if (confirmDelete) {
+                    DownloadDeleteConfirmDialog(
+                        what = title,
+                        onConfirm = {
+                            confirmDelete = false
+                            DownloadsRepository.cancelDownload(item.id)
+                            dismiss()
+                        },
+                        onDismiss = { confirmDelete = false },
+                    )
+                }
             } else if (state.batchId != null) {
                 DownloadSheetActionRow(
                     icon = Icons.Rounded.Delete,

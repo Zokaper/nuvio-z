@@ -58,9 +58,9 @@ import org.jetbrains.compose.resources.stringResource
  * was duplicated across those two files, one copy kept captioning Instant "Not ready yet"
  * after the other had been fixed. One composable, so they cannot drift again.
  *
- * The download lines are not decoration: they must keep matching
- * [PlaybackModeDownloadRouter.decide], which is what actually happens when the user presses
- * Download. Copy that contradicts the router is worse than no copy at all.
+ * The download lines are not decoration: since Phase 9 downloads have their own Download Mode,
+ * and an unanswered one is derived from Playback Mode (`DownloadPolicy.derivedMode`). The line
+ * says which mode that is. Copy that contradicts the derivation is worse than no copy at all.
  *
  * [enabled] comes from [PlaybackMode.isSelectable] and from nowhere else. A card that is
  * greyed must also be un-tappable and un-ticked: greyed *and* selected reads as a bug rather
@@ -205,7 +205,7 @@ private fun playbackModeTagline(mode: PlaybackMode): String = when (mode) {
 
 /**
  * Must stay in step with what each mode actually does on the playback path, the same way
- * [playbackModeDownloadLine] tracks [PlaybackModeDownloadRouter.decide].
+ * [playbackModeDownloadLine] tracks `DownloadPolicy.derivedMode`.
  *
  * That contract used to cover only the download line, and the streaming lines drifted for a
  * whole release because of it: Streamlined's second bullet went on offering *"Pin a release to
@@ -242,9 +242,8 @@ private fun playbackModeStreamingLines(mode: PlaybackMode): List<String> = when 
 }
 
 /**
- * Must stay in step with [PlaybackModeDownloadRouter.decide]. `PlaybackModeDownloadCopyTest`
- * pins the two together: Classic is the only mode whose download entry point depends on
- * whether the scope is a single item, and that is what its line has to say.
+ * Must stay in step with `DownloadPolicy.derivedMode` (Classic -> Manual, Streamlined -> Assisted,
+ * Instant -> Automatic). `DownloadPolicyTest` pins the derivation.
  */
 @Composable
 private fun playbackModeDownloadLine(mode: PlaybackMode): String = when (mode) {

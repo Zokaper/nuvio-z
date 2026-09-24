@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -67,6 +68,8 @@ internal fun StreamCard(
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
     currentLabel: String? = null,
+    /** Why this row cannot be chosen here, shown under its name ("Not cached on your debrid service"). */
+    disabledNote: String? = null,
 ) {
     val cardShape = RoundedCornerShape(12.dp)
     val badgeImages = stream.badges.filter { it.imageURL.isNotBlank() }
@@ -122,7 +125,8 @@ internal fun StreamCard(
                     null
                 },
             )
-            .padding(14.dp),
+            .padding(14.dp)
+            .then(if (disabledNote != null) Modifier.alpha(0.55f) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -155,6 +159,15 @@ internal fun StreamCard(
                         lineHeight = 18.sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (!disabledNote.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = disabledNote,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 18.sp),
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 

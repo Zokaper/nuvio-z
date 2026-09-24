@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
 import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
@@ -341,7 +342,8 @@ private fun LazyListScope.downloadsRootContent(
                     }
                 },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { DownloadsRepository.cancelDownload(item.id) },
+                // Delete always confirms (Phase 9).
+                onDelete = { onDeleteDownload(item.id) },
                 queueControls = QueueControls(
                     canMoveUp = index > 0,
                     canMoveDown = index < activeItems.lastIndex,
@@ -349,6 +351,8 @@ private fun LazyListScope.downloadsRootContent(
                     onMoveUp = { DownloadsRepository.moveDownloadUp(item.id) },
                     onMoveDown = { DownloadsRepository.moveDownloadDown(item.id) },
                     onMoveToBottom = { DownloadsRepository.moveDownloadToBottom(item.id) },
+                    // Pick a different resolution or file for this one item.
+                    onChange = { DownloadFlowController.change(item) },
                 ),
             )
         }
@@ -609,9 +613,8 @@ private fun ReviewBatchCard(
                     Text(batch.title, style = MaterialTheme.typography.titleSmall)
                     Text(
                         stringResource(
-                            Res.string.downloads_review_summary,
-                            batch.presetSnapshot.name,
-                            batch.entries.count { it.needsManualSource },
+                            Res.string.download_review_summary,
+                            batch.entries.count { it.needsManualSource || it.canCheckAgain },
                             batch.entries.count { it.canBeApproved },
                         ),
                         style = MaterialTheme.typography.bodySmall,
@@ -636,6 +639,37 @@ private fun ReviewBatchCard(
                     )
                 }
             }
+            // Over the size level / resolution missing: why, per entry. Allow above takes them all.
+            batch.entries
+                .filter { it.canBeApproved }
+                .forEach { entry ->
+                    val reason = (entry.selection as? SourceSelectionResult.ApprovalNeeded)?.reason
+                    Text(
+                        listOfNotNull(entry.title, reason).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            // Nothing cached / no sources: nothing to choose, so Check again, never the picker.
+            batch.entries
+                .filter { it.canCheckAgain }
+                .forEach { entry ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            listOfNotNull(entry.title, entry.failureMessage).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { DownloadFlowController.checkAgain(batch, entry) }) {
+                            Text(stringResource(Res.string.download_flow_check_again))
+                        }
+                    }
+                }
             if (onChooseBatchEntryManually != null) {
                 batch.entries
                     .filter { it.needsManualSource }
@@ -936,6 +970,7 @@ private data class QueueControls(
     val onMoveUp: () -> Unit,
     val onMoveDown: () -> Unit,
     val onMoveToBottom: () -> Unit,
+    val onChange: (() -> Unit)? = null,
 )
 
 /**
@@ -959,6 +994,18 @@ private fun QueueMenu(controls: QueueControls) {
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
+            controls.onChange?.let { change ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.download_flow_change)) },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = null)
+                    },
+                    onClick = {
+                        expanded = false
+                        change()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(Res.string.downloads_queue_move_to_top)) },
                 enabled = controls.canMoveUp,

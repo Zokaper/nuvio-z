@@ -23,6 +23,8 @@ import com.nuvio.app.navigation.CollectionEditorRoute
 import com.nuvio.app.navigation.CollectionsRoute
 import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.DownloadShowRoute
+import com.nuvio.app.navigation.DownloadChooseSourcesRoute
+import com.nuvio.app.features.downloads.DownloadChooseSourcesScreen
 import com.nuvio.app.navigation.DownloadsSettingsRoute
 import com.nuvio.app.navigation.FolderDetailRoute
 import com.nuvio.app.navigation.NuvioNavigator
@@ -91,6 +93,18 @@ internal fun DownloadShowDestination(
         onOpenDownload = onOpenDownload,
         initialShowId = route.showId,
         onBackFromShow = onBack,
+    )
+}
+
+@Composable
+internal fun DownloadChooseSourcesDestination(
+    route: DownloadChooseSourcesRoute,
+    navController: NuvioNavigator,
+) {
+    val onBack = rememberGuardedPopBackStack(navController, route)
+    DownloadChooseSourcesScreen(
+        batchId = route.batchId,
+        onBack = onBack,
     )
 }
 

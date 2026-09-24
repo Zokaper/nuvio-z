@@ -49,6 +49,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,7 +99,8 @@ import com.nuvio.app.core.ui.nuvioDesktopDragScroll
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.downloads.DownloadsRepository
-import com.nuvio.app.features.downloads.DownloadPreset
+import com.nuvio.app.features.downloads.DownloadEnqueueResult
+import com.nuvio.app.features.downloads.DownloadSourceSelector
 import com.nuvio.app.features.downloads.DownloadSourceOrigin
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -191,13 +194,13 @@ fun StreamsScreen(
             DownloadsRepository.ensureLoaded()
         }
     }
-    val downloadPresets by DownloadsRepository.presets.collectAsStateWithLifecycle()
     val isEpisode = seasonNumber != null && episodeNumber != null
     val clipboardManager = LocalClipboardManager.current
     val streamLinkCopiedText = stringResource(Res.string.streams_link_copied)
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamActionsTarget?>(null) }
-    var downloadPresetTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
+    val addedToDownloadsText = stringResource(Res.string.download_flow_added)
+    val undoText = stringResource(Res.string.download_flow_undo)
     val downloadScope = rememberCoroutineScope()
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     var autoPlayOverlayLogoLoadError by remember(logo) { mutableStateOf(false) }
@@ -297,8 +300,44 @@ fun StreamsScreen(
         NuvioToastController.show(result.toastMessage())
     }
 
-    val enqueueWithPreset: (StreamItem, DownloadPreset) -> Unit = { stream, preset ->
-        enqueueSelectedSource(stream, preset.sizeCapBytes(runtimeMinutes = null, isEpisode = isEpisode))
+    // The download source list (Phase 9): a tap enqueues at once - the user chose this file with
+    // its size on screen, so there is no cap - and Undo takes it back. Nothing here plays.
+    val enqueueForDownload: (StreamItem) -> Unit = { stream ->
+        val origin = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
+            DownloadSourceOrigin(stream, seasonNumber, episodeNumber)
+        } else {
+            null
+        }
+        val result = DownloadsRepository.enqueueFromStream(
+            contentType = type,
+            videoId = videoId,
+            parentMetaId = parentMetaId,
+            parentMetaType = parentMetaType,
+            title = title,
+            logo = logo,
+            poster = poster,
+            background = background,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            episodeThumbnail = episodeThumbnail,
+            stream = stream,
+            calculatedCapBytes = null,
+            sourceOrigin = origin,
+            sizeCapOverrideApproved = true,
+        )
+        val added = DownloadsRepository.currentItemFor(parentMetaId, seasonNumber, episodeNumber)
+        if (result == DownloadEnqueueResult.Started && added != null) {
+            NuvioToastController.show(
+                message = addedToDownloadsText,
+                durationMillis = 5_000L,
+                actionLabel = undoText,
+                effect = { DownloadsRepository.cancelDownload(added.id) },
+            )
+        } else {
+            NuvioToastController.show(result.toastMessage())
+        }
+        if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) onBack()
     }
 
     BoxWithConstraints(
@@ -308,68 +347,70 @@ fun StreamsScreen(
     ) {
         val isTabletLayout = maxWidth >= 768.dp
 
-        if (isTabletLayout) {
-            TabletStreamsLayout(
-                isEpisode = isEpisode,
-                title = title,
-                logo = logo,
-                poster = poster,
-                background = background,
-                episodeThumbnail = episodeThumbnail,
-                seasonNumber = seasonNumber,
-                episodeNumber = episodeNumber,
-                episodeTitle = episodeTitle,
-                uiState = uiState,
-                debridEnabled = debridSettings.canResolvePlayableLinks,
-                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
-                resumePositionMs = effectiveResumePositionMs,
-                resumeProgressFraction = effectiveResumeProgressFraction,
-                dominantColorEnabled = dominantColorEnabled,
-                onStreamSelected = { stream, positionMs, progressFraction ->
-                    if (downloadOnSelect) {
-                        downloadPresetTarget = stream
-                    } else {
-                        onStreamSelected(stream, positionMs, progressFraction)
-                    }
-                },
-                onStreamLongPress = { stream ->
-                    streamActionsTarget = StreamActionsTarget(stream = stream)
-                },
-                onStreamSecondaryClick = { stream, position ->
-                    streamActionsTarget = StreamActionsTarget(stream = stream, anchorInRoot = position)
-                },
-                onRefresh = reloadStreams,
-            )
-        } else {
-            MobileStreamsLayout(
-                isEpisode = isEpisode,
-                title = title,
-                logo = logo,
-                heroArtwork = heroArtwork,
-                seasonNumber = seasonNumber,
-                episodeNumber = episodeNumber,
-                episodeTitle = episodeTitle,
-                blurEpisodeThumbnail = blurEpisodeThumbnail,
-                uiState = uiState,
-                debridEnabled = debridSettings.canResolvePlayableLinks,
-                appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
-                resumePositionMs = effectiveResumePositionMs,
-                resumeProgressFraction = effectiveResumeProgressFraction,
-                onStreamSelected = { stream, positionMs, progressFraction ->
-                    if (downloadOnSelect) {
-                        downloadPresetTarget = stream
-                    } else {
-                        onStreamSelected(stream, positionMs, progressFraction)
-                    }
-                },
-                onStreamLongPress = { stream ->
-                    streamActionsTarget = StreamActionsTarget(stream = stream)
-                },
-                onStreamSecondaryClick = { stream, position ->
-                    streamActionsTarget = StreamActionsTarget(stream = stream, anchorInRoot = position)
-                },
-                onRefresh = reloadStreams,
-            )
+        CompositionLocalProvider(LocalStreamDownloadIntent provides downloadOnSelect) {
+            if (isTabletLayout) {
+                TabletStreamsLayout(
+                    isEpisode = isEpisode,
+                    title = title,
+                    logo = logo,
+                    poster = poster,
+                    background = background,
+                    episodeThumbnail = episodeThumbnail,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    episodeTitle = episodeTitle,
+                    uiState = uiState,
+                    debridEnabled = debridSettings.canResolvePlayableLinks,
+                    appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
+                    resumePositionMs = effectiveResumePositionMs,
+                    resumeProgressFraction = effectiveResumeProgressFraction,
+                    dominantColorEnabled = dominantColorEnabled,
+                    onStreamSelected = { stream, positionMs, progressFraction ->
+                        if (downloadOnSelect) {
+                            enqueueForDownload(stream)
+                        } else {
+                            onStreamSelected(stream, positionMs, progressFraction)
+                        }
+                    },
+                    onStreamLongPress = { stream ->
+                        streamActionsTarget = StreamActionsTarget(stream = stream)
+                    },
+                    onStreamSecondaryClick = { stream, position ->
+                        streamActionsTarget = StreamActionsTarget(stream = stream, anchorInRoot = position)
+                    },
+                    onRefresh = reloadStreams,
+                )
+            } else {
+                MobileStreamsLayout(
+                    isEpisode = isEpisode,
+                    title = title,
+                    logo = logo,
+                    heroArtwork = heroArtwork,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    episodeTitle = episodeTitle,
+                    blurEpisodeThumbnail = blurEpisodeThumbnail,
+                    uiState = uiState,
+                    debridEnabled = debridSettings.canResolvePlayableLinks,
+                    appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.appliesStreamPresentation,
+                    resumePositionMs = effectiveResumePositionMs,
+                    resumeProgressFraction = effectiveResumeProgressFraction,
+                    onStreamSelected = { stream, positionMs, progressFraction ->
+                        if (downloadOnSelect) {
+                            enqueueForDownload(stream)
+                        } else {
+                            onStreamSelected(stream, positionMs, progressFraction)
+                        }
+                    },
+                    onStreamLongPress = { stream ->
+                        streamActionsTarget = StreamActionsTarget(stream = stream)
+                    },
+                    onStreamSecondaryClick = { stream, position ->
+                        streamActionsTarget = StreamActionsTarget(stream = stream, anchorInRoot = position)
+                    },
+                    onRefresh = reloadStreams,
+                )
+            }
         }
 
         Row(
@@ -490,15 +531,6 @@ fun StreamsScreen(
                     effectiveResumePositionMs,
                     effectiveResumeProgressFraction,
                 )
-            },
-        )
-        DownloadPresetSheet(
-            stream = downloadPresetTarget,
-            presets = downloadPresets,
-            onDismiss = { downloadPresetTarget = null },
-            onPresetSelected = { stream, preset ->
-                downloadPresetTarget = null
-                enqueueWithPreset(stream, preset)
             },
         )
     }
@@ -973,6 +1005,9 @@ private data class StreamCardRenderModel(
     val stream: StreamItem,
 )
 
+/** The list was opened to download (Phase 9): rows known not to be cached are disabled. */
+internal val LocalStreamDownloadIntent = staticCompositionLocalOf { false }
+
 @Composable
 internal fun StreamList(
     uiState: StreamsUiState,
@@ -1177,9 +1212,13 @@ private fun LazyListScope.streamSection(
                 stream.needsLocalDebridResolve &&
                     !AppFeaturePolicy.p2pEnabled &&
                     !(debridEnabled && stream.isAddonDebridCandidate)
+            // Downloading needs a cached copy: Nuvio cannot ask the service to cache and wait.
+            val notCachedForDownload = LocalStreamDownloadIntent.current &&
+                remember(stream) { DownloadSourceSelector.isKnownNotCached(stream) }
             StreamCard(
                 stream = stream,
-                enabled = isSelectable || isUnsupportedTorrentStream,
+                enabled = (isSelectable || isUnsupportedTorrentStream) && !notCachedForDownload,
+                disabledNote = if (notCachedForDownload) stringResource(Res.string.download_flow_not_cached_row) else null,
                 appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
                 showFileSizeBadges = showFileSizeBadges,
                 showAddonLogo = showAddonLogo,
@@ -1650,50 +1689,6 @@ private fun StreamActionsSheet(
                         onDownload(stream)
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
-                        }
-                    },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DownloadPresetSheet(
-    stream: StreamItem?,
-    presets: List<DownloadPreset>,
-    onDismiss: () -> Unit,
-    onPresetSelected: (StreamItem, DownloadPreset) -> Unit,
-) {
-    if (stream == null) return
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val coroutineScope = rememberCoroutineScope()
-    NuvioModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
-        ) {
-            Text(
-                text = "Download preset",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            )
-            presets.forEach { preset ->
-                NuvioBottomSheetDivider()
-                NuvioBottomSheetActionRow(
-                    icon = Icons.Rounded.Download,
-                    title = "${preset.name} · ${preset.targetResolution.height}p · ${preset.gigabytesPerHourLimit} GB/hour",
-                    onClick = {
-                        coroutineScope.launch {
-                            dismissNuvioBottomSheet(sheetState = sheetState) {
-                                onPresetSelected(stream, preset)
-                            }
                         }
                     },
                 )
