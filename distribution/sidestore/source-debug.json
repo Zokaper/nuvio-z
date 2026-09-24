@@ -21,6 +21,16 @@
       "category": "developer-tools",
       "versions": [
         {
+          "version": "0.4.13-z1.47",
+          "buildVersion": "47",
+          "date": "2026-09-24T14:09:05Z",
+          "localizedDescription": "Debug build 0.4.13-z1.47 (build 47) for SideStore.\n",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.47/Nuvio-Z-iOS-0.4.13-z1-47-debug-unsigned.ipa",
+          "size": 73205517,
+          "sha256": "a7e31a4c4114e1294e3fe83b838fad9e31139fe800149e9be83ad1771e3b1d1c",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.4.13-z1.46",
           "buildVersion": "46",
           "date": "2026-09-24T12:09:28Z",
