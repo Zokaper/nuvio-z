@@ -12,6 +12,7 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
     ) -> Bool {
 #if DEBUG
         FreezeDiagnostics.shared.start()
+        DownloadsProbeLog_iosKt.enableDownloadsProbeLog()
 #endif
         OrientationLockCoordinator.shared.start()
         DownloadsLiveActivityManager.shared.start()

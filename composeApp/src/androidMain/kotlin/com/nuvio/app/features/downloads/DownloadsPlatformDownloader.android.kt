@@ -51,6 +51,8 @@ internal actual object DownloadsPlatformDownloader {
     // The background job is stopped when the system reclaims it and started again
     // when it may run, so a system pause here really is temporary.
     actual val recoversSystemPauses: Boolean = true
+    actual val maxConcurrentTransfers: Int = DownloadsRepository.MAX_CONCURRENT_TRANSFERS
+    actual val ownsTransferLiveness: Boolean = false
 
     actual fun schedulingDeferredToPlatform(): Boolean = false
 

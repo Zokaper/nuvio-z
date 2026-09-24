@@ -203,6 +203,29 @@ internal object IosBackgroundTransferReconciler {
         return SchedulePlan(toStart, toResume, boundary)
     }
 
+    /**
+     * Which resolved downloads may be handed to the session now, in the order to hand them.
+     *
+     * The window's sources resolve in parallel and answer in any order. A resolved item
+     * waits while anything ahead of it in the queue is still resolving, so tasks are
+     * created in queue order; an item that fails to resolve simply stops holding its
+     * place. An id with no known position sorts last.
+     */
+    fun releaseInQueueOrder(
+        parkedIds: Set<String>,
+        resolvingIds: Set<String>,
+        positions: Map<String, Long>,
+    ): List<String> {
+        val release = mutableListOf<String>()
+        for (id in (parkedIds + resolvingIds).sortedWith(
+            compareBy<String> { positions[it] ?: Long.MAX_VALUE }.thenBy { it },
+        )) {
+            if (id in resolvingIds) break
+            release += id
+        }
+        return release
+    }
+
     // --- Adoption: reconciling the repository with the tasks that really exist -----
 
     /** A task the session reports, as seen at inventory time. */

@@ -2870,4 +2870,5 @@
     <string name="downloads_live_queue_active">%1$d downloading</string>
     <string name="downloads_live_queue_remaining">%1$d remaining</string>
     <string name="downloads_live_queue_active_remaining">%1$d downloading • %2$d remaining</string>
+    <string name="downloads_live_in_background">Downloading in background</string>
 </resources>

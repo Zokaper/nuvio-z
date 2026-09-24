@@ -195,6 +195,101 @@ class IosBackgroundTransferReconcilerTest {
         }
     }
 
+    // --- The `.46` submission window ------------------------------------------------
+
+    /** One global queue: films and episodes of different shows share the window in order. */
+    @Test fun windowFillsFromTheGlobalQueueInOrder() {
+        val queue = listOf(
+            prepared("showA-e2", 2), prepared("film", 1), prepared("showB-e1", 3),
+            prepared("showA-e3", 4), prepared("showB-e2", 5),
+        )
+        val plan = schedule(running = setOf("showA-e1"), queue = queue, maxConcurrent = 4)
+        assertEquals(listOf("film", "showA-e2", "showB-e1"), plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun windowStillStopsAtTheFirstStaleItem() {
+        val queue = listOf(prepared("d1", 1), prepared("d2", 2, resolvedAt = stale), prepared("d3", 3))
+        val plan = schedule(queue = queue, maxConcurrent = 12)
+        assertEquals(listOf("d1"), plan.toStart.map { it.downloadId })
+        assertEquals("d2", plan.refreshBoundary?.downloadId)
+    }
+
+    @Test fun windowNeverExceedsItsBound() {
+        val queue = (1..20).map { prepared("d$it", it.toLong()) }
+        val plan = schedule(running = setOf("d1", "d2"), claimed = setOf("d3"), queue = queue, maxConcurrent = 12)
+        assertEquals((4..12).map { "d$it" }, plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun relaunchAdoptsTheWholeSubmittedWindow() {
+        val plan = r.planAdoption(
+            items = (1..8).map { adoption("d$it", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, it.toLong()) },
+            live = (1..8).map { live("d$it") },
+            maxConcurrent = 12,
+        )
+        assertEquals((1..8).map { "d$it" }, plan.adopt)
+        assertTrue(plan.suspend.isEmpty())
+        assertTrue(plan.requeue.isEmpty())
+    }
+
+    /**
+     * A force-quit cancels every task. On relaunch the session reports none, so the whole
+     * window goes back to the queue where it stood, with no attempt charged and nothing
+     * adopted twice.
+     */
+    @Test fun forceQuitRequeuesTheWindowInPlace() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1),
+                adoption("d2", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 2),
+                adoption("d3", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 3),
+                adoption("d4", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 4),
+            ),
+            live = emptyList(),
+            maxConcurrent = 12,
+        )
+        assertEquals(listOf("d1", "d2", "d3"), plan.requeue)
+        assertTrue(plan.adopt.isEmpty())
+        assertTrue(plan.cancel.isEmpty())
+    }
+
+    // --- Submission order ---------------------------------------------------------------
+
+    @Test fun resolvedItemsAreReleasedInQueueOrder() {
+        val release = r.releaseInQueueOrder(
+            parkedIds = setOf("d3", "d1", "d2"),
+            resolvingIds = emptySet(),
+            positions = mapOf("d1" to 1L, "d2" to 2L, "d3" to 3L),
+        )
+        assertEquals(listOf("d1", "d2", "d3"), release)
+    }
+
+    @Test fun anItemStillResolvingHoldsBackEverythingBehindIt() {
+        val release = r.releaseInQueueOrder(
+            parkedIds = setOf("d1", "d3", "d4"),
+            resolvingIds = setOf("d2"),
+            positions = mapOf("d1" to 1L, "d2" to 2L, "d3" to 3L, "d4" to 4L),
+        )
+        assertEquals(listOf("d1"), release)
+    }
+
+    @Test fun nothingIsReleasedWhileTheHeadIsResolving() {
+        val release = r.releaseInQueueOrder(
+            parkedIds = setOf("d2"),
+            resolvingIds = setOf("d1"),
+            positions = mapOf("d1" to 1L, "d2" to 2L),
+        )
+        assertTrue(release.isEmpty())
+    }
+
+    @Test fun resolvingBehindTheParkedItemsDoesNotHoldThem() {
+        val release = r.releaseInQueueOrder(
+            parkedIds = setOf("d1", "d2"),
+            resolvingIds = setOf("d3"),
+            positions = mapOf("d1" to 1L, "d2" to 2L, "d3" to 3L),
+        )
+        assertEquals(listOf("d1", "d2"), release)
+    }
+
     // --- Adoption on launch and on return to the foreground --------------------------
 
     /** Relaunch with #3 and #4 really running: adopt them, do not start #1 and #2 on top. */
@@ -322,8 +417,9 @@ class IosBackgroundTransferReconcilerTest {
         suspended: Set<String> = emptySet(),
         finished: Set<String> = emptySet(),
         queue: List<IosBackgroundTransferReconciler.IosPreparedTransfer>,
+        maxConcurrent: Int = 2,
     ) = r.scheduleNextTransfers(
-        maxConcurrent = 2,
+        maxConcurrent = maxConcurrent,
         runningIds = running,
         claimedIds = claimed,
         suspendedIds = suspended,

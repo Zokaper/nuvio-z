@@ -6,6 +6,93 @@
 
 ---
 
+## Batch 5 — physical `.45` findings and the `.46` submitted window
+
+Physical `.45` on iPhone:
+- queue order is fixed: #1/#2 run first and #3/#4 wait;
+- **while the phone is locked, #3/#4 do not start when #1/#2 finish.** On unlock they show
+  `Starting` and then begin;
+- the Live Activity is stable but only moves while unlocked;
+- the Delete freeze no longer reproduces.
+
+### Why #3/#4 waited for the unlock: an iOS rule, not a race
+
+`.45` advanced the queue from `didCompleteWithError` → `advanceIfBackgrounded()`, **creating a new
+task while the app was in the background**. Apple's "Downloading files in the background" rules
+that out as a way to keep a queue moving:
+
+> "When your app starts a new download task while in the background, the task doesn't begin until
+> the delay expires. The delay increases each time the system resumes or relaunches your app… if
+> your app starts a single background download, gets resumed when the download completes, and then
+> starts a new download, it will greatly increase the delay. Instead, use … ideally just one
+> [session] … to start many download tasks at once."
+
+The same article says a transfer initiated in the background is treated as `isDiscretionary`, and
+that the delay resets only when the app returns to the foreground. `Starting` means Downloading with
+0 bytes: a task that was created and claimed in the background, then held by the system until the
+unlock. That is an inference from the label; the `.46` metrics log confirms or refutes it. The
+code-side contributors were:
+- the chaining pattern itself;
+- a stale-boundary refresh that cannot finish in the background, because nothing re-runs the
+  scheduler after it and the completion handler is already called.
+
+### The `.46` model
+
+The maintainer dropped the max-2 requirement on iOS (2026-09-24). The product requirement is that a
+queue built while Nuvio is open keeps progressing after the lock. So:
+
+- **One global queue, one submitted window.** While Nuvio is in the foreground, the repository
+  resolves and submits up to `IOS_SUBMISSION_WINDOW` (12) queued items as real, *resumed* background
+  tasks. It does this in queue order, whatever film, show or season each item belongs to. The system
+  owns them from then on and decides how many move bytes at once. The window is a bound on minted
+  links and task overhead, not a concurrency limit.
+  - `DownloadsPlatformDownloader.maxConcurrentTransfers` is 12 on iOS and 2 on Android.
+  - The repository's slot arithmetic (`startable`, `claimNativeTransfer`, `planAdoption`,
+    `scheduleNextTransfers`) is unchanged; it just takes the platform value.
+- **Created in queue order.** Sources in the window resolve in parallel. A resolved item is parked
+  until everything ahead of it has been submitted or has stopped resolving
+  (`IosBackgroundTransferReconciler.releaseInQueueOrder`). Task priority is re-ranked by queue
+  position on every change, as a **hint only**. Network start and completion order belong to the
+  system.
+- **No silence watchdog on iOS** (`ownsTransferLiveness`). A submitted task may legitimately wait
+  inside `nsurlsessiond`. The queue's 5-minute watchdog would have read that wait as a lost transfer
+  and charged it an attempt each time. The session's request and resource timeouts decide failure
+  instead.
+- **Force-quit is not an adoption case.** The system cancels every task, and on relaunch the
+  inventory holds none, so `planAdoption` requeues the whole window in place with no attempt charged.
+  The cancellations themselves arrive later as `NSURLErrorCancelled`, with
+  `NSURLErrorBackgroundTaskCancelledReasonKey` set and nobody listening. `.45` claimed those and
+  failed them, charging an attempt. `.46` ignores them, and hands a live system cancel back as a
+  system pause.
+- **Normal backgrounding and suspension are unchanged:** the tasks stay with the system and are
+  adopted on return, with capacity now the window.
+- **Beyond the window**, `.45`'s background chaining remains as **best effort**: iOS delays it, but
+  it costs nothing, and it keeps the FIFO stale boundary.
+- **Source freshness.** The 15-minute `SOURCE_URL_FRESHNESS_MS` is the resolver's cache lifetime,
+  not a measured link expiry. In this model it only gates *starting* a task, and the whole window
+  starts while fresh. It is unchanged; the metrics log records URL age and HTTP status per task so it
+  can be revisited on evidence.
+
+### Live Activity while locked
+
+A suspended app gets no `didWriteData`, so it has no progress to show. Its only execution time is the
+rate-limited completion wakes. A push-updated activity would need a server that knows device
+progress, and none does. **Continuous locked-screen progress is not honestly available.** While the
+app is backgrounded, the payload carries `backgroundStatusText` ("Downloading in background",
+localized). The widget shows that plus the queue summary in place of the percentage, bytes and bar,
+and the counts still change on completion wakes. The real progress returns in the foreground.
+
+### Debug metrics (`.46` only proves itself with these)
+
+The Debug build appends JSON lines to `Files > Nuvio Z Debug > nuvio_diagnostics/downloads-*.jsonl`:
+- events: `create` (app state, queue position, priority, URL age), `resume`, `suspend`, `cancel`,
+  `first_progress`, `finish` (HTTP status), `complete` (error code, system-cancel reason), `wake`,
+  `did_finish_events`, `inventory`, `boundary`, and app-state/lock transitions;
+- **`metrics`**, from `didFinishCollectingMetrics`: `requestStart`/`responseStart` are recorded by
+  the system even while the app is suspended. They are the proof of when bytes began while locked.
+
+No URLs or headers are logged.
+
 ## Batch 4 — physical `.44` findings and the `.45` queue-ownership fix
 
 Branch `claude/phase-8-ios-queue-ownership`, from `gemini/phase-8-ios-background-orchestration`
@@ -542,3 +629,33 @@ SideStore debug build `0.4.13-z1.45`. Installing over `.44` also exercises the u
 6. [ ] **Live Activity.** One activity with a steady primary item. The summary reads
    "2 downloading • N remaining" in the app language, and the activity ends when the queue
    empties.
+
+## 9. `.46` Physical Verification Checklist
+
+SideStore debug build `0.4.13-z1.46`. After each run, send
+`Files > On My iPhone > Nuvio Z Debug > nuvio_diagnostics/downloads-*.jsonl`.
+
+1. [ ] **Queue, then lock.** Queue a season plus a film and an episode of another show, 8–12 items
+   in total. Wait until every row shows Downloading/Starting, then lock for 30+ minutes.
+   - Expect: the log shows every `create` with `"app":"active"`, and `metrics.responseStart` for
+     them falls **before** the next `device_unlocked`;
+   - Expect: several items finished while locked, with no duplicate rows, and the list still in
+     queue order.
+2. [ ] **Beyond the window.** Queue 15+ items and stay locked until the early ones finish. Note from
+   the log whether items 13+ were created in the background, and when their `responseStart` came
+   relative to the unlock. This is best-effort chaining; either outcome is acceptable, but nothing
+   may duplicate or reorder.
+3. [ ] **Force-quit.** Swipe Nuvio away mid-download and reopen. Expect:
+   - `complete` lines with `systemCancel` set and `"listened":false`;
+   - every row back at its place and restarting;
+   - no attempt counts, retry badges or failure rows from the quit;
+   - no duplicates.
+4. [ ] **Plain background / overnight.** Leave it backgrounded without quitting, then return. Running
+   tasks are adopted (`inventory` shows them) and nothing restarts from zero.
+5. [ ] **Pause / resume / delete** on an active item, a waiting (0-byte) item and a completed
+   episode. Delete must not freeze; a deleted item logs `cancel`.
+6. [ ] **Old link.** Queue, stay unlocked for 20+ minutes, then lock. Note the `finish` HTTP status
+   and `urlAgeSec` for anything started by background chaining.
+7. [ ] **Live Activity.** On lock it shows "Downloading in background" plus e.g.
+   "5 downloading • 3 remaining", with no percentage or bytes. The counts change after completions,
+   the real percentage is back on unlock, and there is no flicker.

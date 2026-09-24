@@ -47,6 +47,10 @@ private data class TransferSample(val bytes: Long, val atEpochMs: Long)
 object DownloadsRepository {
     const val MAX_CONCURRENT_TRANSFERS = 2
 
+    /** [MAX_CONCURRENT_TRANSFERS] on Android; on iOS the submitted window, see the platform. */
+    internal val maxConcurrentTransfers: Int
+        get() = DownloadsPlatformDownloader.maxConcurrentTransfers
+
     /**
      * Progress used to rewrite the whole payload on every chunk. Disk writes are now
      * coalesced to this interval; state transitions still persist immediately.
@@ -585,7 +589,7 @@ object DownloadsRepository {
                     items = reordered,
                     promotedId = downloadId,
                     activeIds = activeHandles.keys.toSet(),
-                    maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+                    maxConcurrent = maxConcurrentTransfers,
                 )
             } else {
                 null
@@ -1257,7 +1261,7 @@ object DownloadsRepository {
             val startable = DownloadQueuePlanner.startable(
                 items = _uiState.value.items,
                 activeIds = activeHandles.keys.toSet(),
-                maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+                maxConcurrent = maxConcurrentTransfers,
                 nowEpochMs = now,
             )
 
@@ -1320,6 +1324,11 @@ object DownloadsRepository {
             items = _uiState.value.items,
             activeIds = activeHandles.keys.toSet(),
             nowEpochMs = now,
+            silenceTimeoutMs = if (DownloadsPlatformDownloader.ownsTransferLiveness) {
+                Long.MAX_VALUE
+            } else {
+                DownloadsTiming.queueWatchdogTimeoutMs
+            },
             recoverSystemPauses = !DownloadsPlatformDownloader.recoversSystemPauses,
         )
         if (lost.isEmpty()) return
@@ -1371,14 +1380,21 @@ object DownloadsRepository {
         activeHandles[item.id] = transfer
 
         if (item.sourceOrigin == null) {
-            startResolvedDownloadLocked(item, transfer)
+            if (submitsInQueueOrder) {
+                parkedStarts[item.id] = ParkedStart(item, transfer)
+                flushParkedStartsLocked()
+            } else {
+                startResolvedDownloadLocked(item, transfer)
+            }
             return
         }
 
+        if (submitsInQueueOrder) resolvingInOrder[item.id] = transfer
         DownloadDiagnostics.resolving(item)
         scope.launch {
             val refreshed = refreshSourceUrl(item)
             synchronized(stateLock) {
+                if (resolvingInOrder[item.id] === transfer) resolvingInOrder.remove(item.id)
                 // Cancelled, paused or reordered while the provider was answering. The
                 // generation is what says so: this download may well have been started
                 // again in the meantime, and that newer attempt owns the slot now.
@@ -1457,10 +1473,52 @@ object DownloadsRepository {
                         )
                     }
                 } else if (refreshed is RefreshedDownloadSource.Ready) {
-                    startResolvedDownloadLocked(refreshed.item, transfer)
+                    if (submitsInQueueOrder) {
+                        parkedStarts[item.id] = ParkedStart(refreshed.item, transfer)
+                    } else {
+                        startResolvedDownloadLocked(refreshed.item, transfer)
+                    }
                 }
             }
+            if (submitsInQueueOrder) synchronized(stateLock) { flushParkedStartsLocked() }
             scheduleQueueWake()
+        }
+    }
+
+    // --- Submission order (iOS) -------------------------------------------------
+    //
+    // iOS resolves a whole window of sources at once, and the answers come back in
+    // whatever order the providers reply. Handing each to the session as it arrives
+    // would create tasks out of queue order. A resolved item is parked instead, and
+    // released only once everything ahead of it in the queue has been submitted or
+    // has stopped resolving. Only the creation order is controlled here: which task
+    // the system actually runs first is its own decision.
+
+    private class ParkedStart(val item: DownloadItem, val transfer: ActiveTransfer)
+
+    private val submitsInQueueOrder: Boolean
+        get() = DownloadsPlatformDownloader.ownsTransferLiveness
+    private val resolvingInOrder = mutableMapOf<String, ActiveTransfer>()
+    private val parkedStarts = mutableMapOf<String, ParkedStart>()
+
+    private fun flushParkedStartsLocked() {
+        // An entry whose attempt has been replaced or dropped no longer holds its place.
+        resolvingInOrder.entries.removeAll { (id, transfer) -> activeHandles[id] !== transfer }
+        parkedStarts.entries.removeAll { (id, parked) -> activeHandles[id] !== parked.transfer }
+        if (parkedStarts.isEmpty()) return
+        val release = IosBackgroundTransferReconciler.releaseInQueueOrder(
+            parkedIds = parkedStarts.keys,
+            resolvingIds = resolvingInOrder.keys,
+            positions = _uiState.value.items.associate { it.id to it.queuePosition },
+        )
+        for (id in release) {
+            val parked = parkedStarts.remove(id) ?: continue
+            val current = _uiState.value.items.firstOrNull { it.id == id }
+            if (current == null || current.status != DownloadStatus.Downloading) {
+                activeHandles.remove(id)
+                continue
+            }
+            startResolvedDownloadLocked(parked.item, parked.transfer)
         }
     }
 
@@ -1673,7 +1731,7 @@ object DownloadsRepository {
         retryWakeJob = null
 
         val now = DownloadsClock.nowEpochMs()
-        val earliestRetry = if (activeHandles.size >= MAX_CONCURRENT_TRANSFERS) {
+        val earliestRetry = if (activeHandles.size >= maxConcurrentTransfers) {
             null
         } else {
             _uiState.value.items
@@ -1683,7 +1741,7 @@ object DownloadsRepository {
                 .minOrNull()
         }
         val earliestStallCheck = _uiState.value.items
-            .filter { it.status == DownloadStatus.Downloading }
+            .filter { it.status == DownloadStatus.Downloading && !DownloadsPlatformDownloader.ownsTransferLiveness }
             .minOfOrNull { it.updatedAtEpochMs + DownloadsTiming.queueWatchdogTimeoutMs }
         val earliest = listOfNotNull(earliestRetry, earliestStallCheck).minOrNull() ?: return
 
@@ -2134,7 +2192,7 @@ object DownloadsRepository {
             val plan = IosBackgroundTransferReconciler.planAdoption(
                 items = items.map { it.toAdoptionItem(claimed = it.id in activeHandles) },
                 live = live,
-                maxConcurrent = MAX_CONCURRENT_TRANSFERS,
+                maxConcurrent = maxConcurrentTransfers,
             )
             plan.cancel.forEach(DownloadsPlatformDownloader::cancelTransfer)
             plan.suspend.forEach(DownloadsPlatformDownloader::suspendTransfer)
@@ -2224,7 +2282,7 @@ object DownloadsRepository {
                 if (item.status == DownloadStatus.Paused && item.pauseReason != DownloadPauseReason.System) {
                     return NativeTransferClaim.Suspend
                 }
-                if (activeHandles.keys.count { it != downloadId } >= MAX_CONCURRENT_TRANSFERS) {
+                if (activeHandles.keys.count { it != downloadId } >= maxConcurrentTransfers) {
                     return NativeTransferClaim.Suspend
                 }
             }
@@ -2326,6 +2384,8 @@ object DownloadsRepository {
         knownTotalBytes = totalBytes,
         resumeEtag = resumeEtag,
         resumeLastModified = resumeLastModified,
+        queuePosition = queuePosition,
+        sourceUrlResolvedAtEpochMs = sourceUrlResolvedAtEpochMs,
     )
 
     private var isPreparingUpcomingSources = false

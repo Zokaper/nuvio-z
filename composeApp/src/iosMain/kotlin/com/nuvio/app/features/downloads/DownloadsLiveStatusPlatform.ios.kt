@@ -8,6 +8,7 @@ import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_batch_state_discovering
+import nuvio.composeapp.generated.resources.downloads_live_in_background
 import nuvio.composeapp.generated.resources.downloads_live_queue_active
 import nuvio.composeapp.generated.resources.downloads_live_queue_active_remaining
 import nuvio.composeapp.generated.resources.downloads_live_queue_remaining
@@ -48,6 +49,18 @@ internal actual object DownloadsLiveStatusPlatform {
         updatePayload()
     }
 
+    /**
+     * The app went to the background or came back.
+     *
+     * A suspended app hears nothing about progress - the session moves the bytes without
+     * it - so the percentage it last wrote would sit on the Lock Screen looking live. While
+     * backgrounded the activity says so instead, and the counts still change on the
+     * completion wakes the system does give it.
+     */
+    fun onAppBackgroundChanged() {
+        updatePayload()
+    }
+
     private fun writePayload(payload: DownloadsLiveStatusPayload?) {
         val encoded = payload?.let { json.encodeToString(it) }
         if (encoded == lastPayload) return
@@ -83,6 +96,11 @@ internal actual object DownloadsLiveStatusPlatform {
         val primaryItem = presentation?.candidate?.id?.let(candidatesById::get)
         lastSelectedDownloadId = primaryItem?.id ?: activeBatch?.id
 
+        val backgroundText = if (DownloadsPlatformDownloader.schedulingDeferredToPlatform()) {
+            runBlocking { getString(Res.string.downloads_live_in_background) }
+        } else {
+            null
+        }
         val payload = when {
             primaryItem != null -> {
                 DownloadsLiveStatusPayload(
@@ -96,6 +114,7 @@ internal actual object DownloadsLiveStatusPlatform {
                     activeCount = presentation.activeCount,
                     remainingCount = presentation.remainingCount,
                     queueSummaryText = queueSummaryText(presentation.activeCount, presentation.remainingCount),
+                    backgroundStatusText = backgroundText,
                 )
             }
             activeBatch != null -> {
@@ -174,4 +193,6 @@ internal data class DownloadsLiveStatusPayload(
     val activeCount: Int = 1,
     val remainingCount: Int = 0,
     val queueSummaryText: String? = null,
+    /** Set while the app is backgrounded: shown instead of progress it cannot see. */
+    val backgroundStatusText: String? = null,
 )

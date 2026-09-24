@@ -77,7 +77,8 @@ final class DownloadsLiveActivityManager {
             status: payload.status,
             progressPercent: payload.progressPercent,
             transferredText: transferredText(payload),
-            queueSummaryText: payload.queueSummaryText
+            queueSummaryText: payload.queueSummaryText,
+            backgroundStatusText: payload.backgroundStatusText
         )
 
         // Stable session identity: update existing activity if present, otherwise request one
@@ -138,6 +139,8 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let progressPercent: Int
         let transferredText: String
         let queueSummaryText: String?
+        /// Set while the app is backgrounded and cannot see progress; shown in place of it.
+        let backgroundStatusText: String?
     }
 
     let sessionKey: String
@@ -155,4 +158,5 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let activeCount: Int?
     let remainingCount: Int?
     let queueSummaryText: String?
+    let backgroundStatusText: String?
 }

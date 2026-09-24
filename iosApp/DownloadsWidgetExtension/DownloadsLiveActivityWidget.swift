@@ -10,6 +10,8 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let progressPercent: Int
         let transferredText: String
         let queueSummaryText: String?
+        /// Set while the app is backgrounded and cannot see progress; shown in place of it.
+        let backgroundStatusText: String?
     }
 
     let sessionKey: String
@@ -33,9 +35,11 @@ struct DownloadsLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(progressLabel(context.state.progressPercent, status: context.state.status))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
+                    if context.state.backgroundStatusText == nil {
+                        Text(progressLabel(context.state.progressPercent, status: context.state.status))
+                            .font(.title3.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -56,7 +60,12 @@ struct DownloadsLiveActivityWidget: Widget {
                                 .foregroundStyle(appBlue)
                                 .lineLimit(1)
                         }
-                        if context.state.progressPercent >= 0 {
+                        if let background = context.state.backgroundStatusText {
+                            Text(background)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.86))
+                                .lineLimit(1)
+                        } else if context.state.progressPercent >= 0 {
                             ProgressView(value: normalizedProgress(context.state.progressPercent))
                                 .progressViewStyle(.linear)
                                 .tint(appBlue)
@@ -66,7 +75,7 @@ struct DownloadsLiveActivityWidget: Widget {
                                 .tint(appBlue)
                         }
                         HStack {
-                            Text(context.state.transferredText)
+                            Text(context.state.backgroundStatusText == nil ? context.state.transferredText : "")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.white.opacity(0.86))
                             Spacer(minLength: 6)
@@ -81,7 +90,11 @@ struct DownloadsLiveActivityWidget: Widget {
             } compactLeading: {
                 AccentGlyphView()
             } compactTrailing: {
-                if context.state.progressPercent >= 0 {
+                if context.state.backgroundStatusText != nil {
+                    Image(systemName: "arrow.down")
+                        .font(.caption2.bold())
+                        .foregroundStyle(appBlue)
+                } else if context.state.progressPercent >= 0 {
                     Text(progressLabel(context.state.progressPercent, status: context.state.status))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(appBlue)
@@ -166,24 +179,34 @@ private struct DownloadActivityLockScreenView: View {
                         }
                     }
                     Spacer(minLength: 10)
-                    Text(progressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.top, 1)
+                    if context.state.backgroundStatusText == nil {
+                        Text(progressLabel(context.state.progressPercent))
+                            .font(.title3.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.top, 1)
+                    }
                 }
 
-                ProgressView(value: normalizedProgress(context.state.progressPercent))
-                    .progressViewStyle(.linear)
-                    .tint(.white)
-
-                HStack {
-                    Label(statusLabel(context.state.status), systemImage: "arrow.down")
+                // While the app is backgrounded it cannot see progress, so it shows none
+                // rather than a frozen figure that looks live.
+                if let background = context.state.backgroundStatusText {
+                    Label(background, systemImage: "arrow.down")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.86))
-                    Spacer()
-                    Text(context.state.transferredText)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.86))
+                } else {
+                    ProgressView(value: normalizedProgress(context.state.progressPercent))
+                        .progressViewStyle(.linear)
+                        .tint(.white)
+
+                    HStack {
+                        Label(statusLabel(context.state.status), systemImage: "arrow.down")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.86))
+                        Spacer()
+                        Text(context.state.transferredText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.86))
+                    }
                 }
             }
             .padding(.horizontal, 16)

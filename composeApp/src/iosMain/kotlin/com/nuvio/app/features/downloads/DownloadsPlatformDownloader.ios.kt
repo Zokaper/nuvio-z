@@ -26,7 +26,9 @@ import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
 import platform.Foundation.NSURLSessionTaskStateRunning
+import platform.Foundation.NSURLSessionTaskMetrics
 import platform.Foundation.NSURLSessionTaskStateSuspended
+import platform.Foundation.NSURLSessionTaskTransactionMetrics
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
@@ -52,6 +54,35 @@ private const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
  */
 private const val NATIVE_PROGRESS_INTERVAL_MS = 1_000L
 
+/**
+ * How many queued downloads are resolved and handed to the background session while Nuvio
+ * is in the foreground.
+ *
+ * This is a submission window, not a concurrency limit: the system decides how many of
+ * these actually move bytes at once. It exists because a task created while the app is
+ * suspended is discretionary and rate-limited - each background wake grows the delay, and
+ * only returning to the foreground resets it - so whatever the queue has not submitted
+ * before the phone locks mostly waits for the next unlock. Apple's guidance is to start
+ * many tasks at once in one session.
+ *
+ * The window is one global queue: films, episodes and several shows share it in queue
+ * order. Twelve covers a normal season, or a mixed queue, in one hand-off. The bound is
+ * set by source links rather than by transfers: every item in the window mints a debrid
+ * link now, and a link minted now is only certain to work if its request starts soon,
+ * which the system does not promise for a task far down a long list.
+ */
+private const val IOS_SUBMISSION_WINDOW = 12
+
+/** Task priority hints, highest for the head of the queue. Hints only: nothing relies on them. */
+private const val HEAD_TASK_PRIORITY = 0.9f
+private const val TASK_PRIORITY_STEP = 0.05f
+private const val MIN_TASK_PRIORITY = 0.1f
+
+/** `NSURLErrorCancelled`. */
+private const val NSURL_ERROR_CANCELLED = -999L
+/** `NSURLErrorBackgroundTaskCancelledReasonKey`: why the system, not Nuvio, cancelled a task. */
+private const val BACKGROUND_CANCEL_REASON_KEY = "NSURLErrorBackgroundTaskCancelledReasonKey"
+
 /** `.44` kept a second copy of the queue and an event journal under these keys. Both are retired. */
 private val RETIRED_DEFAULTS_KEYS = listOf(
     "nuvio.downloads.ios_native_queue.v1",
@@ -62,6 +93,7 @@ private val RETIRED_DEFAULTS_KEYS = listOf(
 private val backgroundSessionCompletionHandlers = mutableMapOf<String, () -> Unit>()
 
 fun handleDownloadsBackgroundEvents(identifier: String, completionHandler: () -> Unit) {
+    DownloadsProbeLog.event("wake")
     backgroundSessionCompletionHandlers[identifier] = completionHandler
     backgroundDownloadManager.setBackgrounded(true)
     backgroundDownloadManager.activate(identifier)
@@ -77,6 +109,10 @@ internal actual object DownloadsPlatformDownloader {
     // transfers alone and turned the foreground resume hook into a no-op. A system-paused
     // item therefore has no owner here, and the queue has to take it back itself.
     actual val recoversSystemPauses: Boolean = false
+    actual val maxConcurrentTransfers: Int = IOS_SUBMISSION_WINDOW
+    // A submitted task may wait inside the system for as long as it likes; the session's
+    // own request and resource timeouts decide when one has really failed.
+    actual val ownsTransferLiveness: Boolean = true
     actual fun freeStorageBytes(): Long = -1L
 
     actual fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle =
@@ -155,6 +191,7 @@ private class NativeTaskContext(
     var completed: Boolean = false,
     var lastProgressBytes: Long = -1L,
     var lastProgressAtEpochMs: Long = 0L,
+    var reportedFirstBytes: Boolean = false,
 )
 
 private val backgroundDownloadManager by lazy { IosBackgroundDownloadManager() }
@@ -190,6 +227,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private val finishedIds = mutableSetOf<String>()
     /** Stale-source boundaries already reported during this background stay. */
     private val refreshReported = mutableSetOf<String>()
+    /** Queue positions of the tasks held, for the priority hint. Unknown after a relaunch until adopted. */
+    private val positionsById = mutableMapOf<String, Long>()
     private var inventoryLoaded = false
     private val awaitingInventory = mutableListOf<() -> Unit>()
 
@@ -242,7 +281,9 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     }
 
     fun setBackgrounded(backgrounded: Boolean) {
+        val changed = isBackgrounded != backgrounded
         isBackgrounded = backgrounded
+        if (changed) DownloadsLiveStatusPlatform.onAppBackgroundChanged()
         if (backgrounded) whenReady { advanceIfBackgrounded() }
     }
 
@@ -257,6 +298,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         if (!isBackgrounded) return
         DownloadsRepository.holdSchedulingForPlatformInventory()
         isBackgrounded = false
+        DownloadsLiveStatusPlatform.onAppBackgroundChanged()
         delegateQueue.addOperationWithBlock { refreshReported.clear() }
         DownloadsRepository.requestPlatformInventory()
     }
@@ -297,6 +339,12 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             drop.cancel()
         }
         inventoryLoaded = true
+        DownloadsProbeLog.event(
+            "inventory",
+            "tasks" to tasks.size,
+            "running" to tasksById.values.count { it.state == NSURLSessionTaskStateRunning },
+            "suspended" to tasksById.values.count { it.state == NSURLSessionTaskStateSuspended },
+        )
         val pending = awaitingInventory.toList()
         awaitingInventory.clear()
         pending.forEach { it() }
@@ -320,9 +368,12 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val handle = IosBackgroundTaskHandle(request.downloadId)
         val metadata = NativeTaskMetadata(request.downloadId, request.destinationFileName, request.knownTotalBytes)
         whenReady {
+            request.queuePosition?.let { positionsById[request.downloadId] = it }
             tasksById[request.downloadId]?.let { existing ->
                 attach(existing, metadata, listener)
                 existing.resume()
+                rankTaskPriorities()
+                DownloadsProbeLog.event("resume", "id" to request.downloadId, "task" to existing.taskIdentifier.toLong())
                 return@whenReady
             }
 
@@ -351,6 +402,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             val task = createTask(metadata, buildNativeRequest(url, request.sourceHeaders, request.allowMeteredNetwork))
             attach(task, metadata, listener)
             task.resume()
+            logCreate(task, request.downloadId, request.queuePosition, request.sourceUrlResolvedAtEpochMs)
         }
         return handle
     }
@@ -360,7 +412,36 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             taskDescription = metadata.encode()
         }
         tasksById[metadata.downloadId] = task
+        rankTaskPriorities()
         return task
+    }
+
+    /**
+     * Re-ranks every held task's priority by queue position.
+     *
+     * Recomputed over the whole set whenever it changes, so the hint follows the queue
+     * even for tasks adopted after a relaunch. The system may still run them in any
+     * order it likes.
+     */
+    private fun rankTaskPriorities() {
+        tasksById.keys
+            .sortedWith(compareBy<String> { positionsById[it] ?: Long.MAX_VALUE }.thenBy { it })
+            .forEachIndexed { rank, downloadId ->
+                tasksById[downloadId]?.priority =
+                    (HEAD_TASK_PRIORITY - TASK_PRIORITY_STEP * rank).coerceAtLeast(MIN_TASK_PRIORITY)
+            }
+    }
+
+    private fun logCreate(task: NSURLSessionDownloadTask, downloadId: String, position: Long?, resolvedAt: Long?) {
+        DownloadsProbeLog.event(
+            "create",
+            "id" to downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "position" to position,
+            "priority" to task.priority,
+            "urlAgeSec" to resolvedAt?.let { (DownloadsClock.nowEpochMs() - it) / 1000L },
+            "held" to tasksById.size,
+        )
     }
 
     private fun attach(
@@ -399,7 +480,11 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     }
 
     private fun cancelTaskLocked(downloadId: String, task: NSURLSessionDownloadTask) {
-        if (tasksById[downloadId] === task) tasksById.remove(downloadId)
+        DownloadsProbeLog.event("cancel", "id" to downloadId, "task" to task.taskIdentifier.toLong())
+        if (tasksById[downloadId] === task) {
+            tasksById.remove(downloadId)
+            positionsById.remove(downloadId)
+        }
         cancelledTaskIds += task.taskIdentifier
         task.cancel()
     }
@@ -408,6 +493,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         whenReady {
             val task = tasksById[downloadId] ?: return@whenReady
             task.suspend()
+            DownloadsProbeLog.event("suspend", "id" to downloadId, "task" to task.taskIdentifier.toLong(), "notify" to notify)
             if (notify) {
                 contexts[task.taskIdentifier]?.listener?.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
             }
@@ -443,7 +529,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val running = tasksById.filterValues { it.state == NSURLSessionTaskStateRunning }.keys
         val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys
         val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
-            maxConcurrent = DownloadsRepository.MAX_CONCURRENT_TRANSFERS,
+            maxConcurrent = DownloadsRepository.maxConcurrentTransfers,
             runningIds = running,
             claimedIds = snapshot.claimedIds,
             suspendedIds = suspended,
@@ -458,7 +544,9 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             val handle = IosBackgroundTaskHandle(candidate.downloadId)
             val claim = DownloadsRepository.claimNativeTransfer(candidate.downloadId, handle, finishing = false)
             if (claim !is NativeTransferClaim.Adopted) return@forEach
-            val task = tasksById[candidate.downloadId]?.takeIf { resume }
+            positionsById[candidate.downloadId] = candidate.queuePosition
+            val existing = tasksById[candidate.downloadId]?.takeIf { resume }
+            val task = existing
                 ?: createTask(
                     metadata,
                     buildNativeRequest(
@@ -469,8 +557,15 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                 )
             attach(task, metadata, claim.listener)
             task.resume()
+            if (existing == null) {
+                logCreate(task, candidate.downloadId, candidate.queuePosition, candidate.sourceUrlResolvedAtEpochMs)
+            } else {
+                rankTaskPriorities()
+                DownloadsProbeLog.event("resume", "id" to candidate.downloadId, "task" to task.taskIdentifier.toLong())
+            }
         }
         plan.refreshBoundary?.let { boundary ->
+            DownloadsProbeLog.event("boundary", "id" to boundary.downloadId)
             if (refreshReported.add(boundary.downloadId)) {
                 DownloadsRepository.onNativeSourceRefreshNeeded(boundary.downloadId)
             }
@@ -489,6 +584,15 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             ?: claim(downloadTask, metadata, finishing = false)
             ?: return
         val total = totalBytesExpectedToWrite.takeIf { it > 0L } ?: metadata.knownTotalBytes
+        if (!context.reportedFirstBytes) {
+            context.reportedFirstBytes = true
+            DownloadsProbeLog.event(
+                "first_progress",
+                "id" to metadata.downloadId,
+                "task" to downloadTask.taskIdentifier.toLong(),
+                "bytes" to totalBytesWritten,
+            )
+        }
         val now = DownloadsClock.nowEpochMs()
         if (now - context.lastProgressAtEpochMs >= NATIVE_PROGRESS_INTERVAL_MS ||
             (total != null && totalBytesWritten >= total)
@@ -510,6 +614,13 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             ?: return
         val response = downloadTask.response as? NSHTTPURLResponse
         val statusCode = response?.statusCode?.toInt() ?: 200
+        DownloadsProbeLog.event(
+            "finish",
+            "id" to metadata.downloadId,
+            "task" to downloadTask.taskIdentifier.toLong(),
+            "http" to statusCode,
+            "bytes" to downloadTask.countOfBytesReceived,
+        )
         if (statusCode !in 200..299) {
             context.fail(failureReasonForHttpStatus(statusCode), runBlocking {
                 getString(Res.string.network_request_failed_http, statusCode)
@@ -567,6 +678,35 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         var context = contexts.remove(task.taskIdentifier)
         if (downloadTask != null && tasksById[metadata.downloadId] === downloadTask) {
             tasksById.remove(metadata.downloadId)
+            positionsById.remove(metadata.downloadId)
+        }
+        val systemCancelReason = didCompleteWithError
+            ?.takeIf { !cancelled && it.domain == "NSURLErrorDomain" && it.code == NSURL_ERROR_CANCELLED }
+            ?.let { (it.userInfo[BACKGROUND_CANCEL_REASON_KEY] as? Number)?.toInt() ?: -1 }
+        DownloadsProbeLog.event(
+            "complete",
+            "id" to metadata.downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "error" to didCompleteWithError?.code,
+            "ours" to cancelled,
+            "systemCancel" to systemCancelReason,
+            "listened" to (context != null),
+        )
+        if (systemCancelReason != null) {
+            // The system cancelled this task, most often because the user force-quit
+            // Nuvio; the reason is delivered on the next launch. Nothing failed. A task
+            // from before the relaunch has nobody listening, and the inventory has
+            // already put its download back in the queue at the same place, so claiming
+            // it here would charge an attempt for nothing - or duplicate a restart the
+            // queue has made since. A live one is handed back as a system pause, which
+            // the queue takes back itself.
+            context?.takeIf { !it.completed }?.let {
+                it.completed = true
+                it.listener.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
+            }
+            finishedIds.remove(metadata.downloadId)
+            advanceIfBackgrounded()
+            return
         }
         if (didCompleteWithError != null && !cancelled && context?.completed != true) {
             if (context == null && downloadTask != null) {
@@ -583,7 +723,32 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         advanceIfBackgrounded()
     }
 
+    override fun URLSession(
+        session: NSURLSession,
+        task: NSURLSessionTask,
+        didFinishCollectingMetrics: NSURLSessionTaskMetrics,
+    ) {
+        val metadata = NativeTaskMetadata.decode(task.taskDescription)
+        val transactions = didFinishCollectingMetrics.transactionMetrics
+            .filterIsInstance<NSURLSessionTaskTransactionMetrics>()
+        val transaction = transactions.lastOrNull()
+        val interval = didFinishCollectingMetrics.taskInterval
+        DownloadsProbeLog.event(
+            "metrics",
+            "id" to metadata?.downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "taskStart" to DownloadsProbeLog.epochMs(interval.startDate),
+            "taskSeconds" to interval.duration,
+            "transactions" to transactions.size,
+            "fetchStart" to DownloadsProbeLog.epochMs(transaction?.fetchStartDate),
+            "requestStart" to DownloadsProbeLog.epochMs(transaction?.requestStartDate),
+            "responseStart" to DownloadsProbeLog.epochMs(transaction?.responseStartDate),
+            "responseEnd" to DownloadsProbeLog.epochMs(transaction?.responseEndDate),
+        )
+    }
+
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
+        DownloadsProbeLog.event("did_finish_events")
         val identifier = session.configuration.identifier ?: return
         dispatch_async(dispatch_get_main_queue()) {
             backgroundSessionCompletionHandlers.remove(identifier)?.invoke()

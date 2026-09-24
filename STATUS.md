@@ -1,6 +1,66 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
+
+## Phase 8 Batch 5 — iOS submitted window (`.46`) (2026-09-24)
+
+Branch `claude/phase-8-ios-queue-ownership`, continuing from `.45`. **Not published**: the maintainer
+reviews the design before a release. The debug counter is already at 46.
+
+Physical `.45` findings:
+- queue order is fixed;
+- the Delete freeze is gone;
+- while the phone is locked, #3/#4 never start when #1/#2 finish. They show `Starting` on unlock;
+- the Live Activity only moves while unlocked.
+
+Cause: `.45` created each next task from a background completion wake. Apple documents that such a
+task is discretionary and rate-limited, with a delay that grows per wake and resets only in the
+foreground. The quote and the analysis are in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch 5".
+
+Requirement change from the maintainer: **no concurrency cap on iOS**. A queue built while Nuvio is
+open must keep moving after the lock. Order is kept where URLSession allows it.
+
+Code changes:
+- **`expect` surface:** new `maxConcurrentTransfers` (iOS 12, Android 2) and `ownsTransferLiveness`
+  (iOS true). `DownloadPlatformRequest` gains `queuePosition` and `sourceUrlResolvedAtEpochMs`, both
+  defaulted. **NuvioZDesktop needs `maxConcurrentTransfers = 2` and `ownsTransferLiveness = false`
+  at the next merge**, on top of the four `.45` actuals already pending.
+- **`DownloadsRepository.kt`:**
+  - every `MAX_CONCURRENT_TRANSFERS` use now reads the platform value;
+  - with `ownsTransferLiveness` set, the silence watchdog and the stall wake are off;
+  - resolved starts are parked and released in queue order when `ownsTransferLiveness` is set
+    (`releaseInQueueOrder`, pure and tested).
+- **`DownloadsPlatformDownloader.ios.kt`:**
+  - window constant, with the rationale in its KDoc;
+  - task priority is re-ranked by queue position, as a hint only;
+  - a system cancellation (a force-quit) is no longer claimed and failed. A live one becomes a
+    system pause;
+  - `didFinishCollectingMetrics` is logged;
+  - the Live Activity is refreshed on background/active transitions.
+- **`DownloadsProbeLog.ios.kt` (new):** Debug-only JSONL in `nuvio_diagnostics/downloads-*.jsonl`,
+  enabled from `OrientationLockCoordinator.swift` under `#if DEBUG`. No URLs or headers are logged.
+- **Live Activity:** the payload and `ContentState` gain an optional `backgroundStatusText` (new Z
+  string `downloads_live_in_background`). While it is set, the widget hides the percentage, bytes and
+  bar and shows it with the queue summary.
+
+Not changed:
+- `SOURCE_URL_FRESHNESS_MS` (15 min). It is the resolver's cache TTL, and the metrics will show real
+  link ages;
+- best-effort background chaining beyond the window;
+- Android behaviour.
+
+Not done:
+- resume data from a force-quit cancellation is not used. The restart is from zero, in place.
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **850 / 850** (9 new in `IosBackgroundTransferReconcilerTest`);
+- Android host suite **2,355 / 2,355**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
+
+The iOS source set cannot compile on Windows, so **iOS CI is the gate** for the Kotlin/Native and
+Swift changes. Nothing here is physical verification.
+
+Next: iOS CI, then the maintainer reviews, publishes `.46`, and runs the audit doc's section 9
+checklist, sending the `downloads-*.jsonl` files.
 
 ## Phase 8 Batch 4 — iOS queue ownership (`.45`) (2026-09-23)
 
