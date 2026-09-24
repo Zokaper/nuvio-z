@@ -60,8 +60,16 @@ The iOS source set cannot compile on Windows, so iOS CI is the gate. On `bd28fcd
 (run `35990649203`) and `ios-build.yml` passed (run `35990649250`: device and simulator framework
 links and the unsigned Xcode build). Nothing here is physical verification.
 
-Next: iOS CI, then the maintainer reviews, publishes `.46`, and runs the audit doc's section 9
-checklist, sending the `downloads-*.jsonl` files.
+Published [`debug-v0.4.13-z1.46`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.46)
+from `5bfff9597` (Debug release run `35995592422`), a prerelease:
+- IPA `Nuvio-Z-iOS-0.4.13-z1-46-debug-unsigned.ipa`, unsigned. Bundle `com.nuvio.app.z.debug`,
+  version `0.4.13-z1.46` (build 46), `DownloadsWidgetExtension.appex` at the same version;
+- IPA sha256 `d7533e33…87b8261`; APK sha256 `1e5e9945…8f20f834`. Both match `SHA256SUMS-Debug.txt`;
+- the canonical `source-debug.json` on `main` lists `.46` first (`1aaaf47da`, feed file only).
+  The stable `source.json` is untouched.
+
+Next: the physical `.46` pass (audit doc section 9). Return the `downloads-*.jsonl` files. **No
+architecture changes until those metrics are back.**
 
 ## Phase 8 Batch 4 — iOS queue ownership (`.45`) (2026-09-23)
 
