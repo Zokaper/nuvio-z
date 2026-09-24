@@ -131,6 +131,8 @@ open class MainActivity : AppCompatActivity() {
         ResumePromptStorage.initialize(applicationContext)
         ContinueWatchingEnrichmentStorage.initialize(applicationContext)
         EpisodeReleaseNotificationsStorage.initialize(applicationContext)
+        // Never initialized before Phase 9: the Social on/off answer was not persisted on Android.
+        com.nuvio.app.features.social.SocialFeaturePreferencesStorage.initialize(applicationContext)
         WatchProgressStorage.initialize(applicationContext)
         StreamBadgeSettingsStorage.initialize(applicationContext)
         BingeGroupCacheStorage.initialize(applicationContext)

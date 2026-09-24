@@ -70,6 +70,7 @@ internal object LocalAccountDataCleaner {
         ContinueWatchingPreferencesRepository.clearLocalState()
         EpisodeReleaseNotificationsRepository.clearLocalState()
         SocialFeaturePreferencesRepository.clearLocalState()
+        com.nuvio.app.features.downloads.DownloadPolicyRepository.clearLocalState()
         // Local clear now; the server cancel is best effort, since the session may already be gone.
         OutgoingJoinRequestStore.onAccountWipe()
         CollectionMobileSettingsRepository.clearLocalState()

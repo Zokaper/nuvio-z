@@ -16,6 +16,8 @@ import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
+import com.nuvio.app.features.downloads.DownloadPolicyRepository
+import com.nuvio.app.features.downloads.DownloadPolicySyncPayload
 import com.nuvio.app.features.player.PlayerSettingsStorage
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -197,6 +199,7 @@ object ProfileSettingsSync {
             TraktCommentsSettings.enabled.map { "trakt_comments" },
             EpisodeReleaseNotificationsRepository.uiState.map { "episode_release_alerts" },
             SocialFeaturePreferencesRepository.uiState.map { "social_features" },
+            DownloadPolicyRepository.policy.map { "download_policy" },
         )
 
         observeJob = scope.launch {
@@ -263,6 +266,7 @@ object ProfileSettingsSync {
                 socialFeatures = SocialFeaturesPayload(
                     socialFeaturesEnabled = SocialFeaturePreferencesRepository.exportStoredPreference(),
                 ),
+                downloadPolicy = DownloadPolicyRepository.exportForSync(),
             ),
         )
     }
@@ -337,6 +341,7 @@ object ProfileSettingsSync {
 
         EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
         SocialFeaturePreferencesRepository.applyFromSync(blob.features.socialFeatures.socialFeaturesEnabled)
+        DownloadPolicyRepository.applyFromSync(blob.features.downloadPolicy)
     }
 
     private fun ensureRepositoriesLoaded() {
@@ -355,6 +360,7 @@ object ProfileSettingsSync {
         TraktCommentsSettings.ensureLoaded()
         EpisodeReleaseNotificationsRepository.ensureLoaded()
         SocialFeaturePreferencesRepository.ensureLoaded()
+        DownloadPolicyRepository.ensureLoaded()
     }
 
     private fun buildSignature(blob: MobileProfileSettingsBlob): String =
@@ -380,6 +386,7 @@ object ProfileSettingsSync {
         "trakt_comments=${TraktCommentsSettings.enabled.value}",
         "episode_release_alerts=${EpisodeReleaseNotificationsRepository.uiState.value.isEnabled}",
         "social_features=${SocialFeaturePreferencesRepository.uiState.value.storedPreference}",
+        "download_policy=${DownloadPolicyRepository.policy.value}",
     ).joinToString(separator = "||")
 
 }
@@ -407,6 +414,8 @@ private data class MobileProfileSettingsFeatures(
     @SerialName("trakt_comments_settings") val traktCommentsSettings: JsonObject = JsonObject(emptyMap()),
     @SerialName("notifications_settings") val notificationsSettings: NotificationsSettingsPayload = NotificationsSettingsPayload(),
     @SerialName("social_features") val socialFeatures: SocialFeaturesPayload = SocialFeaturesPayload(),
+    /** Download Mode and Download Preferences (Phase 9); every field nullable, see the payload. */
+    @SerialName("download_policy") val downloadPolicy: DownloadPolicySyncPayload = DownloadPolicySyncPayload(),
 )
 
 @Serializable

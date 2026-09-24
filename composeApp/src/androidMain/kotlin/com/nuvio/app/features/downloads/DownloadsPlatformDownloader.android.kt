@@ -68,6 +68,7 @@ internal actual object DownloadsPlatformDownloader {
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
+        DownloadPolicyStorage.initialize(context)
         DownloadsAndroidLifecycle.initialize(context)
     }
 
