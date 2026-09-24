@@ -2,6 +2,38 @@
 
 Last updated: 2026-09-24
 
+## Phase 8 Batch 6 — `.47` follow-ups to physical `.46` (2026-09-24)
+
+Physical `.46`: **locked-screen downloading works. Do not regress the submitted window.**
+
+Findings and changes (full analysis: `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch 6"):
+
+1. **The Live Activity went stale while locked, and it named one arbitrary episode.** While the app is
+   backgrounded with an active queue, the payload is now a fixed, queue-level "Nuvio Z Downloads /
+   Downloading in background", with no title, percentage, bytes or counts. The widget shows only
+   that. The rich view returns in the foreground. Files: `DownloadsLiveStatusPlatform.ios.kt`,
+   `DownloadsLiveActivityWidget.swift`, and two new Z strings.
+2. **Six simultaneous transfers:** no code change. iOS offers no reliable native concurrency cap
+   for submitted background tasks; the reasoning is in the audit doc. The window (12) is the only
+   honest lever, and it is kept at 12 for locked-screen reliability.
+3. **Needs your attention was a dead end.** The review ▶ bulk-approved uncached debrid sources,
+   which `DirectDebridResolver` rejects from the addon's `NOT_CACHED` snapshot forever ("Waiting
+   for provider 1/5", then failure). Fixes:
+   - `DownloadBatchEntry.needsManualSource` / `canBeApproved`;
+   - `queueBatch` approves only what an approval can help;
+   - the review card sends uncached, skipped and failed entries to **Choose source manually**,
+     with a localized summary;
+   - a queued known-uncached download fails at once with a clear message;
+   - a failed batch download offers **Choose source manually** under its row.
+
+   Scoped to the Z download/batch code. `DirectDebridResolver` is unchanged.
+
+Debug counter 47. **Not published.**
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **850 / 850**;
+- Android host suite **2,362 / 2,362** (7 new in `DownloadBatchAttentionTest`); `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. iOS CI is the gate for the Swift and iOS Kotlin changes.
+
 ## Phase 8 Batch 5 — iOS submitted window (`.46`) (2026-09-24)
 
 Branch `claude/phase-8-ios-queue-ownership`, continuing from `.45`. **Not published**: the maintainer

@@ -2871,4 +2871,8 @@
     <string name="downloads_live_queue_remaining">%1$d remaining</string>
     <string name="downloads_live_queue_active_remaining">%1$d downloading • %2$d remaining</string>
     <string name="downloads_live_in_background">Downloading in background</string>
+    <string name="downloads_live_background_title">Nuvio Z Downloads</string>
+    <string name="downloads_review_summary">%1$s • %2$d need a source • %3$d to approve</string>
+    <string name="downloads_review_not_cached">%1$s: not cached on your debrid service</string>
+    <string name="downloads_error_not_cached_choose_source">Not cached on your debrid service. Choose another source.</string>
 </resources>

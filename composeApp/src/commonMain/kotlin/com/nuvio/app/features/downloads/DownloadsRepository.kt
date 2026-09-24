@@ -809,7 +809,7 @@ object DownloadsRepository {
             val canQueue =
                 (entry.state == DownloadBatchEntryState.READY && selection is SourceSelectionResult.Selected) ||
                     (
-                        entry.state == DownloadBatchEntryState.APPROVAL_NEEDED &&
+                        entry.canBeApproved &&
                             approveUnknownSizes &&
                             selection is SourceSelectionResult.ApprovalNeeded
                         )
@@ -1414,14 +1414,24 @@ object DownloadsRepository {
                         is DownloadSourceResolution.SourceChanged -> DownloadFailureReason.SourceChanged
                         else -> DownloadFailureReason.SourceExpired
                     }
+                    // Waiting cannot help a source the addon reported as uncached: the
+                    // resolver answers from that snapshot without asking the service, so
+                    // every retry gets the same answer. Say what is needed instead.
+                    val uncachedForGood = resolution is DownloadSourceResolution.NotReady &&
+                        current.sourceOrigin.isKnownUncached()
                     val message = when (resolution) {
-                        is DownloadSourceResolution.NotReady -> resolution.message
+                        is DownloadSourceResolution.NotReady -> if (uncachedForGood) {
+                            runBlocking { getString(Res.string.downloads_error_not_cached_choose_source) }
+                        } else {
+                            resolution.message
+                        }
                         is DownloadSourceResolution.RetryableFailure -> resolution.message
                         is DownloadSourceResolution.FatalFailure -> resolution.message
                         is DownloadSourceResolution.SourceChanged -> resolution.message
                         is DownloadSourceResolution.Ready -> error("ready source cannot fail refresh")
                     }
-                    val retryable = resolution !is DownloadSourceResolution.FatalFailure &&
+                    val retryable = !uncachedForGood &&
+                        resolution !is DownloadSourceResolution.FatalFailure &&
                         resolution !is DownloadSourceResolution.SourceChanged &&
                         shouldRetry(reason, attempt, current.canReresolveSource)
                     val sourceChanged = resolution is DownloadSourceResolution.SourceChanged

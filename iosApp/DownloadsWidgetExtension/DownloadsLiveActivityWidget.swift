@@ -29,7 +29,7 @@ struct DownloadsLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(statusLabel(context.state.status))
+                    Text(context.state.backgroundStatusText == nil ? statusLabel(context.state.status) : "")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.88))
                         .lineLimit(1)
@@ -60,28 +60,27 @@ struct DownloadsLiveActivityWidget: Widget {
                                 .foregroundStyle(appBlue)
                                 .lineLimit(1)
                         }
-                        if let background = context.state.backgroundStatusText {
-                            Text(background)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.86))
-                                .lineLimit(1)
-                        } else if context.state.progressPercent >= 0 {
-                            ProgressView(value: normalizedProgress(context.state.progressPercent))
-                                .progressViewStyle(.linear)
-                                .tint(appBlue)
-                        } else {
-                            ProgressView()
-                                .progressViewStyle(.linear)
-                                .tint(appBlue)
-                        }
-                        HStack {
-                            Text(context.state.backgroundStatusText == nil ? context.state.transferredText : "")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.86))
-                            Spacer(minLength: 6)
-                            Label(statusLabel(context.state.status), systemImage: "arrow.down")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.86))
+                        // Backgrounded: the title and subtitle already say everything that
+                        // stays true while the app cannot see progress.
+                        if context.state.backgroundStatusText == nil {
+                            if context.state.progressPercent >= 0 {
+                                ProgressView(value: normalizedProgress(context.state.progressPercent))
+                                    .progressViewStyle(.linear)
+                                    .tint(appBlue)
+                            } else {
+                                ProgressView()
+                                    .progressViewStyle(.linear)
+                                    .tint(appBlue)
+                            }
+                            HStack {
+                                Text(context.state.transferredText)
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.white.opacity(0.86))
+                                Spacer(minLength: 6)
+                                Label(statusLabel(context.state.status), systemImage: "arrow.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.86))
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -188,12 +187,9 @@ private struct DownloadActivityLockScreenView: View {
                 }
 
                 // While the app is backgrounded it cannot see progress, so it shows none
-                // rather than a frozen figure that looks live.
-                if let background = context.state.backgroundStatusText {
-                    Label(background, systemImage: "arrow.down")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.86))
-                } else {
+                // rather than a frozen figure that looks live. The title and subtitle
+                // carry the queue-level message.
+                if context.state.backgroundStatusText == nil {
                     ProgressView(value: normalizedProgress(context.state.progressPercent))
                         .progressViewStyle(.linear)
                         .tint(.white)

@@ -6,6 +6,60 @@
 
 ---
 
+## Batch 6 — physical `.46` findings and the `.47` follow-ups
+
+Physical `.46`: **downloads keep going while the phone is locked.** The submitted-window
+architecture works and must not regress. Remaining findings:
+
+1. **The Live Activity went stale while locked.** It showed "6 downloading" until an unlock let
+   Nuvio catch up to one completed, and a re-lock then showed "5 downloading". So the completion
+   wakes do not reliably reach the Lock Screen either.
+2. **One arbitrary episode was the headline** while several downloaded at once.
+3. **All six Lanterns S1 episodes downloaded at once.**
+4. **Reacher S1 episodes needing attention could not be started.** Approving them left them at
+   "Waiting for provider 1/5".
+
+### `.47` changes
+
+- **Queue-level Live Activity while backgrounded (1, 2).** When the app is backgrounded with
+  anything downloading or queued, the payload is fixed:
+  - one constant id;
+  - title "Nuvio Z Downloads" and subtitle "Downloading in background";
+  - no episode title, percentage, bytes, counts or summary.
+
+  So nothing on it can go stale. The widget shows only the title and subtitle, and an arrow glyph in
+  the compact island. The rich per-item view returns in the foreground.
+- **Attention flow (4).** Root cause:
+  - `PresetSourceSelector` sends a debrid source that is not cached to review ("Source is not
+    cached yet").
+  - The review card's ▶ bulk-approved every `APPROVAL_NEEDED` entry, including those.
+  - Each download then carries the addon's `NOT_CACHED` snapshot, and `DirectDebridResolver.resolve`
+    answers `NotCached` from that snapshot without asking the service. It can never resolve: it
+    shows "Waiting for provider" through every retry, then fails.
+
+  The fix:
+  - `DownloadBatchEntry.needsManualSource` / `canBeApproved` split the two cases. ▶ and
+    `queueBatch` only approve entries an approval can help.
+  - Uncached, skipped and failed entries get a "not cached on your debrid service" note and the
+    existing **Choose source manually** button, which opens the source picker for that episode.
+  - The card summary says "N need a source • M to approve" and is localized.
+  - A queued download whose origin is known-uncached now fails at once with "Not cached on your
+    debrid service. Choose another source." It no longer waits out five retries.
+  - A failed download that came from a batch shows **Choose source manually** under its row in
+    Needs your attention.
+- **Concurrency (3): no change, deliberately.** iOS has no reliable native way to cap how many of
+  the submitted tasks run at once:
+  - `URLSessionTask.priority` is a hint.
+  - `HTTPMaximumConnectionsPerHost` is per host. Debrid links come from many hosts, HTTP/2
+    multiplexes several tasks over one connection, and tasks queued behind the cap can hit the
+    request timeout while they wait.
+  - `earliestBeginDate` would need finish-time guesses.
+  - Holding tasks back and releasing them later needs background execution again, which is exactly
+    what `.45` proved unreliable.
+
+  The only honest lever is the window size (12), which bounds concurrency at the cost of stopping
+  locked progress past the window. Kept at 12: reliable locked downloading wins over a number.
+
 ## Batch 5 — physical `.45` findings and the `.46` submitted window
 
 Physical `.45` on iPhone:
@@ -659,3 +713,23 @@ SideStore debug build `0.4.13-z1.46`. After each run, send
 7. [ ] **Live Activity.** On lock it shows "Downloading in background" plus e.g.
    "5 downloading • 3 remaining", with no percentage or bytes. The counts change after completions,
    the real percentage is back on unlock, and there is no flicker.
+
+## 10. `.47` Physical Verification Checklist
+
+SideStore debug build `0.4.13-z1.47`. The `.46` checklist (section 9) still applies. In addition:
+
+1. [ ] **Locked Live Activity.** Queue several items, then lock. The activity reads
+   "Nuvio Z Downloads / Downloading in background", with no episode title, percentage, bytes or
+   counts. It must not change or contradict reality while locked. Unlock: the per-item progress UI
+   returns.
+2. [ ] **Uncached episodes.** Queue a season where later episodes are not cached, like Reacher S1.
+   - In Needs your attention, the card says "N need a source". Those episodes show "not cached on
+     your debrid service" with **Choose source manually**, and ▶ is absent unless something is
+     genuinely approvable.
+   - Choose manually opens the source picker for that episode, and downloading a cached source from
+     there works.
+3. [ ] **Already stuck items** from `.46` (Waiting for provider): after updating, on their next
+   attempt they move to Needs your attention as failed, with "Not cached on your debrid service.
+   Choose another source." and a **Choose source manually** button.
+4. [ ] **Regression: locked progress.** Section 9 step 1 still holds: downloads continue while
+   locked.

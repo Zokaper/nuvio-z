@@ -8,6 +8,7 @@ import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_batch_state_discovering
+import nuvio.composeapp.generated.resources.downloads_live_background_title
 import nuvio.composeapp.generated.resources.downloads_live_in_background
 import nuvio.composeapp.generated.resources.downloads_live_queue_active
 import nuvio.composeapp.generated.resources.downloads_live_queue_active_remaining
@@ -27,6 +28,8 @@ private const val PROGRESS_ONLY_WRITE_INTERVAL_MS = 1_000L
 internal actual object DownloadsLiveStatusPlatform {
     private const val NOTIFICATION_NAME = "NuvioDownloadsLiveStatusUpdated"
     private const val USER_DEFAULTS_PAYLOAD_KEY = "nuvio.downloads.live_status.payload"
+    /** One id for the whole backgrounded queue, so nothing about it changes until the app is back. */
+    private const val BACKGROUND_PAYLOAD_ID = "nuvio.downloads.background"
 
     private val json = Json {
         encodeDefaults = true
@@ -53,9 +56,11 @@ internal actual object DownloadsLiveStatusPlatform {
      * The app went to the background or came back.
      *
      * A suspended app hears nothing about progress - the session moves the bytes without
-     * it - so the percentage it last wrote would sit on the Lock Screen looking live. While
-     * backgrounded the activity says so instead, and the counts still change on the
-     * completion wakes the system does give it.
+     * it - and the completion wakes it does get do not reliably reach the Lock Screen
+     * either: `.46` showed "6 downloading" long after one had finished. So while
+     * backgrounded the activity says only what stays true until the app is back: the
+     * queue is downloading in the background. No title of one episode among several, no
+     * percentage, bytes or counts.
      */
     fun onAppBackgroundChanged() {
         updatePayload()
@@ -96,12 +101,22 @@ internal actual object DownloadsLiveStatusPlatform {
         val primaryItem = presentation?.candidate?.id?.let(candidatesById::get)
         lastSelectedDownloadId = primaryItem?.id ?: activeBatch?.id
 
-        val backgroundText = if (DownloadsPlatformDownloader.schedulingDeferredToPlatform()) {
-            runBlocking { getString(Res.string.downloads_live_in_background) }
-        } else {
-            null
-        }
+        val backgroundedWithQueue = DownloadsPlatformDownloader.schedulingDeferredToPlatform() &&
+            eligibleItems.any { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
         val payload = when {
+            backgroundedWithQueue -> DownloadsLiveStatusPayload(
+                id = BACKGROUND_PAYLOAD_ID,
+                title = runBlocking { getString(Res.string.downloads_live_background_title) },
+                subtitle = runBlocking { getString(Res.string.downloads_live_in_background) },
+                status = "BACKGROUND",
+                downloadedBytes = 0L,
+                totalBytes = null,
+                progressPercent = -1,
+                activeCount = 0,
+                remainingCount = 0,
+                queueSummaryText = null,
+                backgroundStatusText = runBlocking { getString(Res.string.downloads_live_in_background) },
+            )
             primaryItem != null -> {
                 DownloadsLiveStatusPayload(
                     id = primaryItem.id,
@@ -114,7 +129,6 @@ internal actual object DownloadsLiveStatusPlatform {
                     activeCount = presentation.activeCount,
                     remainingCount = presentation.remainingCount,
                     queueSummaryText = queueSummaryText(presentation.activeCount, presentation.remainingCount),
-                    backgroundStatusText = backgroundText,
                 )
             }
             activeBatch != null -> {
@@ -193,6 +207,6 @@ internal data class DownloadsLiveStatusPayload(
     val activeCount: Int = 1,
     val remainingCount: Int = 0,
     val queueSummaryText: String? = null,
-    /** Set while the app is backgrounded: shown instead of progress it cannot see. */
+    /** Set while the app is backgrounded: the activity is queue-level and shows no progress. */
     val backgroundStatusText: String? = null,
 )
