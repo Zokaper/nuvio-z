@@ -2425,7 +2425,16 @@ object DownloadsRepository {
 
     private var isPreparingUpcomingSources = false
 
+    /**
+     * Resolves the next queued sources ahead of their slots, so the iOS background session
+     * has fresh URLs to chain beyond the submitted window while the app is suspended.
+     *
+     * ⚠ **iOS only.** Everywhere else a queued source is resolved when it gets a slot and
+     * never while offline - the desktop queue E2E suite asserts both. Running this there
+     * contacted providers with no connection and resolved episodes ahead of their turn.
+     */
     private fun prepareUpcomingTransfers() {
+        if (!DownloadsPlatformDownloader.ownsTransferLiveness) return
         scope.launch {
             var shouldRun = false
             var toPrepare: List<DownloadItem> = emptyList()
