@@ -1,16 +1,14 @@
 package com.nuvio.app.features.downloads
 
-import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.nuvio.app.core.deeplink.buildDownloadsDeepLinkUrl
 import com.nuvio.app.features.settings.AppIconPlatform
 import kotlinx.coroutines.runBlocking
@@ -18,307 +16,207 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import kotlin.math.abs
 
+/**
+ * Android's downloads notifications: **one** ongoing summary, plus a dismissible notification
+ * when a title or season finishes (Phase 9 decision).
+ *
+ * The summary is posted under [SUMMARY_NOTIFICATION_ID], which is also the id the background host
+ * (user-initiated job, or the foreground worker) runs under - so the notification the system
+ * requires for background work *is* the summary, and there is never a second one saying
+ * "Downloading for offline playback" beside it. What it says comes from
+ * [DownloadsSummaryPolicy]; this file only renders.
+ */
 internal actual object DownloadsLiveStatusPlatform {
-    private const val channelId = "downloads_live_status"
-    private const val notificationsPrefName = "nuvio_download_live_notifications"
-    private const val trackedDownloadIdsKey = "tracked_download_ids"
+    const val SUMMARY_NOTIFICATION_ID = 0x4e5a46
 
-    /**
-     * Negative so it can never collide with a download's own id, which is
-     * [notificationId]'s absolute value and so never negative.
-     */
-    private const val preparingNotificationId = -1_000_001
+    private const val summaryChannelId = "downloads_live_status"
+    private const val completedChannelId = "downloads_completed"
+    private const val legacyPrefName = "nuvio_download_live_notifications"
+    private const val legacyTrackedIdsKey = "tracked_download_ids"
+    private const val legacyPreparingNotificationId = -1_000_001
 
     private var appContext: Context? = null
-    private val lastRenderStateById = mutableMapOf<String, RenderState>()
-    private var lastPreparingState: PreparingRenderState? = null
+    private var items: List<DownloadItem> = emptyList()
+    private var batches: List<DownloadBatch> = emptyList()
+    private var itemsSeen = false
+    private var lastRendered: RenderKey? = null
+    private var lastSummary: DownloadsSummary? = null
 
     fun initialize(context: Context) {
+        if (appContext != null) return
         appContext = context.applicationContext
-        ensureNotificationChannel()
+        ensureChannels()
+        clearLegacyNotifications()
     }
 
+    @Synchronized
     actual fun onItemsChanged(items: List<DownloadItem>) {
         val context = appContext ?: return
-        if (!canPostNotifications(context)) return
-
-        val manager = NotificationManagerCompat.from(context)
-        val trackedBefore = preferences(context)
-            .getStringSet(trackedDownloadIdsKey, emptySet())
-            .orEmpty()
-            .toMutableSet()
-
-        val activeItems = items.filter { item ->
-            item.status == DownloadStatus.Queued ||
-                item.status == DownloadStatus.Downloading ||
-                item.status == DownloadStatus.Paused ||
-                item.status == DownloadStatus.Failed
-        }
-
-        val trackedNow = mutableSetOf<String>()
-        activeItems.forEach { item ->
-            val renderState = RenderState(
-                status = item.status,
-                progressPercent = progressPercent(item),
-                downloadedBucket = item.downloadedBytes / (512L * 1024L),
-                totalBytes = item.totalBytes,
-                errorMessage = item.errorMessage,
-                sizeApprovalRequired = item.sizeApprovalRequired,
-                activity = item.activity,
-            )
-
-            val existingState = lastRenderStateById[item.id]
-            if (existingState == renderState) {
-                trackedNow += item.id
-                return@forEach
-            }
-
-            manager.notify(notificationId(item.id), buildNotification(context, item))
-            lastRenderStateById[item.id] = renderState
-            trackedNow += item.id
-        }
-
-        val staleIds = trackedBefore - trackedNow
-        staleIds.forEach { downloadId ->
-            manager.cancel(notificationId(downloadId))
-            lastRenderStateById.remove(downloadId)
-        }
-
-        preferences(context)
-            .edit()
-            .putStringSet(trackedDownloadIdsKey, trackedNow)
-            .apply()
+        val previous = this.items
+        val firstSnapshot = !itemsSeen
+        this.items = items
+        itemsSeen = true
+        render(context)
+        // The first snapshot after a launch is the queue as it was on disk, not a transition.
+        if (!firstSnapshot) announceCompletions(context, previous, items)
     }
 
-    /**
-     * Keeps one ongoing notification alive while any batch is still finding sources.
-     *
-     * Discovery runs in the background with nothing queued yet, so without this the app
-     * looks idle for as long as a season takes to resolve.
-     */
+    @Synchronized
     actual fun onBatchesChanged(batches: List<DownloadBatch>) {
         val context = appContext ?: return
-        if (!canPostNotifications(context)) return
+        this.batches = batches
+        render(context)
+    }
 
+    actual fun onDownloadRequested() {
+        DownloadsAndroidLifecycle.requestNotificationPermissionOnce()
+    }
+
+    /** The notification a background host starts under, before the first render has run. */
+    @Synchronized
+    fun hostNotification(context: Context): Notification {
+        ensureChannels(context)
+        val summary = DownloadsSummaryPolicy.summarize(items, batches) ?: lastSummary
+        return buildSummary(context, summary)
+    }
+
+    private fun render(context: Context) {
+        val summary = DownloadsSummaryPolicy.summarize(items, batches)
+        val key = summary?.let(::renderKey)
+        if (key == lastRendered) return
+        lastRendered = key
+        lastSummary = summary
         val manager = NotificationManagerCompat.from(context)
-        val preparingBatches = batches.filter { it.isPreparing }
-        if (preparingBatches.isEmpty()) {
-            if (lastPreparingState != null) {
-                lastPreparingState = null
-                manager.cancel(preparingNotificationId)
-            }
+        if (summary == null) {
+            manager.cancel(SUMMARY_NOTIFICATION_ID)
             return
         }
-
-        val single = preparingBatches.singleOrNull()
-        val title = single?.title?.trim()?.takeIf { it.isNotBlank() }
-            ?: runBlocking { getString(Res.string.downloads_preparing_notification_title) }
-        val prepared = preparingBatches.sumOf { it.preparedEntryCount }
-        val total = preparingBatches.sumOf { it.entries.size }
-        val renderState = PreparingRenderState(title = title, prepared = prepared, total = total)
-        if (renderState == lastPreparingState) return
-        lastPreparingState = renderState
-
-        val subtitle = runBlocking {
-            getString(Res.string.downloads_preparing_progress, prepared, total)
-        }
-        manager.notify(
-            preparingNotificationId,
-            NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
-                .setContentTitle(title)
-                .setContentText(subtitle)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-                .setProgress(total, prepared, total <= 0)
-                .setContentIntent(buildLaunchPendingIntent(context, preparingNotificationId))
-                .build(),
-        )
+        if (!DownloadsAndroidLifecycle.notificationsAllowed(context)) return
+        runCatching { manager.notify(SUMMARY_NOTIFICATION_ID, buildSummary(context, summary)) }
     }
 
-    private fun buildNotification(context: Context, item: DownloadItem): android.app.Notification {
-        val subtitle = buildSubtitle(item)
-        val launchPendingIntent = buildLaunchPendingIntent(context, notificationId(item.id))
-
-        val notificationBuilder = NotificationCompat.Builder(context, channelId)
+    private fun buildSummary(context: Context, summary: DownloadsSummary?): Notification {
+        val builder = NotificationCompat.Builder(context, summaryChannelId)
             .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
-            .setContentTitle(item.title)
-            .setContentText(subtitle)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(subtitle))
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(launchPendingIntent)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setContentIntent(buildLaunchPendingIntent(context, SUMMARY_NOTIFICATION_ID))
 
-        when (item.status) {
-            DownloadStatus.Queued -> {
-                // Waiting for a slot, so there is no progress to show - but it can still
-                // be pushed out of the queue from here.
-                notificationBuilder
-                    .setOngoing(false)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
-                    .setProgress(0, 0, false)
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.compose_action_pause) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionPause,
-                            downloadId = item.id,
-                        ),
-                    )
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.action_cancel) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionCancel,
-                            downloadId = item.id,
-                        ),
-                    )
-            }
-
-            DownloadStatus.Downloading -> {
-                notificationBuilder
-                    .setOngoing(true)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.compose_action_pause) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionPause,
-                            downloadId = item.id,
-                        ),
-                    )
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.action_cancel) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionCancel,
-                            downloadId = item.id,
-                        ),
-                    )
-
-                val progress = progressPercent(item)
-                if (progress >= 0) {
-                    notificationBuilder.setProgress(100, progress, false)
-                } else {
-                    notificationBuilder.setProgress(100, 0, true)
-                }
-            }
-
-            DownloadStatus.Paused,
-            DownloadStatus.Failed,
-            DownloadStatus.Completed,
-            -> {
-                notificationBuilder
-                    .setOngoing(false)
-                    .setAutoCancel(false)
-                    .setPriority(
-                        if (item.status == DownloadStatus.Failed) {
-                            NotificationCompat.PRIORITY_DEFAULT
-                        } else {
-                            NotificationCompat.PRIORITY_LOW
-                        },
-                    )
-                    .setProgress(0, 0, false)
-                    .addAction(
-                        0,
-                        runBlocking {
-                            when {
-                                item.sizeApprovalRequired -> getString(Res.string.download_approve_size)
-                                item.status == DownloadStatus.Failed -> getString(Res.string.action_retry)
-                                else -> getString(Res.string.action_resume)
-                            }
-                        },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = if (item.sizeApprovalRequired) {
-                                DownloadsNotificationActionReceiver.actionApproveSize
-                            } else {
-                                DownloadsNotificationActionReceiver.actionResume
-                            },
-                            downloadId = item.id,
-                        ),
-                    )
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.action_cancel) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionCancel,
-                            downloadId = item.id,
-                        ),
-                    )
-            }
+        if (summary == null) {
+            return builder
+                .setContentTitle(string(Res.string.downloads_preparing_notification_title))
+                .setProgress(0, 0, true)
+                .build()
         }
 
-        return notificationBuilder.build()
-    }
-
-    private fun buildSubtitle(item: DownloadItem): String {
-        val detail = item.displaySubtitle
-        return when (item.status) {
-            DownloadStatus.Queued -> when (item.activity) {
-                DownloadActivity.WAITING_FOR_CONNECTION -> runBlocking { getString(Res.string.downloads_status_waiting_connection) }
-                DownloadActivity.WAITING_FOR_PROVIDER -> runBlocking { getString(Res.string.downloads_status_waiting_provider) }
-                DownloadActivity.RETRY_BACKOFF -> runBlocking { getString(Res.string.downloads_status_retry_backoff) }
-                else -> runBlocking { getString(Res.string.downloads_live_queued, detail) }
+        val head = summary.head
+        val (title, text) = when {
+            head != null && summary.downloadingCount == 1 -> {
+                val detail = listOfNotNull(
+                    episodeLabel(head),
+                    summary.headProgressPercent?.let { "$it%" },
+                    summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
+                ).joinToString(" · ")
+                head.title to detail
             }
-            DownloadStatus.Downloading -> {
-                if (item.activity == DownloadActivity.RESOLVING_SOURCE) {
-                    return runBlocking { getString(Res.string.downloads_status_resolving_source) }
-                }
-                val downloaded = formatBytes(item.downloadedBytes)
-                val total = item.totalBytes?.let(::formatBytes)
-                if (total != null) {
-                    runBlocking { getString(Res.string.downloads_live_downloading_with_total, detail, downloaded, total) }
-                } else if (item.downloadedBytes <= 0L) {
-                    runBlocking { getString(Res.string.downloads_status_waiting_to_start) }
-                } else {
-                    runBlocking { getString(Res.string.downloads_live_downloading, detail, downloaded) }
-                }
+            head != null -> {
+                val detail = listOfNotNull(
+                    listOfNotNull(head.title, episodeLabel(head)).joinToString(" "),
+                    summary.headProgressPercent?.let { "$it%" },
+                    summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
+                ).joinToString(" · ")
+                string(Res.string.downloads_summary_downloading_many, summary.downloadingCount) to detail
             }
-
-            DownloadStatus.Paused -> runBlocking { getString(Res.string.downloads_live_paused, detail) }
-            DownloadStatus.Failed -> item.errorMessage?.takeIf { it.isNotBlank() } ?: runBlocking { getString(Res.string.downloads_live_failed) }
-            DownloadStatus.Completed -> runBlocking { getString(Res.string.downloads_live_completed) }
+            summary.waitingReason != null -> {
+                val reason = when (summary.waitingReason) {
+                    DownloadsWaitingReason.Connection -> string(Res.string.downloads_status_waiting_connection)
+                    DownloadsWaitingReason.Retrying -> string(Res.string.downloads_status_retry_backoff)
+                    DownloadsWaitingReason.Starting -> string(Res.string.downloads_status_waiting_to_start)
+                }
+                string(Res.string.downloads_summary_waiting_title) to reason
+            }
+            else -> {
+                (summary.preparingTitle ?: string(Res.string.downloads_preparing_notification_title)) to
+                    string(Res.string.downloads_preparing_progress, summary.preparedEntries, summary.preparingEntries)
+            }
         }
-    }
+        builder.setContentTitle(title).setContentText(text)
 
-    private fun formatBytes(bytes: Long): String {
-        val safe = bytes.coerceAtLeast(0L).toDouble()
-        val units = runBlocking {
-            arrayOf(
-                getString(Res.string.unit_bytes_b),
-                getString(Res.string.unit_bytes_kb),
-                getString(Res.string.unit_bytes_mb),
-                getString(Res.string.unit_bytes_gb),
-                getString(Res.string.unit_bytes_tb),
+        when {
+            head != null && summary.headProgressPercent != null ->
+                builder.setProgress(100, summary.headProgressPercent, false)
+            head != null -> builder.setProgress(0, 0, true)
+            summary.waitingReason == null && summary.preparingEntries > 0 ->
+                builder.setProgress(summary.preparingEntries, summary.preparedEntries, false)
+            else -> builder.setProgress(0, 0, false)
+        }
+
+        if (summary.downloadingCount + summary.waitingCount > 0) {
+            builder.addAction(
+                0,
+                string(Res.string.downloads_summary_pause_all),
+                buildActionPendingIntent(context, DownloadsNotificationActionReceiver.actionPauseAll, ""),
             )
         }
-        var value = safe
-        var unitIndex = 0
-        while (value >= 1024.0 && unitIndex < units.lastIndex) {
-            value /= 1024.0
-            unitIndex += 1
-        }
-        return if (unitIndex == 0) {
-            "${value.toLong()} ${units[unitIndex]}"
-        } else {
-            "${"%.1f".format(value)} ${units[unitIndex]}"
+        return builder.build()
+    }
+
+    private fun announceCompletions(context: Context, before: List<DownloadItem>, after: List<DownloadItem>) {
+        val groups = DownloadsSummaryPolicy.newlyCompletedGroups(before, after)
+        if (groups.isEmpty() || !DownloadsAndroidLifecycle.notificationsAllowed(context)) return
+        val manager = NotificationManagerCompat.from(context)
+        groups.forEach { group ->
+            val title = group.seasonNumber
+                ?.let { string(Res.string.downloads_completed_notification_season, group.title, it) }
+                ?: string(Res.string.downloads_completed_notification_title, group.title)
+            val id = notificationId("completed:${group.parentMetaId}:${group.seasonNumber}")
+            runCatching {
+                manager.notify(
+                    id,
+                    NotificationCompat.Builder(context, completedChannelId)
+                        .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+                        .setContentTitle(title)
+                        .setContentText(string(Res.string.downloads_completed_notification_body))
+                        .setAutoCancel(true)
+                        .setCategory(NotificationCompat.CATEGORY_STATUS)
+                        .setContentIntent(buildLaunchPendingIntent(context, id))
+                        .build(),
+                )
+            }
         }
     }
 
-    private fun progressPercent(item: DownloadItem): Int {
-        val total = item.totalBytes?.takeIf { it > 0L } ?: return -1
-        return ((item.downloadedBytes.toDouble() / total.toDouble()) * 100.0)
-            .toInt()
-            .coerceIn(0, 100)
+    private fun episodeLabel(item: DownloadItem): String? {
+        val season = item.seasonNumber ?: return null
+        val episode = item.episodeNumber ?: return null
+        return string(Res.string.downloads_summary_episode, season, episode)
     }
+
+    private fun renderKey(summary: DownloadsSummary) = RenderKey(
+        downloading = summary.downloadingCount,
+        waiting = summary.waitingCount,
+        headId = summary.head?.id,
+        percent = summary.headProgressPercent,
+        reason = summary.waitingReason,
+        preparing = summary.preparedEntries to summary.preparingEntries,
+        preparingTitle = summary.preparingTitle,
+    )
+
+    private data class RenderKey(
+        val downloading: Int,
+        val waiting: Int,
+        val headId: String?,
+        val percent: Int?,
+        val reason: DownloadsWaitingReason?,
+        val preparing: Pair<Int, Int>,
+        val preparingTitle: String?,
+    )
+
+    private fun string(resource: org.jetbrains.compose.resources.StringResource, vararg args: Any): String =
+        runBlocking { getString(resource, *args) }
 
     private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
         val launchIntent = Intent().apply {
@@ -337,11 +235,7 @@ internal actual object DownloadsLiveStatusPlatform {
         )
     }
 
-    private fun buildActionPendingIntent(
-        context: Context,
-        action: String,
-        downloadId: String,
-    ): PendingIntent {
+    private fun buildActionPendingIntent(context: Context, action: String, downloadId: String): PendingIntent {
         val intent = Intent(context, DownloadsNotificationActionReceiver::class.java).apply {
             this.action = action
             putExtra(DownloadsNotificationActionReceiver.extraDownloadId, downloadId)
@@ -354,56 +248,44 @@ internal actual object DownloadsLiveStatusPlatform {
         )
     }
 
-    private fun ensureNotificationChannel() {
-        val context = appContext ?: return
+    private fun ensureChannels(context: Context? = appContext) {
+        val ctx = context ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return
-        if (manager.getNotificationChannel(channelId) != null) return
-
-        manager.createNotificationChannel(
-            NotificationChannel(
-                channelId,
-                runBlocking { getString(Res.string.downloads_channel_name) },
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = runBlocking { getString(Res.string.downloads_channel_description) }
-            },
-        )
-    }
-
-    private fun canPostNotifications(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val permissionState = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
+        val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (manager.getNotificationChannel(summaryChannelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    summaryChannelId,
+                    string(Res.string.downloads_channel_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply { description = string(Res.string.downloads_channel_description) },
             )
-            if (permissionState != PackageManager.PERMISSION_GRANTED) {
-                return false
-            }
         }
-        return NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (manager.getNotificationChannel(completedChannelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    completedChannelId,
+                    string(Res.string.downloads_completed_channel_name),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
+        }
     }
 
-    private fun preferences(context: Context) =
-        context.getSharedPreferences(notificationsPrefName, Context.MODE_PRIVATE)
+    /**
+     * Builds before Phase 9 posted one notification per item and a separate "preparing" one,
+     * tracked in a preference. Clear any left behind once, so an upgrade does not leave a shade
+     * full of rows nothing will ever update again.
+     */
+    private fun clearLegacyNotifications() {
+        val context = appContext ?: return
+        val prefs = context.getSharedPreferences(legacyPrefName, Context.MODE_PRIVATE)
+        val tracked = prefs.getStringSet(legacyTrackedIdsKey, null) ?: return
+        val manager = NotificationManagerCompat.from(context)
+        tracked.forEach { manager.cancel(notificationId(it)) }
+        manager.cancel(legacyPreparingNotificationId)
+        prefs.edit().remove(legacyTrackedIdsKey).apply()
+    }
 
-    private fun notificationId(downloadId: String): Int = abs(downloadId.hashCode())
-
-    private data class PreparingRenderState(
-        val title: String,
-        val prepared: Int,
-        val total: Int,
-    )
-
-    private data class RenderState(
-        val status: DownloadStatus,
-        val progressPercent: Int,
-        val downloadedBucket: Long,
-        val totalBytes: Long?,
-        val errorMessage: String?,
-        val sizeApprovalRequired: Boolean,
-        val activity: DownloadActivity?,
-    )
+    private fun notificationId(key: String): Int = abs(key.hashCode())
 }

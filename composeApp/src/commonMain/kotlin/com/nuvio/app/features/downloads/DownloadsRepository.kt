@@ -236,26 +236,55 @@ object DownloadsRepository {
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
         videoId: String? = null,
+    ): DownloadItem? = findDownload(parentMetaId, seasonNumber, episodeNumber, videoId) {
+        it.hasPlayableLocalFile()
+    }
+
+    /**
+     * The finished download for this title or episode, whether or not its file is still there.
+     *
+     * [findPlayableDownload] answers "can I play it"; this answers "did the user download it",
+     * which is what lets an offline play request say *"the file is missing"* instead of the
+     * misleading *"not downloaded"*.
+     */
+    fun findCompletedDownload(
+        parentMetaId: String,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
+        videoId: String? = null,
+    ): DownloadItem? = findDownload(parentMetaId, seasonNumber, episodeNumber, videoId) {
+        it.status == DownloadStatus.Completed
+    }
+
+    private fun findDownload(
+        parentMetaId: String,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        videoId: String?,
+        accept: (DownloadItem) -> Boolean,
     ): DownloadItem? {
         ensureLoaded()
         val items = _uiState.value.items
         val normalizedParentMetaId = parentMetaId.trim()
+        val normalizedVideoId = videoId?.trim().orEmpty()
 
-        findPlayableDownloadByVideoId(videoId)?.let { return it }
+        if (normalizedVideoId.isNotBlank()) {
+            items.firstOrNull { it.videoId == normalizedVideoId && accept(it) }?.let { return it }
+        }
 
         return if (seasonNumber != null && episodeNumber != null) {
             items.firstOrNull { item ->
                 item.parentMetaId == normalizedParentMetaId &&
                     item.seasonNumber == seasonNumber &&
                     item.episodeNumber == episodeNumber &&
-                    item.hasPlayableLocalFile()
+                    accept(item)
             }
         } else {
             items.firstOrNull { item ->
                 item.parentMetaId == normalizedParentMetaId &&
                     item.seasonNumber == null &&
                     item.episodeNumber == null &&
-                    item.hasPlayableLocalFile()
+                    accept(item)
             }
         }
     }
@@ -309,6 +338,7 @@ object DownloadsRepository {
         sizeCapOverrideApproved: Boolean = false,
     ): DownloadEnqueueResult {
         ensureLoaded()
+        DownloadsLiveStatusPlatform.onDownloadRequested()
 
         val sourceUrl = stream.playableDirectUrl
             ?.trim()

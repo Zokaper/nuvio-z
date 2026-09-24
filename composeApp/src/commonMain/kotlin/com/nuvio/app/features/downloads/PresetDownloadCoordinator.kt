@@ -27,8 +27,11 @@ object PresetDownloadCoordinator {
         scope: DownloadScope,
         preset: DownloadPreset,
         allowMeteredNetwork: Boolean,
-    ): Deferred<DownloadBatch> = backgroundScope.async {
-        prepare(meta, scope, preset, allowMeteredNetwork)
+    ): Deferred<DownloadBatch> {
+        DownloadsLiveStatusPlatform.onDownloadRequested()
+        return backgroundScope.async {
+            prepare(meta, scope, preset, allowMeteredNetwork)
+        }
     }
 
     suspend fun prepare(

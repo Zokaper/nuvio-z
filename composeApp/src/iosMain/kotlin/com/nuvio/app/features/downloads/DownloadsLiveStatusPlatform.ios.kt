@@ -52,6 +52,9 @@ internal actual object DownloadsLiveStatusPlatform {
         updatePayload()
     }
 
+    // A Live Activity needs no notification permission, so there is nothing to ask for.
+    actual fun onDownloadRequested() = Unit
+
     /**
      * The app went to the background or came back.
      *

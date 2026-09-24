@@ -118,6 +118,9 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadBatch
 import com.nuvio.app.features.downloads.DownloadBatchEntry
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadsNavigationRequests
+import com.nuvio.app.features.downloads.LocalPlaybackDecision
+import com.nuvio.app.features.downloads.LocalPlaybackPolicy
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -367,6 +370,8 @@ internal fun MainAppContent(
         NetworkStatusRepository.uiState
     }.collectAsStateWithLifecycle()
     val downloadedProviderLabel = stringResource(Res.string.provider_downloaded)
+    val offlineNotDownloadedText = stringResource(Res.string.downloads_offline_not_downloaded)
+    val downloadFileMissingText = stringResource(Res.string.downloads_file_missing)
     val externalPlayerNotConfiguredText = stringResource(Res.string.external_player_not_configured)
     val externalPlayerUnavailableText = stringResource(Res.string.external_player_unavailable)
     val externalPlayerFailedText = stringResource(Res.string.external_player_failed)
@@ -908,6 +913,13 @@ internal fun MainAppContent(
         }
     }
 
+        LaunchedEffect(Unit) {
+            DownloadsNavigationRequests.requests.collect {
+                LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                activateTab(AppScreenTab.Library)
+            }
+        }
+
         LaunchedEffect(navController) {
             if (!ownsAppRuntime) return@LaunchedEffect
             AppDeepLinkRepository.pendingDeepLink.collectLatest { deepLink ->
@@ -1023,7 +1035,10 @@ internal fun MainAppContent(
         }
 
         fun openDownloadedItem(item: DownloadItem) {
-            val sourceUrl = DownloadsRepository.playableLocalFileUri(item) ?: return
+            val sourceUrl = DownloadsRepository.playableLocalFileUri(item) ?: run {
+                NuvioToastController.show(downloadFileMissingText)
+                return
+            }
             val resumeEntry = item.videoId
                 .takeIf { it.isNotBlank() }
                 ?.let(WatchProgressRepository::progressForVideo)
@@ -1144,14 +1159,49 @@ internal fun MainAppContent(
             val targetResumePositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L)
             val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
 
-            if (!manualSelection && AppFeaturePolicy.downloadsEnabled) {
-                val downloadedItem = DownloadsRepository.findPlayableDownload(
+            val offline = networkStatusUiState.condition == NetworkCondition.NoInternet
+            val completedItem = if (AppFeaturePolicy.downloadsEnabled && !downloadIntent) {
+                DownloadsRepository.findCompletedDownload(
                     parentMetaId = parentMetaId,
                     seasonNumber = seasonNumber,
                     episodeNumber = episodeNumber,
                     videoId = videoId,
                 )
-                val localSourceUrl = downloadedItem?.let(DownloadsRepository::playableLocalFileUri)
+            } else {
+                null
+            }
+            val playableItem = if (completedItem != null) {
+                DownloadsRepository.findPlayableDownload(
+                    parentMetaId = parentMetaId,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    videoId = videoId,
+                )
+            } else {
+                null
+            }
+            val localDecision = LocalPlaybackPolicy.decide(
+                manualSelection = manualSelection,
+                hasCompletedDownload = completedItem != null,
+                localFileAvailable = playableItem != null,
+                offline = offline && !downloadIntent,
+            )
+            when (localDecision) {
+                LocalPlaybackDecision.ExplainNotDownloadedOffline -> {
+                    NuvioToastController.show(offlineNotDownloadedText)
+                    return
+                }
+                LocalPlaybackDecision.ExplainFileMissing -> {
+                    NuvioToastController.show(downloadFileMissingText)
+                    return
+                }
+                LocalPlaybackDecision.PlayLocal,
+                LocalPlaybackDecision.OpenSources,
+                -> Unit
+            }
+            if (localDecision == LocalPlaybackDecision.PlayLocal) {
+                val downloadedItem = playableItem!!
+                val localSourceUrl = DownloadsRepository.playableLocalFileUri(downloadedItem)
                 if (!localSourceUrl.isNullOrBlank()) {
                     val playerLaunch = PlayerLaunch(
                         profileId = activePlaybackProfileId,
@@ -1760,6 +1810,7 @@ internal fun MainAppContent(
                         },
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = LocalNavAnimatedContentScope.current,
+                        onOpenDownload = ::openDownloadedItem,
                     )
                 }
                 entry<PersonDetailRoute> { route ->

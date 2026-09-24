@@ -30,6 +30,7 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.features.downloads.OfflineDownloadsBanner
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
@@ -924,6 +925,10 @@ fun HomeScreen(
             topPadding = effectiveTopPadding,
             listState = homeListState,
         ) {
+            // Offline with something downloaded: point at Downloads (Phase 9). Draws nothing otherwise.
+            item(key = "offline_downloads_banner", contentType = "offline_banner") {
+                OfflineDownloadsBanner(modifier = Modifier.padding(top = if (showHeroSlot) topChromePadding ?: 0.dp else 0.dp))
+            }
             if (showHeroSlot) {
                 item(key = "home_hero", contentType = "hero") {
                     Crossfade(

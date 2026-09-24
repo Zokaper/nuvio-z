@@ -68,6 +68,7 @@ internal actual object DownloadsPlatformDownloader {
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
+        DownloadsAndroidLifecycle.initialize(context)
     }
 
     actual fun start(

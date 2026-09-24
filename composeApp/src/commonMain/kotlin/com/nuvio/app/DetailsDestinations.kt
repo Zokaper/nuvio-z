@@ -9,6 +9,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import com.nuvio.app.features.details.MetaDetailsScreen
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadsScreen
+import com.nuvio.app.features.downloads.OfflineTitleFallback
+import com.nuvio.app.features.downloads.rememberOfflineTitleFallback
 import com.nuvio.app.features.player.PlayerExitDiagnostics
 import com.nuvio.app.features.watchparty.PartyContent
 import com.nuvio.app.features.details.PersonDetailScreen
@@ -82,8 +86,23 @@ internal fun DetailsDestination(
     onWatchTogether: (PartyContent) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    onOpenDownload: (DownloadItem) -> Unit = {},
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
+    // Offline, a title whose page cannot load but whose episodes are on disk opens its
+    // Downloads view instead (Phase 9). Returns to the normal page when the network is back.
+    when (val offline = rememberOfflineTitleFallback(route.type, route.id)) {
+        null -> Unit
+        else -> {
+            DownloadsScreen(
+                onBack = onBack,
+                onOpenDownload = onOpenDownload,
+                initialShowId = (offline as? OfflineTitleFallback.Show)?.showId,
+                onBackFromShow = onBack,
+            )
+            return
+        }
+    }
     val onOpenMeta = rememberOpenMeta(navController)
     val directorRole = stringResource(Res.string.person_role_director)
     val writerRole = stringResource(Res.string.person_role_writer)

@@ -2875,4 +2875,20 @@
     <string name="downloads_review_summary">%1$s • %2$d need a source • %3$d to approve</string>
     <string name="downloads_review_not_cached">%1$s: not cached on your debrid service</string>
     <string name="downloads_error_not_cached_choose_source">Not cached on your debrid service. Choose another source.</string>
+    <!-- Nuvio Z Phase 9 downloads redesign. -->
+    <string name="downloads_offline_not_downloaded">You're offline, and this isn't downloaded.</string>
+    <string name="downloads_file_missing">This download's file is missing. Download it again to watch it offline.</string>
+    <string name="downloads_local_file_damaged">This download looks damaged and can't be played. Download it again.</string>
+    <string name="downloads_offline_banner_title">You're offline</string>
+    <string name="downloads_offline_banner_body">Your downloads still play.</string>
+    <string name="downloads_offline_banner_action">Go to Downloads</string>
+    <string name="downloads_summary_downloading_many">Downloading %1$d items</string>
+    <string name="downloads_summary_queued">%1$d queued</string>
+    <string name="downloads_summary_waiting_title">Downloads waiting</string>
+    <string name="downloads_summary_pause_all">Pause all</string>
+    <string name="downloads_summary_episode">S%1$d E%2$d</string>
+    <string name="downloads_completed_notification_title">%1$s finished downloading</string>
+    <string name="downloads_completed_notification_season">%1$s · Season %2$d finished downloading</string>
+    <string name="downloads_completed_notification_body">Ready to watch offline.</string>
+    <string name="downloads_completed_channel_name">Finished downloads</string>
 </resources>

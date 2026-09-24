@@ -50,6 +50,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.LocalPlaybackPolicy
+import com.nuvio.app.features.downloads.OfflineEpisodeList
 import kotlin.time.TimeSource
 import com.nuvio.app.features.social.rememberSocialEnabled
 
@@ -107,6 +110,16 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 playerMeta = meta
                 playerMetaVideos = meta.videos
             }
+        }
+        if (playerMetaVideos.isEmpty()) {
+            // Offline after a restart there is no episode list to fetch; the downloads stand in
+            // for it so the next episode on disk still autoplays (Phase 9).
+            playerMetaVideos = OfflineEpisodeList.fromDownloads(
+                items = DownloadsRepository.uiState.value.items,
+                parentMetaId = parentMetaId,
+                currentSeason = activeSeasonNumber,
+                currentEpisode = activeEpisodeNumber,
+            )
         }
     }
 
@@ -1164,7 +1177,13 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
         errorMessage = null
         return
     }
-    errorMessage = message
+    // A downloaded file that will not play is a damaged download, not a network fault - the
+    // engine's own wording ("connection lost") is what a user on a plane was shown (Phase 9).
+    errorMessage = if (LocalPlaybackPolicy.isLocalSource(activeSourceUrl)) {
+        kotlinx.coroutines.runBlocking { getString(Res.string.downloads_local_file_damaged) }
+    } else {
+        message
+    }
     controlsVisible = !playerControlsLocked
     // The engine's own words, carried to the progress overlay of the *next* attempt. This route
     // bumped the attempt counter in silence, and it is the one that covers the most visible
