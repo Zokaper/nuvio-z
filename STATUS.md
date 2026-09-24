@@ -41,7 +41,15 @@ Findings and changes (full analysis: `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch
    on the **Debug** app only, and fails the build otherwise. The same bundle id keeps the `.46`
    container.
 
-Debug counter 47. **Not published.**
+Debug counter 47. Published [`debug-v0.4.13-z1.47`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.47)
+from `e15e7843c` (run `36008713787`). The IPA is unsigned, `com.nuvio.app.z.debug` 0.4.13-z1.47 (47), with
+`UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` both true and the widget extension
+present. IPA sha256 `a7e31a4c…3b1d1c` and APK `2d097d0b…5138a8` match `SHA256SUMS-Debug.txt`. The
+SideStore debug feed on `main` lists `.47` first (`fcb92a008`, feed file only).
+
+Next: the physical `.47` pass (audit doc section 10). Install over `.46` and send every
+`downloads-*.jsonl` from `Files > On My iPhone > Nuvio Z Debug > nuvio_diagnostics`, including `.46`'s if
+they survived.
 
 Verification (local; results dir deleted, `--rerun-tasks`):
 - pure suites **856 / 856**;
