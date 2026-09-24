@@ -56,8 +56,9 @@ Verification (local; results dir deleted, `--rerun-tasks`):
 - pure suites **850 / 850** (9 new in `IosBackgroundTransferReconcilerTest`);
 - Android host suite **2,355 / 2,355**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
 
-The iOS source set cannot compile on Windows, so **iOS CI is the gate** for the Kotlin/Native and
-Swift changes. Nothing here is physical verification.
+The iOS source set cannot compile on Windows, so iOS CI is the gate. On `bd28fcd8c`, `ci.yml` passed
+(run `35990649203`) and `ios-build.yml` passed (run `35990649250`: device and simulator framework
+links and the unsigned Xcode build). Nothing here is physical verification.
 
 Next: iOS CI, then the maintainer reviews, publishes `.46`, and runs the audit doc's section 9
 checklist, sending the `downloads-*.jsonl` files.
