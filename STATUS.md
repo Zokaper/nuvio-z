@@ -50,8 +50,25 @@ Modern Family S01E01 (libmpv-encoded) can be injected. Startup offline was verif
 play-path clicks need the maintainer. Tools are in the session scratchpad; they move into
 `NuvioZDesktop/scripts/` with the next desktop commit.
 
-**Next:** stage 4 engine simplification (presentation layer, per-profile store, device settings),
-stage 6 flows UI, then 7-9. The iOS window stays at 12.
+**Stage 4, first slice - device settings (`bf0aa7697`; desktop cherry-pick):** `DownloadDeviceSettings`
+(device-local, stored with the download state, never synced): mobile data Wi-Fi only (default) /
+Ask / Always; downloads at once 1-4 (default 2, Android + desktop; iOS keeps window 12). Items the
+network may not carry read **"Waiting for Wi-Fi"** with a **Download now anyway** row action.
+The platform request carries the effective permission, so iOS `allowsCellularAccess` and the
+Android job constraint agree with the queue (before this, rule Always would still have been
+refused by both). Wi-Fi return: Android's network callback; elsewhere a recheck loop runs only
+while something waits for Wi-Fi. iOS background behaviour is unchanged.
+Known gaps, by plan: **Ask** behaves like Wi-Fi only until the Ask prompt (stage 6); no settings
+UI yet (stage 8); on desktop the setting is profile-scoped until the device-wide store (rest of
+stage 4). This session resumed an interrupted one: the partial diff was intact; added on top were
+the platform-request fix, the iOS Live Activity mapping, the recheck loop, the row action and the
+desktop E2E cases. Pure 883/883, Android host 2,430/2,430, common + Android compile pass;
+desktop `desktopTest` 2,573/2,573 (with policy core cherry-picked + a desktop `DownloadPolicyStorage` actual).
+
+**Physical `.49` results (Android screen-off, desktop debug 62): not yet supplied - pending.**
+
+**Next:** rest of stage 4 (presentation layer, per-profile store with `ownerProfileId`,
+scheduler/realizer split), stage 6 flows UI, then 7-9. The iOS window stays at 12.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
