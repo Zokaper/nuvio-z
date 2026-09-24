@@ -30,4 +30,7 @@ internal actual object DownloadsStorage {
             ?.putString(corruptPayloadKey, payload)
             ?.apply()
     }
+
+    // The payload here was always device-wide; there is nothing per-profile to merge.
+    actual fun loadLegacyProfilePayloads(): Map<Int, String> = emptyMap()
 }

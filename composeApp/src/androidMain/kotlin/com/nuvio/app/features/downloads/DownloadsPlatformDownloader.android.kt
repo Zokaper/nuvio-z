@@ -48,21 +48,9 @@ private fun stallAwareClient(): OkHttpClient = downloadHttpClient.newBuilder()
     .build()
 
 internal actual object DownloadsPlatformDownloader {
-    // The background job is stopped when the system reclaims it and started again
-    // when it may run, so a system pause here really is temporary.
-    actual val recoversSystemPauses: Boolean = true
-    actual val maxConcurrentTransfers: Int = DownloadsRepository.MAX_CONCURRENT_TRANSFERS
-    actual val ownsTransferLiveness: Boolean = false
-
-    actual fun schedulingDeferredToPlatform(): Boolean = false
-
-    actual fun requestTransferInventory(
-        onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit,
-    ) = onResult(null)
-
-    actual fun suspendTransfer(downloadId: String) = Unit
-
-    actual fun cancelTransfer(downloadId: String) = Unit
+    // The app runs its own transfers. The background job is stopped when the system reclaims it
+    // and started again when it may run, so a system pause here really is temporary.
+    actual val transferHost: TransferHost = TransferHost.InProcess(recoversSystemPauses = true)
 
     private var appContext: Context? = null
 
@@ -129,7 +117,9 @@ internal actual object DownloadsPlatformDownloader {
             runCatching {
                 DownloadsBackgroundScheduler.schedule(
                     context = context,
-                    allowMeteredNetwork = request.allowMeteredNetwork,
+                    // The queue's requirement, not this item's: the host is one job for all of
+                    // them, and the first schedule wins while it runs.
+                    allowMeteredNetwork = DownloadsRepository.hostMayUseMeteredNetwork(),
                 )
             }
 
@@ -176,7 +166,10 @@ internal actual object DownloadsPlatformDownloader {
                         ?: request.knownTotalBytes
                     response.close()
 
-                    if (reportedTotal != null && tempFile.length() == reportedTotal) {
+                    if (
+                        rangeNotSatisfiableOutcome(reportedTotal, tempFile.length()) ==
+                        RangeNotSatisfiableOutcome.PartialIsComplete
+                    ) {
                         val finalized = finalizePartialFile(tempFile, destination)
                         if (finalized == null) {
                             listener.onFailed(
@@ -212,7 +205,7 @@ internal actual object DownloadsPlatformDownloader {
 
                 response.use { openResponse ->
                     val isPartialResume =
-                        attemptedRangeRequest && openResponse.code == 206 && resumeFromBytes > 0L
+                        responseAppendsToPartial(attemptedRangeRequest, openResponse.code, resumeFromBytes)
                     val appendToTemp = isPartialResume
                     val startingBytes = if (appendToTemp) resumeFromBytes else 0L
 

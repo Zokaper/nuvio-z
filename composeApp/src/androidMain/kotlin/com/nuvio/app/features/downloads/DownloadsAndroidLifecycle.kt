@@ -73,6 +73,9 @@ internal object DownloadsAndroidLifecycle {
         appContext = app
 
         if (isDebugBuild) installDiagnosticsFile(app)
+        DownloadDiagnostics.appState = {
+            "foreground=${isForeground()} hosting=${DownloadsBackgroundScheduler.isHostingQueue}"
+        }
         DownloadDiagnostics.note(
             "android_start",
             "api=${Build.VERSION.SDK_INT} notifications=${notificationsAllowed(app)} " +
@@ -129,7 +132,8 @@ internal object DownloadsAndroidLifecycle {
                     }
                     Lifecycle.Event.ON_STOP -> DownloadDiagnostics.note(
                         "app_background",
-                        "hosting=${DownloadsBackgroundScheduler.isHostingQueue}",
+                        "hosting=${DownloadsBackgroundScheduler.isHostingQueue} " +
+                            DownloadsRepository.hostQueueSummary(),
                     )
                     else -> Unit
                 }

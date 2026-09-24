@@ -16,4 +16,7 @@ internal actual object DownloadsStorage {
     actual fun saveCorruptPayload(payload: String) {
         NSUserDefaults.standardUserDefaults.setObject(payload, forKey = corruptPayloadKey)
     }
+
+    // The payload here was always device-wide; there is nothing per-profile to merge.
+    actual fun loadLegacyProfilePayloads(): Map<Int, String> = emptyMap()
 }

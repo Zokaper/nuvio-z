@@ -12,4 +12,11 @@ internal expect object DownloadsStorage {
      * batch and preset with no way to get them back.
      */
     fun saveCorruptPayload(payload: String)
+
+    /**
+     * Payloads written per profile before the device-wide store (Phase 9), keyed by profile.
+     * Only desktop ever wrote those; Android and iOS always kept one device payload, and answer
+     * with nothing. Read once, when there is no device payload yet, and never deleted.
+     */
+    fun loadLegacyProfilePayloads(): Map<Int, String>
 }

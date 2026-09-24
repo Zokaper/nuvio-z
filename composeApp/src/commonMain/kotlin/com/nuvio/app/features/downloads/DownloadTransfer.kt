@@ -370,3 +370,36 @@ internal fun shouldReportProgress(
 ): Boolean =
     downloadedBytes - lastReportedBytes >= PROGRESS_MIN_BYTE_DELTA ||
         nowEpochMs - lastReportedAtEpochMs >= PROGRESS_MIN_INTERVAL_MS
+
+/**
+ * The two response decisions the Android (OkHttp) and desktop (`java.net.http`) transfer loops
+ * used to make in two copies (Phase 9, stage 4). The loops still differ in their HTTP stacks and
+ * in how they unblock a stalled read; what a status code *means* is decided once, here.
+ */
+internal enum class RangeNotSatisfiableOutcome {
+    /** The partial file already holds every byte: finalize it, fetch nothing. */
+    PartialIsComplete,
+
+    /** The range really is past the end of a different object: start over from zero. */
+    RestartFromZero,
+}
+
+/**
+ * A 416 to a range request. The range starts past the end of the object; if that is because the
+ * partial file already holds every byte, the download is finished and re-fetching it would be
+ * pure waste.
+ */
+internal fun rangeNotSatisfiableOutcome(reportedTotalBytes: Long?, partialBytes: Long): RangeNotSatisfiableOutcome =
+    if (reportedTotalBytes != null && partialBytes == reportedTotalBytes) {
+        RangeNotSatisfiableOutcome.PartialIsComplete
+    } else {
+        RangeNotSatisfiableOutcome.RestartFromZero
+    }
+
+/**
+ * Whether the bytes of this response continue the partial file. Only a 206 to a range request
+ * does: a 200 means the server ignores ranges or, via If-Range, that the object changed - either
+ * way the bytes on disk no longer belong to this response.
+ */
+internal fun responseAppendsToPartial(attemptedRangeRequest: Boolean, statusCode: Int, resumeFromBytes: Long): Boolean =
+    attemptedRangeRequest && statusCode == 206 && resumeFromBytes > 0L

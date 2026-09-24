@@ -104,7 +104,7 @@ internal actual object DownloadsLiveStatusPlatform {
         val primaryItem = presentation?.candidate?.id?.let(candidatesById::get)
         lastSelectedDownloadId = primaryItem?.id ?: activeBatch?.id
 
-        val backgroundedWithQueue = DownloadsPlatformDownloader.schedulingDeferredToPlatform() &&
+        val backgroundedWithQueue = DownloadsPlatformDownloader.transferHost.schedulingDeferredToPlatform &&
             eligibleItems.any { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
         val payload = when {
             backgroundedWithQueue -> DownloadsLiveStatusPayload(

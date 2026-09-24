@@ -61,7 +61,8 @@ internal object DownloadsBackgroundScheduler {
                 "host_schedule",
                 "kind=uij accepted=$accepted metered=$allowMeteredNetwork " +
                     "foreground=${DownloadsAndroidLifecycle.isForeground()} " +
-                    "error=${result.exceptionOrNull()?.let { it::class.simpleName }}",
+                    "error=${result.exceptionOrNull()?.let { it::class.simpleName }} " +
+                    DownloadsRepository.hostQueueSummary(),
             )
             if (accepted) return
         }
@@ -86,7 +87,8 @@ internal object DownloadsBackgroundScheduler {
         }
         DownloadDiagnostics.note(
             "host_schedule",
-            "kind=worker metered=$allowMeteredNetwork error=${result.exceptionOrNull()?.let { it::class.simpleName }}",
+            "kind=worker metered=$allowMeteredNetwork error=${result.exceptionOrNull()?.let { it::class.simpleName }} " +
+                DownloadsRepository.hostQueueSummary(),
         )
     }
 }
@@ -100,13 +102,10 @@ internal fun initializeDownloadsForBackground(context: Context) {
 }
 
 internal suspend fun awaitDownloadQueueIdle() {
-    DownloadsRepository.uiState.first { state ->
-        // Queued items are still work in hand: finishing the job while any remain would
-        // tear down the foreground host with downloads left waiting for a slot.
-        state.items.none {
-            it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
-        }
-    }
+    // Queued items are still work in hand: finishing the job while any remain would tear down the
+    // foreground host with downloads left waiting for a slot. Every profile's, not the one on
+    // screen: the host carries the device's queue.
+    DownloadsRepository.deviceItems.first { items -> !DownloadHostPlanner.hasWork(items) }
 }
 
 /**

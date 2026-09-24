@@ -118,6 +118,40 @@ internal object DownloadQueuePlanner {
     }
 
     /**
+     * [reordered] for a screen that shows one profile's downloads out of a device-wide queue
+     * (Phase 9).
+     *
+     * *To top* and *To bottom* are queue-wide on purpose: "to top" means "start this now", and
+     * the preemption that follows is device-wide too. *Up* and *Down* swap with the neighbour the
+     * user can see - moving past another profile's item they cannot see would look like the tap
+     * did nothing.
+     */
+    fun reorderedInView(
+        items: List<DownloadItem>,
+        downloadId: String,
+        move: QueueMove,
+        inView: (DownloadItem) -> Boolean,
+    ): List<DownloadItem> {
+        if (move == QueueMove.ToTop || move == QueueMove.ToBottom) return reordered(items, downloadId, move)
+        val visible = items
+            .filter { it.status != DownloadStatus.Completed && inView(it) }
+            .sortedWith(downloadQueueComparator)
+        val index = visible.indexOfFirst { it.id == downloadId }
+        if (index == -1) return items
+        val neighbourIndex = if (move == QueueMove.Up) index - 1 else index + 1
+        if (neighbourIndex !in visible.indices) return items
+        val moved = visible[index]
+        val neighbour = visible[neighbourIndex]
+        return items.map { item ->
+            when (item.id) {
+                moved.id -> item.copy(queuePosition = neighbour.queuePosition)
+                neighbour.id -> item.copy(queuePosition = moved.queuePosition)
+                else -> item
+            }
+        }
+    }
+
+    /**
      * Renumbers ranks without changing the order.
      *
      * Used after loading a payload written before ranks existed, where every item

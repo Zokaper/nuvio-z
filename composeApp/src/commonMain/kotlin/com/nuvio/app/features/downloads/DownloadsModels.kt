@@ -75,6 +75,12 @@ data class DownloadSourceOrigin(
 @Serializable
 data class DownloadItem(
     val id: String,
+    /**
+     * The profile this download belongs to. One device-wide engine holds every profile's
+     * downloads and each profile sees its own (Phase 9). Null only in a payload written before
+     * that; [DownloadStoreMigration] gives those to the primary profile on load.
+     */
+    val ownerProfileId: Int? = null,
     val contentType: String,
     val parentMetaId: String,
     val parentMetaType: String,

@@ -103,6 +103,8 @@ internal fun DownloadSourceOrigin?.isKnownUncached(): Boolean =
 @Serializable
 data class DownloadBatch(
     val id: String,
+    /** See [DownloadItem.ownerProfileId]. */
+    val ownerProfileId: Int? = null,
     val scope: DownloadScope,
     val contentType: String = "",
     val parentMetaId: String = "",
@@ -180,7 +182,9 @@ internal fun reconcileBatches(
 ): List<DownloadBatch> = batches.mapNotNull { batch ->
     val entries = batch.entries.map { entry ->
         val item = items.firstOrNull {
-            it.parentMetaId == batch.parentMetaId &&
+            // Another profile's download of the same episode is not this batch's.
+            (batch.ownerProfileId == null || it.ownerProfileId == batch.ownerProfileId) &&
+                it.parentMetaId == batch.parentMetaId &&
                 it.videoId == entry.videoId &&
                 it.seasonNumber == entry.season &&
                 it.episodeNumber == entry.episode

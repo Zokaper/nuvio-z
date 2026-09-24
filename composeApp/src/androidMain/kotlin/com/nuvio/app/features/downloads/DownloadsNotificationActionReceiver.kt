@@ -21,7 +21,8 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
             actionCancel -> DownloadsRepository.cancelDownload(downloadId)
             actionApproveSize -> DownloadsRepository.approveUnexpectedSize(downloadId)
             // The summary notification's one action: a user pause of everything unfinished.
-            actionPauseAll -> DownloadsRepository.uiState.value.items
+            // Every profile's: the notification counts the whole device queue.
+            actionPauseAll -> DownloadsRepository.deviceItems.value
                 .filter { it.status == DownloadStatus.Queued || it.status == DownloadStatus.Downloading }
                 .forEach { DownloadsRepository.pauseDownload(it.id) }
         }

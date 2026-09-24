@@ -106,14 +106,13 @@ fun resumeDownloadsForAppForeground() = Unit
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual object DownloadsPlatformDownloader {
-    // Nothing on iOS resumes a system pause any more: `.43` made backgrounding leave
-    // transfers alone and turned the foreground resume hook into a no-op. A system-paused
-    // item therefore has no owner here, and the queue has to take it back itself.
-    actual val recoversSystemPauses: Boolean = false
-    actual val maxConcurrentTransfers: Int = IOS_SUBMISSION_WINDOW
-    // A submitted task may wait inside the system for as long as it likes; the session's
-    // own request and resource timeouts decide when one has really failed.
-    actual val ownsTransferLiveness: Boolean = true
+    // The background session owns the transfers: the window of 12 is what keeps a queue moving
+    // while locked (`.46`), a submitted task may wait inside the system as long as it likes, and
+    // nothing here resumes a system pause (`.43`). See TransferHost.SystemOwned.
+    actual val transferHost: TransferHost = TransferHost.SystemOwned(
+        window = IOS_SUBMISSION_WINDOW,
+        coordinator = IosSystemTransferCoordinator,
+    )
     actual fun freeStorageBytes(): Long = -1L
 
     actual fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle =
@@ -155,15 +154,18 @@ internal actual object DownloadsPlatformDownloader {
         return true
     }
 
-    actual fun schedulingDeferredToPlatform(): Boolean = backgroundDownloadManager.isBackgrounded
+}
 
-    actual fun requestTransferInventory(
-        onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit,
-    ) = backgroundDownloadManager.requestInventory(onResult)
+/** The session half of the system-owned model; the engine half is [SystemOwnedTransfers]. */
+private object IosSystemTransferCoordinator : SystemTransferCoordinator {
+    override fun isBackgrounded(): Boolean = backgroundDownloadManager.isBackgrounded
 
-    actual fun suspendTransfer(downloadId: String) = backgroundDownloadManager.suspend(downloadId, notify = false)
+    override fun requestInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit) =
+        backgroundDownloadManager.requestInventory(onResult)
 
-    actual fun cancelTransfer(downloadId: String) = backgroundDownloadManager.cancel(downloadId)
+    override fun suspend(downloadId: String) = backgroundDownloadManager.suspend(downloadId, notify = false)
+
+    override fun cancel(downloadId: String) = backgroundDownloadManager.cancel(downloadId)
 }
 
 private data class NativeTaskMetadata(
@@ -267,7 +269,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val center = NSNotificationCenter.defaultCenter
         center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, NSOperationQueue.mainQueue) { _ ->
             setBackgrounded(true)
-            DownloadsRepository.onPlatformBackground()
+            SystemOwnedTransfers.onPlatformBackground()
         }
         center.addObserverForName(UIApplicationDidBecomeActiveNotification, null, NSOperationQueue.mainQueue) { _ ->
             onBecameActive()
@@ -299,11 +301,11 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
      */
     private fun onBecameActive() {
         if (!isBackgrounded) return
-        DownloadsRepository.holdSchedulingForPlatformInventory()
+        SystemOwnedTransfers.holdSchedulingForPlatformInventory()
         isBackgrounded = false
         DownloadsLiveStatusPlatform.onAppBackgroundChanged()
         delegateQueue.addOperationWithBlock { refreshReported.clear() }
-        DownloadsRepository.requestPlatformInventory()
+        SystemOwnedTransfers.requestPlatformInventory()
     }
 
     private fun onQueue(block: () -> Unit) {
@@ -528,7 +530,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
      */
     private fun claim(task: NSURLSessionDownloadTask, metadata: NativeTaskMetadata, finishing: Boolean): NativeTaskContext? {
         val handle = IosBackgroundTaskHandle(metadata.downloadId)
-        return when (val claim = DownloadsRepository.claimNativeTransfer(metadata.downloadId, handle, finishing)) {
+        return when (val claim = SystemOwnedTransfers.claimNativeTransfer(metadata.downloadId, handle, finishing)) {
             is NativeTransferClaim.Adopted -> attach(task, metadata, claim.listener)
             NativeTransferClaim.Suspend -> {
                 task.suspend()
@@ -587,11 +589,11 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
      */
     private fun advanceIfBackgrounded() {
         if (!isBackgrounded || !inventoryLoaded) return
-        val snapshot = DownloadsRepository.nativeSchedulingSnapshot()
+        val snapshot = SystemOwnedTransfers.nativeSchedulingSnapshot()
         val running = tasksById.filterValues { it.state == NSURLSessionTaskStateRunning }.keys
         val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys
         val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
-            maxConcurrent = DownloadsRepository.maxConcurrentTransfers,
+            maxConcurrent = IOS_SUBMISSION_WINDOW,
             runningIds = running,
             claimedIds = snapshot.claimedIds,
             suspendedIds = suspended,
@@ -604,7 +606,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             val url = if (resume) null else NSURL.URLWithString(candidate.sourceUrl) ?: return@forEach
             val metadata = NativeTaskMetadata(candidate.downloadId, candidate.destinationFileName, candidate.knownTotalBytes)
             val handle = IosBackgroundTaskHandle(candidate.downloadId)
-            val claim = DownloadsRepository.claimNativeTransfer(candidate.downloadId, handle, finishing = false)
+            val claim = SystemOwnedTransfers.claimNativeTransfer(candidate.downloadId, handle, finishing = false)
             if (claim !is NativeTransferClaim.Adopted) return@forEach
             positionsById[candidate.downloadId] = candidate.queuePosition
             val existing = tasksById[candidate.downloadId]?.takeIf { resume }
@@ -629,7 +631,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         plan.refreshBoundary?.let { boundary ->
             DownloadsProbeLog.event("boundary", "id" to boundary.downloadId)
             if (refreshReported.add(boundary.downloadId)) {
-                DownloadsRepository.onNativeSourceRefreshNeeded(boundary.downloadId)
+                SystemOwnedTransfers.onNativeSourceRefreshNeeded(boundary.downloadId)
             }
         }
     }
