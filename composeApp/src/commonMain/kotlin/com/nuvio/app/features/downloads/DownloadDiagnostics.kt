@@ -6,6 +6,16 @@ import co.touchlab.kermit.Logger
 internal object DownloadDiagnostics {
     private val log = Logger.withTag("DownloadDiag")
 
+    /** Where the iOS Debug build mirrors these lines, next to the session's own events. */
+    internal var sink: ((String) -> Unit)? = null
+
+    /** Anything without an item to hang it on - a fenced callback, an inventory decision. */
+    fun note(name: String, details: String) {
+        val line = "event=$name $details"
+        log.i { line }
+        sink?.invoke(line)
+    }
+
     fun selection(provider: String?, season: Int?, episode: Int?, lazy: Boolean, outcome: String) =
         event("selection", provider, season, episode, details = "lazy=$lazy outcome=$outcome")
 
@@ -32,9 +42,9 @@ internal object DownloadDiagnostics {
         episode: Int?,
         details: String,
     ) {
-        log.i {
-            "event=$name provider=${provider?.take(80) ?: "unknown"} " +
-                "season=${season ?: -1} episode=${episode ?: -1} $details"
-        }
+        val line = "event=$name provider=${provider?.take(80) ?: "unknown"} " +
+            "season=${season ?: -1} episode=${episode ?: -1} $details"
+        log.i { line }
+        sink?.invoke(line)
     }
 }

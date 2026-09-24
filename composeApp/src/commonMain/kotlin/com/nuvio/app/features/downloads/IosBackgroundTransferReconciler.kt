@@ -226,6 +226,27 @@ internal object IosBackgroundTransferReconciler {
         return release
     }
 
+    /** How long a running task may sit with every byte received before it counts as stuck. */
+    const val STALLED_AT_END_GRACE_MS = 2L * 60L * 1000L
+
+    /**
+     * A task that has received every byte it expects but has not finished.
+     *
+     * The response never ended - a connection or stream left open after the last byte -
+     * and a background task can sit like that until its 24-hour resource timeout. The
+     * queue's own silence watchdog is off on iOS, so this is the only thing that notices.
+     * [fullSinceEpochMs] is when the task was first seen complete, in this process.
+     */
+    fun isStalledAtEnd(
+        running: Boolean,
+        receivedBytes: Long,
+        expectedBytes: Long,
+        fullSinceEpochMs: Long?,
+        nowEpochMs: Long,
+        graceMs: Long = STALLED_AT_END_GRACE_MS,
+    ): Boolean = running && expectedBytes > 0L && receivedBytes >= expectedBytes &&
+        fullSinceEpochMs != null && nowEpochMs - fullSinceEpochMs >= graceMs
+
     // --- Adoption: reconciling the repository with the tasks that really exist -----
 
     /** A task the session reports, as seen at inventory time. */
@@ -244,6 +265,12 @@ internal object IosBackgroundTransferReconciler {
         val queuePosition: Long,
         /** The repository already holds a transfer for this id. */
         val claimed: Boolean,
+        /**
+         * The claim is for a transfer already handed to the session - not one still
+         * resolving its source or waiting its turn to be submitted. Such a claim is only
+         * as real as the task behind it.
+         */
+        val transferring: Boolean = false,
     )
 
     data class AdoptionPlan(
@@ -255,6 +282,11 @@ internal object IosBackgroundTransferReconciler {
         val cancel: List<String>,
         /** Downloads recorded as downloading with no running task behind them. */
         val requeue: List<String>,
+        /**
+         * Claims whose task no longer exists at all. The repository still holds them, so
+         * they are not in [requeue], but nothing will ever report for them again.
+         */
+        val releaseLost: List<String> = emptyList(),
     )
 
     /**
@@ -286,9 +318,21 @@ internal object IosBackgroundTransferReconciler {
             }
         }
 
+        // A claim for a transfer the session was given, with no task of any kind behind it
+        // any more. `.46` treated every claim without a running task as "still resolving"
+        // and let it hold its slot forever; with the silence watchdog off on iOS, a
+        // completion that never reached the repository left the row at 100% for good.
+        val releaseLost = items
+            .filter {
+                it.claimed && it.transferring && it.state == AdoptionState.DOWNLOADING &&
+                    it.id !in liveById
+            }
+            .map { it.id }
+        val lost = releaseLost.toSet()
+
         val eligibleStates = setOf(AdoptionState.DOWNLOADING, AdoptionState.QUEUED, AdoptionState.SYSTEM_PAUSED)
         // Claims with no running task (still resolving) keep their slot.
-        val heldSlots = items.count { it.claimed && liveById[it.id]?.running != true }
+        val heldSlots = items.count { it.claimed && liveById[it.id]?.running != true && it.id !in lost }
         var capacity = maxConcurrent - heldSlots
         items
             .filter { it.state in eligibleStates && liveById[it.id]?.running == true }
@@ -309,6 +353,6 @@ internal object IosBackgroundTransferReconciler {
                 it.state == AdoptionState.DOWNLOADING && !it.claimed && liveById[it.id]?.running != true
             }
             .map { it.id }
-        return AdoptionPlan(adopt, suspend, cancel, requeue)
+        return AdoptionPlan(adopt, suspend, cancel, requeue, releaseLost)
     }
 }

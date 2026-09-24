@@ -82,6 +82,9 @@ internal object DownloadsProbeLog {
             event("device_unlocked")
         }
         enabled = true
+        // The repository's own lifecycle lines - completion accepted, rejected or fenced,
+        // lost claims released - land in the same file as the session's events.
+        DownloadDiagnostics.sink = { line -> event("repo", "line" to line) }
         dispatch_async(queue) { openFile() }
         event("probe_start")
     }

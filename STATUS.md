@@ -27,12 +27,25 @@ Findings and changes (full analysis: `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch
    - a failed batch download offers **Choose source manually** under its row.
 
    Scoped to the Z download/batch code. `DirectDebridResolver` is unchanged.
+4. **Pilot stuck at 282.9 / 282.9 MB (release blocker).** The cause is unconfirmed, because the `.46`
+   logs were unreadable (see 5). Both `.46` holes that can freeze a row at 100% are closed:
+   - a Running task holding every byte for 2+ minutes is cancelled and retried (`isStalledAtEnd`,
+     checked at each foreground inventory);
+   - a held claim already handed to the session, with no task left, is released and requeued
+     (`planAdoption.releaseLost`).
+
+   New `finalize`, `inventory_task`, `stalled_at_end` and `repo` log lines will show which case
+   Pilot hit.
+5. **Diagnostics were never in Files.** Xcode drops `INFOPLIST_KEY_UIFileSharingEnabled` from the
+   generated plist. `scripts/build-ios-ipa.sh` now sets it and `LSSupportsOpeningDocumentsInPlace`
+   on the **Debug** app only, and fails the build otherwise. The same bundle id keeps the `.46`
+   container.
 
 Debug counter 47. **Not published.**
 
 Verification (local; results dir deleted, `--rerun-tasks`):
-- pure suites **850 / 850**;
-- Android host suite **2,362 / 2,362** (7 new in `DownloadBatchAttentionTest`); `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. iOS CI is the gate for the Swift and iOS Kotlin changes.
+- pure suites **856 / 856**;
+- Android host suite **2,368 / 2,368**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. iOS CI and a Debug test IPA are the gate for the iOS Kotlin, Swift and packaging changes.
 
 ## Phase 8 Batch 5 — iOS submitted window (`.46`) (2026-09-24)
 

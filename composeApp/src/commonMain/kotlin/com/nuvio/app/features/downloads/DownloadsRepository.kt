@@ -1019,11 +1019,18 @@ object DownloadsRepository {
         // providers answer with a small placeholder video while they queue the real
         // one, and it passes every check the transfer itself can make.
         val placeholder = synchronized(stateLock) {
-            if (!isCurrentTransferLocked(downloadId, generation)) return
+            if (!isCurrentTransferLocked(downloadId, generation)) {
+                DownloadDiagnostics.note(
+                    "completion_fenced",
+                    "id=$downloadId generation=$generation current=${activeHandles[downloadId]?.generation} bytes=$totalBytes",
+                )
+                return
+            }
             val current = _uiState.value.items.firstOrNull { it.id == downloadId }
             current != null && isImplausiblySmallForMedia(totalBytes, current.expectedSizeBytes)
         }
         if (placeholder) {
+            DownloadDiagnostics.note("completion_rejected_small", "id=$downloadId bytes=$totalBytes")
             onTransferFailed(
                 downloadId = downloadId,
                 generation = generation,
@@ -2200,14 +2207,31 @@ object DownloadsRepository {
             awaitingPlatformInventory = false
             val items = _uiState.value.items
             val plan = IosBackgroundTransferReconciler.planAdoption(
-                items = items.map { it.toAdoptionItem(claimed = it.id in activeHandles) },
+                items = items.map {
+                    val claimed = it.id in activeHandles
+                    it.toAdoptionItem(
+                        claimed = claimed,
+                        transferring = claimed &&
+                            it.activity != DownloadActivity.RESOLVING_SOURCE &&
+                            it.id !in resolvingInOrder &&
+                            it.id !in parkedStarts,
+                    )
+                },
                 live = live,
                 maxConcurrent = maxConcurrentTransfers,
             )
             plan.cancel.forEach(DownloadsPlatformDownloader::cancelTransfer)
             plan.suspend.forEach(DownloadsPlatformDownloader::suspendTransfer)
+            // Nothing will report for these again. Giving the slot up without cancelling
+            // is enough: the next start either finds the finished file at its destination
+            // and completes, or creates a new task.
+            plan.releaseLost.forEach { downloadId ->
+                DownloadDiagnostics.note("release_lost_claim", "id=$downloadId")
+                activeHandles.remove(downloadId)?.abandon()
+                transferSamples.remove(downloadId)
+            }
 
-            val requeue = plan.requeue.toSet()
+            val requeue = plan.requeue.toSet() + plan.releaseLost
             val adopt = plan.adopt.toSet()
             if (requeue.isNotEmpty() || adopt.isNotEmpty()) {
                 val liveById = live.associateBy { it.downloadId }
@@ -2367,7 +2391,7 @@ object DownloadsRepository {
         prepareUpcomingTransfers()
     }
 
-    private fun DownloadItem.toAdoptionItem(claimed: Boolean) =
+    private fun DownloadItem.toAdoptionItem(claimed: Boolean, transferring: Boolean = false) =
         IosBackgroundTransferReconciler.AdoptionItem(
             id = id,
             state = when (status) {
@@ -2383,6 +2407,7 @@ object DownloadsRepository {
             },
             queuePosition = queuePosition,
             claimed = claimed,
+            transferring = transferring,
         )
 
     private fun DownloadItem.toPlatformRequest(sourceUrl: String) = DownloadPlatformRequest(

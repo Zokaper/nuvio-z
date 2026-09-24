@@ -252,6 +252,64 @@ class IosBackgroundTransferReconcilerTest {
         assertTrue(plan.cancel.isEmpty())
     }
 
+    // --- Lost claims and tasks stuck at 100% (`.46` Pilot) --------------------------
+
+    /** Held, handed to the session, and no task left: nothing will ever report for it. */
+    @Test fun transferringClaimWithNoTaskIsReleased() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("pilot", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true, transferring = true),
+                adoption("e2", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 2, claimed = true, transferring = true),
+            ),
+            live = listOf(live("e2")),
+            maxConcurrent = 12,
+        )
+        assertEquals(listOf("pilot"), plan.releaseLost)
+        assertTrue(plan.requeue.isEmpty())
+    }
+
+    @Test fun resolvingClaimIsNotReleased() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true, transferring = false)),
+            live = emptyList(),
+            maxConcurrent = 12,
+        )
+        assertTrue(plan.releaseLost.isEmpty())
+    }
+
+    @Test fun transferringClaimWithASuspendedTaskIsNotReleased() {
+        val plan = r.planAdoption(
+            items = listOf(adoption("d1", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true, transferring = true)),
+            live = listOf(live("d1", running = false)),
+            maxConcurrent = 12,
+        )
+        assertTrue(plan.releaseLost.isEmpty())
+    }
+
+    @Test fun releasedClaimNoLongerHoldsASlot() {
+        val plan = r.planAdoption(
+            items = listOf(
+                adoption("lost", IosBackgroundTransferReconciler.AdoptionState.DOWNLOADING, 1, claimed = true, transferring = true),
+                adoption("d2", IosBackgroundTransferReconciler.AdoptionState.QUEUED, 2),
+            ),
+            live = listOf(live("d2")),
+            maxConcurrent = 1,
+        )
+        assertEquals(listOf("d2"), plan.adopt)
+    }
+
+    @Test fun taskFullForLongerThanTheGraceIsStalledAtEnd() {
+        assertTrue(r.isStalledAtEnd(true, 100, 100, fullSinceEpochMs = 0L, nowEpochMs = r.STALLED_AT_END_GRACE_MS))
+    }
+
+    @Test fun taskJustFullOrNotFullOrNotRunningIsNotStalled() {
+        assertFalse(r.isStalledAtEnd(true, 100, 100, fullSinceEpochMs = 0L, nowEpochMs = r.STALLED_AT_END_GRACE_MS - 1))
+        assertFalse(r.isStalledAtEnd(true, 99, 100, fullSinceEpochMs = 0L, nowEpochMs = Long.MAX_VALUE))
+        assertFalse(r.isStalledAtEnd(false, 100, 100, fullSinceEpochMs = 0L, nowEpochMs = Long.MAX_VALUE))
+        assertFalse(r.isStalledAtEnd(true, 100, -1, fullSinceEpochMs = 0L, nowEpochMs = Long.MAX_VALUE))
+        assertFalse(r.isStalledAtEnd(true, 100, 100, fullSinceEpochMs = null, nowEpochMs = Long.MAX_VALUE))
+    }
+
     // --- Submission order ---------------------------------------------------------------
 
     @Test fun resolvedItemsAreReleasedInQueueOrder() {
@@ -448,7 +506,8 @@ class IosBackgroundTransferReconcilerTest {
         state: IosBackgroundTransferReconciler.AdoptionState,
         queuePos: Long,
         claimed: Boolean = false,
-    ) = IosBackgroundTransferReconciler.AdoptionItem(id, state, queuePos, claimed)
+        transferring: Boolean = false,
+    ) = IosBackgroundTransferReconciler.AdoptionItem(id, state, queuePos, claimed, transferring)
 
     private fun live(id: String, running: Boolean = true) =
         IosBackgroundTransferReconciler.LiveTransfer(id, running)

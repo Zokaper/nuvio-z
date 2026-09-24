@@ -47,6 +47,34 @@ architecture works and must not regress. Remaining findings:
     debrid service. Choose another source." It no longer waits out five retries.
   - A failed download that came from a batch shows **Choose source manually** under its row in
     Needs your attention.
+- **Pilot stuck at `282.9 / 282.9 MB` (release blocker).** The `.46` logs could not be read, so
+  the cause is not established. `.47` closes both holes in `.46` that can leave a row at 100% for
+  good, and logs enough to say which one it was:
+  - *A task stuck at 100% inside iOS.* Every byte arrives but the response never ends, and a
+    background task can sit Running until its 24-hour resource timeout. `.45`'s 5-minute silence
+    watchdog would have reclaimed it; `.46` turned that watchdog off on iOS. Now each foreground
+    inventory records when a Running task first had every expected byte. After 2 minutes like
+    that (`isStalledAtEnd`), the task is cancelled and fails as Transient, so the retry path
+    restarts it.
+  - *A completion that never reached the repository.* `planAdoption` counted every held claim
+    without a running task as "still resolving" and let it keep its slot for good. `.47` marks
+    claims that were already handed to the session (`transferring`). One with no task at all is
+    released and requeued in place without charging an attempt (`releaseLost`). The next start
+    then finds the finished file at its destination and completes, or creates a new task.
+  - New Debug logs:
+    - `finalize`: every exit of `didFinishDownloadingToURL`, with outcome, sizes and HTTP status;
+    - `inventory_task`: each task's state, received/expected bytes, whether a listener is
+      attached, and how long it has been full;
+    - `stalled_at_end`;
+    - `repo` lines: `completion_fenced`, `completion_rejected_small`, `release_lost_claim` and the
+      existing lifecycle events.
+- **Diagnostics were never visible in Files.** Xcode's generated Info.plist drops
+  `INFOPLIST_KEY_UIFileSharingEnabled`: `.45` and `.46` shipped with
+  `LSSupportsOpeningDocumentsInPlace` and without `UIFileSharingEnabled`. `scripts/build-ios-ipa.sh`
+  now sets both on the staged **Debug** app before packaging and fails the build if a Debug IPA
+  lacks them or a Release IPA has them. The bundle id is unchanged, so installing `.47` over `.46`
+  keeps the container, and the `.46` `downloads-*.jsonl` files become visible if iOS kept the
+  data.
 - **Concurrency (3): no change, deliberately.** iOS has no reliable native way to cap how many of
   the submitted tasks run at once:
   - `URLSessionTask.priority` is a hint.
@@ -733,3 +761,9 @@ SideStore debug build `0.4.13-z1.47`. The `.46` checklist (section 9) still appl
    Choose another source." and a **Choose source manually** button.
 4. [ ] **Regression: locked progress.** Section 9 step 1 still holds: downloads continue while
    locked.
+5. [ ] **Diagnostics in Files.** `Files > On My iPhone > Nuvio Z Debug` exists and contains
+   `nuvio_diagnostics/`. The `.46` `downloads-*.jsonl` files are there if iOS kept the data on
+   update. Send them, and search them for Pilot's id: `finish`, `complete`, `metrics`.
+6. [ ] **Nothing stays at 100%.** In the `.47` logs, every task that reaches its full size is
+   followed by `finalize outcome=complete` and a `repo` completion line, a `stalled_at_end`, or a
+   `release_lost_claim`. No row stays at full size without becoming Completed or retrying.

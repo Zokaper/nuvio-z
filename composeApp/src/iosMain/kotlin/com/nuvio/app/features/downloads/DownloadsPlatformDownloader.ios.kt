@@ -8,6 +8,7 @@ import nuvio.composeapp.generated.resources.download_failed
 import nuvio.composeapp.generated.resources.downloads_error_finalize_file_failed
 import nuvio.composeapp.generated.resources.downloads_error_incomplete_transfer
 import nuvio.composeapp.generated.resources.downloads_error_source_changed
+import nuvio.composeapp.generated.resources.downloads_error_stalled
 import nuvio.composeapp.generated.resources.network_request_failed_http
 import org.jetbrains.compose.resources.getString
 import platform.Foundation.NSBundle
@@ -229,6 +230,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private val refreshReported = mutableSetOf<String>()
     /** Queue positions of the tasks held, for the priority hint. Unknown after a relaunch until adopted. */
     private val positionsById = mutableMapOf<String, Long>()
+    /** When each task was first seen with every expected byte, by task identifier. This process only. */
+    private val fullSinceByTask = mutableMapOf<ULong, Long>()
     private var inventoryLoaded = false
     private val awaitingInventory = mutableListOf<() -> Unit>()
 
@@ -352,6 +355,39 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
 
     fun requestInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit) {
         whenReady {
+            val now = DownloadsClock.nowEpochMs()
+            tasksById.entries.toList().forEach { (downloadId, task) ->
+                val received = task.countOfBytesReceived
+                val expected = task.countOfBytesExpectedToReceive
+                val running = task.state == NSURLSessionTaskStateRunning
+                if (running && expected > 0L && received >= expected) {
+                    fullSinceByTask.getOrPut(task.taskIdentifier) { now }
+                }
+                val fullSince = fullSinceByTask[task.taskIdentifier]
+                DownloadsProbeLog.event(
+                    "inventory_task",
+                    "id" to downloadId,
+                    "task" to task.taskIdentifier.toLong(),
+                    "state" to task.state.toLong(),
+                    "received" to received,
+                    "expected" to expected,
+                    "listened" to (task.taskIdentifier in contexts),
+                    "fullForSec" to fullSince?.let { (now - it) / 1000L },
+                )
+                if (IosBackgroundTransferReconciler.isStalledAtEnd(running, received, expected, fullSince, now)) {
+                    // Every byte arrived and the response never ended. Cancelling loses
+                    // nothing that can be kept - the session holds the body in its own
+                    // temporary file until the task finishes - and the retry starts over.
+                    DownloadsProbeLog.event("stalled_at_end", "id" to downloadId, "task" to task.taskIdentifier.toLong())
+                    val context = contexts[task.taskIdentifier]
+                    cancelTaskLocked(downloadId, task)
+                    context?.takeIf { !it.completed }?.fail(
+                        DownloadFailureReason.Transient,
+                        runBlocking { getString(Res.string.downloads_error_stalled) },
+                        received.coerceAtLeast(0L),
+                    )
+                }
+            }
             val live = tasksById.map { (downloadId, task) ->
                 IosBackgroundTransferReconciler.LiveTransfer(
                     downloadId = downloadId,
@@ -584,6 +620,9 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             ?: claim(downloadTask, metadata, finishing = false)
             ?: return
         val total = totalBytesExpectedToWrite.takeIf { it > 0L } ?: metadata.knownTotalBytes
+        if (total != null && totalBytesWritten >= total) {
+            fullSinceByTask.getOrPut(downloadTask.taskIdentifier) { DownloadsClock.nowEpochMs() }
+        }
         if (!context.reportedFirstBytes) {
             context.reportedFirstBytes = true
             DownloadsProbeLog.event(
@@ -608,10 +647,23 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         downloadTask: NSURLSessionDownloadTask,
         didFinishDownloadingToURL: NSURL,
     ) {
-        val metadata = NativeTaskMetadata.decode(downloadTask.taskDescription) ?: return
+        val metadata = NativeTaskMetadata.decode(downloadTask.taskDescription) ?: run {
+            DownloadsProbeLog.event("finalize", "task" to downloadTask.taskIdentifier.toLong(), "outcome" to "no_metadata")
+            return
+        }
         val context = contexts[downloadTask.taskIdentifier]
             ?: claim(downloadTask, metadata, finishing = true)
-            ?: return
+            ?: run {
+                DownloadsProbeLog.event("finalize", "id" to metadata.downloadId, "outcome" to "not_claimed")
+                return
+            }
+        fun finalized(outcome: String, vararg fields: Pair<String, Any?>) = DownloadsProbeLog.event(
+            "finalize",
+            "id" to metadata.downloadId,
+            "task" to downloadTask.taskIdentifier.toLong(),
+            "outcome" to outcome,
+            *fields,
+        )
         val response = downloadTask.response as? NSHTTPURLResponse
         val statusCode = response?.statusCode?.toInt() ?: 200
         DownloadsProbeLog.event(
@@ -622,16 +674,21 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             "bytes" to downloadTask.countOfBytesReceived,
         )
         if (statusCode !in 200..299) {
+            finalized("http_status", "http" to statusCode)
             context.fail(failureReasonForHttpStatus(statusCode), runBlocking {
                 getString(Res.string.network_request_failed_http, statusCode)
             }, downloadTask.countOfBytesReceived.coerceAtLeast(0L))
             return
         }
-        val sourcePath = didFinishDownloadingToURL.path ?: return
+        val sourcePath = didFinishDownloadingToURL.path ?: run {
+            finalized("no_location")
+            return
+        }
         val destinationPath = "${downloadsDirectoryPath()}/${metadata.destinationFileName}"
         val partPath = "$destinationPath.part"
         removePathIfExists(partPath)
         if (!NSFileManager.defaultManager.moveItemAtPath(sourcePath, partPath, null)) {
+            finalized("move_to_part_failed")
             context.fail(DownloadFailureReason.Transient, runBlocking {
                 getString(Res.string.downloads_error_finalize_file_failed)
             }, 0L)
@@ -640,14 +697,22 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val bytes = fileSizeOrNull(partPath) ?: 0L
         val responseTotal = response?.valueForHTTPHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0L }
         val expected = responseTotal ?: metadata.knownTotalBytes
+        val sizes = arrayOf<Pair<String, Any?>>(
+            "bytes" to bytes,
+            "contentLength" to responseTotal,
+            "known" to metadata.knownTotalBytes,
+            "http" to statusCode,
+        )
         when (evaluateCompletion(bytes, expected)) {
             is DownloadCompletion.Short -> {
+                finalized("short", *sizes)
                 context.fail(DownloadFailureReason.Incomplete, runBlocking {
                     getString(Res.string.downloads_error_incomplete_transfer)
                 }, bytes)
                 return
             }
             is DownloadCompletion.Overrun -> {
+                finalized("overrun", *sizes)
                 removePathIfExists(partPath)
                 context.fail(DownloadFailureReason.SourceChanged, runBlocking {
                     getString(Res.string.downloads_error_source_changed)
@@ -658,12 +723,14 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         }
         removePathIfExists(destinationPath)
         if (!NSFileManager.defaultManager.moveItemAtPath(partPath, destinationPath, null)) {
+            finalized("move_to_destination_failed", *sizes)
             context.fail(DownloadFailureReason.Transient, runBlocking {
                 getString(Res.string.downloads_error_finalize_file_failed)
             }, bytes)
             return
         }
         val uri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
+        finalized("complete", *sizes, "destinationBytes" to fileSizeOrNull(destinationPath))
         context.completed = true
         finishedIds += metadata.downloadId
         // The repository still checks the size against what was expected; a small
@@ -675,6 +742,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         val metadata = NativeTaskMetadata.decode(task.taskDescription) ?: return
         val downloadTask = task as? NSURLSessionDownloadTask
         val cancelled = cancelledTaskIds.remove(task.taskIdentifier)
+        fullSinceByTask.remove(task.taskIdentifier)
         var context = contexts.remove(task.taskIdentifier)
         if (downloadTask != null && tasksById[metadata.downloadId] === downloadTask) {
             tasksById.remove(metadata.downloadId)
