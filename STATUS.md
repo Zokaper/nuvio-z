@@ -65,10 +65,54 @@ the platform-request fix, the iOS Live Activity mapping, the recheck loop, the r
 desktop E2E cases. Pure 883/883, Android host 2,430/2,430, common + Android compile pass;
 desktop `desktopTest` 2,573/2,573 (with policy core cherry-picked + a desktop `DownloadPolicyStorage` actual).
 
-**Physical `.49` results (Android screen-off, desktop debug 62): not yet supplied - pending.**
+**Physical `.49` (maintainer, 2026-09-24, Android on mobile data / hotspot, not Wi-Fi):** screen off,
+back later -> the row read "Waiting to retry... retrying in 5, 4, 3...". **Android background
+downloading is NOT physically passed.** This is an unresolved observation from a metered
+environment, not a clean Wi-Fi baseline. Code has changed since (`.49` scheduled the background
+job with an UNMETERED constraint for every item, since nothing could allow mobile data - so on
+mobile data the host job could never run; that is a *hypothesis* for this run, not a confirmed
+cause). Re-test the final stage 4 build, ideally on Wi-Fi. Desktop debug 62: no result yet.
 
-**Next:** rest of stage 4 (presentation layer, per-profile store with `ownerProfileId`,
-scheduler/realizer split), stage 6 flows UI, then 7-9. The iOS window stays at 12.
+**Stage 4 - engine simplification (`514b2faae`; desktop `bf282a4c2` + `f12dbcee5`):**
+`DownloadsRepository` (2,766 lines) keeps the public API; the engine moved out, code verbatim
+where it could be:
+- `DownloadStore` - persistence, **one device-wide store**, `ownerProfileId` on items and batches,
+  per-profile views (`uiState`, `batches`) that follow the active profile reactively. A profile
+  switch changes the view only (it used to reload the queue). The Android notification, the iOS
+  Live Activity, the Android host's idle wait and "Pause all" use every profile's items
+  (`deviceItems`). Migration: owner-less payloads -> primary profile (1); desktop's
+  `downloads_<profile>` payloads merge into `downloads_device`, tagged, and are **left on disk**.
+- `DownloadScheduler` - slots, connectivity + Wi-Fi gates, retry/watchdog timers, reclaim sweep,
+  transfer callbacks and the generation fence.
+- `SourceRealizer` - re-minting, size verification, freshness. `failureOutcome` is pure and
+  tested (a known-uncached source fails at once - the NothingCached rule).
+- `SystemOwnedTransfers` - the iOS background-session model (inventory, claims, snapshot,
+  ordered submission, resolve-ahead) **moved unchanged**, reached only via
+  `TransferHost.SystemOwned(window = 12)`.
+- `TransferHost` replaces seven platform members (five were no-ops off iOS). Android
+  `InProcess(recoversSystemPauses = true)`, desktop `InProcess(false)`, iOS `SystemOwned`.
+- Queue moves: To top / To bottom queue-wide; Up / Down swap with the **visible** neighbour.
+- Android host: network requirement is queue-wide (`DownloadHostPlanner`), not the first
+  transfer's - addresses the `.49` hypothesis, **unverified on a device**.
+- Diagnostics (all platforms): failure / retry / connection-wait lines now carry
+  `net=<type> metered=<bool>` and on Android `foreground=` / `hosting=`; new events
+  `engine_start`, `store_loaded`, `store_migrated`, `store_corrupt`, `profile_view`, `wifi_wait`,
+  `inventory_plan`, `load_placeholder_requeued`, host queue summaries. Nothing was removed.
+- JVM loops: the 416 and 206/200 decisions are shared pure functions. **No `jvmCommon` source
+  set:** the loops differ in HTTP stack (OkHttp vs `java.net.http`) and stall mechanics, and a
+  merge would rewrite the Android path whose screen-off behaviour is still unresolved.
+- **Not done in stage 4, deliberately:** `DownloadPresentation` (the shared user-facing state
+  mapping). It lands with the stage 7 screen/notification redesign that consumes it.
+- Known gap: deleting a profile leaves its downloads in the device store (not shown anywhere).
+
+Verification: pure 883/883; Android host 2,452/2,452 (`--rerun-tasks`, +22 tests); common +
+Android compile pass; CI + iOS quick check green on `514b2faae`; desktop `desktopTest`
+2,597/2,597 (`--rerun-tasks`, JBR SDK; +2 E2E: per-profile views over one engine, per-profile
+payload migration). Debug build **50** is cut from this checkpoint for the physical re-test:
+iPhone locked-queue regression (must match `.46`), Android screen-off **on Wi-Fi**, desktop.
+None of those are verified until the maintainer reports them.
+
+**Next:** stage 6 flows UI, then 7-9. The iOS window stays at 12.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
