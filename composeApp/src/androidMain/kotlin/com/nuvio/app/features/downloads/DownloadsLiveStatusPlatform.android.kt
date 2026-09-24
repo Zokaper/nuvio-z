@@ -133,6 +133,7 @@ internal actual object DownloadsLiveStatusPlatform {
             summary.waitingReason != null -> {
                 val reason = when (summary.waitingReason) {
                     DownloadsWaitingReason.Connection -> string(Res.string.downloads_status_waiting_connection)
+                    DownloadsWaitingReason.Wifi -> string(Res.string.downloads_status_waiting_wifi)
                     DownloadsWaitingReason.Retrying -> string(Res.string.downloads_status_retry_backoff)
                     DownloadsWaitingReason.Starting -> string(Res.string.downloads_status_waiting_to_start)
                 }

@@ -23,7 +23,7 @@ data class DownloadsSummary(
     val preparingEntries: Int,
 )
 
-enum class DownloadsWaitingReason { Connection, Retrying, Starting }
+enum class DownloadsWaitingReason { Connection, Wifi, Retrying, Starting }
 
 /** A title (film) or a season whose last unfinished download has just completed. */
 data class CompletedDownloadGroup(
@@ -50,6 +50,8 @@ object DownloadsSummaryPolicy {
             null
         } else if (waiting.any { it.activity == DownloadActivity.WAITING_FOR_CONNECTION }) {
             DownloadsWaitingReason.Connection
+        } else if (waiting.any { it.activity == DownloadActivity.WAITING_FOR_WIFI }) {
+            DownloadsWaitingReason.Wifi
         } else if (waiting.any {
                 it.activity == DownloadActivity.RETRY_BACKOFF || it.activity == DownloadActivity.WAITING_FOR_PROVIDER
             }

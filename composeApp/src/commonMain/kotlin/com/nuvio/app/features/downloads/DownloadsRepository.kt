@@ -49,7 +49,62 @@ object DownloadsRepository {
 
     /** [MAX_CONCURRENT_TRANSFERS] on Android; on iOS the submitted window, see the platform. */
     internal val maxConcurrentTransfers: Int
-        get() = DownloadsPlatformDownloader.maxConcurrentTransfers
+        get() = if (DownloadsPlatformDownloader.ownsTransferLiveness) {
+            // iOS hands a submitted window to the system; that window is not a user setting.
+            DownloadsPlatformDownloader.maxConcurrentTransfers
+        } else {
+            _deviceSettings.value.effectiveMaxConcurrent
+        }
+
+    private val _deviceSettings = MutableStateFlow(DownloadDeviceSettings())
+
+    /** This device's download settings (mobile data, downloads at once). Never synced. */
+    val deviceSettings: StateFlow<DownloadDeviceSettings> = _deviceSettings.asStateFlow()
+
+    /** Answered by the platform's own network state; desktop is never metered. */
+    internal var isMeteredNetwork: () -> Boolean = {
+        runCatching { com.nuvio.app.core.network.NetworkQualityPlatform.current().isMetered }.getOrDefault(false)
+    }
+
+    fun updateDeviceSettings(transform: (DownloadDeviceSettings) -> DownloadDeviceSettings) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val next = transform(_deviceSettings.value)
+            if (next == _deviceSettings.value) return
+            _deviceSettings.value = next
+            persistLocked(immediate = true)
+        }
+        startPendingTransfers()
+    }
+
+    /** "Download now anyway": this item may use mobile data. */
+    fun allowMobileData(downloadIds: Collection<String>) {
+        ensureLoaded()
+        synchronized(stateLock) {
+            val ids = downloadIds.toSet()
+            publishLocked(
+                _uiState.value.items.map { item ->
+                    if (item.id !in ids || item.allowMeteredNetwork) item else item.copy(
+                        allowMeteredNetwork = true,
+                        activity = if (item.activity == DownloadActivity.WAITING_FOR_WIFI) {
+                            DownloadActivity.QUEUED_FOR_SLOT
+                        } else {
+                            item.activity
+                        },
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                },
+                immediate = true,
+            )
+        }
+        startPendingTransfers()
+    }
+
+    /** The platform saw the network change (Wi-Fi back, mobile data gone): look again. */
+    fun onNetworkChanged() {
+        if (!hasLoaded) return
+        startPendingTransfers()
+    }
 
     /**
      * Progress used to rewrite the whole payload on every chunk. Disk writes are now
@@ -83,6 +138,7 @@ object DownloadsRepository {
     private var networkObserverStarted = false
     private var networkObserverJob: Job? = null
     private var connectivityRefreshJob: Job? = null
+    private var wifiRecheckJob: Job? = null
     private var nextDownloadOrdinal = 0L
     private var lastPersistAtEpochMs = 0L
     private var hasPendingPersist = false
@@ -212,6 +268,8 @@ object DownloadsRepository {
             retryWakeJob = null
             connectivityRefreshJob?.cancel()
             connectivityRefreshJob = null
+            wifiRecheckJob?.cancel()
+            wifiRecheckJob = null
             hasLoaded = false
             hasPendingPersist = false
             _uiState.value = DownloadsUiState()
@@ -1264,6 +1322,51 @@ object DownloadsRepository {
 
     // --- Queue scheduling ---------------------------------------------------------
 
+    /**
+     * Queued items this network may not carry say so ("Waiting for Wi-Fi") instead of reading as
+     * an ordinary queue position; ones it may carry again lose the label.
+     */
+    private fun markWifiWaitsLocked(metered: Boolean, rule: DownloadMobileDataRule, now: Long) {
+        val changed = _uiState.value.items.any { item ->
+            item.status == DownloadStatus.Queued &&
+                (item.activity == DownloadActivity.WAITING_FOR_WIFI) == item.mayStartOn(metered, rule)
+        }
+        if (!changed) return
+        publishLocked(
+            _uiState.value.items.map { item ->
+                if (item.status != DownloadStatus.Queued) return@map item
+                val waitsForWifi = !item.mayStartOn(metered, rule)
+                when {
+                    waitsForWifi && item.activity != DownloadActivity.WAITING_FOR_WIFI ->
+                        item.copy(activity = DownloadActivity.WAITING_FOR_WIFI, updatedAtEpochMs = now)
+                    !waitsForWifi && item.activity == DownloadActivity.WAITING_FOR_WIFI ->
+                        item.copy(activity = DownloadActivity.QUEUED_FOR_SLOT, updatedAtEpochMs = now)
+                    else -> item
+                }
+            },
+            immediate = true,
+        )
+    }
+
+    /**
+     * Only Android reports network changes to the queue ([onNetworkChanged]). Elsewhere, while
+     * anything waits for Wi-Fi, look again on the connectivity interval so Wi-Fi coming back
+     * starts it without an unrelated event. On iOS in the background this start path is skipped
+     * and the session's `allowsCellularAccess` does the waiting instead.
+     */
+    private fun scheduleWifiRecheckLocked() {
+        if (wifiRecheckJob?.isActive == true) return
+        if (_uiState.value.items.none { it.activity == DownloadActivity.WAITING_FOR_WIFI }) return
+        wifiRecheckJob = scope.launch {
+            while (_uiState.value.items.any { it.activity == DownloadActivity.WAITING_FOR_WIFI }) {
+                delay(DownloadsTiming.connectivityRefreshIntervalMs)
+                if (!isMeteredNetwork()) {
+                    startPendingTransfers()
+                }
+            }
+        }
+    }
+
     private fun startPendingTransfers() {
         // While iOS is in the background the session fills freed slots itself (see
         // IosBackgroundTransferReconciler). Starting here as well is how `.44` ran two
@@ -1295,11 +1398,16 @@ object DownloadsRepository {
                 return@synchronized
             }
             val now = DownloadsClock.nowEpochMs()
+            val metered = isMeteredNetwork()
+            val rule = _deviceSettings.value.mobileData
+            markWifiWaitsLocked(metered, rule, now)
+            scheduleWifiRecheckLocked()
             val startable = DownloadQueuePlanner.startable(
                 items = _uiState.value.items,
                 activeIds = activeHandles.keys.toSet(),
                 maxConcurrent = maxConcurrentTransfers,
                 nowEpochMs = now,
+                mayStartOnNetwork = { it.mayStartOn(metered, rule) },
             )
 
             if (startable.isNotEmpty()) {
@@ -1919,6 +2027,7 @@ object DownloadsRepository {
 
         val stored = DownloadsCodec.decode(payload)
         _sourcePolicy.value = stored.sourcePolicy
+        _deviceSettings.value = stored.deviceSettings
         _batches.value = stored.batches.map { batch ->
             batch.copy(
                 entries = batch.entries.map { entry ->
@@ -2110,6 +2219,7 @@ object DownloadsRepository {
                 sourcePolicy = _sourcePolicy.value,
                 batches = _batches.value,
                 presets = _presets.value,
+                deviceSettings = _deviceSettings.value,
             ),
         )
     }
@@ -2397,7 +2507,7 @@ object DownloadsRepository {
                         } else {
                             item.sourceUrlResolvedAtEpochMs
                         },
-                        allowMeteredNetwork = item.allowMeteredNetwork,
+                        allowMeteredNetwork = item.mayUseMeteredNetwork(_deviceSettings.value.mobileData),
                         notBeforeEpochMs = item.nextRetryAtEpochMs,
                     )
                 }
@@ -2445,7 +2555,7 @@ object DownloadsRepository {
         sourceUrl = sourceUrl,
         sourceHeaders = sourceHeaders,
         destinationFileName = fileName,
-        allowMeteredNetwork = allowMeteredNetwork,
+        allowMeteredNetwork = mayUseMeteredNetwork(_deviceSettings.value.mobileData),
         knownTotalBytes = totalBytes,
         resumeEtag = resumeEtag,
         resumeLastModified = resumeLastModified,
@@ -2520,6 +2630,7 @@ internal data class StoredDownloadsPayload(
     val sourcePolicy: DownloadSourcePolicy = DownloadSourcePolicy(),
     val batches: List<DownloadBatch> = emptyList(),
     val presets: List<DownloadPreset> = DownloadPreset.BuiltIns,
+    val deviceSettings: DownloadDeviceSettings = DownloadDeviceSettings(),
 )
 
 internal object DownloadsCodec {
@@ -2547,6 +2658,7 @@ internal object DownloadsCodec {
         sourcePolicy: DownloadSourcePolicy,
         batches: Collection<DownloadBatch>,
         presets: Collection<DownloadPreset>,
+        deviceSettings: DownloadDeviceSettings = DownloadDeviceSettings(),
     ): String =
         json.encodeToString(
             StoredDownloadsPayload(
@@ -2554,6 +2666,7 @@ internal object DownloadsCodec {
                 sourcePolicy = sourcePolicy,
                 batches = batches.toList(),
                 presets = presets.toList(),
+                deviceSettings = deviceSettings,
             ),
         )
 }

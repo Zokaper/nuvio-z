@@ -911,6 +911,14 @@ private fun DownloadRow(
                     )
                 }
             }
+
+            // Held back by the mobile-data rule, not broken: say so, and let the user spend
+            // the data on this one item.
+            if (item.activity == DownloadActivity.WAITING_FOR_WIFI) {
+                TextButton(onClick = { DownloadsRepository.allowMobileData(listOf(item.id)) }) {
+                    Text(stringResource(Res.string.downloads_download_now_anyway))
+                }
+            }
         }
     }
 }

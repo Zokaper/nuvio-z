@@ -43,6 +43,8 @@ enum class DownloadActivity {
     RESOLVING_SOURCE,
     WAITING_FOR_PROVIDER,
     WAITING_FOR_CONNECTION,
+    /** On mobile data, and this item may not use it (Phase 9 device setting). */
+    WAITING_FOR_WIFI,
     RETRY_BACKOFF,
     TRANSFERRING,
     USER_PAUSED,

@@ -29,6 +29,8 @@ internal object DownloadQueuePlanner {
         activeIds: Set<String>,
         maxConcurrent: Int,
         nowEpochMs: Long,
+        /** False for an item the current network does not allow (mobile data, Phase 9). */
+        mayStartOnNetwork: (DownloadItem) -> Boolean = { true },
     ): List<DownloadItem> {
         val freeSlots = maxConcurrent - activeIds.size
         if (freeSlots <= 0) return emptyList()
@@ -36,6 +38,7 @@ internal object DownloadQueuePlanner {
             .asSequence()
             .filter { it.id !in activeIds }
             .filter { it.isStartable(nowEpochMs) }
+            .filter(mayStartOnNetwork)
             .sortedWith(downloadQueueComparator)
             .take(freeSlots)
             .toList()

@@ -188,6 +188,7 @@ internal actual object DownloadsLiveStatusPlatform {
         DownloadStatus.Queued -> when {
             activity == DownloadActivity.RETRY_BACKOFF || isWaitingForRetry(DownloadsClock.nowEpochMs()) -> DownloadsLiveStatusPolicy.State.RETRYING
             activity == DownloadActivity.WAITING_FOR_CONNECTION ||
+                activity == DownloadActivity.WAITING_FOR_WIFI ||
                 activity == DownloadActivity.WAITING_FOR_PROVIDER ||
                 activity == DownloadActivity.QUEUED_FOR_SLOT -> DownloadsLiveStatusPolicy.State.WAITING
             else -> DownloadsLiveStatusPolicy.State.STARTING

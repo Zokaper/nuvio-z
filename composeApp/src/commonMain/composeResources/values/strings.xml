@@ -2891,4 +2891,6 @@
     <string name="downloads_completed_notification_season">%1$s · Season %2$d finished downloading</string>
     <string name="downloads_completed_notification_body">Ready to watch offline.</string>
     <string name="downloads_completed_channel_name">Finished downloads</string>
+    <string name="downloads_status_waiting_wifi">Waiting for Wi-Fi</string>
+    <string name="downloads_download_now_anyway">Download now anyway</string>
 </resources>

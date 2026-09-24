@@ -73,6 +73,9 @@ internal fun downloadStatusText(item: DownloadItem): String {
             if (item.activity == DownloadActivity.WAITING_FOR_CONNECTION) {
                 return stringResource(Res.string.downloads_status_waiting_connection)
             }
+            if (item.activity == DownloadActivity.WAITING_FOR_WIFI) {
+                return stringResource(Res.string.downloads_status_waiting_wifi)
+            }
             val retryAtEpochMs = item.nextRetryAtEpochMs
             val nowEpochMs = tickingNowEpochMs(
                 active = retryAtEpochMs != null && retryAtEpochMs > DownloadsClock.nowEpochMs(),

@@ -170,6 +170,8 @@ internal object DownloadsAndroidLifecycle {
         lastNetworkSignature = signature
         DownloadDiagnostics.note("network", signature)
         NetworkStatusRepository.requestRefresh(force = true)
+        // Wi-Fi back, or mobile data gone: items waiting on the network rule may start now.
+        DownloadsRepository.onNetworkChanged()
     }
 
     private fun registerPowerReceivers(context: Context) {
