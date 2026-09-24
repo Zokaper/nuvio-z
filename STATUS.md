@@ -108,7 +108,7 @@ where it could be:
 Verification: pure 883/883; Android host 2,452/2,452 (`--rerun-tasks`, +22 tests); common +
 Android compile pass; CI + iOS quick check green on `514b2faae`; desktop `desktopTest`
 2,597/2,597 (`--rerun-tasks`, JBR SDK; +2 E2E: per-profile views over one engine, per-profile
-payload migration). Debug build **50** is cut from this checkpoint for the physical re-test:
+payload migration). Debug build **50** ([`debug-v0.4.13-z1.50`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.50), prerelease, Debug release run `36065558816`, IPA + APK, commit `94fa7fdbf`) is published for the physical re-test:
 iPhone locked-queue regression (must match `.46`), Android screen-off **on Wi-Fi**, desktop.
 None of those are verified until the maintainer reports them.
 
