@@ -136,6 +136,34 @@ trap 'rm -rf "${package_root}"' EXIT
 mkdir -p "${package_root}/Payload"
 ditto "${app_path}" "${package_root}/Payload/Nuvio-Z.app"
 
+# Debug only: expose the app's Documents folder in Files ("On My iPhone > Nuvio Z Debug"),
+# which is where the download diagnostics (`nuvio_diagnostics/`) are written.
+#
+# The Debug build settings ask for this with INFOPLIST_KEY_UIFileSharingEnabled, but Xcode's
+# generated Info.plist does not carry that key through: `.45` and `.46` shipped with
+# LSSupportsOpeningDocumentsInPlace and without UIFileSharingEnabled, and Files needs both.
+# The staged app is unsigned, so setting the keys here breaks no seal, and the check below
+# makes a Debug IPA without them - or a Release IPA with them - fail the build.
+staged_plist="${package_root}/Payload/Nuvio-Z.app/Info.plist"
+file_sharing_keys=(UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace)
+if [[ "${configuration}" == "Debug" ]]; then
+    for key in "${file_sharing_keys[@]}"; do
+        /usr/libexec/PlistBuddy -c "Delete :${key}" "${staged_plist}" >/dev/null 2>&1 || true
+        /usr/libexec/PlistBuddy -c "Add :${key} bool true" "${staged_plist}"
+    done
+fi
+for key in "${file_sharing_keys[@]}"; do
+    value="$(/usr/libexec/PlistBuddy -c "Print :${key}" "${staged_plist}" 2>/dev/null || echo absent)"
+    if [[ "${configuration}" == "Debug" && "${value}" != "true" ]]; then
+        echo "Debug IPA must set ${key} to true, found ${value}." >&2
+        exit 1
+    fi
+    if [[ "${configuration}" == "Release" && "${value}" == "true" ]]; then
+        echo "Release IPA must not expose Documents in Files, but ${key} is true." >&2
+        exit 1
+    fi
+done
+
 if [[ "${configuration}" == "Debug" ]]; then
     ipa_filename="${IOS_IPA_NAME:-Nuvio-Z-iOS-${version}-${build_number}-debug-unsigned.ipa}"
 else

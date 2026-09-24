@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 internal data class DownloadPlatformRequest(
+    val downloadId: String,
     val sourceUrl: String,
     val sourceHeaders: Map<String, String>,
     val destinationFileName: String,
@@ -11,6 +12,10 @@ internal data class DownloadPlatformRequest(
     val resumeEtag: String? = null,
     /** `Last-Modified` fallback for sources that send no `ETag`. */
     val resumeLastModified: String? = null,
+    /** The item's rank in the global queue; iOS turns it into a task priority hint. */
+    val queuePosition: Long? = null,
+    /** When [sourceUrl] was minted, for diagnostics only. */
+    val sourceUrlResolvedAtEpochMs: Long? = null,
 )
 
 /**
@@ -78,4 +83,47 @@ internal expect object DownloadsPlatformDownloader {
      * to release it and the queue has to take it back itself.
      */
     val recoversSystemPauses: Boolean
+
+    /**
+     * How many downloads the queue hands to the platform at once.
+     *
+     * Android and desktop run their own transfers, so this is a real concurrency limit
+     * there. iOS hands transfers to the background session and the system decides how
+     * many actually run: a task created while the app is suspended is discretionary
+     * and rate-limited, so the only way a queue keeps moving while the phone is locked
+     * is to have submitted it before the app left the foreground. There this is the
+     * size of that submitted window, not a concurrency cap.
+     */
+    val maxConcurrentTransfers: Int
+
+    /**
+     * Whether a held transfer's silence is the platform's business, not the queue's.
+     *
+     * On iOS a submitted task may sit untouched inside the system daemon for as long as
+     * the system likes, and the session has its own request and resource timeouts. The
+     * queue's silence watchdog would read that wait as a lost transfer and charge it an
+     * attempt every few minutes.
+     */
+    val ownsTransferLiveness: Boolean
+
+    /**
+     * True while the platform, not the repository, decides what starts next.
+     *
+     * iOS only, and only while the app is in the background: the suspended app cannot
+     * re-mint source URLs, so the native session fills freed slots itself from what the
+     * repository persisted. Everywhere else this is always false.
+     */
+    fun schedulingDeferredToPlatform(): Boolean
+
+    /**
+     * Reports the transfers the platform really holds, or null where it keeps none
+     * across process deaths. May answer on any thread.
+     */
+    fun requestTransferInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit)
+
+    /** Stops a platform-held transfer, keeping its bytes. */
+    fun suspendTransfer(downloadId: String)
+
+    /** Drops a platform-held transfer outright. */
+    fun cancelTransfer(downloadId: String)
 }

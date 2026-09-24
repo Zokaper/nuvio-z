@@ -10,6 +10,10 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+#if DEBUG
+        FreezeDiagnostics.shared.start()
+        DownloadsProbeLog_iosKt.enableDownloadsProbeLog()
+#endif
         OrientationLockCoordinator.shared.start()
         DownloadsLiveActivityManager.shared.start()
         UNUserNotificationCenter.current().delegate = self
@@ -32,16 +36,6 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
             identifier: identifier,
             completionHandler: completionHandler
         )
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        DownloadsPlatformDownloader_iosKt.pauseDownloadsForAppBackground()
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Backgrounding pauses every transfer. Without this counterpart nothing ever
-        // restarted them, so downloads stayed paused for good after an app switch.
-        DownloadsPlatformDownloader_iosKt.resumeDownloadsForAppForeground()
     }
 
     func userNotificationCenter(

@@ -10,6 +10,11 @@ final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
     private var observer: NSObjectProtocol?
+    // Main-thread only. Payload notifications used to start one unawaited Task each, so a
+    // burst of progress ran ActivityKit updates concurrently and out of order, and two of
+    // them could both find no activity and both request one.
+    private var isApplying = false
+    private var needsReapply = false
 
     private init() {}
 
@@ -31,9 +36,17 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
         guard #available(iOS 16.1, *) else { return }
 
-        let payload = loadPayload()
-        Task {
-            await apply(payload)
+        if isApplying {
+            needsReapply = true
+            return
+        }
+        isApplying = true
+        Task { @MainActor in
+            repeat {
+                needsReapply = false
+                await apply(loadPayload())
+            } while needsReapply
+            isApplying = false
         }
 #endif
     }
@@ -49,45 +62,58 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
     @available(iOS 16.1, *)
     private func apply(_ payload: DownloadsLiveStatusPayload?) async {
-        let existing = Activity<DownloadsLiveActivityAttributes>.activities.first
+        let allActivities = Activity<DownloadsLiveActivityAttributes>.activities
 
         guard let payload else {
-            if let existing {
-                await existing.end(dismissalPolicy: .immediate)
+            for activity in allActivities {
+                await activity.end(dismissalPolicy: .immediate)
             }
             return
         }
 
         let state = DownloadsLiveActivityAttributes.ContentState(
+            title: payload.title,
+            subtitle: payload.subtitle,
             status: payload.status,
             progressPercent: payload.progressPercent,
-            transferredText: transferredText(payload)
+            transferredText: transferredText(payload),
+            queueSummaryText: payload.queueSummaryText,
+            backgroundStatusText: payload.backgroundStatusText
         )
 
-        if let existing, existing.attributes.downloadId == payload.id {
+        // Stable session identity: update existing activity if present, otherwise request one
+        if let existing = allActivities.first {
             await existing.update(using: state)
-            return
+            for orphan in allActivities where orphan.id != existing.id {
+                await orphan.end(dismissalPolicy: .immediate)
+            }
+        } else {
+            let attributes = DownloadsLiveActivityAttributes(
+                sessionKey: "nuvio.downloads.session"
+            )
+
+            _ = try? Activity<DownloadsLiveActivityAttributes>.request(
+                attributes: attributes,
+                contentState: state,
+                pushType: nil
+            )
         }
-
-        if let existing {
-            await existing.end(dismissalPolicy: .immediate)
-        }
-
-        let attributes = DownloadsLiveActivityAttributes(
-            downloadId: payload.id,
-            title: payload.title,
-            subtitle: payload.subtitle
-        )
-
-        _ = try? Activity<DownloadsLiveActivityAttributes>.request(
-            attributes: attributes,
-            contentState: state,
-            pushType: nil
-        )
     }
 #endif
 
     private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
+        if payload.totalBytes == nil && payload.downloadedBytes == 0 {
+            switch payload.status.lowercased() {
+            case "finding_sources": return "Finding sources"
+            case "preparing": return "Preparing"
+            case "waiting": return "Waiting"
+            case "starting": return "Starting"
+            case "retrying": return "Retrying"
+            case "paused": return "Paused"
+            case "failed": return "Failed"
+            default: break
+            }
+        }
         let downloaded = formatBytes(payload.downloadedBytes)
         if let total = payload.totalBytes {
             return "\(downloaded) / \(formatBytes(total))"
@@ -107,14 +133,17 @@ final class DownloadsLiveActivityManager {
 @available(iOS 16.1, *)
 struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
+        let title: String
+        let subtitle: String
         let status: String
         let progressPercent: Int
         let transferredText: String
+        let queueSummaryText: String?
+        /// Set while the app is backgrounded and cannot see progress; shown in place of it.
+        let backgroundStatusText: String?
     }
 
-    let downloadId: String
-    let title: String
-    let subtitle: String
+    let sessionKey: String
 }
 #endif
 
@@ -126,4 +155,8 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let progressPercent: Int
+    let activeCount: Int?
+    let remainingCount: Int?
+    let queueSummaryText: String?
+    let backgroundStatusText: String?
 }

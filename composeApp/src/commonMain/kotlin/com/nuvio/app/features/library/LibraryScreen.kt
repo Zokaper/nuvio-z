@@ -92,6 +92,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
+import com.nuvio.app.LibrarySubDestination
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -105,6 +106,7 @@ fun LibraryScreen(
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     disintegrationRequest: DisintegrationRequest<String>? = null,
+    topSwitcher: (@Composable () -> Unit)? = null,
 ) {
     val uiState by remember {
         LibraryRepository.ensureLoaded()
@@ -307,6 +309,12 @@ fun LibraryScreen(
                                 }
                             },
                         )
+                        topSwitcher?.let { switcher ->
+                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                switcher()
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                         LibrarySourceSwitch(
                             selectedMode = sourceMode,
                             onModeSelected = { mode ->
@@ -768,7 +776,30 @@ private fun CloudLibraryToolbar(
 }
 
 @Composable
-private fun LibraryChip(
+fun LibraryTopSwitcher(
+    selectedDestination: LibrarySubDestination,
+    onDestinationSelected: (LibrarySubDestination) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LibraryChip(
+            label = stringResource(Res.string.compose_nav_library),
+            selected = selectedDestination == LibrarySubDestination.Library,
+            onClick = { onDestinationSelected(LibrarySubDestination.Library) },
+        )
+        LibraryChip(
+            label = stringResource(Res.string.compose_nav_downloads),
+            selected = selectedDestination == LibrarySubDestination.Downloads,
+            onClick = { onDestinationSelected(LibrarySubDestination.Downloads) },
+        )
+    }
+}
+
+@Composable
+internal fun LibraryChip(
     label: String,
     selected: Boolean,
     loading: Boolean = false,

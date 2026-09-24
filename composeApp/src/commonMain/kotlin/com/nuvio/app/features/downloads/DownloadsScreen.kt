@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -52,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -78,6 +81,8 @@ fun DownloadsScreen(
     onBackFromShow: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)? = null,
+    topChromePadding: Dp? = null,
+    topSwitcher: (@Composable () -> Unit)? = null,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -107,42 +112,58 @@ fun DownloadsScreen(
         showEpisodes.firstOrNull()?.title
     }
 
-    NuvioScreen(listState = listState) {
+    NuvioScreen(
+        listState = listState,
+        topPadding = if (topChromePadding != null) 0.dp else null,
+    ) {
         stickyHeader {
-            NuvioScreenHeader(
-                title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
-                } else {
-                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                },
-                onBack = if (selectedShowId != null) {
-                    { onBackFromShow?.invoke() ?: run { selectedShowId = null } }
-                } else {
-                    onBack
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                NuvioToastController.show(openDownloadsDirectoryFailedText)
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = stringResource(Res.string.downloads_open_directory),
-                        )
-                    }
-                    if (selectedShowId == null && onOpenSettings != null) {
-                        IconButton(onClick = onOpenSettings) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                NuvioScreenHeader(
+                    title = if (selectedShowId == null) {
+                        stringResource(Res.string.compose_settings_root_downloads_title)
+                    } else {
+                        selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+                    },
+                    topPadding = topChromePadding,
+                    onBack = if (selectedShowId != null) {
+                        { onBackFromShow?.invoke() ?: run { selectedShowId = null } }
+                    } else {
+                        onBack
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
+                                    NuvioToastController.show(openDownloadsDirectoryFailedText)
+                                }
+                            },
+                        ) {
                             Icon(
-                                imageVector = Icons.Rounded.Settings,
-                                contentDescription = stringResource(Res.string.downloads_settings_title),
+                                imageVector = Icons.Rounded.Folder,
+                                contentDescription = stringResource(Res.string.downloads_open_directory),
                             )
                         }
+                        if (selectedShowId == null && onOpenSettings != null) {
+                            IconButton(onClick = onOpenSettings) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Settings,
+                                    contentDescription = stringResource(Res.string.downloads_settings_title),
+                                )
+                            }
+                        }
+                    },
+                )
+                if (selectedShowId == null && topSwitcher != null) {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        topSwitcher()
                     }
-                },
-            )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
         }
 
         if (selectedShowId == null) {
@@ -280,6 +301,26 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
             )
+            // A failed download from a batch - most often a source its debrid service
+            // has not cached - goes nowhere on Retry. The action it needs is a different
+            // source, so offer the picker right here.
+            val batchEntry = if (item.status == DownloadStatus.Failed && onChooseBatchEntryManually != null) {
+                batches.firstNotNullOfOrNull { batch ->
+                    batch.takeIf { it.parentMetaId == item.parentMetaId }
+                        ?.entries?.firstOrNull { it.videoId == item.videoId }
+                        ?.let { batch to it }
+                }
+            } else {
+                null
+            }
+            if (batchEntry != null && onChooseBatchEntryManually != null) {
+                TextButton(
+                    onClick = { onChooseBatchEntryManually(batchEntry.first, batchEntry.second) },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text(stringResource(Res.string.download_choose_manual))
+                }
+            }
         }
     }
 
@@ -567,12 +608,20 @@ private fun ReviewBatchCard(
                 Column(Modifier.weight(1f)) {
                     Text(batch.title, style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "${batch.presetSnapshot.name} • ${batch.entries.count { it.state == DownloadBatchEntryState.APPROVAL_NEEDED }} approval needed",
+                        stringResource(
+                            Res.string.downloads_review_summary,
+                            batch.presetSnapshot.name,
+                            batch.entries.count { it.needsManualSource },
+                            batch.entries.count { it.canBeApproved },
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (batch.entries.any { it.state == DownloadBatchEntryState.APPROVAL_NEEDED }) {
+                // Approving only helps entries waiting on an unknown size or unclear
+                // metadata. An uncached debrid source would sit at "Waiting for provider"
+                // until it failed, so those are sent to the manual picker below instead.
+                if (batch.entries.any { it.canBeApproved }) {
                     IconButton(onClick = { DownloadsRepository.queueBatch(batch.id, approveUnknownSizes = true) }) {
                         Icon(
                             Icons.Rounded.PlayArrow,
@@ -589,11 +638,16 @@ private fun ReviewBatchCard(
             }
             if (onChooseBatchEntryManually != null) {
                 batch.entries
-                    .filter {
-                        it.state == DownloadBatchEntryState.SKIPPED ||
-                            it.state == DownloadBatchEntryState.FAILED
-                    }
+                    .filter { it.needsManualSource }
                     .forEach { entry ->
+                        if (entry.selectsUncachedDebrid) {
+                            Text(
+                                stringResource(Res.string.downloads_review_not_cached, entry.title),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
                         TextButton(
                             onClick = { onChooseBatchEntryManually(batch, entry) },
                         ) {

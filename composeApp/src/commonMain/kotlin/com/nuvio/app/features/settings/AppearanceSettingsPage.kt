@@ -141,16 +141,6 @@ internal fun LazyListScope.appearanceSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = onAmoledToggle,
                 )
-                if (liquidGlassNativeTabBarSupported) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_appearance_liquid_glass),
-                        description = stringResource(Res.string.settings_appearance_liquid_glass_description),
-                        checked = liquidGlassNativeTabBarEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = onLiquidGlassNativeTabBarToggle,
-                    )
-                }
                 if (isDesktop) {
                     SettingsGroupDivider(isTablet = isTablet)
                     val desktopNavDescription = if (isTablet) {

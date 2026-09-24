@@ -134,6 +134,12 @@ internal fun AppGate(
 ) {
     if (bypassAppGate) {
         MainAppContent(
+            onWhatsNewClick = appGateController?.let { controller ->
+                { controller.requestWhatsNew() }
+            },
+            onRunSetupAgainClick = appGateController?.let { controller ->
+                { controller.requestRunSetupAgain() }
+            },
             initialTab = initialTab,
             initialRoute = initialRoute,
             useNativeNavigation = useNativeNavigation,
@@ -270,18 +276,27 @@ internal fun AppGate(
         false
     }
 
-    LaunchedEffect(gateScreen, onAppReady) {
-        if (gateScreen != AppGateScreen.Main.name) {
+    val isSetupWizardActive = shouldShowSetupWizard(
+        completedRevision = gatePlayerSettings.setupWizardCompletedRevision,
+        currentRevision = SETUP_WIZARD_REVISION,
+    ) || showSetupWizardOnDemand
+
+    val isWhatsNewActive = (showWhatsNew && gateScreen == AppGateScreen.Main.name) || showWhatsNewOnDemand
+
+    LaunchedEffect(gateScreen, onAppReady, isSetupWizardActive, isWhatsNewActive) {
+        if (gateScreen != AppGateScreen.Main.name || isSetupWizardActive || isWhatsNewActive) {
             onAppReady?.invoke(false)
         }
     }
 
-    LaunchedEffect(gateScreen, renderMainContent, onMainContentMountChanged) {
+    LaunchedEffect(gateScreen, renderMainContent, onMainContentMountChanged, isSetupWizardActive) {
         if (renderMainContent) return@LaunchedEffect
         when (gateScreen) {
             AppGateScreen.Main.name -> {
-                mainContentStarted = true
-                onMainContentMountChanged?.invoke(true)
+                if (!isSetupWizardActive) {
+                    mainContentStarted = true
+                    onMainContentMountChanged?.invoke(true)
+                }
             }
             AppGateScreen.Loading.name,
             AppGateScreen.ProfileSwitching.name,
@@ -303,6 +318,21 @@ internal fun AppGate(
             profileSelectionTransitionActive = false
             skipProfileSelectionEnterAnimation = true
             gateScreen = AppGateScreen.ProfileSelection.name
+        }
+    }
+
+    LaunchedEffect(appGateController, renderMainContent) {
+        if (renderMainContent) return@LaunchedEffect
+        appGateController?.runSetupAgainRequests?.collect {
+            setupWizardOnDemandEpoch++
+            showSetupWizardOnDemand = true
+        }
+    }
+
+    LaunchedEffect(appGateController, renderMainContent) {
+        if (renderMainContent) return@LaunchedEffect
+        appGateController?.whatsNewRequests?.collect {
+            showWhatsNewOnDemand = true
         }
     }
 
@@ -520,6 +550,8 @@ internal fun AppGate(
         profileOverlayState.isIdle,
         launchOverlayState.currentState,
         launchOverlayState.isIdle,
+        isSetupWizardActive,
+        isWhatsNewActive,
         onAppReady,
     ) {
         if (renderMainContent) return@LaunchedEffect
@@ -528,12 +560,13 @@ internal fun AppGate(
                 !profileOverlayState.currentState &&
                 launchOverlayState.isIdle &&
                 !launchOverlayState.currentState
-        onAppReady?.invoke(
-            gateScreen == AppGateScreen.Main.name &&
-                externalMainContentReady &&
-                !profileSelectionLoading &&
-                overlaysHidden,
-        )
+        val ready = gateScreen == AppGateScreen.Main.name &&
+            externalMainContentReady &&
+            !profileSelectionLoading &&
+            overlaysHidden &&
+            !isSetupWizardActive &&
+            !isWhatsNewActive
+        onAppReady?.invoke(ready)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

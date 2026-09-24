@@ -33,6 +33,9 @@ concurrency:
 jobs:
   update:
     name: Update store.json
+    # Installer-only prereleases (for example ios-setup-v*) carry no IPA and must
+    # never be mistaken for the SideStore developer channel.
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'v') || startsWith(inputs.tag || github.event.release.tag_name, 'debug-v')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

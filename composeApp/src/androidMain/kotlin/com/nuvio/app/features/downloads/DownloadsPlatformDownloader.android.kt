@@ -51,6 +51,18 @@ internal actual object DownloadsPlatformDownloader {
     // The background job is stopped when the system reclaims it and started again
     // when it may run, so a system pause here really is temporary.
     actual val recoversSystemPauses: Boolean = true
+    actual val maxConcurrentTransfers: Int = DownloadsRepository.MAX_CONCURRENT_TRANSFERS
+    actual val ownsTransferLiveness: Boolean = false
+
+    actual fun schedulingDeferredToPlatform(): Boolean = false
+
+    actual fun requestTransferInventory(
+        onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit,
+    ) = onResult(null)
+
+    actual fun suspendTransfer(downloadId: String) = Unit
+
+    actual fun cancelTransfer(downloadId: String) = Unit
 
     private var appContext: Context? = null
 
@@ -489,7 +501,8 @@ private class AndroidDownloadsTaskHandle(
 private fun String.toLocalFileOrNull(): File? {
     return runCatching {
         if (startsWith("file:")) {
-            File(URI(this))
+            runCatching { File(URI(this)) }.getOrNull()
+                ?: File(removePrefix("file://").removePrefix("file:"))
         } else {
             File(this)
         }

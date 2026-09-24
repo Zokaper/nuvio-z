@@ -175,6 +175,7 @@ fun PlaybackQualitySheet(
     onChooseManually: () -> Unit,
     onAdjustPreferences: (() -> Unit)?,
     onDismiss: () -> Unit,
+    preferencesDialog: (@Composable () -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -307,6 +308,7 @@ fun PlaybackQualitySheet(
                         onAdjustPreferences = onAdjustPreferences,
                     )
                 }
+                preferencesDialog?.invoke()
             }
         } else {
             NuvioModalBottomSheet(
@@ -333,6 +335,7 @@ fun PlaybackQualitySheet(
                     onChooseManually = onChooseManually,
                     onAdjustPreferences = onAdjustPreferences,
                 )
+                preferencesDialog?.invoke()
             }
         }
     }

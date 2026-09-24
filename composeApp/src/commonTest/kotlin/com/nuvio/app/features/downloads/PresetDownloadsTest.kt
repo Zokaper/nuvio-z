@@ -268,6 +268,43 @@ class PresetDownloadsTest {
     }
 
     @Test
+    fun emptyLegacySelectedSeasonsMeansWholeReleasedTitle() {
+        val episodes = listOf(
+            BatchEpisode("special", "Special", 0, 1),
+            BatchEpisode("s1e1", "One", 1, 1),
+            BatchEpisode("s1e2", "Future", 1, 2, released = false),
+            BatchEpisode("s2e1", "Two", 2, 1),
+        )
+
+        val result = DownloadBatchPlanner.episodesForScope(
+            episodes = episodes,
+            scope = DownloadScope.SelectedSeasons(emptySet()),
+            existingLogicalKeys = emptySet(),
+            parentMetaId = "show",
+        )
+
+        assertEquals(listOf("s1e1", "s2e1"), result.map { it.videoId })
+    }
+
+    @Test
+    fun individualEpisodeAndSeasonEntryPointsRemainScoped() {
+        val episodes = listOf(
+            BatchEpisode("s1e1", "One", 1, 1),
+            BatchEpisode("s1e2", "Two", 1, 2),
+            BatchEpisode("s2e1", "Three", 2, 1),
+        )
+        val episode = DownloadBatchPlanner.episodesForScope(
+            episodes, DownloadScope.Episode(1, 2), emptySet(), "show",
+        )
+        val season = DownloadBatchPlanner.episodesForScope(
+            episodes, DownloadScope.Season(1), emptySet(), "show",
+        )
+
+        assertEquals(listOf("s1e2"), episode.map { it.videoId })
+        assertEquals(listOf("s1e1", "s1e2"), season.map { it.videoId })
+    }
+
+    @Test
     fun unwatchedSeasonScopeKeepsTheEpisodeInProgressAndEverythingAfterIt() {
         val episodes = listOf(
             BatchEpisode("s1e1", "One", 1, 1, watched = true),

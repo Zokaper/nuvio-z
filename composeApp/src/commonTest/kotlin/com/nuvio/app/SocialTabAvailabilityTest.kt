@@ -38,10 +38,24 @@ class SocialTabAvailabilityTest {
 
     @Test
     fun noOtherTabIsAffectedInEitherState() {
-        AppScreenTab.entries.filter { it != AppScreenTab.Social }.forEach { tab ->
+        AppScreenTab.entries.filter { it != AppScreenTab.Social && it != AppScreenTab.Downloads }.forEach { tab ->
             assertEquals(tab, coerceAvailableTab(tab, socialEnabled = true), tab.name)
             assertEquals(tab, coerceAvailableTab(tab, socialEnabled = false), tab.name)
         }
+    }
+
+    @Test
+    fun downloadsAlwaysCoercesToLibrary() {
+        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = true))
+        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = false))
+    }
+
+    @Test
+    fun oldDownloadsIntentMigratesToLibraryDownloads() {
+        assertEquals(
+            NavigationIntent.Tab(AppScreenTab.Library, LibrarySubDestination.Downloads),
+            NavigationIntent.fromTab(AppScreenTab.Downloads),
+        )
     }
 
     @Test

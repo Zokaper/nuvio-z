@@ -174,14 +174,6 @@ internal fun MainTabsDestination(
                             icon = Res.drawable.sidebar_library,
                             contentDescription = stringResource(Res.string.compose_nav_library),
                         )
-                        if (AppFeaturePolicy.downloadsEnabled) {
-                            NavItem(
-                                selected = selectedTab == AppScreenTab.Downloads,
-                                onClick = { onTabSelected(AppScreenTab.Downloads) },
-                                icon = Icons.Filled.Download,
-                                contentDescription = stringResource(Res.string.compose_nav_downloads),
-                            )
-                        }
                         if (socialEnabled) {
                             NavItem(
                                 selected = selectedTab == AppScreenTab.Social,
@@ -311,15 +303,6 @@ internal fun MainTabsDestination(
                             contentDescription = stringResource(Res.string.compose_nav_library),
                             label = stringResource(Res.string.compose_nav_library),
                         )
-                        if (AppFeaturePolicy.downloadsEnabled) {
-                            NavItem(
-                                selected = selectedTab == AppScreenTab.Downloads,
-                                onClick = { onTabSelected(AppScreenTab.Downloads) },
-                                icon = Icons.Filled.Download,
-                                contentDescription = stringResource(Res.string.compose_nav_downloads),
-                                label = stringResource(Res.string.compose_nav_downloads),
-                            )
-                        }
                         if (socialEnabled) {
                             NavItem(
                                 selected = selectedTab == AppScreenTab.Social,

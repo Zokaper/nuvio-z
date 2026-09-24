@@ -1,6 +1,442 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-22
+Last updated: 2026-09-24
+
+## Phase 8 Batch 7 — `.48` stabilization after physical `.47` (2026-09-24)
+
+`.47` made the diagnostics readable, and the `.46` logs explain Pilot (`Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`,
+"Batch 7"). In short:
+- iOS resumed Pilot's transfer with range requests, and the last response was a 206;
+- `.46` sized the file from that 206's Content-Length, called it an overrun, and deleted it;
+- the retry attached to the finished task, which a `===` comparison had left in `tasksById`, and
+  "resumed" it. That is a no-op, so the row stayed at 282.9 / 282.9.
+
+`.47` did not cover this path.
+
+Fixes (`DownloadsPlatformDownloader.ios.kt`, `IosBackgroundTransferReconciler.kt`):
+- tasks are matched by `taskIdentifier`;
+- `dropFinishedTasks()` runs before every inventory and start;
+- a 206 is sized from Content-Range (`finishedTransferTotal`, 3 new tests).
+
+Also: the batch's **Choose source manually** opened the player. It now opens the download-intent
+source list (`MainAppContent.kt`, 1 call site).
+
+**Scope held by maintainer decision:**
+- no source-selection redesign;
+- no "nearest acceptable source" automation;
+- no review-card redesign.
+
+All of that is queued as the **cross-platform Downloads UX and source-policy pass**, now **Phase 9 — Downloads
+Redesign** in `ROADMAP.md` (it was "Phase 8 follow-up" when written). Concurrency stays at the submitted window of 12 (Batch 6 decision).
+
+Debug counter 48. Not published until the maintainer asks.
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **859 / 859**;
+- Android host suite **2,371 / 2,371**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. The quick iOS build on push is the gate for the iOS Kotlin change.
+
+## Phase 8 Batch 6 — `.47` follow-ups to physical `.46` (2026-09-24)
+
+Physical `.46`: **locked-screen downloading works. Do not regress the submitted window.**
+
+Findings and changes (full analysis: `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch 6"):
+
+1. **The Live Activity went stale while locked, and it named one arbitrary episode.** While the app is
+   backgrounded with an active queue, the payload is now a fixed, queue-level "Nuvio Z Downloads /
+   Downloading in background", with no title, percentage, bytes or counts. The widget shows only
+   that. The rich view returns in the foreground. Files: `DownloadsLiveStatusPlatform.ios.kt`,
+   `DownloadsLiveActivityWidget.swift`, and two new Z strings.
+2. **Six simultaneous transfers:** no code change. iOS offers no reliable native concurrency cap
+   for submitted background tasks; the reasoning is in the audit doc. The window (12) is the only
+   honest lever, and it is kept at 12 for locked-screen reliability.
+3. **Needs your attention was a dead end.** The review ▶ bulk-approved uncached debrid sources,
+   which `DirectDebridResolver` rejects from the addon's `NOT_CACHED` snapshot forever ("Waiting
+   for provider 1/5", then failure). Fixes:
+   - `DownloadBatchEntry.needsManualSource` / `canBeApproved`;
+   - `queueBatch` approves only what an approval can help;
+   - the review card sends uncached, skipped and failed entries to **Choose source manually**,
+     with a localized summary;
+   - a queued known-uncached download fails at once with a clear message;
+   - a failed batch download offers **Choose source manually** under its row.
+
+   Scoped to the Z download/batch code. `DirectDebridResolver` is unchanged.
+4. **Pilot stuck at 282.9 / 282.9 MB (release blocker).** The cause is unconfirmed, because the `.46`
+   logs were unreadable (see 5). Both `.46` holes that can freeze a row at 100% are closed:
+   - a Running task holding every byte for 2+ minutes is cancelled and retried (`isStalledAtEnd`,
+     checked at each foreground inventory);
+   - a held claim already handed to the session, with no task left, is released and requeued
+     (`planAdoption.releaseLost`).
+
+   New `finalize`, `inventory_task`, `stalled_at_end` and `repo` log lines will show which case
+   Pilot hit.
+5. **Diagnostics were never in Files.** Xcode drops `INFOPLIST_KEY_UIFileSharingEnabled` from the
+   generated plist. `scripts/build-ios-ipa.sh` now sets it and `LSSupportsOpeningDocumentsInPlace`
+   on the **Debug** app only, and fails the build otherwise. The same bundle id keeps the `.46`
+   container.
+
+Debug counter 47. Published [`debug-v0.4.13-z1.47`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.47)
+from `e15e7843c` (run `36008713787`). The IPA is unsigned, `com.nuvio.app.z.debug` 0.4.13-z1.47 (47), with
+`UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` both true and the widget extension
+present. IPA sha256 `a7e31a4c…3b1d1c` and APK `2d097d0b…5138a8` match `SHA256SUMS-Debug.txt`. The
+SideStore debug feed on `main` lists `.47` first (`fcb92a008`, feed file only).
+
+Next: the physical `.47` pass (audit doc section 10). Install over `.46` and send every
+`downloads-*.jsonl` from `Files > On My iPhone > Nuvio Z Debug > nuvio_diagnostics`, including `.46`'s if
+they survived.
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **856 / 856**;
+- Android host suite **2,368 / 2,368**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass. iOS CI and a Debug test IPA are the gate for the iOS Kotlin, Swift and packaging changes.
+
+## Phase 8 Batch 5 — iOS submitted window (`.46`) (2026-09-24)
+
+Branch `claude/phase-8-ios-queue-ownership`, continuing from `.45`. **Not published**: the maintainer
+reviews the design before a release. The debug counter is already at 46.
+
+Physical `.45` findings:
+- queue order is fixed;
+- the Delete freeze is gone;
+- while the phone is locked, #3/#4 never start when #1/#2 finish. They show `Starting` on unlock;
+- the Live Activity only moves while unlocked.
+
+Cause: `.45` created each next task from a background completion wake. Apple documents that such a
+task is discretionary and rate-limited, with a delay that grows per wake and resets only in the
+foreground. The quote and the analysis are in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`, "Batch 5".
+
+Requirement change from the maintainer: **no concurrency cap on iOS**. A queue built while Nuvio is
+open must keep moving after the lock. Order is kept where URLSession allows it.
+
+Code changes:
+- **`expect` surface:** new `maxConcurrentTransfers` (iOS 12, Android 2) and `ownsTransferLiveness`
+  (iOS true). `DownloadPlatformRequest` gains `queuePosition` and `sourceUrlResolvedAtEpochMs`, both
+  defaulted. **NuvioZDesktop needs `maxConcurrentTransfers = 2` and `ownsTransferLiveness = false`
+  at the next merge**, on top of the four `.45` actuals already pending.
+- **`DownloadsRepository.kt`:**
+  - every `MAX_CONCURRENT_TRANSFERS` use now reads the platform value;
+  - with `ownsTransferLiveness` set, the silence watchdog and the stall wake are off;
+  - resolved starts are parked and released in queue order when `ownsTransferLiveness` is set
+    (`releaseInQueueOrder`, pure and tested).
+- **`DownloadsPlatformDownloader.ios.kt`:**
+  - window constant, with the rationale in its KDoc;
+  - task priority is re-ranked by queue position, as a hint only;
+  - a system cancellation (a force-quit) is no longer claimed and failed. A live one becomes a
+    system pause;
+  - `didFinishCollectingMetrics` is logged;
+  - the Live Activity is refreshed on background/active transitions.
+- **`DownloadsProbeLog.ios.kt` (new):** Debug-only JSONL in `nuvio_diagnostics/downloads-*.jsonl`,
+  enabled from `OrientationLockCoordinator.swift` under `#if DEBUG`. No URLs or headers are logged.
+- **Live Activity:** the payload and `ContentState` gain an optional `backgroundStatusText` (new Z
+  string `downloads_live_in_background`). While it is set, the widget hides the percentage, bytes and
+  bar and shows it with the queue summary.
+
+Not changed:
+- `SOURCE_URL_FRESHNESS_MS` (15 min). It is the resolver's cache TTL, and the metrics will show real
+  link ages;
+- best-effort background chaining beyond the window;
+- Android behaviour.
+
+Not done:
+- resume data from a force-quit cancellation is not used. The restart is from zero, in place.
+
+Verification (local; results dir deleted, `--rerun-tasks`):
+- pure suites **850 / 850** (9 new in `IosBackgroundTransferReconcilerTest`);
+- Android host suite **2,355 / 2,355**; `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
+
+The iOS source set cannot compile on Windows, so iOS CI is the gate. On `bd28fcd8c`, `ci.yml` passed
+(run `35990649203`) and `ios-build.yml` passed (run `35990649250`: device and simulator framework
+links and the unsigned Xcode build). Nothing here is physical verification.
+
+Published [`debug-v0.4.13-z1.46`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.46)
+from `5bfff9597` (Debug release run `35995592422`), a prerelease:
+- IPA `Nuvio-Z-iOS-0.4.13-z1-46-debug-unsigned.ipa`, unsigned. Bundle `com.nuvio.app.z.debug`,
+  version `0.4.13-z1.46` (build 46), `DownloadsWidgetExtension.appex` at the same version;
+- IPA sha256 `d7533e33…87b8261`; APK sha256 `1e5e9945…8f20f834`. Both match `SHA256SUMS-Debug.txt`;
+- the canonical `source-debug.json` on `main` lists `.46` first (`1aaaf47da`, feed file only).
+  The stable `source.json` is untouched.
+
+Next: the physical `.46` pass (audit doc section 9). Return the `downloads-*.jsonl` files. **No
+architecture changes until those metrics are back.**
+
+## Phase 8 Batch 4 — iOS queue ownership (`.45`) (2026-09-23)
+
+Active branch: `claude/phase-8-ios-queue-ownership`, from `gemini/phase-8-ios-background-orchestration`
+(`ac84da767`, the `.44` commit). Not merged to `main`; debug prerelease only.
+
+Physical `.44` findings:
+- the season stayed at `Queued #1`;
+- after reopening, #3 and #4 started first, then fell back to Queued;
+- screen-off was unreliable;
+- intermittent total input freeze (Delete on a Downloads episode reproduces it).
+
+Root causes and the new ownership model are in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`
+("Batch 4"). In short:
+- `.44` ran a second, native scheduler on a persisted copy of the queue whose `RUNNING` meant "the
+  repository has claimed it", not "a task exists".
+- Its journal demoted items the repository was resolving.
+- Every progress tick did queue sync and Live Activity work.
+
+Code changes:
+- **`IosBackgroundTransferReconciler.kt`:** the `.44` prepared-state/journal/codec machinery is
+  replaced by two pure policies:
+  - `scheduleNextTransfers`: slots are running tasks ∪ repository claims; strict FIFO with a stale
+    boundary; suspended tasks are resumed.
+  - `planAdoption`: adopt real running tasks in queue order, suspend any beyond capacity, cancel
+    ones nobody wants, and re-queue stale `Downloading` in place with no attempt charged.
+- **`DownloadsPlatformDownloader.ios.kt`:** all state is confined to the session's serial delegate
+  queue. There is no lock, one task per download, and an inventory from `getAllTasks` before any
+  task is created.
+  - Background slot-fill pulls `DownloadsRepository.nativeSchedulingSnapshot()`.
+  - Tasks with no listener are handed to `claimNativeTransfer`.
+  - Progress is reported at most once a second.
+  - The background-session completion handler is called on main.
+  - `recoversSystemPauses` is now `false`: nothing on iOS has resumed a system pause since `.43`.
+  - The `.44` NSUserDefaults keys are deleted.
+- **`DownloadsRepository.kt`:**
+  - Scheduling defers while iOS is backgrounded and is held until the platform inventory arrives
+    (3 s fallback). This runs on load, profile change and return to the foreground.
+  - Adoption and native claims go through the normal generation-fenced listener.
+  - Removed: the `.43`/`.44` direct `reconcileIosBackground*` paths, the per-publish native sync
+    and the journal. Every completion now goes through `onTransferCompleted`'s
+    implausibly-small check.
+- **`expect` surface:** the three `.44` members are replaced by `schedulingDeferredToPlatform`,
+  `requestTransferInventory`, `suspendTransfer` and `cancelTransfer`, with no-op Android actuals.
+  **`NuvioZDesktop` needs the same four no-op actuals at the next merge** (`requestTransferInventory`
+  must call `onResult(null)`).
+- **Live Activity:**
+  - progress-only payload writes are limited to one a second;
+  - the queue summary and "Finding sources" are localized (new Z strings block);
+  - `DownloadsLiveActivityManager.swift` applies updates serially, latest wins.
+- **Freeze:** not root-caused. The candidates are a main-thread stall (the progress floods above are
+  fixed) or a window-level view taking touches (`AppGateComposeView`, Issue 2's sibling). The Debug
+  configuration only adds:
+  - `FreezeDiagnostics.swift`: a watchdog, a touch hit-test probe, a window/overlay dump on
+    background, gate notes and MetricKit hangs;
+  - Files-app visibility, so the logs can be retrieved from `Nuvio Z Debug/nuvio_diagnostics`.
+
+Verification: local, after a clean results dir and `--rerun-tasks`:
+- pure suites **841 / 841**;
+- Android host suite **2,346 / 2,346**;
+- `compileCommonMainKotlinMetadata` and `:androidApp:compileFullDebugKotlin` pass.
+
+The new regressions are in `IosBackgroundTransferReconcilerTest`.
+
+CI on the branch:
+- `ci.yml` passed: run `35923370814`.
+- `ios-build.yml` passed: run `35923371207`, covering the Kotlin framework device and simulator links and the unsigned Xcode build. The first attempt, `35922141103`, failed because `NSURLSessionTaskState` imports as constants in Kotlin/Native; this was fixed in `cb95f4bf2`.
+
+Published [`debug-v0.4.13-z1.45`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.45) from `cb95f4bf2` (run `35926684747`):
+- a prerelease with the Android debug APK and the iOS Debug unsigned IPA;
+- the SideStore debug feed was updated on `main` by the workflow (`f3fb3e6eb`, feed file only).
+
+Nothing here is physical verification.
+
+Next: physical `.45` pass (checklist in the audit doc, section 8). Send the diagnostics folder if
+the freeze recurs.
+
+## Phase 8 Batch 3 — iOS background queue, completion journaling, and stable Live Activity (2026-09-23)
+
+Continuation work is on `gemini/phase-8-ios-background-orchestration`, branched from `gemini/phase-8-ios-downloads-nav-hardening` (`4d338bc09`).
+Physical `.43` validation confirmed native `NSURLSessionDownloadTask` maintains byte delivery while the screen is locked,
+resolving the raw transport boundary. However, it surfaced three higher-level orchestration boundaries:
+
+1. **Stalled completion bookkeeping**: Downloads finishing while suspended had their files saved to sandbox disk, but
+   Kotlin/Compose state did not finalize until app foregrounding because the Kotlin runtime is paused while suspended.
+2. **Stalled queue advancement**: Subsequent queued items in a multi-episode batch did not start while locked because
+   Kotlin coroutines cannot run in background to resolve debrid download URLs.
+3. **Live Activity churn & concurrency collision**: Live Activity flickered, progress ping-ponged between concurrent downloads,
+   and ActivityKit rejected rapid recreation loops caused by tying activity lifecycle to individual `downloadId`s.
+
+Code-fixed for `.44`:
+- **Durable Completion Journal**: Native delegate synchronously logs atomic events (`COMPLETED`, `FAILED`, `NEEDS_SOURCE_REFRESH`, `PROGRESS`)
+  to `NSUserDefaults` (`nuvio.ios_downloads.journal.v1`). `DownloadsRepository.reconcileIosBackgroundJournal()` idempotently reconciles
+  and acknowledges events on app resume via pure reconciler `IosBackgroundTransferReconciler.kt`.
+- **Ahead-of-Time Source Preparation**: While foregrounded, resolves direct URLs for up to 5 upcoming items in approved batches with
+  15-minute debrid TTL, persisting descriptors in `nuvio.ios_downloads.prepared_queue.v1`.
+- **Synchronous Native Queue Scheduler**: When a transfer finishes in background, `advanceNativeQueueLocked()` checks active slots
+  (concurrency limit: 2) and launches the next fresh prepared transfer immediately before the background completion handler returns.
+- **Strict FIFO Queue Ordering at Stale Boundaries**: If the next queued item's prepared link is stale (>15m), the native scheduler halts
+  queue advancement at that boundary, records `NeedsSourceRefresh`, and pauses until foreground wake. It preserves episode order without
+  corrupting downstream transfers.
+- **Stable Live Activity Identity & Sticky Selection**: Migrated to a single persistent session (`sessionKey = "nuvio.downloads.session"`).
+  Selection policy prioritizes lowest queue rank and remains sticky to prevent flip-flop. Presentation includes queue summary text
+  (e.g., `2 downloading • 3 remaining`). Native layer directly updates the Live Activity payload during background transfers.
+
+Verification:
+- Pure test suites: **825 / 825 passing** (+13 new pure tests in `IosBackgroundTransferReconcilerTest` and `DownloadsLiveStatusPolicyTest`).
+- Android host suite: **2,324 / 2,324 passing** (+13 new tests).
+- Kotlin metadata: `compileCommonMainKotlinMetadata` passes cleanly.
+- Debug build counter: bumped to 44 (`DEBUG_BUILD=44`) for `0.4.13-z1.44` prerelease.
+- Status: Awaiting physical `.44` device validation.
+
+## Phase 8 Batch 2 — iOS downloads and navigation hardening (2026-09-23)
+
+Continuation work is on `gemini/phase-8-ios-downloads-nav-hardening`; it preserves and completes
+the interrupted Gemini patch. The `.42` device pass established the following physical facts:
+
+- individual episode download and offline playback pass;
+- screen-off transfer fails (it stops, then foreground recovery shows a synthetic retry);
+- six native iPhone tabs produce a `More` destination;
+- whole-title context-menu Download does not produce a usable batch;
+- Live Activity shows dishonest unknown progress and can remain after completion;
+- the season download control is unreadable.
+
+Code-fixed for `.43`, awaiting physical validation: a stable per-bundle background
+`URLSessionDownloadTask` session with durable task metadata and relaunch attachment; no
+background-triggered repository pause; Library + Downloads as one top-level destination; old
+Downloads intent/deep-link/toast migration; whole-title season targeting; honest Live Activity
+states and orphan cleanup; semantic season-control colors; and removal of inert iOS navigation
+appearance choices. Legacy `.42` `.part` files restart once rather than risk corrupt concatenation.
+Android shares the routing, batch, Library and color changes and requires physical spot-checking.
+The desktop completed-file report belongs to `NuvioZDesktop` (this repository has no desktop
+downloads actual) and remains an explicit desktop retest.
+
+The inherited pure-suite state was **799 / 799** (the previous 790 plus Gemini's 9 reconciler
+tests). After completing the reconciler and Live Activity policy matrices it is **812 / 812**.
+The Android host suite is **2,311 / 2,311** and common Kotlin metadata compiles.
+The dedicated native iOS build succeeded in GitHub Actions run `35810809573` following commit
+`64d349231` (declaring the background download manager as a class with a lazy singleton reference to satisfy Kotlin/Native
+LLVM lowering). Normal CI passed in run `35810809530`. Debug counter is bumped to 43 for `.43` publication.
+None is represented here as physical verification.
+
+## Phase 8 — iOS Device Validation & Bringup Audit (2026-09-22)
+
+**Physical-iPhone QA bringup completed on branch `gemini/phase-8-ios-bringup-audit`.**
+All 9 physical-iPhone findings were traced, root-caused, cross-checked against Android, and audited
+mobile-wide for bug-class prevalence. 8 issues resolved with targeted fixes; Issue 4 (platform settings
+ownership) formally deferred with comprehensive architectural specification and migration blueprint.
+
+- **Issue 1 (Watch Together Join Indicator Obscured)**: Anchored mobile `WatchTogetherDock` to
+  `Alignment.TopEnd` with `safeDrawing.only(Top) + 12.dp`, avoiding bottom navigation bar (64–84dp)
+  and notification toast conflicts.
+- **Issue 2 (Setup Wizard Non-Interactive on iOS)**: Fixed `AppGate` readiness gate race condition
+  where fast background home query triggered `onAppReady(true)` and caused SwiftUI
+  `AppGateComposeView` to apply `.allowsHitTesting(false)`. Gate now holds readiness and delays
+  `onMainContentMountChanged(true)` while `isSetupWizardActive` or `isWhatsNewActive`.
+- **Issue 3 (Email Sign-In / Sign-Up Unreliable)**: Fixed anonymous user retention trap in
+  `AuthRepository`. Removed `sessionStatus.collect` drop when anonymous ID was present, immediately
+  cleared anonymous user ID on successful auth, and synchronously updated `_state.value = Authenticated`.
+- **Issue 4 (Platform Settings Ownership)**: DEFERRED. Documented architectural analysis of cross-device
+  settings collisions. Recommended Hybrid A + C model where global profile preferences remain synced
+  via Supabase while platform-specific hardware capabilities and wizard completion revisions reside in
+  device-local storage (`nuvio_device_settings`).
+- **Issue 5 (Settings Parity & Run Setup Again Missing)**: Added `runSetupAgainRequests` and
+  `whatsNewRequests` channels to `AppGateController` and connected iOS `bypassAppGate = true` root
+  tabs, enabling on-demand setup wizard and release notes.
+- **Issue 6 (Social vs Downloads Navigation Bar Collision)**: Restored `downloads` tab and
+  `socialCoordinator` in `ContentView.swift`. Downloads and Social tabs now operate independently
+  with dedicated icons, labels, and coordinators.
+- **Issue 7 (Downloads Route Mismatch & iOS Storage Parity)**: Repaired `DownloadsDestination`
+  in `SettingsDestinations.kt` to route to `DownloadsSettingsScreen` instead of `DownloadsScreen`.
+  Confirmed iOS native background download engine (`NSURLSession` + file storage) is operational.
+- **Issue 8 (Playback Preferences Dialog Layered Behind Sheet)**: Plumbed `preferencesDialog`
+  slot directly into `PlaybackQualitySheet`, rendering preferences inside the sheet's active
+  `UIViewController` hierarchy on iOS and within the modal bottom sheet container.
+- **Issue 9 (Playback Startup Insets & Dynamic Island Collision)**: Replaced `safeContent` with
+  `safeDrawing` in `PlaybackLoadingScreen`, adding explicit `WindowInsets.safeDrawing.only(Top + Start)`
+  padding to back button and horizontal/bottom insets to metadata and loading bands.
+- **Pure Test Suites**: All 8 pure test suite groups (790 tests total) pass cleanly. Added unit
+  regression suites in `BottomNavItemIdentityTest` and `SetupWizardStepsTest`.
+- **Audit Documentation**: Canonical audit published in `Docs/PHASE-8-IOS-BRINGUP-AUDIT.md`.
+- **Debug Prerelease 0.4.13-z1.42**: Published for physical iPhone QA validation via SideStore Developer Channel.
+  - GitHub Actions Run: `35773022968` (all 4 jobs green).
+  - Release: [`debug-v0.4.13-z1.42`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.42)
+  - iOS IPA: `Nuvio-Z-iOS-0.4.13-z1-42-debug-unsigned.ipa` (73,004,543 bytes, SHA-256 `0983212e7f61f0d3ae3f63d2d226d7dd4e7109f18e027465f2a7613da2b5013e`).
+  - Identity: `com.nuvio.app.z.debug`, `Nuvio Z Debug`, unsigned, contains `DownloadsWidgetExtension.appex` (`com.nuvio.app.z.debug.DownloadsWidgetExtension`).
+  - Android APK: `androidApp-full-debug.apk` (151,789,765 bytes, SHA-256 `9ef2faf32aaac876b8e9a0a2db82c8e92d86692e214ccd47e42f7b04214c9753`).
+  - **Feed Promotion & Workflow Hardening**: Canonical `distribution/sidestore/source-debug.json`
+    on `main` promoted to `0.4.13-z1.42` (`cd08ca322`) without rebuilding IPA or merging feature branch.
+    Hardened `.github/workflows/debug-release.yml` to clone canonical `main` and push feed updates directly
+    to `main` with rebase retry and race condition prevention (`update-store-source.py`). Feed isolation
+    and promotion test suite expanded to 10/10 tests.
+
+
+## Nuvio Z iOS Setup GUI v1 (2026-09-22)
+
+**A portable Compose Desktop setup wizard now replaces the terminal bootstrap as the intended
+SideStore onboarding path.** The PowerShell and shell scripts remain in place as advanced fallback
+and diagnostic tools. No Nuvio Z IPA, stable release, or release workflow was changed.
+
+- New `iosSetup/` Kotlin/JVM + Compose Desktop module packages a self-contained jpackage app-image
+  for Windows and macOS. The acceptance artifacts are portable ZIPs; no MSI/PKG installation is
+  required to run the setup utility.
+- The explicit 14-step state machine keeps USB detection, iloader installation, SideStore
+  appearance, pairing placement, profile trust, Developer Mode, first refresh, source addition and
+  Nuvio Z installation as separate gates. A child-process exit is not a state-machine event, so
+  closing iloader cannot advance any human-controlled step.
+- Stable is the default. The Debug developer channel is available only through Advanced settings
+  or `--developer`, and requires a deliberate warning confirmation before selecting
+  `source-debug.json` / `com.nuvio.app.z.debug`.
+- Progress is stored in per-user app data as `setup-state.json`; it contains only the schema,
+  current/completed steps, channel and boolean confirmation/repair/override flags. Credentials,
+  Apple Account details, 2FA codes and tokens have no model fields and are not logged.
+- Current official SideStore guidance is reflected in separate install, pairing, trust, Developer
+  Mode and first-refresh pages. Pairing repair includes Reset Pairing File, Delete Stored Pairing,
+  re-trust, Manage Pairing File, Place and the required green success message.
+- The source page makes manual URL copy/paste the reliable path and keeps a locally generated ZXing
+  QR as optional convenience. A round-trip decode test pins the exact `sidestore://source?url=...`
+  payload.
+- `.github/workflows/ios-setup-build.yml` builds and uploads
+  `Nuvio-Z-iOS-Setup-Windows-x64.zip` and `Nuvio-Z-iOS-Setup-macOS.zip` without attaching either to
+  normal Nuvio Z releases.
+
+Local verification: `:iosSetup:test` **11 / 11**, `:iosSetup:createDistributable` successful,
+packaged Windows executable launched and remained responsive, and the existing SideStore feed
+isolation suite passed all stable/debug cross-talk checks. Physical iPhone flow and macOS runtime
+remain acceptance-test work; CI packaging is tracked by the dedicated workflow.
+
+### Acceptance hotfix 1.0.1
+
+The first tester installed iTunes successfully but the Apple Device Support page stayed blocked.
+The page had made one exact `Apple Mobile Device Service == Running` probe part of its completion
+condition even after the driver/package probe succeeded. Detection now recognizes registry,
+installed-package, driver-directory and Apple mobile-service variants; installed Apple device
+support completes that page even if the service is stopped or starts only when the phone is
+connected. The next page's real USB-device detection remains the authoritative gate, so this does
+not let the wizard skip the prerequisite in practice.
+
+Automated operations now draw an in-page indeterminate progress bar and a concrete activity label
+for downloading/installing Apple support, downloading/installing iloader, rechecking, and opening
+iloader. Buttons remain disabled while the operation is active. `:iosSetup:test` is now **12 / 12**,
+including the stopped-service regression. Installer-only `ios-setup-v*` prereleases are explicitly
+excluded from `update-store-source.yml`, so publishing the portable GUI cannot mutate either
+SideStore feed or be mistaken for a mobile debug release.
+
+### Acceptance hotfix 1.0.2
+
+The same tester's machine still reported iTunes as current through winget while the service,
+registry/driver-directory and current-user Store-package probes remained invisible to the setup
+process. Automatic detection now also uses `winget list --id Apple.iTunes -e`, the same package
+authority used by the install button, and diagnostics record each Apple probe separately. Step 3
+also has an explicit **iTunes or Apple Devices is already installed** escape from detection-only
+failure. This is safe because it advances only to Step 4, whose actual USB Apple-device detection
+remains mandatory. Setup tests are now **14 / 14**.
+
+### Acceptance hotfix 1.0.3
+
+The next physical run reached iloader, which then reported **failed to connect to devices:
+usbmuxd**. Windows PnP visibility is not sufficient evidence for iloader: its transport also needs
+Apple Mobile Device Service's usbmuxd endpoint. The Connect iPhone page now checks both the real
+USB device and `127.0.0.1:27015`, logs `usbmuxd_ready`, and will not present the normal Next path
+until both are live. If Windows sees the phone but usbmuxd is unavailable, the wizard names the
+problem, opens Windows Services, and embeds Apple's AMDS restart sequence. This keeps the failure
+in our guided UI instead of discovering it only after iloader opens. The probe was verified against
+the local physical iPhone/AMDS setup and the portable app still builds with **14 / 14** tests.
+
+The first 1.0.3 CI attempt exposed the actual regression before publication: the GUI had replaced
+the CLI's proven direct Apple `iTunes64Setup.exe` with `winget Apple.iTunes`. A package being listed
+by winget did not guarantee that Apple Mobile Device Support/usbmuxd was installed and live, while
+the original physical CLI run's Apple desktop installer did exactly that without a reboot. The GUI
+now downloads and launches the same official Apple installer URL as the retained CLI. If Windows
+sees the phone but usbmuxd is absent, **Repair with Apple's desktop installer** is the recommended
+first action; restarting AMDS is the fallback rather than the happy path. The intermediate artifact
+was never published as a prerelease.
+
+The corrected portable packages passed both jobs in dedicated build run `35762793455` and were
+published as prerelease `ios-setup-v1.0.3-beta.1`. The Windows ZIP SHA-256 is
+`6450D2647316C99509EB59931A66300B7ED437A45FE13295B060C80586A36071`; the macOS ZIP SHA-256 is
+`F688CEC67D145D9D88B18537C7D33FDFCC793452A4DDEE30026883B8664570FA`. The release was created
+with the SideStore-source workflow temporarily disabled and that workflow was immediately restored
+to active, so neither source feed was changed.
 
 ## iOS Debug Releases & SideStore Developer Channel (2026-09-22)
 
@@ -86,7 +522,7 @@ experience has been implemented for both Windows (PowerShell) and macOS (Bash).
 ## Phase 7 closeout: Release Engineering v1 (2026-09-22)
 
 **Phase 7 is complete.** The superseding road-map scope is live-desktop release hardening plus
-joint Android/iOS release readiness; Tizen and webOS distribution moved to Phase 9. Desktop keeps
+joint Android/iOS release readiness; Tizen and webOS distribution moved to Phase 9 (the TV phase, renumbered Phase 10 on 2026-09-24). Desktop keeps
 its installed-user version/serial/MSI lineage. Android and iOS share the mobile marketing version
 and build number. The policy and channel semantics are unified without forcing the two families
 onto equal numbers. The operational runbook is `Docs/RELEASES.md`. No stable release, tag,
@@ -1689,7 +2125,7 @@ nothing in its CI compiles them. Every desktop→mobile sync must gate on the *m
 ## Phase 6 opened and rescoped: Social **+ Watch Together** to mobile (2026-09-17)
 
 **Planning only. No code was touched in any repo.** Deliverables: `ROADMAP.md` (Phase 6 rescoped,
-Phase 9 TV target set, stale ordering/review-budget text corrected), `Docs/Z-FEATURES.md` revision 8
+Phase 9 (now Phase 10) TV target set, stale ordering/review-budget text corrected), `Docs/Z-FEATURES.md` revision 8
 (Android/iOS/TV targets), and `PLAN-phase-6-social-watch-together-mobile.md` at the workspace root.
 
 ⚠ **`ROADMAP.md` and the `PLAN-*.md` files are not under version control** - the workspace root has

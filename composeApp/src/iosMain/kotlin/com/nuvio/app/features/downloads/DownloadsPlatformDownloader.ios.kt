@@ -1,606 +1,918 @@
 package com.nuvio.app.features.downloads
 
+import kotlin.concurrent.Volatile
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.convert
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.download_failed
 import nuvio.composeapp.generated.resources.downloads_error_finalize_file_failed
 import nuvio.composeapp.generated.resources.downloads_error_incomplete_transfer
-import nuvio.composeapp.generated.resources.downloads_error_open_partial_file_failed
-import nuvio.composeapp.generated.resources.downloads_error_partial_file_not_open
 import nuvio.composeapp.generated.resources.downloads_error_source_changed
-import nuvio.composeapp.generated.resources.downloads_error_write_partial_file_failed
+import nuvio.composeapp.generated.resources.downloads_error_stalled
 import nuvio.composeapp.generated.resources.network_request_failed_http
 import org.jetbrains.compose.resources.getString
+import platform.Foundation.NSBundle
 import platform.Foundation.NSError
-import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSMutableURLRequest
+import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLRequestReloadIgnoringLocalCacheData
-import platform.Foundation.NSURLResponse
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSURLSessionConfiguration
-import platform.Foundation.NSURLSessionDataDelegateProtocol
-import platform.Foundation.NSURLSessionDataTask
+import platform.Foundation.NSURLSessionDownloadDelegateProtocol
+import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSURLSessionTaskStateRunning
+import platform.Foundation.NSURLSessionTaskMetrics
+import platform.Foundation.NSURLSessionTaskStateSuspended
+import platform.Foundation.NSURLSessionTaskTransactionMetrics
+import platform.Foundation.NSUserDefaults
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
 import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationDidBecomeActiveNotification
+import platform.UIKit.UIApplicationDidEnterBackgroundNotification
+import platform.UIKit.UIApplicationState
 import platform.darwin.NSObject
-import platform.posix.FILE
-import platform.posix.fclose
-import platform.posix.fflush
-import platform.posix.fopen
-import platform.posix.fwrite
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 private const val DOWNLOAD_REQUEST_TIMEOUT_SECONDS = 60.0
 private const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
 
-private val backgroundSessionCompletionHandlers = mutableMapOf<String, () -> Unit>()
-
-fun handleDownloadsBackgroundEvents(
-    identifier: String,
-    completionHandler: () -> Unit,
-) {
-    backgroundSessionCompletionHandlers[identifier] = completionHandler
-}
-
-fun pauseDownloadsForAppBackground() {
-    DownloadsRepository.pauseActiveDownloads()
-}
+/**
+ * How often native progress reaches the queue.
+ *
+ * `shouldReportProgress` reports on 512 KB *or* 500 ms, whichever comes first, which at
+ * debrid speeds is dozens of reports a second per transfer - each one a repository
+ * publish, a recomposition and a Live Activity write on the main queue. The session
+ * delivers `didWriteData` far more often than anything can display, so iOS reports on
+ * time alone.
+ */
+private const val NATIVE_PROGRESS_INTERVAL_MS = 1_000L
 
 /**
- * Restarts the transfers that going to the background stopped.
+ * How many queued downloads are resolved and handed to the background session while Nuvio
+ * is in the foreground.
  *
- * Without this counterpart to [pauseDownloadsForAppBackground], switching away from
- * the app once left every download paused for good, since nothing else ever resumes
- * them. Downloads the user paused by hand are left alone.
+ * This is a submission window, not a concurrency limit: the system decides how many of
+ * these actually move bytes at once. It exists because a task created while the app is
+ * suspended is discretionary and rate-limited - each background wake grows the delay, and
+ * only returning to the foreground resets it - so whatever the queue has not submitted
+ * before the phone locks mostly waits for the next unlock. Apple's guidance is to start
+ * many tasks at once in one session.
+ *
+ * The window is one global queue: films, episodes and several shows share it in queue
+ * order. Twelve covers a normal season, or a mixed queue, in one hand-off. The bound is
+ * set by source links rather than by transfers: every item in the window mints a debrid
+ * link now, and a link minted now is only certain to work if its request starts soon,
+ * which the system does not promise for a task far down a long list.
  */
-fun resumeDownloadsForAppForeground() {
-    DownloadsRepository.resumeSystemPausedDownloads()
+private const val IOS_SUBMISSION_WINDOW = 12
+
+/** Task priority hints, highest for the head of the queue. Hints only: nothing relies on them. */
+private const val HEAD_TASK_PRIORITY = 0.9f
+private const val TASK_PRIORITY_STEP = 0.05f
+private const val MIN_TASK_PRIORITY = 0.1f
+
+/** `NSURLErrorCancelled`. */
+private const val NSURL_ERROR_CANCELLED = -999L
+/** `NSURLErrorBackgroundTaskCancelledReasonKey`: why the system, not Nuvio, cancelled a task. */
+private const val BACKGROUND_CANCEL_REASON_KEY = "NSURLErrorBackgroundTaskCancelledReasonKey"
+
+/** `.44` kept a second copy of the queue and an event journal under these keys. Both are retired. */
+private val RETIRED_DEFAULTS_KEYS = listOf(
+    "nuvio.downloads.ios_native_queue.v1",
+    "nuvio.downloads.ios_native_journal.v1",
+)
+
+/** Only touched on the main thread: UIKit hands these over there and expects them called there. */
+private val backgroundSessionCompletionHandlers = mutableMapOf<String, () -> Unit>()
+
+fun handleDownloadsBackgroundEvents(identifier: String, completionHandler: () -> Unit) {
+    DownloadsProbeLog.event("wake")
+    backgroundSessionCompletionHandlers[identifier] = completionHandler
+    backgroundDownloadManager.setBackgrounded(true)
+    backgroundDownloadManager.activate(identifier)
 }
+
+/** Retained for binary compatibility with `.42`; normal backgrounding no longer pauses anything. */
+fun pauseDownloadsForAppBackground() = Unit
+fun resumeDownloadsForAppForeground() = Unit
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual object DownloadsPlatformDownloader {
-    // Going to the background pauses the queue and returning to the foreground
-    // resumes it - see pauseDownloadsForAppBackground above and its counterpart.
-    actual val recoversSystemPauses: Boolean = true
-
+    // Nothing on iOS resumes a system pause any more: `.43` made backgrounding leave
+    // transfers alone and turned the foreground resume hook into a no-op. A system-paused
+    // item therefore has no owner here, and the queue has to take it back itself.
+    actual val recoversSystemPauses: Boolean = false
+    actual val maxConcurrentTransfers: Int = IOS_SUBMISSION_WINDOW
+    // A submitted task may wait inside the system for as long as it likes; the session's
+    // own request and resource timeouts decide when one has really failed.
+    actual val ownsTransferLiveness: Boolean = true
     actual fun freeStorageBytes(): Long = -1L
 
-    actual fun start(
-        request: DownloadPlatformRequest,
-        listener: DownloadTransferListener,
-    ): DownloadsTaskHandle {
-        val job = SupervisorJob()
-        val scope = CoroutineScope(job + Dispatchers.Default)
-        val handle = IosDownloadsTaskHandle(job)
-
-        scope.launch {
-            val downloadsDirectory = downloadsDirectoryPath()
-            val destinationPath = "$downloadsDirectory/${request.destinationFileName}"
-            val tempPath = "$downloadsDirectory/${request.destinationFileName}.part"
-
-            try {
-                var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
-
-                var attemptedRangeRequest = resumeFromBytes > 0L
-                var result = performDownloadRequest(
-                    request = request,
-                    rangeStart = if (attemptedRangeRequest) resumeFromBytes else null,
-                    resumeFromBytes = resumeFromBytes,
-                    tempPath = tempPath,
-                    handle = handle,
-                    listener = listener,
-                )
-
-                if (attemptedRangeRequest && result.statusCode == 416) {
-                    // The range starts past the end of the object. When that is because
-                    // the partial file already holds every byte, the download is done and
-                    // fetching it again from zero would throw away a finished transfer.
-                    val reportedTotal = parseContentRangeTotal(result.contentRange)
-                        ?: request.knownTotalBytes
-                    val partialBytes = fileSizeOrNull(tempPath) ?: 0L
-
-                    if (reportedTotal != null && partialBytes == reportedTotal) {
-                        finalizeOrFail(tempPath, destinationPath, listener, partialBytes)
-                        return@launch
-                    }
-
-                    removePathIfExists(tempPath)
-                    resumeFromBytes = 0L
-                    attemptedRangeRequest = false
-                    result = performDownloadRequest(
-                        request = request,
-                        rangeStart = null,
-                        resumeFromBytes = 0L,
-                        tempPath = tempPath,
-                        handle = handle,
-                        listener = listener,
-                    )
-                }
-
-                if (result.statusCode !in 200..299) {
-                    listener.onFailed(
-                        failureReasonForHttpStatus(result.statusCode),
-                        runBlocking {
-                            getString(Res.string.network_request_failed_http, result.statusCode)
-                        },
-                        fileSizeOrNull(tempPath) ?: 0L,
-                    )
-                    return@launch
-                }
-
-                // Reaching the end of the body is not the same as having the whole file:
-                // a dropped connection or a short error body ends the stream just as
-                // cleanly as a finished download does.
-                when (val completion = evaluateCompletion(result.downloadedBytes, result.totalBytes)) {
-                    is DownloadCompletion.Short -> {
-                        listener.onFailed(
-                            DownloadFailureReason.Incomplete,
-                            runBlocking { getString(Res.string.downloads_error_incomplete_transfer) },
-                            completion.downloadedBytes,
-                        )
-                        return@launch
-                    }
-
-                    is DownloadCompletion.Overrun -> {
-                        removePathIfExists(tempPath)
-                        listener.onFailed(
-                            DownloadFailureReason.SourceChanged,
-                            runBlocking { getString(Res.string.downloads_error_source_changed) },
-                            0L,
-                        )
-                        return@launch
-                    }
-
-                    DownloadCompletion.Complete -> Unit
-                }
-
-                finalizeOrFail(tempPath, destinationPath, listener, result.downloadedBytes)
-            } catch (cancellation: CancellationException) {
-                // A pause is a deliberate stop, not a failure.
-                handle.cancelNativeTask()
-                listener.onPaused(fileSizeOrNull(tempPath) ?: 0L)
-                throw cancellation
-            } catch (error: Throwable) {
-                listener.onFailed(
-                    DownloadFailureReason.Transient,
-                    error.message ?: runBlocking { getString(Res.string.download_failed) },
-                    fileSizeOrNull(tempPath) ?: 0L,
-                )
-            }
-        }
-
-        return handle
-    }
+    actual fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle =
+        backgroundDownloadManager.start(request, listener)
 
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
         val path = localFileUri.toLocalPath() ?: return false
-        if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
-            return removePathIfExists(path)
-        }
-
+        if (NSFileManager.defaultManager.fileExistsAtPath(path)) return removePathIfExists(path)
         val fileName = path.substringAfterLast('/').takeIf { it.isNotBlank() } ?: return false
         return removePathIfExists("${downloadsDirectoryPath()}/$fileName")
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
-        val tempPath = "${downloadsDirectoryPath()}/$destinationFileName.part"
-        return removePathIfExists(tempPath)
+        backgroundDownloadManager.cancelForDestination(destinationFileName)
+        return removePathIfExists("${downloadsDirectoryPath()}/$destinationFileName.part")
     }
 
-    actual fun partialFileBytes(destinationFileName: String): Long {
-        val tempPath = "${downloadsDirectoryPath()}/$destinationFileName.part"
-        return fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
-    }
+    actual fun partialFileBytes(destinationFileName: String): Long =
+        fileSizeOrNull("${downloadsDirectoryPath()}/$destinationFileName.part")?.coerceAtLeast(0L) ?: 0L
 
     actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? {
-        localFileUri?.toLocalPath()
-            ?.takeIf { NSFileManager.defaultManager.fileExistsAtPath(it) }
-            ?.let { path ->
-                return NSURL.fileURLWithPath(path).absoluteString ?: "file://$path"
-            }
-
+        localFileUri?.toLocalPath()?.takeIf(NSFileManager.defaultManager::fileExistsAtPath)?.let {
+            return NSURL.fileURLWithPath(it).absoluteString ?: "file://$it"
+        }
         val fileName = destinationFileName.trim().takeIf { it.isNotBlank() }
             ?: localFileUri?.toLocalPath()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
             ?: return null
-        val currentPath = "${downloadsDirectoryPath()}/$fileName"
-        return if (NSFileManager.defaultManager.fileExistsAtPath(currentPath)) {
-            NSURL.fileURLWithPath(currentPath).absoluteString ?: "file://$currentPath"
-        } else {
-            null
-        }
+        val path = "${downloadsDirectoryPath()}/$fileName"
+        return if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
+            NSURL.fileURLWithPath(path).absoluteString ?: "file://$path"
+        } else null
     }
 
     actual fun openDownloadsDirectory(): Boolean {
-        val url = NSURL.fileURLWithPath(downloadsDirectoryPath())
         UIApplication.sharedApplication.openURL(
-            url = url,
-            options = emptyMap<Any?, Any>(),
-            completionHandler = null,
+            NSURL.fileURLWithPath(downloadsDirectoryPath()), emptyMap<Any?, Any>(), null,
         )
         return true
     }
+
+    actual fun schedulingDeferredToPlatform(): Boolean = backgroundDownloadManager.isBackgrounded
+
+    actual fun requestTransferInventory(
+        onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit,
+    ) = backgroundDownloadManager.requestInventory(onResult)
+
+    actual fun suspendTransfer(downloadId: String) = backgroundDownloadManager.suspend(downloadId, notify = false)
+
+    actual fun cancelTransfer(downloadId: String) = backgroundDownloadManager.cancel(downloadId)
 }
 
-/** Moves a verified partial file into place, or reports why it could not be moved. */
-@OptIn(ExperimentalForeignApi::class)
-private fun finalizeOrFail(
-    tempPath: String,
-    destinationPath: String,
-    listener: DownloadTransferListener,
-    downloadedBytes: Long,
+private data class NativeTaskMetadata(
+    val downloadId: String,
+    val destinationFileName: String,
+    val knownTotalBytes: Long?,
 ) {
-    removePathIfExists(destinationPath)
-    val moved = NSFileManager.defaultManager.moveItemAtPath(
-        srcPath = tempPath,
-        toPath = destinationPath,
-        error = null,
-    )
-    if (!moved) {
-        listener.onFailed(
-            DownloadFailureReason.Transient,
-            runBlocking { getString(Res.string.downloads_error_finalize_file_failed) },
-            downloadedBytes,
-        )
-        return
-    }
+    fun encode(): String = listOf(
+        "nuvio-v1", escape(downloadId), escape(destinationFileName), knownTotalBytes?.toString().orEmpty(),
+    ).joinToString("|")
 
-    val localFileUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
-    val finalSize = fileSizeOrNull(destinationPath) ?: downloadedBytes
-    listener.onCompleted(localFileUri, finalSize)
-}
-
-private class IosDownloadsTaskHandle(
-    private val job: Job,
-) : DownloadsTaskHandle {
-    private var task: NSURLSessionTask? = null
-    private var session: NSURLSession? = null
-
-    fun attach(task: NSURLSessionTask, session: NSURLSession) {
-        this.task = task
-        this.session = session
-    }
-
-    override fun cancel() {
-        cancelNativeTask()
-        job.cancel()
-    }
-
-    fun cancelNativeTask() {
-        task?.cancel()
-        session?.invalidateAndCancel()
-        task = null
-        session = null
+    companion object {
+        fun decode(value: String?): NativeTaskMetadata? {
+            val parts = value?.split('|') ?: return null
+            if (parts.size != 4 || parts[0] != "nuvio-v1") return null
+            return NativeTaskMetadata(unescape(parts[1]), unescape(parts[2]), parts[3].toLongOrNull())
+        }
+        private fun escape(value: String) = value.replace("%", "%25").replace("|", "%7C")
+        private fun unescape(value: String) = value.replace("%7C", "|").replace("%25", "%")
     }
 }
 
-private data class IosDownloadResult(
-    val statusCode: Int,
-    val contentRange: String?,
-    val contentLength: Long?,
-    val etag: String? = null,
-    val lastModified: String? = null,
-    /** Bytes on disk once the stream ended, used to verify the transfer finished. */
-    val downloadedBytes: Long = 0L,
-    val totalBytes: Long? = null,
+private class NativeTaskContext(
+    val metadata: NativeTaskMetadata,
+    val listener: DownloadTransferListener,
+    var completed: Boolean = false,
+    var lastProgressBytes: Long = -1L,
+    var lastProgressAtEpochMs: Long = 0L,
+    var reportedFirstBytes: Boolean = false,
 )
 
+private val backgroundDownloadManager by lazy { IosBackgroundDownloadManager() }
+
+/**
+ * The app's one background `URLSession`, and the only thing that knows what is really
+ * transferring.
+ *
+ * Every piece of mutable state here is confined to [delegateQueue], the serial queue the
+ * session delivers its callbacks on. Callers from any other thread only ever enqueue, so
+ * there is no lock: nothing here waits on the repository, and the repository never waits
+ * on this queue. `.44` shared this state under a lock across threads and called into the
+ * repository from under it.
+ *
+ * [tasksById] is seeded from `getAllTasks` before anything may create a task, and every
+ * task is created through [createTask], so there is never more than one task per
+ * download. While the app is active the repository decides what starts; while it is in
+ * the background, [advanceIfBackgrounded] fills a freed slot from what the repository
+ * already persisted. See `IosBackgroundTransferReconciler` for the ownership rules.
+ */
 @OptIn(ExperimentalForeignApi::class)
-private class IosDownloadDelegate(
-    private val attemptedRangeRequest: Boolean,
-    private val resumeFromBytes: Long,
-    private val tempPath: String,
-    private val listener: DownloadTransferListener,
-) : NSObject(), NSURLSessionDataDelegateProtocol {
-    private val completion = CompletableDeferred<IosDownloadResult>()
-    private var result: IosDownloadResult? = null
-    private var fileError: Throwable? = null
-    private var outputFile: CPointer<FILE>? = null
-    private var startingBytesForResponse = 0L
-    private var bytesWrittenForResponse = 0L
-    private var totalBytesForResponse: Long? = null
-    private var lastProgressBytes = -1L
-    private var lastProgressAtEpochMs = 0L
-    private var bytesSinceFlush = 0L
+private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDelegateProtocol {
+    private val delegateQueue = NSOperationQueue().apply {
+        maxConcurrentOperationCount = 1
+        name = "com.nuvio.downloads.session"
+    }
 
-    suspend fun awaitCompletion(): IosDownloadResult = completion.await()
+    // --- Confined to delegateQueue ------------------------------------------------
+    private val tasksById = mutableMapOf<String, NSURLSessionDownloadTask>()
+    private val contexts = mutableMapOf<ULong, NativeTaskContext>()
+    private val cancelledTaskIds = mutableSetOf<ULong>()
+    /** Delivered as finished and waiting for `didCompleteWithError`. */
+    private val finishedIds = mutableSetOf<String>()
+    /** Stale-source boundaries already reported during this background stay. */
+    private val refreshReported = mutableSetOf<String>()
+    /** Queue positions of the tasks held, for the priority hint. Unknown after a relaunch until adopted. */
+    private val positionsById = mutableMapOf<String, Long>()
+    /** When each task was first seen with every expected byte, by task identifier. This process only. */
+    private val fullSinceByTask = mutableMapOf<ULong, Long>()
+    private var inventoryLoaded = false
+    private val awaitingInventory = mutableListOf<() -> Unit>()
 
-    override fun URLSession(
-        session: NSURLSession,
-        dataTask: NSURLSessionDataTask,
-        didReceiveResponse: NSURLResponse,
-        completionHandler: (Long) -> Unit,
-    ) {
-        val httpResponse = didReceiveResponse as? NSHTTPURLResponse
-        val statusCode = httpResponse?.statusCode?.toInt() ?: 200
-        val nextResult = IosDownloadResult(
-            statusCode = statusCode,
-            contentRange = httpResponse?.valueForHTTPHeaderField("Content-Range"),
-            contentLength = httpResponse
-                ?.valueForHTTPHeaderField("Content-Length")
-                ?.toLongOrNull()
-                ?.takeIf { it > 0L },
-            etag = httpResponse?.valueForHTTPHeaderField("ETag"),
-            lastModified = httpResponse?.valueForHTTPHeaderField("Last-Modified"),
+    @Volatile
+    var isBackgrounded: Boolean = false
+        private set
+
+    private val sessionIdentifier = IosBackgroundTransferReconciler.sessionIdentifier(
+        NSBundle.mainBundle.bundleIdentifier,
+    )
+    private val session: NSURLSession by lazy {
+        val configuration = NSURLSessionConfiguration
+            .backgroundSessionConfigurationWithIdentifier(sessionIdentifier)
+            .apply {
+                timeoutIntervalForRequest = DOWNLOAD_REQUEST_TIMEOUT_SECONDS
+                timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
+                waitsForConnectivity = true
+                allowsCellularAccess = true
+                allowsExpensiveNetworkAccess = true
+                allowsConstrainedNetworkAccess = true
+                sessionSendsLaunchEvents = true
+            }
+        NSURLSession.sessionWithConfiguration(configuration, this, delegateQueue).also { created ->
+            created.getAllTasksWithCompletionHandler { tasks ->
+                val snapshot = tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>()
+                delegateQueue.addOperationWithBlock { loadInventory(snapshot) }
+            }
+        }
+    }
+
+    init {
+        RETIRED_DEFAULTS_KEYS.forEach(NSUserDefaults.standardUserDefaults::removeObjectForKey)
+        val center = NSNotificationCenter.defaultCenter
+        center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, NSOperationQueue.mainQueue) { _ ->
+            setBackgrounded(true)
+            DownloadsRepository.onPlatformBackground()
+        }
+        center.addObserverForName(UIApplicationDidBecomeActiveNotification, null, NSOperationQueue.mainQueue) { _ ->
+            onBecameActive()
+        }
+        dispatch_async(dispatch_get_main_queue()) {
+            if (UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateBackground) {
+                setBackgrounded(true)
+            }
+        }
+    }
+
+    fun activate(identifier: String) {
+        if (identifier == sessionIdentifier) session
+    }
+
+    fun setBackgrounded(backgrounded: Boolean) {
+        val changed = isBackgrounded != backgrounded
+        isBackgrounded = backgrounded
+        if (changed) DownloadsLiveStatusPlatform.onAppBackgroundChanged()
+        if (backgrounded) whenReady { advanceIfBackgrounded() }
+    }
+
+    /**
+     * Hands scheduling back to the repository.
+     *
+     * The order matters: the repository first stops scheduling until it has seen the
+     * real tasks, then the flag flips, then it asks for them. Asking before the flip let
+     * the answer arrive while scheduling was still deferred, and nothing would start.
+     */
+    private fun onBecameActive() {
+        if (!isBackgrounded) return
+        DownloadsRepository.holdSchedulingForPlatformInventory()
+        isBackgrounded = false
+        DownloadsLiveStatusPlatform.onAppBackgroundChanged()
+        delegateQueue.addOperationWithBlock { refreshReported.clear() }
+        DownloadsRepository.requestPlatformInventory()
+    }
+
+    private fun onQueue(block: () -> Unit) {
+        delegateQueue.addOperationWithBlock(block)
+    }
+
+    /** Runs [block] on the delegate queue once the session's existing tasks are known. */
+    private fun whenReady(block: () -> Unit) {
+        session
+        onQueue {
+            if (inventoryLoaded) block() else awaitingInventory += block
+        }
+    }
+
+    private fun loadInventory(tasks: List<NSURLSessionDownloadTask>) {
+        tasks.forEach { task ->
+            val state = task.state
+            if (state != NSURLSessionTaskStateRunning &&
+                state != NSURLSessionTaskStateSuspended
+            ) return@forEach
+            val downloadId = NativeTaskMetadata.decode(task.taskDescription)?.downloadId ?: return@forEach
+            val existing = tasksById[downloadId]
+            if (existing == null) {
+                tasksById[downloadId] = task
+                return@forEach
+            }
+            // Only reachable from a build that predates the one-task rule: keep the
+            // transfer that has got furthest and drop the other.
+            val (keep, drop) = if (task.countOfBytesReceived > existing.countOfBytesReceived) {
+                task to existing
+            } else {
+                existing to task
+            }
+            tasksById[downloadId] = keep
+            cancelledTaskIds += drop.taskIdentifier
+            drop.cancel()
+        }
+        inventoryLoaded = true
+        DownloadsProbeLog.event(
+            "inventory",
+            "tasks" to tasks.size,
+            "running" to tasksById.values.count { it.state == NSURLSessionTaskStateRunning },
+            "suspended" to tasksById.values.count { it.state == NSURLSessionTaskStateSuspended },
         )
-        result = nextResult
+        val pending = awaitingInventory.toList()
+        awaitingInventory.clear()
+        pending.forEach { it() }
+    }
 
-        if (statusCode in 200..299) {
-            val isPartialResume = attemptedRangeRequest && statusCode == 206 && resumeFromBytes > 0L
-            startingBytesForResponse = if (isPartialResume) resumeFromBytes else 0L
-            bytesWrittenForResponse = 0L
-            totalBytesForResponse = resolveTotalBytes(
-                startingBytes = startingBytesForResponse,
-                isPartialResume = isPartialResume,
-                contentRangeHeader = nextResult.contentRange,
-                contentLength = nextResult.contentLength,
-            )
-
-            // A 200 answer to a range request means the server either ignores ranges or
-            // has told us, via If-Range, that the object changed. Either way the bytes
-            // already on disk do not belong to this response, so the file restarts.
-            outputFile = fopen(tempPath, if (isPartialResume) "ab" else "wb") ?: run {
-                fileError = IllegalStateException(
-                    runBlocking { getString(Res.string.downloads_error_open_partial_file_failed) },
+    fun requestInventory(onResult: (List<IosBackgroundTransferReconciler.LiveTransfer>?) -> Unit) {
+        whenReady {
+            dropFinishedTasks()
+            val now = DownloadsClock.nowEpochMs()
+            tasksById.entries.toList().forEach { (downloadId, task) ->
+                val received = task.countOfBytesReceived
+                val expected = task.countOfBytesExpectedToReceive
+                val running = task.state == NSURLSessionTaskStateRunning
+                if (running && expected > 0L && received >= expected) {
+                    fullSinceByTask.getOrPut(task.taskIdentifier) { now }
+                }
+                val fullSince = fullSinceByTask[task.taskIdentifier]
+                DownloadsProbeLog.event(
+                    "inventory_task",
+                    "id" to downloadId,
+                    "task" to task.taskIdentifier.toLong(),
+                    "state" to task.state.toLong(),
+                    "received" to received,
+                    "expected" to expected,
+                    "listened" to (task.taskIdentifier in contexts),
+                    "fullForSec" to fullSince?.let { (now - it) / 1000L },
                 )
-                null
+                if (IosBackgroundTransferReconciler.isStalledAtEnd(running, received, expected, fullSince, now)) {
+                    // Every byte arrived and the response never ended. Cancelling loses
+                    // nothing that can be kept - the session holds the body in its own
+                    // temporary file until the task finishes - and the retry starts over.
+                    DownloadsProbeLog.event("stalled_at_end", "id" to downloadId, "task" to task.taskIdentifier.toLong())
+                    val context = contexts[task.taskIdentifier]
+                    cancelTaskLocked(downloadId, task)
+                    context?.takeIf { !it.completed }?.fail(
+                        DownloadFailureReason.Transient,
+                        runBlocking { getString(Res.string.downloads_error_stalled) },
+                        received.coerceAtLeast(0L),
+                    )
+                }
+            }
+            val live = tasksById.map { (downloadId, task) ->
+                IosBackgroundTransferReconciler.LiveTransfer(
+                    downloadId = downloadId,
+                    running = task.state == NSURLSessionTaskStateRunning,
+                    downloadedBytes = task.countOfBytesReceived.coerceAtLeast(0L),
+                    totalBytes = task.countOfBytesExpectedToReceive.takeIf { it > 0L },
+                )
+            }
+            onResult(live)
+        }
+    }
+
+    fun start(request: DownloadPlatformRequest, listener: DownloadTransferListener): DownloadsTaskHandle {
+        val handle = IosBackgroundTaskHandle(request.downloadId)
+        val metadata = NativeTaskMetadata(request.downloadId, request.destinationFileName, request.knownTotalBytes)
+        whenReady {
+            request.queuePosition?.let { positionsById[request.downloadId] = it }
+            dropFinishedTasks()
+            tasksById[request.downloadId]?.let { existing ->
+                attach(existing, metadata, listener)
+                existing.resume()
+                rankTaskPriorities()
+                DownloadsProbeLog.event("resume", "id" to request.downloadId, "task" to existing.taskIdentifier.toLong())
+                return@whenReady
             }
 
-            listener.onOpened(
-                resumedFromBytes = startingBytesForResponse,
-                totalBytes = totalBytesForResponse,
-                etag = nextResult.etag,
-                lastModified = nextResult.lastModified,
-            )
-            reportProgress(startingBytesForResponse, totalBytesForResponse)
-        }
+            // Reported, not trusted: the repository checks it against the expected size
+            // before calling it complete, so a provider placeholder cannot pass as media.
+            val destinationPath = "${downloadsDirectoryPath()}/${request.destinationFileName}"
+            fileSizeOrNull(destinationPath)?.takeIf { it > 0L }?.let { bytes ->
+                listener.onCompleted(NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath", bytes)
+                return@whenReady
+            }
 
-        completionHandler(1L)
+            val partPath = "$destinationPath.part"
+            if (IosBackgroundTransferReconciler.shouldRestartLegacyPartial(fileSizeOrNull(partPath) ?: 0L, false)) {
+                removePathIfExists(partPath)
+            }
+            val url = NSURL.URLWithString(request.sourceUrl) ?: run {
+                // Only an adoption whose task ended in the meantime gets here without a
+                // usable URL; failing lets the queue re-mint one.
+                listener.onFailed(
+                    DownloadFailureReason.SourceExpired,
+                    runBlocking { getString(Res.string.download_failed) },
+                    0L,
+                )
+                return@whenReady
+            }
+            val task = createTask(metadata, buildNativeRequest(url, request.sourceHeaders, request.allowMeteredNetwork))
+            attach(task, metadata, listener)
+            task.resume()
+            logCreate(task, request.downloadId, request.queuePosition, request.sourceUrlResolvedAtEpochMs)
+        }
+        return handle
+    }
+
+    /**
+     * Forgets tasks that have already finished.
+     *
+     * Only a running or suspended task can still transfer anything. Attaching to a finished
+     * one reports its last byte count as live progress and then waits for callbacks that
+     * never come.
+     */
+    private fun dropFinishedTasks() {
+        tasksById.entries
+            .filter { (_, task) ->
+                task.state != NSURLSessionTaskStateRunning && task.state != NSURLSessionTaskStateSuspended
+            }
+            .forEach { (downloadId, task) ->
+                DownloadsProbeLog.event(
+                    "drop_finished",
+                    "id" to downloadId,
+                    "task" to task.taskIdentifier.toLong(),
+                    "state" to task.state.toLong(),
+                )
+                tasksById.remove(downloadId)
+                positionsById.remove(downloadId)
+            }
+    }
+
+    private fun createTask(metadata: NativeTaskMetadata, request: NSMutableURLRequest): NSURLSessionDownloadTask {
+        val task = session.downloadTaskWithRequest(request).apply {
+            taskDescription = metadata.encode()
+        }
+        tasksById[metadata.downloadId] = task
+        rankTaskPriorities()
+        return task
+    }
+
+    /**
+     * Re-ranks every held task's priority by queue position.
+     *
+     * Recomputed over the whole set whenever it changes, so the hint follows the queue
+     * even for tasks adopted after a relaunch. The system may still run them in any
+     * order it likes.
+     */
+    private fun rankTaskPriorities() {
+        tasksById.keys
+            .sortedWith(compareBy<String> { positionsById[it] ?: Long.MAX_VALUE }.thenBy { it })
+            .forEachIndexed { rank, downloadId ->
+                tasksById[downloadId]?.priority =
+                    (HEAD_TASK_PRIORITY - TASK_PRIORITY_STEP * rank).coerceAtLeast(MIN_TASK_PRIORITY)
+            }
+    }
+
+    private fun logCreate(task: NSURLSessionDownloadTask, downloadId: String, position: Long?, resolvedAt: Long?) {
+        DownloadsProbeLog.event(
+            "create",
+            "id" to downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "position" to position,
+            "priority" to task.priority,
+            "urlAgeSec" to resolvedAt?.let { (DownloadsClock.nowEpochMs() - it) / 1000L },
+            "held" to tasksById.size,
+        )
+    }
+
+    private fun attach(
+        task: NSURLSessionDownloadTask,
+        metadata: NativeTaskMetadata,
+        listener: DownloadTransferListener,
+    ): NativeTaskContext {
+        val context = NativeTaskContext(metadata, listener)
+        contexts[task.taskIdentifier] = context
+        val bytes = task.countOfBytesReceived.coerceAtLeast(0L)
+        val total = task.countOfBytesExpectedToReceive.takeIf { it > 0L } ?: metadata.knownTotalBytes
+        listener.onOpened(bytes, total, null, null)
+        listener.onProgress(bytes, total)
+        context.lastProgressBytes = bytes
+        context.lastProgressAtEpochMs = DownloadsClock.nowEpochMs()
+        return context
+    }
+
+    /**
+     * Gives a task nobody is listening to - one started in the background, or found at
+     * launch - to the repository, which records it as a transfer it holds.
+     */
+    private fun claim(task: NSURLSessionDownloadTask, metadata: NativeTaskMetadata, finishing: Boolean): NativeTaskContext? {
+        val handle = IosBackgroundTaskHandle(metadata.downloadId)
+        return when (val claim = DownloadsRepository.claimNativeTransfer(metadata.downloadId, handle, finishing)) {
+            is NativeTransferClaim.Adopted -> attach(task, metadata, claim.listener)
+            NativeTransferClaim.Suspend -> {
+                task.suspend()
+                null
+            }
+            NativeTransferClaim.Cancel -> {
+                cancelTaskLocked(metadata.downloadId, task)
+                null
+            }
+        }
+    }
+
+    private fun cancelTaskLocked(downloadId: String, task: NSURLSessionDownloadTask) {
+        DownloadsProbeLog.event("cancel", "id" to downloadId, "task" to task.taskIdentifier.toLong())
+        if (tasksById[downloadId]?.taskIdentifier == task.taskIdentifier) {
+            tasksById.remove(downloadId)
+            positionsById.remove(downloadId)
+        }
+        cancelledTaskIds += task.taskIdentifier
+        task.cancel()
+    }
+
+    fun suspend(downloadId: String, notify: Boolean) {
+        whenReady {
+            val task = tasksById[downloadId] ?: return@whenReady
+            task.suspend()
+            DownloadsProbeLog.event("suspend", "id" to downloadId, "task" to task.taskIdentifier.toLong(), "notify" to notify)
+            if (notify) {
+                contexts[task.taskIdentifier]?.listener?.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
+            }
+        }
+    }
+
+    fun cancel(downloadId: String) {
+        whenReady {
+            val task = tasksById[downloadId] ?: return@whenReady
+            cancelTaskLocked(downloadId, task)
+        }
+    }
+
+    fun cancelForDestination(destinationFileName: String) {
+        whenReady {
+            tasksById.entries
+                .filter { NativeTaskMetadata.decode(it.value.taskDescription)?.destinationFileName == destinationFileName }
+                .forEach { (downloadId, task) -> cancelTaskLocked(downloadId, task) }
+        }
+    }
+
+    /**
+     * Fills freed slots while the repository cannot.
+     *
+     * Runs when the app goes to the background and each time a transfer ends there.
+     * Only items that already hold a fresh source URL can start: re-minting one is a
+     * network round trip the suspended app cannot make. The first stale item is a
+     * boundary, not something to skip, so episodes never finish out of order.
+     */
+    private fun advanceIfBackgrounded() {
+        if (!isBackgrounded || !inventoryLoaded) return
+        val snapshot = DownloadsRepository.nativeSchedulingSnapshot()
+        val running = tasksById.filterValues { it.state == NSURLSessionTaskStateRunning }.keys
+        val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys
+        val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
+            maxConcurrent = DownloadsRepository.maxConcurrentTransfers,
+            runningIds = running,
+            claimedIds = snapshot.claimedIds,
+            suspendedIds = suspended,
+            finishedIds = finishedIds,
+            preparedQueue = snapshot.prepared,
+            nowEpochMs = DownloadsClock.nowEpochMs(),
+        )
+        plan.toStart.forEach { candidate ->
+            val resume = candidate.downloadId in plan.toResume
+            val url = if (resume) null else NSURL.URLWithString(candidate.sourceUrl) ?: return@forEach
+            val metadata = NativeTaskMetadata(candidate.downloadId, candidate.destinationFileName, candidate.knownTotalBytes)
+            val handle = IosBackgroundTaskHandle(candidate.downloadId)
+            val claim = DownloadsRepository.claimNativeTransfer(candidate.downloadId, handle, finishing = false)
+            if (claim !is NativeTransferClaim.Adopted) return@forEach
+            positionsById[candidate.downloadId] = candidate.queuePosition
+            val existing = tasksById[candidate.downloadId]?.takeIf { resume }
+            val task = existing
+                ?: createTask(
+                    metadata,
+                    buildNativeRequest(
+                        url ?: return@forEach,
+                        candidate.sourceHeaders,
+                        candidate.allowMeteredNetwork,
+                    ),
+                )
+            attach(task, metadata, claim.listener)
+            task.resume()
+            if (existing == null) {
+                logCreate(task, candidate.downloadId, candidate.queuePosition, candidate.sourceUrlResolvedAtEpochMs)
+            } else {
+                rankTaskPriorities()
+                DownloadsProbeLog.event("resume", "id" to candidate.downloadId, "task" to task.taskIdentifier.toLong())
+            }
+        }
+        plan.refreshBoundary?.let { boundary ->
+            DownloadsProbeLog.event("boundary", "id" to boundary.downloadId)
+            if (refreshReported.add(boundary.downloadId)) {
+                DownloadsRepository.onNativeSourceRefreshNeeded(boundary.downloadId)
+            }
+        }
     }
 
     override fun URLSession(
         session: NSURLSession,
-        dataTask: NSURLSessionDataTask,
-        didReceiveData: NSData,
+        downloadTask: NSURLSessionDownloadTask,
+        didWriteData: Long,
+        totalBytesWritten: Long,
+        totalBytesExpectedToWrite: Long,
     ) {
-        if (fileError != null) return
-
-        val file = outputFile ?: run {
-            fileError = IllegalStateException(
-                runBlocking { getString(Res.string.downloads_error_partial_file_not_open) },
+        val metadata = NativeTaskMetadata.decode(downloadTask.taskDescription) ?: return
+        val context = contexts[downloadTask.taskIdentifier]
+            ?: claim(downloadTask, metadata, finishing = false)
+            ?: return
+        val total = totalBytesExpectedToWrite.takeIf { it > 0L } ?: metadata.knownTotalBytes
+        if (total != null && totalBytesWritten >= total) {
+            fullSinceByTask.getOrPut(downloadTask.taskIdentifier) { DownloadsClock.nowEpochMs() }
+        }
+        if (!context.reportedFirstBytes) {
+            context.reportedFirstBytes = true
+            DownloadsProbeLog.event(
+                "first_progress",
+                "id" to metadata.downloadId,
+                "task" to downloadTask.taskIdentifier.toLong(),
+                "bytes" to totalBytesWritten,
             )
+        }
+        val now = DownloadsClock.nowEpochMs()
+        if (now - context.lastProgressAtEpochMs >= NATIVE_PROGRESS_INTERVAL_MS ||
+            (total != null && totalBytesWritten >= total)
+        ) {
+            context.lastProgressBytes = totalBytesWritten
+            context.lastProgressAtEpochMs = now
+            context.listener.onProgress(totalBytesWritten.coerceAtLeast(0L), total)
+        }
+    }
+
+    override fun URLSession(
+        session: NSURLSession,
+        downloadTask: NSURLSessionDownloadTask,
+        didFinishDownloadingToURL: NSURL,
+    ) {
+        val metadata = NativeTaskMetadata.decode(downloadTask.taskDescription) ?: run {
+            DownloadsProbeLog.event("finalize", "task" to downloadTask.taskIdentifier.toLong(), "outcome" to "no_metadata")
             return
         }
-
-        val bytesToWrite = didReceiveData.length.toLong()
-        val wrote = fwrite(
-            didReceiveData.bytes,
-            1.convert(),
-            bytesToWrite.convert(),
-            file,
-        ).toLong()
-        if (wrote != bytesToWrite) {
-            fileError = IllegalStateException(
-                runBlocking { getString(Res.string.downloads_error_write_partial_file_failed) },
-            )
-            return
-        }
-
-        // fwrite buffers in user space, so the partial file only reflects what has been
-        // flushed. Flushing periodically keeps its length close to the reported byte
-        // count, which is what a resume continues from.
-        bytesSinceFlush += bytesToWrite
-        if (bytesSinceFlush >= PARTIAL_FLUSH_BYTE_DELTA) {
-            fflush(file)
-            bytesSinceFlush = 0L
-        }
-
-        bytesWrittenForResponse += bytesToWrite
-        reportProgress(
-            downloadedBytes = startingBytesForResponse + bytesWrittenForResponse,
-            totalBytes = totalBytesForResponse,
+        val context = contexts[downloadTask.taskIdentifier]
+            ?: claim(downloadTask, metadata, finishing = true)
+            ?: run {
+                DownloadsProbeLog.event("finalize", "id" to metadata.downloadId, "outcome" to "not_claimed")
+                return
+            }
+        fun finalized(outcome: String, vararg fields: Pair<String, Any?>) = DownloadsProbeLog.event(
+            "finalize",
+            "id" to metadata.downloadId,
+            "task" to downloadTask.taskIdentifier.toLong(),
+            "outcome" to outcome,
+            *fields,
         )
+        val response = downloadTask.response as? NSHTTPURLResponse
+        val statusCode = response?.statusCode?.toInt() ?: 200
+        DownloadsProbeLog.event(
+            "finish",
+            "id" to metadata.downloadId,
+            "task" to downloadTask.taskIdentifier.toLong(),
+            "http" to statusCode,
+            "bytes" to downloadTask.countOfBytesReceived,
+        )
+        if (statusCode !in 200..299) {
+            finalized("http_status", "http" to statusCode)
+            context.fail(failureReasonForHttpStatus(statusCode), runBlocking {
+                getString(Res.string.network_request_failed_http, statusCode)
+            }, downloadTask.countOfBytesReceived.coerceAtLeast(0L))
+            return
+        }
+        val sourcePath = didFinishDownloadingToURL.path ?: run {
+            finalized("no_location")
+            return
+        }
+        val destinationPath = "${downloadsDirectoryPath()}/${metadata.destinationFileName}"
+        val partPath = "$destinationPath.part"
+        removePathIfExists(partPath)
+        if (!NSFileManager.defaultManager.moveItemAtPath(sourcePath, partPath, null)) {
+            finalized("move_to_part_failed")
+            context.fail(DownloadFailureReason.Transient, runBlocking {
+                getString(Res.string.downloads_error_finalize_file_failed)
+            }, 0L)
+            return
+        }
+        val bytes = fileSizeOrNull(partPath) ?: 0L
+        val responseTotal = response?.valueForHTTPHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0L }
+        val contentRange = response?.valueForHTTPHeaderField("Content-Range")
+        // After a dropped connection the session resumes with a range request, and the last
+        // response is a 206 whose Content-Length covers only that range. `.46` compared the
+        // whole file with it, called Pilot an overrun and deleted a complete download.
+        val expected = IosBackgroundTransferReconciler.finishedTransferTotal(
+            statusCode = statusCode,
+            contentLength = responseTotal,
+            contentRange = contentRange,
+            knownTotalBytes = metadata.knownTotalBytes,
+        )
+        val sizes = arrayOf<Pair<String, Any?>>(
+            "bytes" to bytes,
+            "contentLength" to responseTotal,
+            "contentRangeTotal" to parseContentRangeTotal(contentRange),
+            "expected" to expected,
+            "known" to metadata.knownTotalBytes,
+            "http" to statusCode,
+        )
+        when (evaluateCompletion(bytes, expected)) {
+            is DownloadCompletion.Short -> {
+                finalized("short", *sizes)
+                context.fail(DownloadFailureReason.Incomplete, runBlocking {
+                    getString(Res.string.downloads_error_incomplete_transfer)
+                }, bytes)
+                return
+            }
+            is DownloadCompletion.Overrun -> {
+                finalized("overrun", *sizes)
+                removePathIfExists(partPath)
+                context.fail(DownloadFailureReason.SourceChanged, runBlocking {
+                    getString(Res.string.downloads_error_source_changed)
+                }, 0L)
+                return
+            }
+            DownloadCompletion.Complete -> Unit
+        }
+        removePathIfExists(destinationPath)
+        if (!NSFileManager.defaultManager.moveItemAtPath(partPath, destinationPath, null)) {
+            finalized("move_to_destination_failed", *sizes)
+            context.fail(DownloadFailureReason.Transient, runBlocking {
+                getString(Res.string.downloads_error_finalize_file_failed)
+            }, bytes)
+            return
+        }
+        val uri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
+        finalized("complete", *sizes, "destinationBytes" to fileSizeOrNull(destinationPath))
+        context.completed = true
+        finishedIds += metadata.downloadId
+        // The repository still checks the size against what was expected; a small
+        // placeholder is failed and retried there, never recorded as the episode.
+        context.listener.onCompleted(uri, bytes)
+    }
+
+    override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
+        val metadata = NativeTaskMetadata.decode(task.taskDescription) ?: return
+        val downloadTask = task as? NSURLSessionDownloadTask
+        val cancelled = cancelledTaskIds.remove(task.taskIdentifier)
+        fullSinceByTask.remove(task.taskIdentifier)
+        var context = contexts.remove(task.taskIdentifier)
+        // Matched by identifier, never by reference. `.46` compared the delegate's task with
+        // the stored one using `===`, and Kotlin/Native does not promise one wrapper per
+        // Objective-C object: finished tasks stayed in this map, and a retry attached to
+        // one and "resumed" it - a no-op on a finished task - which froze Pilot at 100%.
+        if (tasksById[metadata.downloadId]?.taskIdentifier == task.taskIdentifier) {
+            tasksById.remove(metadata.downloadId)
+            positionsById.remove(metadata.downloadId)
+        }
+        val systemCancelReason = didCompleteWithError
+            ?.takeIf { !cancelled && it.domain == "NSURLErrorDomain" && it.code == NSURL_ERROR_CANCELLED }
+            ?.let { (it.userInfo[BACKGROUND_CANCEL_REASON_KEY] as? Number)?.toInt() ?: -1 }
+        DownloadsProbeLog.event(
+            "complete",
+            "id" to metadata.downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "error" to didCompleteWithError?.code,
+            "ours" to cancelled,
+            "systemCancel" to systemCancelReason,
+            "listened" to (context != null),
+        )
+        if (systemCancelReason != null) {
+            // The system cancelled this task, most often because the user force-quit
+            // Nuvio; the reason is delivered on the next launch. Nothing failed. A task
+            // from before the relaunch has nobody listening, and the inventory has
+            // already put its download back in the queue at the same place, so claiming
+            // it here would charge an attempt for nothing - or duplicate a restart the
+            // queue has made since. A live one is handed back as a system pause, which
+            // the queue takes back itself.
+            context?.takeIf { !it.completed }?.let {
+                it.completed = true
+                it.listener.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
+            }
+            finishedIds.remove(metadata.downloadId)
+            advanceIfBackgrounded()
+            return
+        }
+        if (didCompleteWithError != null && !cancelled && context?.completed != true) {
+            if (context == null && downloadTask != null) {
+                context = claim(downloadTask, metadata, finishing = true)
+                contexts.remove(task.taskIdentifier)
+            }
+            context?.fail(
+                DownloadFailureReason.Transient,
+                didCompleteWithError.localizedDescription.ifBlank { runBlocking { getString(Res.string.download_failed) } },
+                task.countOfBytesReceived.coerceAtLeast(0L),
+            )
+        }
+        finishedIds.remove(metadata.downloadId)
+        advanceIfBackgrounded()
     }
 
     override fun URLSession(
         session: NSURLSession,
         task: NSURLSessionTask,
-        didCompleteWithError: NSError?,
+        didFinishCollectingMetrics: NSURLSessionTaskMetrics,
     ) {
-        closeOutputFile()
-
-        if (didCompleteWithError != null) {
-            completion.completeExceptionally(
-                IllegalStateException(didCompleteWithError.localizedDescription),
-            )
-            return
-        }
-
-        val error = fileError
-        if (error != null) {
-            completion.completeExceptionally(error)
-            return
-        }
-
-        val settled = result ?: task.response.toDownloadResult()
-        completion.complete(
-            settled.copy(
-                downloadedBytes = startingBytesForResponse + bytesWrittenForResponse,
-                totalBytes = totalBytesForResponse,
-            ),
+        val metadata = NativeTaskMetadata.decode(task.taskDescription)
+        val transactions = didFinishCollectingMetrics.transactionMetrics
+            .filterIsInstance<NSURLSessionTaskTransactionMetrics>()
+        val transaction = transactions.lastOrNull()
+        val interval = didFinishCollectingMetrics.taskInterval
+        DownloadsProbeLog.event(
+            "metrics",
+            "id" to metadata?.downloadId,
+            "task" to task.taskIdentifier.toLong(),
+            "taskStart" to DownloadsProbeLog.epochMs(interval.startDate),
+            "taskSeconds" to interval.duration,
+            "transactions" to transactions.size,
+            "fetchStart" to DownloadsProbeLog.epochMs(transaction?.fetchStartDate),
+            "requestStart" to DownloadsProbeLog.epochMs(transaction?.requestStartDate),
+            "responseStart" to DownloadsProbeLog.epochMs(transaction?.responseStartDate),
+            "responseEnd" to DownloadsProbeLog.epochMs(transaction?.responseEndDate),
         )
     }
 
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
+        DownloadsProbeLog.event("did_finish_events")
         val identifier = session.configuration.identifier ?: return
-        backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
+        dispatch_async(dispatch_get_main_queue()) {
+            backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
+        }
     }
 
-    private fun closeOutputFile() {
-        outputFile?.let { file ->
-            fflush(file)
-            fclose(file)
-        }
-        outputFile = null
-        bytesSinceFlush = 0L
-    }
-
-    private fun reportProgress(
-        downloadedBytes: Long,
-        totalBytes: Long?,
-    ) {
-        val normalizedDownloadedBytes = downloadedBytes.coerceAtLeast(0L)
-        val nowEpochMs = DownloadsClock.nowEpochMs()
-        val reachedEnd = totalBytes != null && normalizedDownloadedBytes >= totalBytes
-
-        if (
-            lastProgressBytes >= 0L &&
-            !reachedEnd &&
-            !shouldReportProgress(
-                downloadedBytes = normalizedDownloadedBytes,
-                lastReportedBytes = lastProgressBytes,
-                nowEpochMs = nowEpochMs,
-                lastReportedAtEpochMs = lastProgressAtEpochMs,
-            )
-        ) {
-            return
-        }
-
-        lastProgressBytes = normalizedDownloadedBytes
-        lastProgressAtEpochMs = nowEpochMs
-        listener.onProgress(normalizedDownloadedBytes, totalBytes)
+    private fun NativeTaskContext.fail(reason: DownloadFailureReason, message: String, bytes: Long) {
+        completed = true
+        listener.onFailed(reason, message, bytes)
     }
 }
 
-private fun NSURLResponse?.toDownloadResult(): IosDownloadResult {
-    val httpResponse = this as? NSHTTPURLResponse
-    return IosDownloadResult(
-        statusCode = httpResponse?.statusCode?.toInt() ?: 200,
-        contentRange = httpResponse?.valueForHTTPHeaderField("Content-Range"),
-        contentLength = httpResponse
-            ?.valueForHTTPHeaderField("Content-Length")
-            ?.toLongOrNull()
-            ?.takeIf { it > 0L },
-        etag = httpResponse?.valueForHTTPHeaderField("ETag"),
-        lastModified = httpResponse?.valueForHTTPHeaderField("Last-Modified"),
-    )
+/** What stopping a transfer means on iOS: suspend the task so its bytes survive. */
+private class IosBackgroundTaskHandle(private val downloadId: String) : DownloadsTaskHandle {
+    override fun cancel() {
+        backgroundDownloadManager.suspend(downloadId, notify = true)
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
+private fun buildNativeRequest(
+    url: NSURL,
+    sourceHeaders: Map<String, String>,
+    allowMeteredNetwork: Boolean,
+): NSMutableURLRequest =
+    NSMutableURLRequest(
+        url, NSURLRequestReloadIgnoringLocalCacheData,
+        DOWNLOAD_REQUEST_TIMEOUT_SECONDS,
+    ).apply {
+        setHTTPMethod("GET")
+        setAllowsCellularAccess(allowMeteredNetwork)
+        setAllowsExpensiveNetworkAccess(allowMeteredNetwork)
+        setAllowsConstrainedNetworkAccess(allowMeteredNetwork)
+        sourceHeaders.forEach { (key, value) -> setValue(value, key) }
+    }
+
+@OptIn(ExperimentalForeignApi::class)
 private fun downloadsDirectoryPath(): String {
-    val root = NSHomeDirectory().trimEnd('/')
-    val path = "$root/Documents/nuvio_downloads"
-    NSFileManager.defaultManager.createDirectoryAtPath(
-        path = path,
-        withIntermediateDirectories = true,
-        attributes = null,
-        error = null,
-    )
+    val path = "${NSHomeDirectory().trimEnd('/')}/Documents/nuvio_downloads"
+    NSFileManager.defaultManager.createDirectoryAtPath(path, true, null, null)
     return path
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun removePathIfExists(path: String): Boolean {
-    if (!NSFileManager.defaultManager.fileExistsAtPath(path)) return true
-    return NSFileManager.defaultManager.removeItemAtPath(path, null)
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private suspend fun performDownloadRequest(
-    request: DownloadPlatformRequest,
-    rangeStart: Long?,
-    resumeFromBytes: Long,
-    tempPath: String,
-    handle: IosDownloadsTaskHandle,
-    listener: DownloadTransferListener,
-): IosDownloadResult {
-    val url = NSURL(string = request.sourceUrl)
-    val nativeRequest = NSMutableURLRequest(
-        uRL = url,
-        cachePolicy = NSURLRequestReloadIgnoringLocalCacheData,
-        timeoutInterval = DOWNLOAD_REQUEST_TIMEOUT_SECONDS,
-    )
-    nativeRequest.setHTTPMethod("GET")
-    nativeRequest.setAllowsCellularAccess(true)
-    nativeRequest.setAllowsExpensiveNetworkAccess(true)
-    nativeRequest.setAllowsConstrainedNetworkAccess(true)
-    request.sourceHeaders.forEach { (key, value) ->
-        nativeRequest.setValue(value, forHTTPHeaderField = key)
-    }
-    if (rangeStart != null && rangeStart > 0L) {
-        nativeRequest.setValue("bytes=$rangeStart-", forHTTPHeaderField = "Range")
-        // Without a validator the server cannot tell us the bytes it is about to send
-        // belong to a different file than the partial one on disk.
-        resumeValidator(request.resumeEtag, request.resumeLastModified)?.let {
-            nativeRequest.setValue(it, forHTTPHeaderField = "If-Range")
-        }
-    }
-
-    val delegate = IosDownloadDelegate(
-        attemptedRangeRequest = rangeStart != null && rangeStart > 0L,
-        resumeFromBytes = resumeFromBytes,
-        tempPath = tempPath,
-        listener = listener,
-    )
-    val configuration = NSURLSessionConfiguration.defaultSessionConfiguration().apply {
-        timeoutIntervalForRequest = DOWNLOAD_REQUEST_TIMEOUT_SECONDS
-        timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
-        waitsForConnectivity = true
-        allowsCellularAccess = true
-        allowsExpensiveNetworkAccess = true
-        allowsConstrainedNetworkAccess = true
-    }
-    val session = NSURLSession.sessionWithConfiguration(
-        configuration = configuration,
-        delegate = delegate,
-        delegateQueue = NSOperationQueue().apply {
-            maxConcurrentOperationCount = 1
-        },
-    )
-    val task = session.dataTaskWithRequest(nativeRequest)
-
-    handle.attach(task, session)
-    listener.onProgress(resumeFromBytes.coerceAtLeast(0L), request.knownTotalBytes)
-    task.resume()
-
-    return try {
-        delegate.awaitCompletion()
-    } finally {
-        session.finishTasksAndInvalidate()
-    }
-}
+private fun removePathIfExists(path: String): Boolean =
+    !NSFileManager.defaultManager.fileExistsAtPath(path) || NSFileManager.defaultManager.removeItemAtPath(path, null)
 
 @OptIn(ExperimentalForeignApi::class)
 private fun fileSizeOrNull(path: String): Long? {
-    val attrs = NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)
-    val value = attrs?.get("NSFileSize")
-    return when (value) {
-        is Long -> value
-        is Number -> value.toLong()
-        else -> null
-    }
+    val value = NSFileManager.defaultManager.attributesOfItemAtPath(path, null)?.get("NSFileSize")
+    return (value as? Number)?.toLong()
 }
 
 private fun String.toLocalPath(): String? {
     val value = trim()
-    if (value.startsWith("file:")) {
-        return NSURL(string = value).path ?: value.removePrefix("file://")
-    }
-    return value.takeIf { it.isNotBlank() }
+    return if (value.startsWith("file:")) NSURL(string = value).path ?: value.removePrefix("file://")
+    else value.takeIf { it.isNotBlank() }
 }

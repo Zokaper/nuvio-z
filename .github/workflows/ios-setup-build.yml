@@ -1,0 +1,65 @@
+name: Build iOS Setup GUI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/ios-setup-gui-v1
+    paths:
+      - 'iosSetup/**'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
+      - 'gradle/**'
+      - '.github/workflows/ios-setup-build.yml'
+
+concurrency:
+  group: ios-setup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: ${{ matrix.name }} portable app
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows x64
+            archive: Nuvio-Z-iOS-Setup-Windows-x64.zip
+          - os: macos-latest
+            name: macOS
+            archive: Nuvio-Z-iOS-Setup-macOS.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Test setup state machine
+        run: ./gradlew :iosSetup:test --console=plain
+      - name: Build self-contained app image
+        run: ./gradlew :iosSetup:createDistributable --console=plain
+      - name: Create Windows portable ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem iosSetup/build/compose/binaries/main/app -Directory | Select-Object -First 1
+          if (-not $app) { throw 'Compose app-image was not created' }
+          Compress-Archive -LiteralPath $app.FullName -DestinationPath '${{ matrix.archive }}'
+      - name: Create macOS portable ZIP
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find iosSetup/build/compose/binaries/main/app -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "${app}"
+          ditto -c -k --sequesterRsrc --keepParent "${app}" '${{ matrix.archive }}'
+      - name: Upload portable setup app
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 14

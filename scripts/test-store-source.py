@@ -154,7 +154,55 @@ def run_test():
         assert updated_stable["apps"][0]["versions"][0]["buildVersion"] == "99"
         print("[OK] Stable IPA successfully updated source.json.")
 
-    print("\nAll SideStore feed isolation tests PASSED successfully!")
+        # Test Case 7: Stale lower build -> Debug source (MUST FAIL - Out-of-order race prevention)
+        mock_stale_ipa = tmp / "mock-stale.ipa"
+        create_mock_ipa(mock_stale_ipa, "com.nuvio.app.z.debug", "0.4.13-z1", "40")
+        cmd_stale_debug = [
+            sys.executable,
+            str(UPDATE_SCRIPT),
+            "--source", str(test_debug_source),
+            "--ipa", str(mock_stale_ipa),
+            "--release-notes", str(notes_file),
+            "--release-version", "0.4.13-z1",
+            "--release-date", "2026-09-22T10:00:00+00:00",
+            "--download-url", "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.40/stale.ipa",
+            "--expected-bundle-id", "com.nuvio.app.z.debug",
+        ]
+        res = subprocess.run(cmd_stale_debug, capture_output=True, text=True)
+        assert res.returncode != 0, "Race condition vulnerability: Stale/lower build was allowed to overwrite newer canonical feed!"
+        assert "cannot overwrite newer canonical build" in res.stderr
+        print("[OK] Race condition prevented: Stale lower build rejected from canonical feed.")
+
+        # Test Case 8: Version history retention in descending order
+        with test_debug_source.open(encoding="utf-8") as f:
+            debug_history = json.load(f)
+        versions_list = debug_history["apps"][0]["versions"]
+        assert len(versions_list) >= 2, f"Expected multiple retained versions, got {len(versions_list)}"
+        build_numbers = [int(v["buildVersion"]) for v in versions_list if v.get("buildVersion", "").isdigit()]
+        assert build_numbers == sorted(build_numbers, reverse=True), (
+            f"Versions not retained in descending order: {build_numbers}"
+        )
+        print("[OK] Version history preserved in descending build order.")
+
+        # Test Case 9: Metadata verification
+        latest_entry = versions_list[0]
+        assert latest_entry["buildVersion"] == "99"
+        assert latest_entry["size"] == mock_debug_ipa.stat().st_size
+        assert latest_entry["sha256"]
+        assert latest_entry["downloadURL"].endswith("test.ipa")
+        print("[OK] IPA metadata (size, sha256, URL, version) accurately recorded.")
+
+        # Test Case 10: debug-release workflow targets canonical main feed
+        workflow_path = REPO_ROOT / ".github" / "workflows" / "debug-release.yml"
+        assert workflow_path.is_file(), f"Missing workflow file: {workflow_path}"
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        assert "canonical-main" in workflow_text, "Workflow must clone canonical main for feed update"
+        assert "push origin main" in workflow_text, "Workflow must push feed update to canonical main"
+        assert "git merge" not in workflow_text, "Workflow must not merge feature branches into main"
+        assert 'grep -q "source\\.json"' in workflow_text, "Workflow must verify stable source.json is untouched"
+        print("[OK] Workflow static checks pass: targets canonical main without feature branch merge.")
+
+    print("\nAll SideStore feed isolation and workflow promotion tests PASSED successfully!")
 
 
 if __name__ == "__main__":

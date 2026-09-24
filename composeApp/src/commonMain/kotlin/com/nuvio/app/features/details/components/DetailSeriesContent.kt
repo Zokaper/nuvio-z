@@ -288,7 +288,12 @@ fun DetailSeriesContent(
                                         } else {
                                             Icons.Default.Download
                                         },
-                                        contentDescription = null,
+                                        contentDescription = stringResource(Res.string.download_preset_season),
+                                        tint = if (downloadedSeasonCount > 0) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
                                     )
                                 }
                                 DropdownMenu(
@@ -301,6 +306,7 @@ fun DetailSeriesContent(
                                             Icon(
                                                 imageVector = Icons.Default.Download,
                                                 contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurface,
                                             )
                                         },
                                         onClick = {
@@ -317,6 +323,7 @@ fun DetailSeriesContent(
                                                 Icon(
                                                     imageVector = Icons.Default.DownloadForOffline,
                                                     contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                 )
                                             },
                                             onClick = {
@@ -334,6 +341,7 @@ fun DetailSeriesContent(
                                                 Icon(
                                                     imageVector = Icons.Rounded.Delete,
                                                     contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
                                                 )
                                             },
                                             onClick = {

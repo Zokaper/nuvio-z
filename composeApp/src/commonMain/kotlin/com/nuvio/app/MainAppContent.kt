@@ -2,6 +2,12 @@ package com.nuvio.app
 
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.BoxWithConstraints
 import com.nuvio.app.features.watchparty.PartyJoinHandoffInfo
 import com.nuvio.app.features.watchparty.PartyJoinHandoff
@@ -78,6 +84,7 @@ import com.nuvio.app.core.ui.NuvioContinueWatchingActionSheet
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioToastAction
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioToastHost
 import com.nuvio.app.core.ui.NuvioTokens
@@ -259,6 +266,12 @@ internal fun MainAppContent(
         // legitimate parse in both states because it is persisted and it is half of the native
         // navigation mapping. What it must not be is *shown* when the social layer is off: with no
         // nav item to leave by, that is a route with nothing on it and no way out.
+        val librarySubDestination by LibraryDestinationController.destination.collectAsStateWithLifecycle()
+        LaunchedEffect(initialTab) {
+            if (initialTab == AppScreenTab.Downloads) {
+                LibraryDestinationController.show(LibrarySubDestination.Downloads)
+            }
+        }
         var selectedTab by rememberSaveable(initialTab) {
             mutableStateOf(coerceAvailableTab(initialTab, socialEnabled))
         }
@@ -408,15 +421,22 @@ internal fun MainAppContent(
     }
 
     fun activateTab(tab: AppScreenTab) {
+        val targetTab = when (tab) {
+            AppScreenTab.Downloads -> {
+                LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                AppScreenTab.Library
+            }
+            else -> tab
+        }
         if (useNativeNavigation && onActivate != null) {
-            onActivate(tab)
+            onActivate(targetTab)
         } else {
-            selectedTab = tab
+            selectedTab = targetTab
         }
     }
 
     fun handleRootTabClick(tab: AppScreenTab) {
-        if (selectedTab != tab) {
+        if (selectedTab != tab && tab != AppScreenTab.Downloads) {
             activateTab(tab)
             return
         }
@@ -427,8 +447,17 @@ internal fun MainAppContent(
                 searchFocusRequestCount++
                 searchScrollToTopRequests.tryEmit(Unit)
             }
-            AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
-            AppScreenTab.Downloads -> downloadsScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.Library -> {
+                if (librarySubDestination == LibrarySubDestination.Downloads) {
+                    downloadsScrollToTopRequests.tryEmit(Unit)
+                } else {
+                    libraryScrollToTopRequests.tryEmit(Unit)
+                }
+            }
+            AppScreenTab.Downloads -> {
+                LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                downloadsScrollToTopRequests.tryEmit(Unit)
+            }
             AppScreenTab.Social -> if (socialEnabled) socialScrollToTopRequests.tryEmit(Unit)
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
@@ -923,10 +952,8 @@ internal fun MainAppContent(
 
                     AppDeepLink.Downloads -> {
                         if (AppFeaturePolicy.downloadsEnabled) {
-                            activateTab(AppScreenTab.Settings)
-                            navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle)) {
-                                launchSingleTop = true
-                            }
+                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                            activateTab(AppScreenTab.Library)
                         }
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
@@ -1112,6 +1139,7 @@ internal fun MainAppContent(
             resumeProgressFraction: Float?,
             manualSelection: Boolean,
             startFromBeginning: Boolean,
+            downloadIntent: Boolean = false,
         ) {
             val targetResumePositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L)
             val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
@@ -1182,6 +1210,7 @@ internal fun MainAppContent(
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
                     startFromBeginning = startFromBeginning,
+                    downloadIntent = downloadIntent,
                 ),
             )
             navController.navigate(
@@ -1474,10 +1503,12 @@ internal fun MainAppContent(
                             libraryDisintegrationRequest = libraryDisintegrationRequests.current,
                             continueWatchingDisintegrationRequest = continueWatchingDisintegrationRequests.current,
                             requestedSettingsPageName = requestedSettingsPageName,
+                            librarySubDestination = librarySubDestination,
                         ),
                         actions = { isTabletLayout ->
                             AppTabActions(
                                 onCatalogClick = onCatalogClick,
+                                onLibrarySubDestinationChanged = LibraryDestinationController::show,
                                 onPosterClick = { meta ->
                                     navController.navigate(
                                         DetailRoute(type = meta.type, id = meta.id, title = meta.name),
@@ -1543,23 +1574,30 @@ internal fun MainAppContent(
                                 onDownloadShowClick = { showId, title ->
                                     navController.navigate(DownloadShowRoute(showId, title))
                                 },
+                                // Download mode: tapping a source opens the download preset
+                                // sheet for this episode. It used to open the ordinary manual
+                                // source list, where a tap starts playback.
                                 onChooseBatchEntryManually = { batch, entry ->
-                                    onPlayManually(
-                                        batch.parentMetaType,
-                                        entry.videoId,
-                                        batch.parentMetaId,
-                                        batch.parentMetaType,
-                                        batch.title,
-                                        batch.logo,
-                                        batch.poster,
-                                        batch.background,
-                                        entry.season,
-                                        entry.episode,
-                                        entry.title.takeIf { entry.season != null },
-                                        null,
-                                        null,
-                                        null,
-                                        null,
+                                    launchPlaybackWithDownloadPreference(
+                                        type = batch.parentMetaType,
+                                        videoId = entry.videoId,
+                                        parentMetaId = batch.parentMetaId,
+                                        parentMetaType = batch.parentMetaType,
+                                        title = batch.title,
+                                        logo = batch.logo,
+                                        poster = batch.poster,
+                                        background = batch.background,
+                                        seasonNumber = entry.season,
+                                        episodeNumber = entry.episode,
+                                        episodeTitle = entry.title.takeIf { entry.season != null },
+                                        episodeThumbnail = null,
+                                        pauseDescription = null,
+                                        runtimeMinutes = entry.runtimeMinutes,
+                                        resumePositionMs = null,
+                                        resumeProgressFraction = null,
+                                        manualSelection = true,
+                                        startFromBeginning = false,
+                                        downloadIntent = true,
                                     )
                                 },
                                 onJoinParty = { code ->
@@ -2402,11 +2440,22 @@ internal fun MainAppContent(
             // draw across on desktop; the player mirrors the request in its own controls instead.
             if (currentRoute !is PlayerRoute && currentRoute !is StreamRoute) {
                 val outgoingJoin by OutgoingJoinRequestStore.state.collectAsStateWithLifecycle()
-                BoxWithConstraints(Modifier.fillMaxSize().zIndex(19f), contentAlignment = Alignment.BottomEnd) {
+                val dockAlignment = if (isDesktop) Alignment.BottomEnd else Alignment.TopEnd
+                val topInset = if (!isDesktop) {
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
+                } else {
+                    0.dp
+                }
+                val dockPadding = if (isDesktop) {
+                    PaddingValues(end = 20.dp, bottom = 24.dp)
+                } else {
+                    PaddingValues(end = 16.dp, top = topInset + 12.dp)
+                }
+                BoxWithConstraints(Modifier.fillMaxSize().zIndex(19f), contentAlignment = dockAlignment) {
                     WatchTogetherDock(
                         state = outgoingJoin,
                         windowWidth = maxWidth,
-                        modifier = Modifier.padding(end = 20.dp, bottom = 24.dp),
+                        modifier = Modifier.padding(dockPadding),
                     )
                 }
             }
@@ -2415,6 +2464,15 @@ internal fun MainAppContent(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .zIndex(20f),
+                onAction = { action ->
+                    when (action) {
+                        NuvioToastAction.OpenDownloads -> {
+                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                            activateTab(AppScreenTab.Library)
+                        }
+                        NuvioToastAction.ChangePlaybackSource -> Unit
+                    }
+                },
             )
 
             }

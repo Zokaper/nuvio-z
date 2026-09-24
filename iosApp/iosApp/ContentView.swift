@@ -245,7 +245,7 @@ enum NuvioAppTab: String, CaseIterable, Hashable {
         switch kotlinName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "home": return .home
         case "search": return .search
-        case "library": return .library
+        case "library", "downloads": return .library
         case "social": return .social
         case "settings", "profile": return .settings
         default: return nil
@@ -555,7 +555,7 @@ final class AppNavigationCoordinator: ObservableObject {
     let homeCoordinator = TabNavigationCoordinator()
     let searchCoordinator = TabNavigationCoordinator()
     let libraryCoordinator = TabNavigationCoordinator()
-    let downloadsCoordinator = TabNavigationCoordinator()
+    let socialCoordinator = TabNavigationCoordinator()
     let settingsCoordinator = TabNavigationCoordinator()
     let appGateController = AppGateController()
     let profileSwitcherController = NativeProfileSwitcherController()
@@ -569,7 +569,7 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     private var allCoordinators: [TabNavigationCoordinator] {
-        [homeCoordinator, searchCoordinator, libraryCoordinator, downloadsCoordinator, settingsCoordinator]
+        [homeCoordinator, searchCoordinator, libraryCoordinator, socialCoordinator, settingsCoordinator]
     }
 
     func coordinator(for tab: NuvioAppTab) -> TabNavigationCoordinator {
@@ -577,7 +577,7 @@ final class AppNavigationCoordinator: ObservableObject {
         case .home: return homeCoordinator
         case .search: return searchCoordinator
         case .library: return libraryCoordinator
-        case .social: return downloadsCoordinator
+        case .social: return socialCoordinator
         case .settings: return settingsCoordinator
         }
     }
@@ -606,7 +606,7 @@ final class AppNavigationCoordinator: ObservableObject {
             .home: home,
             .search: search,
             .library: library,
-            .social: downloads,
+            .social: "Social",
             .settings: profile,
         ]
         localizedSwitchProfileTitle = switchProfile
@@ -614,6 +614,9 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     func updateAppReady(_ ready: Bool) {
+#if DEBUG
+        FreezeDiagnostics.shared.note("appReady=\(ready) mounted=\(isMainContentMounted)")
+#endif
         isAppReady = ready
         if !ready {
             isProfileSwitcherPresented = false
@@ -622,6 +625,9 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     func setMainContentMounted(_ mounted: Bool) {
+#if DEBUG
+        FreezeDiagnostics.shared.note("mainContentMounted=\(mounted) appReady=\(isAppReady)")
+#endif
         isMainContentMounted = mounted
         if !mounted {
             isMainContentVisible = false

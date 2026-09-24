@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.streams.StreamDebridCacheState
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -63,7 +65,40 @@ data class DownloadBatchEntry(
      */
     val sourceOrigin: DownloadSourceOrigin? = null,
     val failureMessage: String? = null,
-)
+) {
+    /**
+     * The source picked for review is a debrid torrent the service has not cached.
+     *
+     * Approving it cannot help. The download resolver answers "not cached" for such a
+     * source without asking the service again, so an approved entry sat at "Waiting for
+     * provider" through every retry and then failed. It needs a different source.
+     */
+    val selectsUncachedDebrid: Boolean
+        get() {
+            val approval = selection as? SourceSelectionResult.ApprovalNeeded ?: return false
+            return approval.facts.isDebridReady == false ||
+                (approval.sourceOrigin ?: sourceOrigin).isKnownUncached()
+        }
+
+    /** Only a source the user picks can move this entry forward. */
+    val needsManualSource: Boolean
+        get() = state == DownloadBatchEntryState.SKIPPED ||
+            state == DownloadBatchEntryState.FAILED ||
+            (state == DownloadBatchEntryState.APPROVAL_NEEDED && selectsUncachedDebrid)
+
+    /** Waiting only for the user to accept an unknown size or unclear metadata. */
+    val canBeApproved: Boolean
+        get() = state == DownloadBatchEntryState.APPROVAL_NEEDED && !selectsUncachedDebrid
+}
+
+/**
+ * The addon reported this source as not cached on the user's debrid service.
+ *
+ * `DirectDebridResolver` trusts that snapshot and answers "not cached" without asking
+ * the service, so a download carrying it can never resolve, however long it waits.
+ */
+internal fun DownloadSourceOrigin?.isKnownUncached(): Boolean =
+    this?.stream?.debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED
 
 @Serializable
 data class DownloadBatch(
@@ -200,7 +235,11 @@ object DownloadBatchPlanner {
             is DownloadScope.Episode -> setOf(scope.season)
             is DownloadScope.Season -> setOf(scope.season)
             is DownloadScope.SeasonUnwatched -> setOf(scope.season)
-            is DownloadScope.SelectedSeasons -> scope.seasons
+            is DownloadScope.SelectedSeasons -> if (scope.seasons.isNotEmpty()) {
+                scope.seasons
+            } else {
+                episodes.mapNotNull { it.season }.filter { it > 0 }.toSet()
+            }
             DownloadScope.Movie -> emptySet()
         }
         return episodes
