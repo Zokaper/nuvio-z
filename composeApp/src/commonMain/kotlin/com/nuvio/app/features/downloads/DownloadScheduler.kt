@@ -407,12 +407,11 @@ internal object DownloadScheduler {
                     // force-refreshes the link on every start, so this only has to discard
                     // the bytes; `restartedFromZero` keeps it to one attempt, because a
                     // restart loop is the same fault wearing a different hat.
-                    val canRestartFromZero = !current.restartedFromZero &&
-                        reason != DownloadFailureReason.Fatal &&
-                        // An unanswered request never touched the partial file, so it cannot
-                        // be the partial file's fault - see `DownloadFailureReason.NoResponse`.
-                        reason != DownloadFailureReason.NoResponse &&
-                        downloadedBytes > 0L
+                    val canRestartFromZero = canRestartFromZero(
+                        reason = reason,
+                        alreadyRestarted = current.restartedFromZero,
+                        downloadedBytes = downloadedBytes,
+                    )
                     if (!shouldRetry(reason, attempt, current.canReresolveSource) && canRestartFromZero) {
                         DownloadsPlatformDownloader.removePartialFile(current.fileName)
                         val retryAt = now + retryBackoffMs(attempt, reason)

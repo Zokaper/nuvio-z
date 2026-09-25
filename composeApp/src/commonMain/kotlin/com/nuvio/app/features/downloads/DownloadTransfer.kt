@@ -264,6 +264,30 @@ internal fun shouldRetry(
 }
 
 /**
+ * Whether a download whose retry budget is spent may discard its partial file and run once more
+ * from byte zero.
+ *
+ * That last resort exists for one fault: a stall pinned near the end, where a partial file the
+ * server will not resume correctly is the likeliest explanation. It is never the answer when the
+ * failure says nothing about the bytes on disk:
+ * - [DownloadFailureReason.NoResponse] - the request was never answered, the file never touched;
+ * - [DownloadFailureReason.SourceExpired] - the *link* is dead. The file behind it is not, and a
+ *   partial download outlives any number of links (a long pause, then Resume, mints a fresh one
+ *   and range-resumes). Discarding gigabytes because a URL expired is the one thing a pause must
+ *   never cost;
+ * - [DownloadFailureReason.Fatal] - nothing will be fetched again anyway.
+ */
+internal fun canRestartFromZero(
+    reason: DownloadFailureReason,
+    alreadyRestarted: Boolean,
+    downloadedBytes: Long,
+): Boolean = !alreadyRestarted &&
+    downloadedBytes > 0L &&
+    reason != DownloadFailureReason.Fatal &&
+    reason != DownloadFailureReason.NoResponse &&
+    reason != DownloadFailureReason.SourceExpired
+
+/**
  * Backoff before attempt number [attempt] (1-based), capped so the queue keeps moving.
  *
  * A source that is still preparing the file waits far longer than a network blip:

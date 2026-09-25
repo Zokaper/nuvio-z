@@ -154,6 +154,20 @@ class DownloadTransferTest {
     }
 
     @Test
+    fun onlyAFaultThatCanIndictThePartialFileRestartsFromZero() {
+        assertTrue(canRestartFromZero(DownloadFailureReason.Incomplete, alreadyRestarted = false, downloadedBytes = 10L))
+        assertTrue(canRestartFromZero(DownloadFailureReason.Transient, alreadyRestarted = false, downloadedBytes = 10L))
+        // Once only, and never with nothing to discard.
+        assertFalse(canRestartFromZero(DownloadFailureReason.Incomplete, alreadyRestarted = true, downloadedBytes = 10L))
+        assertFalse(canRestartFromZero(DownloadFailureReason.Incomplete, alreadyRestarted = false, downloadedBytes = 0L))
+        // A dead link, an unanswered request or a fatal refusal says nothing about the bytes on
+        // disk: a long pause whose link expired must keep its partial file.
+        assertFalse(canRestartFromZero(DownloadFailureReason.SourceExpired, alreadyRestarted = false, downloadedBytes = 10L))
+        assertFalse(canRestartFromZero(DownloadFailureReason.NoResponse, alreadyRestarted = false, downloadedBytes = 10L))
+        assertFalse(canRestartFromZero(DownloadFailureReason.Fatal, alreadyRestarted = false, downloadedBytes = 10L))
+    }
+
+    @Test
     fun anExpiredLinkIsOnlyWorthRetryingWhenItCanBeMintedAgain() {
         // Without an origin every retry would replay the same dead URL, which is what
         // left debrid downloads failed with a retry button that could never work.
