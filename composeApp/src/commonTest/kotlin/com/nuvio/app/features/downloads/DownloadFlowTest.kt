@@ -202,6 +202,7 @@ class DownloadFlowTest {
         override fun startedMany(count: Int, needAttention: Int) { log += "many" }
         override fun needsAttention() { log += "attention" }
         override fun nothingNew() { log += "nothing" }
+        override fun qualityReady(title: String, season: Int?, onChoose: () -> Unit) { log += "ready" }
     }
 
     private val defaultMode = DownloadFlowController.modeProvider

@@ -19,6 +19,9 @@ internal sealed interface AppDeepLink {
     ) : AppDeepLink
 
     data object Downloads : AppDeepLink
+
+    /** A background Assisted batch is ready: Downloads, then its quality choice (Phase 9). */
+    data class ChooseDownloadQuality(val batchId: String) : AppDeepLink
 }
 
 internal object AppDeepLinkRepository {
@@ -59,6 +62,9 @@ fun buildMetaDeepLinkUrl(
 
 fun buildDownloadsDeepLinkUrl(): String = "nuvio://downloads"
 
+fun buildChooseQualityDeepLinkUrl(batchId: String): String =
+    "nuvio://downloads?choose=${batchId.trim().encodeURLParameter()}"
+
 internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val parsedUrl = runCatching { Url(url) }.getOrNull() ?: return null
     val scheme = parsedUrl.protocol.name.lowercase()
@@ -89,7 +95,9 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
 
         "imdb", "tmdb" -> parseProviderMetaDeepLink(host, pathSegments, parsedUrl)
 
-        "downloads" -> AppDeepLink.Downloads
+        "downloads" -> parsedUrl.parameters["choose"]?.trim()?.takeIf { it.isNotBlank() }
+            ?.let(AppDeepLink::ChooseDownloadQuality)
+            ?: AppDeepLink.Downloads
 
         "auth" -> null
 

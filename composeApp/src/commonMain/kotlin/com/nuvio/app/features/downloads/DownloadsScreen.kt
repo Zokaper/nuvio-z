@@ -128,6 +128,8 @@ fun DownloadsScreen(
     var detailItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRemoval by remember { mutableStateOf<AttentionCard?>(null) }
     var pendingGroupCancel by remember { mutableStateOf<DownloadQueueGroup?>(null) }
+    var pendingChoiceRemoval by remember { mutableStateOf<DownloadBatch?>(null) }
+    val refreshingBatchIds by AssistedDiscovery.refreshing.collectAsStateWithLifecycle()
     var cleanupConfirm by remember { mutableStateOf(false) }
     var pendingSeasonDeletion by remember { mutableStateOf<Pair<String, Int>?>(null) }
 
@@ -237,6 +239,8 @@ fun DownloadsScreen(
                 onOpenDetail = { detailItemId = it.id },
                 onReviewCleanup = { cleanupConfirm = true },
                 onCancelGroup = { pendingGroupCancel = it },
+                onRemoveChoiceBatch = { pendingChoiceRemoval = it },
+                refreshingBatchIds = refreshingBatchIds,
             )
         } else {
             downloadsShowContent(
@@ -284,6 +288,25 @@ fun DownloadsScreen(
                 pendingRemoval = null
             },
             onDismiss = { pendingRemoval = null },
+        )
+    }
+
+    pendingChoiceRemoval?.let { batch ->
+        val season = AssistedChoiceRules.seasonOf(batch)
+        NuvioStatusModal(
+            title = stringResource(
+                Res.string.download_choice_remove_title,
+                season?.let { stringResource(Res.string.download_choice_season_label, batch.title, it) } ?: batch.title,
+            ),
+            message = stringResource(Res.string.download_choice_remove_body),
+            isVisible = true,
+            confirmText = stringResource(Res.string.download_action_remove),
+            dismissText = stringResource(Res.string.action_cancel),
+            onConfirm = {
+                DownloadFlowController.removeChoiceBatch(batch.id)
+                pendingChoiceRemoval = null
+            },
+            onDismiss = { pendingChoiceRemoval = null },
         )
     }
 
@@ -386,18 +409,25 @@ internal fun LazyListScope.downloadsRootContent(
     onOpenDetail: (DownloadItem) -> Unit,
     onReviewCleanup: () -> Unit,
     onCancelGroup: (DownloadQueueGroup) -> Unit,
+    /** Assisted "choose when ready": Remove on a batch still finding or waiting for its quality. */
+    onRemoveChoiceBatch: (DownloadBatch) -> Unit = {},
+    /** Batches finding their sources again after a process death. */
+    refreshingBatchIds: Set<String> = emptySet(),
     /** The render harness opens every season; the app starts them closed. */
     initiallyExpandedGroups: Boolean = false,
 ) {
     // Phase 9 stage 7: storage, then what needs the user (one card per title/season and
     // reason), then the queue with a season as one row, then what is on the device.
-    val preparingBatches = batches.filter { it.isPreparing }
+    // Assisted "choose when ready" batches have their own row (finding, then ready to choose);
+    // the rest of what is preparing is Automatic's, read-only.
+    val choiceBatches = batches.filter { it.awaitsQualityChoice && (it.isPreparing || it.isAwaitingQualityChoice) }
+    val preparingBatches = batches.filter { it.isPreparing && !it.awaitsQualityChoice }
     val completedGroups = uiState.completedItems.groupedByTitle()
 
     // Every row is capped at DownloadsContentMaxWidth and centred: a desktop window must not
     // stretch a row, and its actions, across the whole screen.
     val width = Modifier.downloadsContentWidth()
-    if (storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty())) {
+    if (storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty() || choiceBatches.isNotEmpty())) {
         item(key = "downloads-storage") { DownloadStorageBar(storage, width) }
     }
 
@@ -417,9 +447,18 @@ internal fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (preparingBatches.isNotEmpty() || queue.isNotEmpty()) {
+    if (choiceBatches.isNotEmpty() || preparingBatches.isNotEmpty() || queue.isNotEmpty()) {
         item(key = "downloads-active-title") {
             DownloadsSectionHeading(stringResource(Res.string.download_section_downloading), width)
+        }
+        items(choiceBatches, key = { "choice-${it.id}" }) { batch ->
+            DownloadChoiceBatchRow(
+                batch = batch,
+                refreshing = batch.id in refreshingBatchIds,
+                onChoose = { DownloadFlowController.chooseQuality(batch.id) },
+                onRemove = { onRemoveChoiceBatch(batch) },
+                modifier = width,
+            )
         }
         items(preparingBatches, key = { "preparing-${it.id}" }) { batch ->
             PreparingBatchCard(batch = batch, modifier = width)

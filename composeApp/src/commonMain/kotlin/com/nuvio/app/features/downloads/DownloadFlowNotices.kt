@@ -8,6 +8,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.download_batch_view_downloads
+import nuvio.composeapp.generated.resources.download_choice_ready_action
+import nuvio.composeapp.generated.resources.download_choice_ready_body
+import nuvio.composeapp.generated.resources.download_choice_ready_title
+import nuvio.composeapp.generated.resources.download_choice_season_label
 import nuvio.composeapp.generated.resources.download_flow_change
 import nuvio.composeapp.generated.resources.download_flow_finding_source
 import nuvio.composeapp.generated.resources.download_flow_needs_attention
@@ -81,4 +85,23 @@ internal object ToastDownloadFlowNotices : DownloadFlowNotices {
     override fun nothingNew() {
         scope.launch { NuvioToastController.show(getString(Res.string.download_flow_nothing_new)) }
     }
+
+    override fun qualityReady(title: String, season: Int?, onChoose: () -> Unit) {
+        scope.launch {
+            val label = choiceLabel(title, season)
+            NuvioToastController.show(
+                message = "${getString(Res.string.download_choice_ready_title, label)} · ${getString(Res.string.download_choice_ready_body)}",
+                durationMillis = READY_TOAST_MS,
+                actionLabel = getString(Res.string.download_choice_ready_action),
+                effect = onChoose,
+            )
+        }
+    }
+
+    /** Longer than the others: the user did not just act, so the prompt has to be found first. */
+    private const val READY_TOAST_MS = 10_000L
 }
+
+/** "Lanterns S1" for one season, the title alone otherwise - the toast and the notification say the same. */
+internal suspend fun choiceLabel(title: String, season: Int?): String =
+    season?.let { getString(Res.string.download_choice_season_label, title, it) } ?: title

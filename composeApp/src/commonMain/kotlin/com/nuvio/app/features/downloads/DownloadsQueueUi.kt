@@ -539,6 +539,75 @@ private fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
     }
 }
 
+// --- Assisted "choose when ready" --------------------------------------------------------------
+
+/**
+ * An Assisted batch whose sources are found in the background: "Finding sources · 7 of 22" while
+ * that runs ("Refreshing sources…" after a process death), then "Ready to choose quality" with the
+ * one action that moves it on. Not a "Needs you" card - nothing went wrong - so it sits with the
+ * downloads, in the accent of an ordinary step. Tapping the row while it is still finding opens the
+ * finding sheet, which moves on to the choice by itself.
+ */
+@Composable
+internal fun DownloadChoiceBatchRow(
+    batch: DownloadBatch,
+    refreshing: Boolean,
+    onChoose: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val finding = batch.isPreparing
+    val total = batch.entries.size
+    val found = batch.preparedEntryCount
+    val season = AssistedChoiceRules.seasonOf(batch)
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onChoose)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DownloadPoster(url = batch.poster ?: batch.background, title = batch.title, width = 48.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = season?.let { stringResource(Res.string.download_choice_season_label, batch.title, it) } ?: batch.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = when {
+                    finding && refreshing -> stringResource(Res.string.download_phase_refreshing_sources)
+                    finding -> stringResource(Res.string.downloads_preparing_progress, found, total)
+                    else -> "${stringResource(Res.string.download_phase_ready_to_choose)} · " +
+                        stringResource(Res.string.download_flow_episode_count, total)
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (finding) tokens.colors.textMuted else tokens.colors.accent,
+                maxLines = 2,
+            )
+            if (finding && total > 0) {
+                ThinProgress(found.toFloat() / total.toFloat(), modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+        if (!finding) {
+            PillButton(stringResource(Res.string.download_choose_quality), PillStyle.PRIMARY, onChoose)
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = stringResource(Res.string.download_action_remove),
+                tint = tokens.colors.textMuted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
 // --- watched cleanup ---------------------------------------------------------------------------
 
 /** A suggestion, not a problem: one quiet line under the storage bar. */

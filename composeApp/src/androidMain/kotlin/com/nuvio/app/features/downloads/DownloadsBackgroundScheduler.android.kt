@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -104,8 +105,11 @@ internal fun initializeDownloadsForBackground(context: Context) {
 internal suspend fun awaitDownloadQueueIdle() {
     // Queued items are still work in hand: finishing the job while any remain would tear down the
     // foreground host with downloads left waiting for a slot. Every profile's, not the one on
-    // screen: the host carries the device's queue.
-    DownloadsRepository.deviceItems.first { items -> !DownloadHostPlanner.hasWork(items) }
+    // screen: the host carries the device's queue. Background Assisted discovery is work too - a
+    // host started for it must not end before the user can be told the season is ready.
+    combine(DownloadsRepository.deviceItems, AssistedDiscovery.running) { items, discovering ->
+        DownloadHostPlanner.hasWork(items) || discovering.isNotEmpty()
+    }.first { busy -> !busy }
 }
 
 /**

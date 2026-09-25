@@ -36,6 +36,8 @@ class DownloadPresenceTest {
         val expected = mapOf(
             DownloadBatchEntryState.DISCOVERING to DownloadPresence.Preparing,
             DownloadBatchEntryState.RESOLVING to DownloadPresence.Preparing,
+            // Assisted "choose when ready": found, waiting for the quality - still being prepared.
+            DownloadBatchEntryState.AWAITING_CHOICE to DownloadPresence.Preparing,
             DownloadBatchEntryState.READY to DownloadPresence.Queued,
             DownloadBatchEntryState.QUEUED to DownloadPresence.Queued,
             DownloadBatchEntryState.APPROVAL_NEEDED to DownloadPresence.NeedsApproval,

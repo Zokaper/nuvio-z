@@ -105,6 +105,9 @@ fun pauseDownloadsForAppBackground() = Unit
 fun resumeDownloadsForAppForeground() = Unit
 
 @OptIn(ExperimentalForeignApi::class)
+/** True between entering the background and becoming active again - what the downloads code already tracks. */
+internal fun isDownloadsAppBackgrounded(): Boolean = backgroundDownloadManager.isBackgrounded
+
 internal actual object DownloadsPlatformDownloader {
     // The background session owns the transfers: the window of 12 is what keeps a queue moving
     // while locked (`.46`), a submitted task may wait inside the system as long as it likes, and

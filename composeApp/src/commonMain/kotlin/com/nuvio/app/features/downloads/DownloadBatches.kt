@@ -36,6 +36,13 @@ sealed class DownloadScope {
 @Serializable
 enum class DownloadBatchEntryState {
     DISCOVERING,
+
+    /**
+     * Assisted, several episodes (Phase 9, "choose when ready"): this entry's sources are found and
+     * it waits for the user to pick a quality for the whole selection. A normal step of the
+     * Assisted flow - never "Needs you", which is for things that went wrong.
+     */
+    AWAITING_CHOICE,
     READY,
     APPROVAL_NEEDED,
     QUEUED,
@@ -139,6 +146,14 @@ data class DownloadBatch(
     val entries: List<DownloadBatchEntry>,
     val allowMeteredNetwork: Boolean = false,
     val createdAtEpochMs: Long,
+    /**
+     * Assisted "choose when ready": discovery runs in the background and the user picks the quality
+     * once it is done. Cleared when the choice is made. Persisted so a process death leaves a batch
+     * that knows to find its sources again, rather than one that reads as failed.
+     */
+    val awaitsQualityChoice: Boolean = false,
+    /** When the user was told this batch is ready (in-app or notification), so a refresh does not say it twice. */
+    val choiceAnnouncedAtEpochMs: Long? = null,
 ) {
     val requiresReview: Boolean
         get() = entries.size > 10 ||
@@ -164,6 +179,10 @@ data class DownloadBatch(
 /** True while at least one entry is still looking for, or resolving, a source. */
 val DownloadBatch.isPreparing: Boolean
     get() = entries.any { it.state.isPreparing }
+
+/** Assisted: every source is found and the batch waits for the user's quality choice. */
+val DownloadBatch.isAwaitingQualityChoice: Boolean
+    get() = awaitsQualityChoice && !isPreparing && entries.any { it.state == DownloadBatchEntryState.AWAITING_CHOICE }
 
 /** Entries that have finished preparation, whatever the outcome was. */
 val DownloadBatch.preparedEntryCount: Int

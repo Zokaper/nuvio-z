@@ -3083,4 +3083,19 @@
     <string name="downloads_settings_storage">Storage</string>
     <string name="downloads_settings_open_folder">Open downloads folder</string>
     <string name="downloads_settings_advanced">Advanced</string>
+    <!-- Phase 9: Assisted "choose when ready" (sources are found in the background). -->
+    <string name="download_phase_ready_to_choose">Ready to choose quality</string>
+    <string name="download_phase_refreshing_sources">Refreshing sources…</string>
+    <string name="download_flow_continue_background">Continue in background</string>
+    <string name="download_flow_finding_background_hint">You can leave this. Nuvio keeps looking and lets you know when you can choose a quality.</string>
+    <string name="download_choice_ready_title">%1$s is ready</string>
+    <string name="download_choice_ready_body">Choose download quality</string>
+    <string name="download_choice_ready_action">Choose</string>
+    <string name="download_choice_nothing_title">Nothing to download for %1$s</string>
+    <string name="download_choice_nothing_body">No usable source was found. Open Downloads to check again.</string>
+    <string name="download_choice_channel_name">Ready to choose</string>
+    <string name="download_choose_quality">Choose quality</string>
+    <string name="download_choice_season_label">%1$s S%2$d</string>
+    <string name="download_choice_remove_title">Remove %1$s?</string>
+    <string name="download_choice_remove_body">Nothing has been downloaded yet. The sources found so far are discarded.</string>
 </resources>

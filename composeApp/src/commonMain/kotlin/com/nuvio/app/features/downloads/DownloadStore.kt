@@ -253,6 +253,10 @@ internal object DownloadStore {
         sourcePolicy.value = stored.sourcePolicy
         deviceSettings.value = stored.deviceSettings
         batches.value = stored.batches.map { batch ->
+            // An Assisted batch still finding its sources, or waiting for its quality choice, lost
+            // its candidates with the process; `AssistedDiscovery` finds them again ("Refreshing
+            // sources"). Nothing about it failed.
+            if (batch.awaitsQualityChoice) return@map batch
             batch.copy(
                 entries = batch.entries.map { entry ->
                     if (

@@ -152,6 +152,7 @@ internal fun downloadBatchEntryLabel(entry: DownloadBatchEntry): String {
 @Composable
 internal fun downloadBatchEntryStateText(state: DownloadBatchEntryState): String = when (state) {
     DownloadBatchEntryState.DISCOVERING -> stringResource(Res.string.downloads_batch_state_discovering)
+    DownloadBatchEntryState.AWAITING_CHOICE -> stringResource(Res.string.download_phase_ready_to_choose)
     DownloadBatchEntryState.RESOLVING -> stringResource(Res.string.downloads_batch_state_resolving)
     DownloadBatchEntryState.READY -> stringResource(Res.string.downloads_batch_state_ready)
     DownloadBatchEntryState.APPROVAL_NEEDED -> stringResource(Res.string.downloads_batch_state_approval_needed)

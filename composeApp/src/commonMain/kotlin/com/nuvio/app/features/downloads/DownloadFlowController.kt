@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** What the download flow is showing. One at a time, app-wide, drawn by `DownloadFlowHost`. */
@@ -31,8 +32,18 @@ sealed interface DownloadFlowStep {
         val episodeCount: Int get() = DownloadFlowRules.episodeCount(seasons, selected, unwatchedOnly)
     }
 
-    /** Discovery for the Assisted sheet. */
-    data class FindingSources(val title: DownloadTitleRef, val done: Int, val total: Int) : DownloadFlowStep
+    /**
+     * Discovery for the Assisted sheet. With a [batchId] it runs in the background ("choose when
+     * ready"): closing the sheet leaves it running, and the user is told when it is done.
+     */
+    data class FindingSources(
+        val title: DownloadTitleRef,
+        val done: Int,
+        val total: Int,
+        val batchId: String? = null,
+        /** Finding the sources again after the process died. */
+        val refreshing: Boolean = false,
+    ) : DownloadFlowStep
 
     /** Assisted: one row per available resolution, each the best match there. */
     data class ChooseResolution(
@@ -90,6 +101,9 @@ internal interface DownloadFlowNotices {
     fun startedMany(count: Int, needAttention: Int)
     fun needsAttention()
     fun nothingNew()
+
+    /** Assisted "choose when ready", with Nuvio on screen: "Lanterns S1 is ready · Choose". */
+    fun qualityReady(title: String, season: Int?, onChoose: () -> Unit)
 }
 
 /**
@@ -119,6 +133,8 @@ object DownloadFlowController {
     }
     internal var isMeteredNow: () -> Boolean = { DownloadScheduler.isMeteredNetwork() }
     internal var freeBytesProvider: () -> Long = { DownloadsPlatformDownloader.freeStorageBytes() }
+    internal var isAppInForeground: () -> Boolean = { DownloadsLiveStatusPlatform.isAppInForeground() }
+    internal var postChoiceNotification: (DownloadChoiceNotice) -> Unit = { DownloadsLiveStatusPlatform.notifyChoice(it) }
 
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
@@ -143,6 +159,8 @@ object DownloadFlowController {
         /** Prepared but held back by the free-space check. */
         var heldBatchId: String? = null,
         var heldEntryIds: List<String> = emptyList(),
+        /** Assisted "choose when ready": the background batch this session chooses a quality for. */
+        var choiceBatchId: String? = null,
     )
 
     // --- entry points --------------------------------------------------------------------------
@@ -314,6 +332,12 @@ object DownloadFlowController {
 
     fun chooseResolution(height: Int) {
         val current = session ?: return dismiss()
+        val choiceBatchId = current.choiceBatchId
+        if (choiceBatchId != null) {
+            // Found in the background; gone only if the batch was removed meanwhile.
+            val found = AssistedDiscovery.candidates(choiceBatchId) ?: return dismiss()
+            current.candidates = current.targets.associateWith { found[it.entryId].orEmpty() }
+        }
         _step.value = DownloadFlowStep.Idle
         // Not tied to the session: once chosen, it is written and queued whatever the user
         // opens next.
@@ -328,6 +352,11 @@ object DownloadFlowController {
                 )
             }
             val batchId = writeEntries(current, entries)
+            if (choiceBatchId != null) {
+                DownloadsRepository.updateBatch(choiceBatchId) { it.copy(awaitsQualityChoice = false) }
+                AssistedDiscovery.forget(choiceBatchId)
+                DownloadsLiveStatusPlatform.clearChoice(choiceBatchId)
+            }
             queueOrHold(current, batchId, entries)
             val changed = current.changing
             if (changed != null || current.targets.size == 1) {
@@ -437,6 +466,16 @@ object DownloadFlowController {
     }
 
     private fun startAssisted(current: Session) {
+        if (
+            AssistedChoiceRules.runsInBackground(
+                targetCount = current.targets.size,
+                changing = current.changing != null,
+                intoExistingBatch = current.intoBatchId != null,
+            )
+        ) {
+            startAssistedInBackground(current)
+            return
+        }
         _step.value = DownloadFlowStep.FindingSources(current.title, 0, current.targets.size)
         launchSession {
             val found = DownloadBatchCoordinator.discoverAll(current.targets) { done ->
@@ -444,47 +483,210 @@ object DownloadFlowController {
                 if (step is DownloadFlowStep.FindingSources) _step.value = step.copy(done = done)
             }
             current.candidates = found
-            val policy = policyProvider()
-            val optionsByTarget = current.targets.associateWith { target ->
-                DownloadSourceSelector.assistedOptions(
-                    found[target].orEmpty(),
-                    DownloadBatchCoordinator.contextFor(target, policy),
-                )
-            }
-            val seasonRows = DownloadSourceSelector.seasonRows(optionsByTarget)
-            val single = current.targets.singleOrNull()
-            if (seasonRows.isEmpty()) {
-                val anyCandidates = found.values.any { it.isNotEmpty() }
-                val singleCandidates = single?.let { found[it].orEmpty() }.orEmpty()
-                _step.value = DownloadFlowStep.NothingToDownload(
-                    title = current.title,
-                    kind = if (anyCandidates) DownloadEntryDecisionKind.NOTHING_CACHED else DownloadEntryDecisionKind.NO_SOURCES,
-                    offersChooseManually = single != null &&
-                        singleCandidates.any { !DownloadSourceSelector.isKnownNotCached(it) } &&
-                        DownloadSourceSelector.hasUsable(singleCandidates, DownloadBatchCoordinator.contextFor(single, policy)),
-                )
-                return@launchSession
-            }
-            val rows = seasonRows.map { row ->
-                val singleOption = single?.let { row.optionByEpisode[it] }
-                DownloadResolutionRow(
-                    height = row.height,
-                    totalBytes = row.totalBytes,
-                    unknownSizeCount = row.unknownSizeCount,
-                    episodeCount = row.optionByEpisode.size,
-                    missingCount = row.missingEpisodes.size,
-                    overLimit = row.optionByEpisode.values.any { it.overLimit },
-                    detail = singleOption?.candidate?.let(::sourceDetail),
-                )
-            }
-            _step.value = DownloadFlowStep.ChooseResolution(
-                title = current.title,
-                scope = current.scope,
-                targetCount = current.targets.size,
-                rows = rows,
-                preselectedHeight = DownloadFlowRules.preselectedHeight(rows.map { it.height }, policy.preferredResolution),
-                offersChooseManually = single != null,
+            _step.value = assistedStep(current, found, policyProvider())
+        }
+    }
+
+    /**
+     * Assisted, several episodes - "choose when ready" (Phase 9, decided 2026-09-25). The batch
+     * exists from the start and discovery runs in [AssistedDiscovery], outside this session: the
+     * finding sheet can be closed ("Continue in background") without cancelling anything, and the
+     * user is told when the quality can be chosen - see [onDiscoveryFinished].
+     */
+    private fun startAssistedInBackground(current: Session) {
+        val batch = DownloadBatchCoordinator.newBatch(current.title, current.scope, current.targets, current.allowMetered)
+            .copy(awaitsQualityChoice = true)
+        DownloadsRepository.saveBatch(batch)
+        current.choiceBatchId = batch.id
+        current.intoBatchId = batch.id
+        _step.value = DownloadFlowStep.FindingSources(current.title, 0, current.targets.size, batchId = batch.id)
+        AssistedDiscovery.start(batch)
+    }
+
+    /** The Assisted sheet for what discovery [found]: one row per resolution, or why there is none. */
+    private fun assistedStep(
+        current: Session,
+        found: Map<DownloadTarget, List<DownloadSourceCandidate>>,
+        policy: DownloadPolicy,
+    ): DownloadFlowStep {
+        val optionsByTarget = current.targets.associateWith { target ->
+            DownloadSourceSelector.assistedOptions(
+                found[target].orEmpty(),
+                DownloadBatchCoordinator.contextFor(target, policy),
             )
+        }
+        val seasonRows = DownloadSourceSelector.seasonRows(optionsByTarget)
+        val single = current.targets.singleOrNull()
+        if (seasonRows.isEmpty()) {
+            val anyCandidates = found.values.any { it.isNotEmpty() }
+            val singleCandidates = single?.let { found[it].orEmpty() }.orEmpty()
+            return DownloadFlowStep.NothingToDownload(
+                title = current.title,
+                kind = if (anyCandidates) DownloadEntryDecisionKind.NOTHING_CACHED else DownloadEntryDecisionKind.NO_SOURCES,
+                offersChooseManually = single != null &&
+                    singleCandidates.any { !DownloadSourceSelector.isKnownNotCached(it) } &&
+                    DownloadSourceSelector.hasUsable(singleCandidates, DownloadBatchCoordinator.contextFor(single, policy)),
+            )
+        }
+        val rows = seasonRows.map { row ->
+            val singleOption = single?.let { row.optionByEpisode[it] }
+            DownloadResolutionRow(
+                height = row.height,
+                totalBytes = row.totalBytes,
+                unknownSizeCount = row.unknownSizeCount,
+                episodeCount = row.optionByEpisode.size,
+                missingCount = row.missingEpisodes.size,
+                overLimit = row.optionByEpisode.values.any { it.overLimit },
+                detail = singleOption?.candidate?.let(::sourceDetail),
+            )
+        }
+        return DownloadFlowStep.ChooseResolution(
+            title = current.title,
+            scope = current.scope,
+            targetCount = current.targets.size,
+            rows = rows,
+            preselectedHeight = DownloadFlowRules.preselectedHeight(rows.map { it.height }, policy.preferredResolution),
+            offersChooseManually = single != null,
+        )
+    }
+
+    // --- Assisted "choose when ready" ----------------------------------------------------------
+
+    /**
+     * "Choose quality" - from the Downloads row, the in-app prompt or the notification. Opens the
+     * Assisted sheet with the real totals once the sources are found; while they are still being
+     * found (or found again after a process death) it shows that progress and moves on by itself.
+     */
+    fun chooseQuality(batchId: String) {
+        val batch = DownloadsRepository.batches.value.firstOrNull { it.id == batchId } ?: return
+        if (!batch.awaitsQualityChoice) return
+        val entries = batch.entries.filter {
+            it.state == DownloadBatchEntryState.DISCOVERING || it.state == DownloadBatchEntryState.AWAITING_CHOICE
+        }
+        if (entries.isEmpty()) return
+        job?.cancel()
+        val current = Session(
+            title = DownloadBatchCoordinator.titleRefOf(batch),
+            mode = DownloadMode.ASSISTED,
+            scope = batch.scope,
+            meta = null,
+            targets = entries.map { DownloadBatchCoordinator.targetOf(batch, it) },
+            allowMetered = batch.allowMeteredNetwork,
+            intoBatchId = batch.id,
+            choiceBatchId = batch.id,
+        )
+        session = current
+        val found = AssistedDiscovery.candidates(batchId)
+        if (found == null) {
+            if (!AssistedDiscovery.isRunning(batchId)) AssistedDiscovery.start(batch, refresh = true)
+            _step.value = DownloadFlowStep.FindingSources(
+                title = current.title,
+                done = entries.count { it.state == DownloadBatchEntryState.AWAITING_CHOICE },
+                total = entries.size,
+                batchId = batchId,
+                refreshing = batchId in AssistedDiscovery.refreshing.value,
+            )
+            return
+        }
+        markAnnounced(batchId)
+        DownloadsLiveStatusPlatform.clearChoice(batchId)
+        _step.value = assistedStep(current, current.targets.associateWith { found[it.entryId].orEmpty() }, policyProvider())
+    }
+
+    /** Remove on a background Assisted batch: stop looking, forget what was found, drop the batch. */
+    fun removeChoiceBatch(batchId: String) {
+        AssistedDiscovery.cancel(batchId)
+        DownloadsLiveStatusPlatform.clearChoice(batchId)
+        DownloadsRepository.removeBatch(batchId)
+        val step = _step.value
+        if (session?.choiceBatchId == batchId || (step is DownloadFlowStep.FindingSources && step.batchId == batchId)) {
+            session = null
+            _step.value = DownloadFlowStep.Idle
+        }
+    }
+
+    internal fun onDiscoveryProgress(batchId: String, done: Int, total: Int) {
+        _step.update { step ->
+            if (step is DownloadFlowStep.FindingSources && step.batchId == batchId) step.copy(done = done, total = total) else step
+        }
+    }
+
+    /**
+     * Discovery for a background batch is done. If the finding sheet is still open on it, straight
+     * to the quality choice; otherwise the user is told - in the app when it is on screen, by a
+     * system notification when it is not. Never both, and never "Needs you": choosing a quality is
+     * the Assisted flow working as intended. Only when nothing at all can be downloaded do the
+     * entries become "Needs you" cards (nothing cached / no sources), as Automatic's would.
+     */
+    internal fun onDiscoveryFinished(batchId: String, refreshed: Boolean) {
+        val batch = DownloadsRepository.batches.value.firstOrNull { it.id == batchId } ?: return
+        if (!batch.awaitsQualityChoice) return
+        val found = AssistedDiscovery.candidates(batchId) ?: return
+        val step = _step.value
+        val sheetShowsBatch = step is DownloadFlowStep.FindingSources && step.batchId == batchId
+        val title = DownloadBatchCoordinator.titleRefOf(batch)
+        val policy = policyProvider()
+        val targets = batch.entries
+            .filter { it.state == DownloadBatchEntryState.AWAITING_CHOICE }
+            .map { DownloadBatchCoordinator.targetOf(batch, it) }
+        val probe = Session(title, DownloadMode.ASSISTED, batch.scope, meta = null, targets = targets)
+        val sheet = assistedStep(probe, targets.associateWith { found[it.entryId].orEmpty() }, policy)
+        val season = AssistedChoiceRules.seasonOf(batch)
+
+        if (sheet is DownloadFlowStep.NothingToDownload) {
+            targets.forEach { target ->
+                val candidates = found[target.entryId].orEmpty()
+                val reason = if (candidates.isEmpty()) DownloadDecisionReason.NoSources else DownloadDecisionReason.NothingCached
+                DownloadsRepository.updateBatchEntry(
+                    batchId,
+                    DownloadBatchCoordinator.entryFor(
+                        target,
+                        DownloadDecision.NeedsDecision(reason),
+                        candidates,
+                        DownloadBatchCoordinator.contextFor(target, policy),
+                    ),
+                )
+            }
+            DownloadsRepository.updateBatch(batchId) { it.copy(awaitsQualityChoice = false) }
+            AssistedDiscovery.forget(batchId)
+            if (sheetShowsBatch) {
+                session = null
+                _step.value = DownloadFlowStep.Idle
+            }
+            if (isAppInForeground()) {
+                notices.needsAttention()
+            } else {
+                postChoiceNotification(DownloadChoiceNotice(batchId, title.title, season, ready = false))
+            }
+            return
+        }
+
+        val announcement = AssistedChoiceRules.announcement(
+            sheetShowsBatch = sheetShowsBatch,
+            alreadyAnnounced = batch.choiceAnnouncedAtEpochMs != null,
+            appInForeground = isAppInForeground(),
+        )
+        DownloadDiagnostics.note(
+            "assisted_ready",
+            "batch=${batchId.takeLast(6)} entries=${targets.size} refreshed=$refreshed announce=$announcement",
+        )
+        when (announcement) {
+            AssistedChoiceRules.Announcement.OPEN_SHEET -> chooseQuality(batchId)
+            AssistedChoiceRules.Announcement.IN_APP -> {
+                markAnnounced(batchId)
+                notices.qualityReady(title.title, season) { chooseQuality(batchId) }
+            }
+            AssistedChoiceRules.Announcement.SYSTEM -> {
+                markAnnounced(batchId)
+                postChoiceNotification(DownloadChoiceNotice(batchId, title.title, season, ready = true))
+            }
+            AssistedChoiceRules.Announcement.NONE -> Unit
+        }
+    }
+
+    private fun markAnnounced(batchId: String) {
+        DownloadsRepository.updateBatch(batchId) { batch ->
+            if (batch.choiceAnnouncedAtEpochMs != null) batch else batch.copy(choiceAnnouncedAtEpochMs = DownloadsClock.nowEpochMs())
         }
     }
 
@@ -612,6 +814,7 @@ object DownloadFlowController {
     }
 
     internal fun resetForTests(dispatcher: CoroutineDispatcher) {
+        AssistedDiscovery.resetForTests(dispatcher)
         scope = CoroutineScope(SupervisorJob() + dispatcher)
         job?.cancel()
         job = null

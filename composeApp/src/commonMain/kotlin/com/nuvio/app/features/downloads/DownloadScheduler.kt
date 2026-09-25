@@ -25,6 +25,9 @@ internal object DownloadScheduler {
 
     internal val activeHandles = mutableMapOf<String, ActiveTransfer>()
     internal val transferSamples = mutableMapOf<String, TransferSample>()
+
+    /** Where each transfer's last `transfer_progress` line left off - see [DownloadDiagnostics.progress]. */
+    private val progressLogMarks = mutableMapOf<String, TransferSample>()
     private var networkObserverStarted = false
     private var networkObserverJob: Job? = null
     private var connectivityRefreshJob: Job? = null
@@ -176,6 +179,7 @@ internal object DownloadScheduler {
                 bytes = resumedFromBytes.coerceAtLeast(0L),
                 atEpochMs = DownloadsClock.nowEpochMs(),
             )
+            progressLogMarks[downloadId] = transferSamples.getValue(downloadId)
             DownloadStore.mutateLocked(downloadId, immediate = true) { current ->
                 if (current.status != DownloadStatus.Downloading) {
                     current
@@ -219,6 +223,11 @@ internal object DownloadScheduler {
                 }
             } else if (previous == null) {
                 transferSamples[downloadId] = TransferSample(downloadedBytes, now)
+            }
+            val mark = progressLogMarks[downloadId]
+            if (currentItem != null && mark != null && now - mark.atEpochMs >= DownloadDiagnostics.PROGRESS_INTERVAL_MS) {
+                DownloadDiagnostics.progress(currentItem, downloadedBytes, totalBytes, downloadedBytes - mark.bytes, now - mark.atEpochMs)
+                progressLogMarks[downloadId] = TransferSample(downloadedBytes, now)
             }
             DownloadStore.mutateLocked(downloadId, immediate = false) { item ->
                 if (item.status != DownloadStatus.Downloading) {
@@ -302,6 +311,7 @@ internal object DownloadScheduler {
         synchronized(DownloadStore.lock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
             transferSamples.remove(downloadId)
+            progressLogMarks.remove(downloadId)
             activeHandles.remove(downloadId)
             DownloadStore.mutateLocked(downloadId, immediate = true) { current ->
                 DownloadDiagnostics.completion(current, totalBytes)
@@ -328,6 +338,7 @@ internal object DownloadScheduler {
         synchronized(DownloadStore.lock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
             transferSamples.remove(downloadId)
+            progressLogMarks.remove(downloadId)
             activeHandles.remove(downloadId)
             DownloadStore.mutateLocked(downloadId, immediate = true) { current ->
                 val recordedBytes = downloadedBytes.coerceAtLeast(0L)
@@ -364,6 +375,7 @@ internal object DownloadScheduler {
         synchronized(DownloadStore.lock) {
             if (!isCurrentTransferLocked(downloadId, generation)) return
             transferSamples.remove(downloadId)
+            progressLogMarks.remove(downloadId)
             activeHandles.remove(downloadId)
             if (connectivityFeed.states.value.blocksMediaDownloads()) {
                 DownloadStore.mutateLocked(downloadId, immediate = true) { current ->

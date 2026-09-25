@@ -111,6 +111,7 @@ internal fun DownloadStatus.toPresence(sizeApprovalRequired: Boolean): DownloadP
 internal fun DownloadBatchEntryState.toPresence(): DownloadPresence = when (this) {
     DownloadBatchEntryState.DISCOVERING,
     DownloadBatchEntryState.RESOLVING,
+    DownloadBatchEntryState.AWAITING_CHOICE,
     -> DownloadPresence.Preparing
 
     DownloadBatchEntryState.READY,

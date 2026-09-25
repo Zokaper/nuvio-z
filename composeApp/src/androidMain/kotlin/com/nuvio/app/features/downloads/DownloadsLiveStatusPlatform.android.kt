@@ -31,6 +31,7 @@ internal actual object DownloadsLiveStatusPlatform {
 
     private const val summaryChannelId = "downloads_live_status"
     private const val completedChannelId = "downloads_completed"
+    private const val choiceChannelId = "downloads_choice"
     private const val legacyPrefName = "nuvio_download_live_notifications"
     private const val legacyTrackedIdsKey = "tracked_download_ids"
     private const val legacyPreparingNotificationId = -1_000_001
@@ -71,6 +72,52 @@ internal actual object DownloadsLiveStatusPlatform {
     actual fun onDownloadRequested() {
         DownloadsAndroidLifecycle.requestNotificationPermissionOnce()
     }
+
+    actual fun isAppInForeground(): Boolean = DownloadsAndroidLifecycle.isForeground()
+
+    actual fun notifyChoice(notice: DownloadChoiceNotice) {
+        val context = appContext ?: return
+        ensureChannels(context)
+        if (!DownloadsAndroidLifecycle.notificationsAllowed(context)) return
+        val label = runBlocking { choiceLabel(notice.title, notice.season) }
+        val (title, body) = if (notice.ready) {
+            string(Res.string.download_choice_ready_title, label) to string(Res.string.download_choice_ready_body)
+        } else {
+            string(Res.string.download_choice_nothing_title, label) to string(Res.string.download_choice_nothing_body)
+        }
+        val id = choiceNotificationId(notice.batchId)
+        runCatching {
+            NotificationManagerCompat.from(context).notify(
+                id,
+                NotificationCompat.Builder(context, choiceChannelId)
+                    .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setAutoCancel(true)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .setContentIntent(buildLaunchPendingIntent(context, id, notice.deepLinkUrl))
+                    .build(),
+            )
+        }
+    }
+
+    actual fun clearChoice(batchId: String) {
+        val context = appContext ?: return
+        runCatching { NotificationManagerCompat.from(context).cancel(choiceNotificationId(batchId)) }
+    }
+
+    /**
+     * A backgrounded process without a running host is frozen within seconds on Android 14+, and
+     * discovery with it. The download host - the same job, the same summary notification ("Finding
+     * sources") - stays up until discovery and the queue are both idle; see `awaitDownloadQueueIdle`.
+     * Discovery is metadata, not media, so it may run on mobile data whatever the download rule.
+     */
+    actual fun onDiscoveryRunning(running: Boolean) {
+        val context = appContext ?: return
+        if (running) runCatching { DownloadsBackgroundScheduler.schedule(context, allowMeteredNetwork = true) }
+    }
+
+    private fun choiceNotificationId(batchId: String): Int = notificationId("choice:$batchId")
 
     /** The notification a background host starts under, before the first render has run. */
     @Synchronized
@@ -226,11 +273,15 @@ internal actual object DownloadsLiveStatusPlatform {
     private fun string(resource: org.jetbrains.compose.resources.StringResource, vararg args: Any): String =
         runBlocking { getString(resource, *args) }
 
-    private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
+    private fun buildLaunchPendingIntent(
+        context: Context,
+        requestCode: Int,
+        deepLinkUrl: String = buildDownloadsDeepLinkUrl(),
+    ): PendingIntent {
         val launchIntent = Intent().apply {
             component = AppIconPlatform.currentLauncherComponent(context)
             action = Intent.ACTION_VIEW
-            data = android.net.Uri.parse(buildDownloadsDeepLinkUrl())
+            data = android.net.Uri.parse(deepLinkUrl)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -274,6 +325,15 @@ internal actual object DownloadsLiveStatusPlatform {
                 NotificationChannel(
                     completedChannelId,
                     string(Res.string.downloads_completed_channel_name),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
+        }
+        if (manager.getNotificationChannel(choiceChannelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    choiceChannelId,
+                    string(Res.string.download_choice_channel_name),
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ),
             )

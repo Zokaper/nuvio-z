@@ -9,7 +9,18 @@ package com.nuvio.app.features.downloads
  * The plain line is plain words ("Waiting for connection", "Retrying shortly"). Attempts,
  * provider, HTTP and countdowns are the [DownloadDetail], shown on tap.
  */
-enum class DownloadUserPhase { FINDING_SOURCE, QUEUED, DOWNLOADING, WAITING, PAUSED, NEEDS_YOU, COMPLETED }
+enum class DownloadUserPhase {
+    FINDING_SOURCE,
+
+    /** Assisted: sources found, the quality is the user's to choose. Expected, not a problem - not [NEEDS_YOU]. */
+    READY_TO_CHOOSE,
+    QUEUED,
+    DOWNLOADING,
+    WAITING,
+    PAUSED,
+    NEEDS_YOU,
+    COMPLETED,
+}
 
 enum class DownloadWaitReason {
     CONNECTION,
@@ -133,6 +144,7 @@ object DownloadPresenter {
             DownloadBatchEntryState.RESOLVING,
             DownloadBatchEntryState.READY,
             -> DownloadPresentation(DownloadUserPhase.FINDING_SOURCE, detail = detail)
+            DownloadBatchEntryState.AWAITING_CHOICE -> DownloadPresentation(DownloadUserPhase.READY_TO_CHOOSE, detail = detail)
             DownloadBatchEntryState.APPROVAL_NEEDED -> when {
                 entry.selectsUncachedDebrid -> DownloadPresentation(
                     DownloadUserPhase.NEEDS_YOU,
@@ -222,6 +234,7 @@ data class DownloadQueueGroup(
     private fun leadRank(p: DownloadPresentation): Int = when (p.phase) {
         DownloadUserPhase.DOWNLOADING -> 0
         DownloadUserPhase.FINDING_SOURCE -> 1
+        DownloadUserPhase.READY_TO_CHOOSE -> 1
         DownloadUserPhase.WAITING -> 2
         DownloadUserPhase.QUEUED -> 3
         DownloadUserPhase.PAUSED -> 4
@@ -490,6 +503,7 @@ internal fun liveActivityStateOf(presentation: DownloadPresentation): DownloadsL
     DownloadUserPhase.PAUSED -> DownloadsLiveStatusPolicy.State.PAUSED
     DownloadUserPhase.DOWNLOADING -> DownloadsLiveStatusPolicy.State.DOWNLOADING
     DownloadUserPhase.FINDING_SOURCE -> DownloadsLiveStatusPolicy.State.PREPARING
+    DownloadUserPhase.READY_TO_CHOOSE -> DownloadsLiveStatusPolicy.State.WAITING
     DownloadUserPhase.QUEUED -> DownloadsLiveStatusPolicy.State.WAITING
     DownloadUserPhase.WAITING -> when (presentation.waitReason) {
         DownloadWaitReason.RETRYING_SHORTLY -> DownloadsLiveStatusPolicy.State.RETRYING

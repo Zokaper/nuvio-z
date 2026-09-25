@@ -56,6 +56,19 @@ internal object DownloadDiagnostics {
         event(if (waiting) "wifi_wait" else "wifi_wait_end", item, "bytes=${item.downloadedBytes} ${context()}")
     fun completion(item: DownloadItem, bytes: Long) = event("completion", item, "bytes=$bytes")
 
+    /** How often a running transfer logs `transfer_progress`. */
+    const val PROGRESS_INTERVAL_MS = 15_000L
+
+    /**
+     * A running transfer's bytes over time, every [PROGRESS_INTERVAL_MS]: the window's rate, not
+     * the average since the start. The `.53` question "why was episode 1 slower than episode 2"
+     * could only be answered from the start and end of each transfer; this is the middle.
+     */
+    fun progress(item: DownloadItem, bytes: Long, total: Long?, windowBytes: Long, windowMs: Long) {
+        val kbps = if (windowMs > 0L) windowBytes * 1000L / windowMs / 1024L else 0L
+        event("transfer_progress", item, "bytes=$bytes total=$total window_kbps=$kbps window_ms=$windowMs")
+    }
+
     /**
      * One step of a transfer's HTTP exchange - a hop's connection, its response, its failure -
      * from the platform downloader, which only knows the download's id. `Starting` covers all of

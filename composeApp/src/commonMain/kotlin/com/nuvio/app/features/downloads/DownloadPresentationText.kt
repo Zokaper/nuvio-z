@@ -14,6 +14,7 @@ import nuvio.composeapp.generated.resources.download_phase_over_limit
 import nuvio.composeapp.generated.resources.download_phase_paused
 import nuvio.composeapp.generated.resources.download_phase_paused_progress
 import nuvio.composeapp.generated.resources.download_phase_queued
+import nuvio.composeapp.generated.resources.download_phase_ready_to_choose
 import nuvio.composeapp.generated.resources.download_phase_resolution_missing
 import nuvio.composeapp.generated.resources.download_phase_storage
 import nuvio.composeapp.generated.resources.download_wait_connection
@@ -37,6 +38,7 @@ internal fun DownloadPresentation.plainLine(): PlainLine {
     val total = totalBytes?.takeIf { it > 0L }?.let(::formatDownloadBytes)
     return when (phase) {
         DownloadUserPhase.FINDING_SOURCE -> PlainLine(Res.string.download_phase_finding)
+        DownloadUserPhase.READY_TO_CHOOSE -> PlainLine(Res.string.download_phase_ready_to_choose)
         DownloadUserPhase.QUEUED -> PlainLine(Res.string.download_phase_queued)
         DownloadUserPhase.DOWNLOADING -> if (total != null) {
             PlainLine(Res.string.download_phase_downloading, listOf(done, total, "${progressPercent ?: 0}%"))

@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,6 +99,9 @@ import nuvio.composeapp.generated.resources.download_flow_seasons_selected_seaso
 import nuvio.composeapp.generated.resources.download_flow_resolution_each
 import nuvio.composeapp.generated.resources.download_flow_resolution_episodes
 import nuvio.composeapp.generated.resources.download_choose_sources_scope
+import nuvio.composeapp.generated.resources.download_flow_continue_background
+import nuvio.composeapp.generated.resources.download_flow_finding_background_hint
+import nuvio.composeapp.generated.resources.download_phase_refreshing_sources
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -108,6 +112,10 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun DownloadFlowHost() {
     val step by DownloadFlowController.step.collectAsStateWithLifecycle()
+    // Assisted batches whose sources were found by a process that has since died find them again
+    // ("Refreshing sources…"). Keyed on the batches, so a profile switch resumes that profile's.
+    val batches by DownloadsRepository.batches.collectAsStateWithLifecycle()
+    LaunchedEffect(batches) { AssistedDiscovery.resumeInterrupted(batches) }
     when (val current = step) {
         DownloadFlowStep.Idle -> Unit
         is DownloadFlowStep.AskMobileData -> DownloadMobileDataDialog(
@@ -385,9 +393,14 @@ fun DownloadFindingSourcesDialog(
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val background = step.batchId != null
     DownloadFlowDialog(onDismiss = onDismiss) {
         DialogHeading(
-            title = stringResource(Res.string.download_flow_finding_title),
+            title = if (step.refreshing) {
+                stringResource(Res.string.download_phase_refreshing_sources)
+            } else {
+                stringResource(Res.string.download_flow_finding_title)
+            },
             subtitle = if (step.total > 1) {
                 stringResource(Res.string.download_flow_finding_progress, step.done, step.total)
             } else {
@@ -402,9 +415,24 @@ fun DownloadFindingSourcesDialog(
             color = tokens.colors.accent,
             trackColor = tokens.colors.borderSubtle,
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(Res.string.action_cancel), color = tokens.colors.textMuted)
+        if (background) {
+            // Closing this never cancels the search: it runs in the background either way, and
+            // Remove on the Downloads row is what stops it.
+            Text(
+                text = stringResource(Res.string.download_flow_finding_background_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+            NuvioPrimaryButton(
+                text = stringResource(Res.string.download_flow_continue_background),
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDismiss,
+            )
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(Res.string.action_cancel), color = tokens.colors.textMuted)
+                }
             }
         }
     }

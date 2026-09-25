@@ -819,6 +819,17 @@ object DownloadsRepository {
         }
     }
 
+    /** Changes one batch in place; nothing happens when it no longer exists. */
+    fun updateBatch(batchId: String, transform: (DownloadBatch) -> DownloadBatch) {
+        ensureLoaded()
+        synchronized(DownloadStore.lock) {
+            if (DownloadStore.batches.value.none { it.id == batchId }) return
+            DownloadStore.batches.value = DownloadStore.batches.value.map { if (it.id == batchId) transform(it) else it }
+            DownloadStore.notifyBatchLiveStatusPlatform()
+            DownloadStore.persistLocked()
+        }
+    }
+
     fun removeBatch(batchId: String) {
         ensureLoaded()
         synchronized(DownloadStore.lock) {

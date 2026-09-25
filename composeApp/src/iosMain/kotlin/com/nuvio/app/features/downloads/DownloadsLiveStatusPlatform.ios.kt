@@ -6,6 +6,16 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
+import platform.UIKit.UIApplication
+import platform.UIKit.UIBackgroundTaskIdentifier
+import platform.UIKit.UIBackgroundTaskInvalid
+import platform.UserNotifications.UNMutableNotificationContent
+import platform.UserNotifications.UNNotificationRequest
+import platform.UserNotifications.UNUserNotificationCenter
+import nuvio.composeapp.generated.resources.download_choice_nothing_body
+import nuvio.composeapp.generated.resources.download_choice_nothing_title
+import nuvio.composeapp.generated.resources.download_choice_ready_body
+import nuvio.composeapp.generated.resources.download_choice_ready_title
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_batch_state_discovering
 import nuvio.composeapp.generated.resources.downloads_live_background_title
@@ -54,6 +64,68 @@ internal actual object DownloadsLiveStatusPlatform {
 
     // A Live Activity needs no notification permission, so there is nothing to ask for.
     actual fun onDownloadRequested() = Unit
+
+    actual fun isAppInForeground(): Boolean = !isDownloadsAppBackgrounded()
+
+    /**
+     * A local notification, tapped through the app delegate's existing `deeplink` handler. It needs
+     * the notification permission the episode-release feature asks for; without it iOS drops it
+     * and the Downloads row is what tells the user.
+     */
+    actual fun notifyChoice(notice: DownloadChoiceNotice) {
+        val (title, body) = runBlocking {
+            val label = choiceLabel(notice.title, notice.season)
+            if (notice.ready) {
+                getString(Res.string.download_choice_ready_title, label) to getString(Res.string.download_choice_ready_body)
+            } else {
+                getString(Res.string.download_choice_nothing_title, label) to getString(Res.string.download_choice_nothing_body)
+            }
+        }
+        val content = UNMutableNotificationContent().apply {
+            setTitle(title)
+            setBody(body)
+            setUserInfo(mapOf("deeplink" to notice.deepLinkUrl))
+        }
+        val request = UNNotificationRequest.requestWithIdentifier(
+            identifier = choiceRequestId(notice.batchId),
+            content = content,
+            trigger = null,
+        )
+        UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request) { _ -> }
+    }
+
+    actual fun clearChoice(batchId: String) {
+        UNUserNotificationCenter.currentNotificationCenter()
+            .removeDeliveredNotificationsWithIdentifiers(listOf(choiceRequestId(batchId)))
+    }
+
+    private var discoveryTask: UIBackgroundTaskIdentifier = UIBackgroundTaskInvalid
+
+    /**
+     * iOS suspends a backgrounded app within seconds; background time keeps discovery going for the
+     * few minutes the system allows, which covers a season. What does not finish then finishes when
+     * the app is back, and the row keeps saying "Finding sources" meanwhile.
+     */
+    actual fun onDiscoveryRunning(running: Boolean) {
+        val application = UIApplication.sharedApplication
+        if (running) {
+            if (discoveryTask != UIBackgroundTaskInvalid) return
+            discoveryTask = application.beginBackgroundTaskWithName("nuvio.downloads.discovery") {
+                endDiscoveryTask()
+            }
+        } else {
+            endDiscoveryTask()
+        }
+    }
+
+    private fun endDiscoveryTask() {
+        val task = discoveryTask
+        if (task == UIBackgroundTaskInvalid) return
+        discoveryTask = UIBackgroundTaskInvalid
+        UIApplication.sharedApplication.endBackgroundTask(task)
+    }
+
+    private fun choiceRequestId(batchId: String) = "nuvio.downloads.choice.$batchId"
 
     /**
      * The app went to the background or came back.

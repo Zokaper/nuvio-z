@@ -974,6 +974,15 @@ internal fun MainAppContent(
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
+                    is AppDeepLink.ChooseDownloadQuality -> {
+                        if (AppFeaturePolicy.downloadsEnabled) {
+                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                            activateTab(AppScreenTab.Library)
+                            DownloadFlowController.chooseQuality(deepLink.batchId)
+                        }
+                        AppDeepLinkRepository.markConsumed(deepLink)
+                    }
+
                     null -> Unit
                 }
             }
