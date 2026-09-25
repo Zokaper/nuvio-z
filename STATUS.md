@@ -386,7 +386,12 @@ open); either opens today's resolution sheet with exact totals. No provisional t
 Open design detail: candidates are in memory only - after a process death the card must re-run
 discovery (or candidates get persisted).
 
-**Next:** physical retest on debug 53 / desktop 65 (below); build the Assisted "choose when ready" flow; then the stage 8+9
+**Published (2026-09-26):** mobile **debug 53** (`debug-v0.4.13-z1.53`, run `36194043123`, APK + IPA - the IPA
+build is the iOS compile check for the Live Activity change) and desktop **debug 65** (`debug-v0.1.23-alpha-z6.65`, run
+`36195874627`; the first dispatch `36194046412` failed: CI compiles desktop against JDK 17, which has no
+`HttpClient.shutdownNow`, now called reflectively - `60a3ea1d3`).
+
+**Next:** physical retest on debug 53 / desktop 65; build the Assisted "choose when ready" flow; then the stage 8+9
 checks still owed on 52, iOS experiments (10a/10b), subtitles stretch (11), release gate (12). Cleanup
 list: the iOS workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
 
