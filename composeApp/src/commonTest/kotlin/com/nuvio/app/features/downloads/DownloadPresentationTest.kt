@@ -255,7 +255,14 @@ class DownloadPresentationTest {
                 item("e1", position = 0, status = DownloadStatus.Downloading, activity = DownloadActivity.TRANSFERRING, downloaded = 1 * gb, total = 2 * gb),
                 item("e2", position = 3),
             ),
-            completed = listOf(item("e0", episode = 0, status = DownloadStatus.Completed)),
+            allItems = listOf(
+                item("e3", position = 2),
+                item("m", season = null, parent = "tt9", position = 1),
+                item("e1", position = 0, status = DownloadStatus.Downloading, activity = DownloadActivity.TRANSFERRING, downloaded = 1 * gb, total = 2 * gb),
+                item("e2", position = 3),
+                item("e0", episode = 0, status = DownloadStatus.Completed),
+            ),
+            batches = emptyList(),
             nowEpochMs = now,
         )
         assertEquals(listOf("tt1|1", "tt9|m"), groups.map { it.key })

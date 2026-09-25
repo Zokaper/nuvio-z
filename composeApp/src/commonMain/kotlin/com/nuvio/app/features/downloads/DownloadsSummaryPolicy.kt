@@ -13,8 +13,13 @@ data class DownloadsSummary(
     val waitingCount: Int,
     /** The item the notification leads with: the highest-ranked one that is transferring. */
     val head: DownloadItem?,
-    /** 0..100 for the head, or null when its total is unknown (indeterminate bar). */
-    val headProgressPercent: Int?,
+    /**
+     * How far everything unfinished is, as one - see [DownloadAggregateProgress]. The bar and the
+     * percent; never the head's own figure, which read as the season's under a season's title.
+     */
+    val progress: DownloadAggregateProgress?,
+    /** True when all of it is one title or season, so the notification can be titled after it. */
+    val singleSelection: Boolean = false,
     /** Why nothing is moving, when nothing is transferring - the shared [DownloadPresenter] words. */
     val waitingReason: DownloadWaitReason?,
     /** Downloads waiting for the user (Phase 9: the four "needs you" kinds). */
@@ -48,9 +53,8 @@ object DownloadsSummaryPolicy {
 
         val head = downloading.firstOrNull { it.activity == DownloadActivity.TRANSFERRING }
             ?: downloading.firstOrNull()
-        val percent = head?.totalBytes?.takeIf { it > 0L }?.let { total ->
-            ((head.downloadedBytes.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-        }
+        val progress = DownloadAggregate.forQueue(items, batches)
+        val selections = (downloading + waiting).map { DownloadQueueGrouping.keyOf(it) }.toSet()
         // The reason comes from the same presentation the Downloads screen and the Live
         // Activity read, so the notification cannot word a wait differently from the row.
         val reasons = waiting.mapNotNull { DownloadPresenter.item(it, nowEpochMs).waitReason }.toSet()
@@ -69,7 +73,8 @@ object DownloadsSummaryPolicy {
             downloadingCount = downloading.size,
             waitingCount = waiting.size,
             head = head,
-            headProgressPercent = percent,
+            progress = progress,
+            singleSelection = selections.size == 1,
             waitingReason = waitingReason,
             needsYouCount = needsYou,
             preparingTitle = if (preparing.isEmpty()) null else single?.title?.trim()?.ifBlank { null },

@@ -55,7 +55,11 @@ class DownloadsSummaryPolicyTest {
         assertEquals(2, summary.downloadingCount)
         assertEquals(1, summary.waitingCount)
         assertEquals("e2", summary.head?.id)
-        assertEquals(25, summary.headProgressPercent)
+        // The whole queue, not the head's own 25%: three episodes, sizes unknown for two, so each
+        // counts as one and e2 contributes its quarter - 8%.
+        assertEquals(3, summary.progress?.memberCount)
+        assertEquals(8, summary.progress?.percent)
+        assertTrue(summary.singleSelection)
         assertNull(summary.waitingReason)
     }
 
@@ -65,7 +69,7 @@ class DownloadsSummaryPolicyTest {
             listOf(item("e1", DownloadStatus.Downloading, activity = DownloadActivity.TRANSFERRING, downloaded = 10)),
             emptyList(),
         )!!
-        assertNull(summary.headProgressPercent)
+        assertNull(summary.progress?.percent)
     }
 
     @Test

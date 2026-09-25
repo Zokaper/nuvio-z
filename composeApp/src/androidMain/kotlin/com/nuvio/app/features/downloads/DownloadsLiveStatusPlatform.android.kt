@@ -113,24 +113,24 @@ internal actual object DownloadsLiveStatusPlatform {
         }
 
         val head = summary.head
+        // The count and the percent are the whole queue's (`DownloadAggregateProgress`), so a
+        // season reads "2 of 6 done · 38%" rather than its lead episode's own percent.
+        val progress = summary.progress
+        val progressParts = listOfNotNull(
+            progress?.takeIf { it.memberCount > 1 }?.let { string(Res.string.downloads_summary_done, it.doneCount, it.memberCount) }
+                ?: summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
+            progress?.percent?.let { "$it%" },
+            summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
+        )
         val (title, text) = when {
-            head != null && summary.downloadingCount == 1 -> {
-                val detail = listOfNotNull(
-                    episodeLabel(head),
-                    summary.headProgressPercent?.let { "$it%" },
-                    summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
-                    summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
-                ).joinToString(" · ")
-                head.title to detail
+            head != null && summary.singleSelection -> {
+                val now = episodeLabel(head).takeIf { summary.downloadingCount == 1 }
+                head.title to (listOfNotNull(now) + progressParts).joinToString(" · ")
             }
             head != null -> {
-                val detail = listOfNotNull(
-                    listOfNotNull(head.title, episodeLabel(head)).joinToString(" "),
-                    summary.headProgressPercent?.let { "$it%" },
-                    summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
-                    summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
-                ).joinToString(" · ")
-                string(Res.string.downloads_summary_downloading_many, summary.downloadingCount) to detail
+                val now = listOfNotNull(head.title, episodeLabel(head)).joinToString(" ")
+                string(Res.string.downloads_summary_downloading_many, summary.downloadingCount) to
+                    (listOf(now) + progressParts).joinToString(" · ")
             }
             summary.waitingReason != null -> {
                 // The same words as the Downloads row (DownloadPresentation).
@@ -150,8 +150,8 @@ internal actual object DownloadsLiveStatusPlatform {
         builder.setContentTitle(title).setContentText(text)
 
         when {
-            head != null && summary.headProgressPercent != null ->
-                builder.setProgress(100, summary.headProgressPercent, false)
+            head != null && summary.progress?.percent != null ->
+                builder.setProgress(100, summary.progress.percent ?: 0, false)
             head != null -> builder.setProgress(0, 0, true)
             summary.waitingReason == null && summary.preparingEntries > 0 ->
                 builder.setProgress(summary.preparingEntries, summary.preparedEntries, false)
@@ -203,7 +203,8 @@ internal actual object DownloadsLiveStatusPlatform {
         downloading = summary.downloadingCount,
         waiting = summary.waitingCount,
         headId = summary.head?.id,
-        percent = summary.headProgressPercent,
+        percent = summary.progress?.percent,
+        done = summary.progress?.doneCount,
         reason = summary.waitingReason,
         needsYou = summary.needsYouCount,
         preparing = summary.preparedEntries to summary.preparingEntries,
@@ -215,6 +216,7 @@ internal actual object DownloadsLiveStatusPlatform {
         val waiting: Int,
         val headId: String?,
         val percent: Int?,
+        val done: Int?,
         val reason: DownloadWaitReason?,
         val needsYou: Int,
         val preparing: Pair<Int, Int>,

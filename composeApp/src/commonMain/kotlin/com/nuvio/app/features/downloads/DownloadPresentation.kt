@@ -197,17 +197,17 @@ data class DownloadQueueGroup(
     /** In queue order. */
     val items: List<DownloadItem>,
     val presentations: List<DownloadPresentation>,
-    /** Episodes of this season already downloaded, for "3 of 10 done". */
+    /** Episodes of this season's run already downloaded, for "3 of 10 done". */
     val completedCount: Int,
+    /**
+     * How far the whole selection is - see [DownloadAggregateProgress]. Null for a film or a lone
+     * episode, whose own progress is the row's.
+     */
+    val aggregate: DownloadAggregateProgress? = null,
 ) {
     val isSeason: Boolean get() = season != null && items.size > 1
-    val downloadedBytes: Long get() = presentations.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
-    val knownTotalBytes: Long get() = presentations.sumOf { it.totalBytes ?: 0L }
     val progressPercent: Int?
-        get() {
-            val total = knownTotalBytes.takeIf { it > 0L } ?: return null
-            return ((downloadedBytes.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-        }
+        get() = aggregate?.percent ?: presentations.singleOrNull()?.progressPercent
 
     /** What the collapsed row says: the most active member's phase. */
     val lead: DownloadPresentation
@@ -241,7 +241,9 @@ object DownloadQueueGrouping {
      */
     fun group(
         unfinished: List<DownloadItem>,
-        completed: List<DownloadItem>,
+        /** Every item in view, finished and needing the user included - the run's other members. */
+        allItems: List<DownloadItem>,
+        batches: List<DownloadBatch>,
         nowEpochMs: Long,
     ): List<DownloadQueueGroup> {
         val ordered = unfinished.sortedWith(downloadQueueComparator)
@@ -250,6 +252,7 @@ object DownloadQueueGrouping {
         return groups.map { (key, members) ->
             val first = members.first()
             val season = first.seasonNumber.takeIf { first.isEpisode }
+            val aggregate = if (first.isEpisode) DownloadAggregate.forItem(first, allItems, batches) else null
             DownloadQueueGroup(
                 key = key,
                 parentMetaId = first.parentMetaId,
@@ -257,11 +260,8 @@ object DownloadQueueGrouping {
                 season = season,
                 items = members,
                 presentations = members.map { DownloadPresenter.item(it, nowEpochMs) },
-                completedCount = if (season == null) {
-                    0
-                } else {
-                    completed.count { it.parentMetaId == first.parentMetaId && it.seasonNumber == season }
-                },
+                completedCount = aggregate?.doneCount ?: 0,
+                aggregate = aggregate,
             )
         }
     }

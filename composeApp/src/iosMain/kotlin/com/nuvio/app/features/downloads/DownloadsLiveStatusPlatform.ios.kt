@@ -121,14 +121,19 @@ internal actual object DownloadsLiveStatusPlatform {
                 backgroundStatusText = runBlocking { getString(Res.string.downloads_live_in_background) },
             )
             primaryItem != null -> {
+                // The whole queue's progress, as the Android notification and the Downloads
+                // screen show it (`DownloadAggregateProgress`): a season's bar is the season's,
+                // not its lead episode's. A lone download is its own aggregate.
+                val progress = DownloadAggregate.forQueue(currentItems, currentBatches)
+                    ?.takeIf { it.memberCount > 1 }
                 DownloadsLiveStatusPayload(
                     id = primaryItem.id,
                     title = primaryItem.title,
                     subtitle = primaryItem.displaySubtitle,
                     status = primaryItem.liveActivityStatus(),
-                    downloadedBytes = primaryItem.downloadedBytes,
-                    totalBytes = primaryItem.totalBytes,
-                    progressPercent = presentation.progressPercent ?: -1,
+                    downloadedBytes = progress?.downloadedBytes ?: primaryItem.downloadedBytes,
+                    totalBytes = if (progress != null) progress.expectedBytes else primaryItem.totalBytes,
+                    progressPercent = progress?.percent ?: presentation.progressPercent ?: -1,
                     activeCount = presentation.activeCount,
                     remainingCount = presentation.remainingCount,
                     queueSummaryText = queueSummaryText(presentation.activeCount, presentation.remainingCount),

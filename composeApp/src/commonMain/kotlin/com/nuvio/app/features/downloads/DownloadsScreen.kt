@@ -109,12 +109,12 @@ fun DownloadsScreen(
     val attention = remember(uiState.items, batches, nowEpochMs) {
         AttentionGrouping.group(uiState.items, batches, nowEpochMs)
     }
-    val queue = remember(uiState.items, nowEpochMs) {
+    val queue = remember(uiState.items, batches, nowEpochMs) {
         val unfinished = uiState.items.filter {
             it.status != DownloadStatus.Completed &&
                 DownloadPresenter.item(it, nowEpochMs).phase != DownloadUserPhase.NEEDS_YOU
         }
-        DownloadQueueGrouping.group(unfinished, uiState.completedItems, nowEpochMs)
+        DownloadQueueGrouping.group(unfinished, uiState.items, batches, nowEpochMs)
     }
     val storage = remember(deviceItems) {
         DownloadStorageSummary.of(deviceItems, DownloadsPlatformDownloader.freeStorageBytes())

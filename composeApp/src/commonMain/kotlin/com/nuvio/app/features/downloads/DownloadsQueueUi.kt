@@ -712,19 +712,25 @@ fun DownloadQueueGroupRow(
     }
 }
 
-/** The season's own totals while it downloads; otherwise its most active episode's line. */
+/**
+ * The season's own totals while it downloads - the whole selection's, never just the episodes
+ * running right now (see [DownloadAggregateProgress]); otherwise its most active episode's line.
+ */
 @Composable
 private fun groupStatus(group: DownloadQueueGroup): String {
-    val percent = group.progressPercent
-    return if (group.lead.phase == DownloadUserPhase.DOWNLOADING && percent != null) {
+    val aggregate = group.aggregate
+    val percent = aggregate?.percent
+    if (group.lead.phase != DownloadUserPhase.DOWNLOADING || aggregate == null || percent == null) return group.lead.plainText()
+    val expected = aggregate.expectedBytes
+    return if (expected != null) {
         stringResource(
             Res.string.download_phase_downloading,
-            formatDownloadBytes(group.downloadedBytes),
-            formatDownloadBytes(group.knownTotalBytes),
+            formatDownloadBytes(aggregate.downloadedBytes),
+            formatDownloadBytes(expected),
             "$percent%",
         )
     } else {
-        group.lead.plainText()
+        stringResource(Res.string.download_group_episodes_progress, aggregate.doneCount, aggregate.memberCount, "$percent%")
     }
 }
 
