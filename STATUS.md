@@ -290,9 +290,45 @@ verified until the maintainer reports it.**
 Verification: pure **918/918** (setup group 72 -> 87); Android host **2,507/2,507** (results deleted,
 `--rerun-tasks`) + `:androidApp:compileFullDebugKotlin`.
 
-**Next:** iOS build dispatch for stage 8 (new iOS actual), the physical results from debug 51, then stage 9 (What's
-New). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses shared-code-only pushes (keep
-dispatching by hand until fixed).
+iOS build (dispatched) **passed** on stage 8, run `36174107743`.
+
+**Stage 9 - What's New (`3889e237e`; desktop `5fc9479dc` + actual/release step/test).**
+- **One changelog for both repos:** `composeApp/src/commonMain/composeResources/files/changelog.json`. Releases by
+  family and `RELEASE_SERIAL`; entries feature/improvement/fix tagged android/ios/desktop; `debug` lines per debug
+  build. **Deviation from plan 4.10, implementation only:** it ships as a Compose resource parsed at runtime
+  (`ChangelogCatalog`), not a Gradle-generated Kotlin catalog - equally offline, shared by cherry-pick, and no
+  generator to port into desktop's divergent `build.gradle.kts`.
+- **Seeded:** mobile **127 / `0.4.13-z1`** - 127 is the *unreleased* serial (the last stable is `0.5.0-beta+126`),
+  so it carries the Phase 8 notes that were hand-written in `CurrentReleaseNotes` (moved verbatim) plus draft Phase 9
+  entries; desktop **132 / `0.1.23-alpha-z7`** (desktop is on 131) with the desktop subset. Both dated
+  `unreleased`. **The copy is a draft for the maintainer.** Entries that claim physical behaviour (Android
+  notification, offline) must match the QA results before release. Version strings for 127/132 are placeholders the
+  release sets. No history before these (older releases still come from the releases feed in Settings).
+- **Selection** (`WhatsNewSelection.kt`, import-free, pure-suite tested): fresh install (no ack, no old key) shows
+  nothing and acks; upgrade from the old `last_seen_version` shows only the current release (nothing if the old key
+  already names it); otherwise every missed release of the family merged by category, newest first, with version
+  tags when more than one release is merged; debug builds add unseen debug lines ("THIS DEBUG BUILD"). Device-local
+  ack `(serial, debugBuild)` in new keys; Continue acknowledges; a downgrade never lowers it.
+- **Identity per platform** (`WhatsNewStorage.releaseIdentity`): mobile = `RELEASE_SERIAL` / `VERSION_NAME` /
+  `DEBUG_BUILD` when `isDebugBuild`; **desktop** = `DESKTOP_VERSION_NAME` (debug number from its fourth component)
+  and desktop's own serial - the desktop fix. ⚠ iOS debug lines depend on `Platform.isDebugBinary`; if the debug IPA
+  is a release binary they simply don't show.
+- Post-update screen = missed notes only; **Settings -> What's new** = this release + shipped history + older feed
+  releases not in the changelog.
+- **Release guard:** `scripts/check-changelog.py --family --serial check|notes`, wired into `android-release.yml`
+  and desktop's `desktop-release.yml` (no notes for the serial fails; curated notes lead the body under "What's
+  new"). `ChangelogFileTest` (mobile host) runs the same guard on every push; desktop's test checks shape and
+  identity only (desktop's current serial predates the changelog). `AGENTS.md` updated.
+- Retired: `CurrentReleaseNotes`, `shouldShowWhatsNew` (+ its test).
+
+Verification: pure **931/931** (+13); Android host **2,519/2,519** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`.
+
+**Next:** debug 52 / desktop 64 for stage 8+9 physical checks (fresh install; upgrade from `.48`/`.51` - the
+download-steps upgrade run and What's New; a second phone on a current profile - the device run), plus the
+stage 6/7 QA still owed on 51. Then the iOS experiments (10a/10b, need physical runs), subtitles stretch (11), and
+the release gate (12). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses
+shared-code-only pushes (keep dispatching by hand until fixed).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
