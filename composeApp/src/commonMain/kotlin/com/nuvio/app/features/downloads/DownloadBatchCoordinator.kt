@@ -162,7 +162,7 @@ object DownloadBatchCoordinator {
             } else {
                 candidate
             }
-        }
+        }.also { DownloadSizeTelemetry.discovered(target, it) }
     }
 
     private suspend fun annotateCacheState(candidates: List<DownloadSourceCandidate>): List<DownloadSourceCandidate> {
@@ -257,7 +257,7 @@ object DownloadBatchCoordinator {
                 sourceOrigin = option.candidate.sourceOrigin,
             ),
             hasUsableSources = true,
-        ).withSource(option.candidate)
+        ).withSource(option.candidate).also(DownloadSizeTelemetry::picked)
     }
 
     /** Manual: waiting for the user to pick this episode's source. */
@@ -357,6 +357,7 @@ object DownloadBatchCoordinator {
                 lazy = entry.sourceOrigin != null,
                 outcome = entry.decision?.name ?: entry.state.name,
             )
+            DownloadSizeTelemetry.picked(entry)
         }
     }
 
