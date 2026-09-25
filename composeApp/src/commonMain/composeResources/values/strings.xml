@@ -1270,6 +1270,7 @@
     <string name="whats_new_new_features">NEW FEATURES</string>
     <string name="whats_new_improvements">IMPROVEMENTS</string>
     <string name="whats_new_bug_fixes">BUG FIXES</string>
+    <string name="whats_new_debug_build">THIS DEBUG BUILD</string>
     <string name="whats_new_previous_versions">Previous versions</string>
     <string name="whats_new_previous_versions_loading">Loading earlier release notes…</string>
     <string name="whats_new_previous_versions_unavailable">Earlier release notes need a connection.</string>

@@ -332,10 +332,13 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
 - A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
   `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
   the user searched for by name is worse than showing it.
-- What's New keeps the current version's notes curated in `CurrentReleaseNotes` and
-  fetches only older releases. **Add an entry per release before the version bump** -
-  a docs commit after the bump fails release validation. Never gate the screen on the
-  in-app updater; it has to work offline.
+- What's New comes from **one changelog for both repos**,
+  `composeApp/src/commonMain/composeResources/files/changelog.json` (Phase 9): releases by family
+  and `RELEASE_SERIAL`, entries tagged feature/improvement/fix and android/ios/desktop, plus
+  `debug` lines for debug builds. The app reads it offline; `decideWhatsNew` picks what to show
+  against a device-local ack. **Add the release's entries before the version bump** -
+  `scripts/check-changelog.py ... check` fails the release workflow, and `ChangelogFileTest`
+  fails CI, for a serial with no notes. Never gate the screen on the in-app updater.
 - **The setup wizard writes every choice immediately, through the real repository setter**
   (`features/setup/`). That is what lets `SetupPreviewStage` render the shipped
   `HomeHeroSection` / `HomeContinueWatchingSection` / `HomeCatalogRowSection` / `DetailHero`
@@ -892,7 +895,7 @@ and moving it does **not** repair what already happened: `chore: debug build 15`
 newest `Version.xcconfig` touch before `0.5.0-beta`, so that release's generated body
 starts there and omits everything before it, including `5058a313` - the whole Streamlined
 pass. Only rewriting history could undo it. **Curate `0.5.0-beta`'s notes by hand** and
-check the generated range before publishing; `CurrentReleaseNotes` is curated anyway,
+check the generated range before publishing; the changelog's curated notes lead the body anyway,
 which is what makes this survivable rather than fatal.
 
 `NuvioZDesktop` also carries `iosApp/Configuration/Version.xcconfig` as the

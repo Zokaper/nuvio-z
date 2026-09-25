@@ -86,10 +86,19 @@ jobs:
         run: |
           ./scripts/generate-release-notes.sh --from "${PREVIOUS_BUMP}" --to "${CURRENT_BUMP}" --repository "${GITHUB_REPOSITORY}" --exclude "${EXCLUDE_COMMITS}" > generated-release-notes.md
           [[ -s generated-release-notes.md ]] || { echo "No mobile release-note commits were found." >&2; exit 1; }
+          # Phase 9: the shipped changelog must have notes for this serial (the app shows them as
+          # What's New), and they lead the release body.
+          release_serial="$(sed -n 's/^RELEASE_SERIAL=//p' iosApp/Configuration/ReleaseSerial.xcconfig | tr -d '[:space:]')"
+          python3 scripts/check-changelog.py --family mobile --serial "${release_serial}" check
+          python3 scripts/check-changelog.py --family mobile --serial "${release_serial}" notes > curated-release-notes.md
           {
             echo "Nuvio Z mobile ${{ steps.release.outputs.version }} (build ${{ steps.release.outputs.build }})."
             echo
             echo "Available for Android (signed APKs) and iOS (unsigned IPA for SideStore sideloading)."
+            echo
+            echo "### What's new"
+            echo
+            cat curated-release-notes.md
             echo
             echo "### Changes"
             echo

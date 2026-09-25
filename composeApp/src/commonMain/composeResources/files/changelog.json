@@ -1,0 +1,309 @@
+{
+  "_readme": [
+    "The one changelog for both repositories (Phase 9, plan 4.10). The app ships it and reads it offline;",
+    "the release tooling reads it for the release body. Release identity is `serial` (RELEASE_SERIAL),",
+    "never the version string. Add a release entry BEFORE the version bump - scripts/check-changelog.py",
+    "fails a release whose serial has no entries. category: feature | improvement | fix;",
+    "platforms: android | ios | desktop. `debug` lines are shown only by debug builds newer than the",
+    "last one the device saw. Unreleased lines carry date \"unreleased\" until the release is cut."
+  ],
+  "releases": [
+    {
+      "family": "mobile",
+      "version": "0.4.13-z1",
+      "serial": 127,
+      "date": "unreleased",
+      "entries": [
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Downloads have their own mode",
+          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the resolution for each download, and Manual lets you pick every source yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A new Downloads screen",
+          "body": "Posters for everything, a whole season as one row you can open, pause or move, and one \"Needs you\" list that says what is wrong and offers the fix. It also shows how much space downloads use and suggests freeing up episodes you have finished."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Choose sources for a whole season",
+          "body": "In Manual, a season opens one list of its episodes: pick a source for each, or let Nuvio auto-pick the rest."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Download preferences",
+          "body": "Preferred resolution, a file size level, what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Downloads and mobile data",
+          "body": "Downloads wait for Wi-Fi by default. Choose Ask or Always in Settings → Downloads, or tap \"Download now anyway\" on a waiting episode."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Downloads work offline",
+          "body": "A downloaded title opens its downloads when you are offline, autoplay moves on to the next downloaded episode, and Home tells you when you are offline."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "One download queue across profiles",
+          "body": "Downloads keep going when you switch profile, and each profile still sees only its own."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android"
+          ],
+          "title": "Choose how many downloads run at once",
+          "body": "From one to four, in Settings → Downloads."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android"
+          ],
+          "title": "Download progress notification",
+          "body": "Downloads now ask for notification permission, so progress shows in one notification with a separate one when a title or season finishes."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Deleting a download asks first"
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Instant is back",
+          "body": "Tap an episode and it plays. Nuvio measures your connection, picks the quality it can actually carry and the best release in it, and tells you what it opened - with a Change button if you disagree. It keeps the same quality across a show for the rest of the sitting, steps past a source that will not start, and asks once before spending mobile data. Choose it in Settings → Playback → Playback mode. If you picked Instant before it was withdrawn, you are back on it."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A setup wizard, with a live preview",
+          "body": "First launch now walks you through how Nuvio picks sources and how it looks. Each question shows the part of the app it changes, right above the controls, and it updates as you answer - so you are choosing from what you can see rather than from a list of names. Run it again any time from Settings."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Downloads now continue with the screen off",
+          "body": "On iPhone, locking the screen used to stop the transfer and turn normal backgrounding into a retry. Downloads now use the system background transfer service, reconnect after a relaunch, and keep user pause separate from screen lock."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Whole-show downloads and progress are honest",
+          "body": "Downloading a title from its menu now queues its released episodes, and Library has a clear Downloads view. iPhone progress no longer invents a percentage before the file size is known or leaves a finished Live Activity behind."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A failing source no longer loops",
+          "body": "A debrid link that died shortly after starting was retried endlessly - the player reopened on the loading screen, played a second, and went round again with no way out. It now retries once, then names the source and moves to the next one."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Coming back from the player works",
+          "body": "In Streamlined and Instant, backing out of the player with the system Back gesture could land on a blank screen you could not read and could not leave. It now returns you to the source list or to the show."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "No more spinner that never ends",
+          "body": "Several ways of ending up with no source - declining the torrent prompt, a chain of dead sources running out, an add-on that never answers - left \"Starting playback\" on screen for a playback that had already been called off. Every one of them now hands you back the source list and says why."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A source that dies mid-episode retries properly",
+          "body": "When a source failed after playback had already started, the next one was lined up and then immediately thrown away, so nothing happened. The retry now actually runs."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Best available stops picking season packs",
+          "body": "The top card in the quality picker was ranked by different rules from every other card, so an entire season advertised as one file would head it - and quietly show no size or speed figure at all. It now follows the same rules as the rest, and prefers sources known to be ready."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Downloads that go quiet give up",
+          "body": "On Android, a source that stopped sending without disconnecting held its place in the queue and sat on its last percentage. It is now detected and retried, as it already was on desktop."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Your codec and HDR preferences apply to playback",
+          "body": "Preferred codec and preferred dynamic range are now settings for watching, not only for downloading, and your audio language preference is taken into account when a source is picked for you. Find them under Settings → Playback. Leave them on Automatic and nothing changes."
+        }
+      ],
+      "debug": [
+        {
+          "build": 49,
+          "text": "Download diagnostics, the notification permission, and offline playback groundwork."
+        },
+        {
+          "build": 50,
+          "text": "The download engine rebuilt: one queue for the device, profile views, device settings."
+        },
+        {
+          "build": 51,
+          "text": "Automatic / Assisted / Manual download flows and the new Downloads screen. Logs file sizes for calibration."
+        },
+        {
+          "build": 52,
+          "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+        }
+      ]
+    },
+    {
+      "family": "desktop",
+      "version": "0.1.23-alpha-z7",
+      "serial": 132,
+      "date": "unreleased",
+      "entries": [
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Downloads have their own mode",
+          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the resolution for each download, and Manual lets you pick every source yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "A new Downloads screen",
+          "body": "Posters for everything, a whole season as one row you can open, pause or move, and one \"Needs you\" list that says what is wrong and offers the fix. It also shows how much space downloads use and suggests freeing up episodes you have finished."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Choose sources for a whole season",
+          "body": "In Manual, a season opens one list of its episodes: pick a source for each, or let Nuvio auto-pick the rest."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Download preferences",
+          "body": "Preferred resolution, a file size level, what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Downloads work offline",
+          "body": "A downloaded title opens its downloads when you are offline, autoplay moves on to the next downloaded episode, and Home tells you when you are offline."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "One download queue across profiles",
+          "body": "Downloads keep going when you switch profile, and each profile still sees only its own."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Choose how many downloads run at once",
+          "body": "From one to four, in Settings → Downloads."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Deleting a download asks first"
+        }
+      ],
+      "debug": [
+        {
+          "build": 62,
+          "text": "Download diagnostics and offline playback groundwork."
+        },
+        {
+          "build": 63,
+          "text": "Automatic / Assisted / Manual download flows and the new Downloads screen. Logs file sizes for calibration."
+        },
+        {
+          "build": 64,
+          "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+        }
+      ]
+    }
+  ]
+}

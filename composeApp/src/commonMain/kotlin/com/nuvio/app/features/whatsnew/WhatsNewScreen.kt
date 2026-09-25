@@ -33,6 +33,7 @@ import com.nuvio.app.features.updater.AppReleaseNotes
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.whats_new_bug_fixes
+import nuvio.composeapp.generated.resources.whats_new_debug_build
 import nuvio.composeapp.generated.resources.whats_new_improvements
 import nuvio.composeapp.generated.resources.whats_new_new_features
 import nuvio.composeapp.generated.resources.whats_new_no_notes
@@ -58,6 +59,8 @@ fun WhatsNewScreen(
     onContinue: () -> Unit,
     history: List<AppReleaseNotes>? = null,
     dismissible: Boolean = false,
+    /** False after an update: that screen is the missed releases' notes; history lives in Settings. */
+    showHistory: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
 
@@ -103,8 +106,10 @@ fun WhatsNewScreen(
                     items(sections) { section ->
                         WhatsNewSectionContent(section)
                     }
-                    item {
-                        PreviousVersions(history = history)
+                    if (showHistory) {
+                        item {
+                            PreviousVersions(history = history)
+                        }
                     }
                 }
 
@@ -128,11 +133,13 @@ private fun WhatsNewSectionContent(section: WhatsNewSection) {
         WhatsNewCategory.NewFeatures -> tokens.colors.accent
         WhatsNewCategory.Improvements -> Color(0xFF49B6FF)
         WhatsNewCategory.BugFixes -> Color(0xFF66C98D)
+        WhatsNewCategory.DebugBuild -> tokens.colors.textSecondary
     }
     val label = when (section.category) {
         WhatsNewCategory.NewFeatures -> stringResource(Res.string.whats_new_new_features)
         WhatsNewCategory.Improvements -> stringResource(Res.string.whats_new_improvements)
         WhatsNewCategory.BugFixes -> stringResource(Res.string.whats_new_bug_fixes)
+        WhatsNewCategory.DebugBuild -> stringResource(Res.string.whats_new_debug_build)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -152,18 +159,32 @@ private fun WhatsNewSectionContent(section: WhatsNewSection) {
         }
         section.items.forEach { item ->
             Column(modifier = Modifier.padding(start = 17.dp)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = tokens.colors.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.colors.textMuted,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.title,
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = tokens.colors.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    // Which release it came from, when the screen merges several.
+                    item.version?.let { version ->
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = version,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                }
+                if (item.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textMuted,
+                    )
+                }
             }
         }
     }

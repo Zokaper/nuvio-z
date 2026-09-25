@@ -28,7 +28,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.DeviceSessionRegistration
-import com.nuvio.app.core.build.AppVersionConfig
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.whats_new_bug_fixes
+import nuvio.composeapp.generated.resources.whats_new_improvements
+import nuvio.composeapp.generated.resources.whats_new_new_features
+import org.jetbrains.compose.resources.getString
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.sync.SyncManager
@@ -64,10 +68,18 @@ import com.nuvio.app.features.setup.setupWizardRun
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
-import com.nuvio.app.features.whatsnew.CurrentReleaseNotes
+import com.nuvio.app.features.whatsnew.ChangelogCatalog
+import com.nuvio.app.features.whatsnew.ChangelogCategory
+import com.nuvio.app.features.whatsnew.ChangelogRelease
+import com.nuvio.app.features.whatsnew.WhatsNewAck
+import com.nuvio.app.features.whatsnew.WhatsNewDecision
+import com.nuvio.app.features.whatsnew.WhatsNewSection
+import com.nuvio.app.features.whatsnew.changelogHistory
+import com.nuvio.app.features.whatsnew.changelogHistoryNotes
+import com.nuvio.app.features.whatsnew.decideWhatsNew
+import com.nuvio.app.features.whatsnew.toSections
 import com.nuvio.app.features.whatsnew.WhatsNewScreen
 import com.nuvio.app.features.whatsnew.WhatsNewStorage
-import com.nuvio.app.features.whatsnew.shouldShowWhatsNew
 import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktSettingsRepository
 import com.nuvio.app.features.watched.WatchedRepository
@@ -233,9 +245,12 @@ internal fun AppGate(
     var pendingProfileSwitch by remember { mutableStateOf<PendingProfileSwitch?>(null) }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
-    val whatsNewSections = remember {
-        CurrentReleaseNotes.sections(isDesktop = WhatsNewStorage.isDesktop)
-    }
+    // Phase 9: What's New comes from the shipped changelog and is keyed on the release serial,
+    // with a device-local acknowledgement - see `decideWhatsNew`.
+    val whatsNewIdentity = remember { WhatsNewStorage.releaseIdentity }
+    var changelog by remember { mutableStateOf<List<ChangelogRelease>?>(null) }
+    var whatsNewSections by remember { mutableStateOf<List<WhatsNewSection>>(emptyList()) }
+    var whatsNewAckToWrite by remember { mutableStateOf<WhatsNewAck?>(null) }
     var showWhatsNew by remember { mutableStateOf(false) }
     // Opened from Settings rather than shown after an update: dismissible, and it must not
     // record the version as seen or the post-update showing would be skipped.
@@ -255,20 +270,50 @@ internal fun AppGate(
 
     LaunchedEffect(ownsAppRuntime) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        showWhatsNew = shouldShowWhatsNew(
-            lastSeenVersion = WhatsNewStorage.loadLastSeenVersion(),
-            currentVersion = AppVersionConfig.VERSION_NAME,
-            sections = whatsNewSections,
+        val releases = ChangelogCatalog.load()
+        changelog = releases
+        val decision = decideWhatsNew(
+            releases = releases,
+            family = whatsNewIdentity.family,
+            platform = whatsNewIdentity.platform,
+            currentSerial = whatsNewIdentity.serial,
+            currentVersion = whatsNewIdentity.versionName,
+            currentDebugBuild = whatsNewIdentity.debugBuild,
+            ack = WhatsNewStorage.loadAck(),
+            legacyLastSeenVersion = WhatsNewStorage.loadLastSeenVersion(),
         )
+        if (decision.shouldShow) {
+            whatsNewSections = decision.toSections()
+            whatsNewAckToWrite = decision.ackToWrite
+            showWhatsNew = true
+        } else {
+            // Nothing to show (a fresh install, or nothing new): acknowledge now, so a later
+            // update compares against this build.
+            WhatsNewStorage.saveAck(decision.ackToWrite)
+        }
     }
 
-    LaunchedEffect(showWhatsNew, showWhatsNewOnDemand) {
-        if (!showWhatsNew && !showWhatsNewOnDemand) return@LaunchedEffect
-        if (whatsNewHistory != null) return@LaunchedEffect
-        whatsNewHistory = fetchRecentReleaseNotes()
+    // Settings -> What's new: this release's notes and the history before it, from the shipped
+    // changelog (offline), then whatever older releases the releases feed still has.
+    LaunchedEffect(showWhatsNewOnDemand) {
+        if (!showWhatsNewOnDemand) return@LaunchedEffect
+        val releases = changelog ?: ChangelogCatalog.load().also { changelog = it }
+        val history = changelogHistory(releases, whatsNewIdentity.family, whatsNewIdentity.platform, whatsNewIdentity.serial)
+        whatsNewSections = history.firstOrNull { it.first.serial == whatsNewIdentity.serial }
+            ?.let { (release, sections) -> WhatsNewDecision(sections, emptyList(), WhatsNewAck(release.serial, 0)).toSections() }
+            .orEmpty()
+        val headings = mapOf(
+            ChangelogCategory.FEATURE to getString(Res.string.whats_new_new_features),
+            ChangelogCategory.IMPROVEMENT to getString(Res.string.whats_new_improvements),
+            ChangelogCategory.FIX to getString(Res.string.whats_new_bug_fixes),
+        )
+        val shipped = history.filter { it.first.serial != whatsNewIdentity.serial }
+            .map { (release, sections) -> changelogHistoryNotes(release, sections, headings) }
+        val known = releases.map { it.version }.toSet() + whatsNewIdentity.versionName
+        whatsNewHistory = shipped + fetchRecentReleaseNotes()
             .getOrNull()
-            ?.filter { it.tag.trimStart('v', 'V') != AppVersionConfig.VERSION_NAME }
-            ?: emptyList()
+            ?.filter { it.tag.trimStart('v', 'V').substringBefore('+') !in known }
+            .orEmpty()
     }
     var profileSelectionLoading by rememberSaveable { mutableStateOf(false) }
     var profileSelectionTransitionActive by rememberSaveable { mutableStateOf(false) }
@@ -756,17 +801,20 @@ internal fun AppGate(
 
         if (showWhatsNew && gateScreen == AppGateScreen.Main.name) {
             WhatsNewScreen(
-                versionName = AppVersionConfig.VERSION_NAME,
+                versionName = whatsNewIdentity.versionName,
                 sections = whatsNewSections,
-                history = whatsNewHistory,
+                // The post-update screen is this build's notes; history is for Settings.
+                history = emptyList(),
+                showHistory = false,
                 onContinue = {
-                    WhatsNewStorage.saveLastSeenVersion(AppVersionConfig.VERSION_NAME)
+                    whatsNewAckToWrite?.let(WhatsNewStorage::saveAck)
+                    WhatsNewStorage.saveLastSeenVersion(whatsNewIdentity.versionName)
                     showWhatsNew = false
                 },
             )
         } else if (showWhatsNewOnDemand) {
             WhatsNewScreen(
-                versionName = AppVersionConfig.VERSION_NAME,
+                versionName = whatsNewIdentity.versionName,
                 sections = whatsNewSections,
                 history = whatsNewHistory,
                 dismissible = true,
