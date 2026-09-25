@@ -226,6 +226,53 @@ object DownloadFlowController {
         begin(next, askMobileData = false) { startAssisted(next) }
     }
 
+    /** "Choose" on a failed download's row: the download source list for that item. */
+    fun chooseItemManually(item: DownloadItem) {
+        _events.tryEmit(
+            DownloadFlowEvent.OpenManualSourceList(
+                title = DownloadBatchCoordinator.titleRefOf(item),
+                target = DownloadBatchCoordinator.targetOf(item),
+            ),
+        )
+    }
+
+    /** "Choose sources" on a Manual attention card. */
+    fun openChooseSources(batchId: String) {
+        _events.tryEmit(DownloadFlowEvent.OpenChooseSources(batchId))
+    }
+
+    /**
+     * "Check again" on a download that failed because its source was not cached: discovery
+     * again under the Automatic rules, replacing the item if something usable turned up.
+     */
+    fun recheck(item: DownloadItem) {
+        val target = DownloadBatchCoordinator.targetOf(item)
+        val current = Session(
+            title = DownloadBatchCoordinator.titleRefOf(item),
+            mode = DownloadMode.AUTOMATIC,
+            scope = if (item.seasonNumber != null && item.episodeNumber != null) {
+                DownloadScope.Episode(item.seasonNumber, item.episodeNumber)
+            } else {
+                DownloadScope.Movie
+            },
+            meta = null,
+            targets = listOf(target),
+            allowMetered = item.allowMeteredNetwork,
+            changing = item,
+        )
+        scope.launch {
+            val found = DownloadBatchCoordinator.discover(target)
+            val entry = DownloadBatchCoordinator.automaticEntry(
+                target,
+                found,
+                DownloadBatchCoordinator.contextFor(target, policyProvider()),
+            )
+            val batchId = writeEntries(current, listOf(entry))
+            queueOrHold(current, batchId, listOf(entry))
+            announceSingle(current, entry, onChange = null)
+        }
+    }
+
     /** "Check again" on a nothing-cached / no-sources entry: discovery again, Automatic rules. */
     fun checkAgain(batch: DownloadBatch, entry: DownloadBatchEntry) {
         val target = DownloadBatchCoordinator.targetOf(batch, entry)

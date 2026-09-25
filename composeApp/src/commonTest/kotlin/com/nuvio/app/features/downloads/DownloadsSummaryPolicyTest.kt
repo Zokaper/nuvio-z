@@ -77,12 +77,12 @@ class DownloadsSummaryPolicyTest {
             ),
             emptyList(),
         )!!
-        assertEquals(DownloadsWaitingReason.Connection, offline.waitingReason)
+        assertEquals(DownloadWaitReason.CONNECTION, offline.waitingReason)
         val retrying = DownloadsSummaryPolicy.summarize(
             listOf(item("e1", DownloadStatus.Queued, activity = DownloadActivity.RETRY_BACKOFF)),
             emptyList(),
         )!!
-        assertEquals(DownloadsWaitingReason.Retrying, retrying.waitingReason)
+        assertEquals(DownloadWaitReason.RETRYING_SHORTLY, retrying.waitingReason)
     }
 
     @Test

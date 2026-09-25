@@ -30,6 +30,15 @@ enum class DownloadStatus {
  * themselves, or the queue silently dies and stays dead.
  */
 @Serializable
+enum class DownloadFailureKind {
+    /** The file would not fit on the device. */
+    STORAGE,
+
+    /** The debrid service does not have the file cached, and waiting cannot change that. */
+    NOT_CACHED,
+}
+
+@Serializable
 enum class DownloadPauseReason {
     User,
     System,
@@ -132,6 +141,12 @@ data class DownloadItem(
      */
     val exceedsSizeCap: Boolean = false,
     val errorMessage: String? = null,
+    /**
+     * What a [DownloadStatus.Failed] download failed *of*, when that decides what the user can do
+     * (Phase 9): storage -> free up space, not cached -> another source. Null for every other
+     * failure, which is "gave up after retries". Only read while the item is Failed.
+     */
+    val failureKind: DownloadFailureKind? = null,
     /** Queue rank; lower runs sooner. Assigned on enqueue, rewritten by reordering. */
     val queuePosition: Long = 0L,
     val pauseReason: DownloadPauseReason? = null,

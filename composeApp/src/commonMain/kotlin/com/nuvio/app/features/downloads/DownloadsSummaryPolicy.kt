@@ -15,15 +15,16 @@ data class DownloadsSummary(
     val head: DownloadItem?,
     /** 0..100 for the head, or null when its total is unknown (indeterminate bar). */
     val headProgressPercent: Int?,
-    /** Why nothing is moving, when nothing is transferring. */
-    val waitingReason: DownloadsWaitingReason?,
+    /** Why nothing is moving, when nothing is transferring - the shared [DownloadPresenter] words. */
+    val waitingReason: DownloadWaitReason?,
+    /** Downloads waiting for the user (Phase 9: the four "needs you" kinds). */
+    val needsYouCount: Int = 0,
     /** A batch still finding sources, when nothing is queued yet. */
     val preparingTitle: String?,
     val preparedEntries: Int,
     val preparingEntries: Int,
 )
 
-enum class DownloadsWaitingReason { Connection, Wifi, Retrying, Starting }
 
 /** A title (film) or a season whose last unfinished download has just completed. */
 data class CompletedDownloadGroup(
@@ -34,7 +35,11 @@ data class CompletedDownloadGroup(
 
 object DownloadsSummaryPolicy {
     /** Null when there is nothing unfinished to report, which removes the notification. */
-    fun summarize(items: List<DownloadItem>, batches: List<DownloadBatch>): DownloadsSummary? {
+    fun summarize(
+        items: List<DownloadItem>,
+        batches: List<DownloadBatch>,
+        nowEpochMs: Long = DownloadsClock.nowEpochMs(),
+    ): DownloadsSummary? {
         val ordered = items.sortedWith(downloadQueueComparator)
         val downloading = ordered.filter { it.status == DownloadStatus.Downloading }
         val waiting = ordered.filter { it.status == DownloadStatus.Queued }
@@ -46,22 +51,19 @@ object DownloadsSummaryPolicy {
         val percent = head?.totalBytes?.takeIf { it > 0L }?.let { total ->
             ((head.downloadedBytes.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
         }
-        val waitingReason = if (downloading.isNotEmpty()) {
-            null
-        } else if (waiting.any { it.activity == DownloadActivity.WAITING_FOR_CONNECTION }) {
-            DownloadsWaitingReason.Connection
-        } else if (waiting.any { it.activity == DownloadActivity.WAITING_FOR_WIFI }) {
-            DownloadsWaitingReason.Wifi
-        } else if (waiting.any {
-                it.activity == DownloadActivity.RETRY_BACKOFF || it.activity == DownloadActivity.WAITING_FOR_PROVIDER
-            }
-        ) {
-            DownloadsWaitingReason.Retrying
-        } else if (waiting.isNotEmpty()) {
-            DownloadsWaitingReason.Starting
-        } else {
-            null
+        // The reason comes from the same presentation the Downloads screen and the Live
+        // Activity read, so the notification cannot word a wait differently from the row.
+        val reasons = waiting.mapNotNull { DownloadPresenter.item(it, nowEpochMs).waitReason }.toSet()
+        val waitingReason = when {
+            downloading.isNotEmpty() -> null
+            DownloadWaitReason.CONNECTION in reasons -> DownloadWaitReason.CONNECTION
+            DownloadWaitReason.WIFI in reasons -> DownloadWaitReason.WIFI
+            DownloadWaitReason.RETRYING_SHORTLY in reasons -> DownloadWaitReason.RETRYING_SHORTLY
+            DownloadWaitReason.RESUMING in reasons -> DownloadWaitReason.RESUMING
+            waiting.isNotEmpty() -> DownloadWaitReason.STARTING
+            else -> null
         }
+        val needsYou = items.count { DownloadPresenter.item(it, nowEpochMs).phase == DownloadUserPhase.NEEDS_YOU }
         val single = preparing.singleOrNull()
         return DownloadsSummary(
             downloadingCount = downloading.size,
@@ -69,6 +71,7 @@ object DownloadsSummaryPolicy {
             head = head,
             headProgressPercent = percent,
             waitingReason = waitingReason,
+            needsYouCount = needsYou,
             preparingTitle = if (preparing.isEmpty()) null else single?.title?.trim()?.ifBlank { null },
             preparedEntries = preparing.sumOf { it.preparedEntryCount },
             preparingEntries = preparing.sumOf { it.entries.size },

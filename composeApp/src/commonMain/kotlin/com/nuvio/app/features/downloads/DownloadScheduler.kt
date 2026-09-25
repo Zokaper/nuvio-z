@@ -473,6 +473,7 @@ internal object DownloadScheduler {
                         }
                         current.copy(
                             status = DownloadStatus.Failed,
+                            failureKind = null,
                             pauseReason = null,
                             downloadedBytes = downloadedBytes.coerceAtLeast(0L),
                             localFileUri = if (discardFiles) null else current.localFileUri,
@@ -766,6 +767,12 @@ internal object DownloadScheduler {
                         } else {
                             latest.copy(
                                 status = DownloadStatus.Failed,
+                                failureKind = when {
+                                    (resolution as? DownloadSourceResolution.FatalFailure)?.storage == true ->
+                                        DownloadFailureKind.STORAGE
+                                    uncachedForGood -> DownloadFailureKind.NOT_CACHED
+                                    else -> null
+                                },
                                 pauseReason = null,
                                 downloadedBytes = if (sourceChanged) 0L else latest.downloadedBytes,
                                 totalBytes = if (sourceChanged) null else latest.totalBytes,
@@ -815,6 +822,7 @@ internal object DownloadScheduler {
             DownloadStore.mutateLocked(item.id, immediate = true) { current ->
                 current.copy(
                     status = DownloadStatus.Failed,
+                    failureKind = null,
                     activity = null,
                     errorMessage = runBlocking { getString(Res.string.downloads_enqueue_missing_url) },
                     updatedAtEpochMs = DownloadsClock.nowEpochMs(),

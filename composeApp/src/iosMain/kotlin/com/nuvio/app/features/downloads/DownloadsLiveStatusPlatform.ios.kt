@@ -179,24 +179,13 @@ internal actual object DownloadsLiveStatusPlatform {
 
     private fun DownloadItem.liveActivityStatus(): String = liveActivityState().name
 
-    private fun DownloadItem.liveActivityState(): DownloadsLiveStatusPolicy.State = when (status) {
-        DownloadStatus.Downloading -> when {
-            activity == DownloadActivity.RESOLVING_SOURCE -> DownloadsLiveStatusPolicy.State.PREPARING
-            downloadedBytes <= 0L -> DownloadsLiveStatusPolicy.State.STARTING
-            else -> DownloadsLiveStatusPolicy.State.DOWNLOADING
-        }
-        DownloadStatus.Queued -> when {
-            activity == DownloadActivity.RETRY_BACKOFF || isWaitingForRetry(DownloadsClock.nowEpochMs()) -> DownloadsLiveStatusPolicy.State.RETRYING
-            activity == DownloadActivity.WAITING_FOR_CONNECTION ||
-                activity == DownloadActivity.WAITING_FOR_WIFI ||
-                activity == DownloadActivity.WAITING_FOR_PROVIDER ||
-                activity == DownloadActivity.QUEUED_FOR_SLOT -> DownloadsLiveStatusPolicy.State.WAITING
-            else -> DownloadsLiveStatusPolicy.State.STARTING
-        }
-        DownloadStatus.Paused -> DownloadsLiveStatusPolicy.State.PAUSED
-        DownloadStatus.Failed -> DownloadsLiveStatusPolicy.State.FAILED
-        DownloadStatus.Completed -> DownloadsLiveStatusPolicy.State.COMPLETED
-    }
+    /**
+     * The Live Activity's state, read from the same [DownloadPresenter] as the Downloads screen and
+     * the Android notification (Phase 9, stage 7). The state names are the widget's contract and are
+     * unchanged; a system pause still shows as paused, as it did before.
+     */
+    private fun DownloadItem.liveActivityState(): DownloadsLiveStatusPolicy.State =
+        liveActivityStateOf(DownloadPresenter.item(this, DownloadsClock.nowEpochMs()))
 }
 
 @Serializable

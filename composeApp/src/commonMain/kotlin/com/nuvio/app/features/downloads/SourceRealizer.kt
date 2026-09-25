@@ -13,7 +13,7 @@ internal sealed interface DownloadSourceResolution {
     data class Ready(val stream: StreamItem) : DownloadSourceResolution
     data class NotReady(val message: String) : DownloadSourceResolution
     data class RetryableFailure(val message: String) : DownloadSourceResolution
-    data class FatalFailure(val message: String) : DownloadSourceResolution
+    data class FatalFailure(val message: String, val storage: Boolean = false) : DownloadSourceResolution
     data class SourceChanged(val message: String) : DownloadSourceResolution
 }
 
@@ -165,6 +165,7 @@ internal object SourceRealizer {
             return RefreshedDownloadSource.Failed(
                 DownloadSourceResolution.FatalFailure(
                     getString(Res.string.downloads_enqueue_insufficient_storage),
+                    storage = true,
                 ),
             )
         }

@@ -505,6 +505,7 @@ object DownloadsRepository {
                     pauseReason = null,
                     activity = DownloadActivity.QUEUED_FOR_SLOT,
                     errorMessage = null,
+                    failureKind = null,
                     localFileUri = null,
                     downloadedBytes = partialBytes,
                     // Whatever stopped this is not held against the fresh attempt, and a
@@ -606,6 +607,46 @@ object DownloadsRepository {
             }
         }
         DownloadScheduler.startPendingTransfers()
+    }
+
+    /** A season's row in the queue: up or down past the neighbouring row (Phase 9). */
+    fun moveQueueGroup(groupKey: String, up: Boolean) {
+        ensureLoaded()
+        synchronized(DownloadStore.lock) {
+            val moved = DownloadQueuePlanner.movedGroup(
+                items = DownloadStore.allItems,
+                groupKey = groupKey,
+                up = up,
+                groupOf = DownloadQueueGrouping::keyOf,
+                inView = DownloadStore::isInActiveView,
+            )
+            if (moved === DownloadStore.allItems) return
+            DownloadStore.publishLocked(moved, immediate = true)
+        }
+        DownloadScheduler.startPendingTransfers()
+    }
+
+    fun pauseDownloads(downloadIds: Collection<String>) = downloadIds.forEach(::pauseDownload)
+
+    fun resumeDownloads(downloadIds: Collection<String>) = downloadIds.forEach(::resumeDownload)
+
+    /** "Cancel remaining" on a season row: the unfinished ones go, what is downloaded stays. */
+    fun cancelDownloads(downloadIds: Collection<String>) = downloadIds.forEach(::cancelDownload)
+
+    /** Drops entries that never became downloads ("Remove" on an attention card). */
+    fun removeBatchEntries(batchId: String, entryIds: Set<String>) {
+        ensureLoaded()
+        synchronized(DownloadStore.lock) {
+            val batch = DownloadStore.batches.value.firstOrNull { it.id == batchId } ?: return
+            val kept = batch.entries.filterNot { it.id in entryIds }
+            DownloadStore.batches.value = if (kept.isEmpty()) {
+                DownloadStore.batches.value.filterNot { it.id == batchId }
+            } else {
+                DownloadStore.batches.value.map { if (it.id == batchId) it.copy(entries = kept) else it }
+            }
+            DownloadStore.notifyBatchLiveStatusPlatform()
+            DownloadStore.persistLocked()
+        }
     }
 
     /** Removes every download belonging to one movie or series, files included. */

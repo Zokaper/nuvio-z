@@ -63,6 +63,8 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watched.watchedItemKeys
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import nuvio.composeapp.generated.resources.*
@@ -96,6 +98,37 @@ fun DownloadsScreen(
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
+    val freeUpHintText = stringResource(Res.string.download_free_up_hint)
+    val deviceItems by DownloadsRepository.deviceItems.collectAsStateWithLifecycle()
+    val watchedUiState by remember {
+        WatchedRepository.ensureLoaded()
+        WatchedRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val nowEpochMs = tickingNow(uiState.items.any { it.nextRetryAtEpochMs != null || it.status == DownloadStatus.Downloading })
+    val attention = remember(uiState.items, batches, nowEpochMs) {
+        AttentionGrouping.group(uiState.items, batches, nowEpochMs)
+    }
+    val queue = remember(uiState.items, nowEpochMs) {
+        val unfinished = uiState.items.filter {
+            it.status != DownloadStatus.Completed &&
+                DownloadPresenter.item(it, nowEpochMs).phase != DownloadUserPhase.NEEDS_YOU
+        }
+        DownloadQueueGrouping.group(unfinished, uiState.completedItems, nowEpochMs)
+    }
+    val storage = remember(deviceItems) {
+        DownloadStorageSummary.of(deviceItems, DownloadsPlatformDownloader.freeStorageBytes())
+    }
+    val cleanup = remember(uiState.completedItems, watchedUiState.watchedKeys) {
+        DownloadCleanup.watchedSuggestion(uiState.completedItems, isWatched = { item ->
+            watchedItemKeys(item.parentMetaType, item.parentMetaId, item.seasonNumber, item.episodeNumber)
+                .any(watchedUiState.watchedKeys::contains)
+        })
+    }
+    var detailItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingRemoval by remember { mutableStateOf<AttentionCard?>(null) }
+    var pendingGroupCancel by remember { mutableStateOf<DownloadQueueGroup?>(null) }
+    var cleanupConfirm by remember { mutableStateOf(false) }
+    var pendingSeasonDeletion by remember { mutableStateOf<Pair<String, Int>?>(null) }
 
     LaunchedEffect(scrollToTopRequests) {
         scrollToTopRequests.collect { listState.animateScrollToItem(0) }
@@ -171,19 +204,44 @@ fun DownloadsScreen(
             downloadsRootContent(
                 uiState = uiState,
                 batches = batches,
+                storage = storage,
+                attention = attention,
+                queue = queue,
+                cleanup = cleanup,
+                nowEpochMs = nowEpochMs,
                 onOpenDownload = onOpenDownload,
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
                 onRequestTitleDeletion = { pendingTitleDeletion = it },
-                onChooseBatchEntryManually = onChooseBatchEntryManually,
-                onDeleteDownload = { downloadPendingDeletionId = it },
+                onAttentionAction = { card, action ->
+                    when (action) {
+                        AttentionAction.REMOVE -> pendingRemoval = card
+                        AttentionAction.FREE_UP_SPACE -> if (cleanup != null) {
+                            cleanupConfirm = true
+                        } else {
+                            NuvioToastController.show(freeUpHintText)
+                        }
+                        else -> performAttentionAction(card, action)
+                    }
+                },
+                onChooseMember = { member ->
+                    when (member) {
+                        is AttentionMember.Entry -> onChooseBatchEntryManually?.invoke(member.batch, member.entry)
+                            ?: DownloadFlowController.chooseEntryManually(member.batch, member.entry)
+                        is AttentionMember.Item -> DownloadFlowController.chooseItemManually(member.item)
+                    }
+                },
+                onOpenDetail = { detailItemId = it.id },
+                onReviewCleanup = { cleanupConfirm = true },
+                onCancelGroup = { pendingGroupCancel = it },
             )
         } else {
             downloadsShowContent(
                 episodes = showEpisodes,
                 onOpenDownload = onOpenDownload,
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                onDeleteSeason = { parentMetaId, season -> pendingSeasonDeletion = parentMetaId to season },
             )
         }
     }
@@ -196,6 +254,75 @@ fun DownloadsScreen(
                 DownloadsRepository.deleteDownloadsForTitle(group.parentMetaId)
                 pendingTitleDeletion = null
             },
+        )
+    }
+
+    detailItemId?.let { id ->
+        val item = uiState.items.firstOrNull { it.id == id }
+        if (item == null) {
+            detailItemId = null
+        } else {
+            DownloadDetailSheet(
+                item = item,
+                nowEpochMs = nowEpochMs,
+                onDismiss = { detailItemId = null },
+                onDelete = {
+                    detailItemId = null
+                    downloadPendingDeletionId = item.id
+                },
+            )
+        }
+    }
+
+    pendingRemoval?.let { card ->
+        DownloadDeleteConfirmDialog(
+            what = listOfNotNull(card.title, card.season?.let { "S$it" }).joinToString(" · "),
+            onConfirm = {
+                removeAttentionMembers(card)
+                pendingRemoval = null
+            },
+            onDismiss = { pendingRemoval = null },
+        )
+    }
+
+    pendingGroupCancel?.let { group ->
+        DownloadDeleteConfirmDialog(
+            what = listOfNotNull(group.title, group.season?.let { "S$it" }).joinToString(" · "),
+            onConfirm = {
+                DownloadsRepository.cancelDownloads(group.items.map { it.id })
+                pendingGroupCancel = null
+            },
+            onDismiss = { pendingGroupCancel = null },
+        )
+    }
+
+    pendingSeasonDeletion?.let { (parentMetaId, season) ->
+        DownloadDeleteConfirmDialog(
+            what = listOfNotNull(selectedShowTitle, "S$season").joinToString(" · "),
+            onConfirm = {
+                DownloadsRepository.deleteDownloadsForSeason(parentMetaId, season)
+                pendingSeasonDeletion = null
+            },
+            onDismiss = { pendingSeasonDeletion = null },
+        )
+    }
+
+    if (cleanupConfirm && cleanup != null) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.download_cleanup_confirm_title),
+            message = stringResource(
+                Res.string.download_cleanup_confirm_body,
+                cleanup.items.size,
+                formatDownloadBytes(cleanup.bytes),
+            ),
+            isVisible = true,
+            confirmText = stringResource(Res.string.action_delete),
+            dismissText = stringResource(Res.string.action_cancel),
+            onConfirm = {
+                DownloadsRepository.cancelDownloads(cleanup.items.map { it.id })
+                cleanupConfirm = false
+            },
+            onDismiss = { cleanupConfirm = false },
         )
     }
 
@@ -244,141 +371,85 @@ internal fun List<DownloadItem>.groupedByTitle(): List<DownloadTitleGroup> =
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     batches: List<DownloadBatch>,
+    storage: DownloadStorageSummary?,
+    attention: List<AttentionCard>,
+    queue: List<DownloadQueueGroup>,
+    cleanup: WatchedCleanup?,
+    nowEpochMs: Long,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onRequestTitleDeletion: (DownloadTitleGroup) -> Unit,
-    onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)?,
-    onDeleteDownload: (String) -> Unit,
+    onAttentionAction: (AttentionCard, AttentionAction) -> Unit,
+    onChooseMember: (AttentionMember) -> Unit,
+    onOpenDetail: (DownloadItem) -> Unit,
+    onReviewCleanup: () -> Unit,
+    onCancelGroup: (DownloadQueueGroup) -> Unit,
 ) {
+    // Phase 9 stage 7: storage, then what needs the user (one card per title/season and
+    // reason), then the queue with a season as one row, then what is on the device.
     val preparingBatches = batches.filter { it.isPreparing }
-    // A batch that has already failed an episode but is still working through the rest
-    // belongs in Preparing, not in review: asking for a decision on a list that is
-    // still growing produces a review the user has to redo when discovery finishes.
-    val reviewBatches = batches.filter { batch ->
-        !batch.isPreparing &&
-            batch.entries.any {
-                it.state == DownloadBatchEntryState.APPROVAL_NEEDED ||
-                    it.state == DownloadBatchEntryState.SKIPPED ||
-                    it.state == DownloadBatchEntryState.FAILED
-            }
-    }
-    val attentionItems = uiState.items.filter {
-        it.sizeApprovalRequired || it.status == DownloadStatus.Failed
-    }
-    val activeItems = uiState.activeItems.filterNot { it in attentionItems }
     val completedGroups = uiState.completedItems.groupedByTitle()
 
-    if (preparingBatches.isNotEmpty()) {
-        item(key = "downloads-preparing-title") {
-            DownloadSectionTitle(stringResource(Res.string.downloads_section_preparing))
+    if (storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty())) {
+        item(key = "downloads-storage") { DownloadStorageBar(storage) }
+    }
+
+    if (attention.isNotEmpty()) {
+        item(key = "downloads-attention-title") {
+            DownloadSectionTitle(stringResource(Res.string.download_section_needs_you))
+        }
+        items(attention, key = { "attention-${it.key}" }) { card ->
+            DownloadAttentionCard(
+                card = card,
+                onAction = { action -> onAttentionAction(card, action) },
+                onChooseMember = onChooseMember,
+            )
+        }
+    }
+
+    if (cleanup != null) {
+        item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup) }
+    }
+
+    if (preparingBatches.isNotEmpty() || queue.isNotEmpty()) {
+        item(key = "downloads-active-title") {
+            DownloadSectionTitle(stringResource(Res.string.download_section_downloading))
         }
         items(preparingBatches, key = { "preparing-${it.id}" }) { batch ->
             PreparingBatchCard(batch = batch)
         }
-    }
-
-    if (reviewBatches.isNotEmpty() || attentionItems.isNotEmpty()) {
-        item(key = "downloads-attention-title") {
-            DownloadSectionTitle(stringResource(Res.string.downloads_section_attention))
-        }
-        items(reviewBatches, key = { "batch-${it.id}" }) { batch ->
-            ReviewBatchCard(
-                batch = batch,
-                onChooseBatchEntryManually = onChooseBatchEntryManually,
-            )
-        }
-        items(attentionItems, key = { "attention-${it.id}" }) { item ->
-            DownloadRow(
-                item = item,
-                onOpen = { onOpenDownload(item) },
-                onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = {
-                    if (item.sizeApprovalRequired) {
-                        DownloadsRepository.approveUnexpectedSize(item.id)
-                    } else {
-                        DownloadsRepository.resumeDownload(item.id)
-                    }
-                },
-                onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { onDeleteDownload(item.id) },
-            )
-            // A failed download from a batch - most often a source its debrid service
-            // has not cached - goes nowhere on Retry. The action it needs is a different
-            // source, so offer the picker right here.
-            val batchEntry = if (item.status == DownloadStatus.Failed && onChooseBatchEntryManually != null) {
-                batches.firstNotNullOfOrNull { batch ->
-                    batch.takeIf { it.parentMetaId == item.parentMetaId }
-                        ?.entries?.firstOrNull { it.videoId == item.videoId }
-                        ?.let { batch to it }
-                }
+        itemsIndexed(queue, key = { _, group -> "queue-${group.key}" }) { index, group ->
+            if (group.isSeason) {
+                DownloadQueueGroupRow(
+                    group = group,
+                    controls = DownloadGroupControls(
+                        onPauseAll = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) },
+                        onResumeAll = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) },
+                        onCancelRemaining = { onCancelGroup(group) },
+                        onMoveUp = if (index > 0) ({ DownloadsRepository.moveQueueGroup(group.key, up = true) }) else null,
+                        onMoveDown = if (index < queue.lastIndex) ({ DownloadsRepository.moveQueueGroup(group.key, up = false) }) else null,
+                    ),
+                    onOpenItem = onOpenDetail,
+                    onPauseItem = { DownloadsRepository.pauseDownload(it.id) },
+                    onResumeItem = { DownloadsRepository.resumeDownload(it.id) },
+                )
             } else {
-                null
+                val item = group.items.single()
+                DownloadQueueItemRow(
+                    item = item,
+                    presentation = group.presentations.single(),
+                    nowEpochMs = nowEpochMs,
+                    onOpen = { onOpenDetail(item) },
+                    onPause = { DownloadsRepository.pauseDownload(item.id) },
+                    onResume = { DownloadsRepository.resumeDownload(item.id) },
+                )
             }
-            if (batchEntry != null && onChooseBatchEntryManually != null) {
-                TextButton(
-                    onClick = { onChooseBatchEntryManually(batchEntry.first, batchEntry.second) },
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                ) {
-                    Text(stringResource(Res.string.download_choose_manual))
-                }
-            }
-        }
-    }
-
-    if (activeItems.isNotEmpty()) {
-        item(key = "downloads-active-title") {
-            DownloadSectionTitle(stringResource(Res.string.downloads_section_downloading))
-        }
-        itemsIndexed(activeItems, key = { _, item -> "active-${item.id}" }) { index, item ->
-            DownloadRow(
-                item = item,
-                onOpen = { onOpenDownload(item) },
-                onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = {
-                    if (item.sizeApprovalRequired) {
-                        DownloadsRepository.approveUnexpectedSize(item.id)
-                    } else {
-                        DownloadsRepository.resumeDownload(item.id)
-                    }
-                },
-                onRetry = { DownloadsRepository.retryDownload(item.id) },
-                // Delete always confirms (Phase 9).
-                onDelete = { onDeleteDownload(item.id) },
-                queueControls = QueueControls(
-                    canMoveUp = index > 0,
-                    canMoveDown = index < activeItems.lastIndex,
-                    onMoveToTop = { DownloadsRepository.moveDownloadToTop(item.id) },
-                    onMoveUp = { DownloadsRepository.moveDownloadUp(item.id) },
-                    onMoveDown = { DownloadsRepository.moveDownloadDown(item.id) },
-                    onMoveToBottom = { DownloadsRepository.moveDownloadToBottom(item.id) },
-                    // Pick a different resolution or file for this one item.
-                    onChange = { DownloadFlowController.change(item) },
-                ),
-            )
         }
     }
 
     if (completedGroups.isNotEmpty()) {
         item(key = "downloads-on-device-title") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DownloadSectionTitle(
-                    title = stringResource(Res.string.downloads_section_on_device),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = stringResource(
-                        Res.string.downloads_storage_used,
-                        formatDownloadBytes(uiState.bytesOnDisk),
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            DownloadSectionTitle(title = stringResource(Res.string.downloads_section_on_device))
         }
         items(completedGroups, key = { "title-${it.parentMetaId}" }) { group ->
             DownloadTitleRow(
@@ -395,7 +466,7 @@ private fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (uiState.items.isEmpty() && reviewBatches.isEmpty() && preparingBatches.isEmpty()) {
+    if (uiState.items.isEmpty() && attention.isEmpty() && preparingBatches.isEmpty()) {
         item(key = "downloads-empty") {
             Column(
                 modifier = Modifier
@@ -423,6 +494,7 @@ private fun LazyListScope.downloadsShowContent(
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    onDeleteSeason: (parentMetaId: String, season: Int) -> Unit,
 ) {
     if (episodes.isEmpty()) {
         item(key = "downloads-show-empty") {
@@ -469,9 +541,7 @@ private fun LazyListScope.downloadsShowContent(
                 )
                 val parentMetaId = entries.first().parentMetaId
                 IconButton(
-                    onClick = {
-                        DownloadsRepository.deleteDownloadsForSeason(parentMetaId, seasonNumber)
-                    },
+                    onClick = { onDeleteSeason(parentMetaId, seasonNumber) },
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Delete,
@@ -590,104 +660,6 @@ private fun PreparingBatchCard(batch: DownloadBatch) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReviewBatchCard(
-    batch: DownloadBatch,
-    onChooseBatchEntryManually: ((DownloadBatch, DownloadBatchEntry) -> Unit)?,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(batch.title, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        stringResource(
-                            Res.string.download_review_summary,
-                            batch.entries.count { it.needsManualSource || it.canCheckAgain },
-                            batch.entries.count { it.canBeApproved },
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                // Approving only helps entries waiting on an unknown size or unclear
-                // metadata. An uncached debrid source would sit at "Waiting for provider"
-                // until it failed, so those are sent to the manual picker below instead.
-                if (batch.entries.any { it.canBeApproved }) {
-                    IconButton(onClick = { DownloadsRepository.queueBatch(batch.id, approveUnknownSizes = true) }) {
-                        Icon(
-                            Icons.Rounded.PlayArrow,
-                            contentDescription = stringResource(Res.string.download_batch_approve_unknown),
-                        )
-                    }
-                }
-                IconButton(onClick = { DownloadsRepository.removeBatch(batch.id) }) {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = stringResource(Res.string.action_delete),
-                    )
-                }
-            }
-            // Over the size level / resolution missing: why, per entry. Allow above takes them all.
-            batch.entries
-                .filter { it.canBeApproved }
-                .forEach { entry ->
-                    val reason = (entry.selection as? SourceSelectionResult.ApprovalNeeded)?.reason
-                    Text(
-                        listOfNotNull(entry.title, reason).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-            // Nothing cached / no sources: nothing to choose, so Check again, never the picker.
-            batch.entries
-                .filter { it.canCheckAgain }
-                .forEach { entry ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            listOfNotNull(entry.title, entry.failureMessage).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { DownloadFlowController.checkAgain(batch, entry) }) {
-                            Text(stringResource(Res.string.download_flow_check_again))
-                        }
-                    }
-                }
-            if (onChooseBatchEntryManually != null) {
-                batch.entries
-                    .filter { it.needsManualSource }
-                    .forEach { entry ->
-                        if (entry.selectsUncachedDebrid) {
-                            Text(
-                                stringResource(Res.string.downloads_review_not_cached, entry.title),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        TextButton(
-                            onClick = { onChooseBatchEntryManually(batch, entry) },
-                        ) {
-                            Text("${entry.title}: ${stringResource(Res.string.download_choose_manual)}")
-                        }
-                    }
             }
         }
     }
@@ -1051,5 +1023,68 @@ private fun QueueMenu(controls: QueueControls) {
                 },
             )
         }
+    }
+}
+
+/** The attention actions that need no confirmation. REMOVE and FREE_UP_SPACE are the screen's. */
+internal fun performAttentionAction(card: AttentionCard, action: AttentionAction) {
+    val entries = card.members.filterIsInstance<AttentionMember.Entry>()
+    val items = card.members.filterIsInstance<AttentionMember.Item>().map { it.item }
+    when (action) {
+        AttentionAction.ALLOW, AttentionAction.USE_NEAREST -> {
+            items.filter { it.sizeApprovalRequired }.forEach { DownloadsRepository.approveUnexpectedSize(it.id) }
+            entries.groupBy { it.batch.id }.forEach { (batchId, members) ->
+                DownloadsRepository.queueBatch(
+                    batchId,
+                    approveUnknownSizes = true,
+                    onlyEntryIds = members.mapTo(mutableSetOf()) { it.entry.id },
+                )
+            }
+        }
+        AttentionAction.CHECK_AGAIN -> {
+            entries.forEach { DownloadFlowController.checkAgain(it.batch, it.entry) }
+            items.forEach(DownloadFlowController::recheck)
+        }
+        AttentionAction.RETRY -> items.forEach { DownloadsRepository.retryDownload(it.id) }
+        AttentionAction.CHOOSE_SOURCES -> card.batch?.let { DownloadFlowController.openChooseSources(it.id) }
+        AttentionAction.PICK_THE_REST -> card.batch?.let(DownloadFlowController::pickTheRest)
+        AttentionAction.REMOVE -> removeAttentionMembers(card)
+        AttentionAction.FREE_UP_SPACE -> Unit
+    }
+}
+
+internal fun removeAttentionMembers(card: AttentionCard) {
+    card.members.filterIsInstance<AttentionMember.Item>().forEach { DownloadsRepository.cancelDownload(it.item.id) }
+    card.members.filterIsInstance<AttentionMember.Entry>().groupBy { it.batch.id }.forEach { (batchId, members) ->
+        DownloadsRepository.removeBatchEntries(batchId, members.mapTo(mutableSetOf()) { it.entry.id })
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun DownloadDetailSheet(
+    item: DownloadItem,
+    nowEpochMs: Long,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    com.nuvio.app.core.ui.NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        DownloadDetailContent(
+            item = item,
+            presentation = DownloadPresenter.item(item, nowEpochMs),
+            nowEpochMs = nowEpochMs,
+            onPause = { DownloadsRepository.pauseDownload(item.id) },
+            onResume = { DownloadsRepository.resumeDownload(item.id) },
+            onChange = {
+                onDismiss()
+                DownloadFlowController.change(item)
+            },
+            onDownloadNext = {
+                DownloadsRepository.moveDownloadToTop(item.id)
+                onDismiss()
+            },
+            onDelete = onDelete,
+        )
     }
 }

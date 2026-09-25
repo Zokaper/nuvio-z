@@ -119,6 +119,7 @@ internal actual object DownloadsLiveStatusPlatform {
                     episodeLabel(head),
                     summary.headProgressPercent?.let { "$it%" },
                     summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
+                    summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
                 ).joinToString(" · ")
                 head.title to detail
             }
@@ -127,17 +128,19 @@ internal actual object DownloadsLiveStatusPlatform {
                     listOfNotNull(head.title, episodeLabel(head)).joinToString(" "),
                     summary.headProgressPercent?.let { "$it%" },
                     summary.waitingCount.takeIf { it > 0 }?.let { string(Res.string.downloads_summary_queued, it) },
+                    summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
                 ).joinToString(" · ")
                 string(Res.string.downloads_summary_downloading_many, summary.downloadingCount) to detail
             }
             summary.waitingReason != null -> {
-                val reason = when (summary.waitingReason) {
-                    DownloadsWaitingReason.Connection -> string(Res.string.downloads_status_waiting_connection)
-                    DownloadsWaitingReason.Wifi -> string(Res.string.downloads_status_waiting_wifi)
-                    DownloadsWaitingReason.Retrying -> string(Res.string.downloads_status_retry_backoff)
-                    DownloadsWaitingReason.Starting -> string(Res.string.downloads_status_waiting_to_start)
+                // The same words as the Downloads row (DownloadPresentation).
+                val reason = runBlocking {
+                    DownloadPresentation(DownloadUserPhase.WAITING, waitReason = summary.waitingReason).plainTextOf()
                 }
-                string(Res.string.downloads_summary_waiting_title) to reason
+                string(Res.string.downloads_summary_waiting_title) to listOfNotNull(
+                    reason,
+                    summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
+                ).joinToString(" · ")
             }
             else -> {
                 (summary.preparingTitle ?: string(Res.string.downloads_preparing_notification_title)) to
@@ -202,6 +205,7 @@ internal actual object DownloadsLiveStatusPlatform {
         headId = summary.head?.id,
         percent = summary.headProgressPercent,
         reason = summary.waitingReason,
+        needsYou = summary.needsYouCount,
         preparing = summary.preparedEntries to summary.preparingEntries,
         preparingTitle = summary.preparingTitle,
     )
@@ -211,7 +215,8 @@ internal actual object DownloadsLiveStatusPlatform {
         val waiting: Int,
         val headId: String?,
         val percent: Int?,
-        val reason: DownloadsWaitingReason?,
+        val reason: DownloadWaitReason?,
+        val needsYou: Int,
         val preparing: Pair<Int, Int>,
         val preparingTitle: String?,
     )

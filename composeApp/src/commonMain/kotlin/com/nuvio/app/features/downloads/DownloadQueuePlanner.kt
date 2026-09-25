@@ -152,6 +152,40 @@ internal object DownloadQueuePlanner {
     }
 
     /**
+     * Moves a whole queue group (a season, Phase 9) past its visible neighbour group.
+     *
+     * Groups are taken in the order the user sees them (by each group's first member). The moved
+     * group and its neighbour swap places, members keep their relative order, and the positions
+     * the visible items already held are reused in the new order - so another profile's items,
+     * which this view does not show, keep theirs.
+     */
+    fun movedGroup(
+        items: List<DownloadItem>,
+        groupKey: String,
+        up: Boolean,
+        groupOf: (DownloadItem) -> String,
+        inView: (DownloadItem) -> Boolean,
+    ): List<DownloadItem> {
+        val visible = items
+            .filter { it.status != DownloadStatus.Completed && inView(it) }
+            .sortedWith(downloadQueueComparator)
+        val groups = visible.groupBy(groupOf)
+        val order = groups.keys.toMutableList()
+        val index = order.indexOf(groupKey)
+        if (index == -1) return items
+        val neighbour = if (up) index - 1 else index + 1
+        if (neighbour !in order.indices) return items
+        order[index] = order[neighbour].also { order[neighbour] = order[index] }
+        val newOrder = order.flatMap { groups.getValue(it) }
+        val positions = visible.map { it.queuePosition }.sorted()
+        val assigned = newOrder.mapIndexed { i, item -> item.id to positions[i] }.toMap()
+        return items.map { item ->
+            val position = assigned[item.id] ?: return@map item
+            if (item.queuePosition == position) item else item.copy(queuePosition = position)
+        }
+    }
+
+    /**
      * Renumbers ranks without changing the order.
      *
      * Used after loading a payload written before ranks existed, where every item
