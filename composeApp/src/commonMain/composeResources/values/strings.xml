@@ -2925,8 +2925,8 @@
     <string name="download_flow_no_sources_title">No downloadable source found</string>
     <string name="download_flow_no_sources_body">Your addons returned nothing Nuvio can download for this.</string>
     <string name="download_flow_space_title">Not enough free space</string>
-    <string name="download_flow_space_body">This needs about %1$s, and %2$s is free.</string>
-    <string name="download_flow_space_fits">Download what fits (%1$d of %2$d)</string>
+    <string name="download_flow_space_body">This needs about %1$s, and %2$s is free. The first %3$d of %4$d fit.</string>
+    <string name="download_flow_space_fits">Download what fits</string>
     <string name="download_flow_mobile_title">You're on mobile data</string>
     <string name="download_flow_mobile_body">Download now on mobile data, or wait for Wi-Fi?</string>
     <string name="download_flow_mobile_use">Use mobile data</string>

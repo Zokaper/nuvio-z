@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -230,15 +232,17 @@ fun DownloadSeasonChooserDialog(
                 ),
             )
         }
+        // The count sits above the buttons, not in one: "Continue · 181 episodes" wrapped
+        // inside the button on a phone.
+        Text(
+            text = stringResource(Res.string.download_flow_episode_count, step.episodeCount),
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textMuted,
+        )
         DialogButtons(
             secondary = stringResource(Res.string.action_cancel),
             onSecondary = onDismiss,
-            primary = if (step.selected.isEmpty()) {
-                stringResource(Res.string.download_flow_continue)
-            } else {
-                "${stringResource(Res.string.download_flow_continue)} · " +
-                    stringResource(Res.string.download_flow_episode_count, step.episodeCount)
-            },
+            primary = stringResource(Res.string.download_flow_continue),
             onPrimary = onContinue,
             primaryEnabled = step.selected.isNotEmpty() && step.episodeCount > 0,
         )
@@ -432,12 +436,14 @@ fun DownloadFreeSpaceDialog(
                 Res.string.download_flow_space_body,
                 DownloadFlowRules.sizeLabel(step.neededBytes),
                 DownloadFlowRules.sizeLabel(step.freeBytes),
+                step.fitCount,
+                step.totalCount,
             ),
         )
         DialogButtons(
             secondary = stringResource(Res.string.action_cancel),
             onSecondary = onDismiss,
-            primary = stringResource(Res.string.download_flow_space_fits, step.fitCount, step.totalCount),
+            primary = stringResource(Res.string.download_flow_space_fits),
             onPrimary = onDownloadWhatFits,
             primaryEnabled = step.fitCount > 0,
         )
@@ -460,12 +466,19 @@ fun DownloadDeleteConfirmDialog(what: String, onConfirm: () -> Unit, onDismiss: 
 
 // --- shared shell ------------------------------------------------------------------------------
 
+/** True in the render harness: the dialogs draw their surface in place, with no window. */
+val LocalDownloadFlowInline = staticCompositionLocalOf { false }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DownloadFlowDialog(
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    if (LocalDownloadFlowInline.current) {
+        DownloadFlowSurface(content)
+        return
+    }
     BasicAlertDialog(onDismissRequest = onDismiss) {
         DownloadFlowSurface(content)
     }
@@ -520,20 +533,42 @@ private fun DialogButtons(
     primaryEnabled: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onSecondary) {
-            Text(text = secondary, color = tokens.colors.textMuted)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Side by side, a phone-width dialog leaves the primary button about 180dp, and
+        // "Download what fits" wrapped inside it. Narrow dialogs stack: primary on top, full width.
+        if (maxWidth < 380.dp) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+            ) {
+                NuvioPrimaryButton(
+                    text = primary,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = primaryEnabled,
+                    onClick = onPrimary,
+                )
+                TextButton(onClick = onSecondary) {
+                    Text(text = secondary, color = tokens.colors.textMuted)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onSecondary) {
+                    Text(text = secondary, color = tokens.colors.textMuted)
+                }
+                NuvioPrimaryButton(
+                    text = primary,
+                    modifier = Modifier.weight(1f),
+                    enabled = primaryEnabled,
+                    onClick = onPrimary,
+                )
+            }
         }
-        NuvioPrimaryButton(
-            text = primary,
-            modifier = Modifier.weight(1f),
-            enabled = primaryEnabled,
-            onClick = onPrimary,
-        )
     }
 }
 

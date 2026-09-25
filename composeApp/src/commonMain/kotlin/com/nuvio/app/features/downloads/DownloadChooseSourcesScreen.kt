@@ -32,6 +32,7 @@ import nuvio.composeapp.generated.resources.download_choose_sources_left
 import nuvio.composeapp.generated.resources.download_choose_sources_pick
 import nuvio.composeapp.generated.resources.download_choose_sources_rest
 import nuvio.composeapp.generated.resources.download_choose_sources_title
+import nuvio.composeapp.generated.resources.download_flow_finding_source
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -143,7 +144,7 @@ fun ChooseSourcesRow(entry: DownloadBatchEntry, onPick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                entry.pickedSummary()?.let { summary ->
+                entry.pickedSummary(findingText = stringResource(Res.string.download_flow_finding_source))?.let { summary ->
                     Text(
                         text = summary,
                         style = MaterialTheme.typography.bodySmall,
@@ -173,9 +174,9 @@ internal val DownloadBatchEntry.isAwaitingPick: Boolean
 private fun DownloadBatchEntry.episodeLabel(): String =
     if (season != null && episode != null) "S$season · E$episode" else ""
 
-private fun DownloadBatchEntry.pickedSummary(): String? = when {
+private fun DownloadBatchEntry.pickedSummary(findingText: String): String? = when {
     isAwaitingPick -> null
-    state == DownloadBatchEntryState.DISCOVERING -> "…"
+    state == DownloadBatchEntryState.DISCOVERING -> findingText
     else -> listOfNotNull(
         (selection as? SourceSelectionResult.Selected)?.facts?.resolution?.height?.let(DownloadFlowRules::resolutionLabel),
         (selection as? SourceSelectionResult.Selected)?.facts?.sizeBytes?.let(DownloadFlowRules::sizeLabel),
