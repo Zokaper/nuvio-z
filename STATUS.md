@@ -145,8 +145,36 @@ Verification: pure **900/900**; Android host **2,468/2,468** (results deleted, `
 2,620/2,620 and pure 890/890. Render review: 11 surfaces x 4 widths, PNGs read; three defects fixed.
 **Nothing physical** - no debug build cut for stage 6 alone; the next one carries stages 6+7.
 
-**Next:** stage 7 (Downloads screen + attention redesign on a shared `DownloadPresentation`), then
-the consolidated render review for the maintainer, then a debug build. The iOS window stays at 12.
+**Stage 7 - Downloads screen + attention (`301137be4`, render fix `b6e23a9a6`; desktop cherry-picked):**
+- **`DownloadPresenter`** (`DownloadPresentation.kt`) is the one vocabulary: Finding a source / Queued /
+  Downloading / Waiting (connection, Wi-Fi, retrying shortly, starting, resuming) / Paused / Needs you /
+  Downloaded. Plain line only; attempts, provider, last error, retry countdown and engine state are the
+  **detail on tap**. The screen, the **Android summary notification** (waiting reason + "N need you") and the
+  **iOS Live Activity** state all read it (`plainText` / `plainTextOf` share one string mapping). The widget's
+  state names are unchanged; a system pause still shows as paused there. The `.49` "Waiting to retry...
+  retrying in 5, 4, 3" line is now "Retrying shortly" with the countdown in the detail - a wording change,
+  **not** a fix for whatever made Android retry (still unresolved physically).
+- **Needs you = exactly four kinds.** `DownloadItem.failureKind` (STORAGE / NOT_CACHED) is set where a download
+  fails, so nothing parses localized error text. `AttentionGrouping`: one card per title/season and reason;
+  actions Allow (with size) / Use nearest / Check again / Retry / Free up space / Choose sources + Let Nuvio pick /
+  Remove, per-episode "Choose" only where a pick can help (never for nothing-cached, no-sources or storage).
+- Screen: storage bar (all profiles + free space), Needs you, "Free up X of watched episodes" (suggested,
+  confirmed, never automatic), queue with a **season as one expandable row** (combined progress, "Season 2 · 4
+  left · 2 done", pause/resume all, move up/down past the neighbour row, cancel remaining keeps completed), detail
+  sheet (Pause/Resume, Change, Download next, Delete), On this device. Remove/cancel/delete all confirm.
+- **Deliberately not done:** `DownloadBatchEntryState` was not shrunk to Deciding/NeedsDecision/Enqueued (it is
+  persisted; the presenter maps the old states instead). The title page's download controls still use
+  `DownloadPresence`, not the presenter.
+- **Found by CI:** stage 6 used JVM-only `toSortedMap`, so the iOS link failed from `7a99073aa` until
+  the fix `709531113`. Android/desktop never saw it.
+
+Verification: pure **900/900**; Android host **2,491/2,491** (results deleted, `--rerun`; +17 presentation
+tests, +6 summary/flow); `:androidApp:compileFullDebugKotlin` passes; desktop `desktopTest` **2,638/2,638**
+(+ `DownloadsScreenRenderHarness`). iOS build (dispatched: it only runs on pushes touching iOS paths, which is how the stage 6 break got through) **passed** on `709531113`, run `36081660584`.
+Render review: stage 6 (11 surfaces) + stage 7 (screen + detail) x 4 widths, PNGs read, five defects fixed.
+
+**Next:** the maintainer's consolidated render review (stages 6 + 7) and size-level numbers, then a debug build
+for physical QA of the flows; then stage 8 (wizard + settings), 9 (What's New). The iOS window stays at 12.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
