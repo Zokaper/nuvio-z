@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
 ## Phase 9 — Downloads Redesign: IN PROGRESS (opened 2026-09-24)
 
@@ -112,7 +112,41 @@ payload migration). Debug build **50** ([`debug-v0.4.13-z1.50`](https://github.c
 iPhone locked-queue regression (must match `.46`), Android screen-off **on Wi-Fi**, desktop.
 None of those are verified until the maintainer reports them.
 
-**Next:** stage 6 flows UI, then 7-9. The iOS window stays at 12.
+**Stage 6 - flows UI (`7a99073aa` + render fix `c6b501ecb`; desktop cherry-picked, see
+`NuvioZDesktop/STATUS.md`):** `DownloadFlowController` is the only way into a download - title
+button, episode rows, seasons, long-press sheets, "Change" (toast and queue-row menu), "Choose
+manually" on attention cards. By Download Mode:
+- **Automatic**: starts at once; a whole show asks for seasons first (All / Unwatched / None, "Only
+  unwatched episodes"; opens on Unwatched for a started show, All otherwise). Toast "Downloading ·
+  1080p · 2.1 GB" with **Change** -> the Assisted sheet for that item.
+- **Assisted**: one row per resolution (best match each, preferred pre-selected; season rows show
+  "about 24 GB for 22 episodes" and "not for N episodes" -> those become Use-nearest entries while
+  the rest proceed). "Choose manually" at the bottom for a single item.
+- **Manual**: single -> the download source list (tap enqueues with **Undo**, never plays, goes
+  back); several -> new **Choose sources** screen (Pick per episode, "Let Nuvio pick the rest" =
+  the Assisted sheet over what is left).
+- `DownloadBatchCoordinator` replaces `PresetDownloadCoordinator`. Entries carry their reason
+  (`OVER_LIMIT`, `RESOLUTION_MISSING`, `NOTHING_CACHED`, `NO_SOURCES`, `MANUAL_PICK`).
+  **NothingCached rule held:** discovery now runs the local debrid cache check, and the selector
+  reads the service's answer before the addon's text (before this, an unmarked but cached torrent
+  would have been NothingCached for lack of a marker). NothingCached/NoSources offer **Check again**
+  and never the manual list; known-uncached rows in the download source list are disabled and
+  labelled "Not cached on your debrid service".
+- Free-space warning before a batch starts (Download what fits / Cancel); mobile-data rule **Ask**
+  now asks once per app session; delete confirms (title-page season delete, manage sheet, queue rows).
+- Retired: `PresetDownloadDialog`, `PlaybackModeDownloadRouter` (+ tests), the stream list's preset
+  sheet, the dead `onDownloadManually` plumbing. The Playback Mode card's download line now names the
+  derived Download Mode. The review card only stops offering impossible actions; its redesign is stage 7.
+- Presets still exist in Settings -> Downloads until stage 8 replaces that screen.
+- **Size levels are still provisional** (calibration + maintainer review owed).
+
+Verification: pure **900/900**; Android host **2,468/2,468** (results deleted, `--rerun`: +33 new,
+-17 retired router/copy tests); `:androidApp:compileFullDebugKotlin` passes; desktop `desktopTest`
+2,620/2,620 and pure 890/890. Render review: 11 surfaces x 4 widths, PNGs read; three defects fixed.
+**Nothing physical** - no debug build cut for stage 6 alone; the next one carries stages 6+7.
+
+**Next:** stage 7 (Downloads screen + attention redesign on a shared `DownloadPresentation`), then
+the consolidated render review for the maintainer, then a debug build. The iOS window stays at 12.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
