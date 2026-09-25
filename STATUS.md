@@ -324,7 +324,11 @@ iOS build (dispatched) **passed** on stage 8, run `36174107743`.
 Verification: pure **931/931** (+13); Android host **2,519/2,519** (results deleted, `--rerun-tasks`) +
 `:androidApp:compileFullDebugKotlin`.
 
-**Next:** debug 52 / desktop 64 for stage 8+9 physical checks (fresh install; upgrade from `.48`/`.51` - the
+**Published (2026-09-25):** mobile **debug 52** ([`debug-v0.4.13-z1.52`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.52),
+run `36182730459`, IPA + APK - the IPA build is the iOS compile check for stage 9) and desktop **debug 64**
+(`debug-v0.1.23-alpha-z6.64`, run `36182733969`). Both carry stages 6-9.
+
+**Next:** physical checks on debug 52 / desktop 64 for stages 8+9 (fresh install; upgrade from `.48`/`.51` - the
 download-steps upgrade run and What's New; a second phone on a current profile - the device run), plus the
 stage 6/7 QA still owed on 51. Then the iOS experiments (10a/10b, need physical runs), subtitles stretch (11), and
 the release gate (12). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses
