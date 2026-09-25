@@ -593,9 +593,12 @@ internal fun DownloadChoiceBatchRow(
             if (finding && total > 0) {
                 ThinProgress(found.toFloat() / total.toFloat(), modifier = Modifier.padding(top = 3.dp))
             }
-        }
-        if (!finding) {
-            PillButton(stringResource(Res.string.download_choose_quality), PillStyle.PRIMARY, onChoose)
+            // Under the text, not beside it: beside it, a phone row cut the title to "Lantern…".
+            if (!finding) {
+                Box(Modifier.padding(top = 6.dp)) {
+                    PillButton(stringResource(Res.string.download_choose_quality), PillStyle.PRIMARY, onChoose)
+                }
+            }
         }
         IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
             Icon(
