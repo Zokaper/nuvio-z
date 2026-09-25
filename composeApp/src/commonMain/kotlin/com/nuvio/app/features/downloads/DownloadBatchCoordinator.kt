@@ -519,7 +519,9 @@ object DownloadBatchCoordinator {
             .filter { it.season != null && it.episode != null && it.available }
             .filter { video -> video.released?.take(10)?.let { it <= today } ?: true }
             .groupBy { it.season!! }
-            .toSortedMap()
+            // Not toSortedMap(): that is JVM-only and broke the iOS link.
+            .entries
+            .sortedBy { it.key }
             .map { (season, videos) ->
                 DownloadFlowRules.SeasonChoice(
                     season = season,
