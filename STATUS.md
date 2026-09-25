@@ -173,8 +173,53 @@ tests, +6 summary/flow); `:androidApp:compileFullDebugKotlin` passes; desktop `d
 (+ `DownloadsScreenRenderHarness`). iOS build (dispatched: it only runs on pushes touching iOS paths, which is how the stage 6 break got through) **passed** on `709531113`, run `36081660584`.
 Render review: stage 6 (11 surfaces) + stage 7 (screen + detail) x 4 widths, PNGs read, five defects fixed.
 
-**Next:** the maintainer's consolidated render review (stages 6 + 7) and size-level numbers, then a debug build
-for physical QA of the flows; then stage 8 (wizard + settings), 9 (What's New). The iOS window stays at 12.
+**Stage 7 render review (maintainer, 2026-09-25):** the functionality and information model are **approved**; the
+visual design was **not** ("a debug/admin dashboard, not a media app": identical rounded rectangles, 1,900px desktop
+rows with actions at the far end, Needs you painted pink, a busy season mega-card, "Unwatched" twice in the season
+chooser, six floating "Pick" labels, no artwork in the fixtures). Decisions carried with it: **no physical-QA build
+and no stage 8 until the revised renders are approved**; the size levels stay provisional; the next physical-QA build
+must carry lightweight debug catalogue/source-size logging (no URLs, no headers) so the levels can be calibrated.
+
+**Stage 7 composition pass (`de8038613`; desktop `8fc71cb03` + harness `cb51188ce`):** presentation only - no state,
+engine or presenter change. Made on desktop (where the render harness lives) and cherry-picked here; `strings.xml`
+auto-merged.
+- Artwork everywhere (`DownloadsArtwork.kt`: poster / still, the title's initial when there is none). The Downloads
+  screen caps at 880dp and Choose sources at 720dp, centred (`Modifier.downloadsContentWidth`), header included.
+- **Needs you** = one panel: poster, title, the problem in one line with the colour on its icon only, up to 3
+  episodes (+N more; "Choose" kept within 440dp of its episode), one filled primary pill + tonal alternatives.
+  **Remove is a corner close control** (still confirms). "Season 3 · 2 episodes"; a single episode drops the count.
+- Queue rows are flat. A season shows **its own totals** ("1.7 GB of 3.7 GB · 45%", previously the lead episode's
+  bytes against the season's bar), chevron by the title, and a dense inset episode list (E3 · title · state).
+  **"Download now anyway" lives inside the Wi-Fi-waiting episode's text column.** Row controls tinted (they
+  rendered dim outside a Surface).
+- Watched cleanup moved under the storage bar as a quiet outlined line. "On this device" rows flat, "3 episodes"
+  instead of "3 downloaded episode(s)".
+- **Season chooser - one selection model:** Unwatched / All episodes (shown only once the show is started) + a
+  checklist with per-season counts; a fully watched season cannot be ticked under Unwatched; Select all / Clear.
+  The All / Unwatched / None presets and the "Only unwatched episodes" switch are gone. Rules:
+  `DownloadFlowRules.isSelectable / selectionForMode / selectAll / offersUnwatchedMode` (+3 tests).
+- **Choose sources:** poster header with progress, one list with three visibly different states (tick / spinner /
+  open ring + chevron); the whole row is the pick target. **Resolution sheet:** poster heading, radio + 2dp accent
+  border, size on the right with "about X each" for seasons, cautions behind a warning icon.
+- Render harnesses: generated poster/still art per title (`DownloadRenderFixtures.kt`, via Coil's preview handler,
+  offline) and plausible titles/episodes/sizes; the screen harness now renders the production
+  `downloadsRootContent` inside `NuvioScreen`. The review caught and fixed: Choose sources' primary button eating
+  the title column on desktop (title rendered one letter per line), a heading line-cap truncating dialog bodies,
+  pills wrapping one per line on phones.
+- **Revised render set:** `Nuvio Z/render-review/phase-9-stage-7-composition/` (`screen/` 8, `flows/` 44 PNGs;
+  360 / 420 / 1280 / 1920 wide). Source: `NuvioZDesktop/composeApp/build/{downloads-screen-render,download-flow-render}/`.
+
+Verification: pure **903/903**; Android host **2,494/2,494** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,641 run, 2,640 pass** - the one failure is
+`NetworkQualityPlatformDesktopTest.currentReturnsPromptlyWithoutBlockingCaller` (a 200ms wall-clock assertion on a
+PowerShell probe), which failed twice while other Gradle builds loaded the machine and then passed 2/2 on this tree
+and 2/2 at the pre-pass commit `890518221`: load-sensitive, not this change. iOS: dispatched on `de8038613` (see
+below).
+
+**Next:** the maintainer reviews the revised render set. On approval: add the size-telemetry logging, publish the
+Phase 9 debug build for combined physical QA (stages 6/7 + the pending background tests), then stage 8 (wizard +
+settings), 9 (What's New). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses
+shared-code-only pushes (keep dispatching by hand until fixed).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
