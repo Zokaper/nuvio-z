@@ -87,12 +87,15 @@ fun decideWhatsNew(
     if (ack == null && legacyLastSeenVersion == null) {
         return WhatsNewDecision(emptyList(), emptyList(), WhatsNewAck(currentSerial, debugNow))
     }
+    // The old key only ever stood for "the version before this one": show this release alone (or
+    // nothing, if the key already names it), and of the debug lines only this build's own - debug
+    // builds share one version name, so a tester arriving from the previous debug build would
+    // otherwise be shown nothing at all.
+    val legacyDebug = (debugNow - 1).coerceAtLeast(0)
     val effective = ack ?: if (legacyLastSeenVersion == currentVersion) {
-        WhatsNewAck(currentSerial, debugNow)
+        WhatsNewAck(currentSerial, legacyDebug)
     } else {
-        // The old key only ever stood for "the version before this one"; show this release alone
-        // and no debug backlog.
-        WhatsNewAck(currentSerial - 1, debugNow)
+        WhatsNewAck(currentSerial - 1, legacyDebug)
     }
     val familyReleases = releases.filter { it.family == family }
     val shown = familyReleases

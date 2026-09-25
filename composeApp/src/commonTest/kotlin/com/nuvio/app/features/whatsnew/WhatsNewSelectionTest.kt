@@ -61,6 +61,15 @@ class WhatsNewSelectionTest {
     }
 
     @Test
+    fun aTesterComingFromTheLastDebugBuildSeesThisBuildsLineOnly() {
+        // Debug builds share one version name, so the old key already names it.
+        val decision = decide(serial = 127, version = "0.4.13-z1", debug = 51, legacy = "0.4.13-z1")
+        assertEquals(listOf("Stage 7 polish"), decision.debugNotes.map { it.text })
+        assertTrue(decision.sections.isEmpty())
+        assertEquals(WhatsNewAck(127, 51), decision.ackToWrite)
+    }
+
+    @Test
     fun skippingReleasesMergesEverythingMissedByCategoryNewestFirst() {
         val decision = decide(serial = 129, version = "0.4.15-z1", ack = WhatsNewAck(127, 0))
         assertEquals(ChangelogCategoryOrder, decision.sections.map { it.category })
