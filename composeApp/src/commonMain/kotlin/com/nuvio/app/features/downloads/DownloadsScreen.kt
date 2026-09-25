@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
@@ -157,6 +158,7 @@ fun DownloadsScreen(
                     .background(MaterialTheme.colorScheme.background),
             ) {
                 NuvioScreenHeader(
+                    modifier = Modifier.downloadsContentWidth(),
                     title = if (selectedShowId == null) {
                         stringResource(Res.string.compose_settings_root_downloads_title)
                     } else {
@@ -192,7 +194,7 @@ fun DownloadsScreen(
                     },
                 )
                 if (selectedShowId == null && topSwitcher != null) {
-                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Box(modifier = Modifier.downloadsContentWidth().padding(horizontal = 16.dp)) {
                         topSwitcher()
                     }
                     Spacer(modifier = Modifier.height(10.dp))
@@ -368,7 +370,7 @@ internal fun List<DownloadItem>.groupedByTitle(): List<DownloadTitleGroup> =
         }
         .sortedBy { it.title.lowercase() }
 
-private fun LazyListScope.downloadsRootContent(
+internal fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     batches: List<DownloadBatch>,
     storage: DownloadStorageSummary?,
@@ -384,39 +386,43 @@ private fun LazyListScope.downloadsRootContent(
     onOpenDetail: (DownloadItem) -> Unit,
     onReviewCleanup: () -> Unit,
     onCancelGroup: (DownloadQueueGroup) -> Unit,
+    /** The render harness opens every season; the app starts them closed. */
+    initiallyExpandedGroups: Boolean = false,
 ) {
     // Phase 9 stage 7: storage, then what needs the user (one card per title/season and
     // reason), then the queue with a season as one row, then what is on the device.
     val preparingBatches = batches.filter { it.isPreparing }
     val completedGroups = uiState.completedItems.groupedByTitle()
 
+    // Every row is capped at DownloadsContentMaxWidth and centred: a desktop window must not
+    // stretch a row, and its actions, across the whole screen.
+    val width = Modifier.downloadsContentWidth()
     if (storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty())) {
-        item(key = "downloads-storage") { DownloadStorageBar(storage) }
+        item(key = "downloads-storage") { DownloadStorageBar(storage, width) }
+    }
+
+    // A suggestion about storage, so it sits with the storage bar rather than among the problems.
+    if (cleanup != null) {
+        item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup, modifier = width) }
     }
 
     if (attention.isNotEmpty()) {
-        item(key = "downloads-attention-title") {
-            DownloadSectionTitle(stringResource(Res.string.download_section_needs_you))
-        }
-        items(attention, key = { "attention-${it.key}" }) { card ->
-            DownloadAttentionCard(
-                card = card,
-                onAction = { action -> onAttentionAction(card, action) },
+        item(key = "downloads-attention") {
+            DownloadAttentionSection(
+                cards = attention,
+                onAction = onAttentionAction,
                 onChooseMember = onChooseMember,
+                modifier = width,
             )
         }
     }
 
-    if (cleanup != null) {
-        item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup) }
-    }
-
     if (preparingBatches.isNotEmpty() || queue.isNotEmpty()) {
         item(key = "downloads-active-title") {
-            DownloadSectionTitle(stringResource(Res.string.download_section_downloading))
+            DownloadsSectionHeading(stringResource(Res.string.download_section_downloading), width)
         }
         items(preparingBatches, key = { "preparing-${it.id}" }) { batch ->
-            PreparingBatchCard(batch = batch)
+            PreparingBatchCard(batch = batch, modifier = width)
         }
         itemsIndexed(queue, key = { _, group -> "queue-${group.key}" }) { index, group ->
             if (group.isSeason) {
@@ -432,6 +438,8 @@ private fun LazyListScope.downloadsRootContent(
                     onOpenItem = onOpenDetail,
                     onPauseItem = { DownloadsRepository.pauseDownload(it.id) },
                     onResumeItem = { DownloadsRepository.resumeDownload(it.id) },
+                    initiallyExpanded = initiallyExpandedGroups,
+                    modifier = width,
                 )
             } else {
                 val item = group.items.single()
@@ -442,6 +450,7 @@ private fun LazyListScope.downloadsRootContent(
                     onOpen = { onOpenDetail(item) },
                     onPause = { DownloadsRepository.pauseDownload(item.id) },
                     onResume = { DownloadsRepository.resumeDownload(item.id) },
+                    modifier = width,
                 )
             }
         }
@@ -449,11 +458,12 @@ private fun LazyListScope.downloadsRootContent(
 
     if (completedGroups.isNotEmpty()) {
         item(key = "downloads-on-device-title") {
-            DownloadSectionTitle(title = stringResource(Res.string.downloads_section_on_device))
+            DownloadsSectionHeading(stringResource(Res.string.downloads_section_on_device), width)
         }
         items(completedGroups, key = { "title-${it.parentMetaId}" }) { group ->
             DownloadTitleRow(
                 group = group,
+                modifier = width,
                 onClick = {
                     if (group.isSeries) {
                         onOpenShow(group.parentMetaId, group.title)
@@ -470,7 +480,7 @@ private fun LazyListScope.downloadsRootContent(
         item(key = "downloads-empty") {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .downloadsContentWidth()
                     .padding(horizontal = 20.dp, vertical = 40.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -527,7 +537,7 @@ private fun LazyListScope.downloadsShowContent(
         item(key = "downloads-season-$seasonNumber") {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .downloadsContentWidth()
                     .padding(end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -555,20 +565,22 @@ private fun LazyListScope.downloadsShowContent(
             items = entries.sortedForSeriesDownloads(),
             key = { it.id },
         ) { item ->
-            DownloadRow(
-                item = item,
-                onOpen = { onOpenDownload(item) },
-                onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = {
-                    if (item.sizeApprovalRequired) {
-                        DownloadsRepository.approveUnexpectedSize(item.id)
-                    } else {
-                        DownloadsRepository.resumeDownload(item.id)
-                    }
-                },
-                onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { onDeleteDownload(item.id) },
-            )
+            Box(Modifier.downloadsContentWidth()) {
+                DownloadRow(
+                    item = item,
+                    onOpen = { onOpenDownload(item) },
+                    onPause = { DownloadsRepository.pauseDownload(item.id) },
+                    onResume = {
+                        if (item.sizeApprovalRequired) {
+                            DownloadsRepository.approveUnexpectedSize(item.id)
+                        } else {
+                            DownloadsRepository.resumeDownload(item.id)
+                        }
+                    },
+                    onRetry = { DownloadsRepository.retryDownload(item.id) },
+                    onDelete = { onDeleteDownload(item.id) },
+                )
+            }
         }
     }
 }
@@ -583,83 +595,37 @@ private fun LazyListScope.downloadsShowContent(
  * batch again when discovery finishes, so a removal here would silently come back.
  */
 @Composable
-private fun PreparingBatchCard(batch: DownloadBatch) {
+private fun PreparingBatchCard(batch: DownloadBatch, modifier: Modifier = Modifier) {
+    val tokens = MaterialTheme.nuvio
     val total = batch.entries.size
     val prepared = batch.preparedEntryCount
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    Row(
+        modifier = modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        DownloadPoster(url = batch.poster ?: batch.background, title = batch.title, width = 48.dp)
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DownloadArtwork(
-                    imageUrl = batch.poster ?: batch.background,
-                    contentDescription = batch.title,
-                    modifier = Modifier.width(44.dp),
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = batch.title.trim().takeIf { it.isNotBlank() }
-                            ?: stringResource(Res.string.downloads_section_preparing),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(
-                            Res.string.downloads_preparing_progress,
-                            prepared,
-                            total,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
+            Text(
+                text = batch.title.trim().takeIf { it.isNotBlank() }
+                    ?: stringResource(Res.string.downloads_section_preparing),
+                style = MaterialTheme.typography.titleSmall,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(Res.string.downloads_preparing_progress, prepared, total),
+                style = MaterialTheme.typography.labelMedium,
+                color = tokens.colors.textMuted,
+            )
             if (total > 0) {
-                LinearProgressIndicator(
-                    progress = prepared.toFloat() / total.toFloat(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            batch.entries.forEach { entry ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = downloadBatchEntryLabel(entry),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = downloadBatchEntryStateText(entry.state),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                ThinProgress(prepared.toFloat() / total.toFloat(), modifier = Modifier.padding(top = 3.dp))
             }
         }
     }
@@ -670,60 +636,52 @@ private fun DownloadTitleRow(
     group: DownloadTitleGroup,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        DownloadPoster(url = group.poster, title = group.title, width = 48.dp)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            DownloadArtwork(
-                imageUrl = group.poster,
-                contentDescription = group.title,
-                modifier = Modifier.width(52.dp),
+            Text(
+                text = group.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    text = group.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = if (group.isSeries) {
-                        "${stringResource(Res.string.downloads_episode_count, group.items.size)} • ${formatDownloadBytes(group.bytesOnDisk)}"
-                    } else {
-                        formatDownloadBytes(group.bytesOnDisk)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Rounded.Delete,
-                    contentDescription = stringResource(Res.string.downloads_delete_title),
-                )
-            }
-            Icon(
-                imageVector = if (group.isSeries) Icons.Rounded.ChevronRight else Icons.Rounded.PlayArrow,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                text = if (group.isSeries) {
+                    "${stringResource(Res.string.download_flow_episode_count, group.items.size)} · ${formatDownloadBytes(group.bytesOnDisk)}"
+                } else {
+                    formatDownloadBytes(group.bytesOnDisk)
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = tokens.colors.textMuted,
             )
         }
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = stringResource(Res.string.downloads_delete_title),
+                tint = tokens.colors.textMuted,
+            )
+        }
+        Icon(
+            imageVector = if (group.isSeries) Icons.Rounded.ChevronRight else Icons.Rounded.PlayArrow,
+            contentDescription = null,
+            tint = tokens.colors.textMuted,
+        )
     }
 }
 

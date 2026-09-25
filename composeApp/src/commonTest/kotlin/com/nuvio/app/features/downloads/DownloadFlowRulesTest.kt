@@ -129,4 +129,38 @@ class DownloadFlowRulesTest {
         assertEquals("850 MB", DownloadFlowRules.sizeLabel(850_000_000L))
         assertEquals("124 GB", DownloadFlowRules.sizeLabel(123_600_000_000L))
     }
+
+    private val startedShow = listOf(
+        DownloadFlowRules.SeasonChoice(0, 4, 4),
+        DownloadFlowRules.SeasonChoice(1, 10, 0),
+        DownloadFlowRules.SeasonChoice(2, 10, 3),
+        DownloadFlowRules.SeasonChoice(3, 10, 10),
+    )
+
+    @Test
+    fun unwatchedModeDropsFullyWatchedSeasonsAndKeepsTheRest() {
+        assertEquals(setOf(2, 3), DownloadFlowRules.selectionForMode(startedShow, setOf(1, 2, 3), unwatchedOnly = true))
+        assertEquals(setOf(0, 3), DownloadFlowRules.selectionForMode(startedShow, setOf(0, 3), unwatchedOnly = true))
+        // Nothing survives: every season with something unwatched instead of an empty selection.
+        assertEquals(setOf(2, 3), DownloadFlowRules.selectionForMode(startedShow, setOf(1), unwatchedOnly = true))
+        // All episodes keeps the selection as it is.
+        assertEquals(setOf(1), DownloadFlowRules.selectionForMode(startedShow, setOf(1), unwatchedOnly = false))
+    }
+
+    @Test
+    fun aWatchedSeasonCannotBeTickedUnderUnwatched() {
+        assertEquals(false, DownloadFlowRules.isSelectable(startedShow[1], unwatchedOnly = true))
+        assertEquals(true, DownloadFlowRules.isSelectable(startedShow[1], unwatchedOnly = false))
+        assertEquals(setOf(2, 3), DownloadFlowRules.selectAll(startedShow, unwatchedOnly = true))
+        assertEquals(setOf(1, 2, 3), DownloadFlowRules.selectAll(startedShow, unwatchedOnly = false))
+    }
+
+    @Test
+    fun theModeChoiceOnlyAppearsOnceTheShowIsStarted() {
+        assertEquals(true, DownloadFlowRules.offersUnwatchedMode(startedShow))
+        val fresh = listOf(DownloadFlowRules.SeasonChoice(1, 10, 10), DownloadFlowRules.SeasonChoice(2, 10, 10))
+        assertEquals(false, DownloadFlowRules.offersUnwatchedMode(fresh))
+        val finished = listOf(DownloadFlowRules.SeasonChoice(1, 10, 0))
+        assertEquals(false, DownloadFlowRules.offersUnwatchedMode(finished))
+    }
 }

@@ -216,6 +216,9 @@ data class DownloadQueueGroup(
     val allPaused: Boolean get() = presentations.all { it.phase == DownloadUserPhase.PAUSED }
     val anyPaused: Boolean get() = presentations.any { it.phase == DownloadUserPhase.PAUSED }
 
+    /** The title's poster, for the row's artwork. */
+    val poster: String? get() = items.firstNotNullOfOrNull { it.poster ?: it.background }
+
     private fun leadRank(p: DownloadPresentation): Int = when (p.phase) {
         DownloadUserPhase.DOWNLOADING -> 0
         DownloadUserPhase.FINDING_SOURCE -> 1
@@ -329,6 +332,15 @@ data class AttentionCard(
 ) {
     /** The batch behind Manual cards (Choose sources / pick the rest). */
     val batch: DownloadBatch? get() = members.firstNotNullOfOrNull { (it as? AttentionMember.Entry)?.batch }
+
+    /** The title's poster, for the card's artwork. */
+    val poster: String?
+        get() = members.firstNotNullOfOrNull { member ->
+            when (member) {
+                is AttentionMember.Entry -> member.batch.poster ?: member.batch.background
+                is AttentionMember.Item -> member.item.poster ?: member.item.background
+            }
+        }
 
     /** Over the limit: the largest of the smallest files, so "Allow" says what it may cost. */
     val allowBytes: Long?

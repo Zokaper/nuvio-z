@@ -2997,4 +2997,21 @@
     <string name="download_detail_move_to_top">Download next</string>
     <string name="download_summary_needs_you">%1$d need you</string>
     <string name="download_free_up_hint">Delete downloads you no longer need under On this device.</string>
+    <!-- Phase 9 stage 7 composition pass. -->
+    <string name="download_episode_short">E%1$d</string>
+    <string name="download_group_episodes_show">Show episodes</string>
+    <string name="download_group_episodes_hide">Hide episodes</string>
+    <string name="download_attention_more">+%1$d more</string>
+    <string name="download_attention_episodes_line">Season %1$d · %2$d episodes</string>
+    <string name="download_flow_seasons_mode_unwatched">Unwatched</string>
+    <string name="download_flow_seasons_mode_all">All episodes</string>
+    <string name="download_flow_seasons_select_all">Select all</string>
+    <string name="download_flow_seasons_clear">Clear</string>
+    <string name="download_flow_season_unwatched_count">%1$d unwatched</string>
+    <string name="download_flow_season_watched">Watched</string>
+    <string name="download_flow_seasons_total">%1$d episodes · %2$d seasons</string>
+    <string name="download_flow_resolution_each">about %1$s each</string>
+    <string name="download_flow_resolution_episodes">%1$d episodes</string>
+    <string name="download_choose_sources_needs_pick">Choose a source</string>
+    <string name="download_choose_sources_scope">%1$s · %2$d episodes</string>
 </resources>

@@ -94,6 +94,35 @@ object DownloadFlowRules {
         seasons.filter { it.season != 0 && it.unwatchedCount > 0 }.mapTo(linkedSetOf()) { it.season }
 
     /**
+     * The chooser has one selection model: the ticked seasons, and whether "episodes" means the
+     * unwatched ones or all of them. A season with nothing left to watch adds nothing under
+     * Unwatched, so it cannot be ticked there.
+     */
+    fun isSelectable(choice: SeasonChoice, unwatchedOnly: Boolean): Boolean =
+        if (unwatchedOnly) choice.unwatchedCount > 0 else choice.episodeCount > 0
+
+    /** Whether Unwatched / All episodes is a real choice: only once the show has been started. */
+    fun offersUnwatchedMode(seasons: List<SeasonChoice>): Boolean =
+        seasons.any { it.season != 0 && it.unwatchedCount < it.episodeCount } && unwatchedSeasons(seasons).isNotEmpty()
+
+    /**
+     * Switching between Unwatched and All episodes keeps the ticked seasons, except that
+     * Unwatched drops those with nothing left to watch; if that leaves none, it ticks every
+     * season that has something unwatched.
+     */
+    fun selectionForMode(seasons: List<SeasonChoice>, selected: Set<Int>, unwatchedOnly: Boolean): Set<Int> {
+        if (!unwatchedOnly) return selected
+        val kept = selected.filterTo(linkedSetOf()) { season ->
+            seasons.firstOrNull { it.season == season }?.let { isSelectable(it, unwatchedOnly = true) } == true
+        }
+        return kept.ifEmpty { unwatchedSeasons(seasons) }
+    }
+
+    /** "Select all" in the current mode. Specials still only when tapped on their own. */
+    fun selectAll(seasons: List<SeasonChoice>, unwatchedOnly: Boolean): Set<Int> =
+        if (unwatchedOnly) unwatchedSeasons(seasons) else allSeasons(seasons)
+
+    /**
      * What the whole-show chooser opens with: someone part-way through a show wants what they
      * have not seen ("Unwatched"); someone who has not started it wants all of it.
      */
