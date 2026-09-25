@@ -245,10 +245,54 @@ Verification: pure **903/903**; Android host **2,498/2,498** (results deleted, `
 `:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,645/2,645** (results deleted,
 `--rerun-tasks`; the load-sensitive `NetworkQualityPlatformDesktopTest` passed this time).
 
-**Next:** publish the Phase 9 debug build for combined physical QA (stage 6 flows, stage 7 screen/attention,
-iPhone locked-screen queue regression vs `.46`, Android screen-off/background on Wi-Fi, Android mobile-data/Wi-Fi
-rules, size samples), then stage 8 (wizard + settings), 9 (What's New). The iOS window stays at 12. Cleanup list:
-the iOS workflow's path filter misses shared-code-only pushes (keep dispatching by hand until fixed).
+**Published for physical QA (2026-09-25):** mobile **debug 51**
+([`debug-v0.4.13-z1.51`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.51), run `36166846582`,
+IPA + APK, commit `1d8c9ee32` - the IPA build is also the iOS compile check for the polish) and desktop **debug 63**
+(`debug-v0.1.23-alpha-z6.63`, run `36167041339`). What to test on it: stage 6 flows (Automatic / Assisted / Manual,
+season chooser, Choose sources, free-space warning, mobile-data Ask, delete confirms, NothingCached); stage 7 screen
+and Needs you; **iPhone locked-screen queue regression** (must match `.46`); **Android screen-off/background on
+Wi-Fi**; Android mobile-data vs Wi-Fi rules (the rule is still only settable from stage 8, which is *not* in 51 -
+Wi-Fi only is the default); size samples (`size_sample` / `size_pick` in the diagnostics logs). **Nothing is
+verified until the maintainer reports it.**
+
+**Stage 8 - wizard + settings (`1ebb6da97`, fix `d92655767`; desktop `aaf98b2b3` + `8997cffcd` + actual/harness
+`e9d3d0f90`). Not in debug 51.**
+- **Wizard revision 10.** Two new steps after Playback setup: **Download Mode** (Automatic "Recommended" /
+  Assisted / Manual cards; the mode storyboard reuses playback's three processes - Manual = Classic, Assisted =
+  Streamlined, Automatic = Instant - ending on a download icon) and **Download setup**, per mode (plan stage 2):
+  Automatic = resolution, file size (with "About 2 GB per hour of video at 1080p"), fallback; Assisted = file size;
+  Manual = nothing; phones add mobile data. Manual on desktop drops the step.
+- **Three runs** (`setupWizardRun`, pure, tested): **Full** (fresh, or completed < 8); **Upgrade** (8 or 9: only
+  the two download steps, no Welcome, subtitle "New: downloads have their own mode now", closable - the close
+  control is "Not now"); **Device** (profile current, this *phone* never set up: the mobile-data question alone).
+  Skipping any run records its revision; skipping an upgrade leaves `DownloadPolicy.mode` null (derived). Walking
+  past the mode step commits the preselected (derived) mode, as the social step does. Sources is still never
+  replayed for revision 8.
+- **Device revision:** new device-local `DeviceSetupStorage` (Android SharedPreferences, iOS NSUserDefaults,
+  desktop `DesktopStorage`). Its own store because the gate reads it before anything starts and loading the
+  download store starts the engine. The gate re-reads it in the wizard's `onFinished`.
+- Android asks for `POST_NOTIFICATIONS` once, when leaving the download-setup step (the existing request-once path).
+- **Settings -> Downloads rebuilt:** Download Mode cards ("Following Playback Mode until you choose one" while
+  unanswered), Preferences (resolution, file size + GB/hour, fallback, pick rule, HDR), On this device (mobile data
+  on phones; downloads at once 1-4 and the folder off iOS), Advanced (addon filter, unchanged). **Preset editor
+  retired** (the repository's preset API stays for migration). Settings search indexes the new rows. All labels live
+  once in `DownloadModeUi.kt`.
+- Renders (desktop harnesses): `setup-wizard-render/` gains the download steps at three desktop sizes, a phone pass
+  (full x3 modes, upgrade, device at 360 and 420) and the download storyboard frames; `downloads-screen-render/`
+  gains `settings-*` at four widths. Read; one defect fixed (the empty-addons line rendered near-black on black -
+  older code, newly in view). Known: Automatic's four controls scroll inside the panel on a 360x780 phone, as
+  Playback setup already does. The storyboard PNGs show only the title frame - a harness limit (a single render at a
+  virtual time does not advance the `delay` loop), the same for the existing playback storyboards; the frame data is
+  pure-tested.
+- **Deliberately not done:** the separate "Set up this device" notification step - the request rides on the
+  download-setup step instead; ROADMAP §D wording ("Automatic never asks") still to be updated at the release gate.
+
+Verification: pure **918/918** (setup group 72 -> 87); Android host **2,507/2,507** (results deleted,
+`--rerun-tasks`) + `:androidApp:compileFullDebugKotlin`.
+
+**Next:** iOS build dispatch for stage 8 (new iOS actual), the physical results from debug 51, then stage 9 (What's
+New). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses shared-code-only pushes (keep
+dispatching by hand until fixed).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
