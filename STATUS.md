@@ -213,8 +213,8 @@ Verification: pure **903/903**; Android host **2,494/2,494** (results deleted, `
 `:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,641 run, 2,640 pass** - the one failure is
 `NetworkQualityPlatformDesktopTest.currentReturnsPromptlyWithoutBlockingCaller` (a 200ms wall-clock assertion on a
 PowerShell probe), which failed twice while other Gradle builds loaded the machine and then passed 2/2 on this tree
-and 2/2 at the pre-pass commit `890518221`: load-sensitive, not this change. iOS: dispatched on `de8038613` (see
-below).
+and 2/2 at the pre-pass commit `890518221`: load-sensitive, not this change. iOS build (dispatched) **passed** on
+`d1ac7d472`, run `36145095349`.
 
 **Next:** the maintainer reviews the revised render set. On approval: add the size-telemetry logging, publish the
 Phase 9 debug build for combined physical QA (stages 6/7 + the pending background tests), then stage 8 (wizard +
