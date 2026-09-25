@@ -298,8 +298,10 @@ sealed interface AttentionMember {
         override val season get() = item.seasonNumber
         override val episode get() = item.episodeNumber
         override val title get() = item.displayTitleForAttention()
+        // A different source cannot fix a full disk, and nothing cached has nothing to pick.
         override val offersChooseManually: Boolean
-            get() = presentation.noSourceReason != DownloadEntryDecisionKind.NOTHING_CACHED &&
+            get() = presentation.needsYou != DownloadNeedsYouKind.STORAGE &&
+                presentation.noSourceReason != DownloadEntryDecisionKind.NOTHING_CACHED &&
                 presentation.noSourceReason != DownloadEntryDecisionKind.NO_SOURCES
     }
 
