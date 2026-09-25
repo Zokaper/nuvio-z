@@ -216,10 +216,39 @@ PowerShell probe), which failed twice while other Gradle builds loaded the machi
 and 2/2 at the pre-pass commit `890518221`: load-sensitive, not this change. iOS build (dispatched) **passed** on
 `d1ac7d472`, run `36145095349`.
 
-**Next:** the maintainer reviews the revised render set. On approval: add the size-telemetry logging, publish the
-Phase 9 debug build for combined physical QA (stages 6/7 + the pending background tests), then stage 8 (wizard +
-settings), 9 (What's New). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses
-shared-code-only pushes (keep dispatching by hand until fixed).
+**Stage 7 render review (maintainer, 2026-09-25): revised set APPROVED in direction.** Do not redesign stage 7
+again. Five small polish items were asked for and done (`822563046`; desktop `41f0d6e0b` + fixture `3a1da754d`):
+- Choose sources: "Let Nuvio pick the rest" -> a **tonal "Auto-pick remaining"** (the Needs you action uses the
+  same words); the episode list stays the focus.
+- Chosen rows read **"1080p · 2.3 GB · WEB-DL"** (resolution · size · `releaseQuality`), not the stream's file name.
+- Season chooser: **"187 episodes selected"** over **"9 seasons"**. The count already followed Unwatched / All
+  episodes - the old one-line "N episodes · N seasons" just did not say so, and wrapped mid-phrase on phones.
+- Resolution sheet: **"4K unavailable for 2 episodes" / "720p unavailable for 1 episode"** (plurals), one caution
+  per full-width line under the row. Before, the caution shared a column with the size and wrapped letter by
+  letter at 360dp.
+- Needs you: several problems on one title/season render under **one poster and name**, each with its own
+  problem line, Remove, episodes and actions. Presentation only (`groupBy(parentMetaId, season)` in the panel);
+  `AttentionGrouping` and the cards are unchanged.
+Re-rendered at four widths and read; no further full render review is owed unless the UI changes materially.
+
+**Size telemetry (`575f247eb`; desktop cherry-pick):** `DownloadSizeTelemetry`, **debug builds only**. Every
+discovery writes `event=size_sample kind=episode|movie runtime=N total=N part=i/n sources=...`, 20 sources per line,
+80 max; each source is `height:MB:GBh:cache:quality:codec:hdr:dur` (`GBh` from the source's own duration `s`, else
+the title runtime `t`; `cache` C/H/N is the selector's evidence). Every decided entry - Automatic, Assisted
+resolution pick, Use nearest - writes `event=size_pick ... decision=... source=<token>`. **No URL, header, token,
+file name, stream title, provider, addon or title**; quality/codec are reduced to 12-char tags and anything URL- or
+header-shaped becomes `other` (tested). Lines land where `DownloadDiagnostics` already goes: Android
+`Download/NuvioZ-diagnostics/`, the iOS debug probe log, the desktop debug log. **The size levels stay
+provisional**; proposed calibrated values go to the maintainer once real samples exist.
+
+Verification: pure **903/903**; Android host **2,498/2,498** (results deleted, `--rerun-tasks`; +4 telemetry) +
+`:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,645/2,645** (results deleted,
+`--rerun-tasks`; the load-sensitive `NetworkQualityPlatformDesktopTest` passed this time).
+
+**Next:** publish the Phase 9 debug build for combined physical QA (stage 6 flows, stage 7 screen/attention,
+iPhone locked-screen queue regression vs `.46`, Android screen-off/background on Wi-Fi, Android mobile-data/Wi-Fi
+rules, size samples), then stage 8 (wizard + settings), 9 (What's New). The iOS window stays at 12. Cleanup list:
+the iOS workflow's path filter misses shared-code-only pushes (keep dispatching by hand until fixed).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
