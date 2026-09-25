@@ -101,7 +101,7 @@ fun DownloadsSettingsScreen(
     }
 }
 
-private fun LazyListScope.downloadsSettingsContent(
+internal fun LazyListScope.downloadsSettingsContent(
     addons: List<ManagedAddon>,
     policy: DownloadSourcePolicy,
     downloadPolicy: DownloadPolicy,
@@ -161,6 +161,8 @@ private fun LazyListScope.downloadsSettingsContent(
         item {
             Text(
                 text = stringResource(Res.string.downloads_no_enabled_sources),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(20.dp),
             )
         }
