@@ -409,6 +409,9 @@ internal object DownloadScheduler {
                     // restart loop is the same fault wearing a different hat.
                     val canRestartFromZero = !current.restartedFromZero &&
                         reason != DownloadFailureReason.Fatal &&
+                        // An unanswered request never touched the partial file, so it cannot
+                        // be the partial file's fault - see `DownloadFailureReason.NoResponse`.
+                        reason != DownloadFailureReason.NoResponse &&
                         downloadedBytes > 0L
                     if (!shouldRetry(reason, attempt, current.canReresolveSource) && canRestartFromZero) {
                         DownloadsPlatformDownloader.removePartialFile(current.fileName)
@@ -466,7 +469,9 @@ internal object DownloadScheduler {
                         // happened in words the user can act on rather than counting down to
                         // another attempt that will end the same way - a countdown that never
                         // finishes its sentence is what made this look like a hang.
-                        val stalledMessage = if (current.restartedFromZero) {
+                        val stalledMessage = if (reason == DownloadFailureReason.NoResponse) {
+                            fallbackMessage
+                        } else if (current.restartedFromZero) {
                             runBlocking { getString(Res.string.downloads_error_stalled) }
                         } else {
                             fallbackMessage

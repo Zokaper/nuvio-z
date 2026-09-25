@@ -13,12 +13,19 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.Call
+import okhttp3.Connection
+import okhttp3.ConnectionPool
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,9 +50,58 @@ private val downloadHttpClient = OkHttpClient.Builder()
  * `STATUS.md` flagged after `0.4.10-beta`. Both deadlines now come from one rule in
  * `DownloadTransfer.kt`, so they cannot disagree about which fires first.
  */
-private fun stallAwareClient(): OkHttpClient = downloadHttpClient.newBuilder()
+private fun stallAwareClient(pool: ConnectionPool, downloadId: String): OkHttpClient = downloadHttpClient.newBuilder()
     .readTimeout(stallReadTimeoutMs(DownloadsTiming.stallTimeoutMs), TimeUnit.MILLISECONDS)
+    // **One pool per attempt, never the shared one (`.52`).** Debrid links reach the CDN through
+    // one resolver host - StremThru, AIOStreams - that speaks HTTP/2, so every episode of a season
+    // shared a single pooled connection for its first hop. When that connection died silently on
+    // mobile data, OkHttp kept handing it out: the watchdog *cancels* a call, and a cancelled call
+    // says nothing to OkHttp about the connection's health. Every request after that waited out
+    // the full stall deadline, retries included, for twenty minutes - while `curl` on the same
+    // phone fetched the same links in two seconds, and a fresh process fetched them at once. A
+    // transfer that cannot inherit another's connection cannot inherit its death either; the cost
+    // is one TLS handshake per attempt of a multi-gigabyte file.
+    .connectionPool(pool)
+    // And a connection that dies under a live transfer is noticed by the transport, not only by
+    // the watchdog a minute later.
+    .pingInterval(HTTP2_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
+    .eventListener(TransferPhaseListener(downloadId))
     .build()
+
+private const val HTTP2_PING_INTERVAL_SECONDS = 15L
+
+/**
+ * What `Starting` is made of, in `DownloadDiag`: each hop's connection (new or reused, and over
+ * which protocol), its response, or its failure. `.52` could say that a request never answered,
+ * but not whether it hung on a reused connection, a new one, or the redirect's second hop.
+ * URL-free like the rest of the diagnostics.
+ */
+private class TransferPhaseListener(private val downloadId: String) : EventListener() {
+    private val startedAtNs = System.nanoTime()
+    private var hop = 0
+    private var connecting = false
+
+    private fun elapsedMs() = (System.nanoTime() - startedAtNs) / 1_000_000L
+
+    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+        connecting = true
+    }
+
+    override fun connectionAcquired(call: Call, connection: Connection) {
+        hop += 1
+        val kind = if (connecting) "new" else "reused"
+        connecting = false
+        DownloadDiagnostics.http(downloadId, "http_request", "hop=$hop conn=$kind proto=${connection.protocol()} ms=${elapsedMs()}")
+    }
+
+    override fun responseHeadersEnd(call: Call, response: Response) {
+        DownloadDiagnostics.http(downloadId, "http_response", "hop=$hop code=${response.code} ms=${elapsedMs()}")
+    }
+
+    override fun callFailed(call: Call, ioe: IOException) {
+        DownloadDiagnostics.http(downloadId, "http_failed", "hop=$hop error=${ioe::class.simpleName} ms=${elapsedMs()}")
+    }
+}
 
 internal actual object DownloadsPlatformDownloader {
     // The app runs its own transfers. The background job is stopped when the system reclaims it
@@ -127,6 +183,11 @@ internal actual object DownloadsPlatformDownloader {
             val destination = File(downloadsDir, request.destinationFileName)
             val tempFile = File(downloadsDir, "${request.destinationFileName}.part")
             var downloadedBytes = 0L
+            // This attempt's own connections, closed with it - see `stallAwareClient`.
+            val pool = ConnectionPool(2, 30, TimeUnit.SECONDS)
+            val client = stallAwareClient(pool, request.downloadId)
+            // Whether the server answered at all. A stall before it did is `NoResponse`.
+            var opened = false
 
             try {
                 var resumeFromBytes = tempFile.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
@@ -152,12 +213,13 @@ internal actual object DownloadsPlatformDownloader {
                 var attemptedRangeRequest = resumeFromBytes > 0L
                 var response = handle
                     .attachCall(
-                        stallAwareClient().newCall(
+                        client.newCall(
                             buildRequest(if (attemptedRangeRequest) resumeFromBytes else null),
                         ),
                     )
                     .execute()
 
+                opened = true
                 if (attemptedRangeRequest && response.code == 416) {
                     // The requested range starts past the end of the object. If that is
                     // because the partial file already holds every byte, the download is
@@ -188,7 +250,7 @@ internal actual object DownloadsPlatformDownloader {
                     downloadedBytes = 0L
                     attemptedRangeRequest = false
                     response = handle
-                        .attachCall(stallAwareClient().newCall(buildRequest(null)))
+                        .attachCall(client.newCall(buildRequest(null)))
                         .execute()
                 }
 
@@ -318,7 +380,14 @@ internal actual object DownloadsPlatformDownloader {
                 listener.onPaused(currentPartialBytes(tempFile, downloadedBytes))
                 throw cancellation
             } catch (error: Throwable) {
-                if (handle.isStalled) {
+                if (handle.isStalled && !opened) {
+                    // Nothing came back at all - see `DownloadFailureReason.NoResponse`.
+                    listener.onFailed(
+                        DownloadFailureReason.NoResponse,
+                        runBlocking { getString(Res.string.downloads_error_no_response) },
+                        currentPartialBytes(tempFile, downloadedBytes),
+                    )
+                } else if (handle.isStalled) {
                     // Transient on purpose: the source went quiet, which is exactly what the
                     // retry budget is for. Checked before `isCancelled` because cancelling
                     // the call is *how* a stalled read is unblocked, so both arrive here as
@@ -340,6 +409,7 @@ internal actual object DownloadsPlatformDownloader {
                 }
             } finally {
                 watchdog.cancel()
+                pool.evictAll()
             }
         }
 

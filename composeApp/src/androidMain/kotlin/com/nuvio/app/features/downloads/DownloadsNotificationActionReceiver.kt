@@ -22,9 +22,11 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
             actionApproveSize -> DownloadsRepository.approveUnexpectedSize(downloadId)
             // The summary notification's one action: a user pause of everything unfinished.
             // Every profile's: the notification counts the whole device queue.
-            actionPauseAll -> DownloadsRepository.deviceItems.value
-                .filter { it.status == DownloadStatus.Queued || it.status == DownloadStatus.Downloading }
-                .forEach { DownloadsRepository.pauseDownload(it.id) }
+            actionPauseAll -> DownloadsRepository.pauseDownloads(
+                DownloadsRepository.deviceItems.value
+                    .filter { it.status == DownloadStatus.Queued || it.status == DownloadStatus.Downloading }
+                    .map { it.id },
+            )
         }
     }
 

@@ -56,6 +56,16 @@ internal object DownloadDiagnostics {
         event(if (waiting) "wifi_wait" else "wifi_wait_end", item, "bytes=${item.downloadedBytes} ${context()}")
     fun completion(item: DownloadItem, bytes: Long) = event("completion", item, "bytes=$bytes")
 
+    /**
+     * One step of a transfer's HTTP exchange - a hop's connection, its response, its failure -
+     * from the platform downloader, which only knows the download's id. `Starting` covers all of
+     * it; these are what tell a slow provider from a connection that will never answer (`.52`).
+     */
+    fun http(downloadId: String, name: String, details: String) {
+        val item = DownloadStore.allItems.firstOrNull { it.id == downloadId }
+        if (item == null) note(name, "id=$downloadId $details") else event(name, item, details)
+    }
+
     private fun event(name: String, item: DownloadItem, details: String) =
         event(name, item.providerName, item.seasonNumber, item.episodeNumber, details)
 

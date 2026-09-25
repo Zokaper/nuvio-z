@@ -399,25 +399,39 @@ object DownloadsRepository {
     }
 
     /** Pauses on the user's behalf, which means it stays paused until they say otherwise. */
-    fun pauseDownload(downloadId: String) {
-        ensureLoaded()
-        synchronized(DownloadStore.lock) {
-            val item = DownloadStore.allItems.firstOrNull { it.id == downloadId } ?: return
-            if (item.status != DownloadStatus.Downloading && item.status != DownloadStatus.Queued) return
+    fun pauseDownload(downloadId: String) = pauseDownloads(listOf(downloadId))
 
-            DownloadScheduler.activeHandles.remove(downloadId)?.cancel()
-            DownloadStore.mutateLocked(downloadId, immediate = true) { current ->
-                current.copy(
-                    status = DownloadStatus.Paused,
-                    pauseReason = DownloadPauseReason.User,
-                    activity = DownloadActivity.USER_PAUSED,
-                    nextRetryAtEpochMs = null,
-                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    errorMessage = null,
-                )
+    /**
+     * [pauseDownload] for several at once - a season row, the notification's "Pause all" - as one
+     * step: every one is paused before the queue is asked what to start next.
+     *
+     * One at a time, each pause freed a slot and the queue filled it with the next item on the
+     * list, which the next pause then stopped. `.52`'s "Pause all" on a season fired three real
+     * requests at the provider this way, each cancelled a moment after it went out.
+     */
+    fun pauseDownloads(downloadIds: Collection<String>) {
+        ensureLoaded()
+        val paused = synchronized(DownloadStore.lock) {
+            val ids = downloadIds.toSet()
+            val affected = DownloadStore.allItems.filter {
+                it.id in ids && (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued)
             }
+            affected.forEach { item ->
+                DownloadScheduler.activeHandles.remove(item.id)?.cancel()
+                DownloadStore.mutateLocked(item.id, immediate = true) { current ->
+                    current.copy(
+                        status = DownloadStatus.Paused,
+                        pauseReason = DownloadPauseReason.User,
+                        activity = DownloadActivity.USER_PAUSED,
+                        nextRetryAtEpochMs = null,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        errorMessage = null,
+                    )
+                }
+            }
+            affected.isNotEmpty()
         }
-        DownloadScheduler.startPendingTransfers()
+        if (paused) DownloadScheduler.startPendingTransfers()
     }
 
     /**
@@ -625,8 +639,6 @@ object DownloadsRepository {
         }
         DownloadScheduler.startPendingTransfers()
     }
-
-    fun pauseDownloads(downloadIds: Collection<String>) = downloadIds.forEach(::pauseDownload)
 
     fun resumeDownloads(downloadIds: Collection<String>) = downloadIds.forEach(::resumeDownload)
 

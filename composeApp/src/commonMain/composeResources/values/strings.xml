@@ -2145,6 +2145,7 @@
     <string name="downloads_error_source_link_expired">The source link expired and could not be renewed. Trying again shortly.</string>
     <string name="downloads_error_source_not_ready">Source is still preparing this file. Waiting, then trying again.</string>
     <string name="downloads_error_stalled">This source stopped part-way through. Pick another source.</string>
+    <string name="downloads_error_no_response">This source isn't answering. Try again, or pick another source.</string>
     <string name="downloads_over_size_cap">Larger than this preset's size limit</string>
     <string name="download_batch_finding_sources_started">Finding sources in the background</string>
     <string name="downloads_error_write_partial_failed">Failed to write partial download file</string>
@@ -2885,6 +2886,7 @@
     <string name="downloads_offline_banner_action">Go to Downloads</string>
     <string name="downloads_summary_downloading_many">Downloading %1$d items</string>
     <string name="downloads_summary_queued">%1$d queued</string>
+    <string name="downloads_summary_done">%1$d of %2$d done</string>
     <string name="downloads_summary_waiting_title">Downloads waiting</string>
     <string name="downloads_summary_pause_all">Pause all</string>
     <string name="downloads_summary_episode">S%1$d E%2$d</string>
@@ -2981,6 +2983,7 @@
     <string name="download_action_move_down">Move down</string>
     <string name="download_group_season_progress">Season %1$d · %2$d left</string>
     <string name="download_group_season_progress_done">Season %1$d · %2$d left · %3$d done</string>
+    <string name="download_group_episodes_progress">%1$d of %2$d episodes · %3$s</string>
     <string name="download_storage_summary">Downloads use %1$s · %2$s free</string>
     <string name="download_storage_used">Downloads use %1$s</string>
     <string name="download_cleanup_title">Free up %1$s of watched episodes</string>

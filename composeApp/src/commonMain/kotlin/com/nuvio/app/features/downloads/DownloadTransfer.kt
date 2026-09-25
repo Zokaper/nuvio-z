@@ -127,6 +127,20 @@ internal enum class DownloadFailureReason {
     /** A network blip, timeout or 5xx. Worth retrying from the partial file. */
     Transient,
 
+    /**
+     * The request went out and nothing came back - no status, no headers - before the stall
+     * deadline. Retried on the [Transient] budget, but kept apart from it for two reasons.
+     *
+     * It says nothing about the partial file: the server never looked at it. A body that stalls
+     * near the end can be the partial file's fault, and the queue answers that by starting over
+     * from zero; a request that is never answered cannot be, and treating it the same way is how
+     * `.52` threw away 2.47 GB of a Lanterns episode after four unanswered requests.
+     *
+     * And "stopped part-way through" is the wrong thing to tell someone about a download that
+     * never received a byte.
+     */
+    NoResponse,
+
     /** The remote bytes changed under us; the partial file was discarded. */
     SourceChanged,
 
