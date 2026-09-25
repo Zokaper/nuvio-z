@@ -60,6 +60,7 @@ import nuvio.composeapp.generated.resources.download_batch_scope_episode
 import nuvio.composeapp.generated.resources.download_batch_scope_movie
 import nuvio.composeapp.generated.resources.download_batch_scope_season
 import nuvio.composeapp.generated.resources.download_batch_scope_season_unwatched
+import nuvio.composeapp.generated.resources.download_batch_scope_seasons_none
 import nuvio.composeapp.generated.resources.download_flow_check_again
 import nuvio.composeapp.generated.resources.download_flow_choose_manually
 import nuvio.composeapp.generated.resources.download_flow_close
@@ -76,7 +77,7 @@ import nuvio.composeapp.generated.resources.download_flow_no_sources_body
 import nuvio.composeapp.generated.resources.download_flow_no_sources_title
 import nuvio.composeapp.generated.resources.download_flow_nothing_cached_body
 import nuvio.composeapp.generated.resources.download_flow_nothing_cached_title
-import nuvio.composeapp.generated.resources.download_flow_resolution_missing
+import nuvio.composeapp.generated.resources.download_flow_resolution_unavailable
 import nuvio.composeapp.generated.resources.download_flow_resolution_over_limit
 import nuvio.composeapp.generated.resources.download_flow_resolution_title
 import nuvio.composeapp.generated.resources.download_flow_seasons_title
@@ -92,10 +93,12 @@ import nuvio.composeapp.generated.resources.download_flow_seasons_select_all
 import nuvio.composeapp.generated.resources.download_flow_seasons_clear
 import nuvio.composeapp.generated.resources.download_flow_season_unwatched_count
 import nuvio.composeapp.generated.resources.download_flow_season_watched
-import nuvio.composeapp.generated.resources.download_flow_seasons_total
+import nuvio.composeapp.generated.resources.download_flow_seasons_selected_episodes
+import nuvio.composeapp.generated.resources.download_flow_seasons_selected_seasons
 import nuvio.composeapp.generated.resources.download_flow_resolution_each
 import nuvio.composeapp.generated.resources.download_flow_resolution_episodes
 import nuvio.composeapp.generated.resources.download_choose_sources_scope
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -197,12 +200,7 @@ fun DownloadSeasonChooserDialog(
         }
         Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(Res.string.download_flow_seasons_total, step.episodeCount, step.selected.size),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = tokens.colors.textSecondary,
-                )
+                SeasonSelectionSummary(step.episodeCount, step.selected.size, Modifier.weight(1f))
                 NuvioActionLabel(
                     text = stringResource(
                         if (allTicked) Res.string.download_flow_seasons_clear else Res.string.download_flow_seasons_select_all,
@@ -243,6 +241,33 @@ fun DownloadSeasonChooserDialog(
             onPrimary = onContinue,
             primaryEnabled = step.selected.isNotEmpty() && step.episodeCount > 0,
         )
+    }
+}
+
+/**
+ * What Continue will act on: "81 episodes selected" over "5 seasons". The count already follows
+ * Unwatched / All episodes. Two lines by design - one line wrapped mid-phrase on phones.
+ */
+@Composable
+private fun SeasonSelectionSummary(episodes: Int, seasons: Int, modifier: Modifier = Modifier) {
+    val tokens = MaterialTheme.nuvio
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            text = if (seasons == 0) {
+                stringResource(Res.string.download_batch_scope_seasons_none)
+            } else {
+                pluralStringResource(Res.plurals.download_flow_seasons_selected_episodes, episodes, episodes)
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.textSecondary,
+        )
+        if (seasons > 0) {
+            Text(
+                text = pluralStringResource(Res.plurals.download_flow_seasons_selected_seasons, seasons, seasons),
+                style = MaterialTheme.typography.labelMedium,
+                color = tokens.colors.textMuted,
+            )
+        }
     }
 }
 
@@ -451,71 +476,81 @@ private fun ResolutionRowCard(
             color = if (selected) tokens.colors.accent else tokens.colors.borderSubtle,
         ),
     ) {
+        val cautions = buildList {
+            if (row.overLimit) add(stringResource(Res.string.download_flow_resolution_over_limit))
+            if (isSeason && row.missingCount > 0) {
+                add(
+                    pluralStringResource(
+                        Res.plurals.download_flow_resolution_unavailable,
+                        row.missingCount,
+                        DownloadFlowRules.resolutionLabel(row.height),
+                        row.missingCount,
+                    ),
+                )
+            }
+        }
         Row(
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s14, vertical = NuvioTokens.Space.s12),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
         ) {
             RadioMark(selected)
-            // Quality on the left, what it costs on the right: the two things being traded.
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
-                Text(
-                    text = DownloadFlowRules.resolutionLabel(row.height),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = tokens.colors.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                row.detail?.takeIf { it.isNotBlank() }?.let { detail ->
-                    Text(
-                        text = detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                val cautions = buildList {
-                    if (row.overLimit) add(stringResource(Res.string.download_flow_resolution_over_limit))
-                    if (isSeason && row.missingCount > 0) {
-                        add(stringResource(Res.string.download_flow_resolution_missing, row.missingCount))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
+                // Quality on the left, what it costs on the right: the two things being traded.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+                        Text(
+                            text = DownloadFlowRules.resolutionLabel(row.height),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = tokens.colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        row.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                            Text(
+                                text = detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.colors.textMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+                        val known = row.totalBytes.takeIf { it > 0L }
+                        Text(
+                            text = known?.let(DownloadFlowRules::sizeLabel) ?: stringResource(Res.string.download_flow_size_unknown),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (known != null) tokens.colors.textPrimary else tokens.colors.textMuted,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        if (isSeason && row.episodeCount > 0) {
+                            Text(
+                                text = known?.let {
+                                    stringResource(Res.string.download_flow_resolution_each, DownloadFlowRules.sizeLabel(it / row.episodeCount))
+                                } ?: stringResource(Res.string.download_flow_resolution_episodes, row.episodeCount),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.colors.textMuted,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
-                if (cautions.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Each caution on its own line under both columns, so neither squeezes the other.
+                cautions.forEach { caution ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(
                             Icons.Rounded.WarningAmber,
                             contentDescription = null,
                             tint = tokens.colors.warning,
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                         Text(
-                            text = cautions.joinToString(" · "),
+                            text = caution,
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.colors.textSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-            }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
-                val known = row.totalBytes.takeIf { it > 0L }
-                Text(
-                    text = known?.let(DownloadFlowRules::sizeLabel) ?: stringResource(Res.string.download_flow_size_unknown),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (known != null) tokens.colors.textPrimary else tokens.colors.textMuted,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
-                if (isSeason && row.episodeCount > 0) {
-                    Text(
-                        text = known?.let {
-                            stringResource(Res.string.download_flow_resolution_each, DownloadFlowRules.sizeLabel(it / row.episodeCount))
-                        } ?: stringResource(Res.string.download_flow_resolution_episodes, row.episodeCount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textMuted,
-                        maxLines = 1,
-                    )
                 }
             }
         }

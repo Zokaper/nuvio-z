@@ -2913,7 +2913,10 @@
     <string name="download_flow_finding_progress">%1$d of %2$d episodes checked</string>
     <string name="download_flow_resolution_title">Choose a resolution</string>
     <string name="download_flow_resolution_season_total">about %1$s for %2$d episodes</string>
-    <string name="download_flow_resolution_missing">not for %1$d episodes</string>
+    <plurals name="download_flow_resolution_unavailable">
+        <item quantity="one">%1$s unavailable for %2$d episode</item>
+        <item quantity="other">%1$s unavailable for %2$d episodes</item>
+    </plurals>
     <string name="download_flow_resolution_over_limit">Over your size level</string>
     <string name="download_flow_size_unknown">size unknown</string>
     <string name="download_flow_choose_manually">Choose manually</string>
@@ -2934,7 +2937,7 @@
     <string name="download_flow_not_cached_row">Not cached on your debrid service</string>
     <string name="download_choose_sources_title">Choose sources</string>
     <string name="download_choose_sources_pick">Pick</string>
-    <string name="download_choose_sources_rest">Let Nuvio pick the rest</string>
+    <string name="download_choose_sources_rest">Auto-pick remaining</string>
     <string name="download_choose_sources_left">%1$d of %2$d still to pick</string>
     <string name="download_choose_sources_all_picked">Every episode has a source</string>
     <string name="download_review_summary">%1$d need a source · %2$d to approve</string>
@@ -2966,7 +2969,7 @@
     <string name="download_action_allow_bytes">Allow · %1$s</string>
     <string name="download_action_use_nearest">Use nearest</string>
     <string name="download_action_choose_sources">Choose sources</string>
-    <string name="download_action_pick_the_rest">Let Nuvio pick</string>
+    <string name="download_action_pick_the_rest">Auto-pick remaining</string>
     <string name="download_action_free_up_space">Free up space</string>
     <string name="download_action_remove">Remove</string>
     <string name="download_action_choose">Choose</string>
@@ -3009,7 +3012,14 @@
     <string name="download_flow_seasons_clear">Clear</string>
     <string name="download_flow_season_unwatched_count">%1$d unwatched</string>
     <string name="download_flow_season_watched">Watched</string>
-    <string name="download_flow_seasons_total">%1$d episodes · %2$d seasons</string>
+    <plurals name="download_flow_seasons_selected_episodes">
+        <item quantity="one">%1$d episode selected</item>
+        <item quantity="other">%1$d episodes selected</item>
+    </plurals>
+    <plurals name="download_flow_seasons_selected_seasons">
+        <item quantity="one">%1$d season</item>
+        <item quantity="other">%1$d seasons</item>
+    </plurals>
     <string name="download_flow_resolution_each">about %1$s each</string>
     <string name="download_flow_resolution_episodes">%1$d episodes</string>
     <string name="download_choose_sources_needs_pick">Choose a source</string>

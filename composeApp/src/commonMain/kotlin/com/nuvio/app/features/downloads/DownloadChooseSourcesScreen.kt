@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioTokens
@@ -53,7 +52,7 @@ import nuvio.composeapp.generated.resources.download_flow_finding_source
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Manual, several episodes (Phase 9): every episode, and "Let Nuvio pick the rest". The screen
+ * Manual, several episodes (Phase 9): every episode, and "Auto-pick remaining". The screen
  * reads the batch live, so an episode picked in the download source list shows as chosen when the
  * user comes back.
  *
@@ -167,19 +166,17 @@ fun ChooseSourcesSummary(batch: DownloadBatch, onPickTheRest: () -> Unit) {
                         ThinProgress(ready.toFloat() / total, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
+                // Tonal, not filled: in Manual the episode list is the point, and auto-picking the
+                // rest is the way out of it, not the thing the screen is for.
                 if (wide && left > 0) {
-                    // NuvioPrimaryButton fills its width; bounded here so the title keeps its column.
-                    Box(Modifier.width(240.dp)) {
-                        NuvioPrimaryButton(
-                            text = stringResource(Res.string.download_choose_sources_rest),
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = onPickTheRest,
-                        )
-                    }
+                    DownloadsTonalButton(
+                        text = stringResource(Res.string.download_choose_sources_rest),
+                        onClick = onPickTheRest,
+                    )
                 }
             }
             if (!wide && left > 0) {
-                NuvioPrimaryButton(
+                DownloadsTonalButton(
                     text = stringResource(Res.string.download_choose_sources_rest),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onPickTheRest,
@@ -282,17 +279,24 @@ private fun StateMark(awaiting: Boolean, finding: Boolean) {
     }
 }
 
-/** Still waiting for the user's pick (or for "Let Nuvio pick the rest"). */
+/** Still waiting for the user's pick (or for "Auto-pick remaining"). */
 internal val DownloadBatchEntry.isAwaitingPick: Boolean
     get() = state == DownloadBatchEntryState.SKIPPED && decision == DownloadEntryDecisionKind.MANUAL_PICK
 
+/**
+ * `1080p · 2.3 GB · WEB-DL`: what the pick is, not the release's file name. The raw stream title
+ * (`Shogun.S01E01.1080p.WEB...`) stays in the download's detail sheet.
+ */
 private fun DownloadBatchEntry.pickedSummary(findingText: String): String? = when {
     isAwaitingPick -> null
     state == DownloadBatchEntryState.DISCOVERING -> findingText
-    else -> listOfNotNull(
-        (selection as? SourceSelectionResult.Selected)?.facts?.resolution?.height?.let(DownloadFlowRules::resolutionLabel),
-        (selection as? SourceSelectionResult.Selected)?.facts?.sizeBytes?.let(DownloadFlowRules::sizeLabel),
-        streamTitle?.takeIf { it.isNotBlank() },
-        failureMessage?.takeIf { state == DownloadBatchEntryState.SKIPPED || state == DownloadBatchEntryState.FAILED },
-    ).joinToString(" · ").ifBlank { state.name.lowercase().replaceFirstChar { it.uppercase() } }
+    else -> {
+        val facts = (selection as? SourceSelectionResult.Selected)?.facts
+        listOfNotNull(
+            facts?.resolution?.height?.let(DownloadFlowRules::resolutionLabel),
+            facts?.sizeBytes?.let(DownloadFlowRules::sizeLabel),
+            facts?.releaseQuality?.takeIf { it.isNotBlank() },
+            failureMessage?.takeIf { state == DownloadBatchEntryState.SKIPPED || state == DownloadBatchEntryState.FAILED },
+        ).joinToString(" · ").ifBlank { state.name.lowercase().replaceFirstChar { it.uppercase() } }
+    }
 }

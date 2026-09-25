@@ -152,19 +152,32 @@ fun DownloadAttentionSection(
             shape = RoundedCornerShape(14.dp),
             color = tokens.colors.surfaceCard,
         ) {
+            // A title/season with two different problems is one row with two problem blocks,
+            // not two neighbouring rows repeating the same poster and name. Display only: the
+            // cards (and what each action acts on) are unchanged.
+            val groups = remember(cards) { cards.groupBy { it.parentMetaId to it.season }.values.toList() }
             Column(Modifier.fillMaxWidth()) {
-                cards.forEachIndexed { index, card ->
+                groups.forEachIndexed { index, group ->
                     if (index > 0) {
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 12.dp + PosterWidth + RowGap),
                             color = tokens.colors.borderSubtle,
                         )
                     }
-                    DownloadAttentionCard(
-                        card = card,
-                        onAction = { action -> onAction(card, action) },
-                        onChooseMember = onChooseMember,
-                    )
+                    val card = group.singleOrNull()
+                    if (card != null) {
+                        DownloadAttentionCard(
+                            card = card,
+                            onAction = { action -> onAction(card, action) },
+                            onChooseMember = onChooseMember,
+                        )
+                    } else {
+                        DownloadAttentionGroup(
+                            cards = group,
+                            onAction = onAction,
+                            onChooseMember = onChooseMember,
+                        )
+                    }
                 }
             }
         }
@@ -195,7 +208,6 @@ private fun CountBadge(count: Int) {
  * One problem: the title's poster and name, the problem in one line (the colour is on the icon,
  * not the words), the episodes it is about, then one primary action and quiet secondary ones.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DownloadAttentionCard(
     card: AttentionCard,
@@ -204,9 +216,6 @@ fun DownloadAttentionCard(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val (icon, tint) = attentionIcon(card)
-    val single = card.members.singleOrNull()?.takeIf { card.season == null }
-    val chooseSingle = single != null && single.offersChooseManually && card.kind != DownloadNeedsYouKind.MANUAL_PICK
     Column(modifier.fillMaxWidth().padding(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -234,71 +243,165 @@ fun DownloadAttentionCard(
                         maxLines = 1,
                     )
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
-                    Text(
-                        text = attentionProblem(card),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textSecondary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                // The episodes it is about, each with its own Choose when a pick could help it.
-                if (single == null) {
-                    Column(Modifier.padding(top = 2.dp).widthIn(max = 440.dp)) {
-                        card.members.take(MAX_MEMBER_ROWS).forEach { member ->
-                            MemberRow(
-                                member = member,
-                                showChoose = member.offersChooseManually && card.kind != DownloadNeedsYouKind.MANUAL_PICK,
-                                onChoose = { onChooseMember(member) },
-                            )
-                        }
-                        if (card.members.size > MAX_MEMBER_ROWS) {
-                            Text(
-                                text = stringResource(Res.string.download_attention_more, card.members.size - MAX_MEMBER_ROWS),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = tokens.colors.textMuted,
-                            )
-                        }
-                    }
-                }
+                AttentionProblemLine(card)
+                AttentionMembers(card, onChooseMember)
             }
             // Remove is always offered and always confirms; as a quiet corner control it stops
             // competing with the one thing that would fix the problem.
-            if (AttentionAction.REMOVE in card.actions) {
-                IconButton(
-                    onClick = { onAction(AttentionAction.REMOVE) },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = stringResource(Res.string.download_action_remove),
-                        tint = tokens.colors.textMuted,
-                        modifier = Modifier.size(18.dp),
+            AttentionRemoveControl(card, onAction)
+        }
+        AttentionActionPills(
+            card = card,
+            onAction = onAction,
+            onChooseMember = onChooseMember,
+            modifier = Modifier.padding(start = PosterWidth + RowGap, top = 10.dp),
+        )
+    }
+}
+
+/**
+ * One title/season with several different problems: the poster and name once, then each problem
+ * as its own block - the problem line with its own Remove, its episodes, its actions.
+ */
+@Composable
+private fun DownloadAttentionGroup(
+    cards: List<AttentionCard>,
+    onAction: (AttentionCard, AttentionAction) -> Unit,
+    onChooseMember: (AttentionMember) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val first = cards.first()
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(RowGap),
+    ) {
+        DownloadPoster(url = cards.firstNotNullOfOrNull { it.poster }, title = first.title, width = PosterWidth)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = first.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            first.season?.let { season ->
+                Text(
+                    text = if (season == 0) {
+                        stringResource(Res.string.episodes_specials)
+                    } else {
+                        stringResource(Res.string.episodes_season, season)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                    maxLines = 1,
+                )
+            }
+            cards.forEach { card ->
+                Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AttentionProblemLine(card, Modifier.weight(1f))
+                        AttentionRemoveControl(card) { action -> onAction(card, action) }
+                    }
+                    AttentionMembers(card, onChooseMember)
+                    AttentionActionPills(
+                        card = card,
+                        onAction = { action -> onAction(card, action) },
+                        onChooseMember = onChooseMember,
+                        modifier = Modifier.padding(top = 6.dp),
                     )
                 }
             }
         }
-        val choices = card.actions.filter { it != AttentionAction.REMOVE }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(start = PosterWidth + RowGap, top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
-            choices.firstOrNull()?.let { action -> PillButton(actionLabel(card, action), PillStyle.PRIMARY) { onAction(action) } }
-            if (chooseSingle) {
-                PillButton(stringResource(Res.string.download_flow_choose_manually), PillStyle.SECONDARY) {
-                    onChooseMember(single!!)
-                }
+    }
+}
+
+/** A lone movie or episode is named by the row itself; everything else lists its episodes. */
+private val AttentionCard.singleMember: AttentionMember?
+    get() = members.singleOrNull()?.takeIf { season == null }
+
+@Composable
+private fun AttentionProblemLine(card: AttentionCard, modifier: Modifier = Modifier) {
+    val (icon, tint) = attentionIcon(card)
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
+        Text(
+            text = attentionProblem(card),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.nuvio.colors.textSecondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** The episodes a card is about, each with its own Choose when a pick could help it. */
+@Composable
+private fun AttentionMembers(card: AttentionCard, onChooseMember: (AttentionMember) -> Unit) {
+    if (card.singleMember != null) return
+    Column(Modifier.padding(top = 2.dp).widthIn(max = 440.dp)) {
+        card.members.take(MAX_MEMBER_ROWS).forEach { member ->
+            MemberRow(
+                member = member,
+                showChoose = member.offersChooseManually && card.kind != DownloadNeedsYouKind.MANUAL_PICK,
+                onChoose = { onChooseMember(member) },
+            )
+        }
+        if (card.members.size > MAX_MEMBER_ROWS) {
+            Text(
+                text = stringResource(Res.string.download_attention_more, card.members.size - MAX_MEMBER_ROWS),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.nuvio.colors.textMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttentionRemoveControl(card: AttentionCard, onAction: (AttentionAction) -> Unit) {
+    if (AttentionAction.REMOVE !in card.actions) return
+    IconButton(
+        onClick = { onAction(AttentionAction.REMOVE) },
+        modifier = Modifier.size(32.dp),
+    ) {
+        Icon(
+            Icons.Rounded.Close,
+            contentDescription = stringResource(Res.string.download_action_remove),
+            tint = MaterialTheme.nuvio.colors.textMuted,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AttentionActionPills(
+    card: AttentionCard,
+    onAction: (AttentionAction) -> Unit,
+    onChooseMember: (AttentionMember) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val single = card.singleMember
+    val chooseSingle = single != null && single.offersChooseManually && card.kind != DownloadNeedsYouKind.MANUAL_PICK
+    val choices = card.actions.filter { it != AttentionAction.REMOVE }
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        choices.firstOrNull()?.let { action -> PillButton(actionLabel(card, action), PillStyle.PRIMARY) { onAction(action) } }
+        if (chooseSingle) {
+            PillButton(stringResource(Res.string.download_flow_choose_manually), PillStyle.SECONDARY) {
+                onChooseMember(single!!)
             }
-            choices.drop(1).forEach { action ->
-                PillButton(actionLabel(card, action), PillStyle.SECONDARY) { onAction(action) }
-            }
+        }
+        choices.drop(1).forEach { action ->
+            PillButton(actionLabel(card, action), PillStyle.SECONDARY) { onAction(action) }
         }
     }
 }
@@ -381,6 +484,32 @@ private fun actionLabel(card: AttentionCard, action: AttentionAction): String = 
 }
 
 private enum class PillStyle { PRIMARY, SECONDARY }
+
+/**
+ * A quiet full-size action: the tonal pill's colours at button height, for a way out of a screen
+ * that is not its main task (Choose sources' "Auto-pick remaining").
+ */
+@Composable
+internal fun DownloadsTonalButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val tokens = MaterialTheme.nuvio
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 44.dp),
+        shape = CircleShape,
+        color = tokens.colors.surfaceElevated,
+        contentColor = tokens.colors.textPrimary,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+    }
+}
 
 /** A compact action: filled for the one thing to do, tonal for the alternatives. */
 @Composable
