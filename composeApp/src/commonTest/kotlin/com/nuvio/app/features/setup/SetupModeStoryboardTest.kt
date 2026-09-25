@@ -257,4 +257,27 @@ class SetupModeStoryboardTest {
         assertNotNull(row)
         assertTrue(row in setupStoryboardQualityTokens.indices)
     }
+
+    // --- the Download Mode loop (Phase 9) ------------------------------------------------
+
+    @Test
+    fun eachDownloadModeReusesThePlaybackProcessItMatches() {
+        // Manual reads and picks like Classic; Assisted answers one resolution question like
+        // Streamlined; Automatic is one tap like Instant. The pointer rule carries across.
+        assertEquals(setupStoryboardFrames("CLASSIC"), downloadStoryboardFrames("MANUAL"))
+        assertEquals(setupStoryboardFrames("STREAMLINED"), downloadStoryboardFrames("ASSISTED"))
+        assertEquals(setupStoryboardFrames("INSTANT"), downloadStoryboardFrames("AUTOMATIC"))
+    }
+
+    @Test
+    fun anUnknownDownloadModeFallsBackToManualsLoop() {
+        assertEquals(downloadStoryboardFrames("MANUAL"), downloadStoryboardFrames("GUIDED"))
+    }
+
+    @Test
+    fun assistedPicksARowTheDownloadDrawingHas() {
+        downloadStoryboardFrames("ASSISTED").mapNotNull { it.highlightedRow }.forEach { row ->
+            assertTrue(row in downloadStoryboardQualityTokens.indices)
+        }
+    }
 }

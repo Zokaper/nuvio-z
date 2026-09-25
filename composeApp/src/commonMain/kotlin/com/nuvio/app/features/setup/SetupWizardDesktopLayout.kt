@@ -164,6 +164,7 @@ fun SetupWizardDesktopLayout(
                     modifier = Modifier.fillMaxWidth(),
                     scale = specimen.desktopScale,
                     wide = true,
+                    downloadModeName = plan.downloadModeName,
                 )
                 Box(
                     modifier = Modifier

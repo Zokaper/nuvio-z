@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.isDesktop
+import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
@@ -83,7 +84,25 @@ import com.nuvio.app.features.details.MetaScreenBackgroundMode
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.downloads.DownloadMobileDataRule
+import com.nuvio.app.features.downloads.DownloadMode
+import com.nuvio.app.features.downloads.DownloadModeCard
+import com.nuvio.app.features.downloads.DownloadModeOrder
+import com.nuvio.app.features.downloads.DownloadPolicy
+import com.nuvio.app.features.downloads.DownloadPolicyRepository
+import com.nuvio.app.features.downloads.DownloadResolutionFallback
+import com.nuvio.app.features.downloads.DownloadResolutionPreference
+import com.nuvio.app.features.downloads.DownloadSizeLevel
+import com.nuvio.app.features.downloads.DownloadsLiveStatusPlatform
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DynamicRangePolicy
+import com.nuvio.app.features.downloads.downloadFallbackLabel
+import com.nuvio.app.features.downloads.downloadMobileDataLabel
+import com.nuvio.app.features.downloads.downloadModeName
+import com.nuvio.app.features.downloads.downloadResolutionLabel
+import com.nuvio.app.features.downloads.downloadSizeLevelDetail
+import com.nuvio.app.features.downloads.downloadSizeLevelLabel
+import com.nuvio.app.features.downloads.forDownloads
 import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
@@ -162,6 +181,7 @@ fun SetupWizardScreen(
     modifier: Modifier = Modifier,
     dismissible: Boolean = false,
     onDismiss: () -> Unit = {},
+    run: SetupWizardRun = SetupWizardRun.Full,
 ) {
     val tokens = MaterialTheme.nuvio
     val scope = rememberCoroutineScope()
@@ -195,6 +215,21 @@ fun SetupWizardScreen(
     }.collectAsStateWithLifecycle()
     val socialState by remember { SocialRepository.uiState }.collectAsStateWithLifecycle()
     val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
+    val downloadPolicy by remember {
+        DownloadPolicyRepository.ensureLoaded()
+        DownloadPolicyRepository.policy
+    }.collectAsStateWithLifecycle()
+    // Read, not loaded: loading the download store starts the engine, so that waits for the step
+    // that asks the device question (below).
+    val deviceDownloadSettings by remember { DownloadsRepository.deviceSettings }.collectAsStateWithLifecycle()
+
+    // The mode the download steps show: the stored answer, or the one Playback Mode implies while
+    // there is none - exactly what downloads would use right now.
+    val effectiveDownloadMode = downloadPolicy.effectiveMode(playerSettings.playbackMode.forDownloads())
+    val isPhone = !isDesktop
+    // Captured once: finishing writes the new revision, and an upgrade must not re-plan itself
+    // from the value it just wrote.
+    val fromRevision = remember { playerSettings.setupWizardCompletedRevision }
 
     // ⚠ **Kicked off here rather than on the social step, and that head start is the point.** The
     // probe only runs for a profile the local cache cannot answer for - a second install, a
@@ -212,7 +247,22 @@ fun SetupWizardScreen(
     // process-death-restored wizard on a different step than the user left it on. Revision 3
     // deleted two constants, so `setupStepForSavedName` also has to survive a name that no
     // longer resolves - it gates the app, and a crash here is one the user cannot get past.
-    var stepName by rememberSaveable { mutableStateOf(SetupStep.Welcome.name) }
+    var stepName by rememberSaveable {
+        // An upgrade or a device run has no Welcome: it opens on its own first step.
+        val first = if (run == SetupWizardRun.Full) {
+            SetupStep.Welcome
+        } else {
+            setupWizardSteps(
+                SetupWizardPlan(
+                    downloadModeName = effectiveDownloadMode.name,
+                    isPhone = isPhone,
+                    run = run,
+                    fromRevision = fromRevision,
+                ),
+            ).firstOrNull() ?: SetupStep.Done
+        }
+        mutableStateOf(first.name)
+    }
     val step = remember(stepName) { setupStepForSavedName(stepName) }
 
     val specimen = step.specimen
@@ -228,7 +278,14 @@ fun SetupWizardScreen(
         // Either half can answer: the local cache for anyone who has used social on this machine,
         // the probe for a cache-cold install that still has a backend identity.
         offerSocialIdentity = socialState.me == null && !socialPreferences.hasKnownIdentity,
+        downloadModeName = effectiveDownloadMode.name,
+        isPhone = isPhone,
+        run = run,
+        fromRevision = fromRevision,
     )
+    // A gating upgrade or device run can be put off: its close control is "Not now", and that
+    // records the revision like finishing does, so it is not asked again.
+    val skippable = !dismissible && run != SetupWizardRun.Full
     val existingStreamAddonName = addons.addons.firstEnabledStreamAddonName()
 
     // ⚠ **A step can leave the plan while the user is standing on it, and there are two ways.**
@@ -264,6 +321,7 @@ fun SetupWizardScreen(
     // Nothing sensitive outlives the step: not a half-typed key, not the recovery password.
     // The pickers follow the Language step, which comes first, until the user picks one here.
     LaunchedEffect(step) {
+        if (step == SetupStep.DownloadSetup && isPhone) DownloadsRepository.ensureLoaded()
         if (step == SetupStep.Sources) {
             sourcesController.seedLanguages(playerSettings.preferredAudioLanguage, playerSettings.preferredSubtitleLanguage)
         } else {
@@ -306,6 +364,8 @@ fun SetupWizardScreen(
         // kept alive only to spare a 0.4.x downgrade one extra prompt. The key survives as a
         // sync tombstone so an older client's payload still clears the stale local value.
         PlayerSettingsRepository.markSetupWizardCompleted(SETUP_WIZARD_REVISION)
+        // Any run answers this device's questions too - a full run and an upgrade both ask them.
+        DeviceSetupStorage.saveRevision(SETUP_DEVICE_REVISION)
 
         // ⚠ Push immediately rather than leaving it to the observer, because while the wizard is
         // gating the app the observer has *just* been started and `combine(...).drop(1)` throws
@@ -332,6 +392,16 @@ fun SetupWizardScreen(
         // switch is - so it has to take the layer down in the same order.
         if (step == SetupStep.SocialOptIn && socialPreferences.storedPreference == null) {
             setSocialEnabled(socialPreferences.enabled)
+        }
+        // The same rule for the Download Mode: walking past the preselected (derived) mode is
+        // choosing it. Skipping the run, which never gets here, leaves it unanswered.
+        if (step == SetupStep.DownloadMode && downloadPolicy.mode == null) {
+            DownloadPolicyRepository.setMode(effectiveDownloadMode)
+        }
+        // Android 13+ asks for notifications once; asking here, after the download questions,
+        // is when the prompt makes sense. Elsewhere this does nothing.
+        if (step == SetupStep.DownloadSetup && isPhone && !isIos) {
+            DownloadsLiveStatusPlatform.onDownloadRequested()
         }
         if (isFinalSetupStep(step, plan)) {
             complete()
@@ -454,8 +524,8 @@ fun SetupWizardScreen(
                 step = step,
                 plan = plan,
                 specimen = specimen,
-                dismissible = dismissible,
-                onDismiss = onDismiss,
+                dismissible = dismissible || skippable,
+                onDismiss = if (skippable) ::complete else onDismiss,
                 playbackMode = playerSettings.playbackMode,
                 posterWidthDp = posterStyle.widthDp,
                 posterCornerRadiusDp = posterStyle.cornerRadiusDp,
@@ -512,6 +582,12 @@ fun SetupWizardScreen(
                     sources = sources,
                     existingSourceName = existingStreamAddonName,
                     sourcesActions = sourcesActions,
+                    downloadMode = effectiveDownloadMode,
+                    downloadPolicy = downloadPolicy,
+                    mobileDataRule = deviceDownloadSettings.mobileData,
+                    downloadSetupVariant = downloadSetupVariant(plan),
+                    askMobileData = isPhone,
+                    showNotificationNote = isPhone && !isIos,
                 )
             }
             return@BoxWithConstraints
@@ -538,6 +614,7 @@ fun SetupWizardScreen(
                 tabLayout = metaSettings.tabLayout,
                 nextUpLabel = nextUpLabel,
                 modifier = Modifier.fillMaxWidth(),
+                downloadModeName = plan.downloadModeName,
             )
 
             // The seam. A hairline alone drew a hard rule across the screen; this is the same
@@ -554,8 +631,8 @@ fun SetupWizardScreen(
                 step = step,
                 plan = plan,
                 playbackMode = playerSettings.playbackMode,
-                dismissible = dismissible,
-                onDismiss = onDismiss,
+                dismissible = dismissible || skippable,
+                onDismiss = if (skippable) ::complete else onDismiss,
                 // Centred and capped on wide windows. The band is what should use the extra
                 // width, not a line of body text stretched across a desktop monitor.
                 maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,
@@ -601,6 +678,12 @@ fun SetupWizardScreen(
                     sources = sources,
                     existingSourceName = existingStreamAddonName,
                     sourcesActions = sourcesActions,
+                    downloadMode = effectiveDownloadMode,
+                    downloadPolicy = downloadPolicy,
+                    mobileDataRule = deviceDownloadSettings.mobileData,
+                    downloadSetupVariant = downloadSetupVariant(plan),
+                    askMobileData = isPhone,
+                    showNotificationNote = isPhone && !isIos,
                 )
             }
         }
@@ -867,6 +950,8 @@ private val SetupStep.specimen: SetupSpecimen
         // that would ever catch them drifting from the real screens they mirror.
         SetupStep.PlaybackMode,
         SetupStep.PlaybackSetup,
+        SetupStep.DownloadMode,
+        SetupStep.DownloadSetup,
         SetupStep.Language,
         SetupStep.Sources,
         SetupStep.SocialOptIn,
@@ -990,7 +1075,7 @@ internal fun SetupPanelHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = setupStepSubtitle(step, playbackMode),
+                text = setupStepSubtitle(step, plan, playbackMode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = tokens.colors.textSecondary,
             )
@@ -1130,6 +1215,12 @@ internal fun SetupStepBody(
     sources: SetupSourcesState,
     existingSourceName: String?,
     sourcesActions: SetupSourcesActions,
+    downloadMode: DownloadMode = DownloadMode.MANUAL,
+    downloadPolicy: DownloadPolicy = DownloadPolicy(),
+    mobileDataRule: DownloadMobileDataRule = DownloadMobileDataRule.WIFI_ONLY,
+    downloadSetupVariant: DownloadSetupVariant = DownloadSetupVariant.None,
+    askMobileData: Boolean = false,
+    showNotificationNote: Boolean = false,
 ) {
     AnimatedContent(
         targetState = step,
@@ -1172,6 +1263,25 @@ internal fun SetupStepBody(
                     languageStrictness = languageStrictness,
                     dynamicRangePolicy = dynamicRangePolicy,
                     qualityCeilingMbps = qualityCeilingMbps,
+                )
+
+                // The same card Settings -> Downloads shows, written through the same setter.
+                SetupStep.DownloadMode -> {
+                    DownloadModeOrder.forEach { mode ->
+                        DownloadModeCard(
+                            mode = mode,
+                            isSelected = mode == downloadMode,
+                            onClick = { DownloadPolicyRepository.setMode(mode) },
+                        )
+                    }
+                }
+
+                SetupStep.DownloadSetup -> SetupDownloadSetupBody(
+                    variant = downloadSetupVariant,
+                    policy = downloadPolicy,
+                    mobileDataRule = mobileDataRule,
+                    askMobileData = askMobileData,
+                    showNotificationNote = showNotificationNote,
                 )
 
                 SetupStep.Language -> SetupLanguageBody(
@@ -1275,6 +1385,10 @@ internal fun SetupStepBody(
                     SetupSummaryRow(
                         label = stringResource(Res.string.setup_done_playback),
                         value = playbackModeName(playbackMode),
+                    )
+                    SetupSummaryRow(
+                        label = stringResource(Res.string.setup_done_downloads),
+                        value = downloadModeName(downloadMode),
                     )
                     SetupSummaryRow(
                         label = stringResource(Res.string.setup_done_social),
@@ -1495,6 +1609,62 @@ private fun SetupPlaybackSetupBody(
         onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
     )
     SetupParagraph(stringResource(Res.string.setup_playback_setup_more))
+}
+
+/**
+ * The download preferences the chosen Download Mode uses (Phase 9), from [downloadSetupVariant].
+ *
+ * At most four controls - the plan's limit, so the step does not scroll on a phone: Automatic asks
+ * resolution, size level and fallback; Assisted only the size level (the user picks the
+ * resolution per download); Manual nothing. Phones add the device's mobile-data rule, and a
+ * [SetupWizardRun.Device] run is that question alone. Every control writes through the setter
+ * Settings -> Downloads uses, with the same labels from `DownloadModeUi.kt`.
+ */
+@Composable
+private fun SetupDownloadSetupBody(
+    variant: DownloadSetupVariant,
+    policy: DownloadPolicy,
+    mobileDataRule: DownloadMobileDataRule,
+    askMobileData: Boolean,
+    showNotificationNote: Boolean,
+) {
+    if (variant == DownloadSetupVariant.None) return
+    if (variant == DownloadSetupVariant.Automatic) {
+        SetupChoiceGroup(
+            title = stringResource(Res.string.download_pref_resolution),
+            options = DownloadResolutionPreference.entries.map { downloadResolutionLabel(it) to it },
+            selected = policy.preferredResolution,
+            onSelected = { value -> DownloadPolicyRepository.update { it.copy(preferredResolution = value) } },
+        )
+    }
+    if (variant == DownloadSetupVariant.Automatic || variant == DownloadSetupVariant.Assisted) {
+        SetupChoiceGroup(
+            title = stringResource(Res.string.download_pref_size_level),
+            options = DownloadSizeLevel.entries.map { downloadSizeLevelLabel(it) to it },
+            selected = policy.sizeLevel,
+            onSelected = { value -> DownloadPolicyRepository.update { it.copy(sizeLevel = value) } },
+        )
+        SetupParagraph(downloadSizeLevelDetail(policy.sizeLevel, policy.preferredResolution))
+    }
+    if (variant == DownloadSetupVariant.Automatic) {
+        SetupChoiceGroup(
+            title = stringResource(Res.string.download_pref_fallback),
+            options = DownloadResolutionFallback.entries.map { downloadFallbackLabel(it) to it },
+            selected = policy.resolutionFallback,
+            onSelected = { value -> DownloadPolicyRepository.update { it.copy(resolutionFallback = value) } },
+        )
+    }
+    if (askMobileData || variant == DownloadSetupVariant.DeviceOnly) {
+        SetupChoiceGroup(
+            title = stringResource(Res.string.download_pref_mobile_data),
+            options = DownloadMobileDataRule.entries.map { downloadMobileDataLabel(it) to it },
+            selected = mobileDataRule,
+            onSelected = { value -> DownloadsRepository.updateDeviceSettings { it.copy(mobileData = value) } },
+        )
+        if (showNotificationNote) {
+            SetupParagraph(stringResource(Res.string.download_setup_notifications))
+        }
+    }
 }
 
 /**
@@ -1765,6 +1935,8 @@ private val SetupStep.titleRes
         SetupStep.Welcome -> Res.string.setup_welcome_title
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
         SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_title
+        SetupStep.DownloadMode -> Res.string.download_mode_title
+        SetupStep.DownloadSetup -> Res.string.download_setup_title
         SetupStep.Language -> Res.string.setup_language_title
         SetupStep.Sources -> Res.string.setup_sources_title
         SetupStep.SocialOptIn -> Res.string.setup_social_title
@@ -1784,11 +1956,22 @@ private val SetupStep.titleRes
  * same reason the body does.
  */
 @Composable
-private fun setupStepSubtitle(step: SetupStep, playbackMode: PlaybackMode): String = when (step) {
+private fun setupStepSubtitle(step: SetupStep, plan: SetupWizardPlan, playbackMode: PlaybackMode): String = when (step) {
     SetupStep.PlaybackSetup -> stringResource(
         when (playbackSetupVariant(playbackMode.name)) {
             PlaybackSetupVariant.AutomaticBand -> Res.string.setup_playback_setup_subtitle_instant
             else -> Res.string.setup_playback_setup_subtitle_streamlined
+        },
+    )
+    // An upgrade opens on this step with no Welcome in front of it, so it says why it is here.
+    SetupStep.DownloadMode -> stringResource(
+        if (plan.run == SetupWizardRun.Upgrade) Res.string.download_mode_upgrade_subtitle else Res.string.download_mode_subtitle,
+    )
+    SetupStep.DownloadSetup -> stringResource(
+        when (downloadSetupVariant(plan)) {
+            DownloadSetupVariant.Automatic -> Res.string.download_setup_subtitle_automatic
+            DownloadSetupVariant.Assisted -> Res.string.download_setup_subtitle_assisted
+            else -> Res.string.download_setup_subtitle_device
         },
     )
     else -> stringResource(step.subtitleRes)
@@ -1801,6 +1984,8 @@ private val SetupStep.subtitleRes
         // Never read - `setupStepSubtitle` answers for this step - but enumerated so that a new
         // step is a compile error here rather than a header with no subtitle.
         SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_subtitle_streamlined
+        SetupStep.DownloadMode -> Res.string.download_mode_subtitle
+        SetupStep.DownloadSetup -> Res.string.download_setup_subtitle_device
         SetupStep.Language -> Res.string.setup_language_subtitle
         SetupStep.Sources -> Res.string.setup_sources_subtitle
         SetupStep.SocialOptIn -> Res.string.setup_social_subtitle

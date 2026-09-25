@@ -265,6 +265,27 @@ internal fun settingsSearchEntries(
             icon = Icons.Rounded.CloudDownload,
             target = SettingsSearchTarget.Downloads,
         )
+        // Phase 9: the page's own sections, so "download mode", "mobile data" or "file size" finds it.
+        listOf(
+            Triple("downloads-mode", Res.string.downloads_settings_mode, Res.string.downloads_settings_mode),
+            Triple("downloads-resolution", Res.string.download_pref_resolution, Res.string.downloads_settings_preferences),
+            Triple("downloads-size", Res.string.download_pref_size_level, Res.string.downloads_settings_preferences),
+            Triple("downloads-fallback", Res.string.download_pref_fallback, Res.string.downloads_settings_preferences),
+            Triple("downloads-pick", Res.string.download_pref_pick_rule, Res.string.downloads_settings_preferences),
+            Triple("downloads-hdr", Res.string.download_pref_range, Res.string.downloads_settings_preferences),
+            Triple("downloads-mobile-data", Res.string.download_pref_mobile_data, Res.string.downloads_settings_device),
+            Triple("downloads-concurrency", Res.string.download_pref_concurrency, Res.string.downloads_settings_device),
+        ).forEach { (key, title, section) ->
+            add(
+                key = key,
+                title = stringResource(title),
+                page = downloadsPage,
+                section = stringResource(section),
+                category = generalCategory,
+                icon = Icons.Rounded.CloudDownload,
+                target = SettingsSearchTarget.Downloads,
+            )
+        }
     }
     addPage(
         page = SettingsPage.Playback,

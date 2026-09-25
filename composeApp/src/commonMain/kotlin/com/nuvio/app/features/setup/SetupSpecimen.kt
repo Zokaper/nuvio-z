@@ -229,6 +229,7 @@ fun SetupSpecimenBand(
     modifier: Modifier = Modifier,
     scale: Float = 1f,
     wide: Boolean = false,
+    downloadModeName: String = "MANUAL",
 ) {
     val tokens = MaterialTheme.nuvio
 
@@ -306,6 +307,7 @@ fun SetupSpecimenBand(
                     step = step,
                     playbackMode = playbackMode,
                     scale = scale,
+                    downloadModeName = downloadModeName,
                 )
             }
         }

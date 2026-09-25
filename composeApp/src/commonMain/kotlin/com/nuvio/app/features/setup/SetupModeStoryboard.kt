@@ -224,6 +224,29 @@ private val instantFrames: List<SetupStoryboardFrame> = listOf(
 )
 
 /**
+ * The resolution rows Assisted's sheet offers in the Download Mode drawing - each with the size it
+ * would cost, because that trade is what the sheet asks. Same no-string-resources rule as
+ * [setupStoryboardQualityTokens].
+ */
+val downloadStoryboardQualityTokens: List<String> = listOf("4K · 18 GB", "1080p · 4 GB", "720p · 2 GB")
+
+/**
+ * The Download Mode loop (Phase 9) for [modeName], a `DownloadMode` name.
+ *
+ * **The same three processes as playback, deliberately**, ending on a download rather than on
+ * playing: Manual reads the list and picks a release (Classic's frames), Assisted answers one
+ * resolution question and Nuvio picks the file (Streamlined's), Automatic is a tap and it is
+ * downloading (Instant's). Reusing the sequences keeps the pointer rule - a finger means the user
+ * chose - identical across the two questions, so the second one reads as the first one again. An
+ * unrecognised name answers Manual's loop, as [setupStoryboardFrames] answers Classic's.
+ */
+fun downloadStoryboardFrames(modeName: String): List<SetupStoryboardFrame> = when (modeName) {
+    "AUTOMATIC" -> instantFrames
+    "ASSISTED" -> streamlinedFrames
+    else -> classicFrames
+}
+
+/**
  * The frame index after [index], wrapping to 0 at the end.
  *
  * A named function rather than a `%` at the call site so the loop rule is covered by a test.

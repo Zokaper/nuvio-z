@@ -56,9 +56,11 @@ import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
+import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
+import com.nuvio.app.features.setup.SetupWizardRun
 import com.nuvio.app.features.setup.SetupWizardScreen
-import com.nuvio.app.features.setup.shouldShowSetupWizard
+import com.nuvio.app.features.setup.setupWizardRun
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
@@ -242,6 +244,9 @@ internal fun AppGate(
     // is: the gating showing lives in this function, and one flag for both is what keeps
     // an on-demand run from being confused with the first-launch one.
     var showSetupWizardOnDemand by remember { mutableStateOf(false) }
+    // Device-local, so no repository flow re-evaluates the gate when the wizard writes it: the
+    // gating wizard's onFinished re-reads it instead.
+    var deviceSetupRevision by remember { mutableStateOf(DeviceSetupStorage.loadRevision()) }
     var setupWizardOnDemandEpoch by remember { mutableStateOf(0) }
     // null while loading, empty when it could not be fetched. Either way the curated
     // sections still render - this screen has to work offline and on builds where the
@@ -276,10 +281,15 @@ internal fun AppGate(
         false
     }
 
-    val isSetupWizardActive = shouldShowSetupWizard(
-        completedRevision = gatePlayerSettings.setupWizardCompletedRevision,
+    // Full, an upgrade (revision 8 or 9: only the download steps), a device run (a current
+    // profile on a phone never set up here), or nothing.
+    val gateSetupRun = setupWizardRun(
+        profileRevision = gatePlayerSettings.setupWizardCompletedRevision,
+        deviceRevision = deviceSetupRevision,
+        isPhone = !isDesktop,
         currentRevision = SETUP_WIZARD_REVISION,
-    ) || showSetupWizardOnDemand
+    )
+    val isSetupWizardActive = gateSetupRun != SetupWizardRun.None || showSetupWizardOnDemand
 
     val isWhatsNewActive = (showWhatsNew && gateScreen == AppGateScreen.Main.name) || showWhatsNewOnDemand
 
@@ -611,25 +621,24 @@ internal fun AppGate(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                AppGateScreen.Main.name -> if (
-                    shouldShowSetupWizard(
-                        completedRevision = gatePlayerSettings.setupWizardCompletedRevision,
-                        currentRevision = SETUP_WIZARD_REVISION,
-                    )
-                ) {
+                AppGateScreen.Main.name -> if (gateSetupRun != SetupWizardRun.None) {
                     // The wizard replaced the standalone playback-mode selector, which used to
                     // stand here. Same reasoning as before: read at this one place rather than
                     // as a sixth AppGateScreen value, because five separate transitions set the
                     // gate to Main and wrapping the Main branch covers every one of them.
-                    SetupWizardScreen(
-                        // Nothing to do here on purpose: the wizard's own completion writes
-                        // the revision through PlayerSettingsRepository, gatePlayerSettings
-                        // collects that flow, and this branch re-evaluates to MainAppContent.
-                        // A flag here as well would be a second source of truth for the same
-                        // question, and the stored one is the one that survives a restart.
-                        onFinished = {},
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    // Keyed on the run: a profile switch can change which one is owed, and the
+                    // wizard captures its run's shape when it opens.
+                    key(gateSetupRun) {
+                        SetupWizardScreen(
+                            // The profile revision needs nothing here: the wizard writes it through
+                            // PlayerSettingsRepository, gatePlayerSettings collects that flow, and this
+                            // branch re-evaluates. The device revision is not a flow, so it is re-read -
+                            // from storage, which stays the one source of truth across a restart.
+                            onFinished = { deviceSetupRevision = DeviceSetupStorage.loadRevision() },
+                            modifier = Modifier.fillMaxSize(),
+                            run = gateSetupRun,
+                        )
+                    }
                 } else {
                     if (renderMainContent) {
                         MainAppContent(

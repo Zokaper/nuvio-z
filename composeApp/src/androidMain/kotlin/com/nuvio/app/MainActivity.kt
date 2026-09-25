@@ -70,6 +70,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentStorage
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesStorage
 import com.nuvio.app.features.watchprogress.ResumePromptStorage
 import com.nuvio.app.features.watchprogress.WatchProgressStorage
+import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.whatsnew.WhatsNewStorage
 
 open class MainActivity : AppCompatActivity() {
@@ -143,6 +144,7 @@ open class MainActivity : AppCompatActivity() {
         DownloadsPlatformDownloader.initialize(applicationContext)
         DownloadsLiveStatusPlatform.initialize(applicationContext)
         WhatsNewStorage.initialize(applicationContext)
+        DeviceSetupStorage.initialize(applicationContext)
         AndroidAppUpdaterPlatform.initialize(applicationContext)
         PlatformLocalAccountDataCleaner.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)

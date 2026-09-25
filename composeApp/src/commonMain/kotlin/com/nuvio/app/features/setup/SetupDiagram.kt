@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -94,6 +95,7 @@ fun SetupDiagram(
     playbackMode: PlaybackMode,
     modifier: Modifier = Modifier,
     scale: Float = 1f,
+    downloadModeName: String = "MANUAL",
 ) {
     // ⚠ **A density override rather than `scale` parameters threaded through the file, and rather
     // than `Modifier.scale`.** Every metric below is a hand-fitted constant (see the block at the
@@ -127,7 +129,24 @@ fun SetupDiagram(
             // already explained what a quality band is for.
             SetupStep.PlaybackMode,
             SetupStep.PlaybackSetup,
-            -> DiagramModeStoryboard(playbackMode)
+            -> DiagramModeStoryboard(
+                key = playbackMode.name,
+                frames = setupStoryboardFrames(playbackMode.name),
+                chipTokens = setupStoryboardQualityTokens,
+                endIcon = Icons.Rounded.PlayArrow,
+            )
+
+            // The same loop for downloads, ending on a download instead of playing: Manual reads
+            // the list, Assisted answers one resolution question, Automatic is one tap. It keeps
+            // running on the setup step that follows, for the same reason as playback's.
+            SetupStep.DownloadMode,
+            SetupStep.DownloadSetup,
+            -> DiagramModeStoryboard(
+                key = "download:$downloadModeName",
+                frames = downloadStoryboardFrames(downloadModeName),
+                chipTokens = downloadStoryboardQualityTokens,
+                endIcon = Icons.Rounded.Download,
+            )
 
             // What comes out of a film, in the two forms the language step asks about.
             SetupStep.Language -> DiagramLanguage()
@@ -171,14 +190,18 @@ fun SetupDiagram(
  * identical, and it has to be - the difference between the modes *is* who chose.
  */
 @Composable
-private fun DiagramModeStoryboard(mode: PlaybackMode) {
-    val frames = remember(mode) { setupStoryboardFrames(mode.name) }
-    var frameIndex by remember(mode) { mutableStateOf(0) }
+private fun DiagramModeStoryboard(
+    key: String,
+    frames: List<SetupStoryboardFrame>,
+    chipTokens: List<String>,
+    endIcon: ImageVector,
+) {
+    var frameIndex by remember(key) { mutableStateOf(0) }
     val frame = frames.getOrElse(frameIndex) { frames.first() }
 
     // Restarts whenever the mode changes, so tapping a card in the panel below replays that
     // mode's loop from the beginning rather than resuming part-way through another one's.
-    LaunchedEffect(mode) {
+    LaunchedEffect(key) {
         while (true) {
             delay(frames.getOrElse(frameIndex) { frames.first() }.holdMillis.toLong())
             frameIndex = nextSetupStoryboardFrame(frameIndex, frames.size)
@@ -202,12 +225,12 @@ private fun DiagramModeStoryboard(mode: PlaybackMode) {
                 StoryboardSources(frame = frame)
             }
             StoryboardStage(visible = frame.chipsVisible) {
-                StoryboardQuality(frame = frame)
+                StoryboardQuality(frame = frame, chipTokens = chipTokens)
             }
         }
         DiagramArrow(Icons.AutoMirrored.Rounded.KeyboardArrowRight)
         DiagramCircle(
-            icon = Icons.Rounded.PlayArrow,
+            icon = endIcon,
             filled = frame.stage == SetupStoryboardStage.Playing,
         )
     }
@@ -344,7 +367,7 @@ private fun StoryboardSources(frame: SetupStoryboardFrame) {
  * user had been shown a list, which is the one thing this mode does not do.
  */
 @Composable
-private fun StoryboardQuality(frame: SetupStoryboardFrame) {
+private fun StoryboardQuality(frame: SetupStoryboardFrame, chipTokens: List<String>) {
     val tokens = MaterialTheme.nuvio
     val askingQuality = frame.stage == SetupStoryboardStage.Quality
     val pointerOffset by animateDpAsState(
@@ -355,7 +378,7 @@ private fun StoryboardQuality(frame: SetupStoryboardFrame) {
 
     Row {
         Column(verticalArrangement = Arrangement.spacedBy(StoryboardRowGap)) {
-            setupStoryboardQualityTokens.forEachIndexed { index, token ->
+            chipTokens.forEachIndexed { index, token ->
                 val picked = index == frame.highlightedRow
                 // Once the quality is picked the unchosen chips fade out and the picked one stays,
                 // which is Nuvio answering - with nothing left to tap.

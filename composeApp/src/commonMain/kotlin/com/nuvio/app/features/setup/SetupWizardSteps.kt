@@ -38,22 +38,77 @@ package com.nuvio.app.features.setup
  * launch - see `mergeMonotonicSyncInt` in `core/sync/SyncPreferenceJson.kt`. When testing this,
  * the launch that proves anything is the **second** one.
  */
-const val SETUP_WIZARD_REVISION: Int = 9
-
-/** Revision 9 adds Sources without automatically replaying onboarding for revision-8 profiles. */
-private const val SETUP_WIZARD_AUTOMATIC_REQUIRED_REVISION: Int = 8
+const val SETUP_WIZARD_REVISION: Int = 10
 
 /**
- * Whether the first-launch wizard should gate the app.
+ * Below this, a profile gets the **whole** wizard; from it up to [SETUP_WIZARD_REVISION], only the
+ * steps added since (an [SetupWizardRun.Upgrade]). Revision 9 added Sources and deliberately did not
+ * replay anything for revision-8 profiles; revision 10 (Phase 9) adds the two download steps, which
+ * revision-8 and -9 profiles are asked - and only those.
+ */
+const val SETUP_WIZARD_FULL_REQUIRED_BELOW: Int = 8
+
+/**
+ * The device-local revision (Phase 9). Profile answers sync; "may downloads use mobile data" is
+ * about **this** phone, so a profile finished on another device still asks it once here.
+ */
+const val SETUP_DEVICE_REVISION: Int = 10
+
+/**
+ * Which wizard, if any, this launch owes.
  *
- * A stored revision **higher** than the current one must not re-show: that is a downgrade, and
- * the user has already answered a superset of what this build would ask.
+ * - [Full]: a fresh profile, or one whose answers predate revision 8.
+ * - [Upgrade]: revision 8 or 9 - only the steps [setupStepOfferedOnUpgradeFrom] names.
+ * - [Device]: the profile is current but this phone has never been set up (mobile data).
+ * - [None]: nothing is owed.
+ *
+ * **Skipping any of them counts as finishing it**: the revision is written either way, so nobody is
+ * asked twice. Skipping an upgrade leaves the Download Mode unanswered, which means derived from
+ * Playback Mode - see `DownloadPolicy.mode`.
+ */
+enum class SetupWizardRun { Full, Upgrade, Device, None }
+
+/**
+ * @param profileRevision the synced `setup_wizard_completed_revision`.
+ * @param deviceRevision this device's own setup revision, null when never written.
+ * @param isPhone false on desktop, which has no device steps (no mobile data rule to ask).
+ *
+ * A stored revision **higher** than the current one never re-asks: that is a downgrade, and the
+ * user has answered a superset of what this build would ask.
+ */
+fun setupWizardRun(
+    profileRevision: Int?,
+    deviceRevision: Int?,
+    isPhone: Boolean,
+    currentRevision: Int = SETUP_WIZARD_REVISION,
+): SetupWizardRun {
+    val profile = profileRevision ?: 0
+    return when {
+        profile < minOf(currentRevision, SETUP_WIZARD_FULL_REQUIRED_BELOW) -> SetupWizardRun.Full
+        profile < currentRevision -> SetupWizardRun.Upgrade
+        isPhone && (deviceRevision ?: 0) < SETUP_DEVICE_REVISION -> SetupWizardRun.Device
+        else -> SetupWizardRun.None
+    }
+}
+
+/**
+ * Whether the profile's own answers are out of date - [SetupWizardRun.Full] or
+ * [SetupWizardRun.Upgrade]. The device half is [setupWizardRun]'s.
  */
 fun shouldShowSetupWizard(
     completedRevision: Int?,
     currentRevision: Int = SETUP_WIZARD_REVISION,
-): Boolean =
-    (completedRevision ?: 0) < minOf(currentRevision, SETUP_WIZARD_AUTOMATIC_REQUIRED_REVISION)
+): Boolean = (completedRevision ?: 0) < currentRevision
+
+/**
+ * The revision each step arrived in, for the steps an upgrade asks. Null means an upgrade never
+ * offers it - including Sources (revision 9), which by that revision's own decision is not
+ * replayed for anyone who finished revision 8.
+ */
+fun setupStepOfferedOnUpgradeFrom(step: SetupStep): Int? = when (step) {
+    SetupStep.DownloadMode, SetupStep.DownloadSetup -> 10
+    else -> null
+}
 
 /**
  * Every screen the wizard can show, in the order they are declared.
@@ -85,6 +140,19 @@ enum class SetupStep {
      * [playbackSetupVariant], which decides both whether this step appears and what it asks.
      */
     PlaybackSetup,
+
+    /**
+     * How downloads pick their source (Phase 9): Automatic, Assisted or Manual - its own question,
+     * separate from Playback Mode. Always in a full run and in an upgrade from revision 8 or 9.
+     */
+    DownloadMode,
+
+    /**
+     * The few download preferences the chosen Download Mode uses, plus the device's mobile-data
+     * rule on phones. Conditional: see [downloadSetupVariant]. A [SetupWizardRun.Device] run is
+     * this step alone, asking only the device question.
+     */
+    DownloadSetup,
 
     /**
      * The language the user watches in - audio, and subtitles.
@@ -176,6 +244,36 @@ fun playbackSetupVariant(modeName: String?): PlaybackSetupVariant = when (modeNa
 }
 
 /**
+ * What the download-setup step asks (Phase 9, plan stage 2): at most four controls, so it never
+ * scrolls.
+ *
+ * | Variant | Controls |
+ * | --- | --- |
+ * | [Automatic] | resolution, size level, fallback, + mobile data on phones |
+ * | [Assisted] | size level, + mobile data on phones |
+ * | [DeviceOnly] | mobile data (Manual on a phone, and every [SetupWizardRun.Device] run) |
+ * | [None] | nothing - Manual on desktop; the step is dropped |
+ *
+ * Assisted asks no resolution because the user picks one per download; Manual asks no preference at
+ * all because the user picks every source.
+ */
+enum class DownloadSetupVariant { None, Automatic, Assisted, DeviceOnly }
+
+/**
+ * Takes the Download Mode's **name** for the same import-free reason as [playbackSetupVariant].
+ * An unrecognised name is treated as Manual - asking Automatic's questions of a mode that ignores
+ * them would write preferences nothing reads.
+ */
+fun downloadSetupVariant(downloadModeName: String?, isPhone: Boolean, run: SetupWizardRun = SetupWizardRun.Full): DownloadSetupVariant =
+    when {
+        run == SetupWizardRun.Device -> if (isPhone) DownloadSetupVariant.DeviceOnly else DownloadSetupVariant.None
+        downloadModeName == "AUTOMATIC" -> DownloadSetupVariant.Automatic
+        downloadModeName == "ASSISTED" -> DownloadSetupVariant.Assisted
+        isPhone -> DownloadSetupVariant.DeviceOnly
+        else -> DownloadSetupVariant.None
+    }
+
+/**
  * The step a saved [name] should resume on.
  *
  * The wizard persists its position **by name** rather than by ordinal, so that reordering the
@@ -217,13 +315,39 @@ data class SetupWizardPlan(
 
     /** False when this profile already has a social identity, from cache or from a probe. */
     val offerSocialIdentity: Boolean = true,
+
+    /**
+     * The Download Mode the step is showing - the stored answer, or the one Playback Mode implies
+     * while there is none. A name, for the import-free reason above.
+     */
+    val downloadModeName: String = "MANUAL",
+
+    /** False on desktop: no mobile-data question, and Manual has nothing left to ask. */
+    val isPhone: Boolean = true,
+
+    /** Which wizard this is. A re-run from Settings is always [SetupWizardRun.Full]. */
+    val run: SetupWizardRun = SetupWizardRun.Full,
+
+    /** The profile's revision before this run; decides what an [SetupWizardRun.Upgrade] asks. */
+    val fromRevision: Int = 0,
 )
+
+/** What the download-setup step asks in this plan. */
+fun downloadSetupVariant(plan: SetupWizardPlan): DownloadSetupVariant =
+    downloadSetupVariant(plan.downloadModeName, plan.isPhone, plan.run)
 
 /** The steps this run will actually show, in order. */
 fun setupWizardSteps(plan: SetupWizardPlan): List<SetupStep> = SetupStep.entries.filter { step ->
-    when (step) {
+    val offeredHere = when (plan.run) {
+        SetupWizardRun.Full -> true
+        SetupWizardRun.Upgrade -> (setupStepOfferedOnUpgradeFrom(step) ?: 0) > plan.fromRevision
+        SetupWizardRun.Device -> step == SetupStep.DownloadSetup
+        SetupWizardRun.None -> false
+    }
+    offeredHere && when (step) {
         SetupStep.PlaybackSetup ->
             playbackSetupVariant(plan.playbackModeName) != PlaybackSetupVariant.None
+        SetupStep.DownloadSetup -> downloadSetupVariant(plan) != DownloadSetupVariant.None
         SetupStep.SocialIdentity -> plan.socialEnabled && plan.offerSocialIdentity
         else -> true
     }
