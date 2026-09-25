@@ -217,6 +217,10 @@
         {
           "build": 52,
           "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+        },
+        {
+          "build": 53,
+          "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
         }
       ]
     },
@@ -302,6 +306,10 @@
         {
           "build": 64,
           "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+        },
+        {
+          "build": 65,
+          "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
         }
       ]
     }

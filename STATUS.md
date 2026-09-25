@@ -328,11 +328,67 @@ Verification: pure **931/931** (+13); Android host **2,519/2,519** (results dele
 run `36182730459`, IPA + APK - the IPA build is the iOS compile check for stage 9) and desktop **debug 64**
 (`debug-v0.1.23-alpha-z6.64`, run `36182733969`). Both carry stages 6-9.
 
-**Next:** physical checks on debug 52 / desktop 64 for stages 8+9 (fresh install; upgrade from `.48`/`.51` - the
-download-steps upgrade run and What's New; a second phone on a current profile - the device run), plus the
-stage 6/7 QA still owed on 51. Then the iOS experiments (10a/10b, need physical runs), subtitles stretch (11), and
-the release gate (12). The iOS window stays at 12. Cleanup list: the iOS workflow's path filter misses
-shared-code-only pushes (keep dispatching by hand until fixed).
+### Physical `.52` findings (Android, 2026-09-25) - diagnosed from ADB, fixed, debug 53 / desktop 65
+
+Lanterns S1, Assisted, 6 episodes over StremThru -> TorBox (`sourceOrigin: null`: the resolver mints
+the TorBox link *inside* our GET, then 302s to `store-0xx.wnam.tb-cdn.io`).
+
+**Root cause of the eps 3/4/6 "Starting" -> "Retrying shortly" loop: a dead pooled HTTP/2 connection.**
+From ~23:35 every request in the app hit the 60 s watchdog with no response headers (`bytes=0`, no
+`transfer_open`), retries included, for 20 minutes. Evidence: `curl` on the *same phone and cellular
+network* fetched all six links in 1.6-3.8 s at the same time; a PC OkHttp 4.12 repro showed the
+StremThru hop is h2 (one shared connection for every episode) and the CDN hop HTTP/1.1; and after
+`am force-stop`, Retry opened eps 3 and 4 in ~2 s. OkHttp never learns about a dead connection from a
+*cancelled* call (our watchdog cancels), and there was no `pingInterval`. Not explained: ep 4's very
+first attempt (23:31:55) also hung while ep 5 at 23:32:55 went through - slow first TorBox link
+generation or the same fault; the new `http_*` diagnostics will say next time.
+- Ep 3's first failure was a genuine mid-body stall; attempts 2-5 were unanswered requests, after which
+  the restart-from-zero rule **discarded its 2.47 GB partial**. Eps 4/6 failed with "stopped part-way
+  through" though they never received a byte.
+- FIFO held: every slot went to the lowest-ranked eligible item. Ep 5 starting while ep 4 was in a 2 s
+  backoff is the planner's intended work-conserving behaviour (backoff items are skipped); cost: that
+  2 s became ~3 min. Left as is.
+- No lifecycle involvement (`foreground=true hosting=true` throughout, no process death, no host
+  loss); no sign of the `.49` screen-off/mobile-data problem (no connection/Wi-Fi waits; Ask worked).
+- **Pause all** (notification, 23:26:58) paused one item at a time; each pause freed a slot the queue
+  refilled - three real requests fired and cancelled (eps 4, 5, 6 `slot` burst).
+
+**Fixes (`87db7ee3e`, `74b205152`; desktop `565e83140`, `4e1bb07ca` + desktop actual):**
+- Android: a `ConnectionPool` per transfer attempt, evicted at its end, + h2 pings (15 s). Desktop: an
+  `HttpClient` per attempt (`shutdownNow` at the end); its request timeout now reads
+  `DownloadsTiming.stallTimeoutMs` so the harness can drive it.
+- `DownloadFailureReason.NoResponse` (a stall/timeout before any response): Transient budget, never
+  restart-from-zero, message "This source isn't answering". Desktop E2E `requests nobody answers keep
+  the partial file and a retry resumes it` (`FaultyMediaServer.Behavior.NeverAnswer`).
+- `DownloadDiag` `http_request` (hop, conn new/reused, protocol), `http_response`, `http_failed`.
+- `DownloadsRepository.pauseDownloads` pauses a set atomically; `pauseDownload` and Pause all use it.
+- **Season/batch progress** (`DownloadAggregateProgress`): the selection is the denominator - unfinished
+  episodes (Needs-you included), finished ones from the same run, batch entries still preparing. Bytes
+  when every size is known (advertised size until the transfer opens), otherwise episode-weighted;
+  indeterminate when nothing is measurable. One model for the season row ("5.2 GB of 12 GB · 43%" /
+  "2 of 6 episodes · 38%"), the Android notification ("2 of 6 done · 38%", bar = whole queue) and the
+  iOS Live Activity (same queue aggregate; iOS compile is checked only by the debug IPA build).
+
+Verification: Android host downloads package **370/370** (results deleted, `--rerun`) incl. 11 new
+aggregate tests; `:androidApp:compileFullDebugKotlin` green; desktop `features.downloads.*` **415/415** (414 on the first
+run; the new E2E then asserted exactly one-third of the file on disk, but the drop fault's RST discards
+unread bytes - it now asserts recorded bytes == partial file and that the retry resumes from there).
+
+**Assisted discovery UX - DECIDED 2026-09-25, not built yet.** Today Assisted's "Finding sources" is a
+modal session: `dismiss()` cancels `discoverAll`, candidates live only in the session, and no batch
+exists until a resolution is chosen, so a 20+ episode season blocks the user. Automatic already runs
+discovery in the background as a batch of `DISCOVERING` entries. The maintainer chose **"choose when
+ready"**: discovery is a background batch from the start (Downloads + ongoing notification show
+"Finding sources 7/22"); the sheet offers "Continue in background" and closing it does the same; when
+discovery finishes, a Needs-you card "Lanterns · Season 1 · N episodes ready · Choose quality" and a
+system notification "Lanterns S1 is ready - Choose download quality" (**always**, even with the app
+open); either opens today's resolution sheet with exact totals. No provisional totals are ever shown.
+Open design detail: candidates are in memory only - after a process death the card must re-run
+discovery (or candidates get persisted).
+
+**Next:** physical retest on debug 53 / desktop 65 (below); build the Assisted "choose when ready" flow; then the stage 8+9
+checks still owed on 52, iOS experiments (10a/10b), subtitles stretch (11), release gate (12). Cleanup
+list: the iOS workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
