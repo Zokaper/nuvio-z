@@ -50,6 +50,17 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun sizeFiguresReadAsAPersonWouldSayThem() {
+        assertEquals("0.4", downloadSizeFigure(0.4))
+        assertEquals("1", downloadSizeFigure(1.0))
+        assertEquals("1.5", downloadSizeFigure(1.5))
+        assertEquals("0.1", downloadSizeFigure(0.01), "never 0")
+        assertEquals("1", downloadSizeFigure(3.0 / 3.0))
+        assertEquals("12", downloadSizeFigure(12.4))
+        assertEquals("18", downloadSizeFigure(18.0))
+    }
+
+    @Test
     fun anySizeHasNoLimit() {
         assertNull(DownloadSizeLevels.limitBytes(DownloadSizeLevel.ANY, 2160, 60, isEpisode = true))
     }

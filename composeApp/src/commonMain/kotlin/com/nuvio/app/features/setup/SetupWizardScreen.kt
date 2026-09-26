@@ -101,6 +101,7 @@ import com.nuvio.app.features.downloads.downloadMobileDataLabel
 import com.nuvio.app.features.downloads.downloadModeName
 import com.nuvio.app.features.downloads.downloadResolutionLabel
 import com.nuvio.app.features.downloads.downloadSizeLevelDetail
+import com.nuvio.app.features.downloads.downloadSizeLevelFigures
 import com.nuvio.app.features.downloads.downloadSizeLevelLabel
 import com.nuvio.app.features.downloads.forDownloads
 import com.nuvio.app.features.playback.LanguageStrictness
@@ -1643,6 +1644,8 @@ private fun SetupDownloadSetupBody(
             options = DownloadSizeLevel.entries.map { downloadSizeLevelLabel(it) to it },
             selected = policy.sizeLevel,
             onSelected = { value -> DownloadPolicyRepository.update { it.copy(sizeLevel = value) } },
+            // Every level shows its number, so none has to be tapped to be read.
+            sublabels = DownloadSizeLevel.entries.associateWith { downloadSizeLevelFigures(it).joinToString("\n") },
         )
         SetupParagraph(downloadSizeLevelDetail(policy.sizeLevel, policy.preferredResolution))
     }
@@ -1752,6 +1755,8 @@ private fun <T> SetupChoiceGroup(
     options: List<Pair<String, T>>,
     selected: T,
     onSelected: (T) -> Unit,
+    /** A second, quieter line inside the chip - a size level's GB/h. Absent for most groups. */
+    sublabels: Map<T, String> = emptyMap(),
 ) {
     val tokens = MaterialTheme.nuvio
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1778,6 +1783,35 @@ private fun <T> SetupChoiceGroup(
         ) {
             options.forEach { (label, value) ->
                 val isSelected = value == selected
+                val sublabel = sublabels[value]
+                if (sublabel != null) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (isSelected) tokens.colors.accent else tokens.colors.overlayHover)
+                            .clickable { onSelected(value) }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isSelected) tokens.colors.onAccent else tokens.colors.textPrimary,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = sublabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) tokens.colors.onAccent.copy(alpha = 0.85f) else tokens.colors.textMuted,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                        )
+                    }
+                    return@forEach
+                }
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,

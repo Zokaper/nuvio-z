@@ -143,22 +143,65 @@ fun downloadSizeLevelLabel(level: DownloadSizeLevel): String = when (level) {
     DownloadSizeLevel.ANY -> stringResource(Res.string.download_size_any)
 }
 
-/**
- * What a level means in numbers, at the resolution it would be applied to: "About 2 GB per hour of
- * video at 1080p". Best available is described at 1080p - the level is relative, and one concrete
- * figure reads better than a table.
- */
-@Composable
-fun downloadSizeLevelDetail(level: DownloadSizeLevel, resolution: DownloadResolutionPreference): String {
-    val height = if (resolution == DownloadResolutionPreference.BEST_AVAILABLE) {
+/** The resolution a level is described at: Best available (and Assisted, which asks per download) at 1080p. */
+private fun describedHeight(resolution: DownloadResolutionPreference): Int =
+    if (resolution == DownloadResolutionPreference.BEST_AVAILABLE) {
         DownloadResolutionPreference.P1080.height
     } else {
         resolution.height
     }
+
+/**
+ * A gigabyte figure as a person reads it: one decimal below 10 ("0.4", "1.5", "3"), whole numbers
+ * above ("12"). Never "3.0" and never "0".
+ */
+internal fun downloadSizeFigure(gigabytes: Double): String {
+    if (gigabytes >= 10.0) return kotlin.math.round(gigabytes).toLong().toString()
+    val tenths = kotlin.math.round(gigabytes * 10.0).toLong().coerceAtLeast(1L)
+    return if (tenths % 10L == 0L) (tenths / 10L).toString() else "${tenths / 10L}.${tenths % 10L}"
+}
+
+/** The two resolutions every level is quoted at, whatever is chosen: the ones people pick between. */
+private val QUOTED_HEIGHTS = listOf(DownloadResolutionPreference.P1080.height, DownloadResolutionPreference.P2160.height)
+
+/**
+ * A level's own numbers, shown beside every option so none has to be tapped to be read:
+ * ["1080p · 3 GB/h", "4K · 8 GB/h"], or ["No limit"] for Any size.
+ */
+@Composable
+fun downloadSizeLevelFigures(level: DownloadSizeLevel): List<String> {
+    if (level == DownloadSizeLevel.ANY) return listOf(stringResource(Res.string.download_size_no_limit))
+    return QUOTED_HEIGHTS.map { height ->
+        stringResource(
+            Res.string.download_size_at_resolution,
+            DownloadFlowRules.resolutionLabel(height),
+            downloadSizeFigure(DownloadSizeLevels.gigabytesPerHour(level, height)!!),
+        )
+    }
+}
+
+/** "Standard · 1080p · 3 GB/h, 4K · 8 GB/h" - the option label where a list has one line (Settings' dropdown). */
+@Composable
+fun downloadSizeLevelOption(level: DownloadSizeLevel): String =
+    stringResource(Res.string.download_size_level_option, downloadSizeLevelLabel(level), downloadSizeLevelFigures(level).joinToString(", "))
+
+/**
+ * The selected level at the scale people think in - a 20-minute episode, an hour-long one, a
+ * 2-hour film - since episodes vary too much for one "per episode" figure: "At 1080p: about 1 GB
+ * for a 20-minute episode, 3 GB for an hour-long one, 6 GB for a 2-hour film".
+ */
+@Composable
+fun downloadSizeLevelDetail(level: DownloadSizeLevel, resolution: DownloadResolutionPreference): String {
+    val height = describedHeight(resolution)
     val perHour = DownloadSizeLevels.gigabytesPerHour(level, height)
         ?: return stringResource(Res.string.download_size_level_detail_any)
-    val figure = if (perHour % 1.0 == 0.0) perHour.toLong().toString() else perHour.toString()
-    return stringResource(Res.string.download_size_level_detail, figure, DownloadFlowRules.resolutionLabel(height))
+    return stringResource(
+        Res.string.download_size_level_detail,
+        DownloadFlowRules.resolutionLabel(height),
+        downloadSizeFigure(perHour / 3.0),
+        downloadSizeFigure(perHour),
+        downloadSizeFigure(perHour * 2.0),
+    )
 }
 
 @Composable

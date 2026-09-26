@@ -274,7 +274,9 @@ private fun DownloadPreferencesCard(policy: DownloadPolicy) {
                 description = downloadSizeLevelDetail(policy.sizeLevel, policy.preferredResolution),
                 selectedKey = policy.sizeLevel.name,
                 label = downloadSizeLevelLabel(policy.sizeLevel),
-                options = DownloadSizeLevel.entries.map { NuvioDropdownOption(it.name, downloadSizeLevelLabel(it)) },
+                options = DownloadSizeLevel.entries.map {
+                    NuvioDropdownOption(it.name, downloadSizeLevelOption(it))
+                },
                 onSelected = { key ->
                     DownloadPolicyRepository.update { it.copy(sizeLevel = DownloadSizeLevel.valueOf(key)) }
                 },

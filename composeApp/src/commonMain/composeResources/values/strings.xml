@@ -3058,7 +3058,10 @@
     <string name="download_size_large">Large</string>
     <string name="download_size_huge">Huge</string>
     <string name="download_size_any">Any size</string>
-    <string name="download_size_level_detail">About %1$s GB per hour of video at %2$s</string>
+    <string name="download_size_level_detail">At %1$s: about %2$s GB for a 20-minute episode, %3$s GB for an hour-long one, %4$s GB for a 2-hour film</string>
+    <string name="download_size_at_resolution">%1$s · %2$s GB/h</string>
+    <string name="download_size_no_limit">No limit</string>
+    <string name="download_size_level_option">%1$s · %2$s</string>
     <string name="download_size_level_detail_any">No limit - Nuvio never asks about size</string>
     <string name="download_fallback_lower">Go lower</string>
     <string name="download_fallback_higher">Go higher</string>
