@@ -249,6 +249,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     private val fullSinceByTask = mutableMapOf<ULong, Long>()
     private var inventoryLoaded = false
     private var lastConcurrencySnapshotAtEpochMs = 0L
+    /** 10a: tasks created and attached but deliberately left suspended by the runnable limit. */
+    private val heldIds = mutableSetOf<String>()
     private val awaitingInventory = mutableListOf<() -> Unit>()
 
     @Volatile
@@ -275,6 +277,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             "experiment" to IosTransferExperiment.ID,
             "window" to IOS_SUBMISSION_WINDOW,
             "maxPerHost" to configuration.HTTPMaximumConnectionsPerHost,
+            "runnableLimit" to IosTransferExperiment.RUNNABLE_LIMIT,
         )
         NSURLSession.sessionWithConfiguration(configuration, this, delegateQueue).also { created ->
             created.getAllTasksWithCompletionHandler { tasks ->
@@ -431,7 +434,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             dropFinishedTasks()
             tasksById[request.downloadId]?.let { existing ->
                 attach(existing, metadata, listener)
-                existing.resume()
+                resumeOrHold(request.downloadId, existing)
                 rankTaskPriorities()
                 DownloadsProbeLog.event("resume", "id" to request.downloadId, "task" to existing.taskIdentifier.toLong())
                 return@whenReady
@@ -461,11 +464,58 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             }
             val task = createTask(metadata, buildNativeRequest(url, request.sourceHeaders, request.allowMeteredNetwork))
             attach(task, metadata, listener)
-            task.resume()
+            resumeOrHold(request.downloadId, task)
             logCreate(task, request.downloadId, request.queuePosition, request.sourceUrlResolvedAtEpochMs)
             snapshotConcurrency("start")
         }
         return handle
+    }
+
+    /**
+     * 10a: resumes [task] if fewer than [IosTransferExperiment.RUNNABLE_LIMIT] others are running,
+     * otherwise leaves it suspended in the session as a held task. A task already running stays so.
+     */
+    private fun resumeOrHold(downloadId: String, task: NSURLSessionDownloadTask) {
+        if (task.state == NSURLSessionTaskStateRunning) {
+            heldIds -= downloadId
+            return
+        }
+        val running = tasksById.entries.count { (id, other) -> id != downloadId && other.state == NSURLSessionTaskStateRunning }
+        if (running < IosTransferExperiment.RUNNABLE_LIMIT) {
+            heldIds -= downloadId
+            task.resume()
+        } else {
+            heldIds += downloadId
+            DownloadsProbeLog.event(
+                "hold",
+                "id" to downloadId,
+                "task" to task.taskIdentifier.toLong(),
+                "running" to running,
+                "held" to heldIds.size,
+            )
+        }
+    }
+
+    /** 10a: a running task ended or was paused - resume held tasks, head of the queue first, up to the limit. */
+    private fun releaseHeld(reason: String) {
+        heldIds.retainAll { tasksById[it]?.state == NSURLSessionTaskStateSuspended }
+        var running = tasksById.values.count { it.state == NSURLSessionTaskStateRunning }
+        val next = heldIds.sortedWith(compareBy<String> { positionsById[it] ?: Long.MAX_VALUE }.thenBy { it })
+        for (downloadId in next) {
+            if (running >= IosTransferExperiment.RUNNABLE_LIMIT) break
+            val task = tasksById[downloadId] ?: continue
+            heldIds -= downloadId
+            task.resume()
+            running += 1
+            DownloadsProbeLog.event(
+                "release",
+                "id" to downloadId,
+                "task" to task.taskIdentifier.toLong(),
+                "reason" to reason,
+                "running" to running,
+                "held" to heldIds.size,
+            )
+        }
     }
 
     /**
@@ -484,6 +534,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             "held" to tasksById.size,
             "running" to tasksById.values.count { it.state == NSURLSessionTaskStateRunning },
             "suspended" to tasksById.values.count { it.state == NSURLSessionTaskStateSuspended },
+            "heldByLimit" to heldIds.size,
             "moving" to contexts.values.count { !it.completed && now - it.lastByteAtEpochMs <= MOVING_WINDOW_MS },
         )
     }
@@ -597,8 +648,10 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     fun suspend(downloadId: String, notify: Boolean) {
         whenReady {
             val task = tasksById[downloadId] ?: return@whenReady
+            heldIds -= downloadId
             task.suspend()
             DownloadsProbeLog.event("suspend", "id" to downloadId, "task" to task.taskIdentifier.toLong(), "notify" to notify)
+            releaseHeld("suspend")
             if (notify) {
                 contexts[task.taskIdentifier]?.listener?.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
             }
@@ -632,10 +685,11 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         if (!isBackgrounded || !inventoryLoaded) return
         val snapshot = SystemOwnedTransfers.nativeSchedulingSnapshot()
         val running = tasksById.filterValues { it.state == NSURLSessionTaskStateRunning }.keys
-        val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys
+        val suspended = tasksById.filterValues { it.state == NSURLSessionTaskStateSuspended }.keys - heldIds
         val plan = IosBackgroundTransferReconciler.scheduleNextTransfers(
             maxConcurrent = IOS_SUBMISSION_WINDOW,
-            runningIds = running,
+            // 10a: a held task keeps its place in the window; releaseHeld, not this plan, resumes it.
+            runningIds = running + heldIds,
             claimedIds = snapshot.claimedIds,
             suspendedIds = suspended,
             finishedIds = finishedIds,
@@ -661,7 +715,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                     ),
                 )
             attach(task, metadata, claim.listener)
-            task.resume()
+            resumeOrHold(candidate.downloadId, task)
             if (existing == null) {
                 logCreate(task, candidate.downloadId, candidate.queuePosition, candidate.sourceUrlResolvedAtEpochMs)
             } else {
@@ -859,6 +913,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                 it.listener.onPaused(task.countOfBytesReceived.coerceAtLeast(0L))
             }
             finishedIds.remove(metadata.downloadId)
+            heldIds -= metadata.downloadId
+            releaseHeld("system_cancel")
             advanceIfBackgrounded()
             snapshotConcurrency("complete", force = true)
             return
@@ -875,6 +931,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             )
         }
         finishedIds.remove(metadata.downloadId)
+        heldIds -= metadata.downloadId
+        releaseHeld("complete")
         advanceIfBackgrounded()
         snapshotConcurrency("complete", force = true)
     }

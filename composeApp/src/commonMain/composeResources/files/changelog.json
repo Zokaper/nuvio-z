@@ -237,6 +237,10 @@
         {
           "build": 57,
           "text": "After Choose now the season stays on the Downloads screen and in the Live Activity while its sources are checked; the Library and Downloads tabs no longer shift. iPhone transfers are the same as 56 (baseline for the comparison builds)."
+        },
+        {
+          "build": 58,
+          "text": "EXPERIMENT 10a (iPhone transfers): at most 2 downloads run at once; the rest wait inside iOS and start as each one finishes, even while locked. Compare with 57."
         }
       ]
     },
