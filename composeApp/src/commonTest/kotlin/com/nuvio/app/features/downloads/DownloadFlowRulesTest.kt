@@ -163,4 +163,23 @@ class DownloadFlowRulesTest {
         val finished = listOf(DownloadFlowRules.SeasonChoice(1, 10, 0))
         assertEquals(false, DownloadFlowRules.offersUnwatchedMode(finished))
     }
+
+    // --- Assisted "Choose now" -------------------------------------------------------------------
+
+    @Test
+    fun anEarlyChoiceOffersTheResolutionsAPreferenceCanName() {
+        assertEquals(listOf(2160, 1080, 720), DownloadFlowRules.earlyChoiceHeights)
+        assertEquals(1080, DownloadFlowRules.earlyPreselectedHeight(DownloadResolutionPreference.P1080))
+        assertEquals(2160, DownloadFlowRules.earlyPreselectedHeight(DownloadResolutionPreference.BEST_AVAILABLE))
+        DownloadFlowRules.earlyChoiceHeights.forEach { height ->
+            assertEquals(height, DownloadFlowRules.preferenceForHeight(height).height)
+        }
+    }
+
+    @Test
+    fun anEstimateIsNeverMorePreciseThanItIs() {
+        assertEquals("~16–33 GB", DownloadFlowRules.sizeRangeLabel(16_500_000_000L..33_000_000_000L))
+        assertEquals("~1.5–3 GB", DownloadFlowRules.sizeRangeLabel(1_500_000_000L..3_000_000_000L))
+        assertEquals("~250–500 MB", DownloadFlowRules.sizeRangeLabel(250_000_000L..500_000_000L))
+    }
 }

@@ -149,6 +149,43 @@ object DownloadFlowRules {
         return available.filter { it < target }.maxOrNull() ?: available.filter { it > target }.minOrNull()
     }
 
+    /**
+     * Assisted "Choose now" - a quality before any source is found: the resolutions a preference
+     * can name, highest first. Which of them exist is unknown until discovery ends; one that is
+     * missing then goes through the user's resolution fallback like Automatic's.
+     */
+    val earlyChoiceHeights: List<Int> = listOf(2160, 1080, 720)
+
+    /** The early sheet pre-selects the preferred resolution; Best available is the highest. */
+    fun earlyPreselectedHeight(preferred: DownloadResolutionPreference): Int =
+        if (preferred == DownloadResolutionPreference.BEST_AVAILABLE) earlyChoiceHeights.first() else preferred.height
+
+    /** The preference an early choice of [height] stands for when discovery ends. */
+    fun preferenceForHeight(height: Int): DownloadResolutionPreference = when {
+        height >= 2160 -> DownloadResolutionPreference.P2160
+        height >= 1080 -> DownloadResolutionPreference.P1080
+        else -> DownloadResolutionPreference.P720
+    }
+
+    /** "~16–33 GB": an estimate, in whole gigabytes from 10 GB, never more precise than it is. */
+    fun sizeRangeLabel(range: LongRange): String {
+        val low = range.first / 1_000_000_000.0
+        val high = range.last / 1_000_000_000.0
+        fun gb(value: Double): String = if (high >= 10.0) {
+            kotlin.math.round(value).toLong().toString()
+        } else {
+            (kotlin.math.round(value * 10.0) / 10.0).toString().removeSuffix(".0")
+        }
+        if (high < 1.0) {
+            val lowMb = kotlin.math.round(low * 1000.0).toLong().coerceAtLeast(1L)
+            val highMb = kotlin.math.round(high * 1000.0).toLong().coerceAtLeast(1L)
+            return if (lowMb == highMb) "~$highMb MB" else "~$lowMb–$highMb MB"
+        }
+        val lowText = gb(low)
+        val highText = gb(high)
+        return if (lowText == highText) "~$highText GB" else "~$lowText–$highText GB"
+    }
+
     /** "4K", "1080p" - the resolution's name as the sheet and the toast say it. */
     fun resolutionLabel(height: Int): String = when {
         height >= 4320 -> "8K"

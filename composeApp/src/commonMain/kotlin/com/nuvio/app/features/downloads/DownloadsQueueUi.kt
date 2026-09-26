@@ -546,7 +546,8 @@ private fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
  * that runs ("Refreshing sources…" after a process death), then "Ready to choose quality" with the
  * one action that moves it on. Not a "Needs you" card - nothing went wrong - so it sits with the
  * downloads, in the accent of an ordinary step. Tapping the row while it is still finding opens the
- * finding sheet, which moves on to the choice by itself.
+ * finding sheet, which moves on to the choice by itself - or, after "Choose now", says which
+ * quality will start ("Finding sources · 7 of 22 · 1080p chosen").
  */
 @Composable
 internal fun DownloadChoiceBatchRow(
@@ -582,7 +583,13 @@ internal fun DownloadChoiceBatchRow(
             Text(
                 text = when {
                     finding && refreshing -> stringResource(Res.string.download_phase_refreshing_sources)
-                    finding -> stringResource(Res.string.downloads_preparing_progress, found, total)
+                    finding -> listOfNotNull(
+                        stringResource(Res.string.downloads_preparing_progress, found, total),
+                        // "Choose now" was used: the quality is settled, only the sources are not.
+                        batch.earlyResolutionHeight?.let {
+                            stringResource(Res.string.download_choice_chosen, DownloadFlowRules.resolutionLabel(it))
+                        },
+                    ).joinToString(" · ")
                     else -> "${stringResource(Res.string.download_phase_ready_to_choose)} · " +
                         stringResource(Res.string.download_flow_episode_count, total)
                 },

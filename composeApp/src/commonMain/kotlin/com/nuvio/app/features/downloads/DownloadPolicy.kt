@@ -111,6 +111,32 @@ object DownloadSizeLevels {
         return (perHour * GIGABYTE * minutes / 60.0).toLong()
     }
 
+    /**
+     * Assisted "Choose now": roughly what [runtimesMinutes] of video comes to at [resolutionHeight]
+     * under [level], as a low-high range in bytes, **before** any source is found. The pick takes
+     * the best file inside the level, so the range runs from the level below to the level itself
+     * (half of Small below Small).
+     *
+     * Null - "Size estimate unavailable" - when the level has no limit (Any), or when not one
+     * runtime is known: an estimate made of assumed runtimes alone would be fake precision.
+     * Unknown runtimes among known ones count as the known average. Provisional with the table.
+     */
+    fun estimateBytes(level: DownloadSizeLevel, resolutionHeight: Int, runtimesMinutes: List<Int?>): LongRange? {
+        val high = gigabytesPerHour(level, resolutionHeight) ?: return null
+        val low = when (level) {
+            DownloadSizeLevel.SMALL -> high / 2.0
+            DownloadSizeLevel.MEDIUM -> gigabytesPerHour(DownloadSizeLevel.SMALL, resolutionHeight)
+            DownloadSizeLevel.LARGE -> gigabytesPerHour(DownloadSizeLevel.MEDIUM, resolutionHeight)
+            DownloadSizeLevel.HUGE -> gigabytesPerHour(DownloadSizeLevel.LARGE, resolutionHeight)
+            DownloadSizeLevel.ANY -> null
+        } ?: return null
+        val known = runtimesMinutes.filterNotNull().filter { it > 0 }
+        if (known.isEmpty()) return null
+        val minutes = known.sum() + known.average() * (runtimesMinutes.size - known.size)
+        val hours = minutes / 60.0
+        return (low * hours * GIGABYTE).toLong()..(high * hours * GIGABYTE).toLong()
+    }
+
     const val GIGABYTE: Double = 1_000_000_000.0
 }
 

@@ -13,6 +13,7 @@ import nuvio.composeapp.generated.resources.download_choice_ready_body
 import nuvio.composeapp.generated.resources.download_choice_ready_title
 import nuvio.composeapp.generated.resources.download_choice_season_label
 import nuvio.composeapp.generated.resources.download_flow_change
+import nuvio.composeapp.generated.resources.download_flow_early_chosen
 import nuvio.composeapp.generated.resources.download_flow_finding_source
 import nuvio.composeapp.generated.resources.download_flow_needs_attention
 import nuvio.composeapp.generated.resources.download_flow_nothing_new
@@ -95,6 +96,12 @@ internal object ToastDownloadFlowNotices : DownloadFlowNotices {
                 actionLabel = getString(Res.string.download_choice_ready_action),
                 effect = onChoose,
             )
+        }
+    }
+
+    override fun qualityChosenEarly(height: Int) {
+        scope.launch {
+            NuvioToastController.show(getString(Res.string.download_flow_early_chosen, DownloadFlowRules.resolutionLabel(height)))
         }
     }
 

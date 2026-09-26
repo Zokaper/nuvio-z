@@ -43,6 +43,8 @@ sealed interface DownloadFlowStep {
         val batchId: String? = null,
         /** Finding the sources again after the process died. */
         val refreshing: Boolean = false,
+        /** "Choose now" was used: the resolution the batch will start at once its sources are in. */
+        val chosenHeight: Int? = null,
     ) : DownloadFlowStep
 
     /** Assisted: one row per available resolution, each the best match there. */
@@ -54,6 +56,12 @@ sealed interface DownloadFlowStep {
         val preselectedHeight: Int?,
         /** Only with one target that has at least one source a manual pick could download. */
         val offersChooseManually: Boolean,
+        /**
+         * "Choose now": discovery is still running, so every row is an estimate
+         * ([DownloadResolutionRow.estimate]) and choosing records the resolution rather than
+         * starting anything.
+         */
+        val estimated: Boolean = false,
     ) : DownloadFlowStep
 
     /** Discovery found nothing usable. Check again / Choose manually (when possible) / Close. */
@@ -83,6 +91,8 @@ data class DownloadResolutionRow(
     val overLimit: Boolean,
     /** For a single item: what the file is ("HEVC · HDR10 · Torrentio"). */
     val detail: String?,
+    /** "Choose now" rows only: the estimated range, null when no estimate can honestly be made. */
+    val estimate: LongRange? = null,
 )
 
 /** Navigation the flow needs; the app shell performs it. */
@@ -104,6 +114,9 @@ internal interface DownloadFlowNotices {
 
     /** Assisted "choose when ready", with Nuvio on screen: "Lanterns S1 is ready · Choose". */
     fun qualityReady(title: String, season: Int?, onChoose: () -> Unit)
+
+    /** "Choose now": "1080p chosen · downloads start when sources are found". */
+    fun qualityChosenEarly(height: Int) {}
 }
 
 /**
@@ -333,6 +346,10 @@ object DownloadFlowController {
     fun chooseResolution(height: Int) {
         val current = session ?: return dismiss()
         val choiceBatchId = current.choiceBatchId
+        if (choiceBatchId != null && (_step.value as? DownloadFlowStep.ChooseResolution)?.estimated == true) {
+            chooseEarly(current, choiceBatchId, height)
+            return
+        }
         if (choiceBatchId != null) {
             // Found in the background; gone only if the batch was removed meanwhile.
             val found = AssistedDiscovery.candidates(choiceBatchId) ?: return dismiss()
@@ -585,7 +602,14 @@ object DownloadFlowController {
                 total = entries.size,
                 batchId = batchId,
                 refreshing = batchId in AssistedDiscovery.refreshing.value,
+                chosenHeight = batch.earlyResolutionHeight,
             )
+            return
+        }
+        if (batch.earlyResolutionHeight != null) {
+            // Chosen early and the sources are in: it is being started, not chosen again.
+            session = null
+            _step.value = DownloadFlowStep.Idle
             return
         }
         markAnnounced(batchId)
@@ -629,6 +653,16 @@ object DownloadFlowController {
         val targets = batch.entries
             .filter { it.state == DownloadBatchEntryState.AWAITING_CHOICE }
             .map { DownloadBatchCoordinator.targetOf(batch, it) }
+        val early = batch.earlyResolutionHeight
+        if (early != null) {
+            val choosingThis = session?.choiceBatchId == batchId
+            if (sheetShowsBatch || choosingThis) {
+                session = null
+                _step.value = DownloadFlowStep.Idle
+            }
+            applyEarlyChoice(batch, targets, found, early, policy)
+            return
+        }
         val probe = Session(title, DownloadMode.ASSISTED, batch.scope, meta = null, targets = targets)
         val sheet = assistedStep(probe, targets.associateWith { found[it.entryId].orEmpty() }, policy)
         val season = AssistedChoiceRules.seasonOf(batch)
@@ -681,6 +715,122 @@ object DownloadFlowController {
                 postChoiceNotification(DownloadChoiceNotice(batchId, title.title, season, ready = true))
             }
             AssistedChoiceRules.Announcement.NONE -> Unit
+        }
+    }
+
+    /**
+     * "Choose now" on the finding sheet: the Assisted sheet before the sources are found, every row
+     * an estimate from the episodes' runtimes and the size level. The exact sheet stays the default -
+     * this is only for not waiting.
+     */
+    fun chooseNow() {
+        val step = _step.value as? DownloadFlowStep.FindingSources ?: return
+        val batchId = step.batchId ?: return
+        val batch = DownloadsRepository.batches.value.firstOrNull { it.id == batchId } ?: return
+        if (!batch.awaitsQualityChoice) return
+        val current = session?.takeIf { it.choiceBatchId == batchId } ?: Session(
+            title = DownloadBatchCoordinator.titleRefOf(batch),
+            mode = DownloadMode.ASSISTED,
+            scope = batch.scope,
+            meta = null,
+            targets = batch.entries
+                .filter { it.state == DownloadBatchEntryState.DISCOVERING || it.state == DownloadBatchEntryState.AWAITING_CHOICE }
+                .map { DownloadBatchCoordinator.targetOf(batch, it) },
+            allowMetered = batch.allowMeteredNetwork,
+            intoBatchId = batch.id,
+            choiceBatchId = batch.id,
+        ).also { session = it }
+        val policy = policyProvider()
+        val runtimes = current.targets.map { it.runtimeMinutes }
+        val rows = DownloadFlowRules.earlyChoiceHeights.map { height ->
+            DownloadResolutionRow(
+                height = height,
+                totalBytes = 0L,
+                unknownSizeCount = 0,
+                episodeCount = current.targets.size,
+                missingCount = 0,
+                overLimit = false,
+                detail = null,
+                estimate = DownloadSizeLevels.estimateBytes(policy.sizeLevel, height, runtimes),
+            )
+        }
+        _step.value = DownloadFlowStep.ChooseResolution(
+            title = current.title,
+            scope = current.scope,
+            targetCount = current.targets.size,
+            rows = rows,
+            preselectedHeight = batch.earlyResolutionHeight ?: DownloadFlowRules.earlyPreselectedHeight(policy.preferredResolution),
+            offersChooseManually = false,
+            estimated = true,
+        )
+    }
+
+    /** Records the early choice; if the sources arrived while the sheet was open, applies it now. */
+    private fun chooseEarly(current: Session, batchId: String, height: Int) {
+        session = null
+        _step.value = DownloadFlowStep.Idle
+        DownloadsRepository.updateBatch(batchId) { it.copy(earlyResolutionHeight = height) }
+        DownloadDiagnostics.note("assisted_early_choice", "batch=${batchId.takeLast(6)} height=$height")
+        notices.qualityChosenEarly(height)
+        if (AssistedDiscovery.candidates(batchId) != null) {
+            // Discovery ended while the estimate sheet was up: its result already went by.
+            onDiscoveryFinished(batchId, refreshed = false)
+        }
+    }
+
+    /**
+     * The sources are in for a batch chosen early. Each entry is decided as Automatic would decide
+     * it with the chosen resolution as the preference: inside the size rule, the user's fallback
+     * when the resolution is missing (Ask -> the grouped Needs you card), the over-limit decision,
+     * nothing cached / no sources. Then the usual free-space check. Nothing asks for the
+     * resolution again.
+     */
+    private fun applyEarlyChoice(
+        batch: DownloadBatch,
+        targets: List<DownloadTarget>,
+        found: Map<String, List<DownloadSourceCandidate>>,
+        height: Int,
+        policy: DownloadPolicy,
+    ) {
+        val batchId = batch.id
+        val chosen = policy.copy(preferredResolution = DownloadFlowRules.preferenceForHeight(height))
+        val current = Session(
+            title = DownloadBatchCoordinator.titleRefOf(batch),
+            mode = DownloadMode.ASSISTED,
+            scope = batch.scope,
+            meta = null,
+            targets = targets,
+            allowMetered = batch.allowMeteredNetwork,
+            intoBatchId = batchId,
+        )
+        // Claimed at once, so a second "finished" (a refresh racing this) cannot apply it twice.
+        DownloadsRepository.updateBatch(batchId) { it.copy(awaitsQualityChoice = false) }
+        AssistedDiscovery.forget(batchId)
+        DownloadsLiveStatusPlatform.clearChoice(batchId)
+        scope.launch {
+            val entries = targets.map { target ->
+                DownloadBatchCoordinator.automaticEntry(
+                    target,
+                    found[target.entryId].orEmpty(),
+                    DownloadBatchCoordinator.contextFor(target, chosen),
+                )
+            }
+            entries.forEach { DownloadsRepository.updateBatchEntry(batchId, it) }
+            val ready = entries.count { it.state == DownloadBatchEntryState.READY }
+            DownloadDiagnostics.note(
+                "assisted_early_applied",
+                "batch=${batchId.takeLast(6)} height=$height entries=${entries.size} ready=$ready",
+            )
+            queueOrHold(current, batchId, entries)
+            if (isAppInForeground()) {
+                announceMany(entries)
+            } else if (ready == 0) {
+                // In the background the summary notification shows what started; only a batch
+                // where nothing could start needs telling.
+                postChoiceNotification(
+                    DownloadChoiceNotice(batchId, current.title.title, AssistedChoiceRules.seasonOf(batch), ready = false),
+                )
+            }
         }
     }
 

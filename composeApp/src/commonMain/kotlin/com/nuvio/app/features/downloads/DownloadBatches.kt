@@ -154,6 +154,13 @@ data class DownloadBatch(
     val awaitsQualityChoice: Boolean = false,
     /** When the user was told this batch is ready (in-app or notification), so a refresh does not say it twice. */
     val choiceAnnouncedAtEpochMs: Long? = null,
+    /**
+     * Assisted "Choose now": the resolution the user picked **before** discovery finished, from
+     * estimates. A real choice, never asked again: when the sources are in, every entry is decided
+     * for it as Automatic would decide its preference (fallback, size rule, Needs you). Persisted
+     * with the batch so a process death keeps it; the candidates themselves never are.
+     */
+    val earlyResolutionHeight: Int? = null,
 ) {
     val requiresReview: Boolean
         get() = entries.size > 10 ||

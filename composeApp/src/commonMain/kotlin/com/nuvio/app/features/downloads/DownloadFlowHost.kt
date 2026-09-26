@@ -100,6 +100,13 @@ import nuvio.composeapp.generated.resources.download_flow_resolution_each
 import nuvio.composeapp.generated.resources.download_flow_resolution_episodes
 import nuvio.composeapp.generated.resources.download_choose_sources_scope
 import nuvio.composeapp.generated.resources.download_flow_continue_background
+import nuvio.composeapp.generated.resources.download_flow_change_quality
+import nuvio.composeapp.generated.resources.download_flow_choose_early
+import nuvio.composeapp.generated.resources.download_flow_choose_now
+import nuvio.composeapp.generated.resources.download_flow_early_chosen
+import nuvio.composeapp.generated.resources.download_flow_estimate_label
+import nuvio.composeapp.generated.resources.download_flow_estimate_note
+import nuvio.composeapp.generated.resources.download_flow_estimate_unavailable
 import nuvio.composeapp.generated.resources.download_flow_finding_background_hint
 import nuvio.composeapp.generated.resources.download_phase_refreshing_sources
 import org.jetbrains.compose.resources.pluralStringResource
@@ -132,6 +139,7 @@ fun DownloadFlowHost() {
         is DownloadFlowStep.FindingSources -> DownloadFindingSourcesDialog(
             step = current,
             onDismiss = DownloadFlowController::dismiss,
+            onChooseNow = DownloadFlowController::chooseNow,
         )
         is DownloadFlowStep.ChooseResolution -> DownloadResolutionDialog(
             step = current,
@@ -391,6 +399,7 @@ private fun SegmentedChoice(options: List<String>, selectedIndex: Int, onSelect:
 fun DownloadFindingSourcesDialog(
     step: DownloadFlowStep.FindingSources,
     onDismiss: () -> Unit,
+    onChooseNow: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val background = step.batchId != null
@@ -418,16 +427,33 @@ fun DownloadFindingSourcesDialog(
         if (background) {
             // Closing this never cancels the search: it runs in the background either way, and
             // Remove on the Downloads row is what stops it.
+            val chosen = step.chosenHeight
             Text(
-                text = stringResource(Res.string.download_flow_finding_background_hint),
+                text = if (chosen != null) {
+                    stringResource(Res.string.download_flow_early_chosen, DownloadFlowRules.resolutionLabel(chosen))
+                } else {
+                    stringResource(Res.string.download_flow_finding_background_hint)
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = tokens.colors.textMuted,
+                color = if (chosen != null) tokens.colors.textSecondary else tokens.colors.textMuted,
             )
+            // Waiting for the exact sizes stays the default; "Choose now" is for not waiting.
             NuvioPrimaryButton(
                 text = stringResource(Res.string.download_flow_continue_background),
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onDismiss,
             )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                TextButton(onClick = onChooseNow) {
+                    Text(
+                        text = stringResource(
+                            if (chosen != null) Res.string.download_flow_change_quality else Res.string.download_flow_choose_now,
+                        ),
+                        color = tokens.colors.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) {
@@ -466,8 +492,17 @@ fun DownloadResolutionDialog(
                     isSeason = step.targetCount > 1,
                     selected = row.height == selected,
                     onClick = { selected = row.height },
+                    estimated = step.estimated,
                 )
             }
+        }
+        if (step.estimated) {
+            // Said once for the sheet, so no row pretends to be exact.
+            Text(
+                text = stringResource(Res.string.download_flow_estimate_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
         }
         if (step.offersChooseManually) {
             NuvioActionLabel(
@@ -478,7 +513,7 @@ fun DownloadResolutionDialog(
         DialogButtons(
             secondary = stringResource(Res.string.action_cancel),
             onSecondary = onDismiss,
-            primary = stringResource(Res.string.download_flow_download),
+            primary = stringResource(if (step.estimated) Res.string.download_flow_choose_early else Res.string.download_flow_download),
             onPrimary = { selected?.let(onDownload) },
             primaryEnabled = selected != null,
         )
@@ -491,6 +526,7 @@ private fun ResolutionRowCard(
     isSeason: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
+    estimated: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
     Surface(
@@ -543,7 +579,28 @@ private fun ResolutionRowCard(
                             )
                         }
                     }
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+                    if (estimated) {
+                        // "~16–33 GB" over "Estimated": never a figure that reads as exact.
+                        val estimate = row.estimate
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+                            Text(
+                                text = estimate?.let(DownloadFlowRules::sizeRangeLabel)
+                                    ?: stringResource(Res.string.download_flow_estimate_unavailable),
+                                style = if (estimate != null) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodySmall,
+                                color = if (estimate != null) tokens.colors.textPrimary else tokens.colors.textMuted,
+                                fontWeight = if (estimate != null) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                            )
+                            if (estimate != null) {
+                                Text(
+                                    text = stringResource(Res.string.download_flow_estimate_label),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.colors.textMuted,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    } else Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
                         val known = row.totalBytes.takeIf { it > 0L }
                         Text(
                             text = known?.let(DownloadFlowRules::sizeLabel) ?: stringResource(Res.string.download_flow_size_unknown),

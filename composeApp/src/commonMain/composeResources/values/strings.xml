@@ -3094,6 +3094,15 @@
     <string name="download_choice_ready_title">%1$s is ready</string>
     <string name="download_choice_ready_body">Choose download quality</string>
     <string name="download_choice_ready_action">Choose</string>
+    <!-- Phase 9: Assisted "Choose now" (a quality before discovery finishes, from estimates). -->
+    <string name="download_flow_choose_now">Choose now</string>
+    <string name="download_flow_change_quality">Change quality</string>
+    <string name="download_flow_early_chosen">%1$s chosen · downloads start when sources are found</string>
+    <string name="download_flow_estimate_note">Estimated size · Exact size available after source discovery</string>
+    <string name="download_flow_estimate_unavailable">Size estimate unavailable</string>
+    <string name="download_flow_estimate_label">Estimated</string>
+    <string name="download_flow_choose_early">Choose</string>
+    <string name="download_choice_chosen">%1$s chosen</string>
     <string name="download_choice_nothing_title">Nothing to download for %1$s</string>
     <string name="download_choice_nothing_body">No usable source was found. Open Downloads to check again.</string>
     <string name="download_choice_channel_name">Ready to choose</string>

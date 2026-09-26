@@ -159,6 +159,7 @@ internal object AssistedDiscovery {
      * active profile's batches change, so a profile switch resumes that profile's batches too.
      */
     fun resumeInterrupted(batches: List<DownloadBatch> = DownloadsRepository.batches.value) {
+        // A batch chosen early ("Choose now") resumes the same way; its choice is on the batch.
         batches
             .filter { it.awaitsQualityChoice && AssistedChoiceRules.needsDiscovery(it) }
             .filter { batch -> synchronized(lock) { jobs[batch.id]?.isActive != true && found[batch.id] == null } }

@@ -99,4 +99,28 @@ class DownloadPolicyTest {
             DownloadEntryRouter.route(DownloadMode.MANUAL, DownloadRequestScope.WHOLE_SHOW),
         )
     }
+
+    // --- Assisted "Choose now": an estimate before any source is found ------------------------
+
+    @Test
+    fun anEstimateRunsFromTheLevelBelowToTheLevelItself() {
+        // 22 episodes x 45 min = 16.5 h; 1080p Medium is 1-2 GB/h.
+        val range = DownloadSizeLevels.estimateBytes(DownloadSizeLevel.MEDIUM, 1080, List(22) { 45 })!!
+        assertEquals(16_500_000_000L, range.first)
+        assertEquals(33_000_000_000L, range.last)
+    }
+
+    @Test
+    fun unknownRuntimesCountAsTheKnownAverage() {
+        val range = DownloadSizeLevels.estimateBytes(DownloadSizeLevel.SMALL, 1080, listOf(60, null))!!
+        // Two hours at Small (0.5-1 GB/h at 1080p).
+        assertEquals(1_000_000_000L, range.first)
+        assertEquals(2_000_000_000L, range.last)
+    }
+
+    @Test
+    fun noKnownRuntimeOrNoLimitMeansNoEstimate() {
+        assertNull(DownloadSizeLevels.estimateBytes(DownloadSizeLevel.MEDIUM, 1080, listOf(null, null)))
+        assertNull(DownloadSizeLevels.estimateBytes(DownloadSizeLevel.ANY, 1080, listOf(45)))
+    }
 }
