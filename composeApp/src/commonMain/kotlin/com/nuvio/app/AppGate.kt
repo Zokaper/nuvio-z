@@ -587,10 +587,12 @@ internal fun AppGate(
         MutableTransitionState(profileOverlayVisible)
     }
     profileOverlayState.targetState = profileOverlayVisible
-    val launchOverlayVisible =
-        !renderMainContent &&
-            gateScreen == AppGateScreen.Main.name &&
-            !externalMainContentReady
+    val launchOverlayVisible = appLaunchOverlayVisible(
+        renderMainContent = renderMainContent,
+        gateIsMain = gateScreen == AppGateScreen.Main.name,
+        externalMainContentReady = externalMainContentReady,
+        setupWizardGating = gateSetupRun != SetupWizardRun.None,
+    )
     val launchOverlayState = remember {
         MutableTransitionState(launchOverlayVisible)
     }

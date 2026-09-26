@@ -227,15 +227,18 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
   "$M/features/setup/SetupWizardSteps.kt" \
   "$M/features/setup/SetupModeStoryboard.kt" \
   "$M/features/whatsnew/WhatsNewSelection.kt" \
+  "$M/AppGateOverlayRules.kt" \
   "$T/features/setup/SetupWizardStepsTest.kt" \
   "$T/features/setup/SetupModeStoryboardTest.kt" \
   "$T/features/whatsnew/WhatsNewSelectionTest.kt" \
+  "$T/AppGateOverlayRulesTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.setup.SetupWizardStepsTest \
   com.nuvio.app.features.setup.SetupModeStoryboardTest \
-  com.nuvio.app.features.whatsnew.WhatsNewSelectionTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.features.whatsnew.WhatsNewSelectionTest \
+  com.nuvio.app.AppGateOverlayRulesTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 4: the two rules that decide what a settings sync may overwrite -------------------
 # SyncPreferenceJson.kt is shared by every settings store on every platform, so a fault in it is
