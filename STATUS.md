@@ -808,6 +808,22 @@ with both figures. Rendered with `SetupWizardRenderHarness` (phone 360/420, desk
 Verification: Android host downloads + setup **394/394**; desktop policy/flow/telemetry suites pass. Full suites not
 re-run. **Not physically seen yet** - the next debug builds carry it.
 
+### Phase 9 - iOS handover window 30 + notice; debug 60 / desktop 69 (2026-09-26)
+
+- **Window 12 -> 30** (`f46c3058d`; desktop `493f47b07`): `IosBackgroundTransferReconciler.SUBMISSION_WINDOW`, used by
+  the iOS downloader (`IOS_SUBMISSION_WINDOW`), still logged by `session_config` / `engine_start`. Safeguards unchanged
+  (freshness boundary, queue order, running tasks count against it). Tests +4: a 22-episode season is submitted whole, a
+  40-item queue is cut at 30 in order, running tasks count, and a stale link is still a boundary.
+- **Notice past 30** (`4450a5350`; desktop `3bd7cd15d`), maintainer request, iOS only, once per app session: when a
+  request takes queued + downloading from <= 30 to > 30, a dialog ("Keep Nuvio handy for big queues" - the first 30 keep
+  going while locked, the rest start when Nuvio is next opened). Never on app start. Logged `handover_notice`. Tests +2.
+  Not rendered.
+- Android host downloads **400/400**; desktop reconciler/flow-rules/engine suites pass.
+- **Published:** mobile **debug 60** (run `36252233600`, commit `8ae73d336`; 58/59 were the experiment builds) and
+  desktop **debug 69** (run `36252557375`, commit `4da3aed56`). Both carry the calibrated size levels; mobile also
+  carries window 30 + the notice. **Not physically verified.** The iPhone check: queue a 22-episode season, lock for an
+  hour, and count the finished episodes; queue past 30 to see the notice once.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
