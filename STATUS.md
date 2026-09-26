@@ -520,6 +520,89 @@ background discovery, long-pause resume. Then size-level calibration from the `s
 experiments 10a/10b only if still wanted, `Docs/Z-FEATURES.md` rows, changelog QA, release gate (12). Cleanup list: the iOS
 workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
 
+### Phase 9 - `.56` findings, Choose-now visibility, tabs, desktop destination, iOS experiments 10a/10b (2026-09-26)
+
+**Physical `.56` (maintainer):** iOS profile -> wizard -> Home **passes** (the `.54` hang is fixed). Tapping **Choose now**
+works. **Bug:** after Choose now the Downloads screen was empty while the season was being resolved. iOS still starts
+~6 downloads at once (the known system-owned behaviour; window 12).
+
+**Choose-now visibility - root cause and fix (`5cdf0bbd9`; desktop `f6b9afc62`).** Not iOS-specific. When discovery
+ended, `applyEarlyChoice` "claimed" the batch by clearing `awaitsQualityChoice` and only then decided each entry -
+and `automaticEntry` HEAD-checks a direct source's size (through StremThru that mints the TorBox link: seconds each),
+one episode after another. For that whole pass the batch was neither an Assisted row (flag cleared) nor preparing
+(entries still `AWAITING_CHOICE`) and had no items: the screen, the iOS Live Activity (`firstOrNull { isPreparing }` ->
+no payload -> activity ended) and the Android summary all showed nothing, for minutes on a 22-episode season.
+- The claim moves the entries to `RESOLVING` in the same write; entries are decided 3 at a time and written as
+  decided; a batch removed meanwhile stops and queues nothing.
+- `DownloadBatch.showsAsChoiceRow` / `choiceStatus` - one reading for the row and the Live Activity: **"Finding sources ·
+  7 of 22 · 1080p chosen"**, then **"Checking sources · 3 of 22 · 1080p chosen"**. The Live Activity now shows
+  "Lanterns S1" with that line instead of a bare "Finding sources". The empty state no longer shows under a finding row.
+- Process death mid-check: `EarlyChoiceRestart` re-runs discovery and applies the same early choice (was "Preparation
+  was interrupted").
+- Tests: `AssistedChoiceTest` +4 (including the old claim's no-row state); desktop `AssistedChoiceFlowTest` +2 (size
+  check held open: still an Assisted CHECKING row and still preparing; removing it then queues nothing).
+- **Not physically verified.** Next iPhone check: Choose now on a season, stay on Downloads - the row never disappears;
+  lock the phone during "Checking sources" - the Live Activity shows the same line.
+
+**Mobile Library/Downloads tabs (`b013fd855`).** Two layout causes, no animation: (1) `LibraryScreen` runs an unpadded
+`NuvioScreen` and pads its switcher 16dp; `DownloadsScreen` kept the default 16dp screen padding and padded the switcher
+**another** 16dp - the chips jumped 16dp sideways on every switch; (2) `LibraryChip` renders the selected label
+SemiBold, so selecting changed the chip's width and moved its neighbour. Fixed by dropping the second padding and
+having the chip always measure its SemiBold label (drawn invisibly, no semantics). Verified by desktop
+`LibraryTabSwitcherRenderHarness` - the **production** Library and Downloads screens at 360/420, chip bounds equal to the
+pixel across both tabs; mutation-checked (the old padding fails it with a 32px shift). Header icons tinted like
+Library's (`f404a7a37` desktop / mobile `fix(downloads): header icons tinted`). Renders:
+`Nuvio Z/render-review/phase-9-tabs-and-desktop/`.
+
+**Desktop: Downloads is its own destination (decided 2026-09-26, supersedes "inside Library").** `downloadsIsOwnDestination
+= isDesktop` (`AppScreenTab.kt`): sidebar item restored, `AppScreenTab.Downloads` is a real tab, `coerceAvailableTab` /
+`NavigationIntent.fromTab` keep it, and every "open Downloads" (toast, notification, deep link, choose-quality link) goes
+through `openDownloads()`. One `DownloadsScreen`, no Library switcher on desktop. Phones unchanged (tested both ways in
+`SocialTabAvailabilityTest`).
+
+**Desktop Downloads width.** Cause: the screen's own 880dp cap (`DownloadsContentMaxWidth`) - ~290dp of nothing each side
+at 1920 (logical width ~1458dp at UI scale 1.32). Widening the column would bring back rows whose actions sit a screen
+from their title, so from 1000dp of content the destination is **two panes** (`DownloadsWideLayout`): Needs you + the
+downloads under way (max 860dp) and a 340dp rail with storage, the watched-cleanup suggestion and On this device - the
+same sections in the same order, 32dp gutters, the pair centres beyond ~1300dp. Narrow windows and a show's page keep one
+column; everything finished -> "Nothing downloading right now" in the main pane. Rendered 960 / 1280 / 1440 / 1920 (+ full
+height) by `DownloadsScreenRenderHarness` with a 68dp sidebar.
+
+**iOS transfer experiments (not adopted - awaiting the maintainer's physical comparison).**
+
+| Build | Branch | Transfer model |
+| --- | --- | --- |
+| **debug 57** `debug-v0.4.13-z1.57` | `claude/phase-9-downloads` | **Baseline** = `.56` exactly (window 12, created and resumed in the foreground). Carries the fixes above + diagnostics. |
+| **debug 58** `debug-v0.4.13-z1.58` | `claude/phase-9-ios-exp-10a` | **10a controlled resume**: window's tasks still created in the foreground, at most **2** resumed; the rest held suspended in the session, each finished task (also on a background wake) resumes the next held one in queue order. Held tasks keep their window slot. |
+| **debug 59** `debug-v0.4.13-z1.59` | `claude/phase-9-ios-exp-10b` | **10b connection limit**: `.56` window unchanged; `HTTPMaximumConnectionsPerHost = 2` on the background session. |
+
+58 and 59 are each 57 + one change; neither is merged. Diagnostics in all three (`0973dc707`, iOS probe log): `session_config`
+(variant, window, the session's per-host limit - 57 logs iOS's default), `concurrency` (held / running / suspended / moving in
+the last 5 s; every 15 s while bytes arrive and at each completion), `metrics` gains `hosts` and a 24-bit `hostTag` (never a
+host or URL), 12 log files kept. `scripts/ios-transfer-report.py <folder>` prints peak/average concurrent responses from the
+system's own metrics (valid while locked), per locked period the transfers started / finished, outcomes, errors, throughput
+and distinct final hosts. **Adoption needs the maintainer's physical evidence**; if neither keeps `.57`'s locked progression,
+the `.56` model stays for Phase 9 and iOS keeps no "Downloads at once" setting.
+
+**Verification:** Android host **2,562 run, 2,561 pass** (results deleted, `--rerun`) - the one failure is
+`WatchedItemsStoreTest.concurrent updates publish coherent item snapshots`, unrelated (watched store) and failing again when run
+alone; `:androidApp:compileFullDebugKotlin` passes. Desktop: see `NuvioZDesktop/STATUS.md`. iOS: compiled only by the Debug
+release runs below.
+
+**Published:** mobile **debug 57** (`debug-v0.4.13-z1.57`, run `36239064765`; the first dispatch `36238405990` failed the iOS compile - an `@OptIn` displaced by the host-tag helper, fixed in `fix(ios): keep ExperimentalForeignApi opt-in`), **debug 58** = 10a (run `36239750427`), **debug 59** = 10b (run `36239759753`), each APK + IPA. Desktop **debug 68** (run `36238907396`). ⚠ The debug updater offers the newest prerelease (59) to 57/58 - install each IPA by hand and decline the update prompt during the comparison. **Nothing here is physically verified.**
+
+**Next:** the maintainer's physical comparison of 57 / 58 / 59 (procedure in the session handoff and below), then adopt a
+winner or keep the baseline; size-level calibration; desktop offline QA if still pending; `Docs/Z-FEATURES.md` rows (owed);
+changelog audit; final matrix; release gate.
+
+**iOS comparison procedure (each of 57, 58, 59, same phone, same conditions):** Wi-Fi, battery > 50 %, not charging, Low
+Power Mode off. Delete `nuvio_diagnostics` files (Files -> On My iPhone -> Nuvio Z Debug) before each run. Same ~10-episode
+season each time (delete it between runs), Automatic or Assisted at the same quality. Start it in the foreground; after ~30 s
+count the rows whose bytes are moving; lock the phone and leave it untouched **30-40 min**; unlock, open Downloads, note
+completed / failed / still waiting and any Live Activity oddity. Pause one downloading episode > 1 min and resume it (must
+continue from its partial). Export the whole `nuvio_diagnostics` folder and run `python scripts/ios-transfer-report.py
+<folder>`. In 58, rows beyond the first two read "Starting" while held - expected.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
