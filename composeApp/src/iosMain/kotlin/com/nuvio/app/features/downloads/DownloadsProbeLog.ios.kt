@@ -41,7 +41,8 @@ import platform.posix.fputs
  */
 @OptIn(ExperimentalForeignApi::class)
 internal object DownloadsProbeLog {
-    private const val KEEP_FILES = 4
+    /** One file per launch; a locked-phone test can relaunch several times in the background. */
+    private const val KEEP_FILES = 12
 
     @Volatile
     private var enabled = false

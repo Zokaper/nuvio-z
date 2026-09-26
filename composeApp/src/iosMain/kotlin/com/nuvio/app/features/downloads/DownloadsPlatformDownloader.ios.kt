@@ -56,6 +56,14 @@ private const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
 private const val NATIVE_PROGRESS_INTERVAL_MS = 1_000L
 
 /**
+ * Debug probe: how often a `concurrency` line is written while bytes arrive, and how recent a
+ * task's last byte must be to count as moving. Running is what the session was told; moving is what
+ * the system actually lets through - the number the iOS experiments are about.
+ */
+private const val CONCURRENCY_SNAPSHOT_INTERVAL_MS = 15_000L
+private const val MOVING_WINDOW_MS = 5_000L
+
+/**
  * How many queued downloads are resolved and handed to the background session while Nuvio
  * is in the foreground.
  *
@@ -198,6 +206,8 @@ private class NativeTaskContext(
     var lastProgressBytes: Long = -1L,
     var lastProgressAtEpochMs: Long = 0L,
     var reportedFirstBytes: Boolean = false,
+    /** When the last byte arrived; any `didWriteData`, unthrottled. Probe only. */
+    var lastByteAtEpochMs: Long = 0L,
 )
 
 private val backgroundDownloadManager by lazy { IosBackgroundDownloadManager() }
@@ -238,6 +248,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
     /** When each task was first seen with every expected byte, by task identifier. This process only. */
     private val fullSinceByTask = mutableMapOf<ULong, Long>()
     private var inventoryLoaded = false
+    private var lastConcurrencySnapshotAtEpochMs = 0L
     private val awaitingInventory = mutableListOf<() -> Unit>()
 
     @Volatile
@@ -259,6 +270,12 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                 allowsConstrainedNetworkAccess = true
                 sessionSendsLaunchEvents = true
             }
+        DownloadsProbeLog.event(
+            "session_config",
+            "experiment" to IosTransferExperiment.ID,
+            "window" to IOS_SUBMISSION_WINDOW,
+            "maxPerHost" to configuration.HTTPMaximumConnectionsPerHost,
+        )
         NSURLSession.sessionWithConfiguration(configuration, this, delegateQueue).also { created ->
             created.getAllTasksWithCompletionHandler { tasks ->
                 val snapshot = tasks.orEmpty().filterIsInstance<NSURLSessionDownloadTask>()
@@ -446,8 +463,29 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             attach(task, metadata, listener)
             task.resume()
             logCreate(task, request.downloadId, request.queuePosition, request.sourceUrlResolvedAtEpochMs)
+            snapshotConcurrency("start")
         }
         return handle
+    }
+
+    /**
+     * One `concurrency` line: tasks the session holds as running or suspended, and how many of them
+     * received a byte in the last [MOVING_WINDOW_MS]. Throttled unless [force]. A suspended app hears
+     * no progress, so while locked only wakes write one; the `metrics` lines cover that time.
+     */
+    private fun snapshotConcurrency(reason: String, force: Boolean = false) {
+        val now = DownloadsClock.nowEpochMs()
+        if (!force && now - lastConcurrencySnapshotAtEpochMs < CONCURRENCY_SNAPSHOT_INTERVAL_MS) return
+        lastConcurrencySnapshotAtEpochMs = now
+        DownloadsProbeLog.event(
+            "concurrency",
+            "reason" to reason,
+            "experiment" to IosTransferExperiment.ID,
+            "held" to tasksById.size,
+            "running" to tasksById.values.count { it.state == NSURLSessionTaskStateRunning },
+            "suspended" to tasksById.values.count { it.state == NSURLSessionTaskStateSuspended },
+            "moving" to contexts.values.count { !it.completed && now - it.lastByteAtEpochMs <= MOVING_WINDOW_MS },
+        )
     }
 
     /**
@@ -664,6 +702,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             )
         }
         val now = DownloadsClock.nowEpochMs()
+        context.lastByteAtEpochMs = now
+        snapshotConcurrency("progress")
         if (now - context.lastProgressAtEpochMs >= NATIVE_PROGRESS_INTERVAL_MS ||
             (total != null && totalBytesWritten >= total)
         ) {
@@ -820,6 +860,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             }
             finishedIds.remove(metadata.downloadId)
             advanceIfBackgrounded()
+            snapshotConcurrency("complete", force = true)
             return
         }
         if (didCompleteWithError != null && !cancelled && context?.completed != true) {
@@ -835,6 +876,7 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
         }
         finishedIds.remove(metadata.downloadId)
         advanceIfBackgrounded()
+        snapshotConcurrency("complete", force = true)
     }
 
     override fun URLSession(
@@ -858,6 +900,9 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
             "requestStart" to DownloadsProbeLog.epochMs(transaction?.requestStartDate),
             "responseStart" to DownloadsProbeLog.epochMs(transaction?.responseStartDate),
             "responseEnd" to DownloadsProbeLog.epochMs(transaction?.responseEndDate),
+            // Hosts, never URLs: whether a per-host connection limit can even apply after redirects.
+            "hosts" to transactions.mapNotNull { it.request.URL?.host?.lowercase() }.distinct().size,
+            "hostTag" to hostTag(transaction?.request?.URL?.host),
         )
     }
 
@@ -900,6 +945,14 @@ private fun buildNativeRequest(
     }
 
 @OptIn(ExperimentalForeignApi::class)
+/** A short, stable tag for a host name (FNV-1a, 24 bits): tells hosts apart without writing them. */
+private fun hostTag(host: String?): String? {
+    val name = host?.lowercase() ?: return null
+    var hash = 0x811c9dc5.toInt()
+    name.forEach { hash = (hash xor it.code) * 0x01000193 }
+    return (hash.toUInt() and 0xFFFFFFu).toString(16).padStart(6, '0')
+}
+
 private fun downloadsDirectoryPath(): String {
     val path = "${NSHomeDirectory().trimEnd('/')}/Documents/nuvio_downloads"
     NSFileManager.defaultManager.createDirectoryAtPath(path, true, null, null)
