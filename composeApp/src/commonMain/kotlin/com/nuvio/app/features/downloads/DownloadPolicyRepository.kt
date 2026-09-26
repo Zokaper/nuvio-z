@@ -165,13 +165,13 @@ object DownloadPolicyMigration {
             else -> DownloadResolutionPreference.P720
         }
         val levels = listOf(DownloadSizeLevel.SMALL, DownloadSizeLevel.MEDIUM, DownloadSizeLevel.LARGE, DownloadSizeLevel.HUGE)
-        // Nearest level at the preset's resolution; a tie goes to the larger level, so nobody's
-        // downloads get worse on upgrade.
-        val sizeLevel = levels.minWith(
-            compareBy<DownloadSizeLevel> {
-                kotlin.math.abs(DownloadSizeLevels.gigabytesPerHour(it, resolution.height.coerceAtMost(2160))!! - preset.gigabytesPerHourLimit)
-            }.thenByDescending { it.ordinal },
-        )
+        // The smallest level that still admits everything the preset did, so nobody's downloads
+        // get worse on upgrade. (Nearest-level was the rule until the 2026-09-26 calibration moved
+        // Small to 1.2 GB/h at 1080p and would have sent Balanced - and every user with no preset
+        // history - to Small.)
+        val sizeLevel = levels.firstOrNull {
+            DownloadSizeLevels.gigabytesPerHour(it, resolution.height.coerceAtMost(2160))!! >= preset.gigabytesPerHourLimit
+        } ?: DownloadSizeLevel.HUGE
         val range = when (preset.dynamicRangePolicy) {
             DynamicRangePolicy.ANY -> DownloadRange.SAME_AS_PLAYBACK
             DynamicRangePolicy.AVOID_HDR -> DownloadRange.AVOID_HDR

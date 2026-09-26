@@ -3054,7 +3054,7 @@
     <string name="download_pref_concurrency">Downloads at once</string>
     <string name="download_pref_best_available">Best available</string>
     <string name="download_size_small">Small</string>
-    <string name="download_size_medium">Medium</string>
+    <string name="download_size_medium">Standard</string>
     <string name="download_size_large">Large</string>
     <string name="download_size_huge">Huge</string>
     <string name="download_size_any">Any size</string>

@@ -100,7 +100,7 @@ class DownloadFlowTest {
         val made = entry(listOf(candidate("fits", VideoResolution.FULL_HD_1080, 19 * gb / 10)))
         assertEquals(DownloadBatchEntryState.READY, made.state)
         val selected = assertIs<SourceSelectionResult.Selected>(made.selection)
-        assertEquals(2 * gb, selected.calculatedCapBytes)
+        assertEquals(3 * gb, selected.calculatedCapBytes) // 1080p Standard, 3 GB/h, one hour
         assertTrue(made.hasUsableSources == true)
         assertNull(made.decision)
     }

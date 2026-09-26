@@ -68,19 +68,24 @@ data class DownloadPolicy(
  * is a sensible medium file at whatever resolution is downloaded, and 4K is never "too big for
  * Medium" by construction.
  *
- * ⚠ Provisional values, to be calibrated against real catalogue sizes and reviewed by the
- * maintainer before release (Phase 9 plan, stage 5). The old presets sit inside this table:
- * Saver (720p, 0.75) between Small and Medium, Balanced (1080p, 1.5) between Small and Medium,
- * 4K Low (8) at Medium, 4K High (15) at Large.
+ * Calibrated 2026-09-26 from 3,521 distinct cached files (5 films, ~10 shows of 21-65 min
+ * episodes; debug `size_sample` lines, `sample=spread`), by meaning rather than round numbers:
+ * - Small: the compressed end of the candidates (about the bottom quarter);
+ * - Standard (`MEDIUM`): an ordinary streaming file - a little above what a streaming service
+ *   serves (1080p WEB-DL median 2.5 GB/h);
+ * - Large: a high-quality encode (about the upper quartile of BluRay encodes);
+ * - Huge: the top of normal encodes, **stopping below REMUX** at every resolution (1080p REMUX
+ *   starts ~12, 4K ~19) - Any is the level with no limit.
+ * 1440p has almost no sources and 4320p none; those rows are interpolated, not measured.
  */
 object DownloadSizeLevels {
     private val table: Map<Int, DoubleArray> = mapOf(
-        //            SMALL  MEDIUM LARGE  HUGE
-        480 to doubleArrayOf(0.3, 0.6, 1.0, 2.0),
-        720 to doubleArrayOf(0.5, 1.0, 2.0, 3.5),
-        1080 to doubleArrayOf(1.0, 2.0, 4.0, 8.0),
-        1440 to doubleArrayOf(2.0, 4.0, 8.0, 14.0),
-        2160 to doubleArrayOf(4.0, 8.0, 15.0, 30.0),
+        //           SMALL STANDARD LARGE  HUGE   (MEDIUM is shown as "Standard")
+        480 to doubleArrayOf(0.4, 1.0, 1.5, 2.5),
+        720 to doubleArrayOf(0.6, 2.0, 3.0, 4.0),
+        1080 to doubleArrayOf(1.2, 3.0, 6.0, 10.0),
+        1440 to doubleArrayOf(2.5, 5.0, 9.0, 14.0),
+        2160 to doubleArrayOf(4.0, 8.0, 14.0, 18.0),
         4320 to doubleArrayOf(10.0, 20.0, 40.0, 80.0),
     )
 

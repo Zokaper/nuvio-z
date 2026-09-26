@@ -17,16 +17,19 @@ class DownloadPolicyMigrationTest {
     fun eachBuiltInPresetLandsOnTheExpectedResolutionAndLevel() {
         val saver = DownloadPolicyMigration.fromPresets(DownloadPreset.Saver)
         assertEquals(DownloadResolutionPreference.P720, saver.preferredResolution)
+        // The smallest level admitting the preset's limit, so nothing gets worse on upgrade:
+        // Saver 0.75 at 720p -> Standard (Small is 0.6).
+        assertEquals(DownloadSizeLevel.MEDIUM, saver.sizeLevel)
         val balanced = DownloadPolicyMigration.fromPresets(DownloadPreset.Balanced)
         assertEquals(DownloadResolutionPreference.P1080, balanced.preferredResolution)
-        // 1.5 GB/h sits exactly between Small (1) and Medium (2): a tie goes to the larger level,
-        // so nobody's downloads get worse on upgrade.
+        // 1.5 GB/h at 1080p is above Small (1.2): Standard, the recommended level.
         assertEquals(DownloadSizeLevel.MEDIUM, balanced.sizeLevel)
         val uhdLow = DownloadPolicyMigration.fromPresets(DownloadPreset.UltraHdLow)
         assertEquals(DownloadResolutionPreference.P2160, uhdLow.preferredResolution)
         assertEquals(DownloadSizeLevel.MEDIUM, uhdLow.sizeLevel)
+        // 15 GB/h is above 4K Large (14): Huge (18), still below REMUX.
         val uhdHigh = DownloadPolicyMigration.fromPresets(DownloadPreset.UltraHdHigh)
-        assertEquals(DownloadSizeLevel.LARGE, uhdHigh.sizeLevel)
+        assertEquals(DownloadSizeLevel.HUGE, uhdHigh.sizeLevel)
     }
 
     @Test
