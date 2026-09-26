@@ -266,7 +266,9 @@ internal fun settingsSearchEntries(
             target = SettingsSearchTarget.Downloads,
         )
         // Phase 9: the page's own sections, so "download mode", "mobile data" or "file size" finds it.
-        listOf(
+        // "Downloads at once" is not on iOS's page: iOS decides its own concurrency (the 57/58/59
+        // comparison found nothing that can enforce one while locked), so search must not offer it.
+        listOfNotNull(
             Triple("downloads-mode", Res.string.downloads_settings_mode, Res.string.downloads_settings_mode),
             Triple("downloads-resolution", Res.string.download_pref_resolution, Res.string.downloads_settings_preferences),
             Triple("downloads-size", Res.string.download_pref_size_level, Res.string.downloads_settings_preferences),
@@ -274,7 +276,8 @@ internal fun settingsSearchEntries(
             Triple("downloads-pick", Res.string.download_pref_pick_rule, Res.string.downloads_settings_preferences),
             Triple("downloads-hdr", Res.string.download_pref_range, Res.string.downloads_settings_preferences),
             Triple("downloads-mobile-data", Res.string.download_pref_mobile_data, Res.string.downloads_settings_device),
-            Triple("downloads-concurrency", Res.string.download_pref_concurrency, Res.string.downloads_settings_device),
+            Triple("downloads-concurrency", Res.string.download_pref_concurrency, Res.string.downloads_settings_device)
+                .takeUnless { isIos },
         ).forEach { (key, title, section) ->
             add(
                 key = key,
