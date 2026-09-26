@@ -269,6 +269,8 @@ private class IosBackgroundDownloadManager : NSObject(), NSURLSessionDownloadDel
                 allowsExpensiveNetworkAccess = true
                 allowsConstrainedNetworkAccess = true
                 sessionSendsLaunchEvents = true
+                // 10b: the only change from the baseline.
+                HTTPMaximumConnectionsPerHost = IosTransferExperiment.MAX_CONNECTIONS_PER_HOST
             }
         DownloadsProbeLog.event(
             "session_config",
