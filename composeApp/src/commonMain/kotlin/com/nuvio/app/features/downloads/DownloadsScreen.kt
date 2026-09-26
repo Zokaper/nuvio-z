@@ -182,6 +182,7 @@ fun DownloadsScreen(
                         Icon(
                             imageVector = Icons.Rounded.Folder,
                             contentDescription = stringResource(Res.string.downloads_open_directory),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (selectedShowId == null && onOpenSettings != null) {
@@ -189,6 +190,7 @@ fun DownloadsScreen(
                             Icon(
                                 imageVector = Icons.Rounded.Settings,
                                 contentDescription = stringResource(Res.string.downloads_settings_title),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
