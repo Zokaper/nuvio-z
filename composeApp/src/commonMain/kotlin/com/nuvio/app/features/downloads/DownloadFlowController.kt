@@ -647,7 +647,10 @@ object DownloadFlowController {
         if (!batch.awaitsQualityChoice) return
         val found = AssistedDiscovery.candidates(batchId) ?: return
         val step = _step.value
-        val sheetShowsBatch = step is DownloadFlowStep.FindingSources && step.batchId == batchId
+        // The finding sheet on this batch, or its "Choose now" estimates: either way the user is
+        // looking at it, and the exact sheet replaces what they see.
+        val sheetShowsBatch = (step is DownloadFlowStep.FindingSources && step.batchId == batchId) ||
+            (step is DownloadFlowStep.ChooseResolution && step.estimated && session?.choiceBatchId == batchId)
         val title = DownloadBatchCoordinator.titleRefOf(batch)
         val policy = policyProvider()
         val targets = batch.entries
