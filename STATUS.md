@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 
 ## Phase 9 — Downloads Redesign: IN PROGRESS (opened 2026-09-24)
 
@@ -374,26 +374,80 @@ aggregate tests; `:androidApp:compileFullDebugKotlin` green; desktop `features.d
 run; the new E2E then asserted exactly one-third of the file on disk, but the drop fault's RST discards
 unread bytes - it now asserts recorded bytes == partial file and that the retry resumes from there).
 
-**Assisted discovery UX - DECIDED 2026-09-25, not built yet.** Today Assisted's "Finding sources" is a
-modal session: `dismiss()` cancels `discoverAll`, candidates live only in the session, and no batch
-exists until a resolution is chosen, so a 20+ episode season blocks the user. Automatic already runs
-discovery in the background as a batch of `DISCOVERING` entries. The maintainer chose **"choose when
-ready"**: discovery is a background batch from the start (Downloads + ongoing notification show
-"Finding sources 7/22"); the sheet offers "Continue in background" and closing it does the same; when
-discovery finishes, a Needs-you card "Lanterns · Season 1 · N episodes ready · Choose quality" and a
-system notification "Lanterns S1 is ready - Choose download quality" (**always**, even with the app
-open); either opens today's resolution sheet with exact totals. No provisional totals are ever shown.
-Open design detail: candidates are in memory only - after a process death the card must re-run
-discovery (or candidates get persisted).
+**Assisted discovery UX - DECIDED 2026-09-25, refined 2026-09-26, BUILT (see below).** The maintainer's
+refinement supersedes two details recorded here the day before: the "ready" state is **not** a Needs-you card, and
+the system notification is sent **only when Nuvio is in the background** (in-app prompt otherwise).
 
 **Published (2026-09-26):** mobile **debug 53** (`debug-v0.4.13-z1.53`, run `36194043123`, APK + IPA - the IPA
 build is the iOS compile check for the Live Activity change) and desktop **debug 65** (`debug-v0.1.23-alpha-z6.65`, run
 `36195874627`; the first dispatch `36194046412` failed: CI compiles desktop against JDK 17, which has no
 `HttpClient.shutdownNow`, now called reflectively - `60a3ea1d3`).
 
-**Next:** physical retest on debug 53 / desktop 65; build the Assisted "choose when ready" flow; then the stage 8+9
-checks still owed on 52, iOS experiments (10a/10b), subtitles stretch (11), release gate (12). Cleanup
-list: the iOS workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
+### Phase 9 - `.53` results, long-pause contract, Assisted "choose when ready" (2026-09-26)
+
+**Physical Android `.53` (maintainer):** Lanterns S1 completed; Pause all no longer bursts; Resume works; season
+progress and the notification match the screen; the `.52` dead-connection loop did not recur. **Passed.**
+
+**`.53` throughput, episode 1 vs 2 (ADB log `downloads-20260926-013530-18397`, concurrency 2, metered):** both took
+the same path (StremThru h2 hop, 302 to a TorBox CDN over HTTP/1.1, **new connections each**), with the same latencies
+(302 in ~2.0-2.4 s, 200 at 2.8/3.4 s). First pass until Pause all: E1 **11.0 MB/s** (2.51 GB file), E2 **29.8 MB/s**
+(2.20 GB). After Resume - new connections, range 206s from the partials - E1 **21.0**, E2 **21.8 MB/s**; the pair's
+combined rate stayed ~41-43 MB/s throughout. E3-E6 ran at 12.6-25.2 MB/s with the same per-pass variance. Same code,
+same host path, parity once the connections were re-made: **per-connection (CDN node / TCP share) variance, not
+app-side. No scheduler/network change.** No stalls, timeouts or reconnects. The two `SocketException` lines are the
+Pause all cancellations. Backing hosts are not logged (no URLs, by design). Added for next time: debug
+`transfer_progress` every 15 s per transfer (bytes, total, window KB/s).
+
+**Long-pause contract - verified, one gap fixed (`f623e6796`; desktop `1491a44b3`, E2E `716b9db19`).** Already true:
+Resume keeps the partial (reads it from disk), clears the resolve stamp, and every start of a download with an origin
+re-mints before the transfer, which then sends `Range` from the partial's length (`If-Range` with the old validator;
+`.53` re-mints answered 206 four times out of four). **Gap:** the stall rule's restart-from-zero also fired on
+`SourceExpired` - after the re-mint budget, and **at once** for a download with no origin (a 403 is not retryable
+there) - deleting the partial to replay the same dead URL. `canRestartFromZero` (pure, tested) now excludes
+`SourceExpired` as it already excluded `NoResponse`/`Fatal`: an expired link fails the download with the partial
+kept for a later Retry. Desktop E2E: `a long pause whose link expired resumes on a fresh link from the partial file`
+(dead link never replayed, fresh link's first range = the paused length, no zero-start) and `an expired link that
+cannot be re-minted keeps the partial file` (**fails on the old rule** - mutation-checked). Residual, not changed: if a
+fresh link's host answers `If-Range` with a different validator for the same bytes, the server's 200 still restarts
+the file - that is the corruption guard, and `.53` gave no sign of it.
+
+**Assisted "choose when ready" (`cecfdce2f` + render fix; desktop cherry-picks + desktop actual/tests):**
+- Assisted with **more than one** episode (not Change, not Manual's "pick the rest") saves a batch at once
+  (`awaitsQualityChoice`, entries `DISCOVERING`) and `AssistedDiscovery` finds sources outside the flow session. The
+  finding sheet says "You can leave this…" with **Continue in background**; closing it never cancels. One film or
+  episode keeps the modal sheet (seconds).
+- Downloads: **"Lanterns S1 · Finding sources · 7 of 22"** with progress, then **"Ready to choose quality · 22
+  episodes"** + **Choose quality** + Remove (confirms, cancels discovery). Tapping a still-finding row opens the
+  finding sheet, which moves to the choice by itself.
+- New entry state `AWAITING_CHOICE` / phase `READY_TO_CHOOSE` - **not** Needs you (tested: no attention card). Only a
+  discovery that found nothing at all converts entries to NO_SOURCES / NOTHING_CACHED Needs-you cards.
+- When done (`AssistedChoiceRules.announcement`): sheet still open -> straight to the quality sheet; Nuvio on screen ->
+  in-app toast "Lanterns S1 is ready · Choose download quality" with **Choose**; backgrounded -> system notification
+  (Android channel "Ready to choose"; iOS local notification), deep link `nuvio://downloads?choose=<batch>` ->
+  Downloads + the quality sheet. Never both. Desktop is always "on screen". Choosing clears the notification.
+- The choice writes into the same batch (flag cleared, candidates dropped) and queues through the existing free-space
+  check. Totals are exact - the sheet only opens once every source is found.
+- **Process death:** the batch survives the store load (no longer turned into "Preparation was interrupted");
+  candidates were **memory only** (no provider URLs on disk); `DownloadFlowHost` re-runs discovery for such batches
+  ("Refreshing sources…") and does not prompt a second time if it already did.
+- Keep-alive: Android schedules its download host while discovery runs (`awaitDownloadQueueIdle` waits for it too; the
+  summary notification already shows "Finding sources"); iOS takes background time (a few minutes; what is left
+  finishes when the app is back). **Neither is physically verified.**
+- Tests: `AssistedChoiceTest` (8, pure + deep link) and desktop `AssistedChoiceFlowTest` (8, real controller + store:
+  dismiss keeps discovery, in-app vs system, sheet-open straight to choice with real totals, choice into the same batch,
+  process-death refresh without a second prompt, choose-while-finding, nothing-found -> Needs you, remove stops it).
+  Render review: Downloads screen + finding sheet (background / refreshing) x 4 widths, read; one defect fixed (the
+  pill beside the text cut the phone title to "Lantern…").
+
+Verification: pure **932/932**; Android host **2,546/2,546** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`. Desktop: see `NuvioZDesktop/STATUS.md`.
+
+**Owed:** Phase 9 has no rows in `Docs/Z-FEATURES.md` yet (stages 6-9 and this) - due before the release gate.
+
+**Next:** physical QA of the next debug build (Assisted season in background / foreground / killed app; long pause
+resume); stage 8+9 checks still owed on 52; size-level calibration from the `size_sample` logs; then iOS experiments
+(10a/10b), subtitles stretch (11), release gate (12). Cleanup list: the iOS workflow's path filter misses shared-code-only
+pushes (keep dispatching by hand).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
