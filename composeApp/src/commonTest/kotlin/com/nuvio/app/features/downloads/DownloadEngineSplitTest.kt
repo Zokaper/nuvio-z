@@ -231,8 +231,8 @@ class DownloadEngineSplitTest {
     @Test
     fun theIosWindowIgnoresTheDownloadsAtOnceSetting() {
         val coordinator = FakeCoordinator(backgrounded = false)
-        val host = TransferHost.SystemOwned(window = 12, coordinator = coordinator)
-        assertEquals(12, host.slotCount(DownloadDeviceSettings(maxConcurrent = 1)))
+        val host = TransferHost.SystemOwned(window = IosBackgroundTransferReconciler.SUBMISSION_WINDOW, coordinator = coordinator)
+        assertEquals(30, host.slotCount(DownloadDeviceSettings(maxConcurrent = 1)))
         assertTrue(host.ownsTransferLiveness)
         assertFalse(host.recoversSystemPauses)
         assertFalse(host.schedulingDeferredToPlatform)

@@ -4,6 +4,17 @@ package com.nuvio.app.features.downloads
 internal object IosBackgroundTransferReconciler {
     private const val SESSION_SUFFIX = ".downloads.background.v1"
 
+    /**
+     * How many queued items iOS is handed as real background tasks while Nuvio is open - a bound
+     * on minted links and task overhead, **not** a concurrency limit (iOS ran ~6 at once in 57).
+     *
+     * 30, was 12 (2026-09-26): only work handed over while the app is open keeps moving while
+     * locked, and a 22-episode season stalled at episode 12 until Nuvio was reopened - by then its
+     * links were stale and a background-submitted task is discretionary (`.45`). 30 covers a long
+     * season; Quinn (DTS): "tens is definitely fine", trouble starts in the low hundreds.
+     */
+    const val SUBMISSION_WINDOW: Int = 30
+
     fun sessionIdentifier(bundleIdentifier: String?): String =
         bundleIdentifier?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { "$it$SESSION_SUFFIX" }

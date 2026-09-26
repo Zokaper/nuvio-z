@@ -487,6 +487,39 @@ class IosBackgroundTransferReconcilerTest {
         assertEquals(listOf("d1"), plan.adopt)
     }
 
+    // --- The submission window (30 since 2026-09-26) ---------------------------------------
+
+    @Test fun aTwentyTwoEpisodeSeasonIsHandedOverWhole() {
+        // The case the window of 12 failed: episodes 13-22 were never submitted while the app was
+        // open, so they waited for the next unlock + open.
+        val season = (1..22).map { prepared("e$it", it.toLong()) }
+        val plan = schedule(queue = season, maxConcurrent = IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        assertEquals(season.map { it.downloadId }, plan.toStart.map { it.downloadId })
+        assertNull(plan.refreshBoundary)
+    }
+
+    @Test fun theWindowStillBoundsALongerQueueInQueueOrder() {
+        val queue = (1..40).map { prepared("q$it", it.toLong()) }
+        val plan = schedule(queue = queue, maxConcurrent = IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        assertEquals(30, IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        assertEquals((1..30).map { "q$it" }, plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun runningTasksCountAgainstTheWindow() {
+        val running = (1..25).map { "r$it" }.toSet()
+        val queue = (1..10).map { prepared("q$it", it.toLong()) }
+        val plan = schedule(running = running, queue = queue, maxConcurrent = IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        assertEquals((1..5).map { "q$it" }, plan.toStart.map { it.downloadId })
+    }
+
+    @Test fun aStaleLinkInsideTheWiderWindowIsStillABoundary() {
+        // The freshness safeguard is unchanged by the wider window: nothing past a stale link starts.
+        val queue = (1..20).map { prepared("q$it", it.toLong(), resolvedAt = if (it == 14) null else fresh) }
+        val plan = schedule(queue = queue, maxConcurrent = IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        assertEquals((1..13).map { "q$it" }, plan.toStart.map { it.downloadId })
+        assertEquals("q14", plan.refreshBoundary?.downloadId)
+    }
+
     private fun schedule(
         running: Set<String> = emptySet(),
         claimed: Set<String> = emptySet(),

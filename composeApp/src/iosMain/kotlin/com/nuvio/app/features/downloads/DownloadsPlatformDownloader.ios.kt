@@ -80,7 +80,7 @@ private const val MOVING_WINDOW_MS = 5_000L
  * link now, and a link minted now is only certain to work if its request starts soon,
  * which the system does not promise for a task far down a long list.
  */
-private const val IOS_SUBMISSION_WINDOW = 12
+private const val IOS_SUBMISSION_WINDOW = IosBackgroundTransferReconciler.SUBMISSION_WINDOW
 
 /** Task priority hints, highest for the head of the queue. Hints only: nothing relies on them. */
 private const val HEAD_TASK_PRIORITY = 0.9f
