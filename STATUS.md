@@ -681,15 +681,83 @@ is `2 x (distinct CDN hosts in play)`, and the debrid service decides the host p
 demonstrably enforces: zero stalls, handoffs while locked, and no unlock burst (the "ep5 Starting" at unlock was t5 waiting
 for host `aae81e`).
 
-**Decision (from the evidence; maintainer to confirm):**
-- **Do not merge 10a or 10b.** Branches `claude/phase-9-ios-exp-10a` / `-10b` stay unmerged as the record.
-- **Keep the `.57` system-owned model for Phase 9.** Reliability wins. iOS gets **no "Downloads at once" setting** in Phase 9,
-  because no mechanism observed can enforce one while locked.
-- Open maintainer choice, not taken here: 10b's per-host 2 as a **softening** of the baseline. It would be neither a setting
-  nor a promise (4 at once in this run, 2 when a season sits on one host), and it changes the native session only.
-  Adopting it would still need one more physical run on a season spread across many hosts.
-- If "Downloads at once" on iOS is still wanted after Phase 9, what remains is outside app scheduling: per-host limits (as in
-  59) or `earliestBeginDate` staging. Neither gives a true global cap.
+**Decision - confirmed by the maintainer 2026-09-26:**
+- **10a rejected** (the wake/hold evidence above). **10b rejected**: its limit is per CDN host, not global. Neither is
+  merged; branches `claude/phase-9-ios-exp-10a` / `-10b` stay pushed and unmerged as the record.
+- **The `.57` system-owned model is the final Phase 9 iOS architecture** (window 12, created and resumed while Nuvio is
+  open; iOS decides concurrency, observed ~6 at once). Reliability wins.
+- **iOS has no "Downloads at once" setting.** Settings -> Downloads already hid the row on iOS (`if (!isIos)`) and the iOS
+  window ignores `maxConcurrent` (`DownloadEngineSplitTest.theIosWindowIgnoresTheDownloadsAtOnceSetting`); **Settings
+  search still indexed it on iOS**, pointing at a row that is not there - fixed (`SettingsSearch.kt`, `takeUnless { isIos }`).
+
+**Research behind "is there really no way" (2026-09-26).** Apple's documentation and DTS confirm each mechanism the logs showed:
+- The only concurrency control is `httpMaximumConnectionsPerHost`: "per session", per host, HTTP/1.1 only ("HTTP/2 and later
+  ... ignore this property"). = 59.
+- `suspend()` is not a hold. Quinn (DTS): suspend/resume "is not really designed to implement a user-level 'pause the
+  transfer' feature ... a suspended task can still be active on the wire". = 58.
+- `application(_:handleEventsForBackgroundURLSession:)` is called "after all background transfers associated with an
+  URLSession object are done", or when authentication is required. = our 3 wakes out of 16 locked completions.
+- Transfers started while the app is in the background are always discretionary; "the delay increases each time the system
+  resumes or relaunches your app" and resets only when the user brings the app to the foreground. = `.45`.
+- `earliestBeginDate` only guarantees "not sooner"; it cannot be triggered on demand.
+- Rejected tricks: forced auth challenges to get wakes (each wake grows the delay; needs our server in the path), one proxy
+  host so the per-host limit becomes global (every video byte through a server we pay for), silent-audio keep-alive (App
+  Review), several sessions (limits are per session).
+- **The one real route to a cap: iOS 26 `BGContinuedProcessingTask`** (user-initiated, keeps the app running in the
+  background, "can also use the network", system Live Activity with Cancel). Not pursued: DTS confirmed a bug where its work
+  stops when the device locks/sleeps (FB19916760, Aug 2025; still reported on 26.1 and 26.2 beta, FB21233240); DTS calls the
+  system "very aggressive" at expiring these tasks; iOS 26+ only. Post-Phase-9 avenue, worth a small lock-survival probe first.
+- Streaming apps (Netflix, Disney+) use `AVAssetDownloadURLSession`, a subclass of the same background session - same rules.
+  They get away with it: small HLS files, iOS schedules the segments, and they hand the batch over while the app is open.
+- Unlocking the phone without opening Nuvio refreshes nothing: Nuvio stays suspended. Only opening Nuvio resets iOS's delay,
+  re-mints links and submits the next window.
+
+**Open, not decided - the window vs a long season.** A 22-episode season submits episodes 1-12; 13-22 are never handed to iOS
+while the app is open. When the 12th ends iOS wakes the app once; by then the minted links are usually past the 15-minute
+freshness and anything submitted from that wake is discretionary (`.45`), so **13-22 most likely wait until Nuvio is opened**.
+Not physically tested (every run had <= 8 episodes). Proposed fix inside the `.57` model: window 12 -> ~30 (Quinn: "tens is
+definitely fine"; iOS still runs ~6 at once). Risk: late episodes start on links 30-60 min old; an expired link fails that
+episode, retried on the next open - no worse than today. The probe log already records URL age and HTTP status per task.
+Awaiting the maintainer.
+
+### Phase 9 - size-level calibration: first pass (2026-09-26)
+
+**Data on this PC:** every `size_sample` line from the iPhone 57/58/59 logs, the desktop debug log of 2026-09-26 and two
+Android diagnostics logs from 2026-09-25/26. 40 discoveries and 3,200 source rows, but **only two shows**: Reacher S1
+(runtime 49, re-discovered in each iPhone run) and one 6-episode show (runtime 52, on iPhone, desktop and Android). After
+removing the files that repeat across runs, 1,021 distinct cached files remain. All are TV episodes. There are no films,
+no sitcoms, no animation and nothing older.
+
+**The telemetry was biased - fixed.** Discovery returns candidates in addon order, and addons list their **biggest files
+first**. `DownloadSizeTelemetry` kept the first 80 of 100-440 candidates, so it dropped the small end of every list: the
+files the Small and Medium levels are about. It now keeps 80 **spread evenly across the whole list**
+(`DownloadSizeTelemetry.spread`), and the header says `sample=spread` so new lines can't be mixed with old ones. Tests: +2.
+
+**What the biased sample says about the provisional table** (GB per hour, distinct cached files; the share of candidates
+each level admits):
+
+| res | n | p25 | median | p75 | p90 | Small | Medium | Large | Huge |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 720 | 124 | 0.63 | 1.35 | 1.99 | 2.47 | 0.5 -> 16% | 1.0 -> 40% | 2.0 -> 77% | 3.5 -> 93% |
+| 1080 | 493 | 1.30 | 2.00 | 3.60 | 4.95 | 1.0 -> 17% | 2.0 -> 50% | 4.0 -> 78% | 8.0 -> 96% |
+| 2160 | 392 | 6.34 | 7.47 | 9.81 | 16.76 | 4.0 -> 20% | 8.0 -> 57% | 15 -> 88% | 30 -> 100% |
+
+By release type (medians): 1080 WEB-DL 2.26 (AVC files 3.58, HEVC 1.35), 1080 BluRay encode 1.85, 1080 REMUX 17.4; 2160
+WEB-DL 7.25, BluRay encode 9.4, REMUX 18.9; 720 WEB-DL 1.79.
+
+Reading: the ladder is **not obviously wrong** - Small keeps roughly the compact fifth, Medium lands near the typical file
+at 1080 and 2160, Large admits ~80%, Huge nearly everything. Three product questions came out of it, **for the maintainer**:
+1. **What is Huge?** At 1080 it (8 GB/h) excludes REMUX (~17); at 2160 it (30) includes REMUX (~19). One definition should
+   hold at every resolution: either "everything short of a disc copy" (2160 Huge ~16) or "disc copies too" (1080 Huge ~20).
+2. **720 Medium (1.0) sits below the typical 720p WEB-DL (1.8)**, so 720 Medium mostly picks small re-encodes. Is that the
+   intent of "Medium", or should Medium mean "the ordinary streaming file" (720 ~2.0, 1080 ~2.5)?
+3. **480 Small (0.3) admits nothing** here (all 480p files are 0.33-0.48). Minor: 480 is only reached by Best available or
+   a fallback.
+
+**No numbers change yet.** Two dramas are not "a sample of titles", and the lower levels can't be judged from a sample
+missing its small files. Needed: a spread-sampled pass over a varied title set - films (recent 4K, older, animated, 3 h),
+a 22-minute sitcom (Modern Family), an animated series, an anime, an older SD-era show. Then the maintainer reviews the
+proposed table.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
