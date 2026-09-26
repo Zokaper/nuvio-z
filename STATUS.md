@@ -442,6 +442,10 @@ the file - that is the corruption guard, and `.53` gave no sign of it.
 Verification: pure **932/932**; Android host **2,546/2,546** (results deleted, `--rerun-tasks`) +
 `:androidApp:compileFullDebugKotlin`. Desktop: see `NuvioZDesktop/STATUS.md`.
 
+**Published (2026-09-26):** mobile **debug 54** (`debug-v0.4.13-z1.54`, run `36203714804`, APK + IPA - the IPA
+build is the iOS compile check for the new notification / background-task code) and desktop **debug 66**
+(`debug-v0.1.23-alpha-z6.66`, run `36203717889`, MSI + DMG).
+
 **Owed:** Phase 9 has no rows in `Docs/Z-FEATURES.md` yet (stages 6-9 and this) - due before the release gate.
 
 **Next:** physical QA of the next debug build (Assisted season in background / foreground / killed app; long pause
