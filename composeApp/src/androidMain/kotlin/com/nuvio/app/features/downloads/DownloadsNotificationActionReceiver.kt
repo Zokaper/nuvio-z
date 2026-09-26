@@ -8,7 +8,7 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
         val downloadId = intent.getStringExtra(extraDownloadId)?.trim().orEmpty()
-        if (downloadId.isBlank() && action != actionPauseAll) return
+        if (downloadId.isBlank() && action != actionPauseAll && action != actionResumeAll) return
 
         DownloadsStorage.initialize(context.applicationContext)
         DownloadsPlatformDownloader.initialize(context.applicationContext)
@@ -27,6 +27,12 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
                     .filter { it.status == DownloadStatus.Queued || it.status == DownloadStatus.Downloading }
                     .map { it.id },
             )
+            // The paused summary's one action: everything paused, by the user or the system.
+            actionResumeAll -> DownloadsRepository.resumeDownloads(
+                DownloadsRepository.deviceItems.value
+                    .filter { it.status == DownloadStatus.Paused }
+                    .map { it.id },
+            )
         }
     }
 
@@ -36,6 +42,7 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
         const val actionCancel = "com.nuvio.app.downloads.action.CANCEL"
         const val actionApproveSize = "com.nuvio.app.downloads.action.APPROVE_SIZE"
         const val actionPauseAll = "com.nuvio.app.downloads.action.PAUSE_ALL"
+        const val actionResumeAll = "com.nuvio.app.downloads.action.RESUME_ALL"
         const val extraDownloadId = "download_id"
     }
 }

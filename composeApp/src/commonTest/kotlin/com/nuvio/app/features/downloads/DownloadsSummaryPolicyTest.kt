@@ -2,6 +2,7 @@ package com.nuvio.app.features.downloads
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -87,6 +88,43 @@ class DownloadsSummaryPolicyTest {
             emptyList(),
         )!!
         assertEquals(DownloadWaitReason.RETRYING_SHORTLY, retrying.waitingReason)
+    }
+
+    // `.54`: Pause all removed the notification, so four unfinished episodes left the shade.
+    @Test
+    fun aPausedQueueKeepsItsNotificationAndSaysSo() {
+        val summary = DownloadsSummaryPolicy.summarize(
+            listOf(
+                item("e1", DownloadStatus.Completed, downloaded = 100, total = 100),
+                item("e2", DownloadStatus.Paused, downloaded = 50, total = 100),
+                item("e3", DownloadStatus.Paused, total = 100),
+            ),
+            emptyList(),
+        )!!
+        assertTrue(summary.isPausedOnly)
+        assertEquals(2, summary.pausedCount)
+        assertEquals(50, summary.progress?.percent)
+        assertNull(summary.head)
+    }
+
+    @Test
+    fun somethingStillMovingIsNotPausedOnly() {
+        val summary = DownloadsSummaryPolicy.summarize(
+            listOf(item("e1", DownloadStatus.Paused), item("e2", DownloadStatus.Queued)),
+            emptyList(),
+        )!!
+        assertFalse(summary.isPausedOnly)
+        assertEquals(1, summary.pausedCount)
+    }
+
+    @Test
+    fun onlyFailedOrFinishedWorkStillRemovesTheNotification() {
+        assertNull(
+            DownloadsSummaryPolicy.summarize(
+                listOf(item("e1", DownloadStatus.Completed), item("e2", DownloadStatus.Failed)),
+                emptyList(),
+            ),
+        )
     }
 
     @Test

@@ -29,6 +29,14 @@ import kotlin.math.abs
 internal actual object DownloadsLiveStatusPlatform {
     const val SUMMARY_NOTIFICATION_ID = 0x4e5a46
 
+    /**
+     * The same summary once everything left is paused. Its own id because the host posts
+     * [SUMMARY_NOTIFICATION_ID] with `JOB_END_NOTIFICATION_POLICY_REMOVE` (and WorkManager's
+     * foreground service likewise takes it down): a paused queue lets the host go idle, and the
+     * host ending would remove the "Downloads paused" line the moment it was posted.
+     */
+    private const val PAUSED_NOTIFICATION_ID = 0x4e5a47
+
     private const val summaryChannelId = "downloads_live_status"
     private const val completedChannelId = "downloads_completed"
     private const val choiceChannelId = "downloads_choice"
@@ -136,10 +144,18 @@ internal actual object DownloadsLiveStatusPlatform {
         val manager = NotificationManagerCompat.from(context)
         if (summary == null) {
             manager.cancel(SUMMARY_NOTIFICATION_ID)
+            manager.cancel(PAUSED_NOTIFICATION_ID)
             return
         }
+        // Exactly one of the two ids carries the summary at a time.
+        val (id, other) = if (summary.isPausedOnly) {
+            PAUSED_NOTIFICATION_ID to SUMMARY_NOTIFICATION_ID
+        } else {
+            SUMMARY_NOTIFICATION_ID to PAUSED_NOTIFICATION_ID
+        }
+        manager.cancel(other)
         if (!DownloadsAndroidLifecycle.notificationsAllowed(context)) return
-        runCatching { manager.notify(SUMMARY_NOTIFICATION_ID, buildSummary(context, summary)) }
+        runCatching { manager.notify(id, buildSummary(context, summary)) }
     }
 
     private fun buildSummary(context: Context, summary: DownloadsSummary?): Notification {
@@ -179,6 +195,11 @@ internal actual object DownloadsLiveStatusPlatform {
                 string(Res.string.downloads_summary_downloading_many, summary.downloadingCount) to
                     (listOf(now) + progressParts).joinToString(" · ")
             }
+            summary.isPausedOnly -> string(Res.string.downloads_summary_paused_title) to listOfNotNull(
+                string(Res.string.downloads_summary_remaining, summary.pausedCount),
+                progress?.percent?.let { "$it%" },
+                summary.needsYouCount.takeIf { it > 0 }?.let { string(Res.string.download_summary_needs_you, it) },
+            ).joinToString(" · ")
             summary.waitingReason != null -> {
                 // The same words as the Downloads row (DownloadPresentation).
                 val reason = runBlocking {
@@ -200,6 +221,9 @@ internal actual object DownloadsLiveStatusPlatform {
             head != null && summary.progress?.percent != null ->
                 builder.setProgress(100, summary.progress.percent ?: 0, false)
             head != null -> builder.setProgress(0, 0, true)
+            // Where the queue stopped, standing still.
+            summary.isPausedOnly && summary.progress?.percent != null ->
+                builder.setProgress(100, summary.progress.percent ?: 0, false)
             summary.waitingReason == null && summary.preparingEntries > 0 ->
                 builder.setProgress(summary.preparingEntries, summary.preparedEntries, false)
             else -> builder.setProgress(0, 0, false)
@@ -210,6 +234,12 @@ internal actual object DownloadsLiveStatusPlatform {
                 0,
                 string(Res.string.downloads_summary_pause_all),
                 buildActionPendingIntent(context, DownloadsNotificationActionReceiver.actionPauseAll, ""),
+            )
+        } else if (summary.isPausedOnly) {
+            builder.addAction(
+                0,
+                string(Res.string.downloads_summary_resume_all),
+                buildActionPendingIntent(context, DownloadsNotificationActionReceiver.actionResumeAll, ""),
             )
         }
         return builder.build()
@@ -256,6 +286,7 @@ internal actual object DownloadsLiveStatusPlatform {
         needsYou = summary.needsYouCount,
         preparing = summary.preparedEntries to summary.preparingEntries,
         preparingTitle = summary.preparingTitle,
+        paused = summary.pausedCount,
     )
 
     private data class RenderKey(
@@ -268,6 +299,7 @@ internal actual object DownloadsLiveStatusPlatform {
         val needsYou: Int,
         val preparing: Pair<Int, Int>,
         val preparingTitle: String?,
+        val paused: Int,
     )
 
     private fun string(resource: org.jetbrains.compose.resources.StringResource, vararg args: Any): String =

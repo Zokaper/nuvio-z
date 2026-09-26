@@ -4,7 +4,7 @@ package com.nuvio.app.features.downloads
  * What the one ongoing downloads notification says, decided without any platform code.
  *
  * Decided at the Phase 9 opening: Android shows **one** summary notification while anything is
- * downloading, waiting or finding sources, plus a separate dismissible notification when a title
+ * downloading, waiting, finding sources or paused, plus a separate dismissible notification when a title
  * or season finishes. It used to post one notification per item *and* a second host notification,
  * which for a season was a shade full of near-identical rows.
  */
@@ -28,7 +28,17 @@ data class DownloadsSummary(
     val preparingTitle: String?,
     val preparedEntries: Int,
     val preparingEntries: Int,
-)
+    /** Paused downloads - by the user or by the system - still unfinished. */
+    val pausedCount: Int = 0,
+) {
+    /**
+     * Nothing is moving or being prepared, and what is left is paused: "Downloads paused ·
+     * 4 remaining" with Resume. `.54`: pausing everything used to remove the notification, so
+     * unfinished work vanished from the shade.
+     */
+    val isPausedOnly: Boolean
+        get() = downloadingCount == 0 && waitingCount == 0 && preparingEntries == 0 && pausedCount > 0
+}
 
 
 /** A title (film) or a season whose last unfinished download has just completed. */
@@ -39,7 +49,10 @@ data class CompletedDownloadGroup(
 )
 
 object DownloadsSummaryPolicy {
-    /** Null when there is nothing unfinished to report, which removes the notification. */
+    /**
+     * Null when there is nothing unfinished to report, which removes the notification. Paused work
+     * is unfinished: it keeps the notification until it is resumed, finished or removed.
+     */
     fun summarize(
         items: List<DownloadItem>,
         batches: List<DownloadBatch>,
@@ -49,7 +62,8 @@ object DownloadsSummaryPolicy {
         val downloading = ordered.filter { it.status == DownloadStatus.Downloading }
         val waiting = ordered.filter { it.status == DownloadStatus.Queued }
         val preparing = batches.filter { it.isPreparing }
-        if (downloading.isEmpty() && waiting.isEmpty() && preparing.isEmpty()) return null
+        val paused = ordered.count { it.status == DownloadStatus.Paused }
+        if (downloading.isEmpty() && waiting.isEmpty() && preparing.isEmpty() && paused == 0) return null
 
         val head = downloading.firstOrNull { it.activity == DownloadActivity.TRANSFERRING }
             ?: downloading.firstOrNull()
@@ -80,6 +94,7 @@ object DownloadsSummaryPolicy {
             preparingTitle = if (preparing.isEmpty()) null else single?.title?.trim()?.ifBlank { null },
             preparedEntries = preparing.sumOf { it.preparedEntryCount },
             preparingEntries = preparing.sumOf { it.entries.size },
+            pausedCount = paused,
         )
     }
 

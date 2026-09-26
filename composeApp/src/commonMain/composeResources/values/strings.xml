@@ -2889,6 +2889,9 @@
     <string name="downloads_summary_done">%1$d of %2$d done</string>
     <string name="downloads_summary_waiting_title">Downloads waiting</string>
     <string name="downloads_summary_pause_all">Pause all</string>
+    <string name="downloads_summary_paused_title">Downloads paused</string>
+    <string name="downloads_summary_remaining">%1$d remaining</string>
+    <string name="downloads_summary_resume_all">Resume</string>
     <string name="downloads_summary_episode">S%1$d E%2$d</string>
     <string name="downloads_completed_notification_title">%1$s finished downloading</string>
     <string name="downloads_completed_notification_season">%1$s · Season %2$d finished downloading</string>
