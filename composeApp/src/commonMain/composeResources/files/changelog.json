@@ -237,6 +237,10 @@
         {
           "build": 57,
           "text": "After Choose now the season stays on the Downloads screen and in the Live Activity while its sources are checked; the Library and Downloads tabs no longer shift. iPhone transfers are the same as 56 (baseline for the comparison builds)."
+        },
+        {
+          "build": 60,
+          "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K. iPhone hands up to 30 downloads to the system instead of 12, so a long season keeps going while locked; past 30, a note explains that the rest start when Nuvio is next opened."
         }
       ]
     },
@@ -334,6 +338,10 @@
         {
           "build": 67,
           "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
+        },
+        {
+          "build": 69,
+          "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K."
         }
       ]
     }
