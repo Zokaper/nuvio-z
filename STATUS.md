@@ -759,6 +759,55 @@ missing its small files. Needed: a spread-sampled pass over a varied title set -
 a 22-minute sitcom (Modern Family), an animated series, an anime, an older SD-era show. Then the maintainer reviews the
 proposed table.
 
+### Phase 9 - size levels calibrated, renamed and shown with their numbers (2026-09-26)
+
+**Dataset.** The maintainer ran the spread-sampled build (a local run of the desktop branch with
+`-Pnuvio.desktop.debugChannel=true`) through a planned title list in Assisted mode, plus extras: **166 discoveries,
+3,521 distinct cached files** (3,081 uncached files ignored). That covers 5 films (runtimes 113-181), about 10 shows
+(21/22/25/35/41/48/49/53/58/65-minute episodes), sitcoms, animation, anime, older shows and 4K documentaries. Log:
+`%APPDATA%\Nuvio Z Debug\logs\nuvio-debug-20260926-174457-p9492-cf44.log`.
+
+**Distributions** (GB/h, cached, outliers above 60 excluded): 720p median 0.93 (WEB-DL 1.46); 1080p median 2.32
+(WEB-DL 2.49, BluRay encode 2.62, REMUX 16.3, REMUX p25 12.2); 4K median 7.5 (WEB-DL 6.56, BluRay encode 7.42, REMUX
+21.0, REMUX p25 19.2); 480p median 0.64.
+
+**Maintainer decisions:**
+- **Names:** Small / **Standard** / Large / Huge / Any. Standard is the recommended default, "about what Netflix
+  serves, if not a bit more". Only the label changed: the stored and synced value stays `MEDIUM`, so no preference
+  resets.
+- **Calibrate by meaning:** Small = the compressed end; Standard = an ordinary streaming file; Large = a high-quality
+  encode; Huge = the top of normal encodes, **stopping below REMUX at every resolution**; Any = no limit. 480p Small
+  must admit something.
+- **Presentation: per hour, quoted at both 1080p and 4K** on every level (episodes vary too much for "per episode").
+
+**The table (`fc270bbd1`), old -> new, GB/h:**
+
+| res | Small | Standard | Large | Huge |
+| --- | --- | --- | --- | --- |
+| 480 | 0.3 -> 0.4 | 0.6 -> 1.0 | 1.0 -> 1.5 | 2.0 -> 2.5 |
+| 720 | 0.5 -> 0.6 | 1.0 -> 2.0 | 2.0 -> 3.0 | 3.5 -> 4.0 |
+| 1080 | 1.0 -> 1.2 | 2.0 -> 3.0 | 4.0 -> 6.0 | 8.0 -> 10 |
+| 1440 | 2.0 -> 2.5 | 4.0 -> 5.0 | 8.0 -> 9.0 | 14 (interpolated; 7 files) |
+| 2160 | 4 | 8 | 15 -> 14 | 30 -> 18 |
+
+Share admitted at 1080p: 25 / 61 / 83 / 93%. At 4K, Huge now admits 11 of 89 REMUX files instead of 66. 4320p is
+unchanged and has no data.
+
+**Preset migration changed with it.** The rule's stated intent is "nobody's downloads get worse on upgrade", but it
+picked the *nearest* level, and with the new numbers that would have sent Balanced (1.5 at 1080p) - and every user
+with no preset history - to Small. It now picks the smallest level admitting the preset's limit: Saver -> Standard,
+Balanced -> Standard, 4K Low -> Standard, 4K High -> **Huge** (15 > Large's 14).
+
+**Presentation (`330f3b464`).** The wizard's size chips carry a second line, "1080p · 3 GB/h / 4K · 8 GB/h" (Any:
+"No limit"), so no level has to be tapped to be read. Under them is the chosen level at the resolution chosen (1080p
+for Best available and Assisted): "At 1080p: about 1 GB for a 20-minute episode, 3 GB for an hour-long one, 6 GB for
+a 2-hour film". Settings -> Downloads uses the same line as the row's description, and its dropdown lists each level
+with both figures. Rendered with `SetupWizardRenderHarness` (phone 360/420, desktop 1280/2560/3840) and
+`DownloadsScreenRenderHarness`; PNGs read.
+
+Verification: Android host downloads + setup **394/394**; desktop policy/flow/telemetry suites pass. Full suites not
+re-run. **Not physically seen yet** - the next debug builds carry it.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
