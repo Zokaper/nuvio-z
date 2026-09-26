@@ -16,6 +16,7 @@ import nuvio.composeapp.generated.resources.download_choice_nothing_body
 import nuvio.composeapp.generated.resources.download_choice_nothing_title
 import nuvio.composeapp.generated.resources.download_choice_ready_body
 import nuvio.composeapp.generated.resources.download_choice_ready_title
+import nuvio.composeapp.generated.resources.download_choice_season_label
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_batch_state_discovering
 import nuvio.composeapp.generated.resources.downloads_live_background_title
@@ -212,10 +213,19 @@ internal actual object DownloadsLiveStatusPlatform {
                 )
             }
             activeBatch != null -> {
+                // An Assisted batch says what its Downloads row says - "Finding sources · 7 of 22 ·
+                // 1080p chosen", then "Checking sources · …" - under "Lanterns S1". Counts only
+                // move while Nuvio runs; iOS gives discovery a few minutes of background time.
+                val choice = activeBatch.choiceStatus(refreshing = activeBatch.id in AssistedDiscovery.refreshing.value)
+                val season = AssistedChoiceRules.seasonOf(activeBatch)
                 DownloadsLiveStatusPayload(
                     id = activeBatch.id,
-                    title = activeBatch.title,
-                    subtitle = runBlocking { getString(Res.string.downloads_batch_state_discovering) },
+                    title = if (choice != null && season != null) {
+                        runBlocking { getString(Res.string.download_choice_season_label, activeBatch.title, season) }
+                    } else {
+                        activeBatch.title
+                    },
+                    subtitle = runBlocking { choice?.plainTextOf() ?: getString(Res.string.downloads_batch_state_discovering) },
                     status = "FINDING_SOURCES",
                     downloadedBytes = 0L,
                     totalBytes = null,

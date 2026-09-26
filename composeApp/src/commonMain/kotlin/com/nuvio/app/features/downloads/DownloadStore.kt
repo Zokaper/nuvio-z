@@ -257,6 +257,9 @@ internal object DownloadStore {
             // its candidates with the process; `AssistedDiscovery` finds them again ("Refreshing
             // sources"). Nothing about it failed.
             if (batch.awaitsQualityChoice) return@map batch
+            // Chosen early ("Choose now") and cut off while its sources were being checked: it finds
+            // them again and starts the same quality, rather than failing.
+            if (batch.isStartingEarlyChoice) return@map EarlyChoiceRestart.resume(batch)
             batch.copy(
                 entries = batch.entries.map { entry ->
                     if (

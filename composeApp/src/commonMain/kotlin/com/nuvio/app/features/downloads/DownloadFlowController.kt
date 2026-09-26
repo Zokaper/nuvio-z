@@ -6,6 +6,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -14,6 +17,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** What the download flow is showing. One at a time, app-wide, drawn by `DownloadFlowHost`. */
 sealed interface DownloadFlowStep {
@@ -806,19 +811,39 @@ object DownloadFlowController {
             allowMetered = batch.allowMeteredNetwork,
             intoBatchId = batchId,
         )
-        // Claimed at once, so a second "finished" (a refresh racing this) cannot apply it twice.
-        DownloadsRepository.updateBatch(batchId) { it.copy(awaitsQualityChoice = false) }
+        // Claimed at once, so a second "finished" (a refresh racing this) cannot apply it twice -
+        // and in the same write every entry becomes RESOLVING, so the batch stays on screen
+        // ("Checking sources · 7 of 22 · 1080p chosen"), in the Live Activity and in the Android
+        // summary while each direct source's size is checked. Clearing the flag alone left it in
+        // no row at all for as long as those checks took (physical `.56`, iOS: an empty screen).
+        val targetIds = targets.mapTo(mutableSetOf()) { it.entryId }
+        DownloadsRepository.updateBatch(batchId) { claimed ->
+            claimed.copy(
+                awaitsQualityChoice = false,
+                entries = claimed.entries.map { if (it.id in targetIds) it.copy(state = DownloadBatchEntryState.RESOLVING) else it },
+            )
+        }
         AssistedDiscovery.forget(batchId)
         DownloadsLiveStatusPlatform.clearChoice(batchId)
         scope.launch {
-            val entries = targets.map { target ->
-                DownloadBatchCoordinator.automaticEntry(
-                    target,
-                    found[target.entryId].orEmpty(),
-                    DownloadBatchCoordinator.contextFor(target, chosen),
-                )
-            }
-            entries.forEach { DownloadsRepository.updateBatchEntry(batchId, it) }
+            // As many at a time as discovery runs, each written as soon as it is decided so the
+            // row's count moves. A batch removed meanwhile stops here.
+            val semaphore = Semaphore(AutomaticDownloadDiscovery.MAX_CONCURRENT_EPISODE_DISCOVERIES)
+            val entries = coroutineScope {
+                targets.map { target ->
+                    async {
+                        semaphore.withPermit {
+                            if (!batchExists(batchId)) return@withPermit null
+                            DownloadBatchCoordinator.automaticEntry(
+                                target,
+                                found[target.entryId].orEmpty(),
+                                DownloadBatchCoordinator.contextFor(target, chosen),
+                            ).also { DownloadsRepository.updateBatchEntry(batchId, it) }
+                        }
+                    }
+                }.awaitAll()
+            }.filterNotNull()
+            if (!batchExists(batchId) || entries.size != targets.size) return@launch
             val ready = entries.count { it.state == DownloadBatchEntryState.READY }
             DownloadDiagnostics.note(
                 "assisted_early_applied",
@@ -836,6 +861,9 @@ object DownloadFlowController {
             }
         }
     }
+
+    /** Device-wide, not the active profile's view: a profile switch must not stop another profile's batch. */
+    private fun batchExists(batchId: String): Boolean = DownloadStore.batches.value.any { it.id == batchId }
 
     private fun markAnnounced(batchId: String) {
         DownloadsRepository.updateBatch(batchId) { batch ->

@@ -25,7 +25,7 @@ class AssistedChoiceTest {
         state = state,
     )
 
-    private fun batch(vararg entries: DownloadBatchEntry, awaits: Boolean = true) = DownloadBatch(
+    private fun batch(vararg entries: DownloadBatchEntry, awaits: Boolean = true, early: Int? = null) = DownloadBatch(
         id = "batch_1",
         scope = DownloadScope.Season(1),
         contentType = "series",
@@ -36,6 +36,7 @@ class AssistedChoiceTest {
         entries = entries.toList(),
         createdAtEpochMs = 0L,
         awaitsQualityChoice = awaits,
+        earlyResolutionHeight = early,
     )
 
     @Test
@@ -128,5 +129,80 @@ class AssistedChoiceTest {
         assertEquals(AppDeepLink.Downloads, parseAppDeepLink("nuvio://downloads"))
         assertEquals(url, DownloadChoiceNotice("batch_abc_12", "Lanterns", 1, ready = true).deepLinkUrl)
         assertEquals("nuvio://downloads", DownloadChoiceNotice("batch_abc_12", "Lanterns", 1, ready = false).deepLinkUrl)
+    }
+
+    // --- physical `.56` (iOS): after "Choose now" the batch vanished while its sources were checked ---
+
+    @Test
+    fun aBatchChosenEarlyKeepsItsRowWhileTheSourcesFoundAreChecked() {
+        val finding = batch(
+            entry(1, DownloadBatchEntryState.AWAITING_CHOICE),
+            entry(2, DownloadBatchEntryState.DISCOVERING),
+            early = 1080,
+        )
+        assertEquals(DownloadChoiceStatus(DownloadChoicePhase.FINDING, 1, 2, 1080), finding.choiceStatus(refreshing = false))
+
+        // Discovery done, the choice applied: the flag is cleared and each entry is being decided.
+        val checking = batch(
+            entry(1, DownloadBatchEntryState.READY),
+            entry(2, DownloadBatchEntryState.RESOLVING),
+            awaits = false,
+            early = 1080,
+        )
+        assertTrue(checking.isStartingEarlyChoice)
+        assertTrue(checking.showsAsChoiceRow, "the row the screen, Live Activity and notification read")
+        assertEquals(DownloadChoiceStatus(DownloadChoicePhase.CHECKING, 1, 2, 1080), checking.choiceStatus(refreshing = false))
+
+        // Queued: the downloads carry it from here, not the batch.
+        val queued = batch(
+            entry(1, DownloadBatchEntryState.QUEUED),
+            entry(2, DownloadBatchEntryState.QUEUED),
+            awaits = false,
+            early = 1080,
+        )
+        assertFalse(queued.showsAsChoiceRow)
+        assertNull(queued.choiceStatus(refreshing = false))
+    }
+
+    @Test
+    fun theOldClaimLeftTheBatchInNoRowAtAll() {
+        // What `.56` wrote: flag cleared, entries still AWAITING_CHOICE, nothing queued yet.
+        val claimedTheOldWay = batch(
+            entry(1, DownloadBatchEntryState.AWAITING_CHOICE),
+            entry(2, DownloadBatchEntryState.AWAITING_CHOICE),
+            awaits = false,
+            early = 1080,
+        )
+        assertFalse(claimedTheOldWay.showsAsChoiceRow)
+        assertFalse(claimedTheOldWay.isPreparing, "and not an Automatic 'preparing' row either")
+    }
+
+    @Test
+    fun readyAndRefreshingPhasesAreUnchanged() {
+        val ready = batch(entry(1, DownloadBatchEntryState.AWAITING_CHOICE), entry(2, DownloadBatchEntryState.AWAITING_CHOICE))
+        assertEquals(DownloadChoicePhase.READY, ready.choiceStatus(refreshing = false)?.phase)
+        val refreshing = batch(entry(1, DownloadBatchEntryState.DISCOVERING))
+        assertEquals(DownloadChoicePhase.REFRESHING, refreshing.choiceStatus(refreshing = true)?.phase)
+        // An Automatic batch is not an Assisted row.
+        assertNull(batch(entry(1, DownloadBatchEntryState.DISCOVERING), awaits = false).choiceStatus(refreshing = false))
+    }
+
+    @Test
+    fun aProcessDeathWhileCheckingFindsTheSourcesAgainAndKeepsTheChoice() {
+        val checking = batch(
+            entry(1, DownloadBatchEntryState.READY),
+            entry(2, DownloadBatchEntryState.RESOLVING),
+            entry(3, DownloadBatchEntryState.APPROVAL_NEEDED),
+            awaits = false,
+            early = 720,
+        )
+        val resumed = EarlyChoiceRestart.resume(checking)
+        assertTrue(resumed.awaitsQualityChoice)
+        assertEquals(720, resumed.earlyResolutionHeight)
+        assertEquals(
+            listOf(DownloadBatchEntryState.DISCOVERING, DownloadBatchEntryState.DISCOVERING, DownloadBatchEntryState.APPROVAL_NEEDED),
+            resumed.entries.map { it.state },
+        )
+        assertTrue(AssistedChoiceRules.needsDiscovery(resumed), "AssistedDiscovery.resumeInterrupted picks it up")
     }
 }

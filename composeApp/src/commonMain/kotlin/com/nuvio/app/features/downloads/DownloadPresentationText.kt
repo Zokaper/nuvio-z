@@ -2,6 +2,9 @@ package com.nuvio.app.features.downloads
 
 import androidx.compose.runtime.Composable
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.download_choice_checking_progress
+import nuvio.composeapp.generated.resources.download_choice_chosen
+import nuvio.composeapp.generated.resources.download_flow_episode_count
 import nuvio.composeapp.generated.resources.download_phase_completed
 import nuvio.composeapp.generated.resources.download_phase_downloading
 import nuvio.composeapp.generated.resources.download_phase_downloading_unknown
@@ -14,6 +17,7 @@ import nuvio.composeapp.generated.resources.download_phase_over_limit
 import nuvio.composeapp.generated.resources.download_phase_paused
 import nuvio.composeapp.generated.resources.download_phase_paused_progress
 import nuvio.composeapp.generated.resources.download_phase_queued
+import nuvio.composeapp.generated.resources.download_phase_refreshing_sources
 import nuvio.composeapp.generated.resources.download_phase_ready_to_choose
 import nuvio.composeapp.generated.resources.download_phase_resolution_missing
 import nuvio.composeapp.generated.resources.download_phase_storage
@@ -21,6 +25,7 @@ import nuvio.composeapp.generated.resources.download_wait_connection
 import nuvio.composeapp.generated.resources.download_wait_resuming
 import nuvio.composeapp.generated.resources.download_wait_retrying
 import nuvio.composeapp.generated.resources.download_wait_starting
+import nuvio.composeapp.generated.resources.downloads_preparing_progress
 import nuvio.composeapp.generated.resources.downloads_status_waiting_wifi
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
@@ -85,3 +90,28 @@ internal suspend fun DownloadPresentation.plainTextOf(): String {
     val line = plainLine()
     return getString(line.resource, *line.args.toTypedArray())
 }
+
+/**
+ * An Assisted batch's line - "Finding sources · 7 of 22 · 1080p chosen", "Checking sources · 3 of 22 ·
+ * 1080p chosen", "Ready to choose quality · 22 episodes". The Downloads row and the iOS Live Activity
+ * both read it, so they cannot disagree.
+ */
+internal fun DownloadChoiceStatus.plainLines(): List<PlainLine> {
+    val chosen = chosenHeight?.let { PlainLine(Res.string.download_choice_chosen, listOf(DownloadFlowRules.resolutionLabel(it))) }
+    return when (phase) {
+        DownloadChoicePhase.REFRESHING -> listOfNotNull(PlainLine(Res.string.download_phase_refreshing_sources), chosen)
+        DownloadChoicePhase.FINDING -> listOfNotNull(PlainLine(Res.string.downloads_preparing_progress, listOf(done, total)), chosen)
+        DownloadChoicePhase.CHECKING -> listOfNotNull(PlainLine(Res.string.download_choice_checking_progress, listOf(done, total)), chosen)
+        DownloadChoicePhase.READY -> listOf(
+            PlainLine(Res.string.download_phase_ready_to_choose),
+            PlainLine(Res.string.download_flow_episode_count, listOf(total)),
+        )
+    }
+}
+
+@Composable
+internal fun downloadChoiceStatusText(status: DownloadChoiceStatus): String =
+    status.plainLines().map { stringResource(it.resource, *it.args.toTypedArray()) }.joinToString(" · ")
+
+internal suspend fun DownloadChoiceStatus.plainTextOf(): String =
+    plainLines().map { getString(it.resource, *it.args.toTypedArray()) }.joinToString(" · ")

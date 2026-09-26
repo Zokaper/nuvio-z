@@ -3103,6 +3103,8 @@
     <string name="download_flow_estimate_label">Estimated</string>
     <string name="download_flow_choose_early">Choose</string>
     <string name="download_choice_chosen">%1$s chosen</string>
+    <string name="download_choice_checking_progress">Checking sources · %1$d of %2$d</string>
+    <string name="downloads_nothing_active">Nothing downloading right now</string>
     <string name="download_choice_nothing_title">Nothing to download for %1$s</string>
     <string name="download_choice_nothing_body">No usable source was found. Open Downloads to check again.</string>
     <string name="download_choice_channel_name">Ready to choose</string>

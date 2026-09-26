@@ -191,6 +191,44 @@ val DownloadBatch.isPreparing: Boolean
 val DownloadBatch.isAwaitingQualityChoice: Boolean
     get() = awaitsQualityChoice && !isPreparing && entries.any { it.state == DownloadBatchEntryState.AWAITING_CHOICE }
 
+/**
+ * Assisted "Choose now": the sources are in and each entry is being decided for the quality chosen
+ * early (a direct source's size is checked over the network first). The batch no longer awaits a
+ * choice but nothing is queued yet - without this state it belonged to no row at all.
+ */
+val DownloadBatch.isStartingEarlyChoice: Boolean
+    get() = !awaitsQualityChoice && earlyResolutionHeight != null && isPreparing
+
+/**
+ * The Assisted row on the Downloads screen, from the moment discovery starts until the chosen
+ * quality is queued: finding, ready to choose, or (after "Choose now") checking the sources found.
+ */
+val DownloadBatch.showsAsChoiceRow: Boolean
+    get() = (awaitsQualityChoice && (isPreparing || isAwaitingQualityChoice)) || isStartingEarlyChoice
+
+/** What an Assisted batch's row, and the iOS Live Activity, say it is doing. */
+enum class DownloadChoicePhase { REFRESHING, FINDING, CHECKING, READY }
+
+data class DownloadChoiceStatus(
+    val phase: DownloadChoicePhase,
+    val done: Int,
+    val total: Int,
+    /** The quality picked with "Choose now", while it is not yet queued. */
+    val chosenHeight: Int?,
+)
+
+/** One reading of an Assisted batch for every surface that shows it; null when it has no such row. */
+fun DownloadBatch.choiceStatus(refreshing: Boolean): DownloadChoiceStatus? {
+    if (!showsAsChoiceRow) return null
+    val phase = when {
+        isStartingEarlyChoice -> DownloadChoicePhase.CHECKING
+        !isPreparing -> DownloadChoicePhase.READY
+        refreshing -> DownloadChoicePhase.REFRESHING
+        else -> DownloadChoicePhase.FINDING
+    }
+    return DownloadChoiceStatus(phase, preparedEntryCount, entries.size, earlyResolutionHeight)
+}
+
 /** Entries that have finished preparation, whatever the outcome was. */
 val DownloadBatch.preparedEntryCount: Int
     get() = entries.count { !it.state.isPreparing }
@@ -321,4 +359,24 @@ object DownloadBatchPlanner {
             ?.let(::setOf)
             ?: availableSeasons.filter { it != 0 }.minOrNull()?.let(::setOf)
             ?: emptySet()
+}
+
+/**
+ * A process death while a "Choose now" batch was checking its sources. The candidates went with the
+ * process, so the entries not yet queued find them again: the batch awaits discovery once more and
+ * keeps its early choice, which is applied when discovery ends - nothing is asked twice. Entries
+ * already decided READY were never queued (a batch queues in one step at the end), so they go back too.
+ */
+internal object EarlyChoiceRestart {
+    fun resume(batch: DownloadBatch): DownloadBatch = batch.copy(
+        awaitsQualityChoice = true,
+        entries = batch.entries.map { entry ->
+            when (entry.state) {
+                DownloadBatchEntryState.RESOLVING,
+                DownloadBatchEntryState.READY,
+                -> entry.copy(state = DownloadBatchEntryState.DISCOVERING)
+                else -> entry
+            }
+        },
+    )
 }

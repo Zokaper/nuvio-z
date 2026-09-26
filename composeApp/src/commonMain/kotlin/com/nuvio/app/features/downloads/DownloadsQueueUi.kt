@@ -558,9 +558,10 @@ internal fun DownloadChoiceBatchRow(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val finding = batch.isPreparing
-    val total = batch.entries.size
-    val found = batch.preparedEntryCount
+    val status = batch.choiceStatus(refreshing) ?: return
+    val finding = status.phase != DownloadChoicePhase.READY
+    val total = status.total
+    val found = status.done
     val season = AssistedChoiceRules.seasonOf(batch)
     Row(
         modifier = modifier
@@ -581,18 +582,7 @@ internal fun DownloadChoiceBatchRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = when {
-                    finding && refreshing -> stringResource(Res.string.download_phase_refreshing_sources)
-                    finding -> listOfNotNull(
-                        stringResource(Res.string.downloads_preparing_progress, found, total),
-                        // "Choose now" was used: the quality is settled, only the sources are not.
-                        batch.earlyResolutionHeight?.let {
-                            stringResource(Res.string.download_choice_chosen, DownloadFlowRules.resolutionLabel(it))
-                        },
-                    ).joinToString(" · ")
-                    else -> "${stringResource(Res.string.download_phase_ready_to_choose)} · " +
-                        stringResource(Res.string.download_flow_episode_count, total)
-                },
+                text = downloadChoiceStatusText(status),
                 style = MaterialTheme.typography.labelMedium,
                 color = if (finding) tokens.colors.textMuted else tokens.colors.accent,
                 maxLines = 2,
