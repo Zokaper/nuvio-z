@@ -446,12 +446,79 @@ Verification: pure **932/932**; Android host **2,546/2,546** (results deleted, `
 build is the iOS compile check for the new notification / background-task code) and desktop **debug 66**
 (`debug-v0.1.23-alpha-z6.66`, run `36203717889`, MSI + DMG).
 
+### Phase 9 - `.54` physical results, the iOS profile-loading fix, paused notification, Assisted "Choose now" (2026-09-26)
+
+**Physical `.54` (maintainer):** Android essentially **passed** - Assisted background discovery, the background "ready"
+notification (present; DND kept it from interrupting), downloads complete, Pause all / Resume, whole-season and notification
+progress, deleting active downloads and discovery batches (no zombie work or notification), Lanterns season complete, a
+~1-minute pause resumed fine. Two findings: the Android notification vanished while the queue was paused, and **iOS stuck on
+the loading screen after choosing a profile** (new, blocks iOS QA). Desktop `.66`: no result yet.
+
+**iOS profile-loading hang - root cause from the code, fixed (`f2bfbf475`; desktop `19190b5c8`).** No device log was
+available on this machine (no libimobiledevice), so this is a code diagnosis, **not yet confirmed on the phone**. On iOS the
+gate hosts no `MainAppContent` (`renderMainContent = false`, the native tabs render it) and shows its launch overlay (profile
+backdrop + spinner, `AppLaunchOverlay`) until the native main content reports ready. Since Phase 8's iOS bring-up
+(`7e293c7de`), main content is deliberately **not mounted while the setup wizard gates the app** - so it can never report
+ready, and the overlay sat on top of the wizard forever. Latent until stage 8: revision 10 made the Upgrade run owed by every
+existing profile, and the new per-device run is owed by every phone that never answered it - so every existing iPhone hit it.
+Android renders main content inline and never shows that overlay. Fix: `appLaunchOverlayVisible` (pure, pure-suite group 3,
+3 tests) is false while the wizard gates. Expected on the phone: the wizard's download steps (or the mobile-data question)
+appear after choosing a profile, then Home.
+
+**Paused queue keeps its Android notification (`65b94b458`; desktop `832bca85d`).** Paused work is unfinished work in
+`DownloadsSummaryPolicy` (`pausedCount`, `isPausedOnly`); when it is all that is left the summary reads **"Downloads paused ·
+N remaining · 38%"** with a static bar and **Resume** (every paused item, user or system, device-wide). It posts under its own
+id (`0x4e5a47`): the host runs under the summary's id with `JOB_END_NOTIFICATION_POLICY_REMOVE` (WorkManager likewise), and a
+paused queue lets the host go idle - under the same id the job's end would remove it the moment it was posted. Exactly one of
+the two ids carries the summary. Removed only when nothing is downloading, queued, preparing or paused (failed/Needs-you
+alone still removes it, as before). +3 `DownloadsSummaryPolicyTest`. **Not physically verified.**
+
+**Published:** mobile **debug 55** (`debug-v0.4.13-z1.55`, run `36210064323`, APK + IPA) carries the two fixes above - the
+IPA build is the iOS compile check. No desktop build for them (desktop renders main content inline; no Android notification).
+
+**Assisted "Choose now" (`ff2ef1715` + `4908e540c`; desktop `b69eaaff7` + `22b201950`).** Waiting for the exact sizes stays the
+default. The finding sheet of a background batch now offers **Choose now** under **Continue in background**:
+- The familiar resolution sheet at **4K / 1080p / 720p** (the resolutions a preference can name - which exist is unknown yet),
+  preferred pre-selected, each row **"~12–25 GB · Estimated"**, plus "Estimated size · Exact size available after source
+  discovery"; primary button **Choose**. Estimate (`DownloadSizeLevels.estimateBytes`, pure): the episodes' runtimes (unknown
+  ones = the known average) x the size level's GB/hour, from the level below to the level itself. **"Size estimate
+  unavailable"** when not one runtime is known or the level is Any - no assumed runtimes, no fake precision. Provisional with
+  the size table.
+- The choice is stored on the batch (`DownloadBatch.earlyResolutionHeight`, persisted - survives a process death; candidates
+  still memory-only) and never asked again. Toast "1080p chosen · downloads start when sources are found"; the Downloads row
+  reads **"Finding sources · 7 of 22 · 1080p chosen"**; tapping it opens the finding sheet with that line and **Change
+  quality**.
+- When discovery ends, each entry is decided **as Automatic would with the chosen resolution as the preference**
+  (`automaticEntry` with `preferredResolution` overridden): inside the size rule; missing resolution -> the user's fallback
+  (Lower / Higher, or **Ask -> the grouped Use-nearest Needs you card**); real sizes over the rule -> the over-limit decision
+  (the estimate was not a promise); nothing cached / no sources -> Needs you. Then the usual free-space check. No "ready"
+  prompt; foreground toasts what started, background relies on the summary notification (a system notice only if nothing
+  could start). Queued rows carry the real sizes.
+- If the estimate sheet is still open when discovery ends, the exact sheet replaces it (like the finding sheet); a choice that
+  lands in that instant is applied at once.
+- Tests: pure +5 (estimate range, unknown runtimes, no estimate; early heights / preference mapping; range label); desktop
+  `AssistedChoiceFlowTest` +8 (real controller + store: estimates and no start, Any -> no estimate, starts without a second
+  prompt, row-opened sheet closes at the end, fallback Ask -> `RESOLUTION_MISSING`, fallback Lower -> 1080p, over the rule ->
+  `OVER_LIMIT`, survives a process death, estimate sheet -> exact sheet). Renders (desktop flow harness): `finding-chosen`,
+  `resolution-estimated`, `resolution-estimate-unavailable` x 4 widths, read; no defects.
+
+Verification: pure **940/940**; Android host **2,557/2,557** (results deleted, `--rerun`) + `:androidApp:compileFullDebugKotlin`;
+desktop `desktopTest` **2,723/2,723** (results deleted, `--rerun`, JBR SDK).
+
+**Published (2026-09-26):** mobile **debug 56** (`debug-v0.4.13-z1.56`, run `36212095114`, APK + IPA - the IPA build is the
+iOS compile check for Choose now) and desktop **debug 67** (run `36212103659`). Both carry everything above.
+**Nothing in this section is physically verified.**
+
 **Owed:** Phase 9 has no rows in `Docs/Z-FEATURES.md` yet (stages 6-9 and this) - due before the release gate.
 
-**Next:** physical QA of the next debug build (Assisted season in background / foreground / killed app; long pause
-resume); stage 8+9 checks still owed on 52; size-level calibration from the `size_sample` logs; then iOS experiments
-(10a/10b), subtitles stretch (11), release gate (12). Cleanup list: the iOS workflow's path filter misses shared-code-only
-pushes (keep dispatching by hand).
+**Next:** physical QA of debug 56 / desktop 67 - **iPhone first**: choosing a profile reaches the wizard's download steps
+(or the mobile-data question) and then Home; then the iOS baseline owed since `.54` (Assisted background discovery, ready
+notification, Ready to choose quality, locked-screen queue vs `.46`, aggregate Live Activity, long-pause resume, Choose now);
+Android: paused queue keeps "Downloads paused · N remaining" with Resume, Choose now (estimates, chosen row, starts without a
+second prompt, fallback/over-limit cases); desktop `.67`: fully offline playback, season/autoplay, no network fallback,
+background discovery, long-pause resume. Then size-level calibration from the `size_sample` logs (maintainer approval), iOS
+experiments 10a/10b only if still wanted, `Docs/Z-FEATURES.md` rows, changelog QA, release gate (12). Cleanup list: the iOS
+workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
