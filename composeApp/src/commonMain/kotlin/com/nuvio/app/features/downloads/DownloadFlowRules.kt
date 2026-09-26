@@ -30,6 +30,18 @@ enum class DownloadEntryDecisionKind {
 
 object DownloadFlowRules {
 
+    /** Downloads still waiting for or holding a transfer: what counts against iOS's submission window. */
+    fun pendingTransferCount(items: List<DownloadItem>): Int =
+        items.count { it.status == DownloadStatus.Queued || it.status == DownloadStatus.Downloading }
+
+    /**
+     * True when the queue has just grown past [window] - the moment to explain that iOS only keeps
+     * that many moving while Nuvio is suspended. A null [previous] is the first look after the store
+     * loaded (app start, a queue already that long) and is never a crossing.
+     */
+    fun crossesHandoverWindow(previous: Int?, current: Int, window: Int): Boolean =
+        previous != null && previous <= window && current > window
+
     /**
      * "Choose manually" is offered only when the item's source list holds at least one source that
      * could become a download. Nothing cached and no sources mean there is nothing to choose, and

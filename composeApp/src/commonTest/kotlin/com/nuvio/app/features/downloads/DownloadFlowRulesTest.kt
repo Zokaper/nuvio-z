@@ -7,6 +7,31 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class DownloadFlowRulesTest {
+
+    // --- iOS handover notice ---------------------------------------------------------------
+
+    @Test
+    fun theNoticeFiresOnlyWhenARequestTakesTheQueuePastTheWindow() {
+        assertTrue(DownloadFlowRules.crossesHandoverWindow(previous = 8, current = 38, window = 30))
+        assertTrue(DownloadFlowRules.crossesHandoverWindow(previous = 30, current = 31, window = 30))
+        assertFalse(DownloadFlowRules.crossesHandoverWindow(previous = 8, current = 30, window = 30), "30 fits")
+        assertFalse(DownloadFlowRules.crossesHandoverWindow(previous = 35, current = 40, window = 30), "already past")
+        assertFalse(DownloadFlowRules.crossesHandoverWindow(previous = null, current = 40, window = 30), "app start")
+    }
+
+    @Test
+    fun onlyQueuedAndDownloadingItemsCountAgainstTheWindow() {
+        val items = DownloadStatus.entries.map { status ->
+            DownloadItem(
+                id = status.name, contentType = "series", parentMetaId = "tt1", parentMetaType = "series",
+                videoId = "tt1:1:1", title = "Show", seasonNumber = 1, episodeNumber = 1, streamTitle = "s",
+                providerName = "p", fileName = "${status.name}.mkv", status = status, createdAtEpochMs = 0L,
+                updatedAtEpochMs = 0L,
+            )
+        }
+        assertEquals(2, DownloadFlowRules.pendingTransferCount(items))
+    }
+
     private val gb = 1_000_000_000L
 
     // --- "Choose manually" only where something could become a download -----------------------

@@ -52,6 +52,7 @@ import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
@@ -86,6 +87,9 @@ import nuvio.composeapp.generated.resources.download_flow_size_unknown
 import nuvio.composeapp.generated.resources.download_flow_space_body
 import nuvio.composeapp.generated.resources.download_flow_space_fits
 import nuvio.composeapp.generated.resources.download_flow_space_title
+import nuvio.composeapp.generated.resources.download_handover_body
+import nuvio.composeapp.generated.resources.download_handover_ok
+import nuvio.composeapp.generated.resources.download_handover_title
 import nuvio.composeapp.generated.resources.episodes_season
 import nuvio.composeapp.generated.resources.episodes_specials
 import nuvio.composeapp.generated.resources.download_flow_seasons_mode_unwatched
@@ -123,6 +127,7 @@ fun DownloadFlowHost() {
     // ("Refreshing sources…"). Keyed on the batches, so a profile switch resumes that profile's.
     val batches by DownloadsRepository.batches.collectAsStateWithLifecycle()
     LaunchedEffect(batches) { AssistedDiscovery.resumeInterrupted(batches) }
+    IosHandoverNotice()
     when (val current = step) {
         DownloadFlowStep.Idle -> Unit
         is DownloadFlowStep.AskMobileData -> DownloadMobileDataDialog(
@@ -670,6 +675,50 @@ fun DownloadNothingFoundDialog(
             onSecondary = onDismiss,
             primary = stringResource(Res.string.download_flow_check_again),
             onPrimary = onCheckAgain,
+        )
+    }
+}
+
+/** Once per app session: the notice has been shown, whatever screen raised it. */
+private var iosHandoverNoticeShown = false
+
+/**
+ * iOS only: when a request takes the device's queue past [IosBackgroundTransferReconciler.SUBMISSION_WINDOW],
+ * say once per session that the rest waits for Nuvio to be opened - only work handed over while the
+ * app is open keeps moving while it is suspended.
+ */
+@Composable
+private fun IosHandoverNotice() {
+    if (!isIos) return
+    val items by DownloadsRepository.deviceItems.collectAsStateWithLifecycle()
+    val pending = DownloadFlowRules.pendingTransferCount(items)
+    var previous by remember { mutableStateOf<Int?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(pending) {
+        if (!DownloadStore.hasLoaded) return@LaunchedEffect
+        if (!iosHandoverNoticeShown &&
+            DownloadFlowRules.crossesHandoverWindow(previous, pending, IosBackgroundTransferReconciler.SUBMISSION_WINDOW)
+        ) {
+            iosHandoverNoticeShown = true
+            visible = true
+            DownloadDiagnostics.note("handover_notice", "pending=$pending window=${IosBackgroundTransferReconciler.SUBMISSION_WINDOW}")
+        }
+        previous = pending
+    }
+    if (visible) DownloadHandoverNoticeDialog(onDismiss = { visible = false })
+}
+
+@Composable
+fun DownloadHandoverNoticeDialog(onDismiss: () -> Unit) {
+    DownloadFlowDialog(onDismiss = onDismiss) {
+        DialogHeading(
+            title = stringResource(Res.string.download_handover_title),
+            subtitle = stringResource(Res.string.download_handover_body, IosBackgroundTransferReconciler.SUBMISSION_WINDOW),
+        )
+        NuvioPrimaryButton(
+            text = stringResource(Res.string.download_handover_ok),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onDismiss,
         )
     }
 }
