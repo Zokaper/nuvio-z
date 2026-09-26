@@ -51,8 +51,9 @@ internal object DownloadSizeTelemetry {
         runtimeMinutes: Int?,
         sources: List<Pair<SourceFacts, DownloadCacheEvidence>>,
     ): List<String> {
-        val kept = sources.take(MAX_SOURCES)
-        val head = "kind=${kindOf(isEpisode)} runtime=${runtimeMinutes ?: "na"} total=${sources.size}"
+        val kept = spread(sources, MAX_SOURCES)
+        // `sample=spread` marks lines taken across the whole list; earlier builds kept the first 80.
+        val head = "kind=${kindOf(isEpisode)} runtime=${runtimeMinutes ?: "na"} total=${sources.size} sample=spread"
         if (kept.isEmpty()) return listOf("$head part=1/1 sources=")
         val parts = kept.chunked(SOURCES_PER_LINE)
         return parts.mapIndexed { index, part ->
@@ -60,6 +61,14 @@ internal object DownloadSizeTelemetry {
                 part.joinToString(",") { (facts, evidence) -> sourceToken(facts, evidence, runtimeMinutes) }
         }
     }
+
+    /**
+     * At most [max] of [items], evenly spaced from first to last. Addons list their biggest files
+     * first, so keeping the head (as `.57`-`.59` did) dropped the small files the Small and Medium
+     * levels are calibrated against.
+     */
+    internal fun <T> spread(items: List<T>, max: Int): List<T> =
+        if (items.size <= max) items else List(max) { index -> items[index * items.size / max] }
 
     internal fun sourceToken(facts: SourceFacts, evidence: DownloadCacheEvidence?, runtimeMinutes: Int?): String {
         val height = facts.resolution?.height?.toString() ?: "na"

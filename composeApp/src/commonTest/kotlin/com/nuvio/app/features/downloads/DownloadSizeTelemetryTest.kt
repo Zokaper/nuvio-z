@@ -44,9 +44,30 @@ class DownloadSizeTelemetryTest {
         val lines = DownloadSizeTelemetry.sampleLines(isEpisode = true, runtimeMinutes = 50, sources = sources)
         val parts = DownloadSizeTelemetry.MAX_SOURCES / DownloadSizeTelemetry.SOURCES_PER_LINE
         assertEquals(parts, lines.size)
-        assertTrue(lines.first().startsWith("kind=episode runtime=50 total=${sources.size} part=1/$parts sources="))
+        assertTrue(lines.first().startsWith("kind=episode runtime=50 total=${sources.size} sample=spread part=1/$parts sources="))
         val tokens = lines.sumOf { it.substringAfter("sources=").split(",").size }
         assertEquals(DownloadSizeTelemetry.MAX_SOURCES, tokens)
+    }
+
+    @Test
+    fun aLongListIsSampledAcrossItsWholeLengthNotJustTheHead() {
+        // Addons list the biggest files first: sizes here fall from 400 MB to 1 MB.
+        val sizes = (400 downTo 1).map { it * 1_000_000L }
+        val sources = sizes.map { SourceFacts(resolution = VideoResolution.FULL_HD_1080, sizeBytes = it) to DownloadCacheEvidence.CACHED }
+        val kept = DownloadSizeTelemetry.sampleLines(isEpisode = true, runtimeMinutes = 60, sources = sources)
+            .flatMap { it.substringAfter("sources=").split(",") }
+            .map { it.split(":")[1].toInt() }
+        assertEquals(DownloadSizeTelemetry.MAX_SOURCES, kept.size)
+        assertEquals(kept.size, kept.toSet().size, "a source was sampled twice")
+        assertEquals(400, kept.first())
+        assertTrue(kept.last() <= 5, "the small end of the list is missing: smallest kept ${kept.last()} MB")
+        assertTrue(kept.count { it <= 100 } >= DownloadSizeTelemetry.MAX_SOURCES / 4 - 1, "the bottom quarter is under-sampled")
+    }
+
+    @Test
+    fun aShortListIsKeptWhole() {
+        val items = List(DownloadSizeTelemetry.MAX_SOURCES) { it }
+        assertEquals(items, DownloadSizeTelemetry.spread(items, DownloadSizeTelemetry.MAX_SOURCES))
     }
 
     @Test
