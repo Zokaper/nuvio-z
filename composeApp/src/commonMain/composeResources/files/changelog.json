@@ -229,6 +229,10 @@
         {
           "build": 55,
           "text": "iPhone no longer stays on the loading screen after choosing a profile; paused downloads keep their Android notification with a Resume button."
+        },
+        {
+          "build": 56,
+          "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
         }
       ]
     },
@@ -322,6 +326,10 @@
         {
           "build": 66,
           "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
+        },
+        {
+          "build": 67,
+          "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
         }
       ]
     }
