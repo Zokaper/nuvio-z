@@ -1002,7 +1002,6 @@ private fun buildNativeRequest(
         sourceHeaders.forEach { (key, value) -> setValue(value, key) }
     }
 
-@OptIn(ExperimentalForeignApi::class)
 /** A short, stable tag for a host name (FNV-1a, 24 bits): tells hosts apart without writing them. */
 private fun hostTag(host: String?): String? {
     val name = host?.lowercase() ?: return null
@@ -1011,6 +1010,7 @@ private fun hostTag(host: String?): String? {
     return (hash.toUInt() and 0xFFFFFFu).toString(16).padStart(6, '0')
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun downloadsDirectoryPath(): String {
     val path = "${NSHomeDirectory().trimEnd('/')}/Documents/nuvio_downloads"
     NSFileManager.defaultManager.createDirectoryAtPath(path, true, null, null)
