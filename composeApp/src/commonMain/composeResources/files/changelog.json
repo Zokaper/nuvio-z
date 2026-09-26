@@ -221,6 +221,10 @@
         {
           "build": 53,
           "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
+        },
+        {
+          "build": 54,
+          "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
         }
       ]
     },
@@ -310,6 +314,10 @@
         {
           "build": 65,
           "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
+        },
+        {
+          "build": 66,
+          "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
         }
       ]
     }
