@@ -275,7 +275,7 @@ internal fun MainAppContent(
         // nav item to leave by, that is a route with nothing on it and no way out.
         val librarySubDestination by LibraryDestinationController.destination.collectAsStateWithLifecycle()
         LaunchedEffect(initialTab) {
-            if (initialTab == AppScreenTab.Downloads) {
+            if (initialTab == AppScreenTab.Downloads && !downloadsIsOwnDestination) {
                 LibraryDestinationController.show(LibrarySubDestination.Downloads)
             }
         }
@@ -430,8 +430,8 @@ internal fun MainAppContent(
     }
 
     fun activateTab(tab: AppScreenTab) {
-        val targetTab = when (tab) {
-            AppScreenTab.Downloads -> {
+        val targetTab = when {
+            tab == AppScreenTab.Downloads && !downloadsIsOwnDestination -> {
                 LibraryDestinationController.show(LibrarySubDestination.Downloads)
                 AppScreenTab.Library
             }
@@ -444,8 +444,14 @@ internal fun MainAppContent(
         }
     }
 
+    /** Every "open Downloads" - toast, notification, deep link, choose-quality link - goes here. */
+    fun openDownloads() {
+        if (!downloadsIsOwnDestination) LibraryDestinationController.show(LibrarySubDestination.Downloads)
+        activateTab(if (downloadsIsOwnDestination) AppScreenTab.Downloads else AppScreenTab.Library)
+    }
+
     fun handleRootTabClick(tab: AppScreenTab) {
-        if (selectedTab != tab && tab != AppScreenTab.Downloads) {
+        if (selectedTab != tab && (tab != AppScreenTab.Downloads || downloadsIsOwnDestination)) {
             activateTab(tab)
             return
         }
@@ -457,14 +463,14 @@ internal fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> {
-                if (librarySubDestination == LibrarySubDestination.Downloads) {
+                if (!downloadsIsOwnDestination && librarySubDestination == LibrarySubDestination.Downloads) {
                     downloadsScrollToTopRequests.tryEmit(Unit)
                 } else {
                     libraryScrollToTopRequests.tryEmit(Unit)
                 }
             }
             AppScreenTab.Downloads -> {
-                LibraryDestinationController.show(LibrarySubDestination.Downloads)
+                if (!downloadsIsOwnDestination) LibraryDestinationController.show(LibrarySubDestination.Downloads)
                 downloadsScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Social -> if (socialEnabled) socialScrollToTopRequests.tryEmit(Unit)
@@ -919,8 +925,7 @@ internal fun MainAppContent(
 
         LaunchedEffect(Unit) {
             DownloadsNavigationRequests.requests.collect {
-                LibraryDestinationController.show(LibrarySubDestination.Downloads)
-                activateTab(AppScreenTab.Library)
+                openDownloads()
             }
         }
 
@@ -968,16 +973,14 @@ internal fun MainAppContent(
 
                     AppDeepLink.Downloads -> {
                         if (AppFeaturePolicy.downloadsEnabled) {
-                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
-                            activateTab(AppScreenTab.Library)
+                            openDownloads()
                         }
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
                     is AppDeepLink.ChooseDownloadQuality -> {
                         if (AppFeaturePolicy.downloadsEnabled) {
-                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
-                            activateTab(AppScreenTab.Library)
+                            openDownloads()
                             DownloadFlowController.chooseQuality(deepLink.batchId)
                         }
                         AppDeepLinkRepository.markConsumed(deepLink)
@@ -2538,8 +2541,7 @@ internal fun MainAppContent(
                 onAction = { action ->
                     when (action) {
                         NuvioToastAction.OpenDownloads -> {
-                            LibraryDestinationController.show(LibrarySubDestination.Downloads)
-                            activateTab(AppScreenTab.Library)
+                            openDownloads()
                         }
                         NuvioToastAction.ChangePlaybackSource -> Unit
                     }

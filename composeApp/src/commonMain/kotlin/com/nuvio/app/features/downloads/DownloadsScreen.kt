@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -60,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.isDesktop
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
@@ -149,106 +151,125 @@ fun DownloadsScreen(
         showEpisodes.firstOrNull()?.title
     }
 
-    NuvioScreen(
-        listState = listState,
-        topPadding = if (topChromePadding != null) 0.dp else null,
-    ) {
-        stickyHeader {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background),
-            ) {
-                NuvioScreenHeader(
-                    modifier = Modifier.downloadsContentWidth(),
-                    title = if (selectedShowId == null) {
-                        stringResource(Res.string.compose_settings_root_downloads_title)
-                    } else {
-                        selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                    },
-                    topPadding = topChromePadding,
-                    onBack = if (selectedShowId != null) {
-                        { onBackFromShow?.invoke() ?: run { selectedShowId = null } }
-                    } else {
-                        onBack
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                    NuvioToastController.show(openDownloadsDirectoryFailedText)
-                                }
-                            },
-                        ) {
+    // [headerWidth]: the single column's capped width, or the two panes' full width.
+    val header: @Composable (Modifier) -> Unit = { headerWidth ->
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            NuvioScreenHeader(
+                modifier = headerWidth,
+                title = if (selectedShowId == null) {
+                    stringResource(Res.string.compose_settings_root_downloads_title)
+                } else {
+                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+                },
+                topPadding = topChromePadding,
+                onBack = if (selectedShowId != null) {
+                    { onBackFromShow?.invoke() ?: run { selectedShowId = null } }
+                } else {
+                    onBack
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
+                                NuvioToastController.show(openDownloadsDirectoryFailedText)
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = stringResource(Res.string.downloads_open_directory),
+                        )
+                    }
+                    if (selectedShowId == null && onOpenSettings != null) {
+                        IconButton(onClick = onOpenSettings) {
                             Icon(
-                                imageVector = Icons.Rounded.Folder,
-                                contentDescription = stringResource(Res.string.downloads_open_directory),
+                                imageVector = Icons.Rounded.Settings,
+                                contentDescription = stringResource(Res.string.downloads_settings_title),
                             )
                         }
-                        if (selectedShowId == null && onOpenSettings != null) {
-                            IconButton(onClick = onOpenSettings) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Settings,
-                                    contentDescription = stringResource(Res.string.downloads_settings_title),
-                                )
-                            }
-                        }
-                    },
-                )
-                if (selectedShowId == null && topSwitcher != null) {
-                    Box(modifier = Modifier.downloadsContentWidth().padding(horizontal = 16.dp)) {
-                        topSwitcher()
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
+                },
+            )
+            if (selectedShowId == null && topSwitcher != null) {
+                // NuvioScreen already pads this screen 16dp. Library pads its own header and switcher
+                // by the same 16dp on an unpadded screen; another 16 here put the chips 16dp to the
+                // right of Library's, so they jumped sideways on every switch between the two tabs.
+                Box(modifier = Modifier.downloadsContentWidth()) {
+                    topSwitcher()
                 }
+                Spacer(modifier = Modifier.height(10.dp))
             }
         }
+    }
 
-        if (selectedShowId == null) {
-            downloadsRootContent(
-                uiState = uiState,
-                batches = batches,
-                storage = storage,
-                attention = attention,
-                queue = queue,
-                cleanup = cleanup,
-                nowEpochMs = nowEpochMs,
-                onOpenDownload = onOpenDownload,
-                onOpenShow = { showId, title ->
-                    onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
-                },
-                onRequestTitleDeletion = { pendingTitleDeletion = it },
-                onAttentionAction = { card, action ->
-                    when (action) {
-                        AttentionAction.REMOVE -> pendingRemoval = card
-                        AttentionAction.FREE_UP_SPACE -> if (cleanup != null) {
-                            cleanupConfirm = true
-                        } else {
-                            NuvioToastController.show(freeUpHintText)
-                        }
-                        else -> performAttentionAction(card, action)
+    val rootContent: LazyListScope.(DownloadsPart) -> Unit = { part ->
+        downloadsRootContent(
+            uiState = uiState,
+            batches = batches,
+            storage = storage,
+            attention = attention,
+            queue = queue,
+            cleanup = cleanup,
+            nowEpochMs = nowEpochMs,
+            onOpenDownload = onOpenDownload,
+            onOpenShow = { showId, title ->
+                onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
+            },
+            onRequestTitleDeletion = { pendingTitleDeletion = it },
+            onAttentionAction = { card, action ->
+                when (action) {
+                    AttentionAction.REMOVE -> pendingRemoval = card
+                    AttentionAction.FREE_UP_SPACE -> if (cleanup != null) {
+                        cleanupConfirm = true
+                    } else {
+                        NuvioToastController.show(freeUpHintText)
                     }
-                },
-                onChooseMember = { member ->
-                    when (member) {
-                        is AttentionMember.Entry -> onChooseBatchEntryManually?.invoke(member.batch, member.entry)
-                            ?: DownloadFlowController.chooseEntryManually(member.batch, member.entry)
-                        is AttentionMember.Item -> DownloadFlowController.chooseItemManually(member.item)
-                    }
-                },
-                onOpenDetail = { detailItemId = it.id },
-                onReviewCleanup = { cleanupConfirm = true },
-                onCancelGroup = { pendingGroupCancel = it },
-                onRemoveChoiceBatch = { pendingChoiceRemoval = it },
-                refreshingBatchIds = refreshingBatchIds,
-            )
+                    else -> performAttentionAction(card, action)
+                }
+            },
+            onChooseMember = { member ->
+                when (member) {
+                    is AttentionMember.Entry -> onChooseBatchEntryManually?.invoke(member.batch, member.entry)
+                        ?: DownloadFlowController.chooseEntryManually(member.batch, member.entry)
+                    is AttentionMember.Item -> DownloadFlowController.chooseItemManually(member.item)
+                }
+            },
+            onOpenDetail = { detailItemId = it.id },
+            onReviewCleanup = { cleanupConfirm = true },
+            onCancelGroup = { pendingGroupCancel = it },
+            onRemoveChoiceBatch = { pendingChoiceRemoval = it },
+            refreshingBatchIds = refreshingBatchIds,
+            part = part,
+        )
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Desktop's own Downloads destination, in a window wide enough: two panes. A phone, a narrow
+        // window and a show's own page keep the one column.
+        if (isDesktop && topSwitcher == null && selectedShowId == null && downloadsUsesWideLayout(maxWidth)) {
+            DownloadsWideLayout(header = header, content = rootContent, mainListState = listState)
         } else {
-            downloadsShowContent(
-                episodes = showEpisodes,
-                onOpenDownload = onOpenDownload,
-                onDeleteDownload = { downloadPendingDeletionId = it },
-                onDeleteSeason = { parentMetaId, season -> pendingSeasonDeletion = parentMetaId to season },
-            )
+            NuvioScreen(
+                listState = listState,
+                topPadding = if (topChromePadding != null) 0.dp else null,
+            ) {
+                stickyHeader { header(Modifier.downloadsContentWidth()) }
+
+                if (selectedShowId == null) {
+                    rootContent(DownloadsPart.All)
+                } else {
+                    downloadsShowContent(
+                        episodes = showEpisodes,
+                        onOpenDownload = onOpenDownload,
+                        onDeleteDownload = { downloadPendingDeletionId = it },
+                        onDeleteSeason = { parentMetaId, season -> pendingSeasonDeletion = parentMetaId to season },
+                    )
+                }
+            }
         }
     }
 
@@ -415,28 +436,32 @@ internal fun LazyListScope.downloadsRootContent(
     refreshingBatchIds: Set<String> = emptySet(),
     /** The render harness opens every season; the app starts them closed. */
     initiallyExpandedGroups: Boolean = false,
+    /** Every section in one column, or one pane's share of them (desktop, wide window). */
+    part: DownloadsPart = DownloadsPart.All,
 ) {
     // Phase 9 stage 7: storage, then what needs the user (one card per title/season and
     // reason), then the queue with a season as one row, then what is on the device.
-    // Assisted "choose when ready" batches have their own row (finding, then ready to choose);
-    // the rest of what is preparing is Automatic's, read-only.
-    val choiceBatches = batches.filter { it.awaitsQualityChoice && (it.isPreparing || it.isAwaitingQualityChoice) }
-    val preparingBatches = batches.filter { it.isPreparing && !it.awaitsQualityChoice }
+    // Assisted "choose when ready" batches have their own row (finding, then ready to choose, or
+    // after "Choose now" checking what was found); the rest of what is preparing is Automatic's,
+    // read-only.
+    val choiceBatches = batches.filter { it.showsAsChoiceRow }
+    val preparingBatches = batches.filter { it.isPreparing && !it.showsAsChoiceRow }
     val completedGroups = uiState.completedItems.groupedByTitle()
 
     // Every row is capped at DownloadsContentMaxWidth and centred: a desktop window must not
     // stretch a row, and its actions, across the whole screen.
-    val width = Modifier.downloadsContentWidth()
-    if (storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty() || choiceBatches.isNotEmpty())) {
+    // In a pane, the pane is the width.
+    val width = if (part == DownloadsPart.All) Modifier.downloadsContentWidth() else Modifier.fillMaxWidth()
+    if (part.showsRail && storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty() || choiceBatches.isNotEmpty())) {
         item(key = "downloads-storage") { DownloadStorageBar(storage, width) }
     }
 
     // A suggestion about storage, so it sits with the storage bar rather than among the problems.
-    if (cleanup != null) {
+    if (part.showsRail && cleanup != null) {
         item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup, modifier = width) }
     }
 
-    if (attention.isNotEmpty()) {
+    if (part.showsMain && attention.isNotEmpty()) {
         item(key = "downloads-attention") {
             DownloadAttentionSection(
                 cards = attention,
@@ -447,7 +472,7 @@ internal fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (choiceBatches.isNotEmpty() || preparingBatches.isNotEmpty() || queue.isNotEmpty()) {
+    if (part.showsMain && (choiceBatches.isNotEmpty() || preparingBatches.isNotEmpty() || queue.isNotEmpty())) {
         item(key = "downloads-active-title") {
             DownloadsSectionHeading(stringResource(Res.string.download_section_downloading), width)
         }
@@ -495,7 +520,21 @@ internal fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (completedGroups.isNotEmpty()) {
+    // Two panes, everything finished: the main pane says so rather than standing empty.
+    if (part == DownloadsPart.Main && uiState.items.isNotEmpty() && attention.isEmpty() &&
+        choiceBatches.isEmpty() && preparingBatches.isEmpty() && queue.isEmpty()
+    ) {
+        item(key = "downloads-nothing-active") {
+            Text(
+                text = stringResource(Res.string.downloads_nothing_active),
+                modifier = width.padding(horizontal = 4.dp, vertical = 24.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    if (part.showsRail && completedGroups.isNotEmpty()) {
         item(key = "downloads-on-device-title") {
             DownloadsSectionHeading(stringResource(Res.string.downloads_section_on_device), width)
         }
@@ -515,7 +554,7 @@ internal fun LazyListScope.downloadsRootContent(
         }
     }
 
-    if (uiState.items.isEmpty() && attention.isEmpty() && preparingBatches.isEmpty()) {
+    if (part.showsMain && uiState.items.isEmpty() && attention.isEmpty() && preparingBatches.isEmpty() && choiceBatches.isEmpty()) {
         item(key = "downloads-empty") {
             Column(
                 modifier = Modifier

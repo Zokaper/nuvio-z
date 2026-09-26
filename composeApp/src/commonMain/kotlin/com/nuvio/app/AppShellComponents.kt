@@ -334,7 +334,9 @@ internal fun AppTabHost(
                         }
 
                         AppScreenTab.Library -> {
-                            if (AppFeaturePolicy.downloadsEnabled && state.librarySubDestination == LibrarySubDestination.Downloads) {
+                            // Phones only: on desktop Downloads is its own destination, not a Library tab.
+                            val librarySwitcher = AppFeaturePolicy.downloadsEnabled && !downloadsIsOwnDestination
+                            if (librarySwitcher && state.librarySubDestination == LibrarySubDestination.Downloads) {
                                 DownloadsScreen(
                                     topChromePadding = state.topChromePadding,
                                     onOpenDownload = actions.onOpenDownload ?: {},
@@ -362,7 +364,7 @@ internal fun AppTabHost(
                                     onCloudFilePlay = actions.onCloudFilePlay,
                                     onConnectCloudClick = actions.onConnectCloudClick,
                                     disintegrationRequest = state.libraryDisintegrationRequest,
-                                    topSwitcher = if (AppFeaturePolicy.downloadsEnabled) {
+                                    topSwitcher = if (librarySwitcher) {
                                         {
                                             LibraryTopSwitcher(
                                                 selectedDestination = LibrarySubDestination.Library,
@@ -1012,6 +1014,22 @@ internal fun DesktopHoverSidebar(
                         modifier = Modifier.size(DesktopSidebarIconSize),
                         tint = color,
                     )
+                }
+                // Desktop's own Downloads destination (Phase 9); phones reach it from Library.
+                if (AppFeaturePolicy.downloadsEnabled && downloadsIsOwnDestination) {
+                    DesktopSidebarItem(
+                        label = stringResource(Res.string.compose_nav_downloads),
+                        selected = selectedTab == AppScreenTab.Downloads,
+                        expanded = sidebarExpanded,
+                        onClick = { selectTab(AppScreenTab.Downloads) },
+                    ) { color ->
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = stringResource(Res.string.compose_nav_downloads),
+                            modifier = Modifier.size(DesktopSidebarIconSize),
+                            tint = color,
+                        )
+                    }
                 }
                 if (socialEnabled) {
                     DesktopSidebarItem(

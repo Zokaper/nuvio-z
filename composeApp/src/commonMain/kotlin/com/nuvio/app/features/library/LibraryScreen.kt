@@ -50,7 +50,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -826,18 +828,31 @@ internal fun LibraryChip(
                     color = colorScheme.primary,
                 )
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = when {
-                    error -> colorScheme.error
-                    selected -> colorScheme.onPrimaryContainer
-                    else -> colorScheme.onSurfaceVariant
-                },
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // The selected label is SemiBold, which is wider. The chip always measures the SemiBold
+            // label (drawn invisibly underneath), so selecting a chip never changes its width and the
+            // chips beside it never move.
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = label,
+                    modifier = Modifier.alpha(0f).clearAndSetSemantics {},
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when {
+                        error -> colorScheme.error
+                        selected -> colorScheme.onPrimaryContainer
+                        else -> colorScheme.onSurfaceVariant
+                    },
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

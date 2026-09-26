@@ -45,17 +45,27 @@ class SocialTabAvailabilityTest {
     }
 
     @Test
-    fun downloadsAlwaysCoercesToLibrary() {
-        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = true))
-        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = false))
+    fun onPhonesDownloadsIsLibrarysDownloadsTab() {
+        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = true, downloadsOwnDestination = false))
+        assertEquals(AppScreenTab.Library, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = false, downloadsOwnDestination = false))
+        assertEquals(
+            NavigationIntent.Tab(AppScreenTab.Library, LibrarySubDestination.Downloads),
+            NavigationIntent.fromTab(AppScreenTab.Downloads, downloadsOwnDestination = false),
+        )
     }
 
     @Test
-    fun oldDownloadsIntentMigratesToLibraryDownloads() {
-        assertEquals(
-            NavigationIntent.Tab(AppScreenTab.Library, LibrarySubDestination.Downloads),
-            NavigationIntent.fromTab(AppScreenTab.Downloads),
-        )
+    fun onDesktopDownloadsIsItsOwnDestination() {
+        // Phase 9, decided 2026-09-26: a sidebar destination of its own, never Library's sub-view.
+        assertEquals(AppScreenTab.Downloads, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = true, downloadsOwnDestination = true))
+        assertEquals(AppScreenTab.Downloads, coerceAvailableTab(AppScreenTab.Downloads, socialEnabled = false, downloadsOwnDestination = true))
+        assertEquals(NavigationIntent.Tab(AppScreenTab.Downloads), NavigationIntent.fromTab(AppScreenTab.Downloads, downloadsOwnDestination = true))
+    }
+
+    @Test
+    fun onlyDesktopGivesDownloadsItsOwnDestination() {
+        // Runs as a phone on the Android host and as desktop in desktopTest.
+        assertEquals(isDesktop, downloadsIsOwnDestination)
     }
 
     @Test
