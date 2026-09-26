@@ -603,6 +603,94 @@ completed / failed / still waiting and any Live Activity oddity. Pause one downl
 continue from its partial). Export the whole `nuvio_diagnostics` folder and run `python scripts/ios-transfer-report.py
 <folder>`. In 58, rows beyond the first two read "Starting" while held - expected.
 
+### Phase 9 - physical iOS comparison 57 / 58 / 59: results (2026-09-26)
+
+Logs: `Nuvio Z/ios-download-tests-57-58-59/nuvio_diagnostics {57,58,59}` (one `downloads-*.jsonl` each; the 57 file starts
+after the session was created, so it has no `session_config` line, but every `concurrency` line reads `experiment=baseline`).
+Same iPhone, Reacher S1 (8 episodes, 720p) in each run; 57 adds a 6-episode season with the pause test. Every task in all
+three runs completed at exactly the expected size: no errors, no system cancels, no retries.
+
+**Reading the logs - a report caveat.** `metrics` describes a task's **last transaction only**. When a task was interrupted
+and range-resumed (3 transactions, HTTP 206), the report's intervals lose its earlier transfer. That is 58's t4/t5 and
+57's paused episode, so 58's report figures (peak 5, avg 2.37, "1 started while locked") are **under-counts**. The
+script now flags such tasks.
+
+| | 57 baseline | 58 = 10a (2 runnable) | 59 = 10b (2 per host) |
+| --- | --- | --- | --- |
+| Peak truly transferring | **6** (foreground and locked) | **>=3 locked, 5 foreground** (6 for a few s) | **4** |
+| Average while any active | 4.42 | ~2.8 (corrected) | 2.30 |
+| Time at 2 or fewer | 95 s of 514 s | ~170 s of 435 s | 237 s of 301 s |
+| Started while locked | 2 (the daemon's own ceiling of 6) | t3 at +2 s, t4/t5 (inferred) | 3 (per-host handoffs) |
+| Stalled until unlock | none | none | none |
+| Final hosts | 7 over 14 tasks | 3 over 8 | 3 over 8 (6 tasks on one) |
+
+**57 (baseline).** The system runs **6 at once**, a session-wide ceiling: with 4 tasks on host A and 2 on host B, the
+7th/8th waited ~1.5 and ~3 min and each started the moment *any* transfer ended, whatever its host. Locked progression is
+excellent. **The pause test is a control that matters for 10a:** the episode paused at 16:04:00 after 20 s of running stayed
+suspended through a 3.5-min lock *and* through the unlock (inventory `state=1`, bytes unchanged at 200 MB) until the app
+resumed it at 16:09:33. It resumed from its partial with a 206.
+
+**58 (10a) - what actually happened.** Tasks 1-2 were resumed, 3-8 created and held (never resumed). Then:
+- **16:14:44 the app is backgrounded; 16:14:46 task 3's request starts.** t1/t2 were still running, and **no `release` or
+  `resume` was logged**. Every `task.resume()` in the build is followed by a logged `create`/`resume`/`release`. None exists
+  for t3 here, for t4/t5, or for t6-t8 later. **iOS started never-resumed tasks by itself.**
+- While locked: t2 ended 16:15:23, t1 16:15:58, with **no wake** (their `complete`/`release` lines are stamped 16:17:03, at
+  the unlock, when the queued delegate events arrived). Yet at 16:17:03 t4 already had 1.31 GB and t5 0.84 GB: the system
+  replaced each finished transfer with a held one, keeping **~3 running while locked** (the maintainer's "about 3" was
+  right). The `release` lines at 16:17:03 "released" t3/t4, which had been transferring for minutes.
+- **The foreground burst:** the app became active at 16:17:04.045 and inventory showed t6-t8 `state=1` with 0 bytes. Their
+  requests started at 16:17:04.9-05.0, **again with no app `resume()`**. Foreground reconciliation (`requestInventory` ->
+  adoption) resumes nothing; 10a's `start()`/`resumeOrHold`/`releaseHeld` never ran for them. The burst is iOS, not our
+  reconciliation.
+- **`task.state` lies for held tasks:** at 16:17:04 t5 read `state=1` (suspended) with 850 MB received and climbing. 10a's
+  bookkeeping (`running=2 heldByLimit=3` while 5 moved) was built on that property.
+- Second lock (1 min): t3, t6, t7, t8 = 4 running; three ended, no wake. Third lock: t3 ended 16:21:21, and the wake and
+  finish events came in the same second. The whole season was done in 7.2 min.
+
+**So the reading "10a proved held work advances from background callbacks" does not hold.** 10a's release path never
+executed while locked in this run. The progress while locked was iOS starting tasks that 10a thought were held.
+
+**When iOS wakes a locked app (all three builds, 16 completions while locked):** exactly three wakes, each **in the same
+second the session's last task ended** (57 15:45:33, 58 16:21:21, 59 16:30:04). The 13 other completions while locked woke
+nothing. 57's third lock is the decisive case: the four running tasks ended 16:06:19-16:06:36 with the paused one still
+**suspended** in the session, and there was **no wake for 3 minutes, until the user unlocked**. A suspended task keeps the
+session "unfinished", so the app is never woken.
+
+**Answers to the 10a questions.**
+1. Locked concurrency was **~3, not 2** (>=3 proven: the metrics show t1/t2/t3 overlapping 16:14:49-16:15:23, and the byte
+   counts show t3/t4/t5 overlapping).
+2. It exceeded 2 because **iOS resumed never-resumed tasks on its own**. It was not a completion race, double callbacks or
+   misclassification. Our accounting was also wrong (it trusted `task.state`), but correct accounting would not have
+   stopped it.
+3./4. The foreground explosion was **iOS starting the three remaining never-resumed tasks ~1 s after the app became active**.
+   No foreground path of ours resumed anything.
+5. The adoption code cannot tell "held by 10a" from "user-paused" from "running but reporting suspended". It cannot be
+   made to, because the native state property is not truthful for these tasks.
+6. **10a cannot be corrected into a locked-safe cap.** Both ways to hold a task fail. A never-resumed task is not a hold,
+   because iOS starts it. A task suspended after running *is* honoured (57), but then the app is never woken while it sits
+   there, so nothing can release it until the unlock (57, third lock). Even with a wake, a transfer begun from the background
+   is discretionary and delayed (`.45`, Apple's "Downloading files in the background"). A "10a-v2" that re-suspends extras in
+   the foreground would turn them into the honoured-but-stranded kind, and the queue would stall while locked. **No 10a-v2 is
+   built.** It would spend a physical test cycle on a result the logs already predict.
+
+**59 (10b).** `HTTPMaximumConnectionsPerHost = 2` is enforced **exactly, per final (post-redirect) host, locked or not**. The
+6 tasks on host `aae81e` ran 2 at a time, and each next request started within **1 ms** of the previous transfer ending
+(t7->t8, t8->t4, t3->t6, t4->t5). t1 and t2 ended on two other hosts, so the peak was 2 + 1 + 1 = **4**. Global concurrency
+is `2 x (distinct CDN hosts in play)`, and the debrid service decides the host per file (57 saw 7 hosts over 14 files).
+**As a global cap or a "Downloads at once" setting, 10b fails.** It did show that the per-host limit is the only limit iOS
+demonstrably enforces: zero stalls, handoffs while locked, and no unlock burst (the "ep5 Starting" at unlock was t5 waiting
+for host `aae81e`).
+
+**Decision (from the evidence; maintainer to confirm):**
+- **Do not merge 10a or 10b.** Branches `claude/phase-9-ios-exp-10a` / `-10b` stay unmerged as the record.
+- **Keep the `.57` system-owned model for Phase 9.** Reliability wins. iOS gets **no "Downloads at once" setting** in Phase 9,
+  because no mechanism observed can enforce one while locked.
+- Open maintainer choice, not taken here: 10b's per-host 2 as a **softening** of the baseline. It would be neither a setting
+  nor a promise (4 at once in this run, 2 when a season sits on one host), and it changes the native session only.
+  Adopting it would still need one more physical run on a season spread across many hosts.
+- If "Downloads at once" on iOS is still wanted after Phase 9, what remains is outside app scheduling: per-host limits (as in
+  59) or `earliestBeginDate` staging. Neither gives a true global cap.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer

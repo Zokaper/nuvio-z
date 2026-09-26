@@ -97,6 +97,13 @@ def report(events):
         print("  time at each level: " + ", ".join(f"{lvl}={secs:.0f}s" for lvl, secs in sorted(time_at.items())))
         span = (max(e for _, e in intervals) - min(s for s, _ in intervals)) / 1000
         print(f"  first response to last end: {span / 60:.1f} min")
+        # `metrics` times are the task's LAST transaction. A task interrupted and range-resumed
+        # (more than redirect + transfer) transferred earlier than its interval shows - every figure
+        # above, and "started while locked" below, under-counts it. 58's t4/t5 were such tasks.
+        partial = [m for m in metrics if (m.get("transactions") or 0) > 2]
+        if partial:
+            print(f"  WARNING: {len(partial)} task(s) range-resumed ({', '.join(m['id'] for m in partial)}); their "
+                  "earlier transfer is missing from these intervals - read their first_progress/transfer_progress lines")
     else:
         print("\nNo metrics lines with response times (did any transfer finish?)")
 
