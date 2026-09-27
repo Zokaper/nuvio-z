@@ -981,7 +981,7 @@ Renders: `Nuvio Z/render-review/phase-9-downloaded-library/final-pass/` (`librar
 
 Verification: desktop `DownloadsScreenRenderHarness` pass; `DesktopDownloadRequestTest` 2/2; download E2E 45/45;
 mobile `DownloadLibraryTest` 9/9 + `:androidApp:compileFullDebugKotlin`. Full suites not re-run.
-Published for the maintainer: mobile **debug 63**, desktop **debug 72** (see below for runs).
+Published for the maintainer: mobile **debug 63** (`debug-v0.4.13-z1.63`, run `36348950109`, APK + IPA - the iOS compile check for the shared change) and desktop **debug 72** (`debug-v0.1.23-alpha-z6.72`, run `36348951840`, MSI + DMG). **Not physically verified** - the 60-second fix wants the same Modern Family queue on desktop 72: no `failure` lines at ~60 s in the debug log.
 
 ### Phase 9 - downloaded library redesign (2026-09-27)
 
