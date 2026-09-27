@@ -245,6 +245,10 @@
         {
           "build": 61,
           "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. On a short phone the picture at the top shrinks so the choices fit. \"Choose now\" now says it uses size estimates."
+        },
+        {
+          "build": 62,
+          "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
         }
       ]
     },
@@ -354,6 +358,10 @@
         {
           "build": 70,
           "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. A title's Download button is back on wide windows. \"Choose now\" now says it uses size estimates."
+        },
+        {
+          "build": 71,
+          "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
         }
       ]
     }
