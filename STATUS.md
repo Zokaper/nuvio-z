@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 ## Phase 9 — Downloads Redesign: IN PROGRESS (opened 2026-09-24)
 
@@ -823,6 +823,72 @@ re-run. **Not physically seen yet** - the next debug builds carry it.
   desktop **debug 69** (run `36252557375`, commit `4da3aed56`). Both carry the calibrated size levels; mobile also
   carries window 30 + the notice. **Not physically verified.** The iPhone check: queue a 22-episode season, lock for an
   hour, and count the finished episodes; queue past 30 to see the notice once.
+
+### Phase 9 - Wizard UX Polish Pass + title-level Download at every width (2026-09-27)
+
+Maintainer brief: wizard/setup UX, copy and layout cleanup plus one responsive title-page bug. **Presentation and copy
+only** - stored values, sync payloads (`download_policy`, the playback preferences) and engine behaviour are unchanged.
+Made on desktop (render harness) and cherry-picked: mobile `988451b6c` (wizard), `fea73e700` (details; mobile's
+`MetaDetailsScreen.kt` edited by hand - known divergence), `8bbc817ae` (no-break space). Desktop: see its STATUS.
+
+- **Shared choice controls** (`core/ui/NuvioChoiceControls.kt`, new): radio cards (modes), a radio list with per-row
+  figures (size levels) and a measured segmented control (labels wrap between words only, never mid-word). Every wizard
+  question is `SetupQuestion` (heading, control, one line saying what the answer does); the old pill/chip groups
+  (`SetupChoiceGroup`) are gone, the Look step included.
+- **Download preferences:** each level on its own row - Small "Saves storage", Standard **Recommended** "Streaming
+  quality", Large "Higher-quality encodes", Huge "Very high quality", Any size "Best file available" / "No limit" - with
+  **GB/h at 1080p and 4K** on the right, and "GB/h is the size of one hour of video." The pill grid and the per-episode /
+  film caption are gone; Settings -> Downloads' summary is GB/h too ("Streaming quality · 3 GB/h at 1080p"). Contextual
+  per-title estimates (Choose now, season rows) are unchanged. Subtitle (Assisted): "The largest file Nuvio may pick. You
+  still choose the quality each time."
+- **Download Mode:** Recommended moved to **Assisted** (`RecommendedDownloadMode`; only the badge - the preselected mode is
+  still derived from Playback Mode). Automatic "Nuvio chooses everything / It only asks when something needs your
+  attention."; Assisted "You choose the quality / Nuvio chooses the best matching file."; Manual "You choose the exact
+  file / Nothing is selected automatically." ("Downloading never opens the player" removed.)
+- **Playback Mode cards:** playback only - the STREAMING/DOWNLOADING sections and every "Downloads use X unless..." line
+  removed (the derivation itself is untouched). Classic "Full control / Every source is listed. You pick one.";
+  Streamlined "Choose a quality / Nuvio picks the best release at that quality."; Instant "Press play, it plays / Nuvio
+  matches quality to your connection." The escape hatch is a footnote. Fits without scrolling at 393x852.
+- **Playback setup ("How should Nuvio choose?"):** **Quality limit** = Auto / Data saver / Balanced / High / Very high
+  (0 / 10 / 20 / 35 / 60 Mb/s, Mb/s secondary under each; one line under the row says what it admits). 0 is
+  **Automatic** (was "No limit"): no cap - in Instant the measured connection decides, in Streamlined every quality stays
+  on offer, and the sentence says which. **Your language** Any / Prefer / Require (Settings: "Any language" / "Prefer my
+  language" / "Require my language"; Require is described as demoting, which is what `byLanguage` does). **HDR**
+  Automatic / Prefer SDR / Prefer HDR in the row, "Require HDR" / "Require Dolby Vision" as quiet secondary pills
+  ("...used only if nothing else works" - they demote, `UNSATISFIED_REQUIREMENT`); Automatic = "Prefers HDR for 4K, no
+  preference below that" (the per-resolution default in `PlaybackQualityOptions`). Settings shows the same names
+  ("Balanced · up to 20 Mb/s", one-line seam in `PlaybackSettingsPage.playbackQualityCeilingLabel`).
+- **Sources:** `setupSourcesStatus` (pure, +6 tests) -> Recommended ("Recommended setup is already active", no "use
+  recommended instead", secondary "Add a source manually"), Custom ("Your sources are already configured / Using X...",
+  outlined "Use recommended setup" + "Your current addons stay installed."), NeedsAttention (warning banner, addons failed
+  to load or turned off), Checking (still loading - no verdict), None ("Set up sources", Use recommended / Set up
+  manually). **Going on is always the footer:** Next for working sources, a quiet **"Skip for now"** otherwise (the old
+  in-body "Keep current sources" / "Do it later" are gone). The manual path hides "Use recommended setup instead" when it
+  is already active. Judgment: "Add a source manually" rather than "Manage sources" - the wizard can add, not remove.
+- **Assisted discovery sheet:** "Choose now" -> **"Choose now with size estimates"** (copy only).
+- **Title-level Download at every width** (`TitleDownloadAction.kt`): cause - on desktop >= 1000 dp the details screen
+  draws `DesktopDetailHero`, which owns the ACTIONS section (where the stacked layout's Download lives) and built its own
+  list without it. Both layouts now take one `titleDownloadSecondaryAction` (show: whole-show flow + season chooser;
+  film: start, or manage an existing download), first in the row. The season row's download is unchanged. The film's
+  label is "Download" (was the retired "Download with preset"). Mobile never draws the wide hero, so phones and tablets
+  already had it; the shared file is updated anyway.
+
+**Renders** (desktop, `composeApp/build/`; read): `setup-wizard-render/phone-step-*`, `phone-sources-*`,
+`phone-step-playbacksetup-instant-*` at 360x780 / 393x852 / 412x915 in the production stacked frame (40/24 dp insets),
+`desktop-*` at three window sizes; `title-download-render/{series,movie}-{400x860,820x900,1280x820}.png`;
+`downloads-screen-render/settings-*`. Fixed from the review: a double-measure crash in the segmented control (caught by
+the harness), the Recommended badge truncating, "Automat/ic" mid-word breaks, Playback Mode / setup overflowing by a line,
+an off-theme tonal button, "3 / GB/h". **Known:** at 360x780 with insets, Download preferences (Assisted: the last row)
+and Playback setup (the strict pills) still scroll inside the panel - the 150 dp band plus five 56 dp level rows do not
+fit; 393x852 and up fit. Shrinking the band per step was left alone.
+
+**Verification:** Android host **2,577/2,577** (results deleted, `--rerun`) + `:androidApp:compileFullDebugKotlin`.
+Pure suites: groups 1 and 3-8 **691/691** (setup group 109, +6). ⚠ **Group 2 does not compile at `1c3821f24` either**
+(`DownloadFlowRules.kt` references `DownloadItem`, `DownloadPolicyTest` uses `downloadSizeFigure` from a Compose file) -
+pre-existing, it stops the script before group 3; not fixed here. Desktop `desktopTest` **2,753 run, 2,751 pass, 1
+skipped**; the one failure was `AssistedChoiceFlowTest.chooseNowShowsEstimates...` asserting the provisional 1-2 GB/h band
+since calibration - fixed to read the table (desktop `1ae657e9a`), 19/19. New `TitleDownloadActionBreakpointTest` fails at
+1280 only without the hero fix (mutation-checked). iOS: see below. **No debug build cut** (per brief).
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
