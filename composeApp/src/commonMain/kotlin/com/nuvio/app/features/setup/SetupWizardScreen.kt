@@ -49,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -502,8 +505,17 @@ fun SetupWizardScreen(
         // it: that step has the tallest panel in the flow (three `PlaybackModeCard`s), revision
         // 2 cut it off mid-card and revision 5 cut it off again at 200 dp. Keep
         // `SetupSpecimen.Diagram.preferredHeight` small rather than trusting this cap.
+        //
+        // On top of the cap, the Diagram band gives way to what the panel measured it needs, so a
+        // short phone does not scroll the controls to keep an illustration - see `SetupPanelFit`.
+        val panelFit = remember { SetupPanelFit() }
         val bandHeight by animateDpAsState(
-            targetValue = specimen.preferredHeight.coerceAtMost(windowHeight * 0.5f),
+            targetValue = setupStackedBandHeight(
+                specimen = specimen,
+                windowHeight = windowHeight,
+                topInset = insets.calculateTopPadding(),
+                fit = panelFit,
+            ),
             animationSpec = tween(340, easing = LinearOutSlowInEasing),
             label = "setup_band_height",
         )
@@ -632,6 +644,7 @@ fun SetupWizardScreen(
                 tabLayout = metaSettings.tabLayout,
                 nextUpLabel = nextUpLabel,
                 modifier = Modifier.fillMaxWidth(),
+                scale = if (specimen == SetupSpecimen.Diagram) setupDiagramScale(bandHeight.value) else 1f,
                 downloadModeName = plan.downloadModeName,
             )
 
@@ -658,6 +671,7 @@ fun SetupWizardScreen(
                 onBack = ::back,
                 onAdvance = ::advance,
                 advance = advanceState,
+                fit = panelFit,
                 modifier = Modifier.weight(1f),
             ) {
                 SetupStepBody(
@@ -1002,6 +1016,7 @@ internal fun SetupPanel(
     onBack: () -> Unit,
     onAdvance: () -> Unit,
     advance: SetupAdvance = SetupAdvance.Shown,
+    fit: SetupPanelFit? = null,
     modifier: Modifier = Modifier,
     body: @Composable () -> Unit,
 ) {
@@ -1010,7 +1025,8 @@ internal fun SetupPanel(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(tokens.colors.surface),
+            .background(tokens.colors.surface)
+            .then(if (fit != null) Modifier.onSizeChanged { fit.panelPx = it.height } else Modifier),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -1034,15 +1050,24 @@ internal fun SetupPanel(
             )
             Spacer(modifier = Modifier.height(16.dp))
             // Scrolls only as a safety net - for a large font scale or a very short window.
-            // The band caps itself so that in ordinary use nothing here needs scrolling, which
-            // is what went wrong in revision 2.
+            // The band caps itself, and gives way to what `fit` measures here, so that in
+            // ordinary use nothing here needs scrolling, which is what went wrong in revision 2.
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .then(if (fit != null) Modifier.onSizeChanged { fit.viewportPx = it.height } else Modifier)
                     .verticalScroll(rememberScrollState()),
             ) {
-                body()
+                Box(
+                    modifier = if (fit != null) {
+                        Modifier.onSizeChanged { fit.contentPx = it.height }
+                    } else {
+                        Modifier
+                    },
+                ) {
+                    body()
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
             SetupPanelFooter(
@@ -1054,6 +1079,52 @@ internal fun SetupPanel(
             )
         }
     }
+}
+
+/**
+ * What the stacked panel measured it needs, so the band above it can give way.
+ *
+ * Three heights in px, written from layout: the whole panel, its scrolling viewport and the body's
+ * natural height inside that viewport. The panel *needs* its chrome (panel - viewport: header,
+ * spacers, footer, padding, the gesture inset) plus the body. Neither term moves with the band -
+ * the chrome is fixed for a step and the body is measured unbounded inside the scroll - so the
+ * band settles in one step instead of chasing its own tail.
+ */
+@Stable
+internal class SetupPanelFit {
+    var panelPx by mutableStateOf(0)
+    var viewportPx by mutableStateOf(0)
+    var contentPx by mutableStateOf(0)
+
+    /** Null until the panel has been laid out once. */
+    val requiredPx: Int?
+        get() = if (panelPx == 0 || contentPx == 0) null else panelPx - viewportPx + contentPx
+}
+
+/**
+ * The band's target height in the stacked layout: the specimen's preferred height, capped at half
+ * the window, giving way down to its `minimumHeight` when [fit] says the panel would scroll. The
+ * rule is [setupStackedBandHeightDp] (pure, tested); this only converts units.
+ *
+ * `internal` so `SetupWizardRenderHarness` draws the phone frame with this rule, not a copy of it.
+ */
+@Composable
+internal fun setupStackedBandHeight(
+    specimen: SetupSpecimen,
+    windowHeight: Dp,
+    topInset: Dp,
+    fit: SetupPanelFit,
+): Dp {
+    val density = LocalDensity.current
+    val seam = MaterialTheme.nuvio.borders.hairline
+    val required = fit.requiredPx?.let { with(density) { it.toDp() } }
+    return setupStackedBandHeightDp(
+        preferredDp = specimen.preferredHeight.value,
+        minimumDp = specimen.minimumHeight.value,
+        windowHeightDp = windowHeight.value,
+        aboveDp = (topInset + seam).value,
+        requiredPanelDp = required?.value,
+    ).dp
 }
 
 /**

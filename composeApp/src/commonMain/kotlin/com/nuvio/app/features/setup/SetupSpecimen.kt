@@ -128,6 +128,13 @@ enum class SetupSpecimen(
      * costs panel space on a short screen rather than clipping.
      */
     internal val preferredHeight: Dp,
+    /**
+     * The least the band may shrink to on a short phone so the panel below it does not scroll
+     * (`setupStackedBandHeightDp`). Defaults to [preferredHeight], i.e. never: the catalog, theme,
+     * home and details mocks are hand-fitted drawings of real screens and would be clipped rather
+     * than shrunk. Only [Diagram] - an illustration that scales as a whole - gives way.
+     */
+    internal val minimumHeight: Dp = preferredHeight,
 ) {
     /** A catalog row, at the chosen shape, size, corner radius and title setting. */
     Cards(preferredHeight = 280.dp),
@@ -177,8 +184,13 @@ enum class SetupSpecimen(
      * card off and revision 5 cut it off again. The storyboard is budgeted to fit this rather
      * than the other way round; see the metrics block in `SetupDiagram.kt`. ⚠ Do not raise it
      * without looking at that step on a real phone.
+     *
+     * **Gives way down to 80 dp** when the panel below would otherwise scroll - on a phone,
+     * Download preferences (five size rows plus the mobile-data question) and Playback setup - the
+     * drawing scaled to fit rather than clipped (`setupDiagramScale`). A step whose panel fits keeps
+     * 150; what still does not fit at 80 scrolls.
      */
-    Diagram(preferredHeight = 150.dp),
+    Diagram(preferredHeight = 150.dp, minimumHeight = 80.dp),
 }
 
 /**

@@ -796,4 +796,42 @@ class SetupWizardStepsTest {
             ),
         )
     }
+
+    // --- the stacked layout's band height ---
+
+    @Test
+    fun bandKeepsItsPreferredHeightUntilThePanelHasBeenMeasured() {
+        assertEquals(150f, setupStackedBandHeightDp(150f, 96f, 780f, 41f, requiredPanelDp = null))
+    }
+
+    @Test
+    fun bandKeepsItsPreferredHeightWhenThePanelFits() {
+        // 852 - 41 - 150 = 661 of room; a 600 dp panel fits with slack, and the slack is not spent.
+        assertEquals(150f, setupStackedBandHeightDp(150f, 96f, 852f, 41f, requiredPanelDp = 600f))
+    }
+
+    @Test
+    fun bandGivesWayByExactlyThePanelsOverflow() {
+        // 780 - 41 - 150 = 589 of room; a 620 dp panel is 31 over, so the band gives 31.
+        assertEquals(119f, setupStackedBandHeightDp(150f, 96f, 780f, 41f, requiredPanelDp = 620f))
+    }
+
+    @Test
+    fun bandStopsAtItsMinimumAndThePanelScrollsTheRest() {
+        assertEquals(96f, setupStackedBandHeightDp(150f, 96f, 780f, 41f, requiredPanelDp = 900f))
+    }
+
+    @Test
+    fun aSpecimenWithoutAMinimumNeverShrinksBelowItsCap() {
+        // Cards (280, minimum = preferred) on a 500 dp window: capped at half, and no lower.
+        assertEquals(250f, setupStackedBandHeightDp(280f, 280f, 500f, 41f, requiredPanelDp = 400f))
+    }
+
+    @Test
+    fun diagramKeepsFullScaleWhereItFitsAndShrinksToAFloorBelow() {
+        assertEquals(1f, setupDiagramScale(150f))
+        assertEquals(1f, setupDiagramScale(SetupDiagramContentDp + 20f))
+        assertTrue(setupDiagramScale(110f) < 1f)
+        assertEquals(0.6f, setupDiagramScale(40f))
+    }
 }

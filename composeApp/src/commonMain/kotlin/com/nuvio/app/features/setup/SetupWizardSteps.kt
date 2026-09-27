@@ -503,3 +503,52 @@ fun setupSourcesStatus(
         else -> SetupSourcesStatus.None
     }
 }
+
+// --- the stacked layout's band height ------------------------------------------------------------
+
+/**
+ * The tallest drawing the Diagram band holds, in dp: the storyboard's chip stage (3 x 30 + 2 x 6,
+ * see the metrics block in `SetupDiagram.kt`). Change both together.
+ */
+internal const val SetupDiagramContentDp = 102f
+
+/** The least room kept above and below a shrunk diagram, so it never touches the seam. */
+private const val SetupDiagramMarginDp = 8f
+
+/** How far a diagram may be scaled down before it stops reading as the drawing it is. */
+private const val SetupDiagramMinScale = 0.6f
+
+/**
+ * The band's height in the stacked (phone) layout, in dp.
+ *
+ * **Priority: the panel's controls, then its pinned footer, then the illustration.** The band asks
+ * for [preferredDp] (capped at half the window, as it always was) and gives way - down to
+ * [minimumDp], never below - only when the panel would otherwise scroll. [requiredPanelDp] is what
+ * the panel measured it needs (header + body + footer + padding); null until it has been measured,
+ * which keeps the preferred height rather than guessing. [aboveDp] is what sits above the panel
+ * besides the band itself: the status-bar inset the band pads by, and the seam.
+ *
+ * Neither input depends on the band, so this settles in one pass instead of chasing its own tail.
+ * A tall phone gets exactly the old height back: its panel fits, so there is nothing to give.
+ */
+internal fun setupStackedBandHeightDp(
+    preferredDp: Float,
+    minimumDp: Float,
+    windowHeightDp: Float,
+    aboveDp: Float,
+    requiredPanelDp: Float?,
+): Float {
+    val preferred = minOf(preferredDp, windowHeightDp * 0.5f)
+    if (requiredPanelDp == null) return preferred
+    val room = windowHeightDp - aboveDp - requiredPanelDp
+    return room.coerceIn(minOf(minimumDp, preferred), preferred)
+}
+
+/**
+ * The scale a Diagram band's drawing is laid out at when the band is [bandDp] tall. 1 at the
+ * preferred 150 dp (and anywhere the drawing fits with its margins); below that the drawing shrinks
+ * as a whole - text included, through the density override in `SetupDiagram` - instead of being
+ * clipped at the seam, and never under [SetupDiagramMinScale].
+ */
+internal fun setupDiagramScale(bandDp: Float): Float =
+    ((bandDp - 2 * SetupDiagramMarginDp) / SetupDiagramContentDp).coerceIn(SetupDiagramMinScale, 1f)
