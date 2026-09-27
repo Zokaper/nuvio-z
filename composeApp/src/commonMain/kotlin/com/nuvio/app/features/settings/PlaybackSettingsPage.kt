@@ -3251,10 +3251,8 @@ internal val PLAYBACK_QUALITY_CEILING_STEPS = listOf(0, 10, 20, 35, 60)
 
 /** `internal` for the setup wizard - see [playbackDynamicRangeLabel]. */
 @Composable
-internal fun playbackQualityCeilingLabel(mbps: Int): String = when {
-    mbps <= 0 -> stringResource(Res.string.settings_playback_quality_ceiling_off)
-    else -> stringResource(Res.string.settings_playback_quality_ceiling_value, mbps)
-}
+internal fun playbackQualityCeilingLabel(mbps: Int): String =
+    com.nuvio.app.features.playback.playbackQualityLimitLabel(mbps)
 
 /**
  * The one-word name for an audio preference, and the formats it is asking for.

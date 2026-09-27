@@ -34,8 +34,6 @@ import nuvio.composeapp.generated.resources.settings_playback_language_require
 import nuvio.composeapp.generated.resources.settings_playback_language_strictness
 import nuvio.composeapp.generated.resources.settings_playback_preference_any
 import nuvio.composeapp.generated.resources.settings_playback_quality_ceiling
-import nuvio.composeapp.generated.resources.settings_playback_quality_ceiling_off
-import nuvio.composeapp.generated.resources.settings_playback_quality_ceiling_value
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -171,7 +169,4 @@ private fun dynamicRangeLabel(policy: DynamicRangePolicy): String = when (policy
 }
 
 @Composable
-private fun qualityCeilingLabel(mbps: Int): String = when {
-    mbps <= 0 -> stringResource(Res.string.settings_playback_quality_ceiling_off)
-    else -> stringResource(Res.string.settings_playback_quality_ceiling_value, mbps)
-}
+private fun qualityCeilingLabel(mbps: Int): String = playbackQualityLimitLabel(mbps)

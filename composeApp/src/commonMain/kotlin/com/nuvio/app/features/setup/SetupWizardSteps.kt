@@ -440,3 +440,66 @@ fun resolveSocialFeaturesEnabled(
     probe == SocialIdentityProbe.Present -> true
     else -> false
 }
+
+// --- the Sources step's starting state (wizard polish, 2026-09-27) ---------------------------
+
+/**
+ * What the Sources step finds when it opens, which decides what it says and offers.
+ *
+ * Before this, "an enabled stream addon exists" was the only question asked, so a profile already
+ * running the recommended setup was told its sources were configured and then offered "Use
+ * recommended setup instead" - the setup it already had. Each state now has its own copy and its own
+ * actions, and the footer's forward action follows from it (see `setupAdvanceFor`).
+ */
+enum class SetupSourcesStatus {
+    /** Nuvio Z's recommended source is installed, enabled and loaded. Nothing to do: Next. */
+    Recommended,
+
+    /** A working stream addon that is not the recommended one. Keep it (Next), or add the recommended one. */
+    Custom,
+
+    /** An addon is still loading and nothing usable has answered yet. Say so rather than guess. */
+    Checking,
+
+    /** Stream addons are installed but none works - failed to load, or all turned off. */
+    NeedsAttention,
+
+    /** No stream source at all. */
+    None,
+}
+
+/** The facts about one installed addon the Sources step reads. Plain values, so this stays pure. */
+data class SetupSourceAddonFacts(
+    val name: String?,
+    val enabled: Boolean,
+    /** Its manifest has loaded. */
+    val loaded: Boolean,
+    /** Its manifest offers the `stream` resource. Unknowable (false) until loaded. */
+    val providesStreams: Boolean,
+    val refreshing: Boolean = false,
+    /** The last load failed. */
+    val failed: Boolean = false,
+)
+
+/**
+ * Classifies the installed addons. [recommendedNames] are the manifest names the recommended setup
+ * installs under (`NUVIO_Z_RECOMMENDED_ADDON_NAMES`).
+ *
+ * A usable source always wins over a broken one: one working addon beside a failed one is a working
+ * setup, not an alarm. "Checking" only when nothing usable has answered and something is still
+ * loading - a verdict shown before the data settles would change under the user.
+ */
+fun setupSourcesStatus(
+    addons: List<SetupSourceAddonFacts>,
+    recommendedNames: Set<String>,
+): SetupSourcesStatus {
+    val usable = addons.filter { it.enabled && it.loaded && it.providesStreams }
+    return when {
+        usable.any { it.name in recommendedNames } -> SetupSourcesStatus.Recommended
+        usable.isNotEmpty() -> SetupSourcesStatus.Custom
+        addons.any { it.enabled && !it.loaded && it.refreshing } -> SetupSourcesStatus.Checking
+        addons.any { (it.enabled && !it.loaded && it.failed) || (!it.enabled && it.providesStreams) } ->
+            SetupSourcesStatus.NeedsAttention
+        else -> SetupSourcesStatus.None
+    }
+}

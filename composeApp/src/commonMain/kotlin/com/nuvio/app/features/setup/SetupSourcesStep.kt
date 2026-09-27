@@ -1,5 +1,6 @@
 package com.nuvio.app.features.setup
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -65,32 +69,47 @@ internal class SetupSourcesActions(
 )
 
 /**
- * The Sources step: one question, then one of two short paths.
+ * The Sources step: what is already set up decides what it says, then one of two short paths.
  *
  * ⚠ **No WebView and no browser.** The previous revision opened AIOStreams' configure page with the
  * template preloaded and asked the user to come back with a manifest URL - templates screen, Stremio
  * install popup, copy, paste. The recommended path now does all of it natively; see
  * [AioStreamsRecommendedSetup] for how, and [SetupSourcesController] for the rules.
+ *
+ * ## One screen per starting state (wizard polish, 2026-09-27)
+ *
+ * It used to know only "a stream addon exists", so a profile already on the recommended setup read
+ * "Sources are already configured" and was then offered "Use recommended setup instead" - the setup
+ * it had. [status] now separates the recommended setup, the user's own, a broken one, one still
+ * loading and none. **Going on is always the footer** (Next, or "Skip for now" when nothing works
+ * yet - see `setupAdvanceFor`); the buttons in here only ever change the setup.
  */
 @Composable
 internal fun SetupSourcesBody(
     state: SetupSourcesState,
     existingSourceName: String?,
     actions: SetupSourcesActions,
+    status: SetupSourcesStatus = if (existingSourceName != null) SetupSourcesStatus.Custom else SetupSourcesStatus.None,
 ) {
     val configured = state.configuredName
     when {
         configured != null -> SourcesConfigured(name = configured, recovery = state.recovery)
         state.mode == SetupSourcesMode.Recommended -> SourcesRecommended(state, actions)
-        state.mode == SetupSourcesMode.Manual -> SourcesManual(state, existingSourceName, actions)
-        existingSourceName != null -> SourcesExisting(existingSourceName, actions)
-        else -> SourcesQuestion(actions)
+        state.mode == SetupSourcesMode.Manual -> SourcesManual(state, existingSourceName, status, actions)
+        else -> when (status) {
+            SetupSourcesStatus.Recommended -> SourcesRecommendedActive(existingSourceName, actions)
+            SetupSourcesStatus.Custom -> SourcesExisting(existingSourceName.orEmpty(), actions)
+            SetupSourcesStatus.Checking -> SourcesChecking()
+            SetupSourcesStatus.NeedsAttention -> SourcesNeedAttention(actions)
+            SetupSourcesStatus.None -> SourcesQuestion(actions)
+        }
     }
 }
 
+/** Nothing set up: the recommended setup is the one obvious action. */
 @Composable
 private fun SourcesQuestion(actions: SetupSourcesActions) {
-    SourcesHeading(stringResource(Res.string.setup_sources_question))
+    SourcesHeading(stringResource(Res.string.setup_sources_none_title))
     SetupParagraph(stringResource(Res.string.setup_sources_question_body))
     SetupParagraph(stringResource(Res.string.setup_sources_question_own))
     SourcesButtonRow {
@@ -100,27 +119,71 @@ private fun SourcesQuestion(actions: SetupSourcesActions) {
         TextButton(onClick = actions.onSetUpManually) {
             Text(stringResource(Res.string.setup_sources_set_up_manually))
         }
-        TextButton(onClick = actions.onDoItLater) {
-            Text(stringResource(Res.string.setup_sources_do_it_later))
-        }
     }
-    SetupParagraph(stringResource(Res.string.setup_sources_skip_hint))
+    SetupFootnote(stringResource(Res.string.setup_sources_skip_hint))
 }
 
+/** The recommended setup is already what this profile runs. Nothing to choose; Next goes on. */
+@Composable
+private fun SourcesRecommendedActive(name: String?, actions: SetupSourcesActions) {
+    SourcesSuccessBanner(stringResource(Res.string.setup_sources_recommended_active_title))
+    SetupParagraph(
+        stringResource(
+            Res.string.setup_sources_recommended_active_body,
+            name ?: stringResource(Res.string.setup_sources_recommended_title),
+        ),
+    )
+    TextButton(onClick = actions.onSetUpManually) {
+        Text(stringResource(Res.string.setup_sources_add_manually))
+    }
+}
+
+/** The user's own sources work. Keeping them is Next; the recommended setup is offered, with what it does. */
 @Composable
 private fun SourcesExisting(name: String, actions: SetupSourcesActions) {
     SourcesSuccessBanner(stringResource(Res.string.setup_sources_existing_title))
     SetupParagraph(stringResource(Res.string.setup_sources_existing_body, name))
-    SourcesButtonRow {
-        Button(onClick = actions.onKeepExisting) {
-            Text(stringResource(Res.string.setup_sources_keep))
+    // Secondary, not filled: keeping what works is Next, in the footer. The note sits under the
+    // button it qualifies.
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedButton(
+            onClick = actions.onUseRecommended,
+            border = BorderStroke(1.dp, MaterialTheme.nuvio.colors.borderDefault),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.nuvio.colors.textPrimary),
+        ) {
+            Text(stringResource(Res.string.setup_sources_use_recommended))
         }
-        TextButton(onClick = actions.onUseRecommended) {
-            Text(stringResource(Res.string.setup_sources_use_recommended_instead))
+        SetupFootnote(stringResource(Res.string.setup_sources_switch_note))
+    }
+    TextButton(onClick = actions.onSetUpManually) {
+        Text(stringResource(Res.string.setup_sources_add_manually))
+    }
+}
+
+/** Installed but not working: say so, and offer the same two fixes a fresh profile gets. */
+@Composable
+private fun SourcesNeedAttention(actions: SetupSourcesActions) {
+    SourcesWarningBanner(stringResource(Res.string.setup_sources_attention_title))
+    SetupParagraph(stringResource(Res.string.setup_sources_attention_body))
+    SourcesButtonRow {
+        Button(onClick = actions.onUseRecommended) {
+            Text(stringResource(Res.string.setup_sources_use_recommended))
         }
         TextButton(onClick = actions.onSetUpManually) {
-            Text(stringResource(Res.string.setup_sources_manage_manually))
+            Text(stringResource(Res.string.setup_sources_add_manually))
         }
+    }
+}
+
+/** An addon is still loading: no verdict yet, so none is shown. */
+@Composable
+private fun SourcesChecking() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NuvioLoadingIndicator(color = MaterialTheme.nuvio.colors.textSecondary, modifier = Modifier.size(18.dp))
+        SetupParagraph(stringResource(Res.string.setup_sources_checking))
     }
 }
 
@@ -246,7 +309,12 @@ private fun SourcesRecommended(state: SetupSourcesState, actions: SetupSourcesAc
 }
 
 @Composable
-private fun SourcesManual(state: SetupSourcesState, existingSourceName: String?, actions: SetupSourcesActions) {
+private fun SourcesManual(
+    state: SetupSourcesState,
+    existingSourceName: String?,
+    status: SetupSourcesStatus,
+    actions: SetupSourcesActions,
+) {
     val tokens = MaterialTheme.nuvio
     if (existingSourceName != null) {
         SourcesSuccessBanner(stringResource(Res.string.setup_sources_configured, existingSourceName))
@@ -275,9 +343,12 @@ private fun SourcesManual(state: SetupSourcesState, existingSourceName: String?,
     state.manualError?.let { error ->
         Text(text = error, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.danger)
     }
-    SetupParagraph(stringResource(Res.string.setup_sources_manual_manage))
-    TextButton(onClick = actions.onUseRecommended, enabled = !state.busy) {
-        Text(stringResource(Res.string.setup_sources_use_recommended_instead))
+    SetupFootnote(stringResource(Res.string.setup_sources_manual_manage))
+    // Not offered to a profile that already runs it: "instead" of what it has would be nonsense.
+    if (status != SetupSourcesStatus.Recommended) {
+        TextButton(onClick = actions.onUseRecommended, enabled = !state.busy) {
+            Text(stringResource(Res.string.setup_sources_use_recommended_instead))
+        }
     }
 }
 
@@ -338,7 +409,7 @@ private fun SourcesHeading(text: String) {
     )
 }
 
-/** Wraps rather than squeezing, for the same reason `SetupChoiceGroup` does. */
+/** Wraps rather than squeezing: a long label moves to the next line instead of truncating. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SourcesButtonRow(content: @Composable () -> Unit) {
@@ -368,6 +439,34 @@ private fun SourcesSuccessBanner(text: String) {
             imageVector = Icons.Rounded.Check,
             contentDescription = null,
             tint = tokens.colors.success,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SourcesWarningBanner(text: String) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(tokens.colors.warning.copy(alpha = 0.12f))
+            .border(1.dp, tokens.colors.warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.WarningAmber,
+            contentDescription = null,
+            tint = tokens.colors.warning,
             modifier = Modifier.size(20.dp),
         )
         Text(

@@ -5,62 +5,35 @@ package com.nuvio.app.features.playback
 // card survived the screen because two places still describe the modes - the wizard's playback
 // step and `PlaybackModeDialog` in `PlaybackSettingsPage` - and they must not drift.
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioChoiceCard
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.playback_mode_classic
-import nuvio.composeapp.generated.resources.playback_mode_classic_download
-import nuvio.composeapp.generated.resources.playback_mode_classic_stream_1
-import nuvio.composeapp.generated.resources.playback_mode_classic_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_classic_detail
 import nuvio.composeapp.generated.resources.playback_mode_classic_tagline
 import nuvio.composeapp.generated.resources.playback_mode_instant
-import nuvio.composeapp.generated.resources.playback_mode_instant_download
-import nuvio.composeapp.generated.resources.playback_mode_instant_stream_1
-import nuvio.composeapp.generated.resources.playback_mode_instant_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_instant_detail
 import nuvio.composeapp.generated.resources.playback_mode_instant_tagline
-import nuvio.composeapp.generated.resources.playback_mode_section_downloading
-import nuvio.composeapp.generated.resources.playback_mode_section_streaming
 import nuvio.composeapp.generated.resources.playback_mode_streamlined
-import nuvio.composeapp.generated.resources.playback_mode_streamlined_download
-import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_1
-import nuvio.composeapp.generated.resources.playback_mode_streamlined_stream_2
+import nuvio.composeapp.generated.resources.playback_mode_streamlined_detail
 import nuvio.composeapp.generated.resources.playback_mode_streamlined_tagline
 import nuvio.composeapp.generated.resources.playback_mode_unavailable
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * One mode, described the way a plan-comparison card describes a tier.
+ * One mode as a selectable card: radio, name, a short tagline and one sentence of what pressing
+ * play does.
  *
- * **Shared deliberately.** Two places describe the modes - this screen and
+ * **Shared deliberately.** Two places describe the modes - the setup wizard and
  * `PlaybackModeDialog` in `PlaybackSettingsPage` - and the last time mode-descriptive logic
  * was duplicated across those two files, one copy kept captioning Instant "Not ready yet"
  * after the other had been fixed. One composable, so they cannot drift again.
  *
- * The download lines are not decoration: since Phase 9 downloads have their own Download Mode,
- * and an unanswered one is derived from Playback Mode (`DownloadPolicy.derivedMode`). The line
- * says which mode that is. Copy that contradicts the derivation is worse than no copy at all.
+ * **Playback only.** Until the wizard polish pass (2026-09-27) each card also had a "Downloading"
+ * section naming the Download Mode it implies. Downloads have their own step and their own
+ * settings now, so that line only made the playback question longer and harder to read; the
+ * derivation itself is unchanged (`DownloadPolicy.derivedMode`, pinned by `DownloadPolicyTest`).
  *
  * [enabled] comes from [PlaybackMode.isSelectable] and from nowhere else. A card that is
  * greyed must also be un-tappable and un-ticked: greyed *and* selected reads as a bug rather
@@ -74,119 +47,18 @@ fun PlaybackModeCard(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.55f)
-            .clickable(enabled = enabled, onClick = onClick)
-            .then(
-                if (isSelected) {
-                    Modifier.border(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(16.dp),
-                    )
-                } else {
-                    Modifier
-                },
-            ),
-        shape = RoundedCornerShape(16.dp),
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = playbackModeName(mode),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = playbackModeTagline(mode),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!enabled) {
-                        // Say why, on the card itself. A greyed row with no explanation is
-                        // the thing users report as broken.
-                        Text(
-                            text = stringResource(Res.string.playback_mode_unavailable),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
-                if (isSelected) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .background(MaterialTheme.colorScheme.primary, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-            }
-
-            ModeDetailSection(
-                title = stringResource(Res.string.playback_mode_section_streaming),
-                lines = playbackModeStreamingLines(mode),
-            )
-            ModeDetailSection(
-                title = stringResource(Res.string.playback_mode_section_downloading),
-                lines = listOf(playbackModeDownloadLine(mode)),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModeDetailSection(title: String, lines: List<String>) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold,
-        )
-        lines.forEach { line ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "•",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = line,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-    }
+    NuvioChoiceCard(
+        title = playbackModeName(mode),
+        selected = isSelected && enabled,
+        onClick = onClick,
+        modifier = modifier,
+        tagline = playbackModeTagline(mode),
+        description = playbackModeDetail(mode),
+        enabled = enabled,
+        // Say why, on the card itself. A greyed row with no explanation is the thing users
+        // report as broken.
+        note = if (enabled) null else stringResource(Res.string.playback_mode_unavailable),
+    )
 }
 
 @Composable
@@ -204,52 +76,23 @@ private fun playbackModeTagline(mode: PlaybackMode): String = when (mode) {
 }
 
 /**
- * Must stay in step with what each mode actually does on the playback path, the same way
- * [playbackModeDownloadLine] tracks `DownloadPolicy.derivedMode`.
+ * Must stay in step with what each mode actually does on the playback path. Copy that
+ * contradicts the router is worse than no copy at all: Streamlined once went on offering
+ * *"Pin a release to reuse it for the rest of a season"* for a whole release after the pin was
+ * withdrawn (see [PlaybackModeRouter]).
  *
- * That contract used to cover only the download line, and the streaming lines drifted for a
- * whole release because of it: Streamlined's second bullet went on offering *"Pin a release to
- * reuse it for the rest of a season"* after the sticky pin was withdrawn in `0.5.0-beta`
- * (see [PlaybackModeRouter], which explains why). A user could read that bullet, choose the
- * mode for it, and never find the feature. Copy that contradicts the router is worse than no
- * copy at all - in both directions.
- *
- * What each line maps to today:
- *  - **Classic** - `PlaybackRouteDecision.ShowSourceList`, plus `streamAutoPlayMode`, which
- *    stays a Classic-only setting.
- *  - **Streamlined** 1 - `ShowQualitySheet` into [PlaybackSourceSelector];
- *    2 - the remembered band, `BingeGroupCacheRepository.sessionQualityBandId`, which skips
- *    the sheet for the rest of the sitting. If that skip is ever removed, this line goes with
- *    it.
- *  - **Instant** - unreachable while [PlaybackMode.isSelectable] withholds it. Kept accurate
- *    rather than deleted, because the card is still drawn (greyed, with a reason) and the mode
- *    is a deferral, not a rejection.
+ * What each sentence maps to today:
+ *  - **Classic** - `PlaybackRouteDecision.ShowSourceList`: every source, the user picks one.
+ *  - **Streamlined** - `ShowQualitySheet` into [PlaybackSourceSelector]: a quality, then Nuvio's
+ *    pick of the release inside it.
+ *  - **Instant** - `AutoPick`: tier and source from the measured connection, bounded by the
+ *    quality limit.
  */
 @Composable
-private fun playbackModeStreamingLines(mode: PlaybackMode): List<String> = when (mode) {
-    PlaybackMode.CLASSIC -> listOf(
-        stringResource(Res.string.playback_mode_classic_stream_1),
-        stringResource(Res.string.playback_mode_classic_stream_2),
-    )
-    PlaybackMode.STREAMLINED -> listOf(
-        stringResource(Res.string.playback_mode_streamlined_stream_1),
-        stringResource(Res.string.playback_mode_streamlined_stream_2),
-    )
-    PlaybackMode.INSTANT -> listOf(
-        stringResource(Res.string.playback_mode_instant_stream_1),
-        stringResource(Res.string.playback_mode_instant_stream_2),
-    )
-}
-
-/**
- * Must stay in step with `DownloadPolicy.derivedMode` (Classic -> Manual, Streamlined -> Assisted,
- * Instant -> Automatic). `DownloadPolicyTest` pins the derivation.
- */
-@Composable
-private fun playbackModeDownloadLine(mode: PlaybackMode): String = when (mode) {
-    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_download)
-    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_download)
-    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_download)
+private fun playbackModeDetail(mode: PlaybackMode): String = when (mode) {
+    PlaybackMode.CLASSIC -> stringResource(Res.string.playback_mode_classic_detail)
+    PlaybackMode.STREAMLINED -> stringResource(Res.string.playback_mode_streamlined_detail)
+    PlaybackMode.INSTANT -> stringResource(Res.string.playback_mode_instant_detail)
 }
 
 /**

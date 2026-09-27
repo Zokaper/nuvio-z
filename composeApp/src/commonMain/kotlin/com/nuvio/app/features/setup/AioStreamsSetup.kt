@@ -19,6 +19,24 @@ internal fun List<ManagedAddon>.firstEnabledStreamAddonName(): String? =
         } == true
     }?.displayTitle
 
+/** What the Sources step needs to know about one installed addon (see `setupSourcesStatus`). */
+internal fun ManagedAddon.setupFacts(): SetupSourceAddonFacts = SetupSourceAddonFacts(
+    name = manifest?.name,
+    enabled = enabled,
+    loaded = manifest != null,
+    providesStreams = manifest?.resources?.any { it.name.equals("stream", ignoreCase = true) } == true,
+    refreshing = isRefreshing,
+    failed = !errorMessage.isNullOrBlank(),
+)
+
+/** How the Sources step finds this profile's addons. */
+internal fun List<ManagedAddon>.setupSourcesStatus(): SetupSourcesStatus =
+    setupSourcesStatus(map { it.setupFacts() }, NUVIO_Z_RECOMMENDED_ADDON_NAMES)
+
+/** The installed recommended source's name, for "… is installed and ready". */
+internal fun List<ManagedAddon>.recommendedSourceName(): String? =
+    firstOrNull { addon -> addon.enabled && addon.manifest?.name in NUVIO_Z_RECOMMENDED_ADDON_NAMES }?.displayTitle
+
 internal sealed interface SetupSourceInstallResult {
     data class Installed(val addonName: String) : SetupSourceInstallResult
     data class Failed(val message: String) : SetupSourceInstallResult

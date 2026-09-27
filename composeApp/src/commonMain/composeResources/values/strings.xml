@@ -1254,7 +1254,7 @@
     <string name="settings_playback_libmpv_yuv420p_description">Force YUV420P output for devices with renderer or color issues.</string>
     <string name="settings_playback_section_next_episode">NEXT EPISODE</string>
     <string name="playback_mode_selector_title">How should Nuvio pick sources?</string>
-    <string name="playback_mode_selector_subtitle">Choose how much of the choice Nuvio makes for you. You can change this any time in Settings.</string>
+    <string name="playback_mode_selector_subtitle">How much Nuvio decides when you press play. Change it any time in Settings.</string>
     <string name="playback_mode_selector_recommendation">Instant for simplicity, Streamlined for control, Classic if the automatic source chooser does not do well with your preferred plugins or debrid.</string>
     <string name="playback_mode_selector_confirm">Continue</string>
     <string name="settings_playback_mode">Playback mode</string>
@@ -1275,20 +1275,9 @@
     <string name="whats_new_previous_versions_loading">Loading earlier release notes…</string>
     <string name="whats_new_previous_versions_unavailable">Earlier release notes need a connection.</string>
     <string name="whats_new_no_notes">No notes were published for this version.</string>
-    <string name="playback_mode_section_streaming">Streaming</string>
-    <string name="playback_mode_section_downloading">Downloading</string>
     <string name="playback_mode_classic_tagline">Full control</string>
-    <string name="playback_mode_classic_stream_1">Every source, listed by addon</string>
-    <string name="playback_mode_classic_stream_2">You read the releases and pick one</string>
-    <string name="playback_mode_classic_download">Downloads use Manual unless you pick a Download Mode</string>
-    <string name="playback_mode_streamlined_tagline">Quality without the wall of releases</string>
-    <string name="playback_mode_streamlined_stream_1">Pick a quality, Nuvio picks the release</string>
-    <string name="playback_mode_streamlined_stream_2">Asks for the quality on every episode</string>
-    <string name="playback_mode_streamlined_download">Downloads use Assisted unless you pick a Download Mode</string>
+    <string name="playback_mode_streamlined_tagline">Choose a quality</string>
     <string name="playback_mode_instant_tagline">Press play, it plays</string>
-    <string name="playback_mode_instant_stream_1">Quality and source chosen from your connection</string>
-    <string name="playback_mode_instant_stream_2">Asks once before using mobile data</string>
-    <string name="playback_mode_instant_download">Downloads use Automatic unless you pick a Download Mode</string>
     <string name="playback_mode_escape_hatch">In every mode, long-press an episode to pick the source yourself for one play.</string>
     <string name="playback_mode_unavailable">Not available in this version</string>
     <string name="settings_playback_classic_only">Classic picks sources from the list, so this does not apply.</string>
@@ -1298,11 +1287,11 @@
     <string name="playback_quality_best">Best available</string>
     <string name="playback_quality_variant_max">Max</string>
     <string name="settings_playback_language_strictness">Audio language matching</string>
-    <string name="settings_playback_language_off">Ignore language</string>
+    <string name="settings_playback_language_off">Any language</string>
     <string name="settings_playback_language_prefer">Prefer my language</string>
-    <string name="settings_playback_language_require">Only play what I can watch</string>
-    <string name="settings_playback_quality_ceiling">Quality ceiling</string>
-    <string name="settings_playback_quality_ceiling_off">No limit</string>
+    <string name="settings_playback_language_require">Require my language</string>
+    <string name="settings_playback_quality_ceiling">Quality limit</string>
+    <string name="settings_playback_quality_ceiling_off">Automatic</string>
     <string name="settings_playback_quality_ceiling_value">Up to %1$d Mb/s</string>
     <string name="settings_playback_language_strictness_description">What to do when a release has no audio or subtitles in your language.</string>
     <string name="settings_playback_quality_ceiling_description">Never automatically pick a source above this bitrate. Remux releases sit above 50 Mb/s.</string>
@@ -2681,11 +2670,9 @@
     <!-- Playback setup. Shown only for a mode that has something to configure - Classic has
          nothing, because every automatic-selection preference is inert there. -->
     <string name="setup_playback_setup_title">How should Nuvio choose?</string>
-    <string name="setup_playback_setup_subtitle_streamlined">You pick a quality; these decide which release Nuvio picks inside it.</string>
-    <string name="setup_playback_setup_subtitle_instant">Nuvio picks the quality from your connection. These are your limits on what it may pick.</string>
-    <string name="setup_playback_setup_body_streamlined">You will see a short list of qualities each time. Nuvio then chooses the best release in the one you pick.</string>
-    <string name="setup_playback_setup_body_instant">Nuvio measures your connection and starts playing without asking. A ceiling keeps it from choosing something bigger than you want.</string>
-    <string name="setup_playback_setup_more">Codec, audio and torrent preferences are in Settings → Playback.</string>
+    <string name="setup_playback_setup_subtitle_streamlined">These decide which release Nuvio plays.</string>
+    <string name="setup_playback_setup_subtitle_instant">Limits on what Nuvio picks for you.</string>
+    <string name="setup_playback_setup_more">Codec, audio and torrent options are in Settings → Playback.</string>
 
     <!-- Language. The one playback question every mode is asked: it feeds the automatic source
          picker and the player's own track selection, and Classic has the second one. -->
@@ -2711,16 +2698,13 @@
 
     <string name="setup_sources_title">Sources</string>
     <string name="setup_sources_subtitle">Where Nuvio Z finds streams and subtitles.</string>
-    <string name="setup_sources_question">Use the recommended Nuvio Z source setup?</string>
     <string name="setup_sources_question_body">Nuvio Z's automatic source selection, failover, language preferences, and other playback features are designed around a compatible source plugin.</string>
     <string name="setup_sources_question_own">You can use your own plugin, but some features may not work as expected.</string>
     <string name="setup_sources_use_recommended">Use recommended setup</string>
     <string name="setup_sources_set_up_manually">Set up manually</string>
-    <string name="setup_sources_existing_title">Sources are already configured</string>
-    <string name="setup_sources_existing_body">%1$s is installed. Keep it, switch to the recommended setup, or manage your addons yourself.</string>
-    <string name="setup_sources_keep">Keep current sources</string>
+    <string name="setup_sources_existing_title">Your sources are already configured</string>
+    <string name="setup_sources_existing_body">Using %1$s. Keep it, or add Nuvio Z's recommended source for the best automatic picks.</string>
     <string name="setup_sources_use_recommended_instead">Use recommended setup instead</string>
-    <string name="setup_sources_manage_manually">Manage manually</string>
     <string name="setup_sources_recommended">RECOMMENDED</string>
     <string name="setup_sources_recommended_title">AIOStreams with TorBox</string>
     <string name="setup_sources_recommended_body">Nuvio Z creates and installs the source configuration for you. Your TorBox key is sent to AIOStreams once to set it up and is never stored by Nuvio Z.</string>
@@ -2752,8 +2736,7 @@
     <string name="setup_sources_url_placeholder">Addon manifest URL</string>
     <string name="setup_sources_install">Add source</string>
     <string name="setup_sources_configured">Sources configured: %1$s</string>
-    <string name="setup_sources_skip_hint">Not ready yet? Choose Do it later. You can add sources any time in Settings.</string>
-    <string name="setup_sources_do_it_later">Do it later</string>
+    <string name="setup_sources_skip_hint">You can add or change sources any time in Settings → Addons.</string>
     <string name="setup_sources_debrid_hint">Using a debrid service? Add it later in Settings → Integrations → Debrid.</string>
 
     <string name="setup_done_title">You're all set</string>
@@ -3038,15 +3021,15 @@
     <string name="download_mode_subtitle">Separate from playback. You can change it any time in Settings → Downloads.</string>
     <string name="download_mode_upgrade_subtitle">New: downloads have their own mode now. Choose how they pick a source.</string>
     <string name="download_mode_automatic">Automatic</string>
-    <string name="download_mode_automatic_tagline">Nuvio picks the file under your rules and only asks when a rule can’t be met.</string>
+    <string name="download_mode_automatic_tagline">Nuvio chooses everything</string>
     <string name="download_mode_assisted">Assisted</string>
-    <string name="download_mode_assisted_tagline">You choose the resolution for each download; Nuvio picks the best file at it.</string>
+    <string name="download_mode_assisted_tagline">You choose the quality</string>
     <string name="download_mode_manual">Manual</string>
-    <string name="download_mode_manual_tagline">You pick every source from the list. Downloading never opens the player.</string>
+    <string name="download_mode_manual_tagline">You choose the exact file</string>
     <string name="download_mode_recommended">Recommended</string>
     <string name="download_setup_title">Download preferences</string>
-    <string name="download_setup_subtitle_automatic">The rules Automatic downloads by. Settings → Downloads has the rest.</string>
-    <string name="download_setup_subtitle_assisted">Assisted shows each resolution’s best file within this size.</string>
+    <string name="download_setup_subtitle_automatic">How Nuvio picks what to download. More options are in Settings → Downloads.</string>
+    <string name="download_setup_subtitle_assisted">The largest file Nuvio may pick. You still choose the quality each time.</string>
     <string name="download_setup_subtitle_device">About this device only. Other devices keep their own answer.</string>
     <string name="download_pref_resolution">Resolution</string>
     <string name="download_pref_size_level">File size</string>
@@ -3061,7 +3044,6 @@
     <string name="download_size_large">Large</string>
     <string name="download_size_huge">Huge</string>
     <string name="download_size_any">Any size</string>
-    <string name="download_size_level_detail">At %1$s: about %2$s GB for a 20-minute episode, %3$s GB for an hour-long one, %4$s GB for a 2-hour film</string>
     <string name="download_size_at_resolution">%1$s · %2$s GB/h</string>
     <string name="download_size_no_limit">No limit</string>
     <string name="download_size_level_option">%1$s · %2$s</string>
@@ -3101,7 +3083,7 @@
     <string name="download_choice_ready_body">Choose download quality</string>
     <string name="download_choice_ready_action">Choose</string>
     <!-- Phase 9: Assisted "Choose now" (a quality before discovery finishes, from estimates). -->
-    <string name="download_flow_choose_now">Choose now</string>
+    <string name="download_flow_choose_now">Choose now with size estimates</string>
     <string name="download_flow_change_quality">Change quality</string>
     <string name="download_flow_early_chosen">%1$s chosen · downloads start when sources are found</string>
     <string name="download_flow_estimate_note">Estimated size · Exact size available after source discovery</string>
@@ -3118,4 +3100,56 @@
     <string name="download_choice_season_label">%1$s S%2$d</string>
     <string name="download_choice_remove_title">Remove %1$s?</string>
     <string name="download_choice_remove_body">Nothing has been downloaded yet. The sources found so far are discarded.</string>
+    <!-- Phase 9: wizard UX polish (2026-09-27) - shared choice controls, plain-language copy. -->
+    <string name="download_mode_automatic_detail">It only asks when something needs your attention.</string>
+    <string name="download_mode_assisted_detail">Nuvio chooses the best matching file.</string>
+    <string name="download_mode_manual_detail">Nothing is selected automatically.</string>
+    <string name="download_size_small_tagline">Saves storage</string>
+    <string name="download_size_medium_tagline">Streaming quality</string>
+    <string name="download_size_large_tagline">Higher-quality encodes</string>
+    <string name="download_size_huge_tagline">Very high quality</string>
+    <string name="download_size_any_tagline">Best file available</string>
+    <string name="download_size_per_hour">%1$s GB/h</string>
+    <string name="download_size_per_hour_note">GB/h is the size of one hour of video.</string>
+    <string name="playback_mode_classic_detail">Every source is listed. You pick one.</string>
+    <string name="playback_mode_streamlined_detail">Nuvio picks the best release at that quality.</string>
+    <string name="playback_mode_instant_detail">Nuvio matches quality to your connection.</string>
+    <string name="setup_playback_language_title">Your language</string>
+    <string name="setup_playback_hdr_title">HDR</string>
+    <string name="setup_playback_hdr_strict">Strict</string>
+    <string name="playback_quality_limit_auto">Automatic</string>
+    <string name="playback_quality_limit_auto_short">Auto</string>
+    <string name="playback_quality_limit_saver">Data saver</string>
+    <string name="playback_quality_limit_balanced">Balanced</string>
+    <string name="playback_quality_limit_high">High</string>
+    <string name="playback_quality_limit_very_high">Very high</string>
+    <string name="playback_quality_limit_mbps">%1$d Mb/s</string>
+    <string name="playback_quality_limit_named">%1$s · up to %2$d Mb/s</string>
+    <string name="playback_quality_limit_auto_instant_detail">No cap: Nuvio matches your connection.</string>
+    <string name="playback_quality_limit_auto_streamlined_detail">No cap: every quality stays available.</string>
+    <string name="playback_quality_limit_saver_detail">Good 1080p that goes easy on data.</string>
+    <string name="playback_quality_limit_balanced_detail">High-quality 1080p and most 4K streams.</string>
+    <string name="playback_quality_limit_high_detail">High-quality 4K streams.</string>
+    <string name="playback_quality_limit_very_high_detail">Everything except most disc copies (remux).</string>
+    <string name="playback_language_off_short">Any</string>
+    <string name="playback_language_prefer_short">Prefer</string>
+    <string name="playback_language_require_short">Require</string>
+    <string name="playback_language_off_detail">Language doesn't affect which release plays.</string>
+    <string name="playback_language_prefer_detail">Releases in your language come first.</string>
+    <string name="playback_language_require_detail">Releases without your audio or subtitles are used only if nothing else works.</string>
+    <string name="playback_hdr_any_detail">Prefers HDR for 4K, no preference below that.</string>
+    <string name="playback_hdr_avoid_detail">For screens that don't support HDR.</string>
+    <string name="playback_hdr_prefer_detail">For HDR TVs and displays.</string>
+    <string name="playback_hdr_require_detail">Releases without HDR are used only if nothing else works.</string>
+    <string name="playback_hdr_require_dv_detail">Releases without Dolby Vision are used only if nothing else works.</string>
+    <string name="setup_skip">Skip for now</string>
+    <string name="setup_sources_none_title">Set up sources</string>
+    <string name="setup_sources_recommended_active_title">Recommended setup is already active</string>
+    <string name="setup_sources_recommended_active_body">%1$s is installed and ready. There is nothing else to set up here.</string>
+    <string name="setup_sources_switch_note">Your current addons stay installed.</string>
+    <string name="setup_sources_add_manually">Add a source manually</string>
+    <string name="setup_sources_attention_title">Your sources need attention</string>
+    <string name="setup_sources_attention_body">Nuvio Z couldn't load your sources, or they are turned off. Set up the recommended source, or add one yourself.</string>
+    <string name="download_size_level_summary">%1$s · %2$s GB/h at %3$s</string>
+    <string name="setup_sources_checking">Checking your sources…</string>
 </resources>

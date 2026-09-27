@@ -727,4 +727,73 @@ class SetupWizardStepsTest {
             )
         )
     }
+
+    // --- the Sources step's starting state ---------------------------------------------------
+
+    private val recommendedNames = setOf("AIOStreams Z", "Nuvio Z Recommended")
+
+    private fun addon(
+        name: String?,
+        enabled: Boolean = true,
+        loaded: Boolean = true,
+        streams: Boolean = true,
+        refreshing: Boolean = false,
+        failed: Boolean = false,
+    ) = SetupSourceAddonFacts(name, enabled, loaded, streams, refreshing, failed)
+
+    @Test
+    fun theRecommendedSetupIsRecognisedEvenBesideOtherAddons() {
+        assertEquals(
+            SetupSourcesStatus.Recommended,
+            setupSourcesStatus(listOf(addon("Torrentio"), addon("Nuvio Z Recommended")), recommendedNames),
+        )
+        assertEquals(SetupSourcesStatus.Recommended, setupSourcesStatus(listOf(addon("AIOStreams Z")), recommendedNames))
+    }
+
+    @Test
+    fun aDisabledOrBrokenRecommendedAddonIsNotActive() {
+        assertEquals(
+            SetupSourcesStatus.NeedsAttention,
+            setupSourcesStatus(listOf(addon("Nuvio Z Recommended", enabled = false)), recommendedNames),
+        )
+        assertEquals(
+            SetupSourcesStatus.Custom,
+            setupSourcesStatus(listOf(addon("Nuvio Z Recommended", enabled = false), addon("Torrentio")), recommendedNames),
+        )
+    }
+
+    @Test
+    fun aWorkingCustomSourceIsCustom() {
+        assertEquals(SetupSourcesStatus.Custom, setupSourcesStatus(listOf(addon("Torrentio")), recommendedNames))
+    }
+
+    @Test
+    fun catalogOnlyAddonsAreNoSourcesAtAll() {
+        assertEquals(SetupSourcesStatus.None, setupSourcesStatus(emptyList(), recommendedNames))
+        assertEquals(SetupSourcesStatus.None, setupSourcesStatus(listOf(addon("Cinemeta", streams = false)), recommendedNames))
+    }
+
+    @Test
+    fun aSourceThatFailedToLoadNeedsAttention() {
+        assertEquals(
+            SetupSourcesStatus.NeedsAttention,
+            setupSourcesStatus(listOf(addon(null, loaded = false, streams = false, failed = true)), recommendedNames),
+        )
+    }
+
+    @Test
+    fun aLoadingSourceIsCheckedBeforeAnyVerdict() {
+        assertEquals(
+            SetupSourcesStatus.Checking,
+            setupSourcesStatus(listOf(addon(null, loaded = false, streams = false, refreshing = true)), recommendedNames),
+        )
+        // Something usable already answered: no need to wait for the rest.
+        assertEquals(
+            SetupSourcesStatus.Custom,
+            setupSourcesStatus(
+                listOf(addon("Torrentio"), addon(null, loaded = false, streams = false, refreshing = true)),
+                recommendedNames,
+            ),
+        )
+    }
 }

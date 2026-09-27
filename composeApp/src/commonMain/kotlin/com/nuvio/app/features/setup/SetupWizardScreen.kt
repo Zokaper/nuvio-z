@@ -26,12 +26,14 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -58,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -69,6 +72,8 @@ import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioSegment
+import com.nuvio.app.core.ui.NuvioSegmentedChoice
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.ThemeColors
 import com.nuvio.app.features.membership.MemberAccessRepository
@@ -100,18 +105,22 @@ import com.nuvio.app.features.downloads.downloadFallbackLabel
 import com.nuvio.app.features.downloads.downloadMobileDataLabel
 import com.nuvio.app.features.downloads.downloadModeName
 import com.nuvio.app.features.downloads.downloadResolutionLabel
-import com.nuvio.app.features.downloads.downloadSizeLevelDetail
-import com.nuvio.app.features.downloads.downloadSizeLevelFigures
-import com.nuvio.app.features.downloads.downloadSizeLevelLabel
+import com.nuvio.app.features.downloads.DownloadSizeLevelList
 import com.nuvio.app.features.downloads.forDownloads
 import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.playback.PlaybackModeCard
 import com.nuvio.app.features.playback.playbackModeName
-import com.nuvio.app.features.settings.PLAYBACK_QUALITY_CEILING_STEPS
+import com.nuvio.app.features.playback.PlaybackHdrEverydayChoices
+import com.nuvio.app.features.playback.PlaybackHdrStrictChoices
+import com.nuvio.app.features.playback.PlaybackQualityLimitOrder
+import com.nuvio.app.features.playback.playbackDynamicRangeDetail
+import com.nuvio.app.features.playback.playbackLanguageStrictnessDetail
+import com.nuvio.app.features.playback.playbackLanguageStrictnessShort
+import com.nuvio.app.features.playback.playbackQualityLimitDetail
+import com.nuvio.app.features.playback.playbackQualityLimitShortName
+import com.nuvio.app.features.playback.playbackQualityLimitRate
 import com.nuvio.app.features.settings.playbackDynamicRangeLabel
-import com.nuvio.app.features.settings.playbackLanguageStrictnessLabel
-import com.nuvio.app.features.settings.playbackQualityCeilingLabel
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.social.SocialIdentityBody
 import com.nuvio.app.features.social.SocialRepository
@@ -287,7 +296,14 @@ fun SetupWizardScreen(
     // A gating upgrade or device run can be put off: its close control is "Not now", and that
     // records the revision like finishing does, so it is not asked again.
     val skippable = !dismissible && run != SetupWizardRun.Full
-    val existingStreamAddonName = addons.addons.firstEnabledStreamAddonName()
+    val sourcesStatus = addons.addons.setupSourcesStatus()
+    // The name the Sources step shows: the recommended source itself when that is what is active,
+    // otherwise the first working stream addon.
+    val existingStreamAddonName = if (sourcesStatus == SetupSourcesStatus.Recommended) {
+        addons.addons.recommendedSourceName()
+    } else {
+        null
+    } ?: addons.addons.firstEnabledStreamAddonName()
 
     // ⚠ **A step can leave the plan while the user is standing on it, and there are two ways.**
     // Going back and choosing Classic drops PlaybackSetup; turning social off drops SocialIdentity.
@@ -411,7 +427,7 @@ fun SetupWizardScreen(
         }
     }
 
-    val advanceState = setupAdvanceFor(step, sources)
+    val advanceState = setupAdvanceFor(step, sources, sourcesStatus)
 
     /** Back from a Sources setup path returns to its question, not to the previous step. */
     fun back() {
@@ -582,6 +598,7 @@ fun SetupWizardScreen(
                     },
                     sources = sources,
                     existingSourceName = existingStreamAddonName,
+                    sourcesStatus = sourcesStatus,
                     sourcesActions = sourcesActions,
                     downloadMode = effectiveDownloadMode,
                     downloadPolicy = downloadPolicy,
@@ -678,6 +695,7 @@ fun SetupWizardScreen(
                     },
                     sources = sources,
                     existingSourceName = existingStreamAddonName,
+                    sourcesStatus = sourcesStatus,
                     sourcesActions = sourcesActions,
                     downloadMode = effectiveDownloadMode,
                     downloadPolicy = downloadPolicy,
@@ -969,9 +987,11 @@ private val SetupStep.specimen: SetupSpecimen
  * separation from the band above comes from the hairline and from the band's own darker
  * gradient floor, **not** from stacking two surfaces. A card-on-surface here would be invisible,
  * which is the trap the quality sheet already hit.
+ *
+ * `internal` so `SetupWizardRenderHarness` can draw phone steps in the real stacked frame.
  */
 @Composable
-private fun SetupPanel(
+internal fun SetupPanel(
     step: SetupStep,
     plan: SetupWizardPlan,
     playbackMode: PlaybackMode,
@@ -1141,19 +1161,34 @@ internal fun SetupBackButton(
     }
 }
 
-/** Whether the footer offers Next on the current screen. */
-enum class SetupAdvance { Shown, Disabled, Hidden }
+/**
+ * What the footer's forward action is on the current screen: Next (or Finish), greyed Next, a quiet
+ * "Skip for now", or nothing.
+ */
+enum class SetupAdvance { Shown, Disabled, Skip, Hidden }
 
 /**
- * The footer's Next for a step. Only Sources restricts it: people press Next without reading, so the
- * source question has no Next at all (its own buttons, including "Do it later", are the only ways on),
- * and a setup path keeps Next greyed until a source is actually installed. Leaving a path without
- * one is Back, which returns to the question.
+ * The footer's forward action for a step. Only Sources varies it, and the footer is always where
+ * "go on" lives - never a button in the body (wizard polish: "Keep current sources" and "Do it
+ * later" used to be the only ways forward, as content buttons, and nobody could tell which one
+ * meant continue):
+ *
+ * - sources that work (recommended or the user's own): **Next** - keeping them is going on;
+ * - nothing working yet (none, broken, still checking): **Skip for now** - a quiet text button, so
+ *   the body's "Use recommended setup" stays the obvious thing to press; people press a big Next
+ *   without reading, which is why the question never had one;
+ * - a setup path (recommended form, manual URL): Next greyed until a source is installed. Leaving a
+ *   path without one is Back, which returns to the question.
  */
-internal fun setupAdvanceFor(step: SetupStep, sources: SetupSourcesState): SetupAdvance = when {
+internal fun setupAdvanceFor(
+    step: SetupStep,
+    sources: SetupSourcesState,
+    status: SetupSourcesStatus = SetupSourcesStatus.None,
+): SetupAdvance = when {
     step != SetupStep.Sources || sources.configuredName != null -> SetupAdvance.Shown
-    sources.mode == SetupSourcesMode.Choice -> SetupAdvance.Hidden
-    else -> SetupAdvance.Disabled
+    sources.mode != SetupSourcesMode.Choice -> SetupAdvance.Disabled
+    status == SetupSourcesStatus.Recommended || status == SetupSourcesStatus.Custom -> SetupAdvance.Shown
+    else -> SetupAdvance.Skip
 }
 
 /** Next, or Finish on the last step the plan will show. */
@@ -1165,6 +1200,12 @@ internal fun SetupAdvanceButton(
     advance: SetupAdvance = SetupAdvance.Shown,
 ) {
     if (advance == SetupAdvance.Hidden) return
+    if (advance == SetupAdvance.Skip) {
+        TextButton(onClick = onAdvance) {
+            Text(text = stringResource(Res.string.setup_skip))
+        }
+        return
+    }
     Button(onClick = onAdvance, enabled = advance == SetupAdvance.Shown) {
         Text(
             text = stringResource(
@@ -1216,6 +1257,7 @@ internal fun SetupStepBody(
     sources: SetupSourcesState,
     existingSourceName: String?,
     sourcesActions: SetupSourcesActions,
+    sourcesStatus: SetupSourcesStatus = if (existingSourceName != null) SetupSourcesStatus.Custom else SetupSourcesStatus.None,
     downloadMode: DownloadMode = DownloadMode.MANUAL,
     downloadPolicy: DownloadPolicy = DownloadPolicy(),
     mobileDataRule: DownloadMobileDataRule = DownloadMobileDataRule.WIFI_ONLY,
@@ -1256,7 +1298,7 @@ internal fun SetupStepBody(
                             enabled = mode.isSelectable,
                         )
                     }
-                    SetupParagraph(stringResource(Res.string.playback_mode_escape_hatch))
+                    SetupFootnote(stringResource(Res.string.playback_mode_escape_hatch))
                 }
 
                 SetupStep.PlaybackSetup -> SetupPlaybackSetupBody(
@@ -1293,6 +1335,7 @@ internal fun SetupStepBody(
                 SetupStep.Sources -> SetupSourcesBody(
                     state = sources,
                     existingSourceName = existingSourceName,
+                    status = sourcesStatus,
                     actions = sourcesActions,
                 )
 
@@ -1344,25 +1387,28 @@ internal fun SetupStepBody(
                 }
 
                 SetupStep.Look -> {
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_cards_shape),
-                        options = listOf(
-                            stringResource(Res.string.setup_cards_shape_poster) to false,
-                            stringResource(Res.string.setup_cards_shape_landscape) to true,
-                        ),
-                        selected = landscapeCards,
-                        onSelected = PosterCardStyleRepository::setCatalogLandscapeModeEnabled,
-                    )
-                    SetupChoiceGroup(
-                        title = stringResource(Res.string.setup_cards_size),
-                        options = listOf(
-                            stringResource(Res.string.settings_poster_width_dense) to 112,
-                            stringResource(Res.string.settings_poster_width_balanced) to 126,
-                            stringResource(Res.string.settings_poster_width_large) to 140,
-                        ),
-                        selected = posterWidthDp,
-                        onSelected = PosterCardStyleRepository::setWidthDp,
-                    )
+                    SetupQuestion(title = stringResource(Res.string.setup_cards_shape)) {
+                        NuvioSegmentedChoice(
+                            segments = listOf(
+                                NuvioSegment(stringResource(Res.string.setup_cards_shape_poster), false),
+                                NuvioSegment(stringResource(Res.string.setup_cards_shape_landscape), true),
+                            ),
+                            selected = landscapeCards,
+                            onSelected = PosterCardStyleRepository::setCatalogLandscapeModeEnabled,
+                        )
+                    }
+                    SetupQuestion(title = stringResource(Res.string.setup_cards_size)) {
+                        NuvioSegmentedChoice(
+                            segments = listOf(
+                                NuvioSegment(stringResource(Res.string.settings_poster_width_dense), 112),
+                                NuvioSegment(stringResource(Res.string.settings_poster_width_balanced), 126),
+                                NuvioSegment(stringResource(Res.string.settings_poster_width_large), 140),
+                            ),
+                            // A width set elsewhere need not be one of the three; snap like the ceiling does.
+                            selected = listOf(112, 126, 140).minByOrNull { abs(it - posterWidthDp) },
+                            onSelected = PosterCardStyleRepository::setWidthDp,
+                        )
+                    }
                     // ⚠ Corners and card titles used to be asked here and are now Settings-only.
                     // Naming where they went is the difference between condensing the step and
                     // appearing to have dropped the features.
@@ -1574,42 +1620,56 @@ private fun SetupPlaybackSetupBody(
     qualityCeilingMbps: Int,
 ) {
     if (variant == PlaybackSetupVariant.None) return
+    val instant = variant == PlaybackSetupVariant.AutomaticBand
 
-    SetupParagraph(
-        stringResource(
-            when (variant) {
-                PlaybackSetupVariant.AutomaticBand -> Res.string.setup_playback_setup_body_instant
-                else -> Res.string.setup_playback_setup_body_streamlined
-            },
-        ),
-    )
-
-    // ⚠ The ceiling leads, and in Instant that ordering is the whole point: the user never sees a
+    // ⚠ The limit leads, and in Instant that ordering is the whole point: the user never sees a
     // quality list there, so this is the only lever they have over what gets chosen for them.
-    SetupChoiceGroup(
+    // A stored ceiling need not be one of the five steps: it can arrive from a build with a
+    // different ladder, or from the quality sheet's cycling row. Snap to the nearest rather than
+    // drawing a row with nothing selected.
+    val ceiling = PlaybackQualityLimitOrder.minByOrNull { step -> abs(step - qualityCeilingMbps) } ?: 0
+    SetupQuestion(
         title = stringResource(Res.string.settings_playback_quality_ceiling),
-        options = PLAYBACK_QUALITY_CEILING_STEPS.map { playbackQualityCeilingLabel(it) to it },
-        // A stored ceiling need not be one of the five steps: it can arrive from a build with a
-        // different ladder, or from the quality sheet cycling row. Snap to the nearest rather
-        // than drawing a group with nothing selected.
-        selected = PLAYBACK_QUALITY_CEILING_STEPS.minByOrNull { step ->
-            abs(step - qualityCeilingMbps)
-        } ?: 0,
-        onSelected = PlayerSettingsRepository::setPlaybackQualityCeilingMbps,
-    )
-    SetupChoiceGroup(
-        title = stringResource(Res.string.settings_playback_language_strictness),
-        options = LanguageStrictness.entries.map { playbackLanguageStrictnessLabel(it) to it },
-        selected = languageStrictness,
-        onSelected = PlayerSettingsRepository::setPlaybackLanguageStrictness,
-    )
-    SetupChoiceGroup(
-        title = stringResource(Res.string.settings_playback_dynamic_range),
-        options = DynamicRangePolicy.entries.map { playbackDynamicRangeLabel(it) to it },
-        selected = dynamicRangePolicy,
-        onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
-    )
-    SetupParagraph(stringResource(Res.string.setup_playback_setup_more))
+        detail = playbackQualityLimitDetail(ceiling, instant),
+    ) {
+        NuvioSegmentedChoice(
+            segments = PlaybackQualityLimitOrder.map { mbps ->
+                NuvioSegment(playbackQualityLimitShortName(mbps), mbps, playbackQualityLimitRate(mbps))
+            },
+            selected = ceiling,
+            onSelected = PlayerSettingsRepository::setPlaybackQualityCeilingMbps,
+            compact = true,
+        )
+    }
+    SetupQuestion(
+        title = stringResource(Res.string.setup_playback_language_title),
+        detail = playbackLanguageStrictnessDetail(languageStrictness),
+    ) {
+        NuvioSegmentedChoice(
+            segments = LanguageStrictness.entries.map { NuvioSegment(playbackLanguageStrictnessShort(it), it) },
+            selected = languageStrictness,
+            onSelected = PlayerSettingsRepository::setPlaybackLanguageStrictness,
+        )
+    }
+    SetupQuestion(
+        title = stringResource(Res.string.setup_playback_hdr_title),
+        detail = playbackDynamicRangeDetail(dynamicRangePolicy),
+    ) {
+        // The everyday three in the row; the two strict rules below it, quieter, because they
+        // only make sense for someone who knows their display and wants nothing else.
+        NuvioSegmentedChoice(
+            segments = PlaybackHdrEverydayChoices.map { NuvioSegment(playbackDynamicRangeLabel(it), it) },
+            selected = dynamicRangePolicy.takeIf { it in PlaybackHdrEverydayChoices },
+            onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
+        )
+        SetupSecondaryChoices(
+            label = stringResource(Res.string.setup_playback_hdr_strict),
+            options = PlaybackHdrStrictChoices.map { playbackDynamicRangeLabel(it) to it },
+            selected = dynamicRangePolicy,
+            onSelected = PlayerSettingsRepository::setPlaybackDynamicRangePolicy,
+        )
+    }
+    SetupFootnote(stringResource(Res.string.setup_playback_setup_more))
 }
 
 /**
@@ -1631,41 +1691,47 @@ private fun SetupDownloadSetupBody(
 ) {
     if (variant == DownloadSetupVariant.None) return
     if (variant == DownloadSetupVariant.Automatic) {
-        SetupChoiceGroup(
-            title = stringResource(Res.string.download_pref_resolution),
-            options = DownloadResolutionPreference.entries.map { downloadResolutionLabel(it) to it },
-            selected = policy.preferredResolution,
-            onSelected = { value -> DownloadPolicyRepository.update { it.copy(preferredResolution = value) } },
-        )
+        SetupQuestion(title = stringResource(Res.string.download_pref_resolution)) {
+            NuvioSegmentedChoice(
+                // Best first: the order people read a quality ladder in.
+                segments = DownloadResolutionPreference.entries.reversed().map { NuvioSegment(downloadResolutionLabel(it), it) },
+                selected = policy.preferredResolution,
+                onSelected = { value -> DownloadPolicyRepository.update { it.copy(preferredResolution = value) } },
+            )
+        }
     }
     if (variant == DownloadSetupVariant.Automatic || variant == DownloadSetupVariant.Assisted) {
-        SetupChoiceGroup(
+        // Every level on its own row with its GB/h at 1080p and 4K, so none has to be tapped to be
+        // understood - the pill grid and its one changing caption made each level a guess.
+        SetupQuestion(
             title = stringResource(Res.string.download_pref_size_level),
-            options = DownloadSizeLevel.entries.map { downloadSizeLevelLabel(it) to it },
-            selected = policy.sizeLevel,
-            onSelected = { value -> DownloadPolicyRepository.update { it.copy(sizeLevel = value) } },
-            // Every level shows its number, so none has to be tapped to be read.
-            sublabels = DownloadSizeLevel.entries.associateWith { downloadSizeLevelFigures(it).joinToString("\n") },
-        )
-        SetupParagraph(downloadSizeLevelDetail(policy.sizeLevel, policy.preferredResolution))
+            detail = stringResource(Res.string.download_size_per_hour_note),
+        ) {
+            DownloadSizeLevelList(
+                selected = policy.sizeLevel,
+                onSelected = { value -> DownloadPolicyRepository.update { it.copy(sizeLevel = value) } },
+            )
+        }
     }
     if (variant == DownloadSetupVariant.Automatic) {
-        SetupChoiceGroup(
-            title = stringResource(Res.string.download_pref_fallback),
-            options = DownloadResolutionFallback.entries.map { downloadFallbackLabel(it) to it },
-            selected = policy.resolutionFallback,
-            onSelected = { value -> DownloadPolicyRepository.update { it.copy(resolutionFallback = value) } },
-        )
+        SetupQuestion(title = stringResource(Res.string.download_pref_fallback)) {
+            NuvioSegmentedChoice(
+                segments = DownloadResolutionFallback.entries.map { NuvioSegment(downloadFallbackLabel(it), it) },
+                selected = policy.resolutionFallback,
+                onSelected = { value -> DownloadPolicyRepository.update { it.copy(resolutionFallback = value) } },
+            )
+        }
     }
     if (askMobileData || variant == DownloadSetupVariant.DeviceOnly) {
-        SetupChoiceGroup(
+        SetupQuestion(
             title = stringResource(Res.string.download_pref_mobile_data),
-            options = DownloadMobileDataRule.entries.map { downloadMobileDataLabel(it) to it },
-            selected = mobileDataRule,
-            onSelected = { value -> DownloadsRepository.updateDeviceSettings { it.copy(mobileData = value) } },
-        )
-        if (showNotificationNote) {
-            SetupParagraph(stringResource(Res.string.download_setup_notifications))
+            detail = if (showNotificationNote) stringResource(Res.string.download_setup_notifications) else null,
+        ) {
+            NuvioSegmentedChoice(
+                segments = DownloadMobileDataRule.entries.map { NuvioSegment(downloadMobileDataLabel(it), it) },
+                selected = mobileDataRule,
+                onSelected = { value -> DownloadsRepository.updateDeviceSettings { it.copy(mobileData = value) } },
+            )
         }
     }
 }
@@ -1741,22 +1807,26 @@ internal fun SetupParagraph(text: String) {
     )
 }
 
-/**
- * A labelled row of mutually exclusive chips.
- *
- * Not `NuvioSurfaceCard`-based: that takes its colour from `colors.surface`, which is exactly
- * what the panel is painted with, so a card here would be invisible - the trap the quality
- * sheet hit. These use an `overlayHover` lift instead, which is what that sheet settled on.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** A pointer elsewhere ("more in Settings"): quieter than a paragraph, so it never reads as a question. */
 @Composable
-private fun <T> SetupChoiceGroup(
+internal fun SetupFootnote(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.nuvio.colors.textMuted,
+    )
+}
+
+/**
+ * One question on a step: a short heading, the control, and one line under it saying what the
+ * current answer does. Every question on every step has this shape, so a step reads as a short list
+ * of questions rather than a settings dump.
+ */
+@Composable
+internal fun SetupQuestion(
     title: String,
-    options: List<Pair<String, T>>,
-    selected: T,
-    onSelected: (T) -> Unit,
-    /** A second, quieter line inside the chip - a size level's GB/h. Absent for most groups. */
-    sublabels: Map<T, String> = emptyMap(),
+    detail: String? = null,
+    control: @Composable () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1766,70 +1836,61 @@ private fun <T> SetupChoiceGroup(
             color = tokens.colors.textPrimary,
             fontWeight = FontWeight.SemiBold,
         )
-        // ⚠ **A wrapping flow of content-width chips, not a row of equal-weight ones, and the
-        // render harness is what settled it.** Equal weights plus `maxLines = 1` are fine for two
-        // or three short words and silently destroy anything longer: revision 7's playback step
-        // drew "Only play what I can watch" as "Only play what I", and rendered *Prefer SDR*,
-        // *Prefer HDR*, *Require HDR* and *Require Dolby Vision* as "Prefer", "Prefer", "Require"
-        // and "Require" - four chips, two visible labels, and no way to tell them apart.
-        //
-        // Sizing to the label instead means the option decides the chip rather than the chip
-        // truncating the option, and a group that does not fit wraps onto a second line instead
-        // of squeezing. That is also what lets the same component carry a two-option group and a
-        // five-option one without either being tuned by hand.
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            options.forEach { (label, value) ->
-                val isSelected = value == selected
-                val sublabel = sublabels[value]
-                if (sublabel != null) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(if (isSelected) tokens.colors.accent else tokens.colors.overlayHover)
-                            .clickable { onSelected(value) }
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isSelected) tokens.colors.onAccent else tokens.colors.textPrimary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = sublabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) tokens.colors.onAccent.copy(alpha = 0.85f) else tokens.colors.textMuted,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                        )
-                    }
-                    return@forEach
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isSelected) tokens.colors.onAccent else tokens.colors.textSecondary,
-                    // ⚠ `textAlign` is load-bearing. Without it the label sits hard left inside
-                    // its pill, which shipped in every build from revision 2 to revision 3
-                    // before anyone named it. Still true now that the pill hugs the label: a
-                    // chip that wraps to two lines centres them.
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (isSelected) tokens.colors.accent else tokens.colors.overlayHover)
-                        .clickable { onSelected(value) }
-                        .padding(horizontal = 16.dp, vertical = 11.dp),
-                )
-            }
+        control()
+        if (detail != null) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textSecondary,
+            )
+        }
+    }
+}
+
+/**
+ * Advanced alternatives to a [NuvioSegmentedChoice], kept visibly secondary: a muted label and small
+ * outlined pills. The row above is how you leave one.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun <T> SetupSecondaryChoices(
+    label: String,
+    options: List<Pair<String, T>>,
+    selected: T,
+    onSelected: (T) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = tokens.colors.textMuted,
+        )
+        options.forEach { (text, value) ->
+            val isSelected = value == selected
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) tokens.colors.onAccent else tokens.colors.textSecondary,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .then(
+                        if (isSelected) {
+                            Modifier.background(tokens.colors.accent)
+                        } else {
+                            Modifier.border(1.dp, tokens.colors.borderSubtle, RoundedCornerShape(999.dp))
+                        },
+                    )
+                    .selectable(selected = isSelected, role = Role.RadioButton) { onSelected(value) }
+                    .heightIn(min = 32.dp)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
         }
     }
 }
