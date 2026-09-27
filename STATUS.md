@@ -891,6 +891,54 @@ since calibration - fixed to read the table (desktop `1ae657e9a`), 19/19. New `T
 1280 only without the hero fix (mutation-checked). iOS build (dispatched, build-only) **passed** on `05db2bd7c`, run
 `36327862396`. **No debug build cut** (per brief). Renders for review: `Nuvio Z/render-review/phase-9-wizard-polish/`.
 
+### Phase 9 - responsive wizard band; debug 61 / desktop 70 for physical QA (2026-09-27)
+
+Maintainer decision on the polish pass's open question: on a phone the priority is **controls > the pinned footer >
+the illustration**, so the band gives way when the panel would scroll - adaptively, not a one-off for 360x780.
+
+- **How** (desktop `f59ef67d7`, mobile `c15249216`, byte-identical): `SetupPanel` measures what it needs
+  (`SetupPanelFit`: panel chrome + the body's natural height inside the scroll). The stacked band's target is
+  `setupStackedBandHeightDp` (pure, `SetupWizardSteps.kt`): the specimen's preferred height capped at half the window as
+  before, shrinking toward `SetupSpecimen.minimumHeight` only by the panel's overflow. Neither input moves with the band,
+  so it settles in one step (no oscillation). Only **Diagram** gives way (150 -> min **80 dp**); its drawing is scaled as a
+  whole through the existing density override (`setupDiagramScale`, floor 0.6) rather than clipped. Cards / Theme /
+  Home / Details keep minimum = preferred. The desktop two-pane layout is untouched. Pure tests +6.
+- **The harness now uses the production rule** (desktop `818c967b2`): `renderPhoneFrame` measures with `SetupPanelFit`,
+  renders two frames, prints `band Xdp, panel overflow Ydp` per frame and fails a frame that scrolls while the band is
+  above its minimum.
+- **Measured result (harness insets: 40 dp status bar, 24 dp gesture bar):**
+
+  | step | 360x780 | 393x852 | 412x915 |
+  | --- | --- | --- | --- |
+  | Download preferences (phone: + Mobile data + notification note) | band 80, **still scrolls 68 dp** (was 138) | band **84, fits** (was 66 dp over, cut mid Mobile-data control) | 150, fits (unchanged) |
+  | Playback setup (Streamlined) | band 80, **still scrolls 60 dp** (was 130) | 150, fits (unchanged) | 150, fits |
+  | Playback setup (Instant, Require HDR) | band 80, still scrolls 78 dp | 150, fits | 150, fits |
+  | Playback Mode | band **103, fits** (used to scroll) | 150 | 150 |
+  | Language | band 146, fits | 150 | 150 |
+
+  ⚠ **Two corrections to the polish pass's note.** (1) 360x780 was not "about one row" over: Download preferences was
+  ~138 dp over and Playback setup ~130 dp, so no sensible band size makes them fit - reaching zero would mean removing
+  the illustration, which the brief ruled out. They now scroll by 60-70 dp with the band at its 80 dp minimum. (2) "393x852 fits" was
+  wrong for the **phone** Download preferences step (the Mobile-data question sat under the fold,
+  `render-review/phase-9-wizard-polish/wizard-phone/phone-step-downloadsetup-393x852.png`); it now fits. Real iPhones
+  have larger insets (59/34 pt) than the harness, so on an iPhone 15/16 that step likely still scrolls ~25 dp (band at its minimum).
+  Automatic-mode Download preferences scrolls at every phone size (247 dp at 360) - it asks more; unchanged in kind.
+- Renders (read): `Nuvio Z/render-review/phase-9-wizard-responsive-band/` (after) and `.../before/` (the polish pass).
+
+**Verification:** pure setup group **115/115** (+6); Android host setup + gate + changelog **112/112** (results deleted,
+`--rerun`) + `:androidApp:compileFullDebugKotlin` pass; desktop `features.setup.*` + `AppGate*` **153/153** (JBR SDK,
+`--rerun`) including the harness. Full suites not re-run (setup-only change; the polish pass's full runs stand).
+
+**Published for physical QA** (debug only - no stable, no TestFlight):
+- mobile **debug 61** `debug-v0.4.13-z1.61` - Debug release run ``36330862477``, commit `5b252a474`: published - `androidApp-full-debug.apk`, `Nuvio-Z-iOS-0.4.13-z1-61-debug-unsigned.ipa`, `SHA256SUMS-Debug.txt`, prerelease; SideStore feed `source-debug.json` on `main` updated (`a2998577f`, version 0.4.13-z1.61 / build 61).
+- desktop **debug 70** `debug-v0.1.23-alpha-z6.70` - Desktop debug release run ``36330864845``, commit `fb5d1c7e9`:
+  published - `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.70.msi` and `Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.70.dmg`, prerelease.
+
+Both carry everything on `claude/phase-9-downloads`: the wizard polish, the responsive band, title-level Download,
+the calibrated size table, the Downloads UI/navigation, and on iOS the final `.57` transfer model with window 30 + notice.
+Changelog debug lines 61 / 70 added (the mobile file also gained desktop 68's line, so the two files are identical again).
+**None of this is physically verified.**
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
