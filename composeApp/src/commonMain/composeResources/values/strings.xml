@@ -3109,7 +3109,7 @@
     <string name="download_size_large_tagline">Higher-quality encodes</string>
     <string name="download_size_huge_tagline">Very high quality</string>
     <string name="download_size_any_tagline">Best file available</string>
-    <string name="download_size_per_hour">%1$s GB/h</string>
+    <string name="download_size_per_hour">%1$s GB/h</string>
     <string name="download_size_per_hour_note">GB/h is the size of one hour of video.</string>
     <string name="playback_mode_classic_detail">Every source is listed. You pick one.</string>
     <string name="playback_mode_streamlined_detail">Nuvio picks the best release at that quality.</string>
@@ -3150,6 +3150,6 @@
     <string name="setup_sources_add_manually">Add a source manually</string>
     <string name="setup_sources_attention_title">Your sources need attention</string>
     <string name="setup_sources_attention_body">Nuvio Z couldn't load your sources, or they are turned off. Set up the recommended source, or add one yourself.</string>
-    <string name="download_size_level_summary">%1$s · %2$s GB/h at %3$s</string>
+    <string name="download_size_level_summary">%1$s · %2$s GB/h at %3$s</string>
     <string name="setup_sources_checking">Checking your sources…</string>
 </resources>
