@@ -1,14 +1,96 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-27
+Last updated: 2026-09-28
 
-## Phase 9 — Downloads Redesign: IN PROGRESS (opened 2026-09-24)
+## Phase 9 — Downloads Redesign: FEATURE-FROZEN, CLOSEOUT VERIFIED - release gate pending (opened 2026-09-24)
 
 **Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
 the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `NuvioZDesktop`
 `claude/phase-9-downloads`. Shared commits reach desktop by **cherry-pick** of the mobile commit
 (a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
 diff), plus desktop-only actuals.
+
+### Phase 9 closeout verification (2026-09-27)
+
+**Feature-frozen.** From here on, only regressions, release blockers, correctness bugs and doc
+corrections change code. The gate table is in `ROADMAP.md` Phase 9 §L, "Closeout state".
+
+**Repo state checked first.** Both `claude/phase-9-downloads` branches were clean and level with
+`origin` (mobile `6de571d28`, desktop `c55486a6e`). They are not merged to trunk, and neither merge
+conflicts: mobile `main` is ahead only by 15 `source-debug.json` feed commits, and desktop `Dev`
+(`ca11c0cb7`) is an ancestor of the branch.
+
+**Published QA builds, checked on GitHub:** mobile `debug-v0.4.13-z1.63` is a prerelease on tag
+commit `7aeddc1a7` (run `36348950109` success), with the APK, the unsigned IPA, SHA256SUMS and
+`source-debug.json`. Desktop `debug-v0.1.23-alpha-z6.72` is a prerelease on `c55486a6e` (run
+`36348951840` success), with the MSI and the arm64 DMG. Stable lines are untouched: mobile's last is
+`0.5.0-beta+126`, desktop's `0.1.23-alpha-z6+131`.
+
+**Release identity, as the next stable would take it:** mobile `Version.xcconfig` reads
+`0.4.13-z1`, build `125`, and `ReleaseSerial.xcconfig` reads `127`. ⚠ `CURRENT_PROJECT_VERSION` is
+still **125, the same as `0.5.0-beta`**, so the release bump must raise it (Android `versionCode` /
+iOS `CFBundleVersion`). The serial is already 127, the next free one. Desktop reads
+`0.1.23-alpha-z6` / serial 131; its release bump goes to `0.1.23-alpha-z7` / **132**, which the
+changelog already carries. Both bumps are release steps and were not made here.
+
+**Physical evidence reported by the maintainer at closeout** (recorded in Z-FEATURES D16-D24 and
+ROADMAP §L):
+- **iOS, final 30-window model:** Modern Family S2 + S3, about 42 episodes, queued, phone
+  locked. On return **every episode had completed**, and the files were checked valid. This is the
+  strongest evidence yet for the system-owned model. It does **not** prove a queue beyond 30,
+  force-quit mid-queue, or the `.48` checklist as a formal pass.
+- **Android:** Automatic / Assisted / Manual flows, background discovery and the ready
+  notification, atomic Pause all, Resume, partials surviving retries, a stable season denominator
+  (the notification too), mobile data vs Wi-Fi, deleting active work and discovery, the
+  dead-connection fix, logical FIFO without idle slots, later items running during an earlier
+  item's backoff.
+- **Desktop:** downloaded content plays offline, autoplay reaches the next episode, the wide
+  title-level Download works, and the current UI was approved. **The 60-second redirect fix has not
+  been re-run on desktop 72.** The desktop debug log on this PC
+  (`nuvio-debug-20260927-223322-p51872-1fb8.log`) is the pre-fix diagnosis run: it started at 22:33
+  local, before 72 was published at 23:54. A **desktop 72 run** since then
+  (`nuvio-debug-20260928-002707-p29536-13a8.log`, Java 17.0.20.1) downloaded Modern Family S6: 24
+  episodes, **24 completions, 0 failures, 0 retries**. The longest transfer was only 30 s, though (fast
+  link), and the cut only ever hit transfers past 60 s. So this run is clean, but it **does not
+  confirm the fix**. That needs one transfer running longer than 60 s.
+
+**Doc/changelog corrections made at closeout (no behaviour change):**
+- `Docs/Z-FEATURES.md` **revision 14**: the owed Phase 9 rows (D17-D24, W11, C21). D16 is moved to
+  the final iOS model and its 42-episode evidence. D1/D3/D4 (presets) are superseded and moved to
+  §11, and the D6 note on the desktop sidebar is settled.
+- `changelog.json` (both repos, identical): the unreleased stable entries described Phase 9 as it
+  stood before the last three passes. Now: Assisted described as "you choose the quality"; the
+  size levels named; **Your downloads as a library** and **Seasons find their sources in the
+  background** (mobile 127 and desktop 132); **Long queues keep going on a locked iPhone** (mobile,
+  iOS); **Downloads no longer restart every minute** (desktop 132). That last one is user-facing:
+  stable `z6` still sets `HttpRequest.timeout(60 s)`, so shipped desktop users hit the redirect cut.
+  `check-changelog.py` passes for mobile 127 (24 entries) and desktop 132 (11).
+- `IosBackgroundTransferReconciler.SUBMISSION_WINDOW`: the comment now says outright that lowering
+  the window cannot limit concurrency, why 10a/10b were rejected, and the 42-episode evidence.
+  Comment only.
+- `ROADMAP.md`: "Guided" -> "Assisted", the Phase 9 heading state, and the §L closeout table.
+
+**Verification (closeout HEAD, results deleted first):**
+- Android host `:composeApp:testAndroidHostTest` **2,592 / 2,592** (`--rerun`) +
+  `:androidApp:compileFullDebugKotlin` pass.
+- Desktop `desktopTest`: **2,770 / 2,770** on desktop `f982d176b` (the closeout commit), in two runs: everything except the
+  download E2E class, 2,725 / 2,725 in 19 m 40 s (`-I` a session-only init script excluding the class), then
+  `DesktopDownloadQueueE2ETest` alone, 45 / 45 in 9 m 2 s. Results were deleted before each run, with `--rerun`.
+  ⚠ **Run as one task, the suite now exceeds `desktopTest`'s fixed 20-minute `timeout` on this machine.**
+  It hit the cap twice at about 20 m 30 s, still making progress, with no hang. It needs a split run or a
+  higher cap (non-blocking release-engineering debt).
+- CI on the branch heads: mobile `CI` and `iOS build` green on `7aeddc1a7` (the IPA of debug 63 is
+  the iOS compile check for the last code change). **Desktop `CI` is red on every push since
+  2026-09-03, `Dev` included**: its `Desktop tests` job dies in the vendored native
+  `frame_copy_test` (`buildNativeLinux`) on Linux before `desktopTest` runs, and its Windows MSI job
+  passes. This is pre-existing (recorded at the Phase 6 closeout), is not run by the release
+  workflow, and is non-blocking debt. The local `desktopTest` stands in for it.
+
+**Still open before stable (outside Phase 9's code):** no Apple Developer account and no
+TestFlight, so by policy there is no mobile stable (Android may not ship alone). Also open:
+`NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch Together
+hardware pass, and the Phase 6 Android Watch Together debt. For desktop stable: a device re-run of
+the 60-second fix on 72, then the trunk merge, the version bump and a `dry-run`.
 
 **What the maintainer reported at the opening (the standing question):**
 - iOS `.48`: checklist not formally run; "Choose source manually" downloads; downloads functional.
@@ -509,7 +591,7 @@ desktop `desktopTest` **2,723/2,723** (results deleted, `--rerun`, JBR SDK).
 iOS compile check for Choose now) and desktop **debug 67** (run `36212103659`). Both carry everything above.
 **Nothing in this section is physically verified.**
 
-**Owed:** Phase 9 has no rows in `Docs/Z-FEATURES.md` yet (stages 6-9 and this) - due before the release gate.
+**Owed:** ~~Phase 9 has no rows in `Docs/Z-FEATURES.md` yet~~ - done at closeout (revision 14).
 
 **Next:** physical QA of debug 56 / desktop 67 - **iPhone first**: choosing a profile reaches the wizard's download steps
 (or the mobile-data question) and then Home; then the iOS baseline owed since `.54` (Assisted background discovery, ready
