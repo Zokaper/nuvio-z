@@ -888,7 +888,8 @@ Pure suites: groups 1 and 3-8 **691/691** (setup group 109, +6). ⚠ **Group 2 d
 pre-existing, it stops the script before group 3; not fixed here. Desktop `desktopTest` **2,753 run, 2,751 pass, 1
 skipped**; the one failure was `AssistedChoiceFlowTest.chooseNowShowsEstimates...` asserting the provisional 1-2 GB/h band
 since calibration - fixed to read the table (desktop `1ae657e9a`), 19/19. New `TitleDownloadActionBreakpointTest` fails at
-1280 only without the hero fix (mutation-checked). iOS: see below. **No debug build cut** (per brief).
+1280 only without the hero fix (mutation-checked). iOS build (dispatched, build-only) **passed** on `05db2bd7c`, run
+`36327862396`. **No debug build cut** (per brief). Renders for review: `Nuvio Z/render-review/phase-9-wizard-polish/`.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
