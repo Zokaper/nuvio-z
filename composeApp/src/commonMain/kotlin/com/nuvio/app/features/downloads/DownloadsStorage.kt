@@ -19,4 +19,11 @@ internal expect object DownloadsStorage {
      * with nothing. Read once, when there is no device payload yet, and never deleted.
      */
     fun loadLegacyProfilePayloads(): Map<Int, String>
+
+    /**
+     * The downloaded titles' metadata snapshots ([DownloadTitleMetadataStore]). Its own key, so
+     * the engine's payload - rewritten every second while bytes arrive - does not carry it.
+     */
+    fun loadTitleMetadata(): String?
+    fun saveTitleMetadata(payload: String)
 }

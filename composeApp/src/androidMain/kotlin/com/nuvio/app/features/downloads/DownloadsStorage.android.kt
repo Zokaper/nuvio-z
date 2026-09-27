@@ -7,6 +7,7 @@ internal actual object DownloadsStorage {
     private const val preferencesName = "nuvio_downloads"
     private const val payloadKey = "downloads_payload"
     private const val corruptPayloadKey = "downloads_payload_corrupt"
+    private const val titleMetadataKey = "downloads_title_metadata"
 
     private var preferences: SharedPreferences? = null
 
@@ -33,4 +34,14 @@ internal actual object DownloadsStorage {
 
     // The payload here was always device-wide; there is nothing per-profile to merge.
     actual fun loadLegacyProfilePayloads(): Map<Int, String> = emptyMap()
+
+    actual fun loadTitleMetadata(): String? =
+        preferences?.getString(titleMetadataKey, null)
+
+    actual fun saveTitleMetadata(payload: String) {
+        preferences
+            ?.edit()
+            ?.putString(titleMetadataKey, payload)
+            ?.apply()
+    }
 }
