@@ -210,6 +210,8 @@ fun DesktopDetailHero(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onWatchTogetherClick: (() -> Unit)? = null,
+    /** The title-level Download (Nuvio Z), first in the row as in the stacked layout. See `TitleDownloadAction.kt`. */
+    titleDownloadAction: DetailSecondaryAction? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val space = NuvioTokens.Space
@@ -306,7 +308,7 @@ fun DesktopDetailHero(
             DetailActionButtons(
                 modifier = Modifier.widthIn(max = 520.dp),
                 playLabel = playButtonLabel,
-                secondaryActions = listOf(
+                secondaryActions = listOfNotNull(titleDownloadAction) + listOf(
                     DetailSecondaryAction(
                         label = if (isWatched) {
                             stringResource(Res.string.hero_mark_unwatched)

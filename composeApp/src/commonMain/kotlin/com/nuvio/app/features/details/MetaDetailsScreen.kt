@@ -94,6 +94,8 @@ import com.nuvio.app.core.ui.rememberHeroStretchState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.nuvio.app.features.details.components.DetailActionButtons
+import com.nuvio.app.features.details.components.isSeriesLikeTitle
+import com.nuvio.app.features.details.components.titleDownloadSecondaryAction
 import com.nuvio.app.features.details.components.DetailSecondaryAction
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
@@ -2248,39 +2250,15 @@ private fun ConfiguredMetaSections(
                 DetailActionButtons(
                     playLabel = playButtonLabel,
                     secondaryActions = buildList {
-                        add(run {
-                            val isSeriesLike = meta.type.lowercase() in setOf("series", "show", "tv", "tvshow") ||
-                                hasEpisodes
-                            val movieDownload = if (isSeriesLike) {
-                                ContentDownloadState.None
-                            } else {
-                                titleDownloadState.forMovie()
-                            }
-                            DetailSecondaryAction(
-                                label = when {
-                                    isSeriesLike -> stringResource(Res.string.download_preset_seasons)
-                                    movieDownload.presence == DownloadPresence.Completed ->
-                                        stringResource(Res.string.downloads_cd_state_downloaded)
-                                    movieDownload.presence.isActive ->
-                                        stringResource(Res.string.downloads_cd_state_downloading)
-                                    else -> stringResource(Res.string.download_preset_title)
-                                },
-                                icon = if (movieDownload.presence == DownloadPresence.Completed) {
-                                    Icons.Default.DownloadDone
-                                } else {
-                                    Icons.Default.Download
-                                },
-                                isActive = if (isSeriesLike) {
-                                    titleDownloadState.completedCount > 0
-                                } else {
-                                    movieDownload.presence.isEngaged
-                                },
-                                onClick = movieDownload.item
-                                    ?.takeIf { !isSeriesLike }
-                                    ?.let { item -> { onDownloadedItemManage(item) } }
-                                    ?: onDownloadClick,
-                            )
-                        })
+                        // The same entry the wide desktop hero shows (`TitleDownloadAction.kt`).
+                        add(
+                            titleDownloadSecondaryAction(
+                                isSeriesLike = isSeriesLikeTitle(meta.type, hasEpisodes),
+                                titleDownloadState = titleDownloadState,
+                                onDownloadClick = onDownloadClick,
+                                onDownloadedItemManage = onDownloadedItemManage,
+                            ),
+                        )
                         add(DetailSecondaryAction(
                             label = if (isWatched) {
                                 stringResource(Res.string.hero_mark_unwatched)
