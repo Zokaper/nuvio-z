@@ -134,6 +134,8 @@ internal fun LazyListScope.downloadLibrarySection(
     onOpenShow: (DownloadLibraryTitle) -> Unit,
     onPlay: (DownloadItem) -> Unit,
     onDelete: (DownloadLibraryTitle) -> Unit,
+    /** Width over height. 16:9 in a grid or a phone column; a shorter banner beside the queue. */
+    cardAspect: Float = 16f / 9f,
 ) {
     titles.chunked(columns.coerceAtLeast(1)).forEach { row ->
         item(key = "library-${row.first().parentMetaId}") {
@@ -149,6 +151,7 @@ internal fun LazyListScope.downloadLibrarySection(
                         },
                         onPlay = { onPlay(nextUp?.item ?: title.representative) },
                         onDelete = { onDelete(title) },
+                        aspect = cardAspect,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -167,12 +170,13 @@ internal fun DownloadLibraryCard(
     onPlay: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    aspect: Float = 16f / 9f,
 ) {
     val tokens = MaterialTheme.nuvio
     val shape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
-            .aspectRatio(16f / 9f)
+            .aspectRatio(aspect)
             .clip(shape)
             .background(tokens.colors.surfaceElevated)
             .clickable(onClick = onOpen),
@@ -594,6 +598,8 @@ private fun ShowHero(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(contentWidth, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // The first thing read on the page: this is the copy on the device, not the title page.
+                DownloadedBadge()
                 TitleLogo(
                     logo = first.logo ?: metadata?.logo,
                     title = first.title,
@@ -603,21 +609,14 @@ private fun ShowHero(
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
                 ShowFactsLine(metadata)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Rounded.DownloadDone, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(16.dp))
-                    Text(
-                        text = listOfNotNull(
-                            if (seasonCount > 1) pluralStringResource(Res.plurals.download_flow_seasons_selected_seasons, seasonCount, seasonCount) else null,
-                            pluralStringResource(Res.plurals.download_library_episodes, completed.size, completed.size),
-                            stringResource(Res.string.download_library_on_device, formatDownloadBytes(completed.sumOf { it.totalBytes ?: it.downloadedBytes })),
-                            if (unfinishedCount > 0) pluralStringResource(Res.plurals.download_library_more_coming, unfinishedCount, unfinishedCount) else null,
-                        ).joinToString(" · "),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = tokens.colors.textMuted,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                OnDeviceSummary(
+                    seasonCount = seasonCount,
+                    episodeCount = completed.size,
+                    bytes = completed.sumOf { it.totalBytes ?: it.downloadedBytes },
+                    unfinishedCount = unfinishedCount,
+                    wide = wide,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
                 metadata?.description?.let { description ->
                     Text(
                         text = description,
@@ -655,6 +654,85 @@ private fun ShowHero(
                 if (nextUp?.kind == DownloadNextUpKind.RESUME) {
                     ResumeLine(nextUp, wide)
                 }
+            }
+        }
+    }
+}
+
+/** "✓ Downloaded", over the logo: a show's page here is its local copy, and says so first. */
+@Composable
+private fun DownloadedBadge() {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(tokens.colors.accent.copy(alpha = 0.16f))
+            .padding(start = 8.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(Icons.Rounded.DownloadDone, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(16.dp))
+        Text(
+            text = stringResource(Res.string.download_library_badge),
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.accent,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/**
+ * "On this device / 2 seasons · 46 episodes · 32.6 GB": what is stored here, as a block of its own
+ * rather than a muted line under the facts, so the page reads as local content at a glance.
+ */
+@Composable
+private fun OnDeviceSummary(
+    seasonCount: Int,
+    episodeCount: Int,
+    bytes: Long,
+    unfinishedCount: Int,
+    wide: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = modifier
+            .let { if (wide) it.widthIn(min = 320.dp) else it.fillMaxWidth() }
+            .clip(RoundedCornerShape(14.dp))
+            .background(tokens.colors.surfaceElevated.copy(alpha = 0.78f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(tokens.colors.accent.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.DownloadDone, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(22.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = stringResource(Res.string.downloads_section_on_device),
+                style = MaterialTheme.typography.titleSmall,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = listOfNotNull(
+                    if (seasonCount > 1) pluralStringResource(Res.plurals.download_flow_seasons_selected_seasons, seasonCount, seasonCount) else null,
+                    pluralStringResource(Res.plurals.download_library_episodes, episodeCount, episodeCount),
+                    formatDownloadBytes(bytes),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.textSecondary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (unfinishedCount > 0) {
+                Text(
+                    text = pluralStringResource(Res.plurals.download_library_more_coming, unfinishedCount, unfinishedCount),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = tokens.colors.textMuted,
+                )
             }
         }
     }

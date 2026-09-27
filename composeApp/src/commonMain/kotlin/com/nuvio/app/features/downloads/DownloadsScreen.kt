@@ -99,6 +99,10 @@ fun DownloadsScreen(
         }
         DownloadQueueGrouping.group(unfinished, uiState.items, batches, nowEpochMs)
     }
+    // Anything under way, waiting or needing the user. Without it, a wide desktop window gives the
+    // whole width to the library instead of splitting it with an empty activity pane.
+    val hasActivity = attention.isNotEmpty() || queue.isNotEmpty() ||
+        batches.any { it.showsAsChoiceRow || it.isPreparing }
     val storage = remember(deviceItems) {
         DownloadStorageSummary.of(deviceItems, DownloadsPlatformDownloader.freeStorageBytes())
     }
@@ -205,9 +209,20 @@ fun DownloadsScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // One column is capped at DownloadsContentMaxWidth; two cards to a row once it is wide
-        // enough for two backdrops to keep their logos legible.
-        val libraryColumns = if (minOf(maxWidth - 32.dp, DownloadsContentMaxWidth) >= 600.dp) 2 else 1
+        // Desktop's own Downloads destination, in a window wide enough: two panes while something is
+        // under way, otherwise one wide column whose main content is the library grid.
+        val wideDesktop = isDesktop && topSwitcher == null && downloadsUsesWideLayout(maxWidth)
+        val libraryFirst = wideDesktop && !hasActivity
+        val contentMaxWidth = if (libraryFirst) DownloadsLibraryMaxWidth else DownloadsContentMaxWidth
+        // One column is capped at contentMaxWidth; as many cards to a row as keep a backdrop's logo
+        // legible (two on a phone-sized column that fits them, up to four on a wide window).
+        val libraryColumns = if (libraryFirst) {
+            downloadsLibraryColumns(minOf(maxWidth - DownloadsWideGutter * 2, DownloadsLibraryMaxWidth))
+        } else if (minOf(maxWidth - 32.dp, DownloadsContentMaxWidth) >= 600.dp) {
+            2
+        } else {
+            1
+        }
         val rootContent: LazyListScope.(DownloadsPart) -> Unit = { part ->
             downloadsRootContent(
                 uiState = uiState,
@@ -226,6 +241,7 @@ fun DownloadsScreen(
                 metadata = metadata,
                 watch = watch,
                 libraryColumns = libraryColumns,
+                contentMaxWidth = contentMaxWidth,
                 onAttentionAction = { card, action ->
                     when (action) {
                         AttentionAction.REMOVE -> pendingRemoval = card
@@ -272,16 +288,15 @@ fun DownloadsScreen(
                 onDeleteEpisode = { downloadPendingDeletionId = it.id },
                 listState = listState,
             )
-        } else if (isDesktop && topSwitcher == null && downloadsUsesWideLayout(maxWidth)) {
-            // Desktop's own Downloads destination, in a window wide enough: two panes. A phone and a
-            // narrow window keep the one column.
+        } else if (wideDesktop && hasActivity) {
             DownloadsWideLayout(header = header, content = rootContent, mainListState = listState)
         } else {
             NuvioScreen(
                 listState = listState,
                 topPadding = if (topChromePadding != null) 0.dp else null,
+                horizontalPadding = if (libraryFirst) DownloadsWideGutter else MaterialTheme.nuvio.spacing.screenHorizontal,
             ) {
-                stickyHeader { header(Modifier.downloadsContentWidth()) }
+                stickyHeader { header(Modifier.downloadsContentWidth(contentMaxWidth)) }
                 rootContent(DownloadsPart.All)
             }
         }
@@ -457,6 +472,8 @@ internal fun LazyListScope.downloadsRootContent(
     watch: (DownloadItem) -> DownloadWatchState = { DownloadWatchState.Unwatched },
     /** Library cards to a row in one column; the desktop rail is always one. */
     libraryColumns: Int = 1,
+    /** The one column's cap: [DownloadsContentMaxWidth], or wider when the library is the page. */
+    contentMaxWidth: Dp = DownloadsContentMaxWidth,
 ) {
     // Phase 9 stage 7: storage, then what needs the user (one card per title/season and
     // reason), then the queue with a season as one row, then what is on the device.
@@ -469,14 +486,29 @@ internal fun LazyListScope.downloadsRootContent(
     // Every row is capped at DownloadsContentMaxWidth and centred: a desktop window must not
     // stretch a row, and its actions, across the whole screen.
     // In a pane, the pane is the width.
-    val width = if (part == DownloadsPart.All) Modifier.downloadsContentWidth() else Modifier.fillMaxWidth()
-    if (part.showsRail && storage != null && (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty() || choiceBatches.isNotEmpty())) {
-        item(key = "downloads-storage") { DownloadStorageBar(storage, width) }
-    }
+    val width = if (part == DownloadsPart.All) Modifier.downloadsContentWidth(contentMaxWidth) else Modifier.fillMaxWidth()
+    val showsStorage = part.showsRail && storage != null &&
+        (uiState.items.isNotEmpty() || preparingBatches.isNotEmpty() || choiceBatches.isNotEmpty())
+    if (contentMaxWidth > DownloadsContentMaxWidth && (showsStorage || cleanup != null)) {
+        // The library-first desktop column: storage and the cleanup suggestion share one row, so
+        // neither stretches 1,400dp with "Review" a screen away from what it reviews.
+        item(key = "downloads-storage") {
+            Row(width, horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { if (showsStorage && storage != null) DownloadStorageBar(storage) }
+                Box(Modifier.weight(1f)) {
+                    cleanup?.let { DownloadWatchedCleanupCard(it, onReview = onReviewCleanup) }
+                }
+            }
+        }
+    } else {
+        if (showsStorage && storage != null) {
+            item(key = "downloads-storage") { DownloadStorageBar(storage, width) }
+        }
 
-    // A suggestion about storage, so it sits with the storage bar rather than among the problems.
-    if (part.showsRail && cleanup != null) {
-        item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup, modifier = width) }
+        // A suggestion about storage, so it sits with the storage bar rather than among the problems.
+        if (part.showsRail && cleanup != null) {
+            item(key = "downloads-cleanup") { DownloadWatchedCleanupCard(cleanup, onReview = onReviewCleanup, modifier = width) }
+        }
     }
 
     if (part.showsMain && attention.isNotEmpty()) {
@@ -565,6 +597,8 @@ internal fun LazyListScope.downloadsRootContent(
             onOpenShow = { onOpenShow(it.parentMetaId, it.title) },
             onPlay = onOpenDownload,
             onDelete = onRequestTitleDeletion,
+            // Beside the queue the pane is tall and narrow: banners keep a column of titles scannable.
+            cardAspect = if (part == DownloadsPart.Rail) 2.1f else 16f / 9f,
         )
     }
 

@@ -3166,7 +3166,6 @@
     <string name="download_library_play">Play %1$s</string>
     <string name="download_library_minutes_left">%1$d min left</string>
     <string name="download_library_runtime">%1$d min</string>
-    <string name="download_library_on_device">%1$s on this device</string>
     <string name="download_library_watched_count">%1$d watched</string>
     <string name="download_library_episode_title">%1$d. %2$s</string>
     <string name="download_library_episode_number">Episode %1$d</string>
@@ -3177,4 +3176,5 @@
     <string name="download_library_delete_episode">Delete download</string>
     <string name="download_library_delete_watched_title">Delete watched episodes?</string>
     <string name="download_library_delete_watched_body">Remove %1$d watched episodes of %2$s from this device? This frees %3$s.</string>
+    <string name="download_library_badge">Downloaded</string>
 </resources>

@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -45,20 +46,41 @@ enum class DownloadsPart {
 }
 
 /**
- * The desktop Downloads destination's composition (Phase 9, 2026-09-26). The single 880dp column
- * left ~290dp of nothing on each side of a 1920 window, while stretching it would bring back rows
- * whose actions sit a screen-width from their title. Two panes use the width without stretching a
- * row: the main pane stops at [DownloadsWideMainMaxWidth], the rail is [DownloadsWideRailWidth], and
- * the pair centres once the window is wider than both.
+ * The desktop Downloads destination's composition (Phase 9). The single 880dp column left ~290dp of
+ * nothing on each side of a 1920 window, while stretching it would bring back rows whose actions
+ * sit a screen-width from their title.
+ *
+ * - **Something under way** (queue, Needs you, a batch finding sources): two panes. The library
+ *   pane takes a share of the width ([DownloadsWideRailShare], between [DownloadsWideRailMinWidth]
+ *   and [DownloadsWideRailMaxWidth]) rather than a fixed strip, so its backdrop cards read as a
+ *   library; the activity pane keeps the rest up to [DownloadsWideMainMaxWidth].
+ * - **Nothing under way**: no split at all - an empty activity pane beside a squeezed library was
+ *   the awkward part. One column up to [DownloadsLibraryMaxWidth] with the library as a grid
+ *   ([downloadsLibraryColumns]); the screen decides which (`DownloadsScreen`).
  */
 internal val DownloadsWideMinWidth: Dp = 1000.dp
-internal val DownloadsWideMainMaxWidth: Dp = 860.dp
-internal val DownloadsWideRailWidth: Dp = 340.dp
-private val DownloadsWideGutter: Dp = 32.dp
+internal val DownloadsWideMainMaxWidth: Dp = 900.dp
+internal val DownloadsWideRailMinWidth: Dp = 360.dp
+internal val DownloadsWideRailMaxWidth: Dp = 520.dp
+private const val DownloadsWideRailShare = 0.38f
+internal val DownloadsWideGutter: Dp = 32.dp
 private val DownloadsWidePaneGap: Dp = 40.dp
+
+/** The idle desktop column: wide enough for three or four library cards, never edge to edge. */
+internal val DownloadsLibraryMaxWidth: Dp = 1400.dp
+private val LibraryCardMinWidth: Dp = 360.dp
+private val LibraryCardGap: Dp = 12.dp
+
+/** Cards to a row in a column [width] wide: as many as stay at least 360dp, one to four. */
+internal fun downloadsLibraryColumns(width: Dp): Int =
+    ((width + LibraryCardGap) / (LibraryCardMinWidth + LibraryCardGap)).toInt().coerceIn(1, 4)
 
 /** True when [availableWidth] fits both panes; below it the screen is one column. */
 internal fun downloadsUsesWideLayout(availableWidth: Dp): Boolean = availableWidth >= DownloadsWideMinWidth
+
+/** The library pane's width in a window whose content is [innerWidth] wide. */
+internal fun downloadsRailWidth(innerWidth: Dp): Dp =
+    (innerWidth * DownloadsWideRailShare).coerceIn(DownloadsWideRailMinWidth, DownloadsWideRailMaxWidth)
 
 @Composable
 internal fun DownloadsWideLayout(
@@ -69,13 +91,15 @@ internal fun DownloadsWideLayout(
 ) {
     val tokens = MaterialTheme.nuvio
     val railListState = rememberLazyListState()
-    Box(
+    val maxTotal = DownloadsWideMainMaxWidth + DownloadsWidePaneGap + DownloadsWideRailMaxWidth + DownloadsWideGutter * 2
+    BoxWithConstraints(
         modifier = modifier.fillMaxSize().background(tokens.colors.background),
         contentAlignment = Alignment.TopCenter,
     ) {
+        val railWidth = downloadsRailWidth(minOf(maxWidth, maxTotal) - DownloadsWideGutter * 2 - DownloadsWidePaneGap)
         Column(
             modifier = Modifier
-                .widthIn(max = DownloadsWideMainMaxWidth + DownloadsWidePaneGap + DownloadsWideRailWidth + DownloadsWideGutter * 2)
+                .widthIn(max = maxTotal)
                 .fillMaxSize()
                 .padding(horizontal = DownloadsWideGutter),
         ) {
@@ -98,7 +122,7 @@ internal fun DownloadsWideLayout(
                 }
                 LazyColumn(
                     state = railListState,
-                    modifier = Modifier.width(DownloadsWideRailWidth).fillMaxHeight(),
+                    modifier = Modifier.width(railWidth).fillMaxHeight(),
                     contentPadding = PaddingValues(bottom = tokens.spacing.screenBottom),
                     verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
                 ) { content(DownloadsPart.Rail) }
