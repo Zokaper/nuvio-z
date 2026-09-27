@@ -249,6 +249,10 @@
         {
           "build": 62,
           "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
+        },
+        {
+          "build": 63,
+          "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
         }
       ]
     },
@@ -362,6 +366,10 @@
         {
           "build": 71,
           "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
+        },
+        {
+          "build": 72,
+          "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
         }
       ]
     }

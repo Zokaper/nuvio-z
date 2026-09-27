@@ -939,6 +939,50 @@ the calibrated size table, the Downloads UI/navigation, and on iOS the final `.5
 Changelog debug lines 61 / 70 added (the mobile file also gained desktop 68's line, so the two files are identical again).
 **None of this is physically verified.**
 
+### Phase 9 - final library polish + the desktop 60-second retry, diagnosed live (2026-09-27)
+
+The last pass before closeout, on the maintainer's review of debug 62 / desktop 71.
+
+**1. Desktop "Retrying shortly" at ~60 % - an app-side (runtime) defect, fixed.** Diagnosed from the live
+desktop debug log (`nuvio-debug-20260927-223322-p51872-1fb8.log`, Modern Family S1, 158 MB episodes, 2 at once,
+`net=WIFI metered=false` throughout) before any change:
+- **Every attempt longer than 60 s failed at 60.0 s (+-0.05) after its slot**, while `transfer_progress` showed
+  1-2.5 MB/s in the window before; every attempt shorter than 60 s completed. E1/E2 started together and failed
+  together; E5/E6 started 3 s apart and failed 3 s apart - a per-request timer, not a shared network event.
+  Category `Transient`; the one persisted `errorMessage` was `"closed"`. No `http_failed`, no connection or Wi-Fi
+  waits, no stall-watchdog message, one `HttpClient` per attempt (no reused connection).
+- **Resume was correct every time:** retry = `206`, `transfer_open resumed=` exactly the bytes at the failure
+  (e.g. E1 81,059,840 -> resumed 81,059,840), completion = the advertised total. Partial files kept; nothing from zero.
+- **Not the server:** curl on the same live link (one redirect, HTTP/1.1) at 1 MB/s ran 154 s to the full
+  158,275,568 bytes with no cut.
+- **Cause, reproduced:** on the shipped runtime (Temurin **17.0.20.1**) `HttpRequest.timeout` stays armed for the
+  whole body when the request **followed a redirect** - debrid links always do (resolver -> CDN). Local repro, 40 MB
+  at 1 MB/s through one 302 with a 5 s timeout: body dies at 5.0 s with `IOException: closed` (cause
+  `HttpTimeoutException: request timed out`) on 17; completes on JDK 25; completes on 17 without the redirect. Our
+  request timeout was the 60 s stall deadline - hence 60.0 s. The comment in the downloader said the timeout "stops
+  short of the body", which is true only without a redirect.
+- **Fix (desktop `a30843126`):** no `HttpRequest.timeout`; the header deadline (still `stallTimeoutMs`, still ->
+  `NoResponse`) is enforced around `sendAsync(...).get(...)`. Verified on Temurin 17.0.20.1 with the redirect (full
+  40 MB). `DesktopDownloadRequestTest` pins "no timeout on the request" (the test JVM is 25, so an E2E cannot see the
+  defect); `DesktopDownloadQueueE2ETest` **45/45** incl. the never-answering server. Android (OkHttp) and iOS are not
+  affected. Cost before the fix: one reconnect and a "Retrying shortly" per minute of every transfer, the queue
+  opening the next episode meanwhile; the progress-based budget meant it never failed outright.
+
+**2. Local identity on a show's page** (shared, `e91793c04` / mobile `77fee8199`): a **Downloaded** badge over the
+logo, and **On this device / 3 seasons · 58 episodes · 99.3 GB** (+ "2 more on the way") as its own block with an icon
+chip, replacing the muted line. Same page, playback, offline behaviour and season management.
+
+**3. Desktop Downloads composition** (same commit): nothing under way (no queue, Needs you or preparing batch) ->
+**no split**: one column up to 1400 dp, storage and the cleanup suggestion side by side, the library as a grid
+(`downloadsLibraryColumns`, cards >= 360 dp: 3 at 1280 / 1440 / 1920). Something under way -> two panes, the library
+pane **38 % of the width (360-520 dp)** instead of a fixed 340 dp rail, with **2.1:1 banner** cards. Mobile unchanged.
+Renders: `Nuvio Z/render-review/phase-9-downloaded-library/final-pass/` (`library-*` idle, `screen-desktop*` active,
+`show-*`), read at 1280 / 1440 / 1920 and phone.
+
+Verification: desktop `DownloadsScreenRenderHarness` pass; `DesktopDownloadRequestTest` 2/2; download E2E 45/45;
+mobile `DownloadLibraryTest` 9/9 + `:androidApp:compileFullDebugKotlin`. Full suites not re-run.
+Published for the maintainer: mobile **debug 63**, desktop **debug 72** (see below for runs).
+
 ### Phase 9 - downloaded library redesign (2026-09-27)
 
 The maintainer asked for the last pre-Phase-9 surface: "On this device" (a poster + a byte count per title) and a
