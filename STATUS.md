@@ -983,6 +983,12 @@ fixed (tabs 10 dp off the content edge on desktop; phone stills starving the ove
 the renders yet; nothing is physically verified** - in particular that real logos (varied aspect ratios) sit well at
 38 dp on a card and that the metadata fetch fills in on a real library.
 
+**Published for the maintainer to look at on devices** (asked for instead of reading the renders):
+- mobile **debug 62** `debug-v0.4.13-z1.62` - Debug release run `36343623524`, commit `2cf1609bf`: APK + unsigned IPA
+  (the IPA build is the iOS compile check for the new `DownloadsStorage` actual - passed), prerelease.
+- desktop **debug 71** `debug-v0.1.23-alpha-z6.71` - run `36343625718`, commit `66f7a05b1`: MSI + DMG, prerelease.
+Changelog debug lines 62 / 71 added (both `changelog.json` files identical). No feedback yet.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
