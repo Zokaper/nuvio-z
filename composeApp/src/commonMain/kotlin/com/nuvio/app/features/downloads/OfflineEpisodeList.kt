@@ -17,6 +17,8 @@ object OfflineEpisodeList {
         parentMetaId: String,
         currentSeason: Int?,
         currentEpisode: Int?,
+        /** A season's last episode number, from the offline title metadata; see [LocalPlaybackPolicy.offlineEpisodeRun]. */
+        lastEpisodeOf: (season: Int) -> Int? = { null },
     ): List<MetaVideo> {
         val byEpisode = items
             .filter {
@@ -29,6 +31,7 @@ object OfflineEpisodeList {
             downloaded = byEpisode.keys.toList(),
             currentSeason = currentSeason,
             currentEpisode = currentEpisode,
+            lastEpisodeOf = lastEpisodeOf,
         ).mapNotNull { key ->
             val item = byEpisode[key] ?: return@mapNotNull null
             MetaVideo(

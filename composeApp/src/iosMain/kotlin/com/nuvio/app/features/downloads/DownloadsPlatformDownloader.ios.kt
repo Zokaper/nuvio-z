@@ -75,10 +75,14 @@ private const val MOVING_WINDOW_MS = 5_000L
  * many tasks at once in one session.
  *
  * The window is one global queue: films, episodes and several shows share it in queue
- * order. Twelve covers a normal season, or a mixed queue, in one hand-off. The bound is
- * set by source links rather than by transfers: every item in the window mints a debrid
- * link now, and a link minted now is only certain to work if its request starts soon,
- * which the system does not promise for a task far down a long list.
+ * order. Thirty (twelve until 2026-09-26) covers a long season, or a mixed queue, in one
+ * hand-off; about 42 Modern Family episodes finished while locked on it. The bound is set by
+ * source links rather than by transfers: every item in the window mints a debrid link now,
+ * and a link minted now is only certain to work if its request starts soon, which the system
+ * does not promise for a task far down a long list - the last positions of a full window are
+ * the likeliest to start on an expired link, which fails that episode and is retried on the
+ * next open. Do not shrink it to limit concurrency; see
+ * [IosBackgroundTransferReconciler.SUBMISSION_WINDOW].
  */
 private const val IOS_SUBMISSION_WINDOW = IosBackgroundTransferReconciler.SUBMISSION_WINDOW
 
@@ -117,7 +121,7 @@ fun resumeDownloadsForAppForeground() = Unit
 internal fun isDownloadsAppBackgrounded(): Boolean = backgroundDownloadManager.isBackgrounded
 
 internal actual object DownloadsPlatformDownloader {
-    // The background session owns the transfers: the window of 12 is what keeps a queue moving
+    // The background session owns the transfers: the submitted window (30) is what keeps a queue moving
     // while locked (`.46`), a submitted task may wait inside the system as long as it likes, and
     // nothing here resumes a system pause (`.43`). See TransferHost.SystemOwned.
     actual val transferHost: TransferHost = TransferHost.SystemOwned(

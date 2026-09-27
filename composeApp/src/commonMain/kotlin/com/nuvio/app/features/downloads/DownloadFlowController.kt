@@ -648,7 +648,12 @@ object DownloadFlowController {
      * entries become "Needs you" cards (nothing cached / no sources), as Automatic's would.
      */
     internal fun onDiscoveryFinished(batchId: String, refreshed: Boolean) {
-        val batch = DownloadsRepository.batches.value.firstOrNull { it.id == batchId } ?: return
+        // Device-wide, like [batchExists]: a profile switch while sources were being found must not
+        // drop the result (an early "Choose now" quality would never be applied).
+        val batch = DownloadStore.batches.value.firstOrNull { it.id == batchId } ?: return
+        // Another profile's batch is still decided and queued for them, but nothing is announced to
+        // the profile on screen; the owner finds the choice on their Downloads screen.
+        val ownerOnScreen = batch.ownerProfileId == null || batch.ownerProfileId == DownloadStore.activeOwner()
         if (!batch.awaitsQualityChoice) return
         val found = AssistedDiscovery.candidates(batchId) ?: return
         val step = _step.value
@@ -695,7 +700,9 @@ object DownloadFlowController {
                 session = null
                 _step.value = DownloadFlowStep.Idle
             }
-            if (isAppInForeground()) {
+            if (!ownerOnScreen) {
+                DownloadDiagnostics.note("assisted_ready", "batch=${batchId.takeLast(6)} owner_off_screen nothing_to_download")
+            } else if (isAppInForeground()) {
                 notices.needsAttention()
             } else {
                 postChoiceNotification(DownloadChoiceNotice(batchId, title.title, season, ready = false))
@@ -703,11 +710,15 @@ object DownloadFlowController {
             return
         }
 
-        val announcement = AssistedChoiceRules.announcement(
-            sheetShowsBatch = sheetShowsBatch,
-            alreadyAnnounced = batch.choiceAnnouncedAtEpochMs != null,
-            appInForeground = isAppInForeground(),
-        )
+        val announcement = if (!ownerOnScreen) {
+            AssistedChoiceRules.Announcement.NONE
+        } else {
+            AssistedChoiceRules.announcement(
+                sheetShowsBatch = sheetShowsBatch,
+                alreadyAnnounced = batch.choiceAnnouncedAtEpochMs != null,
+                appInForeground = isAppInForeground(),
+            )
+        }
         DownloadDiagnostics.note(
             "assisted_ready",
             "batch=${batchId.takeLast(6)} entries=${targets.size} refreshed=$refreshed announce=$announcement",

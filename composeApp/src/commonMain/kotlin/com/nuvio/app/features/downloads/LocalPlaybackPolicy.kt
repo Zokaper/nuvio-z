@@ -26,6 +26,14 @@ enum class LocalPlaybackDecision {
 }
 
 object LocalPlaybackPolicy {
+    /**
+     * [LocalPlaybackDecision.PlayLocal] was decided, but the file could not be read back a moment
+     * later (deleted by another profile, or not there yet). Offline that is a missing file - never
+     * the network source list, which offline can only fail.
+     */
+    fun whenLocalFileVanished(offline: Boolean): LocalPlaybackDecision =
+        if (offline) LocalPlaybackDecision.ExplainFileMissing else LocalPlaybackDecision.OpenSources
+
     fun decide(
         manualSelection: Boolean,
         hasCompletedDownload: Boolean,
@@ -53,11 +61,16 @@ object LocalPlaybackPolicy {
      * opening, **and stops at a gap** rather than silently skipping an episode the user does not
      * have: everything downloaded before the current episode is kept (the episode panel lists
      * it), but after it only the unbroken run - the next episode, or episode 1 of the next season.
+     *
+     * [lastEpisodeOf] is a season's last episode number when the offline title metadata knows it:
+     * the season boundary is crossed only from that episode, so a season whose last episodes were
+     * never downloaded stops there instead of skipping them. Unknown (null) keeps the older rule.
      */
     fun offlineEpisodeRun(
         downloaded: List<Pair<Int, Int>>,
         currentSeason: Int?,
         currentEpisode: Int?,
+        lastEpisodeOf: (season: Int) -> Int? = { null },
     ): List<Pair<Int, Int>> {
         val ordered = downloaded.distinct().sortedWith(compareBy({ it.first }, { it.second }))
         if (currentSeason == null || currentEpisode == null) return ordered
@@ -74,7 +87,9 @@ object LocalPlaybackPolicy {
                 sameSeason in available -> sameSeason
                 // A season boundary counts as unbroken only when nothing later in this season
                 // was downloaded - otherwise the missing episode is a gap inside the season.
-                nextSeason in available && ordered.none { it.first == cursor.first && it.second > cursor.second } ->
+                nextSeason in available &&
+                    ordered.none { it.first == cursor.first && it.second > cursor.second } &&
+                    lastEpisodeOf(cursor.first).let { last -> last == null || cursor.second >= last } ->
                     nextSeason
                 else -> break
             }

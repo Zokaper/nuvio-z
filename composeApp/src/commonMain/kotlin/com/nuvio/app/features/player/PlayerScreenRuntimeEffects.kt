@@ -50,6 +50,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.features.downloads.DownloadTitleMetadataStore
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.LocalPlaybackPolicy
 import com.nuvio.app.features.downloads.OfflineEpisodeList
@@ -114,11 +115,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         if (playerMetaVideos.isEmpty()) {
             // Offline after a restart there is no episode list to fetch; the downloads stand in
             // for it so the next episode on disk still autoplays (Phase 9).
+            // The snapshot holds every episode of each downloaded season, so it knows where a
+            // season ends - autoplay stops at undownloaded last episodes instead of skipping them.
+            val seasonEpisodes = runCatching {
+                DownloadTitleMetadataStore.ensureLoaded()
+                DownloadTitleMetadataStore.titles.value[parentMetaId]?.episodes.orEmpty()
+            }.getOrDefault(emptyList())
             playerMetaVideos = OfflineEpisodeList.fromDownloads(
                 items = DownloadsRepository.uiState.value.items,
                 parentMetaId = parentMetaId,
                 currentSeason = activeSeasonNumber,
                 currentEpisode = activeEpisodeNumber,
+                lastEpisodeOf = { season -> seasonEpisodes.filter { it.season == season }.maxOfOrNull { it.episode } },
             )
         }
     }

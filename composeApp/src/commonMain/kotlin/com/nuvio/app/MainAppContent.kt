@@ -1253,6 +1253,10 @@ internal fun MainAppContent(
                     navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
                     return
                 }
+                if (LocalPlaybackPolicy.whenLocalFileVanished(offline && !downloadIntent) == LocalPlaybackDecision.ExplainFileMissing) {
+                    NuvioToastController.show(downloadFileMissingText)
+                    return
+                }
             }
 
             val streamLaunchId = StreamLaunchStore.put(

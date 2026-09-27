@@ -288,6 +288,12 @@ object DownloadsRepository {
         sourceUrlResolvedAtEpochMs: Long? = null,
         /** The user already accepted this source's size, so nothing may re-ask. */
         sizeCapOverrideApproved: Boolean = false,
+        /**
+         * Whose download this is. A batch passes its own owner: Automatic and Choose-now queue from
+         * background work minutes later, when another profile may be on screen. Null: the profile
+         * on screen, for a download started right now.
+         */
+        ownerProfileId: Int? = null,
     ): DownloadEnqueueResult {
         ensureLoaded()
         DownloadsLiveStatusPlatform.onDownloadRequested()
@@ -316,10 +322,11 @@ object DownloadsRepository {
         )
 
         val replacedExisting = synchronized(DownloadStore.lock) {
+            val owner = ownerProfileId ?: DownloadStore.activeOwner()
             val currentItems = DownloadStore.allItems.toMutableList()
             // Another profile's copy of the same episode is theirs, not a duplicate of this one.
             val existing = currentItems.firstOrNull {
-                it.logicalContentKey == logicalKey && DownloadStore.isInActiveView(it)
+                it.logicalContentKey == logicalKey && it.ownerProfileId == owner
             }
             if (existing != null) {
                 DownloadScheduler.activeHandles.remove(existing.id)?.cancel()
@@ -346,7 +353,7 @@ object DownloadsRepository {
 
             val item = DownloadItem(
                 id = downloadId,
-                ownerProfileId = DownloadStore.activeOwner(),
+                ownerProfileId = owner,
                 contentType = contentType,
                 parentMetaId = parentMetaId,
                 parentMetaType = parentMetaType,
@@ -939,6 +946,7 @@ object DownloadsRepository {
                 // their URL but are force-refreshed because an origin is present.
                 sourceUrlResolvedAtEpochMs = null,
                 sizeCapOverrideApproved = sizeApproved,
+                ownerProfileId = batch.ownerProfileId,
             )
             if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) {
                 queued += 1

@@ -125,4 +125,26 @@ class LocalPlaybackPolicyTest {
     fun onlineWithAMissingFileFallsBackToStreaming() {
         assertEquals(LocalPlaybackDecision.OpenSources, decide(completed = true, file = false))
     }
+
+    /** Review, closeout: S1 has 13 episodes, E1-E10 and S2E1 downloaded - E11-E13 must not be skipped. */
+    @Test
+    fun aSeasonsUndownloadedLastEpisodesAreAGapWhenTheSeasonLengthIsKnown() {
+        val downloaded = (1..10).map { 1 to it } + (2 to 1)
+        val known = LocalPlaybackPolicy.offlineEpisodeRun(downloaded, 1, 10, lastEpisodeOf = { if (it == 1) 13 else null })
+        assertEquals(listOf(1 to 10), known.filter { it.first > 1 || it.second >= 10 })
+        // From the season's real last episode the boundary is crossed as before.
+        val complete = (1..13).map { 1 to it } + (2 to 1)
+        val crossed = LocalPlaybackPolicy.offlineEpisodeRun(complete, 1, 13, lastEpisodeOf = { if (it == 1) 13 else null })
+        assertEquals(listOf(1 to 13, 2 to 1), crossed.filter { it.first > 1 || it.second >= 13 })
+        // Without the season's length the older rule stands.
+        val unknown = LocalPlaybackPolicy.offlineEpisodeRun(downloaded, 1, 10)
+        assertEquals(listOf(1 to 10, 2 to 1), unknown.filter { it.first > 1 || it.second >= 10 })
+    }
+
+    /** Review, closeout: PlayLocal decided, then the file could not be read back. */
+    @Test
+    fun aLocalFileThatVanishedOfflineIsMissingNeverTheSourceList() {
+        assertEquals(LocalPlaybackDecision.ExplainFileMissing, LocalPlaybackPolicy.whenLocalFileVanished(offline = true))
+        assertEquals(LocalPlaybackDecision.OpenSources, LocalPlaybackPolicy.whenLocalFileVanished(offline = false))
+    }
 }

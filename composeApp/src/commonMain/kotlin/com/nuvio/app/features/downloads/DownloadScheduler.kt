@@ -39,9 +39,17 @@ internal object DownloadScheduler {
     internal val maxConcurrentTransfers: Int
         get() = DownloadsPlatformDownloader.transferHost.slotCount(DownloadStore.deviceSettings.value)
 
-    /** Answered by the platform's own network state. A variable so tests can stand in. */
+    /**
+     * Answered by the platform's own network state. A variable so tests can stand in.
+     *
+     * **Never metered on desktop.** The mobile-data rule is a phone setting - desktop hides it and
+     * the wizard never asks - but Windows reports any connection with a cost setting (a hotspot, a
+     * Wi-Fi or Ethernet profile marked metered) as metered, which under the default Wi-Fi-only rule
+     * held every desktop download at "Waiting for Wi-Fi" with nothing to change.
+     */
     internal var isMeteredNetwork: () -> Boolean = {
-        runCatching { com.nuvio.app.core.network.NetworkQualityPlatform.current().isMetered }.getOrDefault(false)
+        !com.nuvio.app.isDesktop &&
+            runCatching { com.nuvio.app.core.network.NetworkQualityPlatform.current().isMetered }.getOrDefault(false)
     }
 
     /** Drops every transfer and timer; the store is cleared by its own owner. */
