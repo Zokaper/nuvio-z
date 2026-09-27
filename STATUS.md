@@ -939,6 +939,50 @@ the calibrated size table, the Downloads UI/navigation, and on iOS the final `.5
 Changelog debug lines 61 / 70 added (the mobile file also gained desktop 68's line, so the two files are identical again).
 **None of this is physically verified.**
 
+### Phase 9 - downloaded library redesign (2026-09-27)
+
+The maintainer asked for the last pre-Phase-9 surface: "On this device" (a poster + a byte count per title) and a
+show's page (every episode of every season as its own card - a Modern Family season is 24). Priorities given: clean,
+practical for many episodes, and **use the title's metadata**, not just its poster. All platforms (shared commonMain).
+
+- **Library cards** (`DownloadsLibraryUi.kt`): the backdrop with the title's logo (name if none), "3 seasons · 58
+  episodes · 99.3 GB" (films: year · runtime · size), "Resume S3 E7" with the resume bar on the card's edge, a round
+  play button that plays what is next, delete in an overflow. Two to a row once the single column fits two (>= 600 dp);
+  the desktop rail stays one. Most recently finished title first.
+- **A show's page** (`DownloadedShowPage`): hero (backdrop, logo, year / age rating / IMDb / genres, "on this device"
+  line with what is still coming, 3-line synopsis, **Resume S3 E7** / Play + minutes left, delete all), seasons as
+  **tabs, one season at a time**, compact episode rows (still with watched tick or resume bar, "7. Phil on Wire",
+  runtime or "12 min left", size, overview; unfinished episodes show their presenter line and open the detail sheet).
+  Season menu: **Delete watched episodes (N)** (confirms) / Delete this season. "Continue to Season 4" at the end of a
+  season. Two episode rows across from 1000 dp; content capped at 1180 dp. Floating back button that becomes a solid
+  bar with the title once the hero scrolls away (not drawn under iOS native navigation). Deleting the whole title from
+  its page goes back. Mobile's `DownloadShowRoute` and the offline title fallback both land here.
+- **Next up** (`DownloadLibrary.nextUp`, tested): the most recent in-progress download (2-95 %), else the first
+  unwatched after the furthest watched, else the first unwatched, else S1 E1 again. Watched = a watched mark or effectively
+  completed progress, from `WatchProgressRepository` + `WatchedRepository` (the active profile's).
+- **Metadata offline** (`DownloadTitleMetadata` / `DownloadTitleMetadataStore`): per title, synopsis, year, genres (3),
+  IMDb, age rating, runtime, logo/backdrop, and for each **downloaded season** every episode's still, overview, runtime.
+  Its own `DownloadsStorage` key (`downloads_title_metadata`), not the engine payload (rewritten every second while
+  bytes arrive). Filled from `MetaDetailsRepository.peek` or one `fetch(cacheResult = false)` per title while
+  **Online**, one after another, retried once per session; refreshed after 7 days or when a new season appears; pruned
+  when a title has nothing left on the device (any profile). Side benefit: batch downloads never stored an episode
+  still (`episodeThumbnail = null` in `queueBatch`), so their rows get one from here.
+- Retired: `DownloadTitleRow`, `DownloadRow`, the queue `QueueMenu` it carried, `downloadsShowContent`,
+  `DownloadTitleGroup`.
+- Patch surface: `DownloadsStorage` gains two members (every actual: Android, iOS, desktop); strings appended as one Z block.
+
+Commits: mobile `4cd57664e` + `cbf992c63` (render fix); desktop `ee74654b8` + `f9a9c5717` (cherry-picks) +
+`79511b5d3` (desktop storage actual, harness).
+
+**Verification:** `DownloadLibraryTest` **9/9** (Android host); `:androidApp:compileFullDebugKotlin` pass after both commits;
+desktop `DownloadsScreenRenderHarness` passes with the new scenes (compiles the desktop actual). **Not run:** the full host
+suite, full `desktopTest`, iOS compile (the new iOS actual is two `NSUserDefaults` calls; the next Debug release run is
+its compile check). Render review: `Nuvio Z/render-review/phase-9-downloaded-library/` - `library-*` (library alone)
+and `show-*` (window, `-full` whole season, `-season1`) at 360 / 420 / 960 / 1280 / 1440 / 1920. Two defects found and
+fixed (tabs 10 dp off the content edge on desktop; phone stills starving the overview). **The maintainer has not reviewed
+the renders yet; nothing is physically verified** - in particular that real logos (varied aspect ratios) sit well at
+38 dp on a card and that the metadata fetch fills in on a real library.
+
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 
 > ⛔ **No stable mobile release follows Phase 8, and no TestFlight upload.** This is a maintainer
