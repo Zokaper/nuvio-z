@@ -241,6 +241,10 @@
         {
           "build": 60,
           "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K. iPhone hands up to 30 downloads to the system instead of 12, so a long season keeps going while locked; past 30, a note explains that the rest start when Nuvio is next opened."
+        },
+        {
+          "build": 61,
+          "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. On a short phone the picture at the top shrinks so the choices fit. \"Choose now\" now says it uses size estimates."
         }
       ]
     },
@@ -340,8 +344,16 @@
           "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
         },
         {
+          "build": 68,
+          "text": "Downloads is back in the sidebar as its own page, laid out in two panes on wide windows; after Choose now the season stays visible while its sources are checked."
+        },
+        {
           "build": 69,
           "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K."
+        },
+        {
+          "build": 70,
+          "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. A title's Download button is back on wide windows. \"Choose now\" now says it uses size estimates."
         }
       ]
     }
