@@ -21,7 +21,7 @@
             "ios"
           ],
           "title": "Downloads have their own mode",
-          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the resolution for each download, and Manual lets you pick every source yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
+          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the quality and picks the best matching file, and Manual lets you pick the exact file yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
         },
         {
           "category": "feature",
@@ -48,7 +48,25 @@
             "ios"
           ],
           "title": "Download preferences",
-          "body": "Preferred resolution, a file size level, what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+          "body": "Preferred resolution, a file size level (Small, Standard, Large, Huge or Any size, each shown in GB per hour at 1080p and 4K), what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Your downloads as a library",
+          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page - marked Downloaded, with what is on this device, seasons as tabs and every episode ready to play offline."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Seasons find their sources in the background",
+          "body": "In Assisted, a season's sources are found in the background: you can leave, and Downloads shows the progress and says when the season is ready for you to choose a quality. Or choose now, from size estimates."
         },
         {
           "category": "feature",
@@ -76,6 +94,14 @@
           ],
           "title": "One download queue across profiles",
           "body": "Downloads keep going when you switch profile, and each profile still sees only its own."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "ios"
+          ],
+          "title": "Long queues keep going on a locked iPhone",
+          "body": "Nuvio hands up to 30 downloads to iOS while it is open, so a whole season keeps downloading with the screen locked. Queue more than that and Nuvio tells you the rest start when you next open it."
         },
         {
           "category": "improvement",
@@ -268,7 +294,7 @@
             "desktop"
           ],
           "title": "Downloads have their own mode",
-          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the resolution for each download, and Manual lets you pick every source yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
+          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the quality and picks the best matching file, and Manual lets you pick the exact file yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
         },
         {
           "category": "feature",
@@ -292,7 +318,23 @@
             "desktop"
           ],
           "title": "Download preferences",
-          "body": "Preferred resolution, a file size level, what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+          "body": "Preferred resolution, a file size level (Small, Standard, Large, Huge or Any size, each shown in GB per hour at 1080p and 4K), what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Your downloads as a library",
+          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page - marked Downloaded, with what is on this device, seasons as tabs and every episode ready to play offline."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Seasons find their sources in the background",
+          "body": "In Assisted, a season's sources are found in the background: you can leave, and Downloads shows the progress and says when the season is ready for you to choose a quality. Or choose now, from size estimates."
         },
         {
           "category": "improvement",
@@ -324,6 +366,14 @@
             "desktop"
           ],
           "title": "Deleting a download asks first"
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Downloads no longer restart every minute",
+          "body": "A download from a debrid service was cut and resumed about once a minute, showing \"Retrying shortly\" each time. It now runs through."
         }
       ],
       "debug": [

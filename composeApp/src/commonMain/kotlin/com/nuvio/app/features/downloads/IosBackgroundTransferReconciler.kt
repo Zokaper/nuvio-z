@@ -12,6 +12,16 @@ internal object IosBackgroundTransferReconciler {
      * locked, and a 22-episode season stalled at episode 12 until Nuvio was reopened - by then its
      * links were stale and a background-submitted task is discretionary (`.45`). 30 covers a long
      * season; Quinn (DTS): "tens is definitely fine", trouble starts in the low hundreds.
+     * Physically: Modern Family S2 + S3 (~42 episodes) queued on this model all finished while
+     * locked (2026-09-27).
+     *
+     * **Do not lower this to limit concurrency.** It cannot: iOS alone decides how many handed-over
+     * tasks run, and anything not handed over while Nuvio is open waits for the next open. Phase 9
+     * tried the alternatives on a phone and rejected them (`nuvio-z/STATUS.md`, "physical iOS
+     * comparison 57 / 58 / 59"): holding tasks suspended (10a) - iOS ran them anyway and wakes the app
+     * only once the session drains; `HTTPMaximumConnectionsPerHost` (10b) - per CDN host, not global.
+     * That is why iOS has no "Downloads at once" setting. A smaller window only brings back the queue
+     * that stalls under the lock screen.
      */
     const val SUBMISSION_WINDOW: Int = 30
 
