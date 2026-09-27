@@ -341,6 +341,14 @@
           "platforms": [
             "desktop"
           ],
+          "title": "Downloads are sorted into folders",
+          "body": "Each title has its own folder, with one per season, and episodes are named like \"S01E01 - Pilot\". Existing downloads move there the next time Nuvio starts."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
           "title": "Downloads work offline",
           "body": "A downloaded title opens its downloads when you are offline, autoplay moves on to the next downloaded episode, and Home tells you when you are offline."
         },

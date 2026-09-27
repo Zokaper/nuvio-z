@@ -71,6 +71,8 @@ object DownloadsRepository {
         synchronized(DownloadStore.lock) {
             if (DownloadStore.hasLoaded) return
             DownloadStore.loadLocked()
+            // Libraries finished before the organized layout, and any move a crash interrupted.
+            DownloadFileOrganizer.organizeLocked()
             DownloadScheduler.startNetworkObserverLocked()
         }
         DownloadStore.followActiveProfile()

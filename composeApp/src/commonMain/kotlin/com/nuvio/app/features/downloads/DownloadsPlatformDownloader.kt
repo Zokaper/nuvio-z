@@ -60,6 +60,7 @@ internal expect object DownloadsPlatformDownloader {
         listener: DownloadTransferListener,
     ): DownloadsTaskHandle
 
+    /** Deletes a finished file, then any folder of the organized layout it leaves empty. */
     fun removeFile(localFileUri: String?): Boolean
 
     fun removePartialFile(destinationFileName: String): Boolean
@@ -68,6 +69,24 @@ internal expect object DownloadsPlatformDownloader {
     fun partialFileBytes(destinationFileName: String): Long
 
     fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String?
+
+    // --- The organized layout ([DownloadFileOrganizer], Phase 9 closeout) ------------------------
+    // Paths below are '/'-separated and relative to the downloads folder. Every one is checked to
+    // stay inside it: a path with an empty, "." or ".." segment, or one that resolves outside the
+    // folder, is refused.
+
+    /** [localFileUri] relative to the downloads folder, or null when it is not inside it. */
+    fun relativePathOf(localFileUri: String?): String?
+
+    fun existsInDownloads(relativePath: String): Boolean
+
+    fun fileUriFor(relativePath: String): String?
+
+    /**
+     * Renames the finished file at [localFileUri] to [relativePath], creating its folders. Never
+     * overwrites and never copies: false, with nothing moved, when that cannot be done.
+     */
+    fun moveCompletedFile(localFileUri: String, relativePath: String): Boolean
 
     fun openDownloadsDirectory(): Boolean
 

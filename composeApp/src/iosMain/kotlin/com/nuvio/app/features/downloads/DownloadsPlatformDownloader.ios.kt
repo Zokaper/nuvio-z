@@ -132,7 +132,19 @@ internal actual object DownloadsPlatformDownloader {
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
         val path = localFileUri.toLocalPath() ?: return false
-        if (NSFileManager.defaultManager.fileExistsAtPath(path)) return removePathIfExists(path)
+        if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
+            val removed = removePathIfExists(path)
+            removeEmptyLayoutFolders(path)
+            return removed
+        }
+        // The container moved (reinstall, restore): the same file under today's downloads folder.
+        relativeByFolderName(path)?.let { resolveInsideDownloads(it) }
+            ?.takeIf(NSFileManager.defaultManager::fileExistsAtPath)
+            ?.let { moved ->
+                val removed = removePathIfExists(moved)
+                removeEmptyLayoutFolders(moved)
+                return removed
+            }
         val fileName = path.substringAfterLast('/').takeIf { it.isNotBlank() } ?: return false
         return removePathIfExists("${downloadsDirectoryPath()}/$fileName")
     }
@@ -152,10 +164,41 @@ internal actual object DownloadsPlatformDownloader {
         val fileName = destinationFileName.trim().takeIf { it.isNotBlank() }
             ?: localFileUri?.toLocalPath()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
             ?: return null
+        // An organized file whose container path changed since it was recorded.
+        localFileUri?.toLocalPath()
+            ?.let(::relativeByFolderName)
+            ?.let(::resolveInsideDownloads)
+            ?.takeIf(NSFileManager.defaultManager::fileExistsAtPath)
+            ?.let { return NSURL.fileURLWithPath(it).absoluteString ?: "file://$it" }
         val path = "${downloadsDirectoryPath()}/$fileName"
         return if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
             NSURL.fileURLWithPath(path).absoluteString ?: "file://$path"
         } else null
+    }
+
+    actual fun relativePathOf(localFileUri: String?): String? {
+        val path = localFileUri?.takeIf { it.isNotBlank() }?.toLocalPath() ?: return null
+        val root = "${downloadsDirectoryPath().trimEnd('/')}/"
+        return path.takeIf { it.startsWith(root) }?.removePrefix(root)?.takeIf { isSafeRelativePath(it) }
+    }
+
+    actual fun existsInDownloads(relativePath: String): Boolean =
+        resolveInsideDownloads(relativePath)?.let(NSFileManager.defaultManager::fileExistsAtPath) == true
+
+    actual fun fileUriFor(relativePath: String): String? =
+        resolveInsideDownloads(relativePath)?.let { NSURL.fileURLWithPath(it).absoluteString ?: "file://$it" }
+
+    @OptIn(ExperimentalForeignApi::class)
+    actual fun moveCompletedFile(localFileUri: String, relativePath: String): Boolean {
+        val manager = NSFileManager.defaultManager
+        val source = localFileUri.toLocalPath()
+            ?.takeIf { relativePathOf(localFileUri) != null && manager.fileExistsAtPath(it) }
+            ?: return false
+        val target = resolveInsideDownloads(relativePath) ?: return false
+        if (manager.fileExistsAtPath(target)) return false
+        manager.createDirectoryAtPath(target.substringBeforeLast('/'), true, null, null)
+        // moveItemAtPath is a rename inside the container; it fails rather than overwrite.
+        return manager.moveItemAtPath(source, target, null) && manager.fileExistsAtPath(target)
     }
 
     actual fun openDownloadsDirectory(): Boolean {
@@ -957,6 +1000,33 @@ private fun downloadsDirectoryPath(): String {
     val path = "${NSHomeDirectory().trimEnd('/')}/Documents/nuvio_downloads"
     NSFileManager.defaultManager.createDirectoryAtPath(path, true, null, null)
     return path
+}
+
+private fun isSafeRelativePath(relativePath: String): Boolean =
+    relativePath.isNotEmpty() && relativePath.split('/').none { it.isEmpty() || it == "." || it == ".." }
+
+/** [relativePath] under today's downloads folder, refusing any path that could leave it. */
+private fun resolveInsideDownloads(relativePath: String): String? =
+    relativePath.takeIf(::isSafeRelativePath)?.let { "${downloadsDirectoryPath().trimEnd('/')}/$it" }
+
+/** The part of [path] after ".../Documents/nuvio_downloads/", whatever container it was recorded in. */
+private fun relativeByFolderName(path: String): String? {
+    val marker = "/Documents/nuvio_downloads/"
+    val index = path.indexOf(marker).takeIf { it >= 0 } ?: return null
+    return path.substring(index + marker.length).takeIf(::isSafeRelativePath)
+}
+
+/** Deletes the folders between [path] and the downloads folder that are now empty. */
+@OptIn(ExperimentalForeignApi::class)
+private fun removeEmptyLayoutFolders(path: String) {
+    val manager = NSFileManager.defaultManager
+    val root = downloadsDirectoryPath().trimEnd('/')
+    var folder = path.substringBeforeLast('/', missingDelimiterValue = "")
+    while (folder.startsWith("$root/")) {
+        val contents = manager.contentsOfDirectoryAtPath(folder, null) ?: break
+        if (contents.isNotEmpty() || !manager.removeItemAtPath(folder, null)) break
+        folder = folder.substringBeforeLast('/', missingDelimiterValue = "")
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)

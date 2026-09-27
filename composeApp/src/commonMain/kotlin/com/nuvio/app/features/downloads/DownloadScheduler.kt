@@ -330,6 +330,8 @@ internal object DownloadScheduler {
                     updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                 )
             }
+            // The file is final and nothing writes to it any more: into Title / Season XX.
+            DownloadFileOrganizer.organizeLocked(listOf(downloadId))
         }
         startPendingTransfers()
     }

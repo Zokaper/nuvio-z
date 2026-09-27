@@ -598,8 +598,7 @@ private fun ShowHero(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(contentWidth, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // The first thing read on the page: this is the copy on the device, not the title page.
-                DownloadedBadge()
+                // The On this device block below is what says this is the local copy.
                 TitleLogo(
                     logo = first.logo ?: metadata?.logo,
                     title = first.title,
@@ -656,28 +655,6 @@ private fun ShowHero(
                 }
             }
         }
-    }
-}
-
-/** "✓ Downloaded", over the logo: a show's page here is its local copy, and says so first. */
-@Composable
-private fun DownloadedBadge() {
-    val tokens = MaterialTheme.nuvio
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(tokens.colors.accent.copy(alpha = 0.16f))
-            .padding(start = 8.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(Icons.Rounded.DownloadDone, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(16.dp))
-        Text(
-            text = stringResource(Res.string.download_library_badge),
-            style = MaterialTheme.typography.labelLarge,
-            color = tokens.colors.accent,
-            fontWeight = FontWeight.Bold,
-        )
     }
 }
 

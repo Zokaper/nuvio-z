@@ -3176,5 +3176,4 @@
     <string name="download_library_delete_episode">Delete download</string>
     <string name="download_library_delete_watched_title">Delete watched episodes?</string>
     <string name="download_library_delete_watched_body">Remove %1$d watched episodes of %2$s from this device? This frees %3$s.</string>
-    <string name="download_library_badge">Downloaded</string>
 </resources>

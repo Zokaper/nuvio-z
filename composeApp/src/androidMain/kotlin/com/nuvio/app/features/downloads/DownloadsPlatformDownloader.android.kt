@@ -422,7 +422,9 @@ internal actual object DownloadsPlatformDownloader {
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
         val file = localFileUri.toLocalFileOrNull() ?: return false
-        return runCatching { file.delete() }.getOrDefault(false)
+        val removed = runCatching { file.delete() }.getOrDefault(false)
+        downloadsRoot()?.let { root -> removeEmptyLayoutFolders(file, root) }
+        return removed
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
@@ -450,9 +452,46 @@ internal actual object DownloadsPlatformDownloader {
                 ?.takeIf { it.isNotBlank() }
             ?: return null
         val downloadsDir = File(context.filesDir, "downloads")
+        // An organized file whose absolute path moved with the app's data folder.
+        localFileUri?.toLocalFileOrNull()
+            ?.let { relativeByFolderName(it, downloadsDir) }
+            ?.let { resolveInsideRoot(downloadsDir, it) }
+            ?.takeIf { it.exists() }
+            ?.let { return it.toURI().toString() }
         val localFile = File(downloadsDir, fileName)
         return localFile.takeIf { it.exists() }?.toURI()?.toString()
     }
+
+    actual fun relativePathOf(localFileUri: String?): String? {
+        val root = downloadsRoot() ?: return null
+        val file = localFileUri?.takeIf { it.isNotBlank() }?.toLocalFileOrNull() ?: return null
+        return relativeInsideRoot(file, root)
+    }
+
+    actual fun existsInDownloads(relativePath: String): Boolean {
+        val root = downloadsRoot() ?: return false
+        return resolveInsideRoot(root, relativePath)?.exists() == true
+    }
+
+    actual fun fileUriFor(relativePath: String): String? {
+        val root = downloadsRoot() ?: return null
+        return resolveInsideRoot(root, relativePath)?.toURI()?.toString()
+    }
+
+    actual fun moveCompletedFile(localFileUri: String, relativePath: String): Boolean {
+        val root = downloadsRoot() ?: return false
+        val source = localFileUri.toLocalFileOrNull()
+            ?.takeIf { it.isFile && relativeInsideRoot(it, root) != null }
+            ?: return false
+        val target = resolveInsideRoot(root, relativePath) ?: return false
+        return runCatching {
+            if (target.exists()) return false
+            target.parentFile?.mkdirs()
+            source.renameTo(target) && target.isFile
+        }.getOrDefault(false)
+    }
+
+    private fun downloadsRoot(): File? = appContext?.let { File(it.filesDir, "downloads") }
 
     actual fun openDownloadsDirectory(): Boolean {
         val context = appContext ?: return false
@@ -494,6 +533,44 @@ internal actual object DownloadsPlatformDownloader {
         val context = appContext ?: return null
         val downloadsDir = File(context.filesDir, "downloads")
         return File(downloadsDir, "$destinationFileName.part")
+    }
+}
+
+/** [file] as a '/'-separated path inside [root], or null when it is not inside it. */
+private fun relativeInsideRoot(file: File, root: File): String? = runCatching {
+    val rootPath = root.canonicalPath + File.separator
+    file.canonicalPath.takeIf { it.startsWith(rootPath) }
+        ?.removePrefix(rootPath)
+        ?.replace(File.separatorChar, '/')
+        ?.takeIf { it.isNotEmpty() }
+}.getOrNull()
+
+/** [relativePath] under [root], refusing any path that could leave it. */
+private fun resolveInsideRoot(root: File, relativePath: String): File? {
+    val segments = relativePath.split('/')
+    if (segments.any { it.isEmpty() || it == "." || it == ".." || '\\' in it }) return null
+    val file = File(root, segments.joinToString(File.separator))
+    return file.takeIf { relativeInsideRoot(it, root) != null }
+}
+
+/** The part of [file]'s path after ".../<parent>/<root name>/", for a root that has moved. */
+private fun relativeByFolderName(file: File, root: File): String? {
+    val marker = "/${root.parentFile?.name}/${root.name}/"
+    val path = file.path.replace(File.separatorChar, '/')
+    val index = path.indexOf(marker).takeIf { it >= 0 } ?: return null
+    return path.substring(index + marker.length).takeIf { it.isNotEmpty() }
+}
+
+/** Deletes the folders between [file] and [root] that are now empty; stops at the first that is not. */
+private fun removeEmptyLayoutFolders(file: File, root: File) {
+    runCatching {
+        val rootPath = root.canonicalPath
+        var folder = file.parentFile
+        while (folder != null && folder.canonicalPath != rootPath && relativeInsideRoot(folder, root) != null) {
+            // File.delete removes a folder only when it is empty, so nothing else can go with it.
+            if (!folder.delete()) break
+            folder = folder.parentFile
+        }
     }
 }
 
