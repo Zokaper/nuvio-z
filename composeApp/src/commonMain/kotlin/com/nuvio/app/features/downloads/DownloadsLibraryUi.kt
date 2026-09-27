@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -410,10 +411,13 @@ internal fun DownloadedShowPage(
     BoxWithConstraints(modifier.fillMaxSize().background(tokens.colors.background)) {
         val wide = maxWidth >= WideFrom
         val gutter = if (wide) 40.dp else tokens.spacing.screenHorizontal
+        // Centred and capped, the gutter inside the cap so every row starts on the same edge.
         val contentWidth = Modifier
             .fillMaxWidth()
+            .wrapContentWidth(Alignment.CenterHorizontally)
+            .widthIn(max = ShowContentMaxWidth + gutter * 2)
+            .fillMaxWidth()
             .padding(horizontal = gutter)
-            .let { if (maxWidth > ShowContentMaxWidth + gutter * 2) it.widthIn(max = ShowContentMaxWidth) else it }
         val columns = if (maxWidth >= 1000.dp) 2 else 1
 
         LazyColumn(
@@ -751,8 +755,8 @@ private fun SeasonTabs(
     val tokens = MaterialTheme.nuvio
     val state = rememberLazyListState(initialFirstVisibleItemIndex = seasons.indexOf(selected).coerceAtLeast(0))
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        // Aligned with the content column on a wide window, from the screen edge on a phone.
-        val inset = if (maxWidth > ShowContentMaxWidth + gutter * 2) (maxWidth - ShowContentMaxWidth) / 2 else gutter
+        // Starts on the content column's edge, and scrolls out to the screen's.
+        val inset = gutter + ((maxWidth - ShowContentMaxWidth - gutter * 2) / 2).coerceAtLeast(0.dp)
         LazyRow(
             state = state,
             modifier = Modifier.fillMaxWidth().nuvioDesktopDragScroll(state),
@@ -871,7 +875,7 @@ internal fun DownloadedEpisodeRow(
         EpisodeStill(
             url = metadata?.thumbnail ?: item.episodeThumbnail ?: item.background ?: item.poster,
             title = name ?: item.title,
-            width = if (wide) 176.dp else 136.dp,
+            width = if (wide) 176.dp else 116.dp,
             watch = watch,
             downloadingPercent = presentation?.progressPercent,
             finished = finished,
