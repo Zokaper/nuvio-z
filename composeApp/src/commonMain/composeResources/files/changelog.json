@@ -217,6 +217,14 @@
           "body": "On Android, a source that stopped sending without disconnecting held its place in the queue and sat on its last percentage. It is now detected and retried, as it already was on desktop."
         },
         {
+          "category": "fix",
+          "platforms": [
+            "ios"
+          ],
+          "title": "Lock screen controls follow Watch Together",
+          "body": "In a Watch Together party, pausing, playing or seeking from the lock screen, Control Center or headphones used to move only your own player. It now goes through the party like the buttons in the player, and unlocking the phone no longer starts a film you had paused."
+        },
+        {
           "category": "improvement",
           "platforms": [
             "android",
@@ -282,6 +290,10 @@
         {
           "build": 64,
           "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
+        },
+        {
+          "build": 65,
+          "text": "Watch Together on iPhone: the lock screen, Control Center and headset buttons now go through the party, so a pause or seek there reaches everyone (or is refused if the host controls playback) instead of only moving your own player. Unlocking no longer restarts a film you had paused, and a guest coming back waits to be put back in sync rather than playing from where it stopped. iPhone now tells the party when its player is actually buffering."
         }
       ]
     },
