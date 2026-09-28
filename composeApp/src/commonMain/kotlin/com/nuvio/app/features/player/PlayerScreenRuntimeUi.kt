@@ -1490,6 +1490,16 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             shouldPlay = nextIsPlaying
             return false
         }
+        // The app is back in front of the user after the engine was paused behind the runtime's back
+        // (iOS pauses mpv on entering the background) - see `PlayerRemoteCommands.restorePlaybackIntent`.
+        // The live intent, not the surface's composed `playWhenReady`: nothing recomposes in the
+        // background, so a lock-screen pause or an away transition there has not reached it yet.
+        // A barrier hold keeps `shouldPlay` while it parks the engine, and resuming through it would
+        // start this member before the instant everybody else starts at.
+        "externalRestorePlaybackIntent" -> {
+            val controller = playerController ?: return true
+            if (shouldPlay && !partyHoldingForBarrier) controller.play() else controller.pause()
+        }
         "reloadSources" -> {
             prepareSourcesForPlayerControls(forceRefresh = true)
         }

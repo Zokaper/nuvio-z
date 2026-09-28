@@ -9,27 +9,37 @@ import kotlin.test.assertTrue
  * this covers what the Swift side calls, including the commands Android does not have.
  */
 class PlayerRemoteCommandRouterTest {
+    /** Whether a player runtime is behind the surface at all (the trailer popup has none). */
+    private var runtimeAttached = true
     /** What the runtime answers to a play/pause: `true` when a party took it. */
     private var partyOwnsTransport = false
-    private var intent = true
+    private var composedIntent = true
     private val events = mutableListOf<Pair<String, Double>>()
     private val runtimeSeeks = mutableListOf<Long>()
     private val engineCalls = mutableListOf<String>()
-    private var enginePlaying = false
+    private var enginePaused = true
     private var enginePositionMs = 60_000L
 
     private val router = PlayerRemoteCommandRouter(
         transport = PlayerExternalTransport(
-            onEvent = { type, value -> events += type to value; partyOwnsTransport },
-            onSeek = { runtimeSeeks += it; true },
+            onEvent = { type, value ->
+                events += type to value
+                when {
+                    !runtimeAttached -> false
+                    type == "externalRestorePlaybackIntent" -> true
+                    else -> partyOwnsTransport
+                }
+            },
+            onSeek = { runtimeSeeks += it; runtimeAttached },
         ),
         engine = object : PlayerRemoteCommandRouter.Engine {
             override fun play() { engineCalls += "play" }
             override fun pause() { engineCalls += "pause" }
-            override fun isPlaying() = enginePlaying
+            override fun seekTo(positionMs: Long) { engineCalls += "seek:$positionMs" }
+            override fun isPaused() = enginePaused
             override fun positionMs() = enginePositionMs
         },
-        playWhenReady = { intent },
+        playWhenReady = { composedIntent },
     )
 
     @Test fun outsideAPartyLockScreenPlayAndPauseMoveTheEngineAndTellTheRuntime() {
@@ -48,16 +58,18 @@ class PlayerRemoteCommandRouterTest {
         assertEquals(3, events.size)
     }
 
-    @Test fun toggleReadsTheEngineBecauseIosPausesItInTheBackgroundBehindTheRuntime() {
-        enginePlaying = true
+    @Test fun toggleReadsThePauseFlagSoAPauseDuringARebufferIsAPause() {
+        // Stalled for cache: not playing, but not paused either. The press means pause.
+        enginePaused = false
         router.togglePlayPause()
-        enginePlaying = false
+        // Paused by the user, or by iOS entering the background behind the runtime: the press means play.
+        enginePaused = true
         router.togglePlayPause()
         assertEquals(listOf("externalSetPlaybackState" to 0.0, "externalSetPlaybackState" to 1.0), events)
         assertEquals(listOf("pause", "play"), engineCalls)
     }
 
-    @Test fun seeksAndSkipsAlwaysGoThroughTheRuntimeAndNeverTouchTheEngine() {
+    @Test fun seeksAndSkipsGoThroughTheRuntimeAndNeverTouchTheEngineWhenItAnswers() {
         router.seekTo(90_000L)
         router.seekBy(10_000L)
         router.seekBy(-10_000L)
@@ -67,12 +79,25 @@ class PlayerRemoteCommandRouterTest {
         assertTrue(engineCalls.isEmpty())
     }
 
-    @Test fun returningToTheForegroundRestoresTheRuntimesIntentRatherThanAlwaysPlaying() {
-        intent = false
+    @Test fun withNoRuntimeBehindTheSurfaceSeeksStillMoveTheEngine() {
+        runtimeAttached = false
+        router.seekTo(90_000L)
+        router.seekBy(-120_000L)
+        assertEquals(listOf("seek:90000", "seek:0"), engineCalls)
+    }
+
+    @Test fun theForegroundReturnIsTheRuntimesDecisionAndNeverAPlayFromHere() {
         router.restorePlaybackIntent()
-        intent = true
+        assertEquals(listOf("externalRestorePlaybackIntent" to 0.0), events)
+        assertTrue(engineCalls.isEmpty(), "the runtime restores its live intent itself")
+    }
+
+    @Test fun withNoRuntimeTheForegroundReturnFollowsTheComposedIntent() {
+        runtimeAttached = false
+        composedIntent = false
+        router.restorePlaybackIntent()
+        composedIntent = true
         router.restorePlaybackIntent()
         assertEquals(listOf("pause", "play"), engineCalls)
-        assertTrue(events.isEmpty(), "restoring an intent is not a new command")
     }
 }

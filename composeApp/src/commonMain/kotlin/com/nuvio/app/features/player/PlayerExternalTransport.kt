@@ -39,6 +39,20 @@ internal class PlayerExternalTransport(
     fun seekTo(positionMs: Long) {
         onSeek(positionMs.coerceAtLeast(0L))
     }
+
+    /**
+     * [seekTo] for a surface that may have no runtime behind it (the trailer popup keeps the default
+     * callbacks, which answer `false`): the engine is moved directly only then.
+     */
+    fun seekTo(positionMs: Long, engine: (Long) -> Unit) {
+        val target = positionMs.coerceAtLeast(0L)
+        if (!onSeek(target)) engine(target)
+    }
+
+    /** See `PlayerRemoteCommands.restorePlaybackIntent`; [engine] runs only when no runtime answers. */
+    fun restorePlaybackIntent(engine: () -> Unit) {
+        if (!onEvent(RESTORE_EVENT, 0.0)) engine()
+    }
 }
 
 /**
@@ -48,3 +62,6 @@ internal class PlayerExternalTransport(
  * frames in the background.
  */
 private const val EVENT = "externalSetPlaybackState"
+
+/** Answered `true` when the runtime restored its own intent to the engine. */
+private const val RESTORE_EVENT = "externalRestorePlaybackIntent"

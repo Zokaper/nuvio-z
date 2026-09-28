@@ -566,34 +566,6 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
-    // MARK: - Remote commands (lock screen, Control Center, headset)
-
-    func remotePlay() {
-        if let remoteCommands { remoteCommands.play() } else { playPlayback() }
-    }
-
-    func remotePause() {
-        if let remoteCommands { remoteCommands.pause() } else { pausePlayback() }
-    }
-
-    func remoteTogglePlayPause() {
-        if let remoteCommands {
-            remoteCommands.togglePlayPause()
-        } else if isPlayerPlaying {
-            pausePlayback()
-        } else {
-            playPlayback()
-        }
-    }
-
-    func remoteSeekTo(_ ms: Int64) {
-        if let remoteCommands { remoteCommands.seekTo(positionMs: ms) } else { seekToMs(ms) }
-    }
-
-    func remoteSeekBy(_ ms: Int64) {
-        if let remoteCommands { remoteCommands.seekBy(offsetMs: ms) } else { seekByMs(ms, exact: true) }
-    }
-
     // MARK: - Playback API
 
     func loadFile(_ urlString: String, audioUrl: String? = nil, requestHeaders: [String: String] = [:], subtitles: [PluginSubtitle] = []) {

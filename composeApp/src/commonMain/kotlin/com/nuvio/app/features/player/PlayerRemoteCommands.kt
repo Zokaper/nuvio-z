@@ -45,11 +45,16 @@ internal class PlayerRemoteCommandRouter(
     private val playWhenReady: () -> Boolean,
 ) : PlayerRemoteCommands {
 
-    /** The engine calls the router may make directly: only when no party owns the transport. */
+    /** The engine calls the router may make directly: only when nothing owns the request. */
     interface Engine {
         fun play()
         fun pause()
-        fun isPlaying(): Boolean
+        fun seekTo(positionMs: Long)
+
+        /** mpv's own `pause` flag, not "is playing": a member stalled on a rebuffer is not paused. */
+        fun isPaused(): Boolean
+
+        /** Read now, not from the last poll: a skip is relative to where the player actually is. */
         fun positionMs(): Long
     }
 
@@ -57,16 +62,20 @@ internal class PlayerRemoteCommandRouter(
 
     override fun pause() = transport.pause(engine::pause)
 
-    // From the engine, not from the runtime's intent: iOS pauses mpv itself on entering the
-    // background without telling the runtime, so a headset toggle on the lock screen has to read
-    // what is actually happening. The same choice Android's picture-in-picture toggle makes.
-    override fun togglePlayPause() = if (engine.isPlaying()) pause() else play()
+    // From the engine's pause flag, not from the runtime's intent: iOS pauses mpv itself on entering
+    // the background without telling the runtime, so a headset toggle on the lock screen has to read
+    // what the engine was told. And not from "is playing", which is false through a rebuffer - a
+    // pause pressed then would be sent as a play, and in a party a play is a force start that drops
+    // every hold.
+    override fun togglePlayPause() = if (engine.isPaused()) play() else pause()
 
-    override fun seekTo(positionMs: Long) = transport.seekTo(positionMs)
+    override fun seekTo(positionMs: Long) = transport.seekTo(positionMs, engine::seekTo)
 
-    override fun seekBy(offsetMs: Long) = transport.seekTo(engine.positionMs() + offsetMs)
+    override fun seekBy(offsetMs: Long) = seekTo(engine.positionMs() + offsetMs)
 
-    override fun restorePlaybackIntent() {
+    // The runtime answers from its live intent (`externalRestorePlaybackIntent`); the composed
+    // [playWhenReady] is only for a surface with no runtime behind it, like the trailer popup.
+    override fun restorePlaybackIntent() = transport.restorePlaybackIntent {
         if (playWhenReady()) engine.play() else engine.pause()
     }
 }

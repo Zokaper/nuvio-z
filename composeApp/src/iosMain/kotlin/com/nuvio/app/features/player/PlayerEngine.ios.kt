@@ -309,8 +309,15 @@ actual fun PlatformPlayerSurface(
             engine = object : PlayerRemoteCommandRouter.Engine {
                 override fun play() = bridge.play()
                 override fun pause() = bridge.pause()
-                override fun isPlaying(): Boolean = bridge.getIsPlaying()
-                override fun positionMs(): Long = bridge.getPositionMs()
+                override fun seekTo(positionMs: Long) = bridge.seekTo(positionMs)
+                override fun isPaused(): Boolean {
+                    bridge.getIsLoading() // refreshes the bridge from mpv; see the poll below
+                    return bridge.getIsPaused()
+                }
+                override fun positionMs(): Long {
+                    bridge.getIsLoading()
+                    return bridge.getPositionMs()
+                }
             },
             playWhenReady = { latestPlayWhenReady.value },
         )
