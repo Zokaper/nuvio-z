@@ -112,6 +112,20 @@ Branch `claude/ios-setup-1.1.2`, based on the `ios-setup-v1.1.1-beta.1` tag.
 matching, Mac guidance, refresh framing). Finish, completion and Mac Connect pages render-checked
 with a throwaway `ImageComposeScene` harness. Not yet run on a physical Mac.
 
+Packaging run `36414627039` passed on Windows and macOS from `366bcfe9a`; both downloaded ZIPs
+list cleanly and the Windows app jar is `iosSetup-1.1.2` containing `Usbmuxd`. Published as
+prerelease `ios-setup-v1.1.2-beta.1`; 1.1.1 is titled Superseded. `update-store-source.yml` ran and
+skipped, so neither SideStore feed changed.
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,872,377 bytes — SHA-256
+  `826FFFDE448F9926A78C48C1F36940F00A6E960ADA3A363B5F8108A39B3B1089`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,912,311 bytes — SHA-256
+  `0844CE851E7DDF2931F29EEECFAB134E81384A5598D8908D9CE8937BDBB8D609`
+
+The iOS setup line lives on `codex/ios-setup-gui-ux-refinement` → `claude/ios-setup-1.1.2`, not on
+`main` or the mobile release branches, whose `iosSetup/` is still 1.0.3. Merge this line forward
+before anyone touches `iosSetup/` from a mobile branch.
+
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 
 **A portable Compose Desktop setup wizard now replaces the terminal bootstrap as the intended
