@@ -59,6 +59,25 @@ class StepGuidanceTest {
         assertEquals(SetupPhase.FINISH, phaseFor(SetupStep.FINISH))
     }
 
+    @Test fun macGuidanceNeverSendsUsersToWindowsTools() {
+        SetupStep.entries.filterNot { it == SetupStep.APPLE_DEVICE_SUPPORT }.forEach { step ->
+            val text = guidanceFor(step, isMac = true).let { guide -> listOf(guide.purpose, guide.success) + guide.troubleshooting.flatMap { listOf(it.problem) + it.recovery } }
+                .joinToString(" ").lowercase()
+            listOf("windows", "apple mobile device service", "itunes").forEach { forbidden ->
+                assertTrue(forbidden !in text, "$step Mac guidance mentions '$forbidden': $text")
+            }
+        }
+        val connect = guidanceFor(SetupStep.CONNECT_IPHONE, isMac = true).troubleshooting.flatMap { listOf(it.problem) + it.recovery }.joinToString(" ").lowercase()
+        assertContainsAll(connect, "not detected", "charge", "unlock", "trust", "allow", "finder", "restart the mac")
+    }
+
+    @Test fun finishFramesRefreshAsARecoveryNotAChore() {
+        val text = guidanceFor(SetupStep.FINISH).let { listOf(it.purpose, it.success) + it.troubleshooting.flatMap { tip -> listOf(tip.problem) + tip.recovery } }
+            .joinToString(" ").lowercase()
+        assertTrue("every 5" !in text && "before the counter" !in text, text)
+        assertContainsAll(text, "refresh all", "sidestore itself will not open", "install sidestore")
+    }
+
     private fun assertContainsAll(text: String, vararg phrases: String) {
         phrases.forEach { phrase -> assertTrue(phrase in text, "Missing '$phrase' in: $text") }
     }

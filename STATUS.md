@@ -1,6 +1,6 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-23
+Last updated: 2026-09-28
 
 ## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
 
@@ -82,6 +82,35 @@ successfully. The recommended prerelease is `ios-setup-v1.1.1-beta.1`; the earli
   `335690A1F7535BF39270E7BC51FB732C1E34B82157114B0BA1F71F76170A61A8`
 - `Nuvio-Z-iOS-Setup-macOS.zip` — 70,903,211 bytes — SHA-256
   `A6C114AEFF4F9F5500760D024220CF8010B0E7CA777108F56AA9E546F19D1746`
+
+### 1.1.2: macOS iPhone detection and refresh-as-recovery copy (2026-09-28)
+
+Branch `claude/ios-setup-1.1.2`, based on the `ios-setup-v1.1.1-beta.1` tag.
+
+1. **Macs never detected the iPhone**, even with Finder showing it. The only probe was
+   `system_profiler SPUSBDataType`, which is empty on Apple silicon under current macOS (USB moved to
+   `SPUSBHostDataType`), and the communication check was hardcoded to `true`. Detection now queries
+   macOS's own usbmuxd (`/var/run/usbmuxd`, plist `ListDevices`, USB entries only; `Usbmuxd.kt`),
+   the service iloader itself uses, then falls back to `ioreg -p IOUSB` and
+   `system_profiler SPUSBHostDataType SPUSBDataType`. Each probe is logged as `mac_device_probes`.
+   Mac transport readiness is now a real socket check. `run()` drains child output while it runs so
+   a large report cannot stall until timeout. Connect-page status rows wait for the first probe.
+2. **Mac users saw Windows-only troubleshooting.** `guidanceFor` takes `isMac`; Mac Connect help
+   covers cable/hub, the Apple-silicon "Allow accessory" prompt, Finder, reset-trust and restarting
+   the Mac, and Mac copy never mentions Windows, iTunes or Apple Mobile Device Service (pinned by
+   `macGuidanceNeverSendsUsersToWindowsTools`). The Mac Connect page offers **Open Finder**.
+3. **The Finish and completion pages read as a chore** ("Every 5–6 days: refresh your apps").
+   Maintainer direction: solution, not prevention. The pages now explain briefly why (signed with
+   your own Apple Account; Apple limits free-account signatures to 7 days), note that installing an
+   update re-signs the app, and give a fix-when-it-breaks path: Refresh All in SideStore (which also
+   renews SideStore), or reinstall SideStore with iloader if SideStore itself has lapsed. SideStore
+   has no pre-expiry notification (upstream #517/#829 closed without one), so the copy points at
+   the days-left counter in My Apps instead of promising a warning. The step is titled
+   **You're all set**.
+
+`:iosSetup:test` **29 / 29** (usbmuxd framing, parsing, a fake-socket round trip, USB-report
+matching, Mac guidance, refresh framing). Finish, completion and Mac Connect pages render-checked
+with a throwaway `ImageComposeScene` harness. Not yet run on a physical Mac.
 
 ## Nuvio Z iOS Setup GUI v1 (2026-09-22)
 

@@ -72,7 +72,8 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
     var state by remember { mutableStateOf(controller.state) }
     var check by remember { mutableStateOf<ComputerCheck?>(null) }
     var deviceDetected by remember { mutableStateOf(false) }
-    var transportReady by remember { mutableStateOf(ops.isMac) }
+    var transportReady by remember { mutableStateOf(false) }
+    var deviceProbed by remember { mutableStateOf(false) }
     var iloaderDetected by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf<OperationResult?>(null) }
     var working by remember { mutableStateOf(false) }
@@ -108,6 +109,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
             while (true) {
                 deviceDetected = withContext(Dispatchers.IO) { ops.isDeviceConnected() }
                 transportReady = withContext(Dispatchers.IO) { ops.isDeviceTransportReady() }
+                deviceProbed = true
                 delay(2_000)
             }
         }
@@ -129,7 +131,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                 TextButton(onClick = { showAdvanced = true }) { Text("Advanced settings") }
             }
             if (!state.setupCompleted) StepPage(
-                Modifier.weight(1f).fillMaxWidth(), state, check, deviceDetected, transportReady,
+                Modifier.weight(1f).fillMaxWidth(), state, ops.isMac, check, deviceProbed, deviceDetected, transportReady,
                 iloaderDetected, operation, working, workingLabel,
                 onConfirmed = { controller.confirmCurrent(it); sync() },
                 onRepair = { controller.setRepairMode(true); sync(); showRepair = true },
@@ -147,7 +149,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                                 check = ops.checkComputer(); OperationResult(check?.canContinue == true, "Checks updated.")
                             }
                             SetupStep.CONNECT_IPHONE -> {
-                                deviceDetected = ops.isDeviceConnected(); transportReady = ops.isDeviceTransportReady()
+                                deviceDetected = ops.isDeviceConnected(); transportReady = ops.isDeviceTransportReady(); deviceProbed = true
                                 OperationResult(deviceDetected && transportReady, when {
                                     !deviceDetected -> "No iPhone detected. Open troubleshooting for cable, lock-screen, and trust checks."
                                     !transportReady -> "The iPhone is visible, but Apple device communication is not ready."
@@ -168,7 +170,7 @@ private fun SetupApp(controller: SetupController, ops: PlatformSetupOps, diagnos
                         iloaderDetected = withContext(Dispatchers.IO) { ops.findIloader() != null }
                     }
                 },
-                onOpenServices = { runOperation("Opening Windows Services…", ops::openAppleServiceManager) },
+                onOpenServices = { runOperation(if (ops.isMac) "Opening Finder…" else "Opening Windows Services…", ops::openAppleServiceManager) },
                 onOpenIloader = { runOperation("Opening iloader…", ops::openIloader) },
             )
             if (!state.setupCompleted) NavigationBar(
@@ -244,14 +246,14 @@ private fun ProgressRail(state: SetupState, steps: List<SetupStep>, modifier: Mo
 
 @Composable
 private fun StepPage(
-    modifier: Modifier, state: SetupState, check: ComputerCheck?, device: Boolean, transport: Boolean,
+    modifier: Modifier, state: SetupState, isMac: Boolean, check: ComputerCheck?, probed: Boolean, device: Boolean, transport: Boolean,
     iloader: Boolean, operation: OperationResult?, working: Boolean, workingLabel: String,
     onConfirmed: (Boolean) -> Unit, onRepair: () -> Unit, onInstallApple: () -> Unit,
     onAppleInstalled: () -> Unit, onRecheck: () -> Unit, onInstallIloader: () -> Unit,
     onOpenServices: () -> Unit, onOpenIloader: () -> Unit,
 ) {
     val step = state.currentStep
-    val guide = guidanceFor(step, state)
+    val guide = guidanceFor(step, state, isMac)
     Box(modifier) {
         Column(Modifier.widthIn(max = 940.dp).fillMaxHeight().align(Alignment.TopCenter).verticalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
             Text("STEP ${step.ordinal + 1} OF ${SetupStep.entries.size}  ·  ${phaseFor(step).title.uppercase()}", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -267,7 +269,7 @@ private fun StepPage(
                     when (step) {
                         SetupStep.WELCOME -> WelcomeContent(state)
                         SetupStep.COMPUTER_CHECK, SetupStep.APPLE_DEVICE_SUPPORT -> CheckContent(check, step, working, state.appleSupportConfirmed, onInstallApple, onAppleInstalled, onRecheck)
-                        SetupStep.CONNECT_IPHONE -> ConnectContent(device, transport, working, onRecheck, onOpenServices, onInstallApple)
+                        SetupStep.CONNECT_IPHONE -> ConnectContent(isMac, probed, device, transport, working, onRecheck, onOpenServices, onInstallApple)
                         SetupStep.LOCAL_DEV_VPN -> Instructions(listOf("On the iPhone, install LocalDevVPN from the App Store.", "Open it and allow the VPN configuration when iOS asks.", "Make sure Wi-Fi is on, then tap Connect.", "Leave LocalDevVPN showing Connected."))
                         SetupStep.ILOADER_INSTALL -> IloaderContent(iloader, working, onInstallIloader, onRecheck, onOpenIloader)
                         SetupStep.SIDESTORE_INSTALL -> SideStoreInstallContent(onOpenIloader)
@@ -334,11 +336,22 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
     }
 }
 
-@Composable private fun ConnectContent(detected: Boolean, transport: Boolean, working: Boolean, onRecheck: () -> Unit, onServices: () -> Unit, onRepair: () -> Unit) {
+@Composable private fun ConnectContent(isMac: Boolean, probed: Boolean, detected: Boolean, transport: Boolean, working: Boolean, onRecheck: () -> Unit, onServices: () -> Unit, onRepair: () -> Unit) {
     Instructions(listOf("Connect the iPhone with a cable that supports data, not charging only.", "Unlock it and keep the screen on.", "On the iPhone, tap Trust when ‘Trust This Computer?’ appears.", "Enter the iPhone passcode, then keep Wi-Fi on."))
+    if (!probed) {
+        Spacer(Modifier.height(14.dp)); Text("Looking for your iPhone…", color = TextSecondary, fontWeight = FontWeight.SemiBold)
+        return
+    }
     Spacer(Modifier.height(14.dp)); LiveStatusRow(detected, if (detected) "iPhone detected by this computer" else "Waiting for an unlocked iPhone")
     Spacer(Modifier.height(8.dp)); LiveStatusRow(transport, if (transport) "Apple device communication is ready" else "Apple device communication is not ready")
-    if (detected && !transport) {
+    if (isMac) {
+        if (!transport) {
+            Spacer(Modifier.height(12.dp)); WarningCallout("Apple communication needs attention", "macOS’s built-in iPhone service is not responding, so iloader could not reach the phone either. Close iloader, unplug the iPhone, restart the Mac, then reconnect.")
+        } else if (!detected) {
+            Spacer(Modifier.height(12.dp)); InfoCallout("Not showing up?", "Check Finder: once the iPhone is unlocked and trusted it appears in the sidebar under Locations. On Apple silicon Macs, click Allow if macOS asks whether the accessory may connect.")
+            Spacer(Modifier.height(8.dp)); OutlinedButton(enabled = !working, onClick = onServices) { Text("Open Finder") }
+        }
+    } else if (detected && !transport) {
         Spacer(Modifier.height(12.dp)); WarningCallout("Apple communication needs attention", "iloader needs Apple Mobile Device Support. The Apple desktop installer is the recommended repair.")
         Spacer(Modifier.height(10.dp)); Button(enabled = !working, onClick = onRepair) { Text("Repair with Apple’s desktop installer") }
         Spacer(Modifier.height(8.dp)); OutlinedButton(enabled = !working, onClick = onServices) { Text("Advanced: open Windows Services") }
@@ -406,19 +419,21 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
 }
 
 @Composable private fun FinishContent(state: SetupState) {
-    InfoRows(listOf("SideStore is installed and trusted", "Wireless pairing is configured", "${state.channel.appName} is installed"))
+    val app = state.channel.appName
+    InfoRows(listOf("SideStore is installed and trusted", "Wireless pairing is configured", "$app is installed"))
     Spacer(Modifier.height(14.dp)); InfoCallout(
-        "Refresh and update mean different things",
-        "Refresh renews Apple’s seven-day permission so the app keeps opening. Update installs a newer Nuvio Z version. Neither action removes your app data.",
+        "Why apps from SideStore need refreshing",
+        "They’re signed with your own Apple Account instead of through the App Store. With a free account, Apple only lets that signature last 7 days. After that, iOS won’t open the app until SideStore signs it again. Refreshing or updating never removes your data.",
     )
-    Spacer(Modifier.height(16.dp)); Text("Every 5–6 days: refresh your apps", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-    Text("Do this before the DAYS counter reaches zero. You normally do not need this computer or a USB cable.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
+    Spacer(Modifier.height(16.dp)); Text("You don’t have to keep count", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Text("Installing a $app update through SideStore signs it again and starts a fresh 7 days, and SideStore may refresh on its own while LocalDevVPN is connected. SideStore won’t warn you before an app runs out, but My Apps shows how many days each one has left.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
+    Spacer(Modifier.height(16.dp)); Text("If $app won’t open", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Text("If it closes straight away or iOS says it’s no longer available, its 7 days have run out. You don’t need this computer or a cable to fix it:", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
     Spacer(Modifier.height(10.dp)); Instructions(listOf(
         "Connect the iPhone to Wi-Fi.",
         "Open LocalDevVPN and wait until it says Connected.",
-        "Open SideStore → My Apps.",
-        "Tap Refresh All and wait for the success message.",
-        "Check that SideStore and ${state.channel.appName} show 7 DAYS again.",
+        "Open SideStore → My Apps and tap Refresh All. This renews SideStore too.",
+        "Open $app again.",
     ))
     Spacer(Modifier.height(16.dp)); Text("When a Nuvio Z update is available", fontWeight = FontWeight.Bold, fontSize = 17.sp)
     Text("SideStore will show an Update button for ${state.channel.appName}. Updates install over the existing app, so your settings and data stay in place.", color = TextSecondary, modifier = Modifier.padding(top = 5.dp))
@@ -428,7 +443,7 @@ private fun NavigationBar(step: SetupStep, canAdvance: Boolean, confirmed: Boole
         "Wait for installation to finish, then open ${state.channel.appName} normally.",
         "If no update appears, open SideStore → Sources, refresh the source, then check My Apps again.",
     ))
-    Spacer(Modifier.height(12.dp)); InfoCallout("Only come back for a repair", "If SideStore specifically says the pairing file is missing or expired, reopen this assistant and choose Advanced settings → Repair SideStore pairing. This can happen after an iOS update or reset.")
+    Spacer(Modifier.height(12.dp)); InfoCallout("When to come back to this computer", "If SideStore itself won’t open, its 7 days ran out too: reconnect the iPhone, reinstall SideStore with iloader (Install SideStore (Stable)), then tap Refresh All. If SideStore says the pairing file is missing or expired, which can happen after an iOS update or reset, use Advanced settings → Repair SideStore pairing.")
 }
 
 @Composable
@@ -452,8 +467,9 @@ private fun CompletedPage(state: SetupState, modifier: Modifier, onReturnToStart
                     SectionLabel("FROM NOW ON")
                     Spacer(Modifier.height(12.dp))
                     InfoRows(listOf(
-                        "Refresh in SideStore every 5–6 days with Wi-Fi and LocalDevVPN connected.",
-                        "Install ${state.channel.appName} updates from SideStore when an Update button appears.",
+                        "If ${state.channel.appName} won’t open, its 7 days ran out: open SideStore → My Apps → Refresh All with Wi-Fi and LocalDevVPN connected.",
+                        "Installing ${state.channel.appName} updates from SideStore also starts a fresh 7 days.",
+                        "If SideStore itself won’t open, reconnect to this computer and reinstall it with iloader.",
                         "Use Advanced settings → Repair SideStore pairing only if SideStore asks for it.",
                         "You can close this assistant now.",
                     ))

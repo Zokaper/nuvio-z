@@ -28,8 +28,9 @@ data class StepGuidance(
     val troubleshooting: List<TroubleTip> = emptyList(),
 )
 
-fun guidanceFor(step: SetupStep, state: SetupState = SetupState()): StepGuidance {
+fun guidanceFor(step: SetupStep, state: SetupState = SetupState(), isMac: Boolean = false): StepGuidance {
     val app = state.channel.appName
+    val computer = if (isMac) "your Mac" else "Windows"
     return when (step) {
         SetupStep.WELCOME -> StepGuidance(
             purpose = "We’ll prepare your computer and iPhone, install SideStore, then use it to install $app. No technical knowledge is expected.",
@@ -40,7 +41,7 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState()): StepGuidance
             success = "The required checks show green and Continue becomes available.",
             troubleshooting = listOf(
                 TroubleTip("The internet check fails", listOf("Confirm a web page opens in your browser.", "Temporarily allow this app through a firewall or VPN, then choose Check again.")),
-                TroubleTip("This computer is unsupported", listOf("Use a 64-bit Windows PC or a supported Mac.", "You can move this portable app to another computer and resume there.")),
+                TroubleTip("This computer is unsupported", listOf(if (isMac) "Update macOS, or use another Mac or a 64-bit PC." else "Use a 64-bit Windows PC or a supported Mac.","You can move this portable app to another computer and resume there.")),
             ),
         )
         SetupStep.APPLE_DEVICE_SUPPORT -> StepGuidance(
@@ -54,7 +55,12 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState()): StepGuidance
         SetupStep.CONNECT_IPHONE -> StepGuidance(
             purpose = "A trusted USB connection lets iloader install SideStore and create the small pairing record SideStore needs.",
             success = "Both ‘iPhone detected’ and ‘Apple device communication is ready’ are green.",
-            troubleshooting = listOf(
+            troubleshooting = if (isMac) listOf(
+                TroubleTip("The iPhone is not detected", listOf("Unlock the phone and keep its screen on.", "Try another USB port and a data-capable cable; some cables charge only.", "Plug straight into the Mac rather than a hub, display, or adapter, then choose Re-check connection.")),
+                TroubleTip("macOS asks whether to allow the accessory", listOf("On Apple silicon Macs, click Allow when macOS asks if the iPhone may connect.", "If you clicked Don’t Allow, change it in System Settings → Privacy & Security → Allow accessories to connect, then reconnect.")),
+                TroubleTip("‘Trust This Computer?’ did not appear", listOf("Unplug and reconnect while the iPhone is unlocked.", "Open Finder and select the iPhone under Locations in the sidebar; choose Trust if asked.", "If you previously tapped Don’t Trust, reset Location & Privacy in iPhone Settings, then reconnect.")),
+                TroubleTip("The Mac sees the phone, but communication is not ready", listOf("Close iloader and unplug the iPhone.", "Restart the Mac, reconnect and unlock the iPhone, then choose Re-check connection.")),
+            ) else listOf(
                 TroubleTip("The iPhone is not detected", listOf("Unlock the phone and keep its screen on.", "Try another USB port and a data-capable cable; some cables charge only.", "Disconnect USB hubs or adapters if possible, then choose Check again.")),
                 TroubleTip("‘Trust This Computer?’ did not appear", listOf("Unplug and reconnect while the iPhone is unlocked.", "Open Apple Devices or iTunes once.", "If you previously tapped Don’t Trust, reset Location & Privacy in iPhone Settings, then reconnect.")),
                 TroubleTip("Windows sees the phone, but communication is not ready", listOf("Use Repair with Apple’s desktop installer first.", "If it remains blocked, restart Apple Mobile Device Service or restart Windows.")),
@@ -91,7 +97,7 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState()): StepGuidance
             troubleshooting = listOf(
                 TroubleTip("SideStore installed, but pairing was not placed", listOf("Keep the iPhone connected and unlocked.", "In iloader choose Manage Pairing File, then Place beside SideStore.")),
                 TroubleTip("SideStore asks to replace pairing or use iloader", listOf("Choose Repair pairing on this page.", "Follow Reset Pairing File → Delete Stored Pairing → Place, then retry SideStore.")),
-                TroubleTip("The iPhone disappears from iloader", listOf("Reconnect it, unlock it, and accept Trust if asked.", "Close and reopen iloader after Windows can see the phone.")),
+                TroubleTip("The iPhone disappears from iloader", listOf("Reconnect it, unlock it, and accept Trust if asked.", "Close and reopen iloader after $computer can see the phone.")),
             ),
         )
         SetupStep.TRUST_PROFILE -> StepGuidance(
@@ -140,11 +146,11 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState()): StepGuidance
             ),
         )
         SetupStep.FINISH -> StepGuidance(
-            purpose = "$app is installed. SideStore will keep it signed as long as you refresh within the seven-day window.",
-            success = "A wireless Refresh All completes with USB unplugged.",
+            purpose = "$app is installed. You won’t need this computer day to day; here’s the one thing worth knowing about apps from SideStore.",
+            success = "You know what to do if $app ever stops opening.",
             troubleshooting = listOf(
-                TroubleTip("A future refresh fails", listOf("Connect LocalDevVPN and retry on Wi-Fi.", "If SideStore names a pairing problem, use Settings → Repair SideStore in this wizard.")),
-                TroubleTip("An app is close to expiring", listOf("Open SideStore → My Apps and tap Refresh All before the counter reaches zero.")),
+                TroubleTip("Refresh All fails", listOf("Connect LocalDevVPN and retry on Wi-Fi.", "If SideStore names a pairing problem, use Advanced settings → Repair SideStore pairing in this assistant.")),
+                TroubleTip("SideStore itself will not open", listOf("Its 7 days ran out too, so it can’t refresh itself.", "Reconnect the iPhone to this computer, open iloader, and choose Install SideStore (Stable) again.", "Then open SideStore and tap Refresh All.")),
             ),
         )
     }

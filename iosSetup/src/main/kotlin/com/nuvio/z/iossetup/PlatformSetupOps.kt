@@ -32,14 +32,16 @@ fun platformSetupOps(diagnostics: Diagnostics): PlatformSetupOps {
 }
 
 abstract class ProcessPlatformOps(protected val diagnostics: Diagnostics) : PlatformSetupOps {
-    protected fun run(vararg args: String, timeoutSeconds: Long = 30): OperationResult = try {
+    protected fun run(vararg args: String, timeoutSeconds: Long = 30, maxOutput: Int = 8_000): OperationResult = try {
         val process = ProcessBuilder(*args).redirectErrorStream(true).start()
+        // Drain while the process runs: a full pipe would stall system_profiler/ioreg until the timeout.
+        val reader = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().readText() }
         val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
             OperationResult(false, "The operation timed out.", details = args.first())
         } else {
-            val output = process.inputStream.bufferedReader().readText().take(8_000)
+            val output = runCatching { reader.get(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault("").take(maxOutput)
             val result = OperationResult(process.exitValue() == 0, if (process.exitValue() == 0) "Operation completed." else "The operation did not complete.", process.exitValue(), output)
             diagnostics.operation(args.first(), result)
             result
@@ -218,13 +220,31 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
     override fun installAppleDeviceSupport() = OperationResult(true, "Apple device support is built into macOS.")
 
     override fun isDeviceConnected(): Boolean {
-        val usb = run("/usr/sbin/system_profiler", "SPUSBDataType", "-detailLevel", "mini", timeoutSeconds = 20)
-        return (usb.success && (usb.details.contains("iPhone", true) || usb.details.contains("iPad", true))).also { diagnostics.deviceDetected(it) }
+        val usbmuxd = Usbmuxd.usbDeviceCount()
+        if (usbmuxd != null && usbmuxd > 0) {
+            diagnostics.macDeviceProbes(usbmuxd, ioreg = null, systemProfiler = null)
+            return true.also { diagnostics.deviceDetected(it) }
+        }
+        // Fallbacks for a usbmuxd that is unreachable or has not enumerated the phone yet.
+        // `ioreg -p IOUSB` lists device names on Intel and Apple silicon alike; system_profiler
+        // moved USB to SPUSBHostDataType on Apple silicon and SPUSBDataType is empty there.
+        val ioreg = run("/usr/sbin/ioreg", "-p", "IOUSB", "-w0", timeoutSeconds = 10, maxOutput = 200_000)
+        val ioregFound = ioreg.success && mentionsIosDevice(ioreg.details)
+        val profilerFound = !ioregFound && run(
+            "/usr/sbin/system_profiler", "SPUSBHostDataType", "SPUSBDataType", timeoutSeconds = 20, maxOutput = 500_000,
+        ).let { it.success && mentionsIosDevice(it.details) }
+        diagnostics.macDeviceProbes(usbmuxd, ioregFound, if (ioregFound) null else profilerFound)
+        return (ioregFound || profilerFound).also { diagnostics.deviceDetected(it) }
     }
 
-    override fun isDeviceTransportReady(): Boolean = true.also { diagnostics.deviceTransportReady(it) }
+    override fun isDeviceTransportReady(): Boolean = Usbmuxd.isReachable().also { diagnostics.deviceTransportReady(it) }
 
-    override fun openAppleServiceManager(): OperationResult = OperationResult(true, "Apple device communication is built into macOS.")
+    override fun openAppleServiceManager(): OperationResult = try {
+        ProcessBuilder("/usr/bin/open", "-a", "Finder").start()
+        OperationResult(true, "Finder opened. Your iPhone should appear in the sidebar under Locations once it is trusted.")
+    } catch (error: Exception) {
+        OperationResult(false, "Could not open Finder.", details = error.message.orEmpty())
+    }
 
     override fun findIloader(): Path? = listOf(
         Path.of("/Applications/iloader.app"), Path.of(System.getProperty("user.home"), "Applications", "iloader.app")
