@@ -1496,9 +1496,17 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         // background, so a lock-screen pause or an away transition there has not reached it yet.
         // A barrier hold keeps `shouldPlay` while it parks the engine, and resuming through it would
         // start this member before the instant everybody else starts at.
+        //
+        // A party guest never resumes here at all. Its position is as old as the background, and on
+        // iOS the away transition may not have run yet (it needs a frame) - so `shouldPlay` can still
+        // say play. It stays paused, and the party puts it back: the away return, or the next tick's
+        // drift correction, which seeks a stopped guest to the party's position before it plays. The
+        // host is the party clock, so its own intent is the right answer.
         "externalRestorePlaybackIntent" -> {
             val controller = playerController ?: return true
-            if (shouldPlay && !partyHoldingForBarrier) controller.play() else controller.pause()
+            val party = WatchPartyRepository.uiState.value
+            val partyGuest = partyOwnsTransport() && party.party?.hostProfileId != party.activeProfileId
+            if (shouldPlay && !partyHoldingForBarrier && !partyGuest) controller.play() else controller.pause()
         }
         "reloadSources" -> {
             prepareSourcesForPlayerControls(forceRefresh = true)
