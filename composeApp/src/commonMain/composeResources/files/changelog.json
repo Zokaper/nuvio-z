@@ -250,6 +250,96 @@
           ],
           "title": "An expired sign-in no longer signs you out",
           "body": "A sign-in that had only expired - most often in the first seconds after waking the device - was treated as a deleted account, and the app signed you out. It is now refreshed instead; you are signed out only if your account really is gone."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Choose how the navigation bar looks",
+          "body": "The bar is now the one from the latest Nuvio: floating with a jelly slide between tabs, labels that tuck away as you scroll, or always expanded, always compact, or the classic bar. Settings → Layout → Navigation Bar shows a live preview, and on Android 13 and later can add a soft glass glow. Social and your other Nuvio Z tabs are all still there."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A smoother Home banner",
+          "body": "The featured banner now cycles from the last title back to the first without flashing through all the others, settles properly when you come back to Home, and takes less room when you have nothing in Continue Watching."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Your subtitle choice carries to the next episode",
+          "body": "Pick a subtitle and the next episode picks the same one again - from the same provider and in the same language - instead of falling back to your default language. Turning subtitles off stays off. Nuvio never reuses the previous episode's subtitle file on a different episode."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Shuffle episodes (optional)",
+          "body": "Play a series in random order, choosing from unwatched or all episodes. It is off by default; turn it on in Settings → Layout → Detail Page, then use Shuffle from a show's page."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Custom poster images (advanced)",
+          "body": "Point Nuvio at a poster service with a URL pattern and choose which screens use it - Home, Continue Watching, Collections, Library, Search and title pages. Titles the service does not cover keep their normal poster."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Recent searches",
+          "body": "Search remembers what you looked for and offers it again when you tap the search bar. Turn it off in Settings → Content & Discovery."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Richer title details from TMDB, on by default",
+          "body": "Cast photos, artwork, episode details, collections and more now come from TMDB out of the box, using Nuvio's built-in key - you no longer need your own. A personal key still works, and each part can be switched off. If you had already turned TMDB on or off, your choice is kept."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "New player controls",
+          "body": "The player has the newer control layout from Nuvio, with Watch Together still in its toolbar. Prefer the old one? Settings → Playback → Legacy layout brings it back."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Skip movie credits",
+          "body": "Movies can now skip their end credits, and jump straight to a post-credits scene when there is one."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Refreshed pop-ups and menus",
+          "body": "Dialogs, bottom sheets and drop-down menus have the cleaner current Nuvio look, and the source list shows a gentle shimmer while add-ons are still answering."
         }
       ],
       "debug": [
@@ -439,6 +529,78 @@
           ],
           "title": "Nuvio Z keeps its own sign-in",
           "body": "Nuvio Z, Nuvio Z Debug and Nuvio shared one saved sign-in on Windows, so running two of them could sign all of them out. Each now keeps its own. After this update the first of them you open stays signed in; any other may ask you to sign in once."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Your subtitle choice carries to the next episode",
+          "body": "Pick a subtitle and the next episode picks the same one again - from the same provider and in the same language - instead of falling back to your default language. Turning subtitles off stays off. Nuvio never reuses the previous episode's subtitle file on a different episode."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Custom poster images (advanced)",
+          "body": "Point Nuvio at a poster service with a URL pattern and choose which screens use it - Home, Continue Watching, Collections, Library, Search and title pages. Titles the service does not cover keep their normal poster."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Recent searches",
+          "body": "Search remembers what you looked for and offers it again when you tap the search bar. Turn it off in Settings → Content & Discovery."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Richer title details from TMDB, on by default",
+          "body": "Cast photos, artwork, episode details, collections and more now come from TMDB out of the box, using Nuvio's built-in key - you no longer need your own. A personal key still works, and each part can be switched off. If you had already turned TMDB on or off, your choice is kept."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Skip movie credits",
+          "body": "Movies can now skip their end credits, and jump straight to a post-credits scene when there is one."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Refreshed pop-ups and menus",
+          "body": "Dialogs, bottom sheets and drop-down menus have the cleaner current Nuvio look, and the source list shows a gentle shimmer while add-ons are still answering."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Picture-in-Picture",
+          "body": "Pop the player out into a small window that stays on top while you do other things, then restore it to the main window - the same playback, not a second copy, and Watch Together keeps working. Available on Windows and macOS."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "A new top bar",
+          "body": "The top bar is the new one from Nuvio, with the same jelly slide between tabs. Choose it or the sidebar in Settings → Layout → Desktop Navigation; both now include Downloads and Social. A narrow window uses the top bar too."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "A smoother Home banner",
+          "body": "The featured banner now cycles from the last title back to the first without flashing through all the others, settles properly when you come back to Home, and takes less room when you have nothing in Continue Watching."
         }
       ],
       "debug": [
