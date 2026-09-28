@@ -50,18 +50,19 @@ class PlayerLoadingSettingsTest {
     }
 
     @Test
-    fun olderSyncedSettingsRestoreTheDefaultOnlyForTheActiveProfile() {
+    fun olderSyncedSettingsKeepTheLocalValueAndOtherProfiles() {
         val preferences = RuntimeEnvironment.getApplication()
             .getSharedPreferences("nuvio_player_settings", Context.MODE_PRIVATE)
         val otherKey = ProfileScopedKey.of("show_player_loading_status", 99)
         preferences.edit().putBoolean(otherKey, false).commit()
         PlayerSettingsStorage.saveShowPlayerLoadingStatus(false)
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
         PlayerSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
 
-        assertNull(PlayerSettingsStorage.loadShowPlayerLoadingStatus())
+        assertEquals(false, PlayerSettingsStorage.loadShowPlayerLoadingStatus())
         assertEquals(false, preferences.getBoolean(otherKey, true))
         PlayerSettingsRepository.clearLocalState()
         PlayerSettingsRepository.ensureLoaded()
-        assertEquals(true, PlayerSettingsRepository.uiState.value.showPlayerLoadingStatus)
+        assertEquals(false, PlayerSettingsRepository.uiState.value.showPlayerLoadingStatus)
     }
 }

@@ -69,18 +69,18 @@ class StreamBackgroundSettingsTest {
     }
 
     @Test
-    fun olderSettingsRestoreTheDefaultWithoutChangingOtherProfiles() {
+    fun olderSettingsKeepTheLocalModeWithoutChangingOtherProfiles() {
         val preferences = RuntimeEnvironment.getApplication()
             .getSharedPreferences("nuvio_stream_badge_settings", Context.MODE_PRIVATE)
         val otherProfileKey = ProfileScopedKey.of("stream_background_mode", 99)
         preferences.edit().putString(otherProfileKey, "normal").commit()
         StreamBadgeSettingsRepository.setBackgroundMode(StreamBackgroundMode.Cinematic)
 
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
         StreamBadgeSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
         StreamBadgeSettingsRepository.onProfileChanged()
 
-        assertEquals(StreamBackgroundMode.Normal, StreamBadgeSettingsRepository.uiState.value.backgroundMode)
-        assertNull(StreamBadgeSettingsStorage.loadStreamBackgroundMode())
+        assertEquals(StreamBackgroundMode.Cinematic, StreamBadgeSettingsRepository.uiState.value.backgroundMode)
         assertEquals("normal", preferences.getString(otherProfileKey, null))
     }
 
@@ -138,12 +138,16 @@ class StreamBackgroundSettingsTest {
                 entries = settingsSearchEntries(
                     isTablet = isTablet.value,
                     pluginsEnabled = false,
+                    downloadsEnabled = false,
+                    notificationsEnabled = false,
+                    externalPlayerSupported = false,
                     supportersContributorsPageEnabled = false,
                     accountDeletionEnabled = false,
                     personalMediaAddonCopyEnabled = false,
                     liquidGlassNativeTabBarSupported = false,
                     switchProfileAvailable = false,
                     checkForUpdatesAvailable = false,
+                    runSetupAgainAvailable = false,
                 )
             }
         }

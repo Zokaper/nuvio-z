@@ -167,6 +167,10 @@ fun StreamsScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by StreamsRepository.uiState.collectAsStateWithLifecycle()
+    val streamDisplaySettings by remember {
+        StreamBadgeSettingsRepository.ensureLoaded()
+        StreamBadgeSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
     val playerSettings by remember {
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
@@ -383,6 +387,7 @@ fun StreamsScreen(
             } else {
                 MobileStreamsLayout(
                     isEpisode = isEpisode,
+                    backgroundMode = streamDisplaySettings.backgroundMode,
                     title = title,
                     logo = logo,
                     heroArtwork = heroArtwork,
@@ -539,6 +544,7 @@ fun StreamsScreen(
 @Composable
 private fun MobileStreamsLayout(
     isEpisode: Boolean,
+    backgroundMode: StreamBackgroundMode,
     title: String,
     logo: String?,
     heroArtwork: String?,
@@ -558,7 +564,7 @@ private fun MobileStreamsLayout(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        if (heroArtwork != null) {
+        if (backgroundMode == StreamBackgroundMode.Cinematic && heroArtwork != null) {
             AsyncImage(
                 model = heroArtwork,
                 contentDescription = null,
@@ -598,7 +604,7 @@ private fun MobileStreamsLayout(
                     .fillMaxWidth()
                     .weight(1f),
             ) {
-                if (isEpisode) {
+                if (isEpisode && backgroundMode == StreamBackgroundMode.Cinematic) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -865,6 +871,13 @@ internal fun ProviderFilterRow(
     modifier: Modifier = Modifier,
 ) {
     val addonGroups = groups.filter { it.streams.isNotEmpty() || it.isLoading }
+    // Upstream 458f810b2: a provider that finished with nothing loses its chip, so its selection must
+    // go too - otherwise the list stays empty under a filter nobody can see.
+    LaunchedEffect(addonGroups, selectedFilter) {
+        if (selectedFilter != null && addonGroups.none { it.addonId == selectedFilter }) {
+            onFilterSelected(null)
+        }
+    }
     val scrollState = rememberScrollState()
 
     Row(

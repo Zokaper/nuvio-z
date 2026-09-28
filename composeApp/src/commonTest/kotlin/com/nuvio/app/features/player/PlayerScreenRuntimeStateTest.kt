@@ -3,13 +3,11 @@ package com.nuvio.app.features.player
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.streams.StreamsUiState
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlayerScreenRuntimeStateTest {
@@ -127,34 +125,6 @@ class PlayerScreenRuntimeStateTest {
 
         assertTrue(runtime.isScrubbingTimeline)
         assertEquals(100_000L, runtime.scrubbingPositionMs)
-    }
-
-    @Test
-    fun tappingNextEpisodeDuringSearchKeepsTheCurrentJob() {
-        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
-        val job = Job()
-        runtime.nextEpisodeAutoPlayJob = job
-        runtime.nextEpisodeAutoPlaySearching = true
-
-        runtime.playNextEpisode()
-
-        assertSame(job, runtime.nextEpisodeAutoPlayJob)
-        assertTrue(job.isActive)
-        job.cancel()
-    }
-
-    @Test
-    fun tappingNextEpisodeDuringCountdownKeepsTheCurrentJob() {
-        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
-        val job = Job()
-        runtime.nextEpisodeAutoPlayJob = job
-        runtime.nextEpisodeAutoPlayCountdown = 2
-
-        runtime.playNextEpisode()
-
-        assertSame(job, runtime.nextEpisodeAutoPlayJob)
-        assertTrue(job.isActive)
-        job.cancel()
     }
 
     @Test

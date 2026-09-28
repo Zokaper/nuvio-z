@@ -76,14 +76,6 @@ class StreamOrientationTest {
     }
 
     @Test
-    fun openingManualStreamListWithNoCachedLinkDoesNotRequestLandscape() {
-        PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.setStreamReuseLastLinkEnabled(true)
-        openStreamList(manualSelection = false)
-        assertNoLandscapeRequest()
-    }
-
-    @Test
     fun openingManualStreamListWithNoSavedBingeGroupDoesNotRequestLandscape() {
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.setStreamAutoPlayReuseBingeGroup(true)
@@ -101,7 +93,6 @@ class StreamOrientationTest {
     @Test
     fun explicitManualSelectionDoesNotRequestLandscape() {
         PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.setStreamReuseLastLinkEnabled(true)
         openStreamList(manualSelection = true)
         assertNoLandscapeRequest()
     }
@@ -118,7 +109,6 @@ class StreamOrientationTest {
 
     private fun verifySavedBingeGroupOrientation(reuseBingeGroup: Boolean) {
         PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.setStreamReuseLastLinkEnabled(false)
         PlayerSettingsRepository.setStreamAutoPlayMode(StreamAutoPlayMode.MANUAL)
         PlayerSettingsRepository.setStreamAutoPlayPreferBingeGroup(true)
         PlayerSettingsRepository.setStreamAutoPlayReuseBingeGroup(reuseBingeGroup)
@@ -144,7 +134,7 @@ class StreamOrientationTest {
             """.trimIndent()))
             repeat(3) {
                 server.enqueue(MockResponse().setBody("""
-                    {"streams":[{"name":"Available source","url":"https://example.com/episode.mp4",
+                    {"streams":[{"name":"Available source 1080p","url":"https://example.com/episode.mp4",
                      "behaviorHints":{"bingeGroup":"different-group"}}]}
                 """.trimIndent()).setBodyDelay(500, TimeUnit.MILLISECONDS))
             }

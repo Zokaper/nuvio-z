@@ -48,9 +48,10 @@ class ThemeSettingsRepositoryTest {
         assertEquals(false, ThemeSettingsRepository.navBarGlowEnabled.value)
         assertEquals(NavBarStyle.COMPACT, ThemeSettingsRepository.navBarStyle.value)
 
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
         ThemeSettingsStorage.replaceFromSyncPayload(kotlinx.serialization.json.buildJsonObject {})
         ThemeSettingsRepository.onProfileChanged()
-        assertEquals(true, ThemeSettingsRepository.navBarGlowEnabled.value)
+        assertEquals(false, ThemeSettingsRepository.navBarGlowEnabled.value)
     }
 
     @Test

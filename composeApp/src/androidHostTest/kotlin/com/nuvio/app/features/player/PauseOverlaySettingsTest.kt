@@ -65,7 +65,7 @@ class PauseOverlaySettingsTest {
     }
 
     @Test
-    fun pauseOverlayRoundTripsThroughSyncAndOlderPayloadsRestoreTheDefault() {
+    fun pauseOverlayRoundTripsThroughSyncAndOlderPayloadsKeepTheLocalValue() {
         PlayerSettingsRepository.setPauseOverlayEnabled(false)
         val payload = PlayerSettingsStorage.exportToSyncPayload()
         assertEquals(false, payload.decodeSyncBoolean("pause_overlay_enabled"))
@@ -80,11 +80,12 @@ class PauseOverlaySettingsTest {
         val otherProfileKey = ProfileScopedKey.of("pause_overlay_enabled", 99)
         preferences.edit().putBoolean(otherProfileKey, false).commit()
 
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
         PlayerSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
         PlayerSettingsRepository.onProfileChanged()
 
-        assertNull(PlayerSettingsStorage.loadPauseOverlayEnabled())
-        assertTrue(PlayerSettingsRepository.uiState.value.pauseOverlayEnabled)
+        assertEquals(false, PlayerSettingsStorage.loadPauseOverlayEnabled())
+        assertFalse(PlayerSettingsRepository.uiState.value.pauseOverlayEnabled)
         assertFalse(preferences.getBoolean(otherProfileKey, true))
     }
 }

@@ -51,20 +51,10 @@ class StreamAutoPlayLoadingPolicyTest {
     }
 
     @Test
-    fun `last link reuse starts with loading even in manual mode`() {
-        assertTrue(
-            StreamsUiState().shouldShowAutoPlayLoading(
-                "new", PlayerSettingsUiState(streamReuseLastLinkEnabled = true), false,
-            ),
-        )
-    }
-
-    @Test
     fun `predicted autoplay loading does not rotate before the request starts`() {
         val state = StreamsUiState()
         val settings = listOf(
             autoPlaySettings,
-            PlayerSettingsUiState(streamReuseLastLinkEnabled = true),
             PlayerSettingsUiState(streamAutoPlayReuseBingeGroup = true),
         )
 

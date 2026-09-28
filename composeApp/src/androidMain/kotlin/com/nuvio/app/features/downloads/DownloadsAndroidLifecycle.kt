@@ -60,7 +60,9 @@ internal object DownloadsAndroidLifecycle {
     private const val notificationPermissionAskedKey = "notification_permission_asked"
 
     private var appContext: Context? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Lazy: touching Dispatchers.Main in the static initializer made this object unloadable for the
+    // rest of a host-test JVM whenever an earlier test had reset Main. Same dispatcher on device.
+    private val scope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     private val diagnosticsWriter = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "nuvio-download-diagnostics").apply { isDaemon = true }
     }

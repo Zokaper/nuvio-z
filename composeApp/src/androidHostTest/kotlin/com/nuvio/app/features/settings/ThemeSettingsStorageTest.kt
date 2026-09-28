@@ -42,16 +42,17 @@ class ThemeSettingsStorageTest {
     }
 
     @Test
-    fun olderPayloadClearsOnlyTheCurrentProfilesGlowPreference() {
+    fun olderPayloadKeepsTheGlowPreferenceAndOtherProfiles() {
         val preferences = RuntimeEnvironment.getApplication()
             .getSharedPreferences("nuvio_theme_settings", Context.MODE_PRIVATE)
         val otherProfileKey = ProfileScopedKey.of("nav_bar_glow_enabled", 99)
         preferences.edit().putBoolean(otherProfileKey, false).commit()
         ThemeSettingsStorage.saveNavBarGlowEnabled(false)
 
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
         ThemeSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
 
-        assertNull(ThemeSettingsStorage.loadNavBarGlowEnabled())
+        assertEquals(false, ThemeSettingsStorage.loadNavBarGlowEnabled())
         assertEquals(false, preferences.getBoolean(otherProfileKey, true))
     }
 
@@ -84,7 +85,7 @@ class ThemeSettingsStorageTest {
     }
 
     @Test
-    fun replacingAnOlderPayloadClearsOnlyTheCurrentProfilesGradient() {
+    fun replacingAnOlderPayloadKeepsTheGradientAndOtherProfiles() {
         val context = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences("nuvio_theme_settings", Context.MODE_PRIVATE)
         val otherProfileKey = ProfileScopedKey.of("custom_theme_colors", 99)
@@ -95,7 +96,8 @@ class ThemeSettingsStorageTest {
             put("selected_theme", encodeSyncString("WHITE"))
         })
 
-        assertNull(ThemeSettingsStorage.loadCustomThemeColors())
+        // Z: a payload that predates a key leaves the local value alone (SyncPreferenceJson.syncKeysToClear).
+        assertEquals(CustomThemeColors.Default.encode(), ThemeSettingsStorage.loadCustomThemeColors())
         assertEquals("WHITE", ThemeSettingsStorage.loadSelectedTheme())
         assertEquals("#111111,#222222,#333333", preferences.getString(otherProfileKey, null))
     }

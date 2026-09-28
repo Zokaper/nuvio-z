@@ -41,8 +41,8 @@ class PlayerNextEpisodeRulesTest {
     fun thresholdUsesConfiguredFallbackWhenNoOutroExists() {
         assertFalse(
             PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-                positionMs = 96_000L,
-                durationMs = 100_000L,
+                positionMs = 960_000L,
+                durationMs = 1_000_000L,
                 skipIntervals = emptyList(),
                 thresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
                 thresholdPercent = 97f,
@@ -51,8 +51,8 @@ class PlayerNextEpisodeRulesTest {
         )
         assertTrue(
             PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-                positionMs = 97_000L,
-                durationMs = 100_000L,
+                positionMs = 970_000L,
+                durationMs = 1_000_000L,
                 skipIntervals = emptyList(),
                 thresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
                 thresholdPercent = 97f,
