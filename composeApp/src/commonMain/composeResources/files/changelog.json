@@ -57,7 +57,7 @@
             "ios"
           ],
           "title": "Your downloads as a library",
-          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page - marked Downloaded, with what is on this device, seasons as tabs and every episode ready to play offline."
+          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page, with what is on this device, seasons as tabs and every episode ready to play offline."
         },
         {
           "category": "feature",
@@ -148,7 +148,6 @@
         {
           "category": "fix",
           "platforms": [
-            "android",
             "ios"
           ],
           "title": "Downloads now continue with the screen off",
@@ -326,7 +325,7 @@
             "desktop"
           ],
           "title": "Your downloads as a library",
-          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page - marked Downloaded, with what is on this device, seasons as tabs and every episode ready to play offline."
+          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page, with what is on this device, seasons as tabs and every episode ready to play offline."
         },
         {
           "category": "feature",
