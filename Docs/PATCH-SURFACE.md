@@ -27,6 +27,22 @@ Previously regenerated 2026-08-24 against `claude/upstream-doctrine-stage0`, aft
 KMP syncs, with `nuvio-z` at `e27b9195` (Nuvio `0.4.8`). `NuvioZWeb` was recorded there as "synced,
 0 behind"; it had never had an upstream remote fetched, and is in fact 143 behind vanilla `1.0.x`.
 
+### 2026-09-28 iOS player seam note (mobile release hardening)
+
+The iOS lock-screen / remote-command routing and iOS `engineReadiness` touched five upstream-owned
+files. Four were already on the surface: `MPVPlayerBridge.swift` (stored readiness properties, the bridge
+getters, `setRemoteCommands`, and `enterForeground` restoring the runtime's intent instead of always
+playing), `PlayerBridge.kt` (the protocol methods), `PlayerEngine.ios.kt` (the router wiring and the
+snapshot's readiness), and `PlayerScreenRuntimeUi.kt` (one `externalRestorePlaybackIntent` event branch).
+`PlayerEngine.android.kt` only *lost* `mpvEngineReadiness`, which moved unchanged to the Z file
+`MpvEngineReadiness.kt`.
+
+**New to the surface: `iosApp/iosApp/Player/NowPlayingController.swift`**, six call sites that now call the
+owner's `remote*` methods instead of `playPlayback` / `pausePlayback` / `seekToMs` / `seekByMs`. No seam was
+possible: the `MPRemoteCommandCenter` targets are registered inside that file. The routing itself lives in Z
+files - `MPVPlayerRemoteCommands.swift` (a Swift extension) and `PlayerRemoteCommands.kt` - so a sync that
+conflicts here resolves by keeping upstream's handler bodies and re-pointing each call.
+
 ## The shape of it
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
