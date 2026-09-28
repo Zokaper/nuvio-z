@@ -2,13 +2,142 @@
 
 Last updated: 2026-09-28
 
-## Phase 9 — Downloads Redesign: FEATURE-FROZEN, CLOSEOUT VERIFIED - release gate pending (opened 2026-09-24)
+## Phase 9 — Downloads Redesign: DONE — RELEASE GATE PENDING (opened 2026-09-24, closed 2026-09-28)
 
 **Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
 the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `NuvioZDesktop`
 `claude/phase-9-downloads`. Shared commits reach desktop by **cherry-pick** of the mobile commit
 (a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
 diff), plus desktop-only actuals.
+
+### Phase 9 release-gate pass - DONE, RELEASE GATE PENDING (2026-09-28)
+
+**This is the current state of Phase 9. Everything below it is history.** No stable release, stable tag, feed
+promotion or TestFlight upload has been made, and no Phase 10 work has started.
+
+**Final commits** (both branches clean, pushed, and **not merged** to `main` / `Dev`):
+- **Mobile** `claude/phase-9-downloads` at **`43d9a325f`** (debug build 64). Last code commit `6ab634f46`. After it:
+  STATUS, the changelog copy fix `f39f6133f`, the docs `0ae694190`, and the debug counter with debug changelog
+  lines `43d9a325f`.
+- **Desktop** `claude/phase-9-downloads` at **`71f483d27`** (debug build 73). Last product-code commit
+  `f7526b5f2`. After it: `e55de6982` (STATUS), `89e54c9cb` (test-only race fixes), `aba35cb48` (the same
+  changelog copy fix), `589ca0a58` (the split runner), and `71f483d27` (debug counter and debug lines).
+  The earlier "owed on `f7526b5f2`" and "HEAD `e55de6982`" were the same code; that is resolved.
+
+**Architecture (final).** One device-wide download engine (`DownloadStore`, `DownloadScheduler`, `SourceRealizer`,
+`TransferHost`) under three platform hosts: Android in-process with a user-initiated job and a `dataSync`
+fallback; desktop in-process, one `HttpClient` per attempt; iOS a system-owned background `URLSession` with a
+handover window of 30 and **no "Downloads at once" setting**. Download Mode (Automatic / Assisted / Manual) is a
+profile policy independent of Playback Mode. Finished files sit in `Title/Season XX/`, and the store stays
+authoritative. Rows: Z-FEATURES D16-D24, W11 and C21 (now revision 15).
+
+**Automated verification on the final code:**
+- **Mobile.** On `6ab634f46`: Android host **2,616 / 2,616** (results deleted, `--rerun`) and
+  `:androidApp:compileFullDebugKotlin`; iOS build run `36360424724` success; CI success on `6ab634f46` and
+  `b8727a6ea`. The later changes are resource and docs only. After the changelog edit, the What's New host tests
+  passed **21 / 21** (`ChangelogFileTest`, `WhatsNewSelectionTest`, `ReleaseNotesMarkdownTest`). Push CI on the
+  final head runs the full host suite, the `AndroidUpdateChannelTest` release-channel guard and
+  `assembleFullDebug`. Debug release run `36385902184` builds the APK and the iOS IPA from `43d9a325f`.
+- **Desktop: `desktopTest` 2,799 / 2,799 on `589ca0a58`**, the complete suite. It ran in four disjoint parts
+  with `scripts/run-desktop-tests-split.sh`: rest 1,291 (16 m 13 s), playback 1,002, downloads 457, E2E 49
+  (9 m 8 s). There were 0 duplicates, every part reached `BUILD SUCCESSFUL`, and results were deleted before
+  each part, with `--rerun`. The first complete run, on `e55de6982`, had **1 failure in 2,799**:
+  `AssistedChoiceFlowTest.realSizesOverTheSizeRuleBecomeTheOverLimitDecision`. It was a test race, not the
+  product. Two more of the same kind turned up when the class ran alone; all three are fixed in `89e54c9cb`,
+  and the class then passed 15 / 15 alone. Details are in the desktop STATUS. `71f483d27` adds only the debug
+  counter and debug changelog lines. Desktop CI (`36361360751`) is red only on the pre-existing Linux
+  `frame_copy_test`; its Windows MSI job is green.
+- `check-changelog.py`: mobile 127 (24 entries) and desktop 132 (12) pass.
+- **Shared-code convergence:** no Phase 9 download, What's New, wizard or changelog file differs between the
+  repos. Phase 9 touched only three files that differ, all known to be divergent: `strings.xml`,
+  `MainAppContent.kt` and `MetaDetailsScreen.kt`. All 302 Phase 9 strings match, and the Phase 9 hunks of
+  `MainAppContent.kt` are identical. Desktop's hero wires the same title-level `SelectedSeasons(emptySet())`
+  flow and the same season-delete confirmation. There is no accidental drift.
+
+**Physical QA matrix** (Physical = seen on a device; Automated = tests or renders only):
+
+| | Android | iOS | Desktop |
+| --- | --- | --- | --- |
+| Automatic / Assisted / Manual | Physical | Physical (used through Phase 9) | Physical (used through Phase 9) |
+| Assisted background discovery | Physical | Physical (`.56`) | Automated |
+| Choose now | Physical | Physical tap (`.56`); the later visibility fix is automated | Automated |
+| Ready / finished notification | Physical | Automated (never reported) | N/A |
+| Pause / Resume | Physical (Pause all, Resume) | Physical (57: paused through the lock, resumed from its partial) | Automated (E2E) |
+| Background / locked | Physical (screen off) | Physical (`.46`/`.47`, 57, the 42 episodes locked) | N/A |
+| 30-task handover | N/A | Physical (the 42-episode run) | N/A |
+| Notice past 30 | N/A | Automated (not rendered, not seen) | N/A |
+| Network policy | Physical (Wi-Fi / mobile data) | Automated | Automated (never metered) |
+| Progress (season, summary) | Physical | Automated | Physical (24-episode S6) |
+| Live Activity | N/A | Automated (the Phase 9 lines were not reported) | N/A |
+| Queue / concurrency | Physical | N/A (iOS decides) | Physical (24 episodes, 0 retries) |
+| Delete / cancel, incl. discovery | Physical | Automated | Automated |
+| Downloads UI / library | Physical (queue screen); the library redesign is render-only | Automated (render) | Physical (approved) |
+| Title-level Download | Automated | Automated | Physical (wide hero) |
+| Offline playback | Automated | Physical in Phase 8 (`.42`); the Phase 9 policy is automated | Physical |
+| Offline autoplay | Automated | Automated | Physical |
+| Profile / setup wizard | Renders approved; not reported on a device | Physical (`.56`) | Renders approved; not reported on a device |
+| **Folder migration** | **Pending** | **Pending** | **Pending** |
+| **Transfer > 60 s through a redirect** | N/A | N/A | **Pending** |
+
+**Remaining Phase 9 items (physical only):**
+1. **Folder migration smoke.** Launch over an existing flat library, then check that the files move into
+   `Title/Season XX/`, the library lists them, and Play, autoplay and delete work, with nothing lost. Do it on
+   desktop once, plus one mobile platform. The mechanics differ only in the actual's rename call (Android
+   `renameTo`, iOS `moveItemAtPath`, desktop `Files.move`), so either Android or iOS is enough for mobile. The
+   iOS debug build shows `nuvio_downloads` in Files; Android's folder is app-private
+   (`adb shell run-as com.nuvio.app.z.debug ls -R files/downloads`). Debug 64 / 73 are the first builds that
+   carry it.
+2. **Desktop 60-second redirect fix.** One transfer that keeps receiving for **more than 60 s** through a debrid
+   redirect, with no "Retrying shortly" at the minute, no timeout while bytes arrive, and a normal finish.
+
+**Not Phase 9 work:** 10a / 10b are completed, rejected experiments. Subtitles (plan stage 11, a stretch) were
+not built and are deferred. TV is Phase 10.
+
+**Global stable-release blockers outside Phase 9:**
+- **Mobile:** no Apple Developer account and no TestFlight. ⚠ The workflow and the written policy disagree.
+  `android-release.yml` has `ios_testflight: if: false` ("parked in favor of SideStore"), and its `publish` ships
+  Android plus an **unsigned SideStore IPA**. `Docs/RELEASES.md` and the ROADMAP still say Android waits for the
+  matching iOS/TestFlight build. **Maintainer decision:** does the SideStore IPA count as the matching iOS build?
+  Until that is decided, the written policy holds.
+- **Mobile, also:** the iOS `NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch
+  Together hardware pass, and the Phase 6 Android Watch Together QA debt.
+- **Desktop:** none outside Phase 9. It needs the merge to `Dev`, the bump and a `dry-run`. macOS ships unsigned.
+
+**Non-blocking debt:**
+- The Android host can stay up on mobile data while the rest of the queue waits for Wi-Fi (battery only).
+- Startup makes about 2 filesystem checks per downloaded item.
+- Desktop per-attempt `HttpClient`s are released only by GC on Java 17.
+- Another profile's batch is judged with the on-screen profile's download policy.
+- The full `desktopTest` now has to run split (scripts added).
+- In `AssistedDiscovery`, the batch reads ready a moment before its candidates are handed over. A "Choose
+  quality" tap inside that window shows "Finding sources N of N" briefly, then the choice.
+- Older debt: deleting a profile leaves its downloads; the desktop live-status hook is a no-op; iOS force-quit
+  restarts the window from zero; a queue beyond 30 needs the app reopened (by design); desktop CI
+  `frame_copy_test`.
+
+**Proposed stable identities** (read from the code; not applied):
+- **Mobile:** `0.4.13-z1`, build **126**. `CURRENT_PROJECT_VERSION` is still `125`, which `0.5.0-beta+126`
+  already shipped under `com.nuvio.app.z`, so the release bump must raise it. Serial `127` is already set. Tag
+  `0.4.13-z1+127`. Android `com.nuvio.app.z`; iOS `com.nuvio.app.z` + `.DownloadsWidgetExtension`. Published as a
+  stable GitHub release on `Zokaper/nuvio-z`, plus the SideStore `source.json`.
+- **Desktop:** `0.1.23-alpha-z7`, `VERSION_CODE` 46, serial **132**, MSI ProductVersion `2.0.132` (upgrade UUID
+  unchanged). Tag `0.1.23-alpha-z7+132`. Published as a stable GitHub release on `Zokaper/NuvioZDesktop`, through
+  the in-app updater.
+- Both bumps are release steps: each is the final commit on `main` / `Dev` before promotion, so they were
+  deliberately **not** made here. The step-by-step procedure is in `ROADMAP.md` Phase 9, "Release-gate pass".
+
+**Changelog copy (both repos, identical):**
+- "Your downloads as a library" no longer says the page is "marked Downloaded", because the chip was removed.
+- "Downloads now continue with the screen off" is iOS-only. Its text is about iPhone, and Android users were
+  shown it.
+- The stable copy was otherwise read as a user would read it: no build numbers, experiment names or engineering
+  terms, and every claim has test or device evidence.
+- Mobile has no "sorted into folders" line on purpose: mobile users cannot see that folder (Android's is
+  app-private; Files sharing is on only in the iOS debug build).
+
+**Debug builds for device QA** (maintainer request, dispatched and not watched): mobile **debug 64** (run
+`36385902184`) and desktop **debug 73** (run `36385963112`). They are the first builds with the organized
+folders, the chip removal and the five `/code-review` fixes.
 
 ### Phase 9 closeout - final /code-review gate (2026-09-28)
 
