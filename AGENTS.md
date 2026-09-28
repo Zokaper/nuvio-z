@@ -707,6 +707,16 @@ host (see "Verifying without Gradle" below):
 .\gradlew.bat :composeApp:desktopTest --console=plain
 ```
 
+⚠ **For a full-suite count, run it split** (since the Phase 9 closeout, 2026-09-28). As one task the
+suite now takes longer than `desktopTest`'s fixed 20-minute `timeout` on the reference Windows
+machine, and hitting the cap fails the task while tests are still passing. That reads like a test
+failure and is not one. `scripts/run-desktop-tests-split.sh [output-dir]` in `NuvioZDesktop` runs
+four disjoint parts through `scripts/desktop-test-split.init.gradle`: `rest` (by exclusion, so no
+package can fall between parts), `playback` (player / playback / watchparty), `downloads` (without
+the E2E class) and `e2e` (`DesktopDownloadQueueE2ETest`). It deletes the results before each part,
+uses `--rerun`, and prints per-part and total counts plus a duplicate check. Report a count only from
+its summary with every part at `rc=0`. Targeted `--tests` runs are unaffected.
+
 Release builds run R8 and can use substantial CPU. Use a bounded worker count
 unless the user explicitly prefers maximum throughput.
 
