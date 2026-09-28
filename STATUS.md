@@ -42,7 +42,7 @@ iOS **Waived (not tested)**, Android **Not tested**. Transfer > 60 s through a r
   Together hardware pass, and the Phase 6 Android Watch Together QA debt. These are the remaining global mobile
   blockers, to be cleared or waived by the maintainer. The Apple account is no longer one of them.
 - **Both:** an explicit maintainer GO, then the release procedure in `ROADMAP.md` Phase 9 ("Release-gate pass").
-  The unpushed desktop-title layout fix (mobile `42906a61d`, desktop `4ce5c9af7`) is not in debug 64 / 73.
+  The desktop-title layout fix (mobile `42906a61d`, desktop `4ce5c9af7`) is pushed but not in debug 64 / 73.
 
 ### Phase 9 release-gate pass - DONE, RELEASE GATE PENDING (2026-09-28)
 
