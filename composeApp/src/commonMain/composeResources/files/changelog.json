@@ -232,6 +232,24 @@
           ],
           "title": "Your codec and HDR preferences apply to playback",
           "body": "Preferred codec and preferred dynamic range are now settings for watching, not only for downloading, and your audio language preference is taken into account when a source is picked for you. Find them under Settings → Playback. Leave them on Automatic and nothing changes."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Social reconnects by itself",
+          "body": "After waking from sleep or losing the connection, Social used to say to sign in, or show \"JWT expired\", until the app was restarted. It now reconnects on its own - when your account session comes back, when the network does, or when you open the Social tab."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "An expired sign-in no longer signs you out",
+          "body": "A sign-in that had only expired - most often in the first seconds after waking the device - was treated as a deleted account, and the app signed you out. It is now refreshed instead; you are signed out only if your account really is gone."
         }
       ],
       "debug": [
@@ -397,6 +415,30 @@
           ],
           "title": "Downloads no longer restart every minute",
           "body": "A download from a debrid service was cut and resumed about once a minute, showing \"Retrying shortly\" each time. It now runs through."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Social reconnects by itself",
+          "body": "After waking from sleep or losing the connection, Social used to say to sign in, or show \"JWT expired\", until the app was restarted. It now reconnects on its own - when your account session comes back, when the network does, or when you open the Social tab."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "An expired sign-in no longer signs you out",
+          "body": "A sign-in that had only expired - most often in the first seconds after waking the device - was treated as a deleted account, and the app signed you out. It is now refreshed instead; you are signed out only if your account really is gone."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Nuvio Z keeps its own sign-in",
+          "body": "Nuvio Z, Nuvio Z Debug and Nuvio shared one saved sign-in on Windows, so running two of them could sign all of them out. Each now keeps its own. After this update the first of them you open stays signed in; any other may ask you to sign in once."
         }
       ],
       "debug": [

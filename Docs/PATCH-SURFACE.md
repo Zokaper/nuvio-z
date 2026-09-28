@@ -43,6 +43,30 @@ possible: the `MPRemoteCommandCenter` targets are registered inside that file. T
 files - `MPVPlayerRemoteCommands.swift` (a Swift extension) and `PlayerRemoteCommands.kt` - so a sync that
 conflicts here resolves by keeping upstream's handler bodies and re-pointing each call.
 
+### 2026-09-28 official-session note (vanilla bugs V2 and V3, `drop-at-next-sync`)
+
+Two vanilla bugs broke Social and were promoted to patches under Rule 7 (`Docs/VANILLA-BUGS.md` V2, V3).
+Neither was fixed in `upstream/cmp-rewrite` `fc4608d29` or desktop `upstream/Dev` `379b9235d` when checked.
+**No file joins the surface.** Both upstream files were already on it: `AuthRepository.kt` for the Phase 8
+bring-up, and `SupabaseProvider.kt` as the Social seam. The widening is within them, and each is a call into a
+Z-owned file.
+
+- **`core/auth/AuthRepository.kt`, two lines.** `validateRemoteSession` and `signOutIfSessionInvalid` ask
+  `OfficialSessionRejection.isSessionGone(error, ::isInvalidRemoteSessionError)` instead of calling
+  upstream's classifier directly. Upstream's classifier is untouched and passed in, so the patch only
+  narrows its verdicts: a rejection signs out only when the auth server then refuses to refresh the session.
+  No seam was possible because the decision to sign out is taken inside those two functions.
+- **`core/network/SupabaseProvider.kt`, one line.** `install(Auth)` gains a block that sets
+  `sessionManager` from `officialSessionManager(backendUrl)`, an `expect` in the Z-owned
+  `core/network/OfficialSessionStorage.kt`. Android and iOS return null, which keeps upstream's default. The
+  desktop actual in `NuvioZDesktop` keeps the login in the install's data root and moves the old shared
+  registry value there once. The session storage can only be chosen where `Auth` is installed.
+
+**At the sync that brings upstream's fix, drop both:** restore the two `isInvalidRemoteSessionError` calls
+and bare `install(Auth)`, then delete `OfficialSessionRejection.kt` and the `OfficialSessionStorage*` files.
+If upstream fixes V2 differently, keep theirs. If upstream moves desktop session storage, the one-time move
+of the registry value must still happen somewhere, or existing desktop users stay split across two logins.
+
 ## The shape of it
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
