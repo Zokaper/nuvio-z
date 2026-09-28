@@ -1005,6 +1005,10 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             val intervalKey = current.autoSkipKey()
             val controller = playerController
             if (
+                // Upstream's guards: the controller belongs to the source now playing, and the
+                // resume seek has landed - a resumed episode reads 0:00, inside its intro, until it does.
+                playerControllerSourceUrl == activeSourceUrl &&
+                initialSeekApplied &&
                 initialLoadCompleted &&
                 !playbackSnapshot.isLoading &&
                 !isScrubbingTimeline &&

@@ -412,14 +412,17 @@ private fun PlaybackSettingsSection(
                     )
                 }
                 SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_legacy_layout),
-                    description = stringResource(Res.string.settings_playback_legacy_layout_description),
-                    checked = autoPlayPlayerSettings.useLegacyPlayerLayout,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setUseLegacyPlayerLayout,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
+                // Desktop draws its controls natively, so the Compose layout choice does not apply.
+                if (!isDesktop) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_legacy_layout),
+                        description = stringResource(Res.string.settings_playback_legacy_layout_description),
+                        checked = autoPlayPlayerSettings.useLegacyPlayerLayout,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setUseLegacyPlayerLayout,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                }
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_show_loading_overlay),
                     description = stringResource(Res.string.settings_playback_show_loading_overlay_description),
@@ -427,14 +430,18 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setShowLoadingOverlay,
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.playback_show_loading_status),
-                    description = stringResource(Res.string.playback_show_loading_status_sub),
-                    checked = autoPlayPlayerSettings.showPlayerLoadingStatus,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setShowPlayerLoadingStatus,
-                )
+                // Only the desktop native loading overlay shows the engine's stage; on phones the
+                // loading screen always describes its own steps, so the switch would do nothing.
+                if (isDesktop) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.playback_show_loading_status),
+                        description = stringResource(Res.string.playback_show_loading_status_sub),
+                        checked = autoPlayPlayerSettings.showPlayerLoadingStatus,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setShowPlayerLoadingStatus,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_pause_overlay),

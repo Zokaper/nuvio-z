@@ -2554,10 +2554,16 @@ private fun BoxScope.RenderPlaybackOverlays(
             logo = openingPresentation.logo,
             title = openingPresentation.title,
             onBackWithProgress = { requestBack() },
-            openingLoadingMessage = if (startingEpisode != null) {
-                stringResource(Res.string.player_next_episode_starting)
-            } else {
-                p2pInitialLoadingMessage
+            // Upstream's "show loading status" names the engine's stage. Only the desktop native
+            // overlay renders this message; on phones `PlaybackLoadingHost` draws its own steps.
+            openingLoadingMessage = when {
+                startingEpisode != null -> stringResource(Res.string.player_next_episode_starting)
+                p2pInitialLoadingMessage != null -> p2pInitialLoadingMessage
+                else -> playerLoadingStatusMessage(
+                    showStatus = playerSettingsUiState.showPlayerLoadingStatus,
+                    controllerReady = playerController != null,
+                    buffering = playbackSnapshot.isLoading,
+                )
             },
             p2pInitialLoadingProgress = p2pInitialLoadingProgress,
             showP2pRebufferStats = showP2pRebufferStats,
