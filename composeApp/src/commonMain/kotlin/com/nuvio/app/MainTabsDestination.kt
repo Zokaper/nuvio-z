@@ -97,7 +97,10 @@ internal fun MainTabsDestination(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenWidth = maxWidth
         val isTabletLayout = useTabletFloatingTabBar || screenWidth >= 768.dp
-        val tabActions = remember(actions, isTabletLayout) { actions(isTabletLayout) }
+        // Built every composition, as before: upstream memoizes this on the lambda's identity, but
+        // Z's inline `actions` lambda can keep its identity while values read when the
+        // AppTabActions is built change, which would leave stale callbacks in the tab host.
+        val tabActions = actions(isTabletLayout)
         val useNativeBottomTabs = if (useNativeNavigation) {
             useNativeTabBar
         } else {
