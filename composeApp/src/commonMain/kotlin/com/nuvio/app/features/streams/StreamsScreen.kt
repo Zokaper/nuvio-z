@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SearchOff
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.shimmer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -1334,18 +1335,13 @@ private fun StreamSectionHeader(
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f),
         )
         AnimatedVisibility(visible = isLoading, enter = fadeIn(), exit = fadeOut()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NuvioLoadingIndicator(
-                    modifier = Modifier.size(12.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(Res.string.streams_fetching),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            // Upstream 49d933265: the per-addon "Fetching" label shimmers instead of spinning.
+            Text(
+                text = stringResource(Res.string.streams_fetching),
+                modifier = Modifier.shimmer(),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
         error?.takeIf { it.isNotBlank() }?.let { message ->
@@ -1854,6 +1850,7 @@ private fun FooterLoadingBlock(modifier: Modifier = Modifier) {
     ) {
         Text(
             text = stringResource(Res.string.streams_checking_more_addons),
+            modifier = Modifier.shimmer(),
             style = MaterialTheme.typography.bodySmall.copy(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
