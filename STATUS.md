@@ -1,6 +1,61 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-28
+Last updated: 2026-09-29
+
+## Upstream UX convergence, part 2 - ON BRANCH, UNMERGED (2026-09-29)
+
+**This is the current state.** Branch `claude/pre-release-ux-convergence` in both Kotlin repositories,
+cut from the completed sync heads (mobile `88c5e010c`, desktop `b4c83e95a`, both untouched) and
+pushed. Not merged to `main` / `Dev`; no release, RC, tag, version/serial or feed change; no wizard,
+settings-reorganization or Phase 10 work; `iosSetup/` untouched. The durable record, including every
+area audited and why anything was kept Z, is **`Docs/UPSTREAM-SYNC-0.5.4.md`, "Part 2"**. The rule
+that drove it is now in `Docs/UPSTREAM.md` ("Resolving a conflict") and `AGENTS.md` rule 7.
+
+**What changed for users.** Mobile: upstream's floating jelly navigation bar (adaptive / expanded /
+compact / classic, glow on Android 13+, live preview in Settings -> Layout -> Navigation Bar) with
+Social and Z's tabs; tablets get upstream's compact floating bar at the top. Desktop: upstream's
+jelly top bar, now carrying Downloads and Social, with the sidebar still selectable; narrow windows
+use the top bar. Both: subtitle choice carried to the next episode (never the old URL), mobile's Home
+hero brought to desktop Z's (upstream-fixed) version, shimmer on the source list's loading labels,
+TMDB enrichment on for any profile with no stored choice. Desktop also takes upstream's current
+dialogs / sheets / menus (mobile already had them) and `752962638` (custom posters kept on return).
+Z's playback loading surface, Downloads, updater, Social / Watch Together, both player-control
+layouts and shuffle (mobile, off by default) are unchanged.
+
+**PiP + Watch Together (desktop, code audit only):** PiP reparents the one native surface into its
+window (`NativePlayerController.reparentSurface`) - no second engine, controller or party session.
+The PiP window has no controls of its own; native control events still go through the runtime's
+`onAction` (party-gated) before any local fallback, so PiP cannot bypass party transport or host-only
+restrictions, and remote play/pause/seek drives the same controller. Engine teardown (leaving,
+source or episode change) runs `DesktopPlayerPictureInPicture.release()`, so PiP never outlives its
+engine. Presence already treats PiP as Watching (`PartyPresenceTest`). No new PiP test: the action
+handler is private and PiP needs a real window. **Not physically verified.**
+
+**Verification.** Mobile Android host suite **3,224 total / 3,218 passed / 6 skipped / 0 failed** (373
+suites, results deleted, `--rerun`) on code head `fd344d707`; the only later code change, the review
+fix `8ffcb8d74`, compiled in `assembleFullDebug` (pass) and in push CI `36487916987` (success, host
+suite + debug APK). iOS build `36486408856` (device + simulator frameworks, unsigned app) succeeded
+on `fd344d707`. Pure group 1 passes 279; group 2 keeps its documented standalone Downloads failure.
+Desktop split suite **3,206 / 3,206**, 0 skipped / failed / duplicates (rest 1,673, playback 1,027,
+Downloads 457, E2E 49) on final code head `7bf01c009`; desktop CI `36487928657` builds the Windows MSI
+and is red only at the pre-existing vendored Linux `frame_copy_test` (`player != NULL`).
+Release R8 was not re-run in this pass.
+
+**Review finding fixed:** upstream memoized the tab actions on the lambda's identity; with Z's inline
+lambda that could hold stale callbacks, so Z's per-composition call was restored (`8ffcb8d74`).
+
+**Debt, not fixed:** `TabletFloatingTopBar` / `TabletTopPillItem` in `AppShellComponents.kt` are now
+unused in both repos (desktop upstream still carries them); `StreamsScreen.kt` keeps a local
+`ProviderFilterRow` beside upstream's shared one; mobile's jelly files sit in `commonMain` while
+mobile upstream keeps them in `androidMain` (see the PATCH-SURFACE note).
+
+**Physical QA still required (none of this was seen on a device):** the mobile bar in each style
+with and without Social, RTL, a 320 dp phone and a tablet; the desktop top bar vs sidebar at narrow,
+normal and 4K widths, including the profile popup; Home hero cycling and return on both; subtitles
+across a binge (addon subtitle, embedded, off); TMDB on a fresh profile and on a profile that had
+turned it off; desktop PiP as host and as guest (enter, exit, remote pause/seek while in PiP, episode
+change while in PiP, leave the party while in PiP); the restyled desktop dialogs and sheets. Plus
+everything already listed under the part-1 section below.
 
 ## Pre-release upstream convergence - COMPLETE ON INTEGRATION BRANCH (2026-09-28)
 

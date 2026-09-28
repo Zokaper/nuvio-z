@@ -67,6 +67,22 @@ and bare `install(Auth)`, then delete `OfficialSessionRejection.kt` and the `Off
 If upstream fixes V2 differently, keep theirs. If upstream moves desktop session storage, the one-time move
 of the registry value must still happen somewhere, or existing desktop users stay split across two logins.
 
+### 2026-09-29 upstream UX convergence note (part 2 of the 0.5.4 sync)
+
+Upstream files touched on `claude/pre-release-ux-convergence`, both repositories unless marked:
+`MainTabsDestination.kt` (Z's destinations spliced into upstream's floating-bar item list),
+`core/ui/NavigationBar.kt` (upstream's `contentPadding` / `compactSize` restored beside Z's measured
+height), `AppearanceSettingsPage.kt` (upstream's navigation sheet wired; narrow desktop is top bar),
+`PlayerScreenRuntimeTrackActions.kt` (upstream `c9d6f5f63` merged with Z's per-item URL rule),
+`StreamsScreen.kt` (two shimmer modifiers), `TmdbSettingsRepository.kt` (one line: the absent-value
+default, from Z's `TmdbEnrichmentDefault.kt`), `iosMain/.../FloatingNavigationBar.ios.kt` (named
+arguments into Z's `NuvioNavigationBar`). Mobile only: `HomeHeroSection.kt` now equals desktop's.
+**Layout divergence:** upstream's jelly sources sit in `commonMain` (desktop upstream 0.1.26's
+layout) in both repos; mobile upstream keeps them in `androidMain`, so the next mobile sync will show
+them as moved and `FloatingNavigationBar.android.kt` as rewritten - keep `commonMain`. Desktop only:
+the shared dialog / sheet / menu components were taken from mobile upstream ahead of desktop
+upstream, so desktop's next sync should find them already identical.
+
 ## The shape of it
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`

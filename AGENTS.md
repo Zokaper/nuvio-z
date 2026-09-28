@@ -174,6 +174,10 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
 6. **Retro-refactor opportunistically.** The `PlayerScreenRuntime*` cluster (5 files, 53 commits)
    and the `PlayerSettings*` cluster (4 files, 49) are where a sync will hurt. Refactor one into an
    extension point **the first time a sync conflicts in it** - not in advance.
+7. **Upstream's behaviour is the default in a sync.** Keep upstream features unless they conflict
+   with a deliberate Z feature or decision; a drifted file is not a reason to drop one. For a
+   divergent file, port the old-tag -> new-tag upstream delta surgically. Full rule:
+   `Docs/UPSTREAM.md`, "Resolving a conflict".
 
 ### General
 

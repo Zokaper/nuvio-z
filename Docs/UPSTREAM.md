@@ -218,6 +218,33 @@ upstream branches, with conflicts hand-resolved in both.
 6. Record the new base commit and version in `STATUS.md`, in `AGENTS.md`'s base line, and in the
    release notes.
 
+### Resolving a conflict: upstream's behaviour is the default
+
+A sync decides user-facing behaviour, not only text. The rule, set by the maintainer after the
+`0.5.4` convergence (see `Docs/UPSTREAM-SYNC-0.5.4.md`, part 2), is:
+
+1. **Z follows upstream by default.** Upstream behaviour and user-facing features are kept unless
+   they genuinely conflict with a deliberate Z feature, a Z architecture, a platform requirement or
+   an explicit maintainer decision - and the conflict is written down.
+2. **Existing downstream divergence is not a reason to drop an upstream feature.** "Our file has
+   drifted too far" or "the merge is ugly" is a cost of the port, never a verdict on the feature.
+   The first `0.5.4` pass deferred upstream's navigation, hero fixes and subtitle restore on exactly
+   that ground; part 2 had to go back for all three.
+3. **For a heavily divergent file, port the upstream delta, not the file.** Diff the previously
+   synced upstream revision against the new one (`git diff <old-tag> <new-tag> -- <file>`, or the
+   commits in that range), then carry each change onto Z surgically. Never replace a whole Z file
+   because upstream changed it, and never compare "current Z vs current upstream" to decide what is
+   new - that mixes our divergence into upstream's change.
+4. **Classify every upstream change you do not take,** as one of: already present in Z; conflicts
+   with a named Z feature or decision; genuinely worse or inapplicable here. "Large diff" is none
+   of these.
+5. **When two viable implementations differ materially in UX and no maintainer decision covers it,
+   surface the choice** in the sync record and `STATUS.md` instead of silently keeping Z's.
+
+Decisions already taken under this rule, so a later sync does not reopen them: Z's playback
+loading surface (`PlaybackLoadingHost`) is kept over upstream's; upstream's player controls are
+kept with the legacy layout as an option; episode shuffle is mobile-only and off by default.
+
 ### Cadence
 
 - **A sync is step 1 of the release procedure.** No Nuvio Z release is cut on a stale base.

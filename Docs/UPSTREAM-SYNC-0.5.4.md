@@ -144,3 +144,86 @@ subtitle loading, custom posters and shuffle where supported; and Phase 9 Downlo
 Exercise Social after sleep/token expiry. On desktop, verify release, debug and vanilla installs do
 not steal or revoke one another's official login. Only after those results may the version/serial
 bump be the final tracked release commit. This convergence did not cut or publish that RC.
+
+# Part 2: upstream UX convergence (2026-09-29)
+
+Branch `claude/pre-release-ux-convergence` in both repositories, cut from the completed sync heads
+(mobile `88c5e010c`, desktop `b4c83e95a`), which were left untouched. **Not merged to `main` /
+`Dev`. Nothing published; no version, serial, tag or feed change.** The first pass kept several of
+Z's older surfaces over upstream simply because Z's files had diverged. Part 2 reopened those under
+the rule now written in `Docs/UPSTREAM.md` ("Resolving a conflict"): diff old upstream -> new
+upstream, port the delta onto Z, and keep Z only for a named Z reason.
+
+## Adopted
+
+- **Mobile navigation.** Upstream's jelly `FloatingNavigationBar` (adaptive / expanded / compact,
+  classic unchanged), the glass glow (Android 13+), RTL-correct drag, the compact floating bar at the
+  top on tablets, and `NavigationBarSettingsSheet` with the live `NavigationBarPreview`. Z's
+  destinations are spliced into upstream's item list: Social only when enabled, Settings last, the
+  measured overlay reserve (`NuvioNavBarHeightState`) fed from the bar's size. Root back handler
+  takes upstream's `rootRouteActive` gate.
+- **Desktop navigation.** Upstream 0.1.26's jelly `DesktopNavigationBar` is the top-bar layout; the
+  sidebar remains the alternative (`DesktopNavigationLayout`). The top bar now carries desktop's
+  standalone Downloads and Social, which the old Z top bar lacked. A narrow desktop window uses the
+  top bar (upstream), not the phone pill.
+- **Home hero (mobile).** The four upstream fixes desktop Z already had: compact without Continue
+  Watching (`872a5937f`), settle on return (`8f0bfc8e5`), infinite pager / no cycling flash
+  (`b51635583`), screen-activity pause. Mobile's file is now identical to desktop's.
+- **Subtitle restore across episodes** (`c9d6f5f63`), merged with Z's per-item URL safety: same
+  episode reopens the exact stored URL at once; another episode waits for its own addon subtitles and
+  remaps by URL-in-current-list, then provider + language + name, then language. An old URL is never
+  set on another episode; Subtitles off stays off. Upstream's `PlayerSubtitleRestoreTest` restored.
+- **Source list polish.** Upstream `49d933265`'s shimmer on the per-addon "Fetching" label and the
+  footer. Z's skeleton rows already covered the list body.
+- **Shared dialogs / sheets / dropdowns on desktop.** Mobile already had upstream's restyle
+  (`57af88067`, `d5ae672f5`, `8a9a006b1`); desktop upstream still trails it, so desktop takes the
+  shared components (`Dialog.kt`, `Menu.kt`, `BottomSheet.kt`, `Gradients.kt`, `Shimmer.kt`,
+  `PlatformInsets`, `Tokens`, `Components` confirm dialog) and the callers whose signatures moved.
+  Per-screen dialog rewrites in desktop-upstream-owned pages were not copied.
+- **Custom posters on desktop:** `752962638` (keep custom posters when returning to a title).
+- **TMDB enrichment on by default** for a profile with no stored choice (maintainer decision), via
+  `TMDB_ENRICHMENT_ENABLED_BY_DEFAULT`; explicit ON/OFF and sync semantics unchanged.
+
+## Already equivalent (left alone)
+
+Active-profile protection and toast (`519510591`, `6761ebabb`), avatar grid (`1dd6de9b1`), PIN dialog
+centring (`a1a434164`), provider filter reset (`458f810b2`, supersedes `998a9bfb9`), stream rotation
+(`00161e1da`: Z locks landscape only for the player route), recent searches (`7c1c6578b`) and the
+desktop focus fix (`ae0ff6041`, desktop only), custom poster URLs and per-screen toggles
+(`cf59d2557`, `92968510c`, `13adcdd4e`), shuffle (mobile, off by default: `EpisodeShuffleProfile.available`
+defaults to false), deferred settings search indexing (`4f814036a`), both player-control layouts
+with the Watch Together entry in each (`PlayerHeader` legacy, `PlayerToolbar` new).
+
+## Kept Z, with the reason
+
+- **`RootTabHost`** (keep every visited tab composed). Z's `AppTabHost` already keeps Home alive and
+  restores each tab's saveable state; keeping Social and Downloads composed while hidden would keep
+  their live subscriptions running behind other tabs. `3312374e9` (settings content while
+  deselected) only exists because of `RootTabHost`, so it does not apply.
+- **Compact profile picker** (`19aad9b2b`, `b04a16073`): the maintainer compared both and found the
+  picker, PIN and management screens equivalent; no churn.
+- **Playback loading presentation**: Z's `PlaybackLoadingHost` stays (maintainer).
+- **Settings attribution anchoring** (desktop upstream `ed0634a48`): Z already shows the wordmark,
+  version and "based on" line on the Settings root; anchoring it in the two-pane rail is layout that
+  the maintainer-led settings reorganization will redo.
+- **Mobile search `captureFocus`** (`ae0ff6041`): desktop-upstream-only; on a phone it would pin the
+  soft keyboard.
+
+## Verification
+
+Mobile Android host suite **3,224 total / 3,218 passed / 6 skipped / 0 failed** (373
+suites, results deleted, `--rerun`) on code head `fd344d707`; the only later code change, the review
+fix `8ffcb8d74`, compiled in `assembleFullDebug` (pass) and in push CI `36487916987` (success, host
+suite + debug APK). iOS build `36486408856` (device + simulator frameworks, unsigned app) succeeded
+on `fd344d707`. Pure group 1 passes 279; group 2 keeps its documented standalone Downloads failure.
+Desktop split suite **3,206 / 3,206**, 0 skipped / failed / duplicates (rest 1,673, playback 1,027,
+Downloads 457, E2E 49) on final code head `7bf01c009`; desktop CI `36487928657` builds the Windows MSI
+and is red only at the pre-existing vendored Linux `frame_copy_test` (`player != NULL`).
+Release R8 was not re-run in this pass.
+
+## Patch surface added
+
+`NavigationBar.kt` regains upstream's `contentPadding` / `compactSize`; `TmdbSettingsRepository.kt`
+one line; the jelly sources live in `commonMain` on mobile (desktop upstream's layout) although
+mobile upstream keeps them in `androidMain`, so the next mobile sync sees them as moved - resolve by
+keeping `commonMain`. `FloatingNavigationBar.android.kt` is desktop upstream's thin variant.
