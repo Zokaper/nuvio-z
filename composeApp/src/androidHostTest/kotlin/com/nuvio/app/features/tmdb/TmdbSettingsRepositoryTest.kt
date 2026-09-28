@@ -35,8 +35,45 @@ class TmdbSettingsRepositoryTest {
     }
 
     @Test
-    fun enrichmentCanBeEnabledAndReloadedWithoutAPersonalKey() {
+    fun freshProfileHasEnrichmentOnWithTheBundledKeyAndPersistsNothing() {
+        val settings = TmdbSettingsRepository.snapshot()
+
+        assertTrue(settings.enabled)
+        assertEquals("", settings.apiKey)
+        assertEquals(TmdbConfig.API_KEY, TmdbSettingsRepository.effectiveApiKey())
+        // The default is a fallback, not a stored choice: nothing is written or synced for it.
+        assertNull(TmdbSettingsStorage.loadEnabled())
+        assertNull(TmdbSettingsStorage.exportToSyncPayload()["tmdb_enabled"])
+    }
+
+    @Test
+    fun explicitOffSurvivesReloadAndASyncPayloadWithoutTheKey() {
+        TmdbSettingsRepository.setEnabled(false)
+        TmdbSettingsRepository.onProfileChanged()
         assertFalse(TmdbSettingsRepository.snapshot().enabled)
+
+        TmdbSettingsStorage.replaceFromSyncPayload(buildJsonObject {
+            put("tmdb_language", encodeSyncString("de"))
+        })
+        TmdbSettingsRepository.onProfileChanged()
+
+        assertFalse(TmdbSettingsRepository.snapshot().enabled)
+        assertEquals(false, TmdbSettingsStorage.loadEnabled())
+    }
+
+    @Test
+    fun explicitOnIsKeptAndSynced() {
+        TmdbSettingsRepository.setEnabled(false)
+        TmdbSettingsRepository.setEnabled(true)
+        TmdbSettingsRepository.onProfileChanged()
+
+        assertTrue(TmdbSettingsRepository.snapshot().enabled)
+        assertEquals(true, TmdbSettingsStorage.loadEnabled())
+        assertTrue(TmdbSettingsStorage.exportToSyncPayload().containsKey("tmdb_enabled"))
+    }
+
+    @Test
+    fun enrichmentCanBeEnabledAndReloadedWithoutAPersonalKey() {
 
         TmdbSettingsRepository.setEnabled(true)
         TmdbSettingsRepository.onProfileChanged()
@@ -55,7 +92,8 @@ class TmdbSettingsRepositoryTest {
 
         assertEquals("personal-key", TmdbSettingsRepository.snapshot().apiKey)
         assertEquals("personal-key", TmdbSettingsRepository.effectiveApiKey())
-        assertFalse(TmdbSettingsRepository.snapshot().enabled)
+        // Setting a key is not a choice about enrichment; the fresh-profile default stands.
+        assertTrue(TmdbSettingsRepository.snapshot().enabled)
         assertNull(TmdbSettingsStorage.exportToSyncPayload()["tmdb_api_key"])
     }
 

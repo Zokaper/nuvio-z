@@ -165,7 +165,7 @@ object TmdbSettingsRepository {
         val wasLoaded = hasLoaded
         val previousApiKey = apiKey
         hasLoaded = true
-        enabled = TmdbSettingsStorage.loadEnabled() ?: false
+        enabled = TmdbSettingsStorage.loadEnabled() ?: TMDB_ENRICHMENT_ENABLED_BY_DEFAULT
         apiKey = TmdbSettingsStorage.loadApiKey()?.trim().orEmpty()
         val storedLanguage = TmdbSettingsStorage.loadLanguage()
         language = if (storedLanguage == null) "en" else normalizeLanguage(storedLanguage)
