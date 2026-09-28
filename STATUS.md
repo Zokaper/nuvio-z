@@ -10,6 +10,132 @@ the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `Nuv
 (a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
 diff), plus desktop-only actuals.
 
+### Phase 9 closeout - final /code-review gate (2026-09-28)
+
+**Scope.** `/code-review` at *high*, read-only, then every finding re-checked against the code before any
+change. Mobile: `git diff a8c52ccff..67a9595d4`. The base `a8c52ccff` is `main` at the Phase 8
+closeout, the parent of the first Phase 9 commit `c4ba61523`. Production code in commonMain,
+androidMain and iosMain, the Swift app, release workflows and scripts, and the changelog. Desktop:
+`ca11c0cb7..c34152da5` (`Dev` after Stage 0's two merges), reviewed for what differs from mobile:
+`desktopMain`, the build and workflows, and the shared-code drift. **The drift check came back
+clean**: no Phase 9 download file under `commonMain` differs between the repos. Only the known
+divergent `strings.xml`, `MetaDetailsScreen.kt` and `MainAppContent.kt` differ, and in the last one
+only pre-existing social and back-handling code does.
+
+**Result: 0 release blockers, 5 correctness fixes, 4 non-blocking debt items, 1 nit (fixed as a doc
+correction).**
+
+| # | Finding | Class | Outcome |
+| --- | --- | --- | --- |
+| 1 | `enqueueFromStream` took the owner, and the "existing copy" it replaces, from the profile **on screen**. Automatic and Choose-now queue from background work (`queueBatch`), so after a profile switch B's finished episode was deleted and A's download was filed under B | Correctness | **Fixed**: an `ownerProfileId` parameter; `queueBatch` passes `batch.ownerProfileId`; the replace lookup matches that owner. E2E `a download queued for another profile never replaces this profile's copy` |
+| 2 | Desktop inherited the mobile-data rule (default Wi-Fi only) with no setting shown, and Windows reports any cost-flagged connection (a hotspot, metered Wi-Fi or Ethernet) as metered, so every download waited for Wi-Fi forever. **Regression vs `z6`** | Correctness | **Fixed**: `DownloadScheduler.isMeteredNetwork` is never true on desktop. The engine rule itself stays tested, since the E2E sets metered explicitly. E2E `desktop never holds a download for a metered connection` |
+| 3 | `onDiscoveryFinished` looked the batch up in the on-screen profile's view, so a profile switch during background Assisted discovery dropped the result. An early Choose-now quality was never applied, and A was asked again | Correctness | **Fixed**: a device-wide lookup, as `batchExists` already does. Another profile's batch is still decided and queued, but nothing is announced on screen. Test `AssistedChoiceFlowTest.anEarlyChoiceIsAppliedForItsOwnerAfterAProfileSwitch` |
+| 4 | Android: when the host was started for discovery (metered allowed), or by a "Download now anyway" item, it keeps running on mobile data while the rest of the queue waits for Wi-Fi. That costs battery; it transfers nothing wrong | Non-blocking debt | **Not changed.** Ending the host would also end the only thing that resumes those items when Wi-Fi returns (the in-process connectivity callback). A correct fix reschedules an unmetered host from the background, which Android 14 restricts, and that reopens the physically validated Android host (the brief says no without failing evidence). Post-Phase 9 |
+| 5 | Offline autoplay crossed to the next season whenever nothing later in the current one was downloaded, so the last undownloaded episodes of a season were skipped silently, against "stops at a gap" | Correctness | **Fixed**: `offlineEpisodeRun(lastEpisodeOf)`. The player passes each season's last episode from the offline metadata snapshot (every episode of a downloaded season), and the boundary is crossed only from it. Unknown keeps the old rule. Test in `LocalPlaybackPolicyTest` |
+| 6 | After `PlayLocal`, a blank URI read-back (the file deleted or moved a moment before) fell through to the network source list, **even offline** | Correctness | **Fixed**: `LocalPlaybackPolicy.whenLocalFileVanished`. Offline shows the missing-file message; online opens the sources as before. In both repos' `MainAppContent`. Test in `LocalPlaybackPolicyTest` |
+| 7 | The organizer's load-time pass runs on every cold start under the store lock: a canonical path lookup and an exists check per completed item, possibly on the main thread | Non-blocking debt | Cost only: about 2 syscalls per item (a few ms for hundreds of items), and no wrong behaviour. A one-time "migrated" marker or an off-lock pass is the follow-up |
+| 8 | Desktop `closeQuietly` calls `HttpClient.shutdownNow` reflectively, which does not exist on the shipped Java 17, so a per-attempt client is only released by GC. Two comments disagree about the runtime | Non-blocking debt | A client's selector thread and sockets outlive its attempt until GC; nothing is held forever. Follow-up: an explicit close path on 17, and one comment |
+| 9 | iOS downloader comments still said the window is 12 | Nit | **Fixed** (comment only, both repos): 30, the 42-episode evidence, the late-position link-expiry trade-off, and a pointer to the do-not-shrink note |
+
+**Also recorded (found while verifying #3; debt, not fixed):** `onDiscoveryFinished` / `applyEarlyChoice`
+evaluate the batch with `policyProvider()`, the on-screen profile's download policy. Its size level
+and fallback rules apply to another profile's batch in the same edge case as #3. Not a data-loss or
+wrong-owner problem; fixing it means carrying a policy snapshot per batch.
+
+**Checked and dismissed:**
+- An interrupted file move heals on load.
+- Pause all / Resume all from the notification load the store first.
+- The iOS resolve-ahead persists its own result.
+- The size telemetry and debug diagnostics are debug-only.
+- The changelog guard has mobile 127 and desktop 132.
+- Organized paths are confined to the downloads folder, with `..`, empty and absolute segments refused.
+
+Commits: mobile `6ab634f46`, desktop `f7526b5f2`. The new tests would fail without their fixes: the
+owner test sees its copy replaced, and the profile-switch test never sees the season queued. The
+desktop-metered test is weaker: on this PC the old code also answered "not metered", so it pins the
+rule rather than reproducing the bug. `AssistedChoiceFlowTest.whenTheSourcesAreInTheEarlyChoice...`
+failed once in the Part 1 full run (2,746 / 2,747). It checked the notice log in the instant between
+the items appearing and `announceMany` posting. Test race only; the assertion now waits for the
+notice.
+
+Tests after the fixes: mobile downloads + player + whatsnew 684 / 684 + app compile; desktop targeted
+169 / 169. Final heads (mobile `6ab634f46`, desktop `f7526b5f2`):
+- **Mobile:** full host suite **2,616 / 2,616** (results deleted, `--rerun`) +
+  `:androidApp:compileFullDebugKotlin`. **iOS build success** (run `36360424724`) and CI success on
+  `6ab634f46`.
+- **Desktop:** the targeted 169 / 169 includes the whole `DesktopDownloadQueueE2ETest` (49) and
+  `AssistedChoiceFlowTest`. ⚠ **The full non-E2E run was stopped by Claude Code under system memory
+  pressure** after 2,748 passes and **0 failures**, before it finished; its orphaned Gradle worker was
+  stopped. Owed: one complete `desktopTest` pass on `f7526b5f2` (split run, a quiet machine). Desktop CI
+  stays red only on the pre-existing Linux `frame_copy_test`.
+
+### Phase 9 closeout - organized download folders + the Downloaded chip removed (2026-09-28)
+
+Maintainer request at closeout. Commits: mobile `67a9595d4`, desktop `c34152da5` (shared half + desktop
+actual + E2E).
+
+**1. The "Downloaded" chip over the logo on a downloaded show's page is removed.** The On this device block
+already says it. Presentation only: layout, Resume, tabs and offline behaviour are unchanged. Re-rendered
+(`DownloadsScreenRenderHarness`, `show-*` at phone, large-phone and four desktop widths) and read.
+
+**2. Finished files are organized on disk: implemented, not deferred.** The engine turned out to allow it
+without touching transfers. `fileName` stays the identity of the `.part` file and the flat destination,
+every completed-file lookup goes through the persisted `localFileUri`, and nothing scans the folder. The
+step is added after completion, not inside the transfer.
+
+- **Layout** (`DownloadFileLayout`, pure): `Modern Family/Season 01/S01E01 - Pilot.mkv`; season 0 goes to
+  `Specials/S00E02 - ...`; a film goes to `Dune - Part Two (2024)/Dune - Part Two.mkv` (the year comes
+  from the offline title metadata when known). Names are sanitized for every platform: `: ` becomes
+  ` - `, `/ \ |` become `-`, `"` becomes `'`, `* ? < >` are dropped, and control characters, leading
+  dots, trailing dots/spaces, Windows device names and surrogate-safe truncation are handled (title 80,
+  episode title 60, which keeps a Windows path under 260). Unicode is kept. Collisions are
+  deterministic and case-insensitive. A title folder belongs to one `parentMetaId`: another title of
+  the same name gets `(Year)`, then ` [tag]` (a 6-hex FNV of the id). A taken file name gets ` (2)`,
+  ` (3)`..., for example the same episode on two profiles. **Names are presentation only**, and
+  nothing derives identity from a path.
+- **Moving** (`DownloadFileOrganizer`): only `Completed` items whose file sits flat in the downloads
+  folder are moved, so a running, queued, paused or failed item, every `.part` file and every iOS
+  background task are untouched. The new URI is **persisted first** (one immediate write for the
+  batch). Then each file is **renamed** (Android `renameTo`, iOS `moveItemAtPath`, desktop
+  `Files.move` without `REPLACE_EXISTING`): never a copy, never an overwrite. A failed rename writes
+  the old URI back. A crash between the write and the rename leaves the store pointing at a path that
+  does not exist yet; the existing `<downloads>/<fileName>` fallback in `resolveLocalFileUri` finds the
+  unmoved file on load, and the load-time run moves it again. It runs at completion
+  (`DownloadScheduler.onTransferCompleted`, under the store lock) and at every store load
+  (`DownloadsRepository.ensureLoaded`), which **is** the migration. Being idempotent, an organized file
+  is never picked again. It needs no network and no re-download.
+- **Platform surface** (`expect` + Android / iOS / desktop actuals): `relativePathOf`,
+  `existsInDownloads`, `fileUriFor`, `moveCompletedFile`. Each refuses a path with an empty, `.` or
+  `..` segment, or one that resolves outside the downloads folder. `removeFile` then deletes only the
+  layout folders it left empty (`File.delete` / an empty-contents check; never recursive).
+  `resolveLocalFileUri` also finds an organized file after the data folder moved (the iOS container
+  path changes across installs).
+- **Deletion, offline, storage:** unchanged in kind. Deletes go through the persisted path per item.
+  Offline play, autoplay and "file missing" read `resolveLocalFileUri` / `findPlayableDownload` as
+  before. Storage figures are item bytes.
+- **Race note:** between the URI write and the rename (sub-millisecond, under the lock), a reader of
+  the raw URI could see a path that is not there yet. Every production reader resolves through
+  `resolveLocalFileUri`, which finds the flat file in that instant. The E2E helper
+  `assertContentOnDisk` now reads the same way.
+
+**Tests.** `DownloadFileLayoutTest` 12 covers episode, film and year, specials, no episode title,
+unsafe characters and device names, Unicode and cut, same-name titles and films, shared folder,
+numbered copies, determinism and year parsing. `DownloadFileOrganizerTest` 10 covers flat-library
+migration, persist-before-move, a failed move keeping the old path (then succeeding next run),
+idempotence, the interrupted move, active and unfinished downloads untouched, a missing file left
+alone, single-item completion, two profiles, and a row changed meanwhile. The desktop E2E adds 2 on
+real files through the real repository: a finished episode filed with nothing left flat, and the
+migration case. That one covers a flat library migrating on load with a paused download's `.part`
+left in place, a restart reloading the same paths, the next episode playable at its new path, a
+missing file still reading as missing, and episode and title deletes removing only what they
+emptied.
+
+Results: mobile focused 53 / 53 + `:androidApp:compileFullDebugKotlin`; desktop targeted 72 / 72 (E2E
+47 / 47, new common tests, render harness, request test). Full suites on `67a9595d4` / `c34152da5`: mobile host 2,608 / 2,608 (the 6 `androidFullHostTest` tests run only when the build graph selects the full distribution); desktop 2,746 / 2,747 + E2E 47 / 47 (the one failure is a test race, fixed with the review below). iOS build on `67a9595d4`: **success** (run `36357393226`), CI success.
+
+**Not physically seen yet.** The first launch of a build with this moves an existing library. Worth watching
+once on each platform: the library still plays offline, and the folder reads as `Show/Season 01/...`.
+
 ### Phase 9 closeout verification (2026-09-27)
 
 **Feature-frozen.** From here on, only regressions, release blockers, correctness bugs and doc
