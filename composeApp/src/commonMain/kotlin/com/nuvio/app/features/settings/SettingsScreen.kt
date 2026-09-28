@@ -563,6 +563,7 @@ private fun MobileSettingsScreen(
             }
         }
         val searchEntries = settingsSearchEntries(
+            isTablet = false,
             pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
             downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
             notificationsEnabled = AppFeaturePolicy.notificationsEnabled,
@@ -1006,6 +1007,7 @@ private fun TabletSettingsScreen(
             val hapticFeedback = LocalHapticFeedback.current
             val hapticScope = rememberCoroutineScope()
             val searchEntries = settingsSearchEntries(
+                isTablet = true,
                 pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
                 downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
                 notificationsEnabled = AppFeaturePolicy.notificationsEnabled,

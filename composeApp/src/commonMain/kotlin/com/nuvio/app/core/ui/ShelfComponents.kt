@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -98,6 +99,9 @@ fun <T> NuvioShelfSection(
         key?.let { entries.withDuplicateSafeLazyKeys(it) }
     }
 
+    ScreenActivityEffect(state) { active ->
+        if (!active) state.stopScroll()
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap + NuvioTokens.Space.s2),
@@ -233,6 +237,7 @@ fun NuvioPosterCard(
     imageUrl: String?,
     modifier: Modifier = Modifier,
     basePosterWidthDp: Int? = null,
+    fallbackImageUrl: String? = null,
     shape: NuvioPosterShape = NuvioPosterShape.Poster,
     detailLine: String? = null,
     showTitleBelow: Boolean = true,
@@ -280,8 +285,22 @@ fun NuvioPosterCard(
             contentAlignment = Alignment.Center,
         ) {
             if (imageUrl != null) {
+                val platformContext = coil3.compose.LocalPlatformContext.current
+                val hasFallback = !fallbackImageUrl.isNullOrBlank() && fallbackImageUrl != imageUrl
+                val imageModel = remember(imageUrl, fallbackImageUrl, platformContext) {
+                    if (hasFallback) {
+                        coil3.request.ImageRequest.Builder(platformContext)
+                            .data(imageUrl)
+                            .memoryCacheKeyExtras(
+                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackImageUrl!!)
+                            )
+                            .build()
+                    } else {
+                        imageUrl
+                    }
+                }
                 NuvioAsyncImage(
-                    model = imageUrl,
+                    model = imageModel,
                     contentDescription = title,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop,
@@ -553,55 +572,4 @@ internal fun Modifier.desktopPosterHoverScale(
             },
         )
         .hoverable(interactionSource)
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun Modifier.posterCardClickable(
-    onClick: (() -> Unit)?,
-    onLongClick: (() -> Unit)?,
-    zoomImageUrl: String? = null,
-    zoomCornerRadius: Dp = NuvioTokens.Radius.poster,
-    hoverScaleEnabled: Boolean = true,
-): Modifier {
-    if (onClick == null && onLongClick == null) return this
-    val bounds = remember { mutableStateOf<Rect?>(null) }
-    val interactionSource = remember { MutableInteractionSource() }
-    val handleLongClick = onLongClick?.let { longClick ->
-        {
-            bounds.value?.takeIf { zoomImageUrl != null }?.let { cardBounds ->
-                PosterZoomAnchorHolder.stash(
-                    PosterZoomAnchor(
-                        boundsInRoot = cardBounds,
-                        imageUrl = zoomImageUrl,
-                        cornerRadius = zoomCornerRadius,
-                    ),
-                )
-            }
-            longClick()
-        }
-    }
-    return this
-        .onGloballyPositioned { coordinates -> bounds.value = coordinates.unclippedBoundsInRoot() }
-        .desktopPosterHoverScale(
-            enabled = hoverScaleEnabled,
-            interactionSource = interactionSource,
-        )
-        .combinedClickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onClick = { onClick?.invoke() },
-            onLongClick = handleLongClick,
-        )
-        .secondaryClick(handleLongClick)
-}
-
-private fun androidx.compose.ui.layout.LayoutCoordinates.unclippedBoundsInRoot(): Rect {
-    val position = positionInRoot()
-    return Rect(
-        left = position.x,
-        top = position.y,
-        right = position.x + size.width,
-        bottom = position.y + size.height,
-    )
 }

@@ -12,3 +12,5 @@ internal actual val isIos: Boolean = true
 internal actual val isDesktop: Boolean = false
 internal actual val isWindows: Boolean = false
 actual fun platformDisplayMaxHeight(): Int? = null
+
+internal actual val supportsPosterNavigationMotion: Boolean = false

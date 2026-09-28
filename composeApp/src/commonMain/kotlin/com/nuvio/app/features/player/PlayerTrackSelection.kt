@@ -502,6 +502,24 @@ internal fun findPersistedAudioTrackIndex(
     }?.index ?: languageCandidates.firstOrNull()?.index ?: -1
 }
 
+internal fun findPersistedAddonSubtitle(
+    subtitles: List<AddonSubtitle>,
+    preference: PersistedPlayerTrackPreference,
+): AddonSubtitle? {
+    preference.addonSubtitleUrl?.takeIf { it.isNotBlank() }?.let { url ->
+        subtitles.firstOrNull { it.url == url }?.let { return it }
+    }
+    val language = preference.subtitleLanguage?.takeIf { it.isNotBlank() } ?: return null
+    val candidates = subtitles.filter { addonSubtitleMatchesLanguage(it, language) }
+    val providerCandidates = preference.addonSubtitleAddonName?.takeIf { it.isNotBlank() }?.let { name ->
+        candidates.filter { it.addonName.equals(name, ignoreCase = true) }
+    }.orEmpty()
+    val preferredCandidates = providerCandidates.ifEmpty { candidates }
+    return preferredCandidates.firstOrNull {
+        it.display.equals(preference.subtitleName, ignoreCase = true)
+    } ?: preferredCandidates.firstOrNull()
+}
+
 internal fun findPersistedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
     preference: PersistedPlayerTrackPreference,
@@ -548,15 +566,4 @@ internal fun findPersistedSubtitleTrackIndex(
         forcedNameMatches.firstOrNull()?.let { return it.index }
     }
     return -1
-}
-
-internal fun persistedAddonSubtitleUrlForItem(
-    preference: PersistedPlayerTrackPreference,
-    itemId: String,
-): String? {
-    if (preference.subtitleType != PersistedSubtitleSelectionType.ADDON) return null
-    val currentItemId = itemId.trim().takeIf { it.isNotBlank() } ?: return null
-    val storedItemId = preference.addonSubtitleItemId?.trim()?.takeIf { it.isNotBlank() } ?: return null
-    if (storedItemId != currentItemId) return null
-    return preference.addonSubtitleUrl?.trim()?.takeIf { it.isNotBlank() }
 }

@@ -156,6 +156,7 @@ internal fun PlayerDestination(
             com.nuvio.app.features.watchparty.WatchPartySessionCoordinator.promoteCurrentPlayback()
         },
         onPartyLobbyRequested = { partyId -> requestedPartyLobbyId = partyId },
+        launchId = route.launchId,
         onBack = onBack,
         onSystemBackHandlerChanged = registerSystemBack,
         onOpenInExternalPlayer = if (com.nuvio.app.core.build.AppFeaturePolicy.externalPlayerSupported) { { request ->
@@ -193,6 +194,8 @@ internal fun PlayerDestination(
                     val launched = launchExternalPlayer(intentResult)
                     if (!launched) {
                         NuvioToastController.show(externalPlayerFailedText)
+                    } else if (externalPlayerId == "infuse") {
+                        onBack()
                     }
                 }
                 ExternalPlayerIntentResult.NotConfigured -> {

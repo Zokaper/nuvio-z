@@ -586,7 +586,6 @@ private fun PaginationLoadingFooter() {
     ) {
         NuvioLoadingIndicator(
             modifier = Modifier.size(28.dp),
-            color = MaterialTheme.colorScheme.primary,
         )
     }
 }
@@ -599,7 +598,6 @@ private fun LoadingIndicator() {
     ) {
         NuvioLoadingIndicator(
             modifier = Modifier.size(32.dp),
-            color = MaterialTheme.colorScheme.primary,
         )
     }
 }

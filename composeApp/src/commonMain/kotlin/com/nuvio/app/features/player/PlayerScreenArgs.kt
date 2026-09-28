@@ -76,4 +76,5 @@ internal data class PlayerScreenArgs(
      * Gates "Prefer built-in subtitles", which must leave a hand-picked source alone.
      */
     val automaticSourceSelection: Boolean = false,
+    val launchId: Long? = null,
 )

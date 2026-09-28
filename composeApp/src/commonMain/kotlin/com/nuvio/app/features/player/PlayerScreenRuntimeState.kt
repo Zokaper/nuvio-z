@@ -110,7 +110,7 @@ internal class PlayerScreenRuntime(
     val torrentTrackers: List<String> get() = args.torrentTrackers
     val initialPositionMs: Long get() = args.initialPositionMs
     val initialProgressFraction: Float? get() = args.initialProgressFraction
-    val externalSubtitles: List<com.nuvio.app.features.streams.StreamSubtitle> get() = args.externalSubtitles
+    var externalSubtitles by mutableStateOf(args.externalSubtitles)
     val isSeries: Boolean get() = parentMetaType == "series"
     val initialPartySourceDescriptor get() = args.partySourceDescriptor
 
@@ -147,8 +147,10 @@ internal class PlayerScreenRuntime(
 
     var gestureController: PlayerGestureController? = null
 
+    var controlsActivityTick by mutableStateOf(0)
     var controlsVisible by mutableStateOf(false)
     var controlsActivityTick by mutableStateOf(0)
+    var showRemainingTime by mutableStateOf(false)
     var playerControlsLocked by mutableStateOf(false)
     /** Player-owned presentation state; opening the room never changes route or party identity. */
     var partyRoomOpen by mutableStateOf(false)
@@ -218,6 +220,7 @@ internal class PlayerScreenRuntime(
 
     /** Per-source state for the buffer-fill throughput measurement; see [NetworkThroughputMeter]. */
     var networkThroughputState by mutableStateOf(NetworkThroughputMeter.initial())
+    var playbackSnapshotKey by mutableStateOf<PlaybackKey?>(null)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerLifecycleController by mutableStateOf<PlayerEngineController?>(null)
     val playerReleaseSurfaceRetention = PlayerReleaseSurfaceRetention()
@@ -282,6 +285,8 @@ internal class PlayerScreenRuntime(
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())
     var playerMeta by mutableStateOf<MetaDetails?>(null)
     var skipIntervals by mutableStateOf<List<SkipInterval>>(emptyList())
+    val autoSkippedIntervals = mutableSetOf<SkipInterval>()
+    var lastManualSkipSeekPositions by mutableStateOf<Pair<Long, Long>?>(null)
     var activeSkipInterval by mutableStateOf<SkipInterval?>(null)
     var skipIntervalDismissed by mutableStateOf(false)
     val autoSkippedIntervalKeys = mutableSetOf<String>()
@@ -640,6 +645,6 @@ internal class PlayerScreenRuntime(
     var partyAutoPausedForAway by mutableStateOf<List<String>>(emptyList())
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
-    var lastResetPlaybackIdentity: String? = null
+    var lastResetPlaybackIdentity: PlaybackKey? = null
     var lastResetVideoIdentity: String? = null
 }

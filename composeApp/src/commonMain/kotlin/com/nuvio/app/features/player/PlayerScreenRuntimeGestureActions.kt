@@ -129,6 +129,7 @@ internal fun PlayerScreenRuntime.showBrightnessFeedback(level: Float) {
             messageRes = Res.string.compose_player_brightness_level,
             messageArgs = listOf("$percentage%"),
             icon = GestureFeedbackIcon.Brightness,
+            level = level.coerceIn(0f, 1f),
         ),
     )
 }
@@ -145,6 +146,7 @@ internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
             messageArgs = if (level.isMuted) emptyList() else listOf("$percentage%"),
             icon = if (level.isMuted) GestureFeedbackIcon.VolumeMuted else GestureFeedbackIcon.Volume,
             isDanger = level.isMuted,
+            level = if (level.isMuted) 0f else level.fraction.coerceIn(0f, 1f),
         ),
     )
 }
@@ -184,6 +186,10 @@ internal fun PlayerScreenRuntime.prepareTogglePlaybackForNativeFallback(revealCo
 }
 
 internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
+    val fromMs = playbackSnapshot.positionMs
+    val targetMs = (fromMs + offsetMs).coerceAtLeast(0L)
+        .let { if (playbackSnapshot.durationMs > 0L) it.coerceAtMost(playbackSnapshot.durationMs) else it }
+    lastManualSkipSeekPositions = fromMs to targetMs
     if (!submitPartySeek((playbackSnapshot.positionMs + offsetMs).coerceAtLeast(0L))) {
         playerController?.seekBy(offsetMs)
     }
@@ -249,6 +255,7 @@ private fun PlayerScreenRuntime.handleDoubleTapSeek(
             maxDurationMs?.let { unclamped.coerceAtMost(it) } ?: unclamped
         }
     }
+    lastManualSkipSeekPositions = currentPositionMs to targetPositionMs
     // The party submit comes first and outside any branch, deliberately: `sendToController = false`
     // is the native-fallback caller, where the controls layer performs the seek itself unless this
     // returns true. Sitting inside the branch meant a host double-tapping to skip moved only itself
@@ -374,6 +381,7 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),
         commitHorizontalSeek = rememberUpdatedState { targetPositionMs: Long ->
+            lastManualSkipSeekPositions = playbackSnapshot.positionMs to targetPositionMs
             if (!submitPartySeek(targetPositionMs)) playerController?.seekTo(targetPositionMs)
             scheduleProgressSyncAfterSeek()
         },

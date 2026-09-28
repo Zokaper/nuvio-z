@@ -53,6 +53,7 @@ internal fun PlayerScreen(
     expectedRuntimeMinutes: Int? = null,
     partySourceDescriptor: PartySourceDescriptorV2? = null,
     automaticSourceSelection: Boolean = false,
+    launchId: Long? = null,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -102,6 +103,7 @@ internal fun PlayerScreen(
             expectedRuntimeMinutes = expectedRuntimeMinutes,
             partySourceDescriptor = partySourceDescriptor,
             automaticSourceSelection = automaticSourceSelection,
+            launchId = launchId,
         )
     )
 }
