@@ -24,6 +24,13 @@ promotion or TestFlight upload has been made, and no Phase 10 work has started.
   changelog copy fix), `589ca0a58` (the split runner), and `71f483d27` (debug counter and debug lines).
   The earlier "owed on `f7526b5f2`" and "HEAD `e55de6982`" were the same code; that is resolved.
 
+**After the gate pass (2026-09-28, found while making the promo screenshots):** one shared layout fix,
+mobile `42906a61d`, cherry-picked to desktop as `4ce5c9af7` - `DownloadsWideLayout` now pads its column by
+`screenTop` + status-bar inset + platform extra, as `NuvioScreen` does, so desktop's Downloads title no
+longer sits ~10dp above every other tab's. Only the desktop two-pane view reaches that layout. Verified by
+`:androidApp:compileFullDebugKotlin` and a desktop render; **not in debug build 64 / 73, not pushed**.
+Desktop also carries test-only promo commits `b8cba74ef` and `50751ce63` (`ScreenshotRenderHarness`).
+
 **Architecture (final).** One device-wide download engine (`DownloadStore`, `DownloadScheduler`, `SourceRealizer`,
 `TransferHost`) under three platform hosts: Android in-process with a user-initiated job and a `dataSync`
 fallback; desktop in-process, one `HttpClient` per attempt; iOS a system-owned background `URLSession` with a
