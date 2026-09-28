@@ -1235,6 +1235,8 @@ internal fun PlayerScreenRuntime.failPlaybackFatally(message: String?) {
         errorMessage = null
         return
     }
+    // A scrub target held for a buffering engine will never be acknowledged by a failed one.
+    scrubbingPositionMs = null
     startupLog.w {
         "fatal player error: attempt=${args.playbackAttempt} candidate=$activeStreamTitle error=$message"
     }

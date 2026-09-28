@@ -983,7 +983,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 },
                 onSnapshot = { snapshot ->
                     val wasPlaying = playbackSnapshot.isPlaying
-                    playbackSnapshot = snapshot
+                    // Upstream's keyed update: it stamps `playbackSnapshotKey`, which the next-episode
+                    // threshold and the restored launch both require, keeps the duration an ended
+                    // snapshot drops, and releases a scrub target held while the engine buffered.
+                    if (!updatePlaybackSnapshot(snapshot)) return@PlatformPlayerSurface
                     // Stamped where it arrives, because nothing downstream can recover the age of a
                     // sample once it has been handed on without one.
                     playbackSnapshotAtMs = kotlin.time.Clock.System.now().toEpochMilliseconds()
