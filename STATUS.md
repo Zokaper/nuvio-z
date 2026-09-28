@@ -2,6 +2,145 @@
 
 Last updated: 2026-09-28
 
+## Mobile release hardening - Watch Together / iOS readiness (opened 2026-09-28)
+
+**This is the current mobile state. Phase 9 below is DONE and is history.** A narrow pass to clear the
+remaining mobile stable-release blockers. Feature-frozen: no Social / Watch Together UX, no Downloads, no TV,
+no Phase 10. Branch `claude/mobile-release-hardening` (from `ca842ae19`), pushed, **not merged to `main`**.
+No stable release, tag or feed promotion has been made.
+
+### Blocker ledger
+
+| # | Blocker | State |
+| --- | --- | --- |
+| 1 | iOS lock-screen / Now Playing party routing | **FIXED** (code + tests). Physical: OPEN |
+| 2 | iOS `engineReadiness` | **FIXED** (code + tests). Physical: OPEN |
+| 3 | iOS Social + Watch Together hardware QA | **OPEN**. Checklist below, on debug 65 |
+| 4 | Android Phase 6 Watch Together QA debt | **OPEN**. Checklist below, on debug 65 |
+
+Nothing moves to PHYSICAL PASS / PASS until the maintainer reports the device result.
+
+### What changed
+
+**Blocker 1: where the bypass was.** Two places in upstream's iOS player moved mpv without asking the runtime.
+- `NowPlayingController.swift`: every `MPRemoteCommandCenter` handler (play, pause, toggle, skip +/-10 s,
+  scrub) called `playPlayback` / `pausePlayback` / `seekByMs` / `seekToMs` directly.
+- `MPVPlayerBridge.swift` `enterForeground`: it resumed mpv **unconditionally** on every return from the
+  background. That played a film paused before the lock and, in a party, a stale position under a party that
+  might be paused. This is vanilla behaviour, and the same bypass class.
+
+**The fix reuses Android's seam rather than adding a second one.** `PlayerRemoteCommands` (a public Kotlin
+interface that Swift calls) is implemented by `PlayerRemoteCommandRouter` over the existing
+`PlayerExternalTransport`:
+- Play and pause become `externalSetPlaybackState`, the path Android's media session uses. In a party,
+  `submitPartyPlayPause` decides: permission, barrier, command execution. The engine moves only when no party
+  owns the transport.
+- Seeks and skips become a finished scrub (`handlePlayerControlsScrubFinished`, then `submitPartySeek`).
+  Skips are relative to mpv's position read fresh, not to the 250 ms poll.
+- Toggle decides from mpv's `pause` flag. "Is playing" is false during a rebuffer, so a pause pressed then was
+  sent as a play, which in a party is a force start.
+- The foreground return asks the runtime (`externalRestorePlaybackIntent`), which restores its **live**
+  `shouldPlay`. It never resumes through a barrier hold, and it **never resumes a party guest**: the guest
+  stays paused, and the away return or the next tick's drift correction (seek, then resume) puts it back. The
+  host, being the party clock, keeps its own intent.
+- A surface with no runtime (the trailer popup) keeps working: unanswered seeks and restores fall back to the
+  engine.
+
+Swift: `MPVPlayerRemoteCommands.swift` (new Z file) holds the `remote*` methods, and `NowPlayingController.swift`
+calls them. This adds `NowPlayingController.swift` to the patch surface (`Docs/PATCH-SURFACE.md`, 2026-09-28
+note).
+
+**Blocker 2: a bridge gap, not an engine limit.** iOS runs libmpv, which already exposes everything Android's
+libmpv reports. `mpvEngineReadiness` moved unchanged from `androidMain` to `commonMain`
+(`MpvEngineReadiness.kt`). The Swift bridge now exposes `paused-for-cache`, `cache-buffering-state` (-1 when
+unavailable, never read as 0 = empty), `seeking`, `core-idle` and `pause` from its existing refresh.
+`PlayerEngine.ios.kt` reports `engineName = "libmpv"` and the real readiness, so `partyStarvedFor` no longer
+falls back to the buffered-ahead guess on iOS. What each state means:
+- **No source:** nothing loaded yet, a file being replaced, or the player torn down.
+- **Buffering:** `paused-for-cache`, or a cache still filling, even while the party holds the member paused.
+- **Unknown:** a seek is in flight, so the buffered-ahead fallback answers.
+- **Ready:** everything else.
+
+**Commits:** `3fbe02c92` (both fixes), `a30403eed` and `e482e3c04` (review fixes), `c38988d4b` (docs),
+`1e198524f` (debug build 65). Android behaviour is unchanged: it does not use the router, and the moved
+function is byte-identical.
+
+### Verification
+
+- **Android host:** **2,632 / 2,632** on `e482e3c04` (results deleted, `--rerun`), which is 2,616 plus 16 new
+  tests: `PlayerRemoteCommandRouterTest` 7 and `IosEngineReadinessTest` 9. `:androidApp:compileFullDebugKotlin`
+  green. What's New tests 21 / 21 after the changelog edit. `check-changelog.py` passes for mobile 127
+  (25 entries).
+- **iOS build (CI, macOS):** green on `3fbe02c92` (run `36402862053`) and `a30403eed` (run `36405558246`), which
+  is all the Swift and iosMain code. `e482e3c04` onward touch only `commonMain`, docs and resources, which are
+  compiled again by the debug release below.
+- **Push CI:** green on `3fbe02c92` (`36402861986`) and `e482e3c04` (`36406297387`).
+- **Pure suites:** group 1 OK (279). Group 2 still fails to compile on Downloads files, which is pre-existing
+  and known, and `set -e` stops the script there. No file from this pass is in any pure group.
+- **No iOS test can run here** (Windows). The routing and readiness logic live in `commonMain` so the host
+  suite covers them; the Swift glue is covered only by the iOS compile and the physical pass.
+
+### Debug build 65 (the physical QA build)
+
+`debug-v0.4.13-z1.65`, a GitHub prerelease built from **`1e198524f`** by Debug release run **`36407706713`**. All four jobs
+succeeded, and the iOS app was compiled again from the final code, so this covers `e482e3c04`. Assets:
+`androidApp-full-debug.apk` (sha256 `b0d98e91...47c7f2`), `Nuvio-Z-iOS-0.4.13-z1-65-debug-unsigned.ipa` (sha256
+`1852fd06...0e470`), `SHA256SUMS-Debug.txt` and `source-debug.json`. The SideStore debug feed on `main` was updated by
+the workflow (`3a406ba27`). **No stable build.**
+
+### /code-review gate (two passes, high then medium)
+
+| Finding | Class | Outcome |
+| --- | --- | --- |
+| Foreground restore used the composed (stale) `playWhenReady`, and moved the engine in a party | Correctness | Fixed `a30403eed`: the runtime's live intent, barrier-aware |
+| Party guest resumed at a stale position on the foreground return | Correctness | Fixed `e482e3c04`: a guest stays paused, and the party resumes it |
+| Trailer popup: lock-screen seeks silently dropped (default callbacks) | Correctness (regression) | Fixed: engine fallback when no runtime answers |
+| Toggle during a rebuffer sent play (party force start) | Correctness | Fixed: mpv `pause` flag |
+| Skips computed from the 250 ms poll | Correctness | Fixed: fresh read. Two skips inside one mpv seek can still collapse (non-blocking) |
+| Patch-surface widening not declared | Correctness (process) | Fixed: Z-owned Swift extension, commit message, PATCH-SURFACE note |
+| Skip precision "undoes upstream's exact skip" | No action | False positive: mpv's default `hr-seek` makes the absolute seeks this now uses precise |
+| Headset toggle during a barrier hold sends play | Non-blocking debt | Same as the in-app play button during a hold; holds are sub-second to seconds |
+| External seek during an on-screen drag ends the drag | Non-blocking debt | Same on Android |
+| Android computes `cache-buffering-state` inline; `paused` unused by the mapping; readiness test mirrors the adapter | Nit / debt | Not changed (Android untouched by design) |
+
+**Release blockers found by the review: none.**
+
+### Physical QA - debug build 65
+
+Install `debug-v0.4.13-z1.65` (APK on the release; iOS through the SideStore debug feed). Parties need two
+devices. Use desktop as the trusted reference peer where a second phone is not available. Record PASS / FAIL
+and, for any FAIL, the time and which device.
+
+**iOS (blockers 1-3)**
+1. **Social shell.** The Social tab loads; your identity and avatar are correct; the Watch Together entry
+   opens; switching tabs and back does not misroute.
+2. **Lifecycle.** iPhone hosts and a guest joins, then the reverse. The lobby shows the right title and source,
+   with no stale media from a previous party. Leave from both sides. Rejoin.
+3. **Sync.** The host plays, pauses and seeks (forward, back, by scrub), and the guest follows each within a
+   second or two. No 3-second or stale-source regression. No seek-then-rebuffer loop.
+4. **Readiness.** The party holds through the initial load. Starve the iPhone (a heavy source, or Wi-Fi off for
+   about 5 s): the party should hold or show it waiting, not run on while the iPhone is frozen. On recovery it
+   returns to normal sync.
+5. **Lock screen, iPhone as host.** Play, pause and seek from the lock screen and Control Center: the guest
+   follows each. Headphone button toggle: same.
+6. **Lock screen, iPhone as guest, host-only control.** Lock-screen pause and seek do **not** move the iPhone's
+   player (refused), and it stays with the party. With collaborative control on, they move everyone.
+7. **Lock and unlock.** Pause, lock, unlock: the film stays paused (it used to start again). In a playing
+   party, the guest locks for about 30 s and unlocks: it does not play from where it stopped, it jumps to the
+   party's position and plays. Watch whether the other members see it as **Away** while locked. iOS reports
+   Away only from Compose, so this is the one to watch.
+8. **Host lock.** The host locks for about 30 s and unlocks: guests see the party paused or waiting (not "host
+   buffering"), and it resumes cleanly.
+
+**Android (blocker 4, Phase 6 debt)**, S25 plus a second Android phone, or S25 plus desktop:
+1. Host and guest join; play / pause / seek both ways.
+2. Rebuffer recovery (Wi-Fi off for about 5 s on the guest).
+3. Lock and unlock, Away shown and cleared, notification pause.
+4. Leave and rejoin; no stale lobby media; title and logo correct.
+5. Source realization: a guest picks a different compatible source and still syncs.
+6. The Phase 6 extras if convenient: an Android-to-Android party; doze after 10+ minutes; an incoming call;
+   a Wi-Fi-to-cellular handover.
+
 ## Phase 9 — Downloads Redesign: DONE (opened 2026-09-24, closed 2026-09-28)
 
 **Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
