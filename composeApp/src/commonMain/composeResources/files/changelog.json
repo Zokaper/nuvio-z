@@ -278,6 +278,10 @@
         {
           "build": 63,
           "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
+        },
+        {
+          "build": 64,
+          "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
         }
       ]
     },
@@ -427,6 +431,10 @@
         {
           "build": 72,
           "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
+        },
+        {
+          "build": 73,
+          "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: downloads no longer wait forever on a connection Windows marks as metered; a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
         }
       ]
     }
