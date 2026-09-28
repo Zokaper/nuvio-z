@@ -158,14 +158,20 @@ object ZSessionBridge {
     }
 
     private suspend fun exchange(profileId: String): Boolean {
-        val officialToken = runCatching {
-            SupabaseProvider.client.auth.currentAccessTokenOrNull()
-        }.getOrNull()
-        if (officialToken.isNullOrBlank()) {
-            // Social identity is the official Nuvio identity, so there is nothing to exchange until
-            // the user has signed in there. This is the one failure they can act on themselves.
-            lastFailure = "Sign in to your Nuvio account to use Social."
-            return false
+        var officialToken = when (val official = OfficialSessionAccess.accessToken()) {
+            is OfficialAccessToken.Ready -> official.token
+            OfficialAccessToken.SignedOut -> {
+                // Social identity is the official Nuvio identity, so there is nothing to exchange until
+                // the user has signed in there. This is the one failure they can act on themselves.
+                lastFailure = "Sign in to your Nuvio account to use Social."
+                return false
+            }
+            OfficialAccessToken.Unavailable -> {
+                // Signed in, but the official session is loading or refreshing. Not the user's to fix,
+                // and not permanent: Social retries when the official session settles.
+                lastFailure = "Reconnecting to your Nuvio account..."
+                return false
+            }
         }
 
         // One account can hold several profiles, and the verified profile lives on the shared user
@@ -184,6 +190,20 @@ object ZSessionBridge {
                 return false
             }
             body = runCatching { response.bodyAsText() }.getOrDefault("")
+        }
+        if (response.status.value == HTTP_UNAUTHORIZED) {
+            // The function refused the official token itself. It was checked for expiry above, so this
+            // is a token that lapsed in flight or a clock that disagrees with the server's; either way
+            // a freshly refreshed one is the whole recovery, and it is tried once.
+            val refreshed = OfficialSessionAccess.accessToken(forceRefresh = true)
+            if (refreshed is OfficialAccessToken.Ready) {
+                officialToken = refreshed.token
+                response = runCatching { postExchange(officialToken, profileId) }.getOrElse { cause ->
+                    lastFailure = "Could not reach Nuvio Z: ${cause.message ?: "network error"}"
+                    return false
+                }
+                body = runCatching { response.bodyAsText() }.getOrDefault("")
+            }
         }
 
         if (!response.status.isSuccess()) {

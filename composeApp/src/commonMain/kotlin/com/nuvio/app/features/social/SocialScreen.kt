@@ -229,6 +229,10 @@ fun SocialScreen(
         }
     }
 
+    // Opening the tab is the moment someone looks at what activation left behind. A feed stuck on
+    // its cache with an error gets another attempt here, not only when the app restarts.
+    LaunchedEffect(Unit) { SocialRepository.recoverIfStale() }
+
     LaunchedEffect(
         state.me?.profileId,
         state.me?.shareWatchingNow,

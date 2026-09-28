@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlin.coroutines.cancellation.CancellationException
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.network.ZSessionBridge
 import com.nuvio.app.core.network.ZSupabaseProvider
 import com.nuvio.app.core.network.shouldReexchangeZSession
@@ -20,9 +21,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -76,6 +81,13 @@ object SocialRepository {
 
     private var identityBoundary: Job? = null
 
+    private var activation: Job? = null
+    private var recovery: Job? = null
+    private var recoveryTriggers: Job? = null
+    private val recoveryLock = Mutex()
+    @Volatile
+    private var capabilitiesLoaded = false
+
     /**
      * Returns once the identity boundary [activate] started has finished its server cleanup (bounded).
      *
@@ -94,7 +106,14 @@ object SocialRepository {
         activeProfileId = profileId
         val boundary = CompletableDeferred<Unit>()
         identityBoundary = boundary
-        scope.launch {
+        // A recovery still running is the previous profile's. It is stopped before the boundary is
+        // released, because it can call `ensureSession(previous)` and swap the Z session back under
+        // a party layer that has already moved on - the same hazard `awaitIdentityBoundary` guards.
+        val staleRecovery = recovery?.also { it.cancel() }
+        recovery = null
+        if (profileId != null) startRecoveryTriggers()
+        activation = scope.launch {
+            staleRecovery?.join()
             // ⚠ **First, before anything the request depends on is torn down.** An outgoing join
             // request belongs to the previous profile: its cancel has to go out as that profile,
             // over the token and channel that are still that profile's, and no answer to it may
@@ -115,6 +134,8 @@ object SocialRepository {
                 publishedPresenceDeviceIds.clear()
             }
             closeRealtime()
+            // The state below starts from default capabilities, so the flag starts over with it.
+            capabilitiesLoaded = false
             if (profileId == null) {
                 _uiState.value = SocialUiState()
                 return@launch
@@ -136,6 +157,54 @@ object SocialRepository {
             refresh(forceLoading = false)
             flushOutbox()
             openRealtime(profileId)
+        }
+    }
+
+    /**
+     * Re-runs what [activate] could not finish, once whatever stopped it may have gone away.
+     *
+     * Called when the official session comes back, when the network does, and when the Social screen
+     * is opened. It does nothing unless [socialNeedsRecovery] says the surface is stale, and nothing
+     * while an activation or another recovery is still running.
+     */
+    fun recoverIfStale() {
+        val profileId = activeProfileId ?: return
+        if (activation?.isActive == true || recovery?.isActive == true) return
+        if (!socialNeedsRecovery(_uiState.value, capabilitiesLoaded, realtimeOpen = realtimeChannel != null)) return
+        recovery = scope.launch {
+            // Two triggers can arrive together (the session and the network return at once); the
+            // second finds the lock held and leaves the work to the first.
+            if (!recoveryLock.tryLock()) return@launch
+            try {
+                if (!capabilitiesLoaded) refreshCapabilities()
+                if (activeProfileId != profileId) return@launch
+                refresh(forceLoading = false)
+                flushOutbox()
+                if (activeProfileId == profileId && realtimeChannel == null) openRealtime(profileId)
+            } finally {
+                recoveryLock.unlock()
+            }
+        }
+    }
+
+    private fun startRecoveryTriggers() {
+        if (recoveryTriggers != null) return
+        recoveryTriggers = scope.launch {
+            launch {
+                // Keyed on the signed-in user, not on every status emission: the official client
+                // re-emits Authenticated on each hourly refresh, and a failed refresh passes through
+                // Unauthenticated on its way back, which is exactly the return worth reacting to.
+                AuthRepository.state
+                    .map { state -> (state as? AuthState.Authenticated)?.takeUnless { it.isAnonymous }?.userId }
+                    .distinctUntilChanged()
+                    .collect { userId -> if (userId != null) recoverIfStale() }
+            }
+            launch {
+                NetworkStatusRepository.uiState
+                    .map { it.isOnline }
+                    .distinctUntilChanged()
+                    .collect { online -> if (online) recoverIfStale() }
+            }
         }
     }
 
@@ -167,7 +236,14 @@ object SocialRepository {
                 current.selectedFriendId?.let { put("p_filter_profile_id", it) }
             }
             val rpcName=if (current.capabilities.partyContractVersion>=PartySourceContractVersion) "social_get_state_v2" else "social_get_state"
-            ZSupabaseProvider.client.postgrest.rpc(rpcName, params).decodeAs<SocialStatePayload>()
+            val fetch = suspend { ZSupabaseProvider.client.postgrest.rpc(rpcName, params).decodeAs<SocialStatePayload>() }
+            // A refused Z token is normally an expired one. Every other social call re-exchanges and
+            // asks once more through [socialCall]; the feed did not, and showed "JWT expired" instead.
+            runCatching { fetch() }.getOrElse { error ->
+                if (error is CancellationException || !shouldReexchangeZSession(error)) throw error
+                if (!ZSessionBridge.reexchange(profileId)) throw error
+                fetch()
+            }
         }.onSuccess { payload ->
             val activity = if (append) (current.activity + payload.activity).distinctBy(RecentActivityRun::runId) else payload.activity
             val next = payload.activity.lastOrNull()?.let { SocialActivityCursor(it.lastEventTime, it.runId) }
@@ -184,7 +260,10 @@ object SocialRepository {
                 _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false)
                 throw error
             }
-            _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false, errorMessage = error.message)
+            // When the token was refused and could not be replaced, the bridge knows why; the raw
+            // PostgREST message ("JWT expired") does not help anyone.
+            val message = if (shouldReexchangeZSession(error)) ZSessionBridge.lastFailure ?: error.message else error.message
+            _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false, errorMessage = message)
         }
     }
 
@@ -378,8 +457,8 @@ object SocialRepository {
 
     private suspend fun refreshCapabilities() {
         runCatching { ZSupabaseProvider.client.postgrest.rpc("get_social_capabilities").decodeAs<SocialCapabilities>() }
-            .onSuccess { _uiState.value = _uiState.value.copy(capabilities = it) }
-            .onFailure { _uiState.value = _uiState.value.copy(capabilities = SocialCapabilities(), isLoading = false) }
+            .onSuccess { capabilitiesLoaded = true; _uiState.value = _uiState.value.copy(capabilities = it) }
+            .onFailure { capabilitiesLoaded = false; _uiState.value = _uiState.value.copy(capabilities = SocialCapabilities(), isLoading = false) }
     }
 
     private suspend fun openRealtime(profileId: String) {
