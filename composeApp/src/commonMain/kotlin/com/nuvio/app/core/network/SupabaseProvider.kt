@@ -107,7 +107,10 @@ object SupabaseProvider {
                     headers.append(HttpHeaders.UserAgent, userAgent)
                 }
             }
-            install(Auth)
+            install(Auth) {
+                // Z: vanilla-bug patch V3, drop-at-next-sync (OfficialSessionStorage.kt).
+                officialSessionManager(configuration.backendUrl)?.let { sessionManager = it }
+            }
             install(Postgrest)
             install(Realtime)
             install(Functions)
