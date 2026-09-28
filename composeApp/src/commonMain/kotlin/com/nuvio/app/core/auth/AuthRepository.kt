@@ -92,7 +92,7 @@ object AuthRepository {
             validatedRemoteUserId = userId
             true
         }.getOrElse { e ->
-            if (isInvalidRemoteSessionError(e)) {
+            if (OfficialSessionRejection.isSessionGone(e, ::isInvalidRemoteSessionError)) { // Z: vanilla-bug patch V2, drop-at-next-sync
                 log.w(e) { "Stored Supabase session no longer belongs to an active account; clearing local auth" }
                 clearLocalSessionAfterRemoteInvalidation()
                 false
@@ -226,7 +226,7 @@ object AuthRepository {
     }
 
     suspend fun signOutIfSessionInvalid(error: Throwable, source: String): Boolean {
-        if (!isInvalidRemoteSessionError(error)) return false
+        if (!OfficialSessionRejection.isSessionGone(error, ::isInvalidRemoteSessionError)) return false // Z: vanilla-bug patch V2, drop-at-next-sync
 
         log.w(error) { "$source failed because the current Supabase account/session is no longer valid; clearing local auth" }
         clearLocalSessionAfterRemoteInvalidation()
