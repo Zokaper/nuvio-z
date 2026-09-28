@@ -46,7 +46,7 @@ conflicts here resolves by keeping upstream's handler bodies and re-pointing eac
 ### 2026-09-28 official-session note (vanilla bugs V2 and V3, `drop-at-next-sync`)
 
 Two vanilla bugs broke Social and were promoted to patches under Rule 7 (`Docs/VANILLA-BUGS.md` V2, V3).
-Neither was fixed in `upstream/cmp-rewrite` `fc4608d29` or desktop `upstream/Dev` `379b9235d` when checked.
+Neither was fixed in `upstream/cmp-rewrite` `fc4608d29` or desktop `upstream/Dev` `379b9235d` when checked, **nor in the tags this sync took (mobile `0.5.4-beta`, desktop `0.1.26-alpha`), re-checked 2026-09-28** - both patches carried forward as separate commits (mobile `d365fffc8` / `bb21a5109`; desktop `82da76830` / `9a095d8cd`).
 **No file joins the surface.** Both upstream files were already on it: `AuthRepository.kt` for the Phase 8
 bring-up, and `SupabaseProvider.kt` as the Social seam. The widening is within them, and each is a call into a
 Z-owned file.

@@ -2,6 +2,60 @@
 
 Last updated: 2026-09-28
 
+## Pre-release upstream convergence - COMPLETE ON INTEGRATION BRANCH (2026-09-28)
+
+Branches `claude/pre-release-upstream-sync` in both Kotlin repositories are pushed and remain
+unmerged. Mobile now carries vanilla `0.5.4-beta`; desktop carries vanilla `0.1.26-alpha`. The
+durable conflict and decision record is `Docs/UPSTREAM-SYNC-0.5.4.md`. No stable release, feed
+promotion, final RC, merge to `main` / desktop `Dev`, or Phase 10 work was performed.
+
+**Final code heads before this documentation reconciliation:** mobile `671237076`; desktop
+`9a095d8cd`. Mobile preserved Phase 9 Downloads, the standalone Downloads route, Z updater and
+identity, Z Social / Watch Together (including its entry in the new player toolbar), party-owned
+transport, and the iOS release-hardening fixes. Desktop preserved the same Z subsystems plus its
+organized storage/migration, offline playback and Java 17 redirected-download timeout fix.
+
+**Social/session recovery:** selectively integrated in both repos. Upstream was re-inspected at the
+new exact tags and still contains both vanilla defects. V2 (an ordinary expired access token can be
+classified as a dead account) and V3 (desktop installs share supabase-kt's JVM session storage) are
+therefore retained as `drop-at-next-sync` patches. The recovery path waits for/refreshes the official
+session, retries stale Social activation, and desktop moves the legacy shared login once into the
+install data root. The full desktop run includes 3 rejection, 3 access/expiry, 6 install-scoped
+storage, 1 bridge, 10 renewal and 5 Social recovery tests, all passing.
+
+**Verification on those exact code heads:**
+- Mobile Android host: **3,187 total / 3,181 passed / 6 skipped / 0 failed** across 367 suites.
+  `assembleFullDebug`, release Kotlin compilation and release R8 all pass. A combined release
+  assemble stops only at `validateSigningFullRelease`, because this machine has no release keystore.
+- Mobile iOS CI run `36460723843`: **success** - device framework, simulator framework and unsigned
+  Xcode app. Push CI `36459921568`: **success**, both on `671237076`.
+- Desktop documented four-way split: **3,184 / 3,184**, 0 failed, 0 skipped and 0 duplicates - rest
+  1,651; playback 1,027; Downloads 457; E2E 49. Windows MSI CI is green on `9a095d8cd`.
+- Desktop CI run `36460011350` is red only before Kotlin tests at the pre-existing vendored Linux
+  `frame_copy_test` assertion `player != NULL`; the Windows MSI job in that run succeeds.
+- Pure harness: group 1 passes (**279 mobile, 278 desktop**). Group 2 still has the documented
+  standalone-harness source-list failure (`DownloadItem`, `DownloadStatus`, `downloadSizeFigure`),
+  followed by class-not-found fallout. The product Gradle suites above compile and run those tests.
+
+**Focused convergence review:** no bad conflict resolution or release correctness defect remained.
+No conflict markers, resurrected upstream scheduler/updater/navigation implementation, duplicate
+old/new API, Watch Together transport bypass, identity/version/feed change, or lost player-toolbar
+entry was found. The shared audit classified all 235 raw file differences: 146 are the expected
+mobile-upstream 0.5.2 -> 0.5.4 gap, 59 pre-existed this convergence, 24 come from desktop's own
+upstream delta, 3 are declared never-copy files, and 3 inspected seams are intentional (mobile's
+lazy Android Downloads host scope and two fixtures adjusted for the new short-placeholder rule).
+The Social/auth files are byte-identical; `ZSessionBridge` differs only by Native `atomicfu` versus
+JVM `@Volatile`. No shared Z change is missing.
+
+**Still required before a final RC:** physical QA remains the debug-65 Watch Together checklist in
+the next section (iOS Social/lifecycle/sync/readiness/lock-screen/foreground/host-lock and the Android
+Phase 6 party debt). The final-RC build must additionally smoke-test the synced player on Android,
+iOS and desktop: new and legacy controls, the Watch Together toolbar entry, source/episode changes,
+credits/post-credits skipping, subtitles, custom posters/shuffle where present, Phase 9 Downloads
+and offline playback. Exercise Social after sleep/token expiry, and on desktop verify that release,
+debug and vanilla installs do not steal one another's login. Then perform the version/serial bump as
+the final tracked release commit and follow the release gate; none of that was done here.
+
 ## Mobile release hardening - Watch Together / iOS readiness (opened 2026-09-28)
 
 **This is the current mobile state. Phase 9 below is DONE and is history.** A narrow pass to clear the
