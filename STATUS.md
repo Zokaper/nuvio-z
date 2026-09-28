@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-28
 
-## Phase 9 — Downloads Redesign: DONE — RELEASE GATE PENDING (opened 2026-09-24, closed 2026-09-28)
+## Phase 9 — Downloads Redesign: DONE (opened 2026-09-24, closed 2026-09-28)
 
 **Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
 the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `NuvioZDesktop`
@@ -10,9 +10,43 @@ the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `Nuv
 (a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
 diff), plus desktop-only actuals.
 
+### Phase 9 final physical QA - DONE (2026-09-28)
+
+**This is the current state of Phase 9. Everything below it is history.** The maintainer reported the last physical
+checks and closed the phase. No stable release, stable tag, feed promotion or merge to `main` / `Dev` has been
+made, and **Phase 10 has not started** (maintainer instruction: do not start it yet).
+
+**Reported by the maintainer on 2026-09-28:**
+- **Desktop folder migration: PASS, physical.**
+- **Desktop redirected download longer than 60 s: PASS, physical.** No retry at the 60-second boundary, and the
+  transfer finished normally. This confirms the 60-second fix on a device.
+- **iOS folder migration: not tested, waived.** The maintainer confirmed that downloads work on the latest iOS
+  debug build but did not run the migration over an existing flat library, and chose to close the phase without
+  it. That is a maintainer waiver, not a pass. Android migration was also not run. So **neither mobile platform
+  has physically exercised the migration**, and the plan's "desktop once, plus one mobile platform" is met on
+  desktop only. The migration mechanics differ from desktop only in the rename call (iOS `moveItemAtPath`,
+  Android `renameTo`) and are covered by the host suite. Watch for this in the first stable's reports: a user
+  upgrading over an existing flat library is the first real run.
+
+**Distribution decision (maintainer, 2026-09-28): SideStore is the official iOS distribution path for Nuvio Z.**
+TestFlight and an Apple Developer account are **no longer release requirements**. The unsigned SideStore IPA that
+`android-release.yml`'s `publish` already ships next to the Android APKs *is* the matching iOS build, so the
+policy and the workflow now agree. `Docs/RELEASES.md` and `ROADMAP.md` are updated to match. The TestFlight path
+stays in the workflow, parked (`ios_testflight: if: false`), for a possible later App Store route.
+
+**Final QA matrix changes** (the matrix below is updated in place): Folder migration is Desktop **Physical**,
+iOS **Waived (not tested)**, Android **Not tested**. Transfer > 60 s through a redirect is Desktop **Physical**.
+
+**What still stands between Phase 9 and a stable release** (none of it is Phase 9 work):
+- **Mobile:** the iOS `NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch
+  Together hardware pass, and the Phase 6 Android Watch Together QA debt. These are the remaining global mobile
+  blockers, to be cleared or waived by the maintainer. The Apple account is no longer one of them.
+- **Both:** an explicit maintainer GO, then the release procedure in `ROADMAP.md` Phase 9 ("Release-gate pass").
+  The unpushed desktop-title layout fix (mobile `42906a61d`, desktop `4ce5c9af7`) is not in debug 64 / 73.
+
 ### Phase 9 release-gate pass - DONE, RELEASE GATE PENDING (2026-09-28)
 
-**This is the current state of Phase 9. Everything below it is history.** No stable release, stable tag, feed
+*Superseded by "Phase 9 final physical QA" above; kept as the record.* No stable release, stable tag, feed
 promotion or TestFlight upload has been made, and no Phase 10 work has started.
 
 **Final commits** (both branches clean, pushed, and **not merged** to `main` / `Dev`):
@@ -83,10 +117,11 @@ authoritative. Rows: Z-FEATURES D16-D24, W11 and C21 (now revision 15).
 | Offline playback | Automated | Physical in Phase 8 (`.42`); the Phase 9 policy is automated | Physical |
 | Offline autoplay | Automated | Automated | Physical |
 | Profile / setup wizard | Renders approved; not reported on a device | Physical (`.56`) | Renders approved; not reported on a device |
-| **Folder migration** | **Pending** | **Pending** | **Pending** |
-| **Transfer > 60 s through a redirect** | N/A | N/A | **Pending** |
+| **Folder migration** | Not tested (automated only) | **Waived by the maintainer, not tested** (downloads on the latest debug work) | **Physical: PASS** |
+| **Transfer > 60 s through a redirect** | N/A | N/A | **Physical: PASS** (no retry at 60 s, normal finish) |
 
-**Remaining Phase 9 items (physical only):**
+**Remaining Phase 9 items (physical only)** - *closed 2026-09-28: 1 passed on desktop and was waived on mobile,
+2 passed. See "Phase 9 final physical QA" above.*
 1. **Folder migration smoke.** Launch over an existing flat library, then check that the files move into
    `Title/Season XX/`, the library lists them, and Play, autoplay and delete work, with nothing lost. Do it on
    desktop once, plus one mobile platform. The mechanics differ only in the actual's rename call (Android
@@ -101,7 +136,8 @@ authoritative. Rows: Z-FEATURES D16-D24, W11 and C21 (now revision 15).
 not built and are deferred. TV is Phase 10.
 
 **Global stable-release blockers outside Phase 9:**
-- **Mobile:** no Apple Developer account and no TestFlight. ⚠ The workflow and the written policy disagree.
+- ~~**Mobile:** no Apple Developer account and no TestFlight.~~ **Settled 2026-09-28: SideStore is the official
+  iOS path, so this is no longer a blocker.** The original note: ⚠ The workflow and the written policy disagree.
   `android-release.yml` has `ios_testflight: if: false` ("parked in favor of SideStore"), and its `publish` ships
   Android plus an **unsigned SideStore IPA**. `Docs/RELEASES.md` and the ROADMAP still say Android waits for the
   matching iOS/TestFlight build. **Maintainer decision:** does the SideStore IPA count as the matching iOS build?

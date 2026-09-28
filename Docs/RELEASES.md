@@ -20,7 +20,13 @@ contracts. Do not renumber them to match mobile.
 
 Android and iOS launch as one mobile product. They use the same marketing version and coordinated
 build number. Android must not be published as a stable GitHub release independently of the matching
-iOS/TestFlight build. Store rules may later require a platform build number to advance on only one
+iOS build.
+
+**iOS distribution is SideStore** (maintainer decision, 2026-09-28). The matching iOS build is the
+unsigned IPA that `publish` attaches to the same GitHub release, together with the SideStore
+`source.json` feed update. TestFlight and an Apple Developer account are **not** release
+requirements; the TestFlight job stays in the workflow, parked (`if: false`), for a possible later
+App Store route. Store rules may later require a platform build number to advance on only one
 platform; if that happens, preserve the shared marketing version and record the per-platform build
 exception rather than changing desktop.
 
@@ -48,7 +54,7 @@ only: it never creates a tag, GitHub release, updater-visible feed entry, or Tes
 - A stable tag/version is single-use. Never replace a published asset under an existing tag.
 - Stable promotion requires the complete platform set for that family. Desktop publication cannot
   silently omit an expected MSI or DMG. Mobile publication cannot publish Android without the
-  coordinated iOS/TestFlight build.
+  coordinated iOS build (the unsigned SideStore IPA and its `source.json` update).
 - Build-only and dry-run must build and verify real artifacts. They differ only in how much release
   state validation they perform; neither publishes.
 - Signing files, private keys, provisioning profiles, passwords and API keys live only in local
@@ -195,7 +201,10 @@ It validates the version, build, bundle ID, arm64 executable, widget and absence
 then produces `Nuvio-Z-iOS-<version>-<build>-unsigned.ipa`. This unsigned IPA is published to GitHub
 Releases for SideStore/AltStore sideloading distribution, accompanied by `distribution/sidestore/source.json`.
 
-## TestFlight setup and manual steps
+## TestFlight setup and manual steps (parked)
+
+Not part of the release path since 2026-09-28: SideStore is the official iOS channel. This section
+is kept for a possible later App Store/TestFlight route.
 
 Source control fixes the release bundle IDs at `com.nuvio.app.z` and
 `com.nuvio.app.z.DownloadsWidgetExtension`; debug uses the `.debug` family. The team remains empty
@@ -222,7 +231,8 @@ Phase 8 validation, not a Phase 7 code blocker.
 
 - If a build-only or dry-run fails, discard its workflow artifacts, fix the source or workflow and
   rerun. Nothing is updater-visible.
-- If TestFlight accepts iOS but GitHub publication fails, rerun the same workflow only if Apple
+- (Only if the parked TestFlight job is ever re-enabled.) If TestFlight accepts iOS but GitHub
+  publication fails, rerun the same workflow only if Apple
   permits the identical build upload; normally bump the mobile build (and release serial if the tag
   changes) and roll forward. Never publish the waiting Android APK manually.
 - If GitHub publication succeeds but a client-visible build is bad, mark the release unavailable
@@ -230,8 +240,8 @@ Phase 8 validation, not a Phase 7 code blocker.
   cached it; deleting/reusing the tag is not recovery.
 - Desktop rollback is always a forward release with a greater desktop serial. Never lower the MSI
   ProductVersion, rotate the upgrade UUID, or replace assets under the old stable tag.
-- Android rollback is a fixed build with a higher `versionCode`; iOS rollback is a fixed TestFlight
-  build with a higher `CFBundleVersion`. Marketing versions may stay the same when store policy
+- Android rollback is a fixed build with a higher `versionCode`; iOS rollback is a fixed SideStore
+  IPA with a higher `CFBundleVersion`, published through the feed. Marketing versions may stay the same when store policy
   permits, but document the exception.
 
 ## Footguns
@@ -239,7 +249,7 @@ Phase 8 validation, not a Phase 7 code blocker.
 - Do not run `publish` merely to test CI. Use `build-only` or `dry-run`.
 - Do not mark debug releases as stable or stable releases as GitHub prereleases. Stable clients
   reject prereleases; debug clients require both the prerelease flag and `debug-v` tag.
-- Do not publish only Windows, one macOS architecture, or Android without TestFlight.
+- Do not publish only Windows, one macOS architecture, or Android without the SideStore IPA and feed.
 - Do not commit `.jks`, `.p12`, `.p8`, provisioning profiles, passwords or generated export files.
 - Do not reuse version/build/order numbers, tags, or stale files copied from a previous build.
 - Do not edit desktop identity/upgrade/version mapping as part of a cleanup. It is installed-user
