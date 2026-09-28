@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioDesktopVerticalScrollbar
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding
 
 /**
  * Which sections of the Downloads screen a list shows. A phone, a narrow window and a show's own
@@ -91,6 +95,11 @@ internal fun DownloadsWideLayout(
 ) {
     val tokens = MaterialTheme.nuvio
     val railListState = rememberLazyListState()
+    // The top margin every other tab gets from NuvioScreen's content padding; without it the title
+    // sat flush against the top of the window.
+    val topPadding = tokens.spacing.screenTop +
+        WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
+        nuvioPlatformExtraTopPadding
     val maxTotal = DownloadsWideMainMaxWidth + DownloadsWidePaneGap + DownloadsWideRailMaxWidth + DownloadsWideGutter * 2
     BoxWithConstraints(
         modifier = modifier.fillMaxSize().background(tokens.colors.background),
@@ -101,7 +110,7 @@ internal fun DownloadsWideLayout(
             modifier = Modifier
                 .widthIn(max = maxTotal)
                 .fillMaxSize()
-                .padding(horizontal = DownloadsWideGutter),
+                .padding(start = DownloadsWideGutter, end = DownloadsWideGutter, top = topPadding),
         ) {
             header(Modifier.fillMaxWidth())
             Row(
