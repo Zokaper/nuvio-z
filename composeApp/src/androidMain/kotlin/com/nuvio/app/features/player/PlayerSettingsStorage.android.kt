@@ -998,23 +998,6 @@ actual object PlayerSettingsStorage {
             ?.apply()
     }
 
-    actual fun loadAutoSkipSegmentTypes(): Set<String>? =
-        preferences?.let { sharedPreferences ->
-            val key = ProfileScopedKey.of(autoSkipSegmentTypesKey)
-            if (sharedPreferences.contains(key)) {
-                sharedPreferences.getStringSet(key, emptySet()) ?: emptySet()
-            } else {
-                null
-            }
-        }
-
-    actual fun saveAutoSkipSegmentTypes(segmentTypes: Set<String>) {
-        preferences
-            ?.edit()
-            ?.putStringSet(ProfileScopedKey.of(autoSkipSegmentTypesKey), segmentTypes)
-            ?.apply()
-    }
-
     actual fun loadAnimeSkipEnabled(): Boolean? =
         preferences?.let { sharedPreferences ->
             val key = ProfileScopedKey.of(animeSkipEnabledKey)

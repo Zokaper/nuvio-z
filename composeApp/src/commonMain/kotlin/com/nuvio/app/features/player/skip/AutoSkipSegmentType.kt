@@ -20,6 +20,16 @@ enum class AutoSkipSegmentType(val storedValue: String) {
     }
 }
 
+internal fun SkipInterval.autoSkipKey(): String =
+    "$provider:$type:$startTime:$endTime"
+
+internal fun List<SkipInterval>.autoSkipKeysCompletedBy(positionMs: Long): Set<String> {
+    if (positionMs <= 0L) return emptySet()
+    return asSequence()
+        .filter { interval -> interval.endTime * 1000.0 <= positionMs.toDouble() }
+        .mapTo(linkedSetOf()) { interval -> interval.autoSkipKey() }
+}
+
 internal fun SkipInterval.shouldAutoSkip(selectedTypes: Set<AutoSkipSegmentType>): Boolean =
     startTime.isFinite() && endTime.isFinite() && startTime >= 0 && endTime > startTime &&
         AutoSkipSegmentType.fromSkipIntervalType(type) in selectedTypes

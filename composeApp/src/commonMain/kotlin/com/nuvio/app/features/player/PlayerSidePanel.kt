@@ -202,7 +202,7 @@ internal fun PlayerProviderFilterRow(
 }
 
 @Composable
-private fun AddonFilterChip(
+internal fun AddonFilterChip(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,

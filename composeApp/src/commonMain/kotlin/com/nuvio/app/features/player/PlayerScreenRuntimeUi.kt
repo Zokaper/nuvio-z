@@ -1147,11 +1147,6 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
             onRuntimeClick = { showRemainingTime = !showRemainingTime },
             releaseInfo = metaUiState.meta?.takeIf { it.id == parentMetaId }?.releaseInfo,
             hideDetails = activeSkipInterval != null && !skipIntervalDismissed,
-            onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true && !nextEpisodeAutoPlaySearching && nextEpisodeAutoPlayCountdown == null) {
-                {
-                    playNextEpisode()
-                }
-            } else null,
             onInteraction = { controlsActivityTick += 1 },
             showPlaybackControls = controlsVisible,
             onLockToggle = {
@@ -1237,8 +1232,9 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 scrubbingPositionMs = positionMs
             },
             onScrubFinished = { positionMs ->
-                isScrubbingTimeline = false
-                scrubbingPositionMs = null
+                // Upstream's scrub end: settles any skip segment the scrub crossed, and holds the
+                // target on the timeline while the engine is still loading it.
+                finishTimelineScrub(positionMs)
                 // The party seeks everyone at one instant, this player included, so performing the
                 // seek here as well would move it twice - once to the scrub target and once to
                 // wherever the barrier says the party will be.

@@ -897,17 +897,6 @@ actual object PlayerSettingsStorage {
     }
 
     @Suppress("UNCHECKED_CAST")
-    actual fun loadAutoSkipSegmentTypes(): Set<String>? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(autoSkipSegmentTypesKey)
-        val array = defaults.arrayForKey(key) as? List<String> ?: return null
-        return array.toSet()
-    }
-
-    actual fun saveAutoSkipSegmentTypes(segmentTypes: Set<String>) {
-        NSUserDefaults.standardUserDefaults.setObject(segmentTypes.toList(), forKey = ProfileScopedKey.of(autoSkipSegmentTypesKey))
-    }
-
     actual fun loadAnimeSkipEnabled(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(animeSkipEnabledKey)

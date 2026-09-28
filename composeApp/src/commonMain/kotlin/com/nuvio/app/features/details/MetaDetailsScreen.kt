@@ -1073,7 +1073,7 @@ fun MetaDetailsScreen(
                         onStartFromBeginning = { video ->
                             onPlay?.invoke(meta.type, video.id, meta.id, meta.type, meta.name, meta.logo,
                                 meta.poster, meta.background, video.season, video.episode, video.title,
-                                video.thumbnail, video.overview, 0L)
+                                video.thumbnail, video.overview, video.runtime, 0L)
                         },
                     )
                 }

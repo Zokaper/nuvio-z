@@ -430,30 +430,6 @@ private fun MetaSectionRow(
     }
 }
 
-@Composable
-private fun TabGroupChip(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        enabled = enabled,
-        label = {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-            )
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    )
-}
-
 private fun List<MetaScreenSectionItem>.visibleMetaSectionSettingsItems(): List<MetaScreenSectionItem> =
     if (!isDesktop) {
         this

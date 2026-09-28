@@ -42,11 +42,11 @@ import com.nuvio.app.features.player.skip.autoSkipKeysCompletedBy
 import com.nuvio.app.features.player.skip.resolveSkipIntervalLookup
 import com.nuvio.app.features.streams.CredentialRefreshDecision
 import com.nuvio.app.features.streams.credentialRefreshDecision
-import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.streams.hasLikelyExpiringPlaybackCredentials
 import com.nuvio.app.features.tracking.TrackingScrobbleAction
@@ -905,7 +905,6 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.skipIntroEnabled,
     ) {
         skipIntervals = emptyList()
-        autoSkippedIntervals.clear()
         lastManualSkipSeekPositions = null
         activeSkipInterval = null
         skipIntervalDismissed = false
@@ -1138,6 +1137,18 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             if (!nextEpisodeTransition.isActive) showNextEpisodeCard = false
             return@LaunchedEffect
         }
+        // Upstream's keyed-lifecycle guard: a snapshot still describing the previous item, or one
+        // taken before the resume seek, must not read as this episode's threshold.
+        if (
+            playbackSnapshotKey != activePlaybackKey ||
+            playbackSnapshot.isLoading ||
+            !initialSeekApplied ||
+            isScrubbingTimeline ||
+            errorMessage != null ||
+            isShortPlaceholderDuration(playbackSnapshot.durationMs)
+        ) {
+            return@LaunchedEffect
+        }
         val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
             positionMs = playbackSnapshot.positionMs,
             durationMs = playbackSnapshot.durationMs,
@@ -1149,7 +1160,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         if (shouldShow && !showNextEpisodeCard && !nextEpisodeTransition.isActive) {
             showNextEpisodeCard = true
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
-                playNextEpisode(automatic = true)
+                playNextEpisode()
             }
         } else if (!shouldShow && !nextEpisodeTransition.isActive) {
             showNextEpisodeCard = false

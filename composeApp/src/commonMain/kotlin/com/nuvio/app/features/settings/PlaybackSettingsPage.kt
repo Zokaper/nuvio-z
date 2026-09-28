@@ -99,7 +99,6 @@ import com.nuvio.app.features.player.localizedLabel
 import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlayerSettingsRepository
-import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
@@ -118,6 +117,8 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Icon
 
 internal fun LazyListScope.playbackSettingsContent(
     isTablet: Boolean,
@@ -326,7 +327,6 @@ private fun PlaybackSettingsSection(
     libassRenderType: String,
 ) {
     var showPreferredAudioDialog by remember { mutableStateOf(false) }
-    var showAutoSkipSegmentDialog by remember { mutableStateOf(false) }
     var showSecondaryAudioDialog by remember { mutableStateOf(false) }
     var showPreferredSubtitleDialog by remember { mutableStateOf(false) }
     var showSecondarySubtitleDialog by remember { mutableStateOf(false) }
@@ -1207,14 +1207,6 @@ private fun PlaybackSettingsSection(
     }
 
 
-    if (showAutoSkipSegmentDialog) {
-        AutoSkipSegmentSelectionDialog(
-            selectedTypes = autoPlayPlayerSettings.autoSkipSegmentTypes,
-            onTypeToggled = PlayerSettingsRepository::setAutoSkipSegmentTypeEnabled,
-            onDismiss = { showAutoSkipSegmentDialog = false },
-        )
-    }
-
     if (showDecoderPriorityDialog) {
         DecoderPriorityDialog(
             selectedPriority = decoderPriority,
@@ -1442,130 +1434,6 @@ internal fun LanguageSelectionDialog(
             )
         }
     }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun AutoSkipSegmentSelectionDialog(
-    selectedTypes: Set<AutoSkipSegmentType>,
-    onTypeToggled: (AutoSkipSegmentType, Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.settings_playback_auto_skip_segments),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AutoSkipSegmentType.entries.forEach { segmentType ->
-                        val isSelected = segmentType in selectedTypes
-                        val containerColor = if (isSelected) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                        }
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onTypeToggled(segmentType, !isSelected) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = containerColor,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                                ) {
-                                    Text(
-                                        text = autoSkipTypeLabel(segmentType),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        text = autoSkipTypeDescription(segmentType),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier.size(24.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(Res.string.settings_playback_dialog_close),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        DialogButtons {
-            DialogButton(
-                text = stringResource(Res.string.action_done),
-                onClick = onDismiss,
-            )
-        }
-    }
-}
-
-@Composable
-private fun autoSkipSelectionSummary(selectedTypes: Set<AutoSkipSegmentType>): String {
-    if (selectedTypes.isEmpty()) return stringResource(Res.string.settings_playback_auto_skip_none)
-    val introLabel = stringResource(Res.string.settings_playback_auto_skip_intro)
-    val recapLabel = stringResource(Res.string.settings_playback_auto_skip_recap)
-    val outroLabel = stringResource(Res.string.settings_playback_auto_skip_outro)
-    return buildList {
-        if (AutoSkipSegmentType.INTRO in selectedTypes) add(introLabel)
-        if (AutoSkipSegmentType.RECAP in selectedTypes) add(recapLabel)
-        if (AutoSkipSegmentType.OUTRO in selectedTypes) add(outroLabel)
-    }.joinToString(", ")
-}
-
-@Composable
-private fun autoSkipTypeLabel(segmentType: AutoSkipSegmentType): String = when (segmentType) {
-    AutoSkipSegmentType.INTRO -> stringResource(Res.string.settings_playback_auto_skip_intro)
-    AutoSkipSegmentType.RECAP -> stringResource(Res.string.settings_playback_auto_skip_recap)
-    AutoSkipSegmentType.OUTRO -> stringResource(Res.string.settings_playback_auto_skip_outro)
-}
-
-@Composable
-private fun autoSkipTypeDescription(segmentType: AutoSkipSegmentType): String = when (segmentType) {
-    AutoSkipSegmentType.INTRO -> stringResource(Res.string.settings_playback_auto_skip_intro_description)
-    AutoSkipSegmentType.RECAP -> stringResource(Res.string.settings_playback_auto_skip_recap_description)
-    AutoSkipSegmentType.OUTRO -> stringResource(Res.string.settings_playback_auto_skip_outro_description)
 }
 
 @Composable

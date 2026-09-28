@@ -648,7 +648,7 @@ private fun MobileSettingsScreen(
                 SettingsPage.Root -> {
                     settingsSearchRootContent(
                         query = settingsSearchQuery,
-                        entries = searchEntries,
+                        entries = { searchEntries },
                         isTablet = false,
                         showSearchField = rootSearchVisible,
                         animateSearchField = rootSearchRevealAnimating,
@@ -1115,7 +1115,7 @@ private fun TabletSettingsScreen(
                         SettingsPage.Root -> {
                             settingsSearchRootContent(
                                 query = settingsSearchQuery,
-                                entries = searchEntries,
+                                entries = { searchEntries },
                                 isTablet = true,
                                 showSearchField = rootSearchVisible,
                                 animateSearchField = rootSearchRevealAnimating,

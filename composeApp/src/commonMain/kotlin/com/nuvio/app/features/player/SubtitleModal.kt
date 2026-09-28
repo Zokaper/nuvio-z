@@ -58,6 +58,7 @@ import nuvio.composeapp.generated.resources.compose_player_subtitles
 import nuvio.composeapp.generated.resources.settings_playback_option_forced
 import nuvio.composeapp.generated.resources.subtitle_language_unknown
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.foundation.horizontalScroll
 
 @Composable
 fun SubtitleModal(
@@ -183,6 +184,7 @@ fun SubtitleModal(
                 )
 
                 Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.Top,
                 ) {

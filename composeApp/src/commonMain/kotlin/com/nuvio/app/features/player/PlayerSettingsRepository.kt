@@ -9,7 +9,6 @@ import com.nuvio.app.features.downloads.DynamicRangePolicy
 import com.nuvio.app.features.playback.LanguageStrictness
 import com.nuvio.app.features.playback.migratedPreferredAudioLanguage
 import com.nuvio.app.features.playback.PlaybackMode
-import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -561,6 +560,8 @@ object PlayerSettingsRepository {
             PlayerSettingsStorage.savePreferredAudioLanguage(resolved)
         }
         PlayerSettingsStorage.savePlaybackLanguageMigrated(true)
+    }
+
     fun setUseLegacyPlayerLayout(enabled: Boolean) {
         ensureLoaded()
         if (useLegacyPlayerLayout == enabled) return

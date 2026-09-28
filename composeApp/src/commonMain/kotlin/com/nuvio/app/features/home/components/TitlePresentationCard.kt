@@ -90,6 +90,7 @@ internal fun TitlePresentationCard(
             artworkUrl = artwork,
             episodeLine = episodeLine,
             layout = resolvedLayout,
+            cornerRadius = resolvedMetrics.cornerRadius,
             onClick = onClick,
             modifier = modifier,
             leading = leading,
@@ -100,6 +101,7 @@ internal fun TitlePresentationCard(
             artworkUrl = artwork,
             episodeLine = episodeLine,
             layout = resolvedLayout,
+            cornerRadius = resolvedMetrics.cornerRadius,
             onClick = onClick,
             modifier = modifier,
             leading = leading,
@@ -251,6 +253,7 @@ private fun TitleCardWide(
     artworkUrl: String?,
     episodeLine: String?,
     layout: ContinueWatchingLayout,
+    cornerRadius: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
     modifier: Modifier,
     leading: @Composable (() -> Unit)?,
@@ -261,12 +264,12 @@ private fun TitleCardWide(
             .clickable(onClick = onClick)
             .width(layout.wideCardWidth)
             .height(layout.wideCardHeight)
-            .clip(RoundedCornerShape(layout.cardRadius))
+            .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .border(
                 width = 1.5.dp,
                 color = Color.White.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(layout.cardRadius),
+                shape = RoundedCornerShape(cornerRadius),
             ),
     ) {
         ArtworkPanel(
@@ -350,6 +353,7 @@ private fun TitleCardPoster(
     artworkUrl: String?,
     episodeLine: String?,
     layout: ContinueWatchingLayout,
+    cornerRadius: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
     modifier: Modifier,
     leading: @Composable (() -> Unit)?,
@@ -364,10 +368,10 @@ private fun TitleCardPoster(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(layout.posterCardHeight)
-                .clip(RoundedCornerShape(layout.cardRadius))
+                .clip(RoundedCornerShape(cornerRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .nuvioCardDepth(
-                    shape = RoundedCornerShape(layout.cardRadius),
+                    shape = RoundedCornerShape(cornerRadius),
                     surface = NuvioCardDepthSurface.ContinueWatching,
                 )
                 .clickable(onClick = onClick),

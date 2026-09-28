@@ -137,6 +137,12 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         isUserExplicitAudioSelection = false
         isUserExplicitSubtitleSelection = false
         hasScannedTextTracksOnce = false
+        // The key includes the episode, so this is also the episode change: the previous
+        // item's subtitle choice must not carry into the next one.
+        subtitleTracks = emptyList()
+        selectedSubtitleIndex = -1
+        selectedAddonSubtitleId = null
+        useCustomSubtitles = false
     }
 
     val videoIdentity = "$identity:$activeVideoId:$activeSeasonNumber:$activeEpisodeNumber"

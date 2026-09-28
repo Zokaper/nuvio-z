@@ -13,10 +13,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nuvio.app.isDesktop
 import com.nuvio.app.isIos
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_resize_fill
 import nuvio.composeapp.generated.resources.compose_player_resize_fit
+import nuvio.composeapp.generated.resources.compose_player_resize_stretch
 import nuvio.composeapp.generated.resources.compose_player_resize_zoom
 import org.jetbrains.compose.resources.StringResource
 import kotlin.math.max
@@ -135,10 +137,18 @@ internal fun playerTimelineBottomInsets(metrics: PlayerLayoutMetrics): WindowIns
 }
 
 internal fun PlayerResizeMode.next(): PlayerResizeMode =
-    when (this) {
-        PlayerResizeMode.Fit -> PlayerResizeMode.Fill
+    when (supportedOnCurrentPlatform()) {
+        PlayerResizeMode.Fit -> if (isDesktop) PlayerResizeMode.Zoom else PlayerResizeMode.Fill
         PlayerResizeMode.Fill -> PlayerResizeMode.Zoom
-        PlayerResizeMode.Zoom -> PlayerResizeMode.Fit
+        PlayerResizeMode.Zoom -> if (isDesktop) PlayerResizeMode.Stretch else PlayerResizeMode.Fit
+        PlayerResizeMode.Stretch -> PlayerResizeMode.Fit
+    }
+
+internal fun PlayerResizeMode.supportedOnCurrentPlatform(): PlayerResizeMode =
+    when {
+        isDesktop && this == PlayerResizeMode.Fill -> PlayerResizeMode.Zoom
+        !isDesktop && this == PlayerResizeMode.Stretch -> PlayerResizeMode.Fit
+        else -> this
     }
 
 internal val PlayerResizeMode.labelRes: StringResource
@@ -146,6 +156,7 @@ internal val PlayerResizeMode.labelRes: StringResource
         PlayerResizeMode.Fit -> Res.string.compose_player_resize_fit
         PlayerResizeMode.Fill -> Res.string.compose_player_resize_fill
         PlayerResizeMode.Zoom -> Res.string.compose_player_resize_zoom
+        PlayerResizeMode.Stretch -> Res.string.compose_player_resize_stretch
     }
 
 internal fun formatPlaybackTime(positionMs: Long): String {

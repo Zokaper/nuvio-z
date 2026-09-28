@@ -104,8 +104,14 @@ internal fun PlayerDestination(
             }
         },
     )
+    // The player's own back: it releases the engine before navigating. Kept so a close that does
+    // not come from a back press (the Infuse hand-off below) takes the same guarded path.
+    var playerBack by remember(route) { mutableStateOf<(() -> Unit)?>(null) }
     val registerSystemBack = remember(route, onSystemBackHandlerChanged) {
-        { handler: (() -> Unit)? -> onSystemBackHandlerChanged(route, handler) }
+        { handler: (() -> Unit)? ->
+            playerBack = handler
+            onSystemBackHandlerChanged(route, handler)
+        }
     }
     val noAutomaticSourceText = stringResource(Res.string.playback_quality_no_match)
     // Single-shot per launch. The engine can report a fatal error more than once on the way
@@ -195,7 +201,7 @@ internal fun PlayerDestination(
                     if (!launched) {
                         NuvioToastController.show(externalPlayerFailedText)
                     } else if (externalPlayerId == "infuse") {
-                        onBack()
+                        playerBack?.invoke()
                     }
                 }
                 ExternalPlayerIntentResult.NotConfigured -> {

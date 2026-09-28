@@ -99,8 +99,6 @@ internal expect object PlayerSettingsStorage {
     fun loadAutoSkipPostCredits(): Boolean?
     fun saveAutoSkipPostCredits(enabled: Boolean)
     fun saveSkipIntroEnabled(enabled: Boolean)
-    fun loadAutoSkipSegmentTypes(): Set<String>?
-    fun saveAutoSkipSegmentTypes(segmentTypes: Set<String>)
     fun loadAnimeSkipEnabled(): Boolean?
     fun saveAnimeSkipEnabled(enabled: Boolean)
     fun loadAnimeSkipClientId(): String?
