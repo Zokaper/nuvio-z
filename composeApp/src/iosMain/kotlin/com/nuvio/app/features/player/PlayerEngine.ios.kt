@@ -295,6 +295,31 @@ actual fun PlatformPlayerSurface(
         latestOnControllerReady.value(controller)
     }
 
+    // The lock screen and remote commands go through the runtime, as Android's media session does.
+    // See `PlayerRemoteCommands`.
+    val latestOnPlayerControlsEvent = rememberUpdatedState(onPlayerControlsEvent)
+    val latestOnPlayerControlsScrubFinished = rememberUpdatedState(onPlayerControlsScrubFinished)
+    val latestPlayWhenReady = rememberUpdatedState(playWhenReady)
+    val remoteCommands = remember(bridge) {
+        PlayerRemoteCommandRouter(
+            transport = PlayerExternalTransport(
+                onEvent = { type, value -> latestOnPlayerControlsEvent.value(type, value) },
+                onSeek = { positionMs -> latestOnPlayerControlsScrubFinished.value(positionMs) },
+            ),
+            engine = object : PlayerRemoteCommandRouter.Engine {
+                override fun play() = bridge.play()
+                override fun pause() = bridge.pause()
+                override fun isPlaying(): Boolean = bridge.getIsPlaying()
+                override fun positionMs(): Long = bridge.getPositionMs()
+            },
+            playWhenReady = { latestPlayWhenReady.value },
+        )
+    }
+    DisposableEffect(bridge, remoteCommands) {
+        bridge.setRemoteCommands(remoteCommands)
+        onDispose { bridge.setRemoteCommands(null) }
+    }
+
     // Load file and set initial state
     LaunchedEffect(bridge, sourceUrl, sourceAudioUrl, sourceHeaders, externalSubtitles) {
         bridge.applyIosVideoOutputSettings(latestPlayerSettings.value)
@@ -336,14 +361,27 @@ actual fun PlatformPlayerSurface(
     LaunchedEffect(bridge) {
         var lastReportedError: String? = null
         while (isActive) {
+            // `getIsLoading` refreshes the bridge's state from mpv; everything after it reads that
+            // refresh, so it stays first.
+            val isLoading = bridge.getIsLoading()
+            val durationMs = bridge.getDurationMs()
             val snapshot = PlayerPlaybackSnapshot(
-                isLoading = bridge.getIsLoading(),
+                isLoading = isLoading,
                 isPlaying = bridge.getIsPlaying(),
                 isEnded = bridge.getIsEnded(),
-                durationMs = bridge.getDurationMs(),
+                durationMs = durationMs,
                 positionMs = bridge.getPositionMs(),
                 bufferedPositionMs = bridge.getBufferedMs(),
                 playbackSpeed = bridge.getPlaybackSpeed(),
+                engineName = "libmpv",
+                engineReadiness = mpvEngineReadiness(
+                    pausedForCache = bridge.getIsPausedForCache(),
+                    cacheBuffering = mpvCacheBuffering(bridge.getCacheBufferingState().takeIf { it >= 0 }),
+                    paused = bridge.getIsPaused(),
+                    seeking = bridge.getIsSeeking(),
+                    idle = bridge.getIsCoreIdle(),
+                    durationMs = durationMs,
+                ),
             )
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }

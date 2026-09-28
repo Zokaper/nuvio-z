@@ -9,6 +9,7 @@ import ComposeApp
 final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
 
     private var playerVC: MPVPlayerViewController?
+    private var remoteCommands: PlayerRemoteCommands?
 
     func createPlayerViewController() -> UIViewController {
         return ensurePlayerViewController()
@@ -17,6 +18,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     private func ensurePlayerViewController() -> MPVPlayerViewController {
         if let playerVC { return playerVC }
         let vc = MPVPlayerViewController()
+        vc.remoteCommands = remoteCommands
         self.playerVC = vc
         return vc
     }
@@ -196,7 +198,23 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
 
+    // Engine readiness inputs for Watch Together, as of the last `getIsLoading` refresh.
+    func getIsPausedForCache() -> Bool { playerVC?.isPausedForCache ?? false }
+    func getCacheBufferingState() -> Int32 { Int32(playerVC?.cacheBufferingState ?? -1) }
+    func getIsSeeking() -> Bool { playerVC?.isSeeking ?? false }
+    func getIsCoreIdle() -> Bool { playerVC?.isCoreIdle ?? true }
+    func getIsPaused() -> Bool { playerVC?.isPaused ?? true }
+
+    /// Kotlin's route for the lock screen, remote commands and the foreground return. Held strongly
+    /// and cleared by Kotlin when the player leaves composition, and here on destroy.
+    func setRemoteCommands(commands: PlayerRemoteCommands?) {
+        remoteCommands = commands
+        playerVC?.remoteCommands = commands
+    }
+
     func destroy() {
+        remoteCommands = nil
+        playerVC?.remoteCommands = nil
         playerVC?.destroyPlayer()
         playerVC = nil
     }
@@ -286,6 +304,17 @@ final class MPVPlayerViewController: UIViewController {
     var positionMs: Int64 = 0
     var bufferedMs: Int64 = 0
     var currentSpeed: Float = 1.0
+    // mpv's own cache verdict, read by Kotlin's `mpvEngineReadiness` exactly as Android's libmpv is.
+    var isPausedForCache: Bool = false
+    var cacheBufferingState: Int = -1
+    var isSeeking: Bool = false
+    var isCoreIdle: Bool = true
+    var isPaused: Bool = true
+
+    /// Set by Kotlin while the player is composed. When present, every command that does not come
+    /// from the app's own controls goes through it, so Watch Together decides who may move the
+    /// player; mpv is moved directly only when it is absent.
+    var remoteCommands: PlayerRemoteCommands?
     var currentErrorMessage: String {
         errorStateLock.lock()
         defer { errorStateLock.unlock() }
@@ -527,7 +556,42 @@ final class MPVPlayerViewController: UIViewController {
     @objc private func enterForeground() {
         guard mpv != nil else { return }
         setStringProperty("vid", "auto")
-        playPlayback()
+        // Back to what the runtime wants, not unconditionally playing: resuming here played a film
+        // paused before the lock, and in Watch Together a stale position under a party that may be
+        // paused. The away return decides when a party member plays again.
+        if let remoteCommands {
+            remoteCommands.restorePlaybackIntent()
+        } else {
+            playPlayback()
+        }
+    }
+
+    // MARK: - Remote commands (lock screen, Control Center, headset)
+
+    func remotePlay() {
+        if let remoteCommands { remoteCommands.play() } else { playPlayback() }
+    }
+
+    func remotePause() {
+        if let remoteCommands { remoteCommands.pause() } else { pausePlayback() }
+    }
+
+    func remoteTogglePlayPause() {
+        if let remoteCommands {
+            remoteCommands.togglePlayPause()
+        } else if isPlayerPlaying {
+            pausePlayback()
+        } else {
+            playPlayback()
+        }
+    }
+
+    func remoteSeekTo(_ ms: Int64) {
+        if let remoteCommands { remoteCommands.seekTo(positionMs: ms) } else { seekToMs(ms) }
+    }
+
+    func remoteSeekBy(_ ms: Int64) {
+        if let remoteCommands { remoteCommands.seekBy(offsetMs: ms) } else { seekByMs(ms, exact: true) }
     }
 
     // MARK: - Playback API
@@ -903,6 +967,12 @@ final class MPVPlayerViewController: UIViewController {
         let seeking = getFlag("seeking")
         let bufferingCache = getFlag("paused-for-cache")
 
+        isPausedForCache = bufferingCache
+        cacheBufferingState = getIntIfAvailable("cache-buffering-state") ?? -1
+        isSeeking = seeking
+        isCoreIdle = idle
+        isPaused = paused
+
         isPlayerLoading = (idle && !paused && !eofReached) || seeking || bufferingCache
         isPlayerPlaying = !paused && !idle && !eofReached
         isPlayerEnded = eofReached
@@ -1252,6 +1322,15 @@ final class MPVPlayerViewController: UIViewController {
         guard mpv != nil else { return 0 }
         var data = Int64()
         mpv_get_property(mpv, name, MPV_FORMAT_INT64, &data)
+        return Int(data)
+    }
+
+    /// Nil when mpv cannot report the property, rather than `getInt`'s 0 - which for
+    /// `cache-buffering-state` would read as an empty cache.
+    private func getIntIfAvailable(_ name: String) -> Int? {
+        guard mpv != nil else { return nil }
+        var data = Int64()
+        guard mpv_get_property(mpv, name, MPV_FORMAT_INT64, &data) >= 0 else { return nil }
         return Int(data)
     }
 

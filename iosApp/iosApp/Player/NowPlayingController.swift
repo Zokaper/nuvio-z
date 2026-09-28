@@ -170,6 +170,9 @@ final class PlayerNowPlayingController {
         }
     }
 
+    /// Every handler goes through the owner's `remote*` methods, which hand the request to Kotlin's
+    /// `PlayerRemoteCommands` - so in Watch Together the party decides, exactly as for an on-screen
+    /// button - and move mpv directly only when no player is composed to ask.
     private func configureRemoteCommands() {
         guard remoteTargets.isEmpty else { return }
 
@@ -187,7 +190,7 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.playCommand,
                 token: center.playCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async { self?.owner?.playPlayback() }
+                    DispatchQueue.main.async { self?.owner?.remotePlay() }
                     return .success
                 }
             )
@@ -196,7 +199,7 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.pauseCommand,
                 token: center.pauseCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async { self?.owner?.pausePlayback() }
+                    DispatchQueue.main.async { self?.owner?.remotePause() }
                     return .success
                 }
             )
@@ -205,14 +208,7 @@ final class PlayerNowPlayingController {
             RemoteCommandTarget(
                 command: center.togglePlayPauseCommand,
                 token: center.togglePlayPauseCommand.addTarget { [weak self] _ in
-                    DispatchQueue.main.async {
-                        guard let owner = self?.owner else { return }
-                        if owner.isPlayerPlaying {
-                            owner.pausePlayback()
-                        } else {
-                            owner.playPlayback()
-                        }
-                    }
+                    DispatchQueue.main.async { self?.owner?.remoteTogglePlayPause() }
                     return .success
                 }
             )
@@ -223,7 +219,7 @@ final class PlayerNowPlayingController {
                 token: center.skipForwardCommand.addTarget { [weak self] event in
                     guard let event = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.seekByMs(Int64(event.interval * 1000.0), exact: true)
+                        self?.owner?.remoteSeekBy(Int64(event.interval * 1000.0))
                     }
                     return .success
                 }
@@ -235,7 +231,7 @@ final class PlayerNowPlayingController {
                 token: center.skipBackwardCommand.addTarget { [weak self] event in
                     guard let event = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.seekByMs(-Int64(event.interval * 1000.0), exact: true)
+                        self?.owner?.remoteSeekBy(-Int64(event.interval * 1000.0))
                     }
                     return .success
                 }
@@ -247,7 +243,7 @@ final class PlayerNowPlayingController {
                 token: center.changePlaybackPositionCommand.addTarget { [weak self] event in
                     guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
                     DispatchQueue.main.async {
-                        self?.owner?.seekToMs(Int64(event.positionTime * 1000.0))
+                        self?.owner?.remoteSeekTo(Int64(event.positionTime * 1000.0))
                     }
                     return .success
                 }

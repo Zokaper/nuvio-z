@@ -84,6 +84,24 @@ interface NuvioPlayerBridge {
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getErrorMessage(): String
+
+    /**
+     * The mpv properties [mpvEngineReadiness] reads, as of the last [getIsLoading] refresh - the
+     * same ones Android's libmpv reports, so iOS reaches Watch Together with the engine's own
+     * answer rather than the buffered-ahead fallback. [getCacheBufferingState] is -1 when mpv cannot
+     * report it.
+     */
+    fun getIsPausedForCache(): Boolean
+    fun getCacheBufferingState(): Int
+    fun getIsSeeking(): Boolean
+    fun getIsCoreIdle(): Boolean
+    fun getIsPaused(): Boolean
+
+    /**
+     * Where the lock screen, remote commands and the return to the foreground send their requests,
+     * or null to move mpv directly. See [PlayerRemoteCommands].
+     */
+    fun setRemoteCommands(commands: PlayerRemoteCommands?)
     fun destroy()
 }
 
