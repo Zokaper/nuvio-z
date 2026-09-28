@@ -7,11 +7,13 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
@@ -33,17 +35,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.ui.DesktopNavigationBar
+import com.nuvio.app.core.ui.FloatingNavigationBar
+import com.nuvio.app.core.ui.FloatingNavigationItem
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
 import com.nuvio.app.core.ui.NuvioNavBarHeightState
-import com.nuvio.app.core.ui.NuvioNavigationBar
+import com.nuvio.app.core.ui.NuvioNavBarScrollState
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvioBlockPointerEvents
+import com.nuvio.app.core.ui.nuvioBottomNavigationBarInsets
 import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -84,11 +92,12 @@ internal fun MainTabsDestination(
     onAddProfileRequested: () -> Unit,
 ) {
     val socialEnabled = rememberSocialEnabled()
-    PlatformBackHandler(enabled = true, onBack = onBack)
+    PlatformBackHandler(enabled = rootRouteActive, onBack = onBack)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenWidth = maxWidth
         val isTabletLayout = useTabletFloatingTabBar || screenWidth >= 768.dp
+        val tabActions = remember(actions, isTabletLayout) { actions(isTabletLayout) }
         val useNativeBottomTabs = if (useNativeNavigation) {
             useNativeTabBar
         } else {
@@ -98,8 +107,10 @@ internal fun MainTabsDestination(
             isTabletLayout &&
             !useNativeBottomTabs &&
             desktopNavigationLayout == DesktopNavigationLayout.Sidebar
-        val useFloatingTopBar = isTabletLayout && !useNativeBottomTabs && !useDesktopSidebar
-        val topChromePadding = if (useFloatingTopBar) {
+        val useDesktopTopBar = isDesktop && !useNativeBottomTabs && !useDesktopSidebar
+        val useFloatingTopBar = !isDesktop && isTabletLayout && !useNativeBottomTabs
+        val usePhoneFloatingBar = !isDesktop && !isTabletLayout && !useNativeBottomTabs
+        val topChromePadding = if (useFloatingTopBar || useDesktopTopBar) {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             max(statusBarPadding + 24.dp, 48.dp) + 64.dp
         } else {
@@ -117,11 +128,13 @@ internal fun MainTabsDestination(
         // [NuvioNavBarHeightState] for why this is measured rather than written down.
         val navBarHeightState = remember { NuvioNavBarHeightState() }
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
+        val navBarGlowEnabled by ThemeSettingsRepository.navBarGlowEnabled.collectAsStateWithLifecycle()
         val homeCatalogSettingsUiState by remember { HomeCatalogSettingsRepository.uiState }.collectAsStateWithLifecycle()
 
         val sidebarHoverSource = remember { MutableInteractionSource() }
         val isSidebarHovered by sidebarHoverSource.collectIsHoveredAsState()
         var isProfileStackVisible by remember { mutableStateOf(false) }
+        var isTopProfileSwitcherOpen by remember { mutableStateOf(false) }
 
         val isSidebarExpanded = when (navBarStyleSetting) {
             NavBarStyle.EXPANDED -> true
@@ -142,6 +155,77 @@ internal fun MainTabsDestination(
             0.dp
         }
 
+        // Upstream's floating/jelly bars render a list of items; Z's destinations are spliced into
+        // it here, in the order the sidebar and the classic bar use. Settings stays last:
+        // `DesktopNavigationBar` reads `items.last()` as "the Settings tab is selected".
+        val floatingNavigationItems = buildList {
+            add(
+                FloatingNavigationItem(
+                    selected = selectedTab == AppScreenTab.Home,
+                    onClick = { onTabSelected(AppScreenTab.Home) },
+                    icon = Icons.Filled.Home,
+                    label = stringResource(Res.string.compose_nav_home),
+                ),
+            )
+            add(
+                FloatingNavigationItem(
+                    selected = selectedTab == AppScreenTab.Search,
+                    onClick = { onTabSelected(AppScreenTab.Search) },
+                    drawable = Res.drawable.sidebar_search,
+                    label = stringResource(Res.string.compose_nav_search),
+                ),
+            )
+            add(
+                FloatingNavigationItem(
+                    selected = selectedTab == AppScreenTab.Library,
+                    onClick = { onTabSelected(AppScreenTab.Library) },
+                    drawable = Res.drawable.sidebar_library,
+                    label = stringResource(Res.string.compose_nav_library),
+                ),
+            )
+            // Desktop's own Downloads destination (Phase 9); phones reach it from Library.
+            if (AppFeaturePolicy.downloadsEnabled && downloadsIsOwnDestination) {
+                add(
+                    FloatingNavigationItem(
+                        selected = selectedTab == AppScreenTab.Downloads,
+                        onClick = { onTabSelected(AppScreenTab.Downloads) },
+                        icon = Icons.Filled.Download,
+                        label = stringResource(Res.string.compose_nav_downloads),
+                    ),
+                )
+            }
+            // The social tab is a feature the user can switch off; see SocialFeatureGate.
+            if (socialEnabled) {
+                add(
+                    FloatingNavigationItem(
+                        selected = selectedTab == AppScreenTab.Social,
+                        onClick = { onTabSelected(AppScreenTab.Social) },
+                        icon = Icons.Filled.People,
+                        label = stringResource(Res.string.compose_nav_social),
+                    ),
+                )
+            }
+            add(
+                FloatingNavigationItem(
+                    selected = selectedTab == AppScreenTab.Settings,
+                    onClick = { onTabSelected(AppScreenTab.Settings) },
+                    label = stringResource(Res.string.compose_nav_settings),
+                    content = { onClick ->
+                        ProfileSwitcherTab(
+                            selected = selectedTab == AppScreenTab.Settings,
+                            onClick = onClick,
+                            onProfileSelected = onProfileSelected,
+                            onAddProfileRequested = onAddProfileRequested,
+                            hazeState = navBarHazeState,
+                            onPopupStateChanged = { isTopProfileSwitcherOpen = it },
+                            avatarSize = if (isDesktop && screenWidth < 800.dp) 26 else if (isDesktop && screenWidth > 1600.dp) 30 else 28,
+                            popupAlignment = if (isDesktop || isTabletLayout) Alignment.TopCenter else Alignment.BottomCenter,
+                        )
+                    },
+                ),
+            )
+        }
+
         Scaffold(
             modifier = Modifier
                 .fillMaxSize()
@@ -154,7 +238,7 @@ internal fun MainTabsDestination(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0),
             bottomBar = {
-                if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
+                if (usePhoneFloatingBar && navBarStyleSetting == NavBarStyle.CLASSIC) {
                     NuvioClassicNavigationBar {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,
@@ -198,12 +282,12 @@ internal fun MainTabsDestination(
             },
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                val requiresNavBarHaze = if (isTabletLayout) {
-                    useFloatingTopBar
-                } else {
-                    !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC
+                val requiresNavBarHaze = when {
+                    useDesktopTopBar -> true
+                    isTabletLayout -> useFloatingTopBar
+                    else -> usePhoneFloatingBar && navBarStyleSetting != NavBarStyle.CLASSIC
                 }
-                val shouldAttachNestedScroll = if (isTabletLayout) {
+                val shouldAttachNestedScroll = if (isDesktop || isTabletLayout) {
                     true
                 } else {
                     navBarStyleSetting == NavBarStyle.ADAPTIVE
@@ -211,18 +295,17 @@ internal fun MainTabsDestination(
                 CompositionLocalProvider(
                     // WARN **The floating pill's reserve is measured, not written down.**
                     //
-                    // This was `72.dp`: a hand-tuned approximation of a height computed in
-                    // `NavigationBar.kt` from an icon size, two paddings, a spacer and a label box.
-                    // The bar is 62dp collapsed and 79dp expanded, so the literal was seven short
-                    // at rest and wrong for the whole of the adaptive animation - which is how the
-                    // Social tab's "Friends" heading ended up behind it.
+                    // This was `72.dp`: a hand-tuned approximation of the bar's height. The bar
+                    // changes height as its labels collapse, so the literal was short at rest and
+                    // wrong for the whole of the adaptive animation - which is how the Social
+                    // tab's "Friends" heading ended up behind it.
                     //
                     // Native tabs and the classic bar keep literals on purpose: the first is the
                     // platform's own bar, which we do not measure, and the second is a real
                     // `Scaffold.bottomBar` whose height already arrives through `innerPadding`.
                     LocalNuvioBottomNavigationOverlayPadding provides when {
                         useNativeBottomTabs -> 49.dp
-                        !isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC ->
+                        usePhoneFloatingBar && navBarStyleSetting != NavBarStyle.CLASSIC ->
                             navBarHeightState.overlayHeight
                         else -> 0.dp
                     },
@@ -235,7 +318,7 @@ internal fun MainTabsDestination(
                             tabsRouteActiveState = tabsRouteActiveState,
                             topChromePadding = topChromePadding,
                         ),
-                        actions = actions(isTabletLayout),
+                        actions = tabActions,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (requiresNavBarHaze) Modifier.hazeSource(state = navBarHazeState) else Modifier)
@@ -261,71 +344,67 @@ internal fun MainTabsDestination(
                 }
 
                 if (useFloatingTopBar) {
-                    TabletFloatingTopBar(
-                        selectedTab = selectedTab,
-                        onTabSelected = onTabSelected,
-                        onProfileSelected = onProfileSelected,
-                        onAddProfileRequested = onAddProfileRequested,
-                        navBarStyleSetting = navBarStyleSetting,
-                        isHeroEnabled = homeCatalogSettingsUiState.heroEnabled,
+                    val tabletNavBarScrollState = remember { NuvioNavBarScrollState().apply { collapse() } }
+                    FloatingNavigationBar(
+                        modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 416.dp),
+                        scrollState = tabletNavBarScrollState,
                         hazeState = navBarHazeState,
-                        scrollState = navBarScrollState,
-                        windowWidth = screenWidth,
+                        contentPadding = PaddingValues(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 10.dp,
+                            bottom = 8.dp,
+                        ),
+                        compactSize = true,
+                        items = floatingNavigationItems,
+                        glowEnabled = navBarGlowEnabled,
                     )
                 }
 
-                if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
-                    NuvioNavigationBar(
-                        modifier = Modifier.align(Alignment.BottomCenter),
+                if (useDesktopTopBar) {
+                    DesktopNavigationBar(
+                        items = floatingNavigationItems,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        contentPadding = PaddingValues(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 10.dp,
+                            bottom = 8.dp,
+                        ),
                         scrollState = navBarScrollState,
                         hazeState = navBarHazeState,
                         navBarStyle = navBarStyleSetting,
-                        heightState = navBarHeightState,
-                    ) {
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Home,
-                            onClick = { onTabSelected(AppScreenTab.Home) },
-                            icon = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
-                            label = stringResource(Res.string.compose_nav_home),
-                        )
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Search,
-                            onClick = { onTabSelected(AppScreenTab.Search) },
-                            icon = Res.drawable.sidebar_search,
-                            contentDescription = stringResource(Res.string.compose_nav_search),
-                            label = stringResource(Res.string.compose_nav_search),
-                        )
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Library,
-                            onClick = { onTabSelected(AppScreenTab.Library) },
-                            icon = Res.drawable.sidebar_library,
-                            contentDescription = stringResource(Res.string.compose_nav_library),
-                            label = stringResource(Res.string.compose_nav_library),
-                        )
-                        if (socialEnabled) {
-                            NavItem(
-                                selected = selectedTab == AppScreenTab.Social,
-                                onClick = { onTabSelected(AppScreenTab.Social) },
-                                icon = Icons.Filled.People,
-                                contentDescription = stringResource(Res.string.compose_nav_social),
-                                label = stringResource(Res.string.compose_nav_social),
-                            )
-                        }
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Settings,
-                            onClick = { onTabSelected(AppScreenTab.Settings) },
-                            label = stringResource(Res.string.compose_nav_settings),
-                        ) {
-                            ProfileSwitcherTab(
-                                selected = selectedTab == AppScreenTab.Settings,
-                                onClick = { onTabSelected(AppScreenTab.Settings) },
-                                onProfileSelected = onProfileSelected,
-                                onAddProfileRequested = onAddProfileRequested,
-                                hazeState = navBarHazeState,
-                            )
-                        }
+                        isHeroEnabled = homeCatalogSettingsUiState.heroEnabled,
+                        profileSwitcherOpen = isTopProfileSwitcherOpen,
+                        windowWidth = screenWidth,
+                        glowEnabled = navBarGlowEnabled,
+                    )
+                }
+
+                if (usePhoneFloatingBar && navBarStyleSetting != NavBarStyle.CLASSIC) {
+                    when (navBarStyleSetting) {
+                        NavBarStyle.EXPANDED -> navBarScrollState.expand()
+                        NavBarStyle.COMPACT -> navBarScrollState.collapse()
+                        else -> {}
                     }
+                    val density = LocalDensity.current
+                    val bottomSafePadding = nuvioBottomNavigationBarInsets().asPaddingValues().calculateBottomPadding()
+                    FloatingNavigationBar(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            // Outermost, so this is the whole occupied height including the bar's
+                            // own margin; the inset is subtracted because `nuvioSafeBottomPadding`
+                            // adds it itself. See [NuvioNavBarHeightState].
+                            .onSizeChanged { size ->
+                                with(density) {
+                                    navBarHeightState.report(
+                                        height = size.height.toDp() - bottomSafePadding,
+                                        barWidth = size.width.toDp(),
+                                        labelsDemoted = false,
+                                    )
+                                }
+                            },
+                        scrollState = navBarScrollState,
+                        hazeState = navBarHazeState,
+                        items = floatingNavigationItems,
+                        glowEnabled = navBarGlowEnabled,
+                    )
                 }
             }
         }

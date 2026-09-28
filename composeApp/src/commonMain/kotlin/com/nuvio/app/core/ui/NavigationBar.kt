@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
@@ -212,6 +213,12 @@ fun NuvioNavigationBar(
     navBarStyle: NavBarStyle = NavBarStyle.ADAPTIVE,
     /** Receives this bar's measured occupied height. See [NuvioNavBarHeightState]. */
     heightState: NuvioNavBarHeightState? = null,
+    /**
+     * Upstream's placement override, used by the tablet's top-anchored bar through
+     * `FloatingNavigationBar`. Null keeps the default bottom placement over the navigation inset.
+     */
+    contentPadding: PaddingValues? = null,
+    compactSize: Boolean = false,
     content: @Composable NuvioNavigationBarScope.() -> Unit,
 ) {
     val targetLabelFraction = when (navBarStyle) {
@@ -263,7 +270,11 @@ fun NuvioNavigationBar(
                 }
             }
             .fillMaxWidth()
-            .padding(bottom = bottomSafePadding + nuvioBottomNavigationExtraVerticalPadding + NuvioTokens.Space.s8),
+            .padding(
+                contentPadding ?: PaddingValues(
+                    bottom = bottomSafePadding + nuvioBottomNavigationExtraVerticalPadding + NuvioTokens.Space.s8,
+                ),
+            ),
         contentAlignment = Alignment.BottomCenter,
     ) {
         // WARN **A label that cannot fit its cell demotes every label, rather than being cut.**
@@ -338,6 +349,7 @@ fun NuvioNavigationBar(
                     rowScope = this,
                     labelFraction = effectiveLabelFraction,
                     onLabelDidNotFit = { labelsDemotedAtWidth = barWidth },
+                    compactSize = compactSize,
                 ).content()
             }
         }
@@ -379,7 +391,10 @@ private class NuvioNavigationBarScopeImpl(
     private val rowScope: androidx.compose.foundation.layout.RowScope,
     private val labelFraction: Float,
     private val onLabelDidNotFit: () -> Unit,
+    private val compactSize: Boolean = false,
 ) : NuvioNavigationBarScope {
+    private val iconSize = if (compactSize) 24.dp else 28.dp
+    private val itemVerticalPadding = if (compactSize) 4.dp else NuvioTokens.Space.s6
 
     @Composable
     override fun NavItem(
@@ -409,10 +424,11 @@ private class NuvioNavigationBarScopeImpl(
                 selectedBackground = selectedBgColor,
                 onClick = onClick,
                 modifier = modifier.weight(1f),
+                verticalPadding = itemVerticalPadding,
             ) {
                 Icon(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(iconSize)
                         .then(if (selected) Modifier.gradientMask(palette.accentBrush()) else Modifier),
                     imageVector = icon,
                     contentDescription = contentDescription,
@@ -456,10 +472,11 @@ private class NuvioNavigationBarScopeImpl(
                 selectedBackground = selectedBgColor,
                 onClick = onClick,
                 modifier = modifier.weight(1f),
+                verticalPadding = itemVerticalPadding,
             ) {
                 Icon(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(iconSize)
                         .then(if (selected) Modifier.gradientMask(palette.accentBrush()) else Modifier),
                     painter = painterResource(icon),
                     contentDescription = contentDescription,
@@ -501,8 +518,13 @@ private class NuvioNavigationBarScopeImpl(
                 selectedBackground = selectedBgColor,
                 onClick = onClick,
                 modifier = modifier.weight(1f),
+                verticalPadding = itemVerticalPadding,
             ) {
-                content()
+                if (compactSize) {
+                    Box(Modifier.size(iconSize), contentAlignment = Alignment.Center) { content() }
+                } else {
+                    content()
+                }
                 NavItemLabel(
                     label = label,
                     labelFraction = labelFraction,
@@ -535,6 +557,7 @@ private fun NavItemCell(
     selectedBackground: Color,
     onClick: () -> Unit,
     modifier: Modifier,
+    verticalPadding: Dp = NuvioTokens.Space.s6,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -558,7 +581,7 @@ private fun NavItemCell(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = NuvioTokens.Space.s6),
+                .padding(vertical = verticalPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             content = content,
         )
