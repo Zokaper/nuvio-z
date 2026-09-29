@@ -41,6 +41,29 @@ data class PartySourceDescriptorV2(
     }
 }
 
+/** The backend's ceiling on each media list (`sanitize_source_descriptor_v2`): more is `invalid_source_media`. */
+const val PartySourceMediaListLimit = 16
+private val PartyMediaTokenRegex = Regex("^[A-Za-z0-9][A-Za-z0-9.+_-]{0,23}$")
+
+/**
+ * The first field of [PartySourceDescriptorV2.media] the deployed `sanitize_source_descriptor_v2`
+ * would refuse, or null when it would accept them. This is the backend's media contract restated,
+ * not a second opinion: it exists so a rejection names its field in the log instead of reading
+ * `invalid_source_media`, and so a test can hold the client to the contract without a database.
+ */
+fun PartySourceMedia.contractViolation(): String? {
+    if ((resolution?.length ?: 0) > 16) return "resolution"
+    if ((releaseQuality?.length ?: 0) > 24) return "release_quality"
+    if ((codec?.length ?: 0) > 24) return "codec"
+    if ((audioChannels?.length ?: 0) > 16) return "audio_channels"
+    if ((sizeBytes ?: 0L) < 0L) return "size_bytes"
+    for ((key, values) in listOf("dynamic_range" to dynamicRange, "audio_codecs" to audioCodecs, "languages" to languages)) {
+        if (values.size > PartySourceMediaListLimit) return "$key(${values.size} > $PartySourceMediaListLimit)"
+        if (values.any { !it.matches(PartyMediaTokenRegex) }) return "$key(item)"
+    }
+    return null
+}
+
 @Serializable
 data class PartyTrackIntent(
     @SerialName("audio_language") val audioLanguage: String? = null,

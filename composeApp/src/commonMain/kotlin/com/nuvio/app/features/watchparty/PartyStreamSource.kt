@@ -37,14 +37,23 @@ fun StreamItem.toPartySourceDescriptor(
             resolution=facts.resolution?.height?.let { "${it}p" },
             releaseQuality=facts.releaseQuality?.safeMediaToken(),
             codec=facts.codec?.safeMediaToken(),
-            dynamicRange=facts.dynamicRange.mapNotNull(String::safeMediaToken).toSet(),
-            audioCodecs=facts.audioCodecs.mapNotNull(String::safeMediaToken).toSet(),
+            dynamicRange=facts.dynamicRange.boundedMediaTokens(),
+            audioCodecs=facts.audioCodecs.boundedMediaTokens(),
             audioChannels=facts.audioChannels?.toString(),
-            languages=facts.languages.mapNotNull(String::safeMediaToken).toSet(),
+            languages=facts.languages.boundedMediaTokens(),
             sizeBytes=facts.sizeBytes?.takeIf { it>=0 },
         ),
     )
 }
+
+/**
+ * Tokens in a fixed order, cut to what the backend accepts. A multi-audio release can legitimately
+ * name more than [PartySourceMediaListLimit] languages, and the list is advisory - source matching
+ * reads resolution, quality, codec and size only - so the honest response to an over-long list is
+ * a shorter one. Sorted first so every platform keeps the same members of a truncated set.
+ */
+private fun Iterable<String>.boundedMediaTokens(): Set<String> =
+    mapNotNull(String::safeMediaToken).distinct().sorted().take(PartySourceMediaListLimit).toSet()
 
 private fun String.safeMediaToken(): String? = trim().lowercase()
     .replace('_','-')

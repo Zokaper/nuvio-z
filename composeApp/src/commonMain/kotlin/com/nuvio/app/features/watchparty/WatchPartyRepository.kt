@@ -466,6 +466,12 @@ object WatchPartyRepository {
         expectedSourceGeneration: Int,
     ): Result<Unit> = call {
         val party=requireParty()
+        // Same contract the backend enforces, checked first so a violation names its field in the
+        // log. The RPC would only say `invalid_source_media`.
+        fingerprint.media.contractViolation()?.let { field ->
+            log.w { "source descriptor violates the media contract field=$field party=${party.id.shortId()}" }
+            throw SourceDescriptorRejected(field)
+        }
         val snapshot = ZSupabaseProvider.client.postgrest.rpc("party_select_source_v2", buildJsonObject {
             put("p_party_id", party.id)
             put("p_host_profile_id", requireProfile())
@@ -475,6 +481,18 @@ object WatchPartyRepository {
             put("p_contract_version",PartySourceContractVersion)
         }).decodeAs<WatchPartyState>()
         installSnapshot(snapshot)
+    }.onFailure {
+        // A pick the server refused is not a pick. Leaving it staged kept the lobby announcing
+        // "Source picked" over the error that said otherwise, and Start would resend the same
+        // descriptor. A transient failure leaves it alone: the pick is still good.
+        if (it is SourceDescriptorRejected ||
+            it is PostgrestRestException && classifyPartyRpcFailure(it.message) == PartyRpcFailure.SourceRejected
+        ) discardStagedHostSource()
+    }
+
+    /** Drops the host's local pick, and with it the lobby's claim that a source has been chosen. */
+    fun discardStagedHostSource() {
+        _uiState.value = _uiState.value.copy(stagedHostSource = null, stagedHostSourceLabel = null)
     }
 
     suspend fun submit(command: WatchPartyCommand): Result<Unit> {
@@ -1053,13 +1071,24 @@ object WatchPartyRepository {
                 // player never shows - so a party that quietly stopped working looked like a party
                 // that was working.
                 log.w(it) { "rpc failed party=${_uiState.value.party?.id.shortId()} profile=${profileId.shortId()}" }
-                _uiState.value = _uiState.value.copy(isWorking = false, errorMessage = it.message)
+                _uiState.value = _uiState.value.copy(isWorking = false, errorMessage = it.userFacingMessage())
                 onMemberRpcFailure(failedPartyId = null, cause = it)
             }
     }
+    /**
+     * A Supabase rejection is worded for a developer - SQLSTATE, request URL, RPC name - so it is
+     * classified and replaced. Anything else is ours and already written for the person.
+     */
+    private fun Throwable.userFacingMessage(): String? =
+        if (this is PostgrestRestException) classifyPartyRpcFailure(message).userMessage else message
+
     private fun requireProfile(): String = requireNotNull(_uiState.value.activeProfileId) { "No active profile" }
     private fun requireParty(): WatchPartyState = requireNotNull(_uiState.value.party) { "No active party" }
 }
+
+/** The client-side twin of the backend's `invalid_source_media`, raised before the request is made. */
+private class SourceDescriptorRejected(val field: String) :
+    IllegalStateException(PartyRpcFailure.SourceRejected.userMessage)
 
 /**
  * Invite codes are a bearer credential: anyone holding one can join the party. They therefore come
