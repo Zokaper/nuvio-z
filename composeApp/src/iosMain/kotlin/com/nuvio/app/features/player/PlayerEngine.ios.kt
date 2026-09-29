@@ -281,7 +281,7 @@ actual fun PlatformPlayerSurface(
                     textColor = style.textColor.toMpvColorString(),
                     backgroundColor = style.backgroundColor.toMpvColorString(),
                     outlineColor = style.outlineColor.toMpvColorString(),
-                    outlineSize = if (style.outlineEnabled) style.outlineWidth.toFloat() else 0f,
+                    outlineSize = mpvSubtitleOutlineSize(style.outlineEnabled, style.outlineWidth),
                     bold = style.bold,
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
@@ -497,11 +497,10 @@ private fun Color.toMpvColorString(): String {
     }
 }
 
-private fun SubtitleStyleState.toMpvSubtitlePosition(): Int =
-    (100 - (bottomOffset / 2)).coerceIn(0, 150)
+// Nuvio Z: the mapping lives in `SubtitleRenderGeometry.kt`, shared with Advanced Setup's preview.
+private fun SubtitleStyleState.toMpvSubtitlePosition(): Int = mpvSubtitlePosition(bottomOffset)
 
-private fun SubtitleStyleState.toMpvSubtitleFontSize(): Float =
-    (fontSizeSp * 3f).coerceIn(18f, 96f)
+private fun SubtitleStyleState.toMpvSubtitleFontSize(): Float = mpvSubtitleFontSize(fontSizeSp)
 
 private fun Int.toHexByte(): String {
     val digits = "0123456789ABCDEF"

@@ -1813,7 +1813,7 @@ private class NuvioLibmpvView(
                     mpv.setPropertyInt("sub-font-size", style.toMpvSubtitleFontSize())
                     mpv.setPropertyInt("sub-outline-size", style.toMpvSubtitleOutlineSize())
                     mpv.setPropertyInt("sub-border-size", style.toMpvSubtitleOutlineSize())
-                    mpv.setPropertyInt("sub-pos", (100 - style.bottomOffset / 10).coerceIn(0, 100))
+                    mpv.setPropertyInt("sub-pos", androidMpvSubtitlePosition(style.bottomOffset))
                     mpv.setPropertyBoolean("sub-filter-sdh", style.stripSdh)
                     mpv.setPropertyBoolean("sub-filter-sdh-harder", style.stripSdh)
                 }
@@ -1958,14 +1958,11 @@ private fun androidx.compose.ui.graphics.Color.toMpvColor(): String {
 private fun androidx.compose.ui.graphics.Color.alphaByte(): Int =
     (toArgb() ushr 24) and 0xff
 
-private fun SubtitleStyleState.toMpvSubtitleFontSize(): Int =
-    (fontSizeSp * MPV_SUBTITLE_FONT_SIZE_SCALE).toInt().coerceIn(
-        MPV_SUBTITLE_FONT_SIZE_MIN,
-        MPV_SUBTITLE_FONT_SIZE_MAX,
-    )
+// Nuvio Z: the mapping lives in `SubtitleRenderGeometry.kt`, shared with Advanced Setup's preview.
+private fun SubtitleStyleState.toMpvSubtitleFontSize(): Int = androidMpvSubtitleFontSize(fontSizeSp)
 
 private fun SubtitleStyleState.toMpvSubtitleOutlineSize(): Int =
-    if (!outlineEnabled) 0 else (outlineWidth * MPV_SUBTITLE_OUTLINE_SIZE_SCALE).toInt().coerceAtLeast(1)
+    androidMpvSubtitleOutlineSize(outlineEnabled, outlineWidth)
 
 private fun SubtitleStyleState.toMpvSubtitleBorderStyle(): String =
     if (outlineEnabled) {
@@ -1976,10 +1973,6 @@ private fun SubtitleStyleState.toMpvSubtitleBorderStyle(): String =
         "outline-and-shadow"
     }
 
-private const val MPV_SUBTITLE_FONT_SIZE_SCALE = 55.0 / 18.0
-private const val MPV_SUBTITLE_FONT_SIZE_MIN = 36
-private const val MPV_SUBTITLE_FONT_SIZE_MAX = 122
-private const val MPV_SUBTITLE_OUTLINE_SIZE_SCALE = 1.5
 
 private fun ExoPlayer.snapshot(): PlayerPlaybackSnapshot {
     val (videoWidth, videoHeight) = videoDimensions()
@@ -2204,9 +2197,8 @@ private fun PlayerView.releaseLibassOverlay() {
 
 private fun PlayerView.applySubtitleStyle(style: SubtitleStyleState, pipScale: Float = 1.0f) {
     subtitleView?.apply {
-        val baseBottomPaddingFraction = SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION * 2f / 3f
-        val offsetFraction = (style.bottomOffset / 1000f).coerceIn(0f, 0.2f)
-        val bottomPaddingFraction = (baseBottomPaddingFraction + offsetFraction).coerceIn(0f, 0.4f)
+        // Nuvio Z: shared with Advanced Setup's preview (`SubtitleRenderGeometry.kt`).
+        val bottomPaddingFraction = exoSubtitleBottomPaddingFraction(style.bottomOffset)
 
         setApplyEmbeddedStyles(false)
         setApplyEmbeddedFontSizes(false)
