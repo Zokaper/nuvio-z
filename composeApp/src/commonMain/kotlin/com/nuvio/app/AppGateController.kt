@@ -31,6 +31,14 @@ class AppGateController {
         whatsNewChannel.trySend(Unit)
     }
 
+    /**
+     * Advanced Setup, for a native host (iOS tabs) that has no Settings row of its own to press. The
+     * same process-wide request the Settings row and What's New make - see `AdvancedSetupLauncher`.
+     */
+    fun requestAdvancedSetup() {
+        com.nuvio.app.features.setup.AdvancedSetupLauncher.open()
+    }
+
     internal fun beginContentReload() {
         _mainContentReady.value = false
         _contentGeneration.update { it + 1 }

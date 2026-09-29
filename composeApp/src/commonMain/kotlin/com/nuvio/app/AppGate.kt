@@ -63,6 +63,8 @@ import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
+import com.nuvio.app.features.setup.AdvancedSetupLauncher
+import com.nuvio.app.features.setup.AdvancedSetupScreen
 import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
 import com.nuvio.app.features.setup.SetupProfileFlags
@@ -272,6 +274,10 @@ internal fun AppGate(
     var importOutcome by remember { mutableStateOf<CrossFamilyImportOutcome?>(null) }
     var reviewSetupRequested by remember { mutableStateOf(false) }
     var setupWizardOnDemandEpoch by remember { mutableStateOf(0) }
+    // Advanced Setup (setup + settings pass): an optional hub over the app, from Settings, the
+    // wizard's Done page or What's New. A request made while something gates the app (the wizard,
+    // the profile picker) waits for it: the hub opens only over the mounted app, see below.
+    var advancedSetupRequested by remember { mutableStateOf(false) }
     // null while loading, empty when it could not be fetched. Either way the curated
     // sections still render - this screen has to work offline and on builds where the
     // in-app updater is disabled.
@@ -346,11 +352,15 @@ internal fun AppGate(
     )
     val gatingRun = if (reviewSetupRequested) SetupWizardRun.Full else gateSetupRun
     val isSetupWizardActive = gatingRun != SetupWizardRun.None || showSetupWizardOnDemand
+    val isAdvancedSetupActive = advancedSetupRequested &&
+        gateScreen == AppGateScreen.Main.name &&
+        gatingRun == SetupWizardRun.None &&
+        !showSetupWizardOnDemand
 
     val isWhatsNewActive = (showWhatsNew && gateScreen == AppGateScreen.Main.name) || showWhatsNewOnDemand
 
-    LaunchedEffect(gateScreen, onAppReady, isSetupWizardActive, isWhatsNewActive) {
-        if (gateScreen != AppGateScreen.Main.name || isSetupWizardActive || isWhatsNewActive) {
+    LaunchedEffect(gateScreen, onAppReady, isSetupWizardActive, isWhatsNewActive, isAdvancedSetupActive) {
+        if (gateScreen != AppGateScreen.Main.name || isSetupWizardActive || isWhatsNewActive || isAdvancedSetupActive) {
             onAppReady?.invoke(false)
         }
     }
@@ -400,6 +410,13 @@ internal fun AppGate(
         appGateController?.whatsNewRequests?.collect {
             showWhatsNewOnDemand = true
         }
+    }
+
+    // ⚠ Collected by the gate that draws overlays, whichever that is: the only gate on Android and
+    // desktop, `AppGateOverlay`'s on iOS (never the `bypassAppGate` one, which returns above).
+    LaunchedEffect(ownsAppRuntime) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        AdvancedSetupLauncher.requests.collect { advancedSetupRequested = true }
     }
 
     LaunchedEffect(nativeProfileSwitcherController, appGateController, renderMainContent) {
@@ -628,6 +645,7 @@ internal fun AppGate(
         launchOverlayState.isIdle,
         isSetupWizardActive,
         isWhatsNewActive,
+        isAdvancedSetupActive,
         onAppReady,
     ) {
         if (renderMainContent) return@LaunchedEffect
@@ -641,7 +659,8 @@ internal fun AppGate(
             !profileSelectionLoading &&
             overlaysHidden &&
             !isSetupWizardActive &&
-            !isWhatsNewActive
+            !isWhatsNewActive &&
+            !isAdvancedSetupActive
         onAppReady?.invoke(ready)
     }
 
@@ -713,6 +732,7 @@ internal fun AppGate(
                                 arrivalPending = false
                                 reviewSetupRequested = true
                             },
+                            onOpenAdvancedSetup = AdvancedSetupLauncher::open,
                             importRetry = if (
                                 importOutcome == CrossFamilyImportOutcome.TransportFailure &&
                                 gatingRun == SetupWizardRun.Full
@@ -892,8 +912,17 @@ internal fun AppGate(
                     dismissible = true,
                     onDismiss = { showSetupWizardOnDemand = false },
                     modifier = Modifier.fillMaxSize(),
+                    onOpenAdvancedSetup = AdvancedSetupLauncher::open,
                 )
             }
+        }
+
+        // Last, so it sits above What's New: its action card opens the hub as it closes.
+        if (isAdvancedSetupActive) {
+            AdvancedSetupScreen(
+                onClose = { advancedSetupRequested = false },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

@@ -753,6 +753,21 @@ internal fun MainAppContent(
         }
     }
 
+    // Nuvio Z: "Set up in Settings" from Advanced Setup, which is drawn by AppGate over this
+    // content. Navigates the way "connect cloud" above does; see `ZSettingsNavigation`.
+    LaunchedEffect(Unit) {
+        com.nuvio.app.features.settings.ZSettingsNavigation.requests.collect { pageName ->
+            val page = runCatching { com.nuvio.app.features.settings.SettingsPage.valueOf(pageName) }.getOrNull()
+                ?: return@collect
+            activateTab(AppScreenTab.Settings)
+            if (useNativeNavigation) {
+                navController.navigate(SettingsPageRoute(pageName = pageName, title = getString(page.titleRes)))
+            } else {
+                requestedSettingsPageName = pageName
+            }
+        }
+    }
+
     // ⚠ **The chokepoint.** Gating here is what makes "social is off" mean the layer is not
     // running rather than merely not drawn: no capability RPC, no `social:` Realtime channel, no
     // presence, no party restore. Everything downstream is then genuinely empty, and the removed

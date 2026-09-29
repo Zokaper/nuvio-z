@@ -183,16 +183,80 @@ fun SetupWizardDesktopLayout(
             )
 
             SetupDesktopControlPane(
-                step = step,
-                plan = plan,
-                playbackMode = playbackMode,
-                dismissible = dismissible,
-                onDismiss = onDismiss,
+                header = {
+                    SetupPanelHeader(
+                        step = step,
+                        plan = plan,
+                        playbackMode = playbackMode,
+                        dismissible = dismissible,
+                        onDismiss = onDismiss,
+                    )
+                },
+                footer = {
+                    SetupDesktopFooter(
+                        step = step,
+                        plan = plan,
+                        onBack = onBack,
+                        onAdvance = onAdvance,
+                        advance = advance,
+                    )
+                },
                 topInset = topInset,
                 bottomInset = bottomInset,
-                onBack = onBack,
-                onAdvance = onAdvance,
-                advance = advance,
+                modifier = Modifier
+                    .width(controlPaneWidth)
+                    .fillMaxHeight(),
+                body = body,
+            )
+        }
+    }
+}
+
+/**
+ * The same two panes for a screen that is not a wizard step: Advanced Setup's category panels.
+ *
+ * [SetupWizardDesktopLayout] is this frame with the wizard's own header, footer and specimen band
+ * filled in; the pane widths, the hairline, the gutters and the scrolling body are one
+ * implementation, so the two surfaces cannot drift apart on a desktop window.
+ *
+ * [preview] draws into a pane that fills the left side; it is responsible for its own background
+ * (the Advanced Setup previews paint the same `background -> surface` fade the band does).
+ */
+@Composable
+internal fun SetupDesktopSplitFrame(
+    topInset: Dp,
+    bottomInset: Dp,
+    header: @Composable () -> Unit,
+    footer: @Composable () -> Unit,
+    preview: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+    body: @Composable () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(tokens.colors.background),
+    ) {
+        val controlPaneWidth = desktopControlPaneWidth(maxWidth)
+        Row(modifier = Modifier.fillMaxSize()) {
+            preview(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+            Box(
+                modifier = Modifier
+                    .width(tokens.borders.hairline)
+                    .fillMaxHeight()
+                    .background(tokens.colors.borderSubtle.copy(alpha = 0.6f)),
+            )
+            SetupDesktopControlPane(
+                header = header,
+                footer = footer,
+                topInset = topInset,
+                bottomInset = bottomInset,
                 modifier = Modifier
                     .width(controlPaneWidth)
                     .fillMaxHeight(),
@@ -283,16 +347,10 @@ private val DesktopControlPanePadding = 32.dp
 
 @Composable
 private fun SetupDesktopControlPane(
-    step: SetupStep,
-    plan: SetupWizardPlan,
-    playbackMode: PlaybackMode,
-    dismissible: Boolean,
-    onDismiss: () -> Unit,
+    header: @Composable () -> Unit,
+    footer: @Composable () -> Unit,
     topInset: Dp,
     bottomInset: Dp,
-    onBack: () -> Unit,
-    onAdvance: () -> Unit,
-    advance: SetupAdvance = SetupAdvance.Shown,
     modifier: Modifier = Modifier,
     body: @Composable () -> Unit,
 ) {
@@ -310,13 +368,7 @@ private fun SetupDesktopControlPane(
                     bottom = 28.dp + bottomInset,
                 ),
         ) {
-            SetupPanelHeader(
-                step = step,
-                plan = plan,
-                playbackMode = playbackMode,
-                dismissible = dismissible,
-                onDismiss = onDismiss,
-            )
+            header()
             Spacer(modifier = Modifier.height(24.dp))
             // Scrolls for a long step (Cards and Details both carry four controls) or a large
             // font scale. The desktop scrollbar is drawn rather than left implicit, because a
@@ -338,13 +390,7 @@ private fun SetupDesktopControlPane(
                 )
             }
             Spacer(modifier = Modifier.height(20.dp))
-            SetupDesktopFooter(
-                step = step,
-                plan = plan,
-                onBack = onBack,
-                onAdvance = onAdvance,
-                advance = advance,
-            )
+            footer()
         }
     }
 }

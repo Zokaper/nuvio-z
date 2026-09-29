@@ -1844,7 +1844,7 @@ internal fun SetupLanguageRow(
 }
 
 @Composable
-private fun SetupPlaybackSetupBody(
+internal fun SetupPlaybackSetupBody(
     variant: PlaybackSetupVariant,
     languageStrictness: LanguageStrictness,
     dynamicRangePolicy: DynamicRangePolicy,
@@ -1913,7 +1913,7 @@ private fun SetupPlaybackSetupBody(
  * Settings -> Downloads uses, with the same labels from `DownloadModeUi.kt`.
  */
 @Composable
-private fun SetupDownloadSetupBody(
+internal fun SetupDownloadSetupBody(
     variant: DownloadSetupVariant,
     policy: DownloadPolicy,
     mobileDataRule: DownloadMobileDataRule,
@@ -2023,7 +2023,7 @@ private fun SetupImportRetryLine(busy: Boolean, foundNothing: Boolean, onRetry: 
  * more decorative here turns it back into the success page revision 7 exists to remove.
  */
 @Composable
-private fun SetupSummaryRow(label: String, value: String) {
+internal fun SetupSummaryRow(label: String, value: String) {
     val tokens = MaterialTheme.nuvio
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2058,7 +2058,7 @@ private fun SetupSummaryRow(label: String, value: String) {
  * Like the addon install, this never blocks the step: a failure leaves a message and the user can
  * still press Next. The wizard gates the app.
  */
-private fun saveSocialHandle(
+internal fun saveSocialHandle(
     scope: CoroutineScope,
     profileId: String?,
     handle: String,
@@ -2133,7 +2133,7 @@ internal fun SetupQuestion(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun <T> SetupSecondaryChoices(
+internal fun <T> SetupSecondaryChoices(
     label: String,
     options: List<Pair<String, T>>,
     selected: T,
@@ -2176,7 +2176,7 @@ private fun <T> SetupSecondaryChoices(
 }
 
 @Composable
-private fun SetupToggleRow(
+internal fun SetupToggleRow(
     title: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -2229,7 +2229,7 @@ private fun SetupToggleRow(
  * because the wizard lives inside the app's real `NuvioTheme`.
  */
 @Composable
-private fun SetupThemeGrid(
+internal fun SetupThemeGrid(
     selected: AppTheme,
     onSelected: (AppTheme) -> Unit,
 ) {
