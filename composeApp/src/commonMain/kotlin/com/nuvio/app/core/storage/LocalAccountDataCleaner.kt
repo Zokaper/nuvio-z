@@ -84,6 +84,15 @@ internal object LocalAccountDataCleaner {
         PlayerSettingsRepository.clearLocalState()
         StreamBadgeSettingsRepository.clearLocalState()
         P2pSettingsRepository.clearLocalState()
+        // Z: these six were never reset, so their in-memory state - the TMDB key among it - carried
+        // over to the next account until something happened to reload them. Their storage is now
+        // cleared by the platform wipe (LocalStoreRegistry), so reloading reads the defaults.
+        com.nuvio.app.core.poster.CustomPosterUrlRepository.clearLocalState()
+        com.nuvio.app.features.tmdb.TmdbSettingsRepository.onProfileChanged()
+        com.nuvio.app.features.mdblist.MdbListSettingsRepository.onProfileChanged()
+        com.nuvio.app.features.debrid.DebridSettingsRepository.onProfileChanged()
+        com.nuvio.app.features.trakt.TraktCommentsSettings.onProfileChanged()
+        com.nuvio.app.features.search.SearchHistoryRepository.onProfileChanged()
         CatalogRepository.clear()
         StreamsRepository.clear()
         MetaDetailsRepository.clear()

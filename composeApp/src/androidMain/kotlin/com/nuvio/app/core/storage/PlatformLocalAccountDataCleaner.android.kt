@@ -2,45 +2,13 @@ package com.nuvio.app.core.storage
 
 import android.content.Context
 
+/**
+ * Signing out on Android: every store [LocalStoreRegistry] classifies as account, credential or
+ * cache is cleared, and its `preservedKeys` survive; device-local stores are left alone. The list
+ * of names is the registry's, never a second copy here - that copy is how fourteen stores (the TMDB
+ * key and the AIOStreams credentials among them) came to outlive the account they belonged to.
+ */
 internal actual object PlatformLocalAccountDataCleaner {
-    private val preferenceNames = listOf(
-        "episode_shuffle",
-        "nuvio_addons",
-        "nuvio_library",
-        "nuvio_library_display_settings",
-        "nuvio_home_catalog_settings",
-        "nuvio_player_settings",
-        "torrent_settings",
-        "nuvio_profile_cache",
-        "nuvio_avatar_cache",
-        "nuvio_profile_pin_cache",
-        "nuvio_theme_settings",
-        "nuvio_poster_card_style",
-        "nuvio_debrid_settings",
-        "nuvio_mdblist_settings",
-        "nuvio_mdblist_auth",
-        "nuvio_mdblist_sync",
-        "nuvio_auth",
-        "nuvio_trakt_auth",
-        "nuvio_simkl_auth",
-        "nuvio_simkl_sync",
-        "nuvio_trakt_library",
-        "nuvio_trakt_settings",
-        "nuvio_watched",
-        "nuvio_stream_link_cache",
-        "nuvio_stream_badge_settings",
-        "nuvio_continue_watching_preferences",
-        "nuvio_cw_enrichment",
-        "nuvio_episode_release_notifications",
-        "nuvio_episode_release_notifications_platform",
-        "nuvio_watch_progress",
-        "nuvio_discover_selection",
-        "nuvio_collection_mobile_settings",
-        "nuvio_collections",
-        "nuvio_plugins",
-        "nuvio_member_access",
-    )
-
     private var appContext: Context? = null
 
     fun initialize(context: Context) {
@@ -49,11 +17,17 @@ internal actual object PlatformLocalAccountDataCleaner {
 
     actual fun wipe() {
         val context = appContext ?: return
-        preferenceNames.forEach { name ->
-            context.getSharedPreferences(name, Context.MODE_PRIVATE)
-                .edit()
-                .clear()
-                .apply()
+        LocalStoreRegistry.wiped.forEach { store ->
+            val preferences = context.getSharedPreferences(store.name, Context.MODE_PRIVATE)
+            val editor = preferences.edit()
+            if (store.preservedKeys.isEmpty()) {
+                editor.clear()
+            } else {
+                preferences.all.keys
+                    .filter { it !in store.preservedKeys }
+                    .forEach(editor::remove)
+            }
+            editor.apply()
         }
         context.filesDir.resolve("nuvio_plugin_scrapers").deleteRecursively()
     }
