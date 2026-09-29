@@ -181,6 +181,53 @@ class AdvancedSetupModelTest {
         assertNull(advancedSetupPanelForSavedName(null))
     }
 
+    // --- Device Setup's arrival steps ask what the matching panels ask ------------------------
+
+    @Test
+    fun deviceNavigationAsksTheNavigationPanelOnEveryPlatform() {
+        listOf(android, android.copy(navGlowSupported = false), iosNew, desktop).forEach { facts ->
+            assertEquals(
+                advancedSetupControls(AdvancedSetupPanel.NavigationStyle, facts),
+                deviceSetupControls(SetupStep.DeviceNavigation, facts),
+                "$facts",
+            )
+            assertTrue(deviceSetupControls(SetupStep.DeviceNavigation, facts).isNotEmpty(), "$facts")
+        }
+        // iOS before 26 has no navigation choice, so its arrival skips the step.
+        assertTrue(deviceSetupControls(SetupStep.DeviceNavigation, iosOld).isEmpty())
+    }
+
+    @Test
+    fun devicePlayerIsMobileOnlyAndNeverWithAnExternalPlayer() {
+        val expected = listOf(
+            AdvancedSetupControl.LegacyPlayerLayout,
+            AdvancedSetupControl.TouchGestures,
+            AdvancedSetupControl.HoldToSpeed,
+            AdvancedSetupControl.HoldSpeed,
+        )
+        listOf(android, iosOld, iosNew).forEach { facts ->
+            assertEquals(expected, deviceSetupControls(SetupStep.DevicePlayer, facts), "$facts")
+            assertTrue(deviceSetupControls(SetupStep.DevicePlayer, facts.copy(externalPlayer = true)).isEmpty())
+        }
+        assertTrue(deviceSetupControls(SetupStep.DevicePlayer, desktop).isEmpty())
+        // Every control it asks is one the Player panels already carry.
+        val playerPanels = (advancedSetupControls(AdvancedSetupPanel.PlayerControls, android) +
+            advancedSetupControls(AdvancedSetupPanel.PlayerTouch, android)).toSet()
+        assertTrue(playerPanels.containsAll(expected))
+    }
+
+    @Test
+    fun deviceStepsCarryNoMoreThanAPanelMay() {
+        everyFacts.forEach { facts ->
+            listOf(SetupStep.DeviceNavigation, SetupStep.DevicePlayer).forEach { step ->
+                assertTrue(deviceSetupControls(step, facts).size <= ADVANCED_SETUP_MAX_CONTROLS, "$step $facts")
+            }
+            SetupStep.entries.filter { it != SetupStep.DeviceNavigation && it != SetupStep.DevicePlayer }.forEach { step ->
+                assertTrue(deviceSetupControls(step, facts).isEmpty(), "$step")
+            }
+        }
+    }
+
     @Test
     fun externalPlayerDropsThePanelsItMakesInert() {
         val external = android.copy(externalPlayer = true)

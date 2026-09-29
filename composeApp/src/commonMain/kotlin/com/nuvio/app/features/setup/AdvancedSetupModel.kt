@@ -321,6 +321,32 @@ fun previousAdvancedSetupTourStop(current: AdvancedSetupPanel, facts: AdvancedSe
     return tour.getOrNull(index - 1)
 }
 
+/**
+ * What Device Setup's arrival steps ask on this platform (setup polish, physical QA): the same controls
+ * the matching Advanced Setup panels carry, so the two can never ask differently. Empty means the step
+ * is not offered - `SetupWizardPlan.offerDeviceNavigation` / `offerDevicePlayer` are this, non-empty.
+ *
+ * - [SetupStep.DeviceNavigation]: exactly [AdvancedSetupPanel.NavigationStyle] - Android style (+ glow
+ *   on 13+), Liquid Glass on iOS 26+, desktop layout + style; nothing on iOS before 26.
+ * - [SetupStep.DevicePlayer]: the mobile player's layout and touch - legacy vs new controls, gestures,
+ *   hold-to-speed and its speed. Mobile only, and not while an external player is chosen.
+ */
+fun deviceSetupControls(step: SetupStep, facts: AdvancedSetupFacts): List<AdvancedSetupControl> = when (step) {
+    SetupStep.DeviceNavigation -> advancedSetupControls(AdvancedSetupPanel.NavigationStyle, facts)
+    SetupStep.DevicePlayer ->
+        if (facts.isMobile && !facts.externalPlayer) {
+            listOf(
+                AdvancedSetupControl.LegacyPlayerLayout,
+                AdvancedSetupControl.TouchGestures,
+                AdvancedSetupControl.HoldToSpeed,
+                AdvancedSetupControl.HoldSpeed,
+            )
+        } else {
+            emptyList()
+        }
+    else -> emptyList()
+}
+
 /** Restore a saved panel name; an unknown one (a later release removed it) answers null - the hub. */
 fun advancedSetupPanelForSavedName(name: String?): AdvancedSetupPanel? =
     AdvancedSetupPanel.entries.firstOrNull { it.name == name }

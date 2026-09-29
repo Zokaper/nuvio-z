@@ -214,6 +214,168 @@ class SetupWizardStepsTest {
         assertFalse(SetupStep.WelcomeBack in setupWizardSteps(plan))
     }
 
+    // --- the curated "this device" steps an arrival adds (setup polish, physical QA) ---------
+
+    /** A profile configured on desktop, opened on an Android phone for the first time. */
+    private val desktopToAndroid = SetupWizardPlan(
+        isPhone = true,
+        run = SetupWizardRun.Device,
+        arrival = true,
+        deviceStale = false,
+        offerDeviceNavigation = true,
+        offerDevicePlayer = true,
+    )
+
+    @Test
+    fun desktopToAndroidClassicStillSetsUpThePhone() {
+        // The reported gap: Classic, a phone already set up - it went Welcome back -> Done.
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.Done),
+            setupWizardSteps(desktopToAndroid.copy(playbackModeName = "CLASSIC")),
+        )
+    }
+
+    @Test
+    fun desktopToAndroidInAPickingModeAlsoAsksDevicePlayback() {
+        listOf("STREAMLINED", "INSTANT").forEach { mode ->
+            assertEquals(
+                listOf(
+                    SetupStep.WelcomeBack,
+                    SetupStep.DeviceNavigation,
+                    SetupStep.DevicePlayer,
+                    SetupStep.PlaybackSetup,
+                    SetupStep.Done,
+                ),
+                setupWizardSteps(desktopToAndroid.copy(playbackModeName = mode)),
+                mode,
+            )
+        }
+    }
+
+    @Test
+    fun desktopToIosAsksNavigationOnlyWhereLiquidGlassExists() {
+        // iOS 26+: the same shape as Android (Liquid Glass is its navigation choice).
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer, SetupStep.Done),
+            setupWizardSteps(desktopToAndroid),
+        )
+        // Before iOS 26 there is nothing to choose, so the step is dropped rather than shown empty.
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.DevicePlayer, SetupStep.Done),
+            setupWizardSteps(desktopToAndroid.copy(offerDeviceNavigation = false)),
+        )
+    }
+
+    @Test
+    fun mobileToDesktopAsksDesktopNavigationAndNeverThePlayerOrTheDevice() {
+        val desktop = SetupWizardPlan(
+            isPhone = false,
+            run = SetupWizardRun.Device,
+            arrival = true,
+            deviceStale = false,
+            offerDeviceNavigation = true,
+            offerDevicePlayer = false,
+        )
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.Done),
+            setupWizardSteps(desktop),
+        )
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.PlaybackSetup, SetupStep.Done),
+            setupWizardSteps(desktop.copy(playbackModeName = "STREAMLINED")),
+        )
+        // Desktop never owes the device-global questions, whatever the flag says.
+        assertFalse(SetupStep.DownloadSetup in setupWizardSteps(desktop.copy(deviceStale = true)))
+    }
+
+    @Test
+    fun aPhoneAlreadySetUpIsNotAskedItsDeviceQuestionsAgain() {
+        listOf("CLASSIC", "STREAMLINED").forEach { mode ->
+            val current = setupWizardSteps(desktopToAndroid.copy(playbackModeName = mode, deviceStale = false))
+            assertFalse(SetupStep.DownloadSetup in current, mode)
+        }
+    }
+
+    @Test
+    fun aNewPhoneAsksItsDeviceQuestionsLastBeforeDone() {
+        val plan = desktopToAndroid.copy(playbackModeName = "INSTANT", deviceStale = true)
+        assertEquals(
+            listOf(
+                SetupStep.WelcomeBack,
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+                SetupStep.PlaybackSetup,
+                SetupStep.DownloadSetup,
+                SetupStep.Done,
+            ),
+            setupWizardSteps(plan),
+        )
+        assertEquals(DownloadSetupVariant.DeviceOnly, downloadSetupVariant(plan))
+    }
+
+    @Test
+    fun theDeviceStepsNeverAppearOutsideAnArrival() {
+        // A same-family second phone: only the device-global question, flags or not.
+        assertEquals(
+            listOf(SetupStep.DownloadSetup, SetupStep.Done),
+            setupWizardSteps(desktopToAndroid.copy(arrival = false, deviceStale = true)),
+        )
+        // Initial Setup asks the profile's questions, never the device's.
+        val full = setupWizardSteps(desktopToAndroid.copy(run = SetupWizardRun.Full, arrival = false))
+        assertFalse(SetupStep.DeviceNavigation in full)
+        assertFalse(SetupStep.DevicePlayer in full)
+        assertEquals(SetupStep.Welcome, full.first())
+    }
+
+    @Test
+    fun anArrivingUpgradeAlsoSetsUpTheDevice() {
+        val plan = desktopToAndroid.copy(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9)
+        assertEquals(
+            listOf(
+                SetupStep.WelcomeBack,
+                SetupStep.DeviceNavigation,
+                SetupStep.DevicePlayer,
+                SetupStep.DownloadMode,
+                SetupStep.DownloadSetup,
+            ),
+            setupWizardSteps(plan),
+        )
+    }
+
+    @Test
+    fun everyDeviceArrivalPlanWalksForwardAndBack() {
+        listOf("CLASSIC", "STREAMLINED", "INSTANT").forEach { mode ->
+            listOf(true, false).forEach { phone ->
+                listOf(true, false).forEach { stale ->
+                    listOf(true, false).forEach { nav ->
+                        val plan = desktopToAndroid.copy(
+                            playbackModeName = mode,
+                            isPhone = phone,
+                            deviceStale = stale,
+                            offerDeviceNavigation = nav,
+                            offerDevicePlayer = phone,
+                        )
+                        val steps = setupWizardSteps(plan)
+                        assertEquals(SetupStep.WelcomeBack, steps.first(), "$plan")
+                        assertEquals(SetupStep.Done, steps.last(), "$plan")
+                        assertEquals(steps, generateSequence(steps.first()) { nextSetupStep(it, plan) }.toList(), "$plan")
+                        assertEquals(
+                            steps.reversed(),
+                            generateSequence(steps.last()) { previousSetupStep(it, plan) }.toList(),
+                            "$plan",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun savedDeviceStepNamesRestore() {
+        assertEquals(SetupStep.DeviceNavigation, setupStepForSavedName("DeviceNavigation"))
+        assertEquals(SetupStep.DevicePlayer, setupStepForSavedName("DevicePlayer"))
+    }
+
     @Test
     fun theDeviceRevisionIsPerDeviceAndDesktopNeverOwesOne() {
         assertTrue(isDeviceSetupStale(null, isPhone = true))
@@ -410,9 +572,15 @@ class SetupWizardStepsTest {
             offerSocialIdentity = true,
             downloadModeName = "AUTOMATIC",
         )
-        // WelcomeBack belongs to Device Setup after a cross-family import, never to a full run.
-        assertEquals(SetupStep.entries - SetupStep.WelcomeBack, setupWizardSteps(full))
-        assertEquals(13, SetupStep.entries.size)
+        // WelcomeBack and the two device steps belong to Device Setup after a cross-family import,
+        // never to a full run - even where the platform would offer them.
+        val deviceOnly = setOf(SetupStep.WelcomeBack, SetupStep.DeviceNavigation, SetupStep.DevicePlayer)
+        assertEquals(SetupStep.entries - deviceOnly, setupWizardSteps(full))
+        assertEquals(
+            SetupStep.entries - deviceOnly,
+            setupWizardSteps(full.copy(offerDeviceNavigation = true, offerDevicePlayer = true)),
+        )
+        assertEquals(15, SetupStep.entries.size)
     }
 
     @Test

@@ -154,6 +154,23 @@ enum class SetupStep {
     WelcomeBack,
 
     /**
+     * Device Setup on arrival: **this** platform's navigation - the Android bar's style and glow, the
+     * iOS 26 Liquid Glass tab bar, or the desktop sidebar / top bar and its style. None of it crosses
+     * families (it is platform-specific, so the import leaves it at the default), and it is the first
+     * thing that makes the app feel different on a new kind of device. Only in an arrival plan with
+     * [SetupWizardPlan.offerDeviceNavigation].
+     */
+    DeviceNavigation,
+
+    /**
+     * Device Setup on arrival, mobile only: the in-app player's layout (new or legacy controls) and
+     * its touch behaviour (gestures, hold-to-speed). A desktop profile never answered any of it, and
+     * the defaults decide how every episode feels on a phone. Only in an arrival plan with
+     * [SetupWizardPlan.offerDevicePlayer].
+     */
+    DevicePlayer,
+
+    /**
      * How Nuvio picks sources - the first substantive decision, and the one that decides which
      * of the steps below are worth asking. Reuses `PlaybackModeCard`, so the copy can never
      * drift from the settings dialog.
@@ -365,6 +382,20 @@ data class SetupWizardPlan(
 
     /** This device still owes its own questions (see [isDeviceSetupStale]). Read by a Device run. */
     val deviceStale: Boolean = true,
+
+    /**
+     * This platform has a navigation choice of its own worth asking on arrival: Android (style, glow),
+     * iPhone on iOS 26+ (Liquid Glass) and desktop (sidebar / top bar, style). False on iOS before 26,
+     * which has nothing to choose. A platform fact, passed in as a plain boolean.
+     */
+    val offerDeviceNavigation: Boolean = false,
+
+    /**
+     * This platform's in-app player has layout and touch choices worth asking on arrival: Android and
+     * iOS, and not while an external player is chosen (the in-app player's settings would do nothing).
+     * False on desktop.
+     */
+    val offerDevicePlayer: Boolean = false,
 )
 
 /** What the download-setup step asks in this plan. */
@@ -387,21 +418,44 @@ private fun setupWizardStepsUnpruned(plan: SetupWizardPlan): List<SetupStep> = S
         SetupWizardRun.Full -> true
         SetupWizardRun.Upgrade -> (setupStepOfferedOnUpgradeFrom(step) ?: 0) > plan.fromRevision
         SetupWizardRun.Device -> when (step) {
-            SetupStep.WelcomeBack, SetupStep.PlaybackSetup -> plan.arrival
             SetupStep.DownloadSetup -> plan.deviceStale
             SetupStep.Done -> true
             else -> false
         }
         SetupWizardRun.None -> false
     }
-    val arrivalGreeting = step == SetupStep.WelcomeBack && plan.arrival && plan.run == SetupWizardRun.Upgrade
-    (offeredHere || arrivalGreeting) && when (step) {
+    val arrivalStep = isArrivalStep(step, plan)
+    (offeredHere || arrivalStep) && when (step) {
         SetupStep.WelcomeBack -> plan.arrival
+        // Never in a Full run: Initial Setup asks the profile's questions, and these are the device's.
+        SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> arrivalStep
         SetupStep.PlaybackSetup ->
             playbackSetupVariant(plan.playbackModeName) != PlaybackSetupVariant.None
         SetupStep.DownloadSetup -> downloadSetupVariant(plan) != DownloadSetupVariant.None
         SetupStep.SocialIdentity -> plan.socialEnabled && plan.offerSocialIdentity
         else -> true
+    }
+}
+
+/**
+ * The curated "this device" steps an arrival adds (setup polish, physical QA): the greeting, then the
+ * platform's navigation and player choices the other family could never have answered, then the
+ * device-sensitive playback preferences the import deliberately left behind (quality and HDR - only
+ * for a mode that picks, see [playbackSetupVariant]). The device-global questions (mobile data,
+ * alerts) are *not* here: they follow [SetupWizardPlan.deviceStale], so a phone another profile
+ * already set up is not asked them again just because a new profile arrived.
+ *
+ * In a Device run, and in an Upgrade that arrived (the imported revision was 8 or 9): the arrival is
+ * the same arrival whatever the profile's own revision owes.
+ */
+private fun isArrivalStep(step: SetupStep, plan: SetupWizardPlan): Boolean {
+    if (!plan.arrival) return false
+    if (plan.run != SetupWizardRun.Device && plan.run != SetupWizardRun.Upgrade) return false
+    return when (step) {
+        SetupStep.WelcomeBack, SetupStep.PlaybackSetup -> true
+        SetupStep.DeviceNavigation -> plan.offerDeviceNavigation
+        SetupStep.DevicePlayer -> plan.offerDevicePlayer
+        else -> false
     }
 }
 
