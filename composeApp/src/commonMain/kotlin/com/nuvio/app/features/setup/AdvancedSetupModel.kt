@@ -171,6 +171,11 @@ data class AdvancedSetupFacts(
     val offerSocialIdentity: Boolean = false,
     /** An external player is chosen, so the in-app player's own settings do nothing. */
     val externalPlayer: Boolean = false,
+    /**
+     * `AppFeaturePolicy.trailerPlaybackMode` is `IN_APP`. Off on Windows, where there is no trailer
+     * surface at all - Settings hides the hover-trailer switches there for the same reason.
+     */
+    val inAppTrailers: Boolean = false,
 ) {
     val isMobile: Boolean get() = isAndroid || isIos
 }
@@ -232,8 +237,14 @@ fun advancedSetupControls(panel: AdvancedSetupPanel, facts: AdvancedSetupFacts):
         AdvancedSetupPanel.ThemePalette -> listOf(AdvancedSetupControl.ThemePalette, AdvancedSetupControl.AmoledBlack)
         AdvancedSetupPanel.PosterShape -> listOf(AdvancedSetupControl.LandscapePosters, AdvancedSetupControl.PosterWidth, AdvancedSetupControl.PosterCorners, AdvancedSetupControl.HidePosterLabels)
         AdvancedSetupPanel.PosterEffects -> listOf(AdvancedSetupControl.CardDepth, AdvancedSetupControl.CardDepthPreset)
-        AdvancedSetupPanel.PosterHover ->
-            if (facts.isDesktop) listOf(AdvancedSetupControl.HoverPreview, AdvancedSetupControl.HoverTrailer, AdvancedSetupControl.HoverTrailerSound) else emptyList()
+        AdvancedSetupPanel.PosterHover -> buildList {
+            if (!facts.isDesktop) return@buildList
+            add(AdvancedSetupControl.HoverPreview)
+            if (facts.inAppTrailers) {
+                add(AdvancedSetupControl.HoverTrailer)
+                add(AdvancedSetupControl.HoverTrailerSound)
+            }
+        }
         AdvancedSetupPanel.HomeHero -> listOf(AdvancedSetupControl.HeroSection, AdvancedSetupControl.CatalogTypeLabels)
         AdvancedSetupPanel.HomeContinueWatching ->
             listOf(AdvancedSetupControl.ContinueWatchingVisible, AdvancedSetupControl.ContinueWatchingStyle, AdvancedSetupControl.EpisodeThumbnails)

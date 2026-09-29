@@ -99,6 +99,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.ui.CardDepthStyleRepository
 import com.nuvio.app.core.ui.NuvioSegment
 import com.nuvio.app.core.ui.NuvioSegmentedChoice
@@ -500,6 +501,7 @@ internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
             liquidGlassSupported = isIos && isLiquidGlassNativeTabBarSupported(),
             downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
             hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
+            inAppTrailers = AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP,
         )
     }
     val facts = platformFacts.copy(
@@ -1435,7 +1437,8 @@ internal fun AdvancedPanelPreview(
             basePosterWidthDp = desktopCatalogShelfPosterBaseWidthDp(values.posterWidthDp),
             showHoverCard = panel == AdvancedSetupPanel.PosterHover,
             hoverEnabled = values.hoverPreview,
-            hoverTrailer = values.hoverTrailer,
+            // The stored switch can be on where no trailer can play; the hint must not promise one.
+            hoverTrailer = values.hoverTrailer && facts.inAppTrailers,
             hoverSound = values.hoverTrailerSound,
         )
         AdvancedSetupPanel.HomeHero,

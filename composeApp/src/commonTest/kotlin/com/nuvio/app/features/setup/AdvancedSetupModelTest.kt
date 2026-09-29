@@ -94,6 +94,18 @@ class AdvancedSetupModelTest {
     }
 
     @Test
+    fun hoverTrailerSwitchesOnlyWhereATrailerCanPlay() {
+        val trailerControls = listOf(AdvancedSetupControl.HoverTrailer, AdvancedSetupControl.HoverTrailerSound)
+        // Windows: the hover card exists, a trailer surface does not.
+        assertEquals(listOf(AdvancedSetupControl.HoverPreview), advancedSetupControls(AdvancedSetupPanel.PosterHover, desktop))
+        assertEquals(
+            listOf(AdvancedSetupControl.HoverPreview) + trailerControls,
+            advancedSetupControls(AdvancedSetupPanel.PosterHover, desktop.copy(inAppTrailers = true)),
+        )
+        assertTrue(advancedSetupControls(AdvancedSetupPanel.PosterHover, android.copy(inAppTrailers = true)).isEmpty())
+    }
+
+    @Test
     fun classicKeepsTheModeChoiceButDropsTheSourcePreferences() {
         val classic = android.copy(playbackModeName = "CLASSIC")
         assertEquals(listOf(AdvancedSetupPanel.PlaybackModeChoice), advancedSetupPanels(AdvancedSetupCategory.PlaybackMode, classic))

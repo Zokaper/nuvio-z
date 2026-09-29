@@ -1351,8 +1351,8 @@ private fun SpecimenEpisodes(
 /**
  * One episode still, with the app's own fallback chain.
  *
- * `episodes.metahub.space` is a different host from the show-artwork one and **has never been
- * reached from the sandbox**, so this cannot assume it answers. On failure it swaps to the
+ * The still is pinned to TMDB's image CDN (see `SetupSampleTitle.episodeStillUrl`), a different
+ * host from the show-artwork one, so this cannot assume both answer. On failure it swaps to the
  * show's backdrop, which is exactly what `DetailSeriesContent` does
  * (`video.thumbnail ?: meta.background ?: meta.poster`) - so a dead host degrades this to the
  * repeated-backdrop look the real app has for a series with no episode artwork, rather than to

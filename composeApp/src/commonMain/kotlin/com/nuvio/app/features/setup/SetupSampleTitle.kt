@@ -20,9 +20,10 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingItem
  *
  * [artworkHost] needs no API key and no installed addon, and is keyed by IMDb id, so one id
  * yields the poster, the backdrop **and** the logo - which is the whole triple the stage needs.
- * TMDB cannot do this job: `TmdbService.currentApiKey()` returns null until the user enters a
- * personal key, so on a first launch - the only launch that matters here - there is no TMDB
- * access at all.
+ * The TMDB *API* is not used here even though the bundled key makes it available on a first
+ * launch: the wizard must still draw with a build that shipped without that key, and a keyed
+ * lookup per specimen would cost a round trip for images whose ids never change. TMDB's image
+ * CDN, which needs no key, is used directly for the episode stills - see [episodeStillUrl].
  *
  * Coil 3 already loads every card's `String?` URL, so nothing about the card composables or
  * the image loader changes to support this.
@@ -66,24 +67,35 @@ object SetupSampleTitle {
     /**
      * A **per-episode** still.
      *
-     * ⚠ A different host from [artworkHost], and that is the whole point. `images.metahub.space`
-     * is keyed by the *show's* IMDb id, so it has no episode-level images for any title - which
-     * is why every row of the episode specimen used to show the same picture.
-     * `episodes.metahub.space` is keyed by show/season/episode and is equally keyless.
+     * ⚠ **Pinned, not looked up.** Every episode a specimen shows is in [pinnedEpisodeStills],
+     * which maps it straight to its file on TMDB's image CDN - keyless, and the host the app's
+     * own episode rows end up on. `episodes.metahub.space` (what Cinemeta puts in
+     * `videos[].thumbnail`) only answers with a 301 to that same file, and this code used to
+     * build its URL in a shape Cinemeta never emits (`/{s}/{e}.jpg` rather than
+     * `/{s}/{e}/w780.jpg`). Physical Android showed show artwork in the player preview. Cutting
+     * out the hop leaves one host and no redirect for an image that is a fixed fact about a
+     * fixed episode.
      *
-     * ⚠ **This host has never answered here** - the sandbox blocks metahub, exactly as it does
-     * for [artworkHost]. If the stills come back identical on a device, this URL shape is wrong
-     * and the fallback below is doing its job silently. Device check.
-     *
-     * Callers fall back to [backgroundUrl] on failure, which is the same chain the real app
-     * uses (`DetailSeriesContent.kt`: `video.thumbnail ?: meta.background ?: meta.poster`). So a
-     * dead host degrades this preview to precisely what the app itself shows for a series with
-     * no episode artwork.
+     * The paths were read from the metahub redirects on 2026-09-29 and each was checked to
+     * return `image/jpeg`. An episode outside the table falls back to the metahub URL in the
+     * shape Cinemeta itself emits.
      */
     fun episodeStillUrl(imdbId: String, season: Int, episode: Int): String =
-        "$episodeStillHost/$imdbId/$season/$episode.jpg"
+        pinnedEpisodeStills["$imdbId:$season:$episode"]?.let { "$tmdbStillBase$it" }
+            ?: "$episodeStillHost/$imdbId/$season/$episode/w780.jpg"
 
+    private const val tmdbStillBase = "https://image.tmdb.org/t/p/w780"
     private const val episodeStillHost = "https://episodes.metahub.space"
+
+    /** `imdbId:season:episode` to its still's path on [tmdbStillBase]. See [episodeStillUrl]. */
+    private val pinnedEpisodeStills: Map<String, String> = mapOf(
+        "tt0903747:1:2" to "/AbMoecO0ZZio0LcgeLxlzdyGs6X.jpg",
+        "tt0903747:5:14" to "/k80r5JYO4LLrPJbWDXmlg7IxRMI.jpg",
+        "tt0903747:5:15" to "/yxldDE4a2NZa9vrBWvTa9OAZpVc.jpg",
+        "tt0903747:5:16" to "/pA0YwyhvdDXP3BEGL2grrIhq8aM.jpg",
+        "tt0108778:3:9" to "/nqWtfvNwkbhi6q5ZdPo9Ba1tcPW.jpg",
+        "tt1475582:1:1" to "/u8xvgVzTQjAeRu68sI9JJHeQSuA.jpg",
+    )
 
     /**
      * The title the details step previews.

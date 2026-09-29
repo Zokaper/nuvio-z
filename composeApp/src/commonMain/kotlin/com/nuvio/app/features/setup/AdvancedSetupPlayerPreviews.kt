@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -169,21 +170,41 @@ private object PlayerSample {
         "impossible suicides turns out to be something else entirely."
     const val durationMs = 88L * 60_000L
     const val positionMs = 31L * 60_000L + 12_000L
+    /** The one frame every player stage shows. Pinned in `SetupSampleTitle.pinnedEpisodeStills`. */
     val stillUrl: String get() = SetupSampleTitle.episodeStillUrl(imdbId, season, episode)
-    val fallbackUrl: String get() = SetupSampleTitle.backgroundUrl(imdbId)
+
+    /** The show's backdrop - only for the loading screen, which shows a backdrop in the app too. */
+    val backdropUrl: String get() = SetupSampleTitle.backgroundUrl(imdbId)
     val logoUrl: String get() = SetupSampleTitle.logoUrl(imdbId)
 }
 
-/** An episode frame: the still, or the show's backdrop when the still host does not answer. */
+/**
+ * A paused video frame: the episode still over a painted frame.
+ *
+ * ⚠ **No second URL.** This used to swap to the show's backdrop when the still failed, and a
+ * `remember`ed failure flag then held the backdrop for the life of the stage - so one slow or
+ * failed request left the player preview showing title art, which is precisely what a player
+ * never shows. Now the painted frame is drawn first and stays underneath: before the still
+ * arrives, and for good if it never does, the stage reads as a dim frame of video rather than as
+ * a poster.
+ */
 @Composable
-private fun EpisodeFrame(stillUrl: String = PlayerSample.stillUrl, fallbackUrl: String = PlayerSample.fallbackUrl) {
-    var failed by remember(stillUrl) { mutableStateOf(false) }
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0B0E))) {
+private fun EpisodeFrame(stillUrl: String = PlayerSample.stillUrl) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    0f to Color(0xFF2A2F38),
+                    0.6f to Color(0xFF15181E),
+                    1f to Color(0xFF07080A),
+                ),
+            ),
+    ) {
         AsyncImage(
-            model = if (failed) fallbackUrl else stillUrl,
+            model = stillUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            onError = { failed = true },
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -325,7 +346,7 @@ internal fun SpecimenPlayerChrome(
                 if (loadingOverlay) {
                     PlaybackLoadingScreen(
                         state = PlaybackLoadingState(step = PlaybackProgressStep.StartingPlayback),
-                        artwork = PlayerSample.fallbackUrl,
+                        artwork = PlayerSample.backdropUrl,
                         logo = PlayerSample.logoUrl,
                         title = PlayerSample.title,
                         formatSize = { it.toString() },
@@ -633,7 +654,7 @@ internal fun SpecimenSubtitles(
         contentAlignment = Alignment.Center,
     ) {
         PreviewStage(stageW, stageH, modifier = Modifier.fillMaxSize()) {
-            EpisodeFrame(stillUrl = SetupSampleTitle.episodeStillUrl(PlayerSample.imdbId, 1, 2))
+            EpisodeFrame()
             val geometry = subtitleFrameGeometry(
                 renderer = renderer,
                 fontSizeSp = style.fontSizeSp,

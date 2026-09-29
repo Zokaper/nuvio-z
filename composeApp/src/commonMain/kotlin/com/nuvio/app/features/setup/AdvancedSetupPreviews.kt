@@ -610,8 +610,10 @@ private fun PreviewScrollingPage(topPadding: Dp, startPadding: Dp) {
  * On the Hover panel (desktop) every card is wrapped in the **real** `HomePosterHoverPreview`, which
  * reads the same hover settings the switches write: point at a card and, when previews are on, the
  * preview card opens after the app's own delay, and a trailer starts in it - muted or with sound -
- * when trailers are on and the title has one. A line under the row says what the settings will do,
- * so the behaviour is readable even for a title without a trailer.
+ * when trailers are on, the platform has in-app trailers and the title has one. Windows has none
+ * (`AppFeaturePolicy.trailerPlaybackMode` is `EXTERNAL` there), so the panel offers no trailer
+ * switches and the caller passes `hoverTrailer = false`. A line under the row says what the
+ * settings will do, so the behaviour is readable even for a title without a trailer.
  */
 @Composable
 internal fun SpecimenPosterRail(
