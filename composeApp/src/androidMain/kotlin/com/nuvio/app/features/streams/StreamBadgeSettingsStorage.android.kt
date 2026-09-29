@@ -22,7 +22,8 @@ actual object StreamBadgeSettingsStorage {
     private const val streamBadgePlacementKey = "stream_badge_placement"
     private const val legacyDebridStreamBadgeRulesKey = "debrid_stream_badge_rules"
 
-    private val syncKeys = listOf(streamBadgeRulesKey, showFileSizeBadgesKey, streamBadgePlacementKey, streamBackgroundModeKey)
+    // Z: `showAddonLogoKey` synced since the setup + settings pass - Advanced Setup's Source list step asks it.
+    private val syncKeys = listOf(streamBadgeRulesKey, showFileSizeBadgesKey, streamBadgePlacementKey, streamBackgroundModeKey, showAddonLogoKey)
 
     private var preferences: SharedPreferences? = null
     private var legacyDebridPreferences: SharedPreferences? = null
@@ -104,6 +105,7 @@ actual object StreamBadgeSettingsStorage {
         loadShowFileSizeBadges()?.let { put(showFileSizeBadgesKey, encodeSyncBoolean(it)) }
         loadStreamBadgePlacement()?.let { put(streamBadgePlacementKey, encodeSyncString(it)) }
         loadStreamBackgroundMode()?.let { put(streamBackgroundModeKey, encodeSyncString(it)) }
+        loadShowAddonLogo()?.let { put(showAddonLogoKey, encodeSyncBoolean(it)) }
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
@@ -116,5 +118,6 @@ actual object StreamBadgeSettingsStorage {
         payload.decodeSyncBoolean(showFileSizeBadgesKey)?.let(::saveShowFileSizeBadges)
         payload.decodeSyncString(streamBadgePlacementKey)?.let(::saveStreamBadgePlacement)
         payload.decodeSyncString(streamBackgroundModeKey)?.let(::saveStreamBackgroundMode)
+        payload.decodeSyncBoolean(showAddonLogoKey)?.let(::saveShowAddonLogo)
     }
 }

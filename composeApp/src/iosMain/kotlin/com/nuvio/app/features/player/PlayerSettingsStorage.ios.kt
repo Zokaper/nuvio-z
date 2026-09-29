@@ -113,6 +113,8 @@ actual object PlayerSettingsStorage {
         showLoadingOverlayKey,
         showPlayerLoadingStatusKey,
         pauseOverlayEnabledKey,
+        // Z: synced since the setup + settings pass - Advanced Setup's Player step asks it.
+        useLegacyPlayerLayoutKey,
         showParentalGuideKey,
         resizeModeKey,
         holdToSpeedEnabledKey,
@@ -138,6 +140,8 @@ actual object PlayerSettingsStorage {
         subtitleStripSdhKey,
         subtitleUseForcedSubtitlesKey,
         subtitleShowOnlyPreferredLanguagesKey,
+        // Z: exported and imported all along, but missing here, so a payload could never clear it.
+        addonSubtitleStartupModeKey,
         androidPlaybackEngineKey,
         androidLibmpvVideoOutputKey,
         androidLibmpvHardwareDecodingEnabledKey,
@@ -1166,6 +1170,7 @@ actual object PlayerSettingsStorage {
         loadShowLoadingOverlay()?.let { put(showLoadingOverlayKey, encodeSyncBoolean(it)) }
         loadShowPlayerLoadingStatus()?.let { put(showPlayerLoadingStatusKey, encodeSyncBoolean(it)) }
         loadPauseOverlayEnabled()?.let { put(pauseOverlayEnabledKey, encodeSyncBoolean(it)) }
+        loadUseLegacyPlayerLayout()?.let { put(useLegacyPlayerLayoutKey, encodeSyncBoolean(it)) }
         loadShowParentalGuide()?.let { put(showParentalGuideKey, encodeSyncBoolean(it)) }
         loadResizeMode()?.let { put(resizeModeKey, encodeSyncString(it)) }
         loadHoldToSpeedEnabled()?.let { put(holdToSpeedEnabledKey, encodeSyncBoolean(it)) }
@@ -1280,6 +1285,7 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(showLoadingOverlayKey)?.let(::saveShowLoadingOverlay)
         payload.decodeSyncBoolean(showPlayerLoadingStatusKey)?.let(::saveShowPlayerLoadingStatus)
         payload.decodeSyncBoolean(pauseOverlayEnabledKey)?.let(::savePauseOverlayEnabled)
+        payload.decodeSyncBoolean(useLegacyPlayerLayoutKey)?.let(::saveUseLegacyPlayerLayout)
         payload.decodeSyncBoolean(showParentalGuideKey)?.let(::saveShowParentalGuide)
         payload.decodeSyncString(resizeModeKey)?.let(::saveResizeMode)
         payload.decodeSyncBoolean(holdToSpeedEnabledKey)?.let(::saveHoldToSpeedEnabled)

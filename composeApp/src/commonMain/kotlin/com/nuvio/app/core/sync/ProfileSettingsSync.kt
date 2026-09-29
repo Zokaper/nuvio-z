@@ -51,7 +51,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -186,32 +187,7 @@ object ProfileSettingsSync {
 
     @OptIn(FlowPreview::class)
     private fun observeLocalChangesAndPush() {
-        val signatureFlows = listOf(
-            ThemeSettingsRepository.selectedThemePreference.map { "theme" },
-            ThemeSettingsRepository.customThemePreference.map { "custom_theme_colors" },
-            ThemeSettingsRepository.amoledEnabled.map { "amoled" },
-            ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.map { "liquid_glass_tab_bar" },
-            ThemeSettingsRepository.desktopNavigationLayout.map { "desktop_navigation_layout" },
-            ThemeSettingsRepository.navBarGlowEnabled.map { "nav_bar_glow_enabled" },
-            ThemeSettingsRepository.navBarStyle.map { "nav_bar_style" },
-            PosterCardStyleRepository.uiState.map { "poster_card_style" },
-            CustomPosterUrlRepository.pattern.map { "custom_poster_url" },
-            CustomPosterUrlRepository.enabledScreens.map { "custom_poster_screens" },
-            CardDepthStyleRepository.uiState.map { "card_depth_style" },
-            PlayerSettingsRepository.uiState.map { "player" },
-            StreamBadgeSettingsRepository.uiState.map { "stream_badges" },
-            DebridSettingsRepository.uiState.map { "debrid" },
-            TmdbSettingsRepository.uiState.map { "tmdb" },
-            MdbListSettingsRepository.uiState.map { "mdblist" },
-            MetaScreenSettingsRepository.uiState.map { "meta" },
-            CollectionMobileSettingsRepository.uiState.map { "collection_mobile_settings" },
-            ContinueWatchingPreferencesRepository.uiState.map { "continue_watching" },
-            TrackingSettingsRepository.uiState.map { "trakt_settings" },
-            TraktCommentsSettings.enabled.map { "trakt_comments" },
-            EpisodeReleaseNotificationsRepository.uiState.map { "episode_release_alerts" },
-            SocialFeaturePreferencesRepository.uiState.map { "social_features" },
-            DownloadPolicyRepository.policy.map { "download_policy" },
-        )
+        val signatureFlows: List<Flow<Any?>> = observedSyncStates().map { it.state }
 
         observeJob = scope.launch {
             combine(signatureFlows) { currentObservedStateSignature() }
@@ -282,6 +258,11 @@ object ProfileSettingsSync {
                     socialFeaturesEnabled = SocialFeaturePreferencesRepository.exportStoredPreference(),
                 ),
                 downloadPolicy = DownloadPolicyRepository.exportForSync(),
+                zFeatures = buildJsonObject {
+                    zProfileSyncContributors.forEach { contributor ->
+                        contributor.export()?.let { put(contributor.key, it) }
+                    }
+                },
             ),
         )
     }
@@ -366,6 +347,9 @@ object ProfileSettingsSync {
         EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
         SocialFeaturePreferencesRepository.applyFromSync(blob.features.socialFeatures.socialFeaturesEnabled)
         DownloadPolicyRepository.applyFromSync(blob.features.downloadPolicy)
+        zProfileSyncContributors.forEach { contributor ->
+            contributor.applyFromSync(blob.features.zFeatures[contributor.key])
+        }
     }
 
     private fun ensureRepositoriesLoaded() {
@@ -386,33 +370,53 @@ object ProfileSettingsSync {
         EpisodeReleaseNotificationsRepository.ensureLoaded()
         SocialFeaturePreferencesRepository.ensureLoaded()
         DownloadPolicyRepository.ensureLoaded()
+        zProfileSyncContributors.forEach { it.ensureLoaded() }
     }
 
     private fun buildSignature(blob: MobileProfileSettingsBlob): String =
         json.encodeToString(MobileProfileSettingsBlob.serializer(), blob)
 
-    private fun currentObservedStateSignature(): String = listOf(
-        "theme=${ThemeSettingsRepository.selectedTheme.value.name}",
-        "amoled=${ThemeSettingsRepository.amoledEnabled.value}",
-        "liquid_glass_tab_bar=${ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.value}",
-        "desktop_navigation_layout=${ThemeSettingsRepository.desktopNavigationLayout.value.name}",
-        "nav_bar_style=${ThemeSettingsRepository.navBarStyle.value.key}",
-        "poster_card_style=${PosterCardStyleRepository.uiState.value}",
-        "card_depth_style=${CardDepthStyleRepository.uiState.value}",
-        "player=${PlayerSettingsRepository.uiState.value}",
-        "stream_badges=${StreamBadgeSettingsRepository.uiState.value}",
-        "debrid=${DebridSettingsRepository.uiState.value}",
-        "tmdb=${TmdbSettingsRepository.uiState.value}",
-        "mdblist=${MdbListSettingsRepository.uiState.value}",
-        "meta=${MetaScreenSettingsRepository.uiState.value}",
-        "collection_mobile_settings=${CollectionMobileSettingsRepository.uiState.value}",
-        "continue=${ContinueWatchingPreferencesRepository.uiState.value}",
-        "trakt_settings=${TrackingSettingsRepository.uiState.value}",
-        "trakt_comments=${TraktCommentsSettings.enabled.value}",
-        "episode_release_alerts=${EpisodeReleaseNotificationsRepository.uiState.value.isEnabled}",
-        "social_features=${SocialFeaturePreferencesRepository.uiState.value.storedPreference}",
-        "download_policy=${DownloadPolicyRepository.policy.value}",
-    ).joinToString(separator = "||")
+    /**
+     * Every state the push observer watches, **with** the projection of it that the signature reads.
+     *
+     * ⚠ One list for both jobs, and that is the fix, not a tidy-up. The observer used to watch one
+     * hand-written list and build its signature from a second one; anything in the first and missing
+     * from the second changed nothing the observer compared, so it never pushed - nav glow, custom
+     * theme colours and the custom poster URL on mobile, and the custom poster screens on both
+     * platforms. The next pull, where remote wins, then silently reverted them. An entry here cannot
+     * be observed without also being compared.
+     */
+    private fun observedSyncStates(): List<ObservedSyncState<*>> = listOf(
+        ObservedSyncState("theme", ThemeSettingsRepository.selectedThemePreference) { it?.name },
+        ObservedSyncState("custom_theme_colors", ThemeSettingsRepository.customThemePreference),
+        ObservedSyncState("amoled", ThemeSettingsRepository.amoledEnabled),
+        ObservedSyncState("liquid_glass_tab_bar", ThemeSettingsRepository.liquidGlassNativeTabBarEnabled),
+        ObservedSyncState("desktop_navigation_layout", ThemeSettingsRepository.desktopNavigationLayout) { it.name },
+        ObservedSyncState("nav_bar_glow_enabled", ThemeSettingsRepository.navBarGlowEnabled),
+        ObservedSyncState("nav_bar_style", ThemeSettingsRepository.navBarStyle) { it.key },
+        ObservedSyncState("poster_card_style", PosterCardStyleRepository.uiState),
+        ObservedSyncState("custom_poster_url", CustomPosterUrlRepository.pattern),
+        ObservedSyncState("custom_poster_screens", CustomPosterUrlRepository.enabledScreens),
+        ObservedSyncState("card_depth_style", CardDepthStyleRepository.uiState),
+        ObservedSyncState("player", PlayerSettingsRepository.uiState),
+        ObservedSyncState("stream_badges", StreamBadgeSettingsRepository.uiState),
+        ObservedSyncState("debrid", DebridSettingsRepository.uiState),
+        ObservedSyncState("tmdb", TmdbSettingsRepository.uiState),
+        ObservedSyncState("mdblist", MdbListSettingsRepository.uiState),
+        ObservedSyncState("meta", MetaScreenSettingsRepository.uiState),
+        ObservedSyncState("collection_mobile_settings", CollectionMobileSettingsRepository.uiState),
+        ObservedSyncState("continue", ContinueWatchingPreferencesRepository.uiState),
+        ObservedSyncState("trakt_settings", TrackingSettingsRepository.uiState),
+        ObservedSyncState("trakt_comments", TraktCommentsSettings.enabled),
+        ObservedSyncState("episode_release_alerts", EpisodeReleaseNotificationsRepository.uiState) { it.isEnabled },
+        ObservedSyncState("social_features", SocialFeaturePreferencesRepository.uiState) { it.storedPreference },
+        ObservedSyncState("download_policy", DownloadPolicyRepository.policy),
+    ) + zProfileSyncContributors.map { contributor ->
+        ObservedSyncState<Any?>("z:${contributor.key}", contributor.observed) { contributor.export() }
+    }
+
+    private fun currentObservedStateSignature(): String =
+        observedSyncStates().joinToString(separator = "||") { "${it.name}=${it.projected()}" }
 
 }
 
@@ -443,7 +447,22 @@ private data class MobileProfileSettingsFeatures(
     @SerialName("social_features") val socialFeatures: SocialFeaturesPayload = SocialFeaturesPayload(),
     /** Download Mode and Download Preferences (Phase 9); every field nullable, see the payload. */
     @SerialName("download_policy") val downloadPolicy: DownloadPolicySyncPayload = DownloadPolicySyncPayload(),
+    /**
+     * Z-owned preferences, keyed by `ZProfileSyncContributor.key`. A key that is absent - an older Z
+     * build, or vanilla Nuvio pushing a blob it knows nothing of this field in - leaves the local
+     * value alone.
+     */
+    @SerialName("z_features") val zFeatures: JsonObject = JsonObject(emptyMap()),
 )
+
+/** One entry of `ProfileSettingsSync.observedSyncStates`: a watched state and what is compared of it. */
+private class ObservedSyncState<T>(
+    val name: String,
+    val state: StateFlow<T>,
+    private val projection: (T) -> Any? = { it },
+) {
+    fun projected(): Any? = projection(state.value)
+}
 
 @Serializable
 private data class NotificationsSettingsPayload(

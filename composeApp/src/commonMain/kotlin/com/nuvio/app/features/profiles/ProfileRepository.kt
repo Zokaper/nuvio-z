@@ -204,6 +204,11 @@ object ProfileRepository {
         CollectionRepository.onProfileChanged()
         CollectionMobileSettingsRepository.onProfileChanged()
         DownloadsRepository.onProfileChanged()
+        // Z (vanilla omission, drop-at-next-sync if upstream adds them): without these two the
+        // in-memory Debrid settings - and the credential baseline built from them - and the Trakt
+        // comments toggle stayed on the previous profile until a pull happened to differ.
+        com.nuvio.app.features.debrid.DebridSettingsRepository.onProfileChanged()
+        com.nuvio.app.features.trakt.TraktCommentsSettings.onProfileChanged()
         ProfileSettingsSync.onProfileChanged()
     }
 
