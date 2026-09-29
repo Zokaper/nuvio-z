@@ -11,7 +11,12 @@ green. iOS build run `36613204896` and CI run `36613918499` were green on the ea
 head `21d1adea9`: split suite **3,309 tests, 0 failures** (rest 1,767 / playback 1,036 /
 downloads 457 / e2e 49); the route-exit guard files are byte-identical with mobile
 (`diff --strip-trailing-cr`). Backend pgTAP 336/336; the corrected Social RPC is deployed.
-Debug 70 / desktop 77 tags and run IDs: see the line appended below once published.
+**Debug builds.** Debug release `36631852581` **success** (Android APK + iOS unsigned IPA) from `0a9bab78f`
+-> **`debug-v0.4.13-z1.70`**; CI `36631831915` and iOS build `36631831805` success on the same head.
+Desktop debug release `36631857017` **success** from `2ae049e14` -> **`debug-v0.1.23-alpha-z6.77`**.
+Desktop push CI `36631845606`: Windows MSI success; the "Desktop tests" job fails in
+`composeMediaPlayer:buildNativeLinux` (CTest `frame_copy_test.c:36: player != NULL`, Linux runner) and has
+failed on every recent desktop branch head - not this pass; the local split suite is the authority.
 
 ### Earlier notes (2026-09-29)
 
