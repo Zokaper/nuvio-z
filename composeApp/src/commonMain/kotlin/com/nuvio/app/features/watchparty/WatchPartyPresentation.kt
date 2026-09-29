@@ -69,6 +69,11 @@ fun WatchPartyParticipant.derivedStatus(
     val readinessIsCurrent = sourceGeneration >= partySourceGeneration
     val hasLivePlayerEvidence =
         clientLocation == WatchPartyClientLocation.player && livePlaybackStatus != null
+    // The peer-plane Away packet can be lost when iOS suspends the socket. The backend lease is
+    // the durable observation; the reaper clears it when the bounded lease expires.
+    if (awaySince != null) {
+        return DerivedMemberStatus("Away", PartyReadyTone.Away)
+    }
     if (!connected || readyState == SourceResolutionState.disconnected) {
         return if (readyState == SourceResolutionState.left) {
             DerivedMemberStatus("Left", PartyReadyTone.Offline)
@@ -319,7 +324,7 @@ object PartyPresentationProjector {
             val derived = member.derivedStatus(
                 livePlaybackStatus = liveStatus,
                 isSelfResyncing = member.profileId == selfProfileId && selfResyncing,
-                isAway = member.profileId in realtime.awayProfileIds,
+                isAway = member.profileId in realtime.awayProfileIds || member.awaySince != null,
                 // The party's own generation is the only thing that can tell a member still
                 // resolving the *current* content from one whose readiness row is simply behind.
                 partySourceGeneration = party?.sourceGeneration ?: member.sourceGeneration,

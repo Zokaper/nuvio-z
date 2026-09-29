@@ -38,6 +38,13 @@ private fun party(
 )
 
 class WatchPartyModelsTest {
+    @Test fun durableAwayLeaseOutranksExpiredHeartbeatInTheRoster() {
+        val suspended = member("guest", SourceResolutionState.disconnected, connected = false)
+            .copy(awaySince = "2026-09-29T18:00:00Z")
+        assertEquals("Away", suspended.derivedStatus(isAway = false).label)
+        assertEquals("Offline", suspended.copy(awaySince = null).derivedStatus(isAway = false).label)
+    }
+
     @Test fun durationCompatibilityUsesLargerTolerance() {
         assertTrue(arePartyDurationsCompatible(7_200_000, 7_300_000))
         assertFalse(arePartyDurationsCompatible(3_600_000, 3_800_000))

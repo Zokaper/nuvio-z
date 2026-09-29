@@ -153,6 +153,7 @@ data class WatchPartyParticipant(
     @SerialName("source_generation") val sourceGeneration: Int = 0,
     @SerialName("source_match") val sourceMatch: PartySourceMatch? = null,
     val connected: Boolean = true,
+    @SerialName("away_since") val awaySince: String? = null,
     @SerialName("client_location") val clientLocation: WatchPartyClientLocation = WatchPartyClientLocation.lobby,
     @SerialName("last_seen_at") val lastSeenAt: String? = null,
     @SerialName("joined_at") val joinedAt: String,
