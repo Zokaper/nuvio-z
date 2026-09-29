@@ -164,6 +164,7 @@ private val EpisodeStillBlur = 12.dp
 @Composable
 fun WatchPartyLobbyScreen(
     onBack: () -> Unit,
+    onRequestRouteExit: () -> Unit = { },
     /**
      * Whether the leave / end question is on screen. Hoisted so the route can raise it for a system
      * back (Escape) - see `dispatchNavigationBack` and `WatchPartyLobbyExit.kt`.
@@ -227,7 +228,7 @@ fun WatchPartyLobbyScreen(
         realtime = syncState,
         partyNowMs = WatchPartySync.partyNowMs(),
     )
-    val requestDeparture = { onShowDepartureDialogChange(true) }
+    val requestDeparture = onRequestRouteExit
 
     WatchPartyLobbyFrame(poster = party?.content?.poster, modifier = modifier) {
         if (party == null) {

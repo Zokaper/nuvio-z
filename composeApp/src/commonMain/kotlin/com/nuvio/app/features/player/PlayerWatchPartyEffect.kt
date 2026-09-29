@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
 import com.nuvio.app.features.watchparty.PartyRealizationDecision
@@ -74,6 +75,7 @@ import com.nuvio.app.features.watchparty.partyPlaybackGate
 import com.nuvio.app.features.watchparty.resolvePartyStartupHold
 import com.nuvio.app.features.watchparty.partyGenerationKey
 import com.nuvio.app.features.watchparty.partySeekPlan
+import com.nuvio.app.features.watchparty.partyReadinessNeedsReconcile
 import com.nuvio.app.features.watchparty.pendingPartySeek
 import com.nuvio.app.features.watchparty.shortId
 import com.nuvio.app.features.watchparty.PartyAwayCatchUpTickWaitMs
@@ -264,12 +266,12 @@ internal fun PlayerScreenRuntime.partyPositionNowMs(): Long = samplePlaybackPosi
 private suspend fun PlayerScreenRuntime.seekPartyToExact(targetMs: Long, reason: String) {
     val controller = playerController ?: return
     val issuedAtMs = currentEpochMs()
-    partyPendingSeek = pendingPartySeek(targetMs = targetMs, nowMs = issuedAtMs)
+    partyPendingSeek = pendingPartySeek(targetMs = targetMs, nowMs = issuedAtMs, reason = reason)
     // The single choke point for every authoritative move of this playhead - drift, barrier,
     // pause-align, fallback-align - so it is the one place the startup watchdog's baseline can be
     // rebased from. See `partyAlignedBaselineMs`.
     partyAlignedBaselineMs = targetMs
-    partyLog.i { "seek issue reason=$reason targetMs=$targetMs fromMs=${samplePlaybackPosition().positionMs}" }
+    partyLog.i { "seek issue atEpochMs=$issuedAtMs reason=$reason targetMs=$targetMs fromMs=${samplePlaybackPosition().positionMs}" }
     controller.seekToExact(targetMs)
     awaitPartySeekLanded()
 }
@@ -285,9 +287,9 @@ private fun PlayerScreenRuntime.partySeekOutstanding(): Boolean {
     if (pending.timedOut(nowMs, positionMs)) {
         // Not an error on its own - an unbuffered position on a cold source takes what it takes -
         // but it is the line that names a seek that cannot land, so it is a warning.
-        partyLog.w { "seek timeout targetMs=${pending.targetMs} landedMs=$positionMs tookMs=$tookMs" }
+        partyLog.w { "seek timeout atEpochMs=$nowMs reason=${pending.reason} targetMs=${pending.targetMs} landedMs=$positionMs tookMs=$tookMs" }
     } else {
-        partyLog.i { "seek landed targetMs=${pending.targetMs} landedMs=$positionMs tookMs=$tookMs" }
+        partyLog.i { "seek landed atEpochMs=$nowMs reason=${pending.reason} targetMs=${pending.targetMs} landedMs=$positionMs tookMs=$tookMs" }
     }
     return false
 }
@@ -389,6 +391,28 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     val generationKey = matchingParty?.generationKey()
     val isHost = matchingParty != null && matchingParty.hostProfileId == partyUi.activeProfileId
     val mediaLoaded = playbackSnapshot.durationMs > 0L
+    val platformLifecycle = rememberPartyPlatformLifecycle()
+    var readinessReconcileRevision by androidx.compose.runtime.remember(generationKey) {
+        androidx.compose.runtime.mutableLongStateOf(0L)
+    }
+    val serverReadyState = matchingParty?.members
+        ?.firstOrNull { it.profileId == partyUi.activeProfileId }?.readyState
+
+    // iOS can miss the loaded/ready edge while its display link is suspended. Once a fresh player
+    // sample has arrived on return, repeat the report even if the local duration never changed.
+    LaunchedEffect(generationKey, platformLifecycle.resumeRevision) {
+        if (generationKey == null || platformLifecycle.resumeRevision == 0L) return@LaunchedEffect
+        val resumedAt = currentEpochMs()
+        while (playbackSnapshotAtMs < resumedAt && currentEpochMs() - resumedAt < 2_000L) {
+            delay(50L)
+        }
+        readinessReconcileRevision += 1L
+    }
+    LaunchedEffect(generationKey, serverReadyState, mediaLoaded) {
+        if (generationKey != null && partyReadinessNeedsReconcile(mediaLoaded, serverReadyState)) {
+            readinessReconcileRevision += 1L
+        }
+    }
     val gate = partyPlaybackGate(
         party = matchingParty,
         viewerProfileId = partyUi.activeProfileId,
@@ -455,7 +479,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // the old one, at timestamps that no longer mean the same frame. So the tier is measured here,
     // against the party's own descriptor, and `partySourceTimelineDecision` says who owes what: the
     // host moves the party, a guest proves it still matches or says it cannot.
-    LaunchedEffect(generationKey, mediaLoaded, activePartySourceDescriptor, playbackSnapshot.durationMs > 0L) {
+    LaunchedEffect(generationKey, mediaLoaded, activePartySourceDescriptor, readinessReconcileRevision) {
         if (generationKey == null) return@LaunchedEffect
         if (mediaLoaded) {
             val party = matchingParty
@@ -881,7 +905,6 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
     // *here*; none of them decides anything, which is the whole reason `PartyPresence.kt` exists as
     // a pure file. See it for why this is a snapshot rather than a stream of events - a
     // picture-in-picture transition delivers four of them in an order that is not guaranteed.
-    val platformLifecycle = rememberPartyPlatformLifecycle()
     val inPictureInPicture = rememberIsInPictureInPicture()
     LaunchedEffect(generationKey, platformLifecycle, inPictureInPicture, mediaLoaded) {
         if (generationKey == null) {
@@ -1413,7 +1436,7 @@ private suspend fun PlayerScreenRuntime.executePartyBarrier(command: PartyComman
                 if (plan.seekToMs != null) {
                     val target = partyPositionInThisFile(plan.seekToMs, durationMs) ?: return
                     controller.pause()
-                    seekPartyToExact(target, reason = "barrier")
+                    seekPartyToExact(target, reason = "barrier:${command.commandId}")
                 } else if (plan.holdMs > 0L) {
                     controller.pause()
                 }

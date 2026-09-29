@@ -372,7 +372,7 @@ private fun PlaybackLoadingBand(
  */
 @Composable
 private fun PlaybackLoadingStageLine(state: PlaybackLoadingState) {
-    val stage = stageLabel(state.step)
+    val stage = state.stageOverride ?: stageLabel(state.step)
     val attempt = if (state.showsAttempt) {
         stringResource(
             Res.string.playback_progress_attempt,

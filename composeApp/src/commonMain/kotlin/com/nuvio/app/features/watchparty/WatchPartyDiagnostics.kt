@@ -45,6 +45,7 @@ internal object WatchPartyDiagnostics {
         if (!isDebugBuild) return
         log.i {
             "T1 input=${inputId ?: "none"} atEpochMs=${currentEpochMs()} result=accepted " +
+                "requestedInMs=${command.startAtPartyMs - WatchPartySync.partyNowMs()} " +
                 "${commandFacts(command, partyId)} ${transportFacts()}"
         }
     }
@@ -75,7 +76,8 @@ internal object WatchPartyDiagnostics {
     fun received(command: PartyCommand, partyId: String, outcome: String) {
         if (!isDebugBuild) return
         log.i {
-            "T3 atEpochMs=${currentEpochMs()} outcome=$outcome ${commandFacts(command, partyId)} " +
+            "T3 atEpochMs=${currentEpochMs()} inMs=${command.startAtPartyMs - WatchPartySync.partyNowMs()} " +
+                "outcome=$outcome ${commandFacts(command, partyId)} " +
                 transportFacts()
         }
     }
@@ -83,7 +85,8 @@ internal object WatchPartyDiagnostics {
     fun applied(command: PartyCommand, partyId: String?, outcome: String) {
         if (!isDebugBuild) return
         log.i {
-            "T4 atEpochMs=${currentEpochMs()} outcome=$outcome ${commandFacts(command, partyId)} " +
+            "T4 atEpochMs=${currentEpochMs()} latenessMs=${WatchPartySync.partyNowMs() - command.startAtPartyMs} " +
+                "outcome=$outcome ${commandFacts(command, partyId)} " +
                 "clockUsable=${WatchPartySync.isClockUsable()} clockPrecise=${WatchPartySync.isPrecise()} " +
                 "tickAgeMs=${WatchPartySync.tickAgeMs()} ${transportFacts()}"
         }
@@ -164,7 +167,7 @@ internal object WatchPartyDiagnostics {
     private fun commandFacts(command: PartyCommand, partyId: String?): String =
         "party=${partyId.shortId()} command=${command.commandId} actor=${command.issuedByProfileId.shortId()} " +
             "counter=${command.counter} generation=${command.contentGeneration}/${command.sourceGeneration}/${command.authorityEpoch} " +
-            "kind=${command.kind}"
+            "kind=${command.kind} startAtPartyMs=${command.startAtPartyMs} targetMs=${command.startPositionMs}"
 
     private fun identity(party: WatchPartyState?, actorProfileId: String?): String =
         "party=${party?.id.shortId()} actor=${actorProfileId.shortId()} " +

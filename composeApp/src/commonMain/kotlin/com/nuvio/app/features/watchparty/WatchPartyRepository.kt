@@ -233,6 +233,26 @@ object WatchPartyRepository {
 
     suspend fun setClientLocation(location: WatchPartyClientLocation): Result<Unit> = setClientLocation(location.name)
 
+    /** Process lifecycle publication. Backgrounding retains membership and never calls depart. */
+    suspend fun setAway(away: Boolean): Result<Unit> {
+        val partyId = _uiState.value.party?.id ?: return Result.success(Unit)
+        val profileId = _uiState.value.activeProfileId ?: return Result.success(Unit)
+        return runCatching {
+            if (!ZSessionBridge.ensureSession(profileId)) error("Nuvio Z session unavailable")
+            val snapshot = ZSupabaseProvider.client.postgrest.rpc("party_set_away", buildJsonObject {
+                put("p_party_id", partyId)
+                put("p_profile_id", profileId)
+                put("p_away", away)
+            }).decodeAs<WatchPartyState>()
+            if (_uiState.value.party?.id == partyId && _uiState.value.activeProfileId == profileId) {
+                installSnapshot(snapshot)
+            }
+            log.i { "away published party=${partyId.shortId()} away=$away" }
+        }.onFailure { error ->
+            log.w(error) { "away publish failed party=${partyId.shortId()} away=$away" }
+        }
+    }
+
     suspend fun setClientLocation(location: String): Result<Unit> = memberStateMutex.withLock {
         call {
             val snapshot = ZSupabaseProvider.client.postgrest.rpc("party_set_client_location", buildJsonObject {
@@ -289,6 +309,8 @@ object WatchPartyRepository {
 
     fun setActiveProfile(profileId: String?) {
         if (_uiState.value.activeProfileId == profileId) return
+        val departingPartyId = _uiState.value.party?.id
+        val departingProfileId = _uiState.value.activeProfileId
         log.i { "profile from=${_uiState.value.activeProfileId.shortId()} to=${profileId.shortId()}" }
         lastLoggedState = null
         lastLoggedHeartbeatStatus = null
@@ -298,8 +320,18 @@ object WatchPartyRepository {
         // keeps local state for a retry, and one profile's resolved media may never outlive the
         // switch to another - whether or not the server was reachable at the time.
         PartySourceRealizer.clear()
-        scope.launch { if (_uiState.value.party != null) leave() else WatchPartySync.updateAuthority(null) }
+        stopPolling()
+        clockOffsetPartyId = null
+        lastSuccessfulContactEpochMs = 0L
         _uiState.value = WatchPartyUiState(activeProfileId = profileId)
+        WatchPartySync.updateAuthority(null)
+        if (departingPartyId != null && departingProfileId != null) {
+            scope.launch {
+                departMembershipAs(departingProfileId, departingPartyId).onFailure { failure ->
+                    log.w(failure) { "identity-boundary departure failed party=${departingPartyId.shortId()}" }
+                }
+            }
+        }
     }
 
     /**

@@ -447,8 +447,19 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val openingOverlayWanted = playerSettingsUiState.showLoadingOverlay &&
         !firstFrameReached &&
         (errorMessage == null || args.onFatalPlaybackError != null)
+    val waitingForHostToPlay = activeParty?.takeIf { party ->
+        party.hostProfileId != watchPartyUiState.activeProfileId &&
+            party.status in setOf(WatchPartyStatus.lobby, WatchPartyStatus.paused) &&
+            playbackSnapshot.durationMs > 0L && !playbackSnapshot.isLoading &&
+            party.members.any { it.profileId == watchPartyUiState.activeProfileId && it.readyState == com.nuvio.app.features.watchparty.SourceResolutionState.ready }
+    }?.let { party ->
+        val hostName = party.members.firstOrNull { it.profileId == party.hostProfileId }
+            ?.displayName(viewerProfileId = null)?.takeIf { it.isNotBlank() } ?: "the host"
+        "Waiting for $hostName to play"
+    }
     val openingLoadingState = PlaybackLoadingState(
         step = PlaybackProgressStep.StartingPlayback,
+        stageOverride = waitingForHostToPlay,
         attempt = args.playbackAttempt,
         facts = args.sourceFacts,
         contentLanguage = args.contentLanguage,
@@ -583,6 +594,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val loadingEscapeToken = PlaybackLoadingController.session
         ?.takeIf { it.handedOff && openingOverlayWanted }
         ?.token
+    LaunchedEffect(loadingEscapeToken, openingLoadingState) {
+        loadingEscapeToken?.let { PlaybackLoadingController.revise(it, openingLoadingState) }
+    }
     DisposableEffect(loadingEscapeToken, args.automaticSourceSelection) {
         val token = loadingEscapeToken
         if (token == null) {
@@ -831,7 +845,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         // `LocalDensity` here is already `platformDensity x effectiveDesktopUiScale` - see
         // `NuvioTheme` - so dividing the two recovers the scale the browser needs to match.
         openingScale = LocalDensity.current.density / LocalNuvioPlatformDensity.current.density,
-        openingStageLabel = p2pInitialLoadingMessage
+        openingStageLabel = waitingForHostToPlay ?: p2pInitialLoadingMessage
             ?: stringResource(Res.string.playback_progress_starting),
         openingAttemptLabel = if (openingLoadingState.showsAttempt) {
             stringResource(
@@ -1061,6 +1075,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             displayedPositionMs = displayedPositionMs,
             currentGestureFeedback = currentGestureFeedback,
             p2pInitialLoadingMessage = p2pInitialLoadingMessage,
+            waitingForHostToPlay = waitingForHostToPlay,
             p2pInitialLoadingProgress = p2pInitialLoadingProgress,
             showP2pRebufferStats = showP2pRebufferStats,
             p2pRebufferMessage = p2pRebufferMessage,
@@ -2512,6 +2527,7 @@ private fun BoxScope.RenderPlaybackOverlays(
     displayedPositionMs: Long,
     currentGestureFeedback: GestureFeedbackState?,
     p2pInitialLoadingMessage: String?,
+    waitingForHostToPlay: String?,
     p2pInitialLoadingProgress: Float?,
     showP2pRebufferStats: Boolean,
     p2pRebufferMessage: String?,
@@ -2611,6 +2627,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             // derivation here is a second thing to drift.
             loadingState = PlaybackLoadingState(
                 step = PlaybackProgressStep.StartingPlayback,
+                stageOverride = waitingForHostToPlay,
                 attempt = args.playbackAttempt,
                 facts = args.sourceFacts,
                 contentLanguage = args.contentLanguage,

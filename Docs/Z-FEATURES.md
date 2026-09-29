@@ -1,5 +1,12 @@
 # Nuvio Z Feature Ledger
 
+**Revision 19 is the iOS / Watch Together hardening branch (2026-09-29).** S1/S3's
+physically reproduced iOS lobby, paused-guest, background-return and Social error paths
+have code fixes and a bounded backend Away lease. Shared WT diagnostics now correlate command
+creation, RPC, receipt, execution and seek landing. Desktop receives applicable shared changes.
+The iOS cells remain `**defer**` until the combined physical QA; a compile and pgTAP run do not
+turn those cells into `yes`. Neither stable nor Phase 10 changes here.
+
 **Revision 15 is the Phase 9 release-gate pass (2026-09-28).** D24 loses the Downloaded badge (removed at closeout; the On this device block says it) and records that the first-launch folder migration has not been watched on a device yet. D22 records that desktop never holds a download for a metered connection. The "cannot cancel a preparing batch" limitation is struck: Phase 9 deletes a discovering batch (physically on Android). Phase 9 is **done, release gate pending**; the two physical checks it still owes are in §12 Open.
 
 **Revision 14 is the Phase 9 closeout (2026-09-27).** Downloads Redesign gets its rows: **D17-D24**, **W11** and **C21**. **D1, D3 and D4** (the download presets and their picker and editor) are superseded by D17/D18 and move to §11. **D16** moves to the final Phase 9 iOS model: a handover window of 30 and no "Downloads at once" on iOS, with the ~42-episode locked queue as its physical evidence. Every Phase 9 row reads `debug`: it is on the `debug-v*` line only (mobile `.63`, desktop `.72`), and **no stable build carries it yet**. What each row has been physically seen doing is stated in the row; everything else is test- and render-verified only.

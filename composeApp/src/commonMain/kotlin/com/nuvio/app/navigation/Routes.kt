@@ -51,7 +51,9 @@ data class WatchPartyLobbyRoute(
     val inviteCode: String? = null,
     val partyId: String? = null,
     override val title: String? = null,
-) : AppRoute
+) : AppRoute {
+    override val hidesNavigationBar: Boolean get() = true
+}
 
 @Serializable
 data class PersonDetailRoute(

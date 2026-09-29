@@ -188,11 +188,13 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         )
     }
 
-    // State - refreshes position from mpv on each call (polled from Kotlin every 250ms)
-    func getIsLoading() -> Bool { playerVC?.refreshPlaybackState(); return playerVC?.isPlayerLoading ?? true }
+    // Kotlin's 250ms poll reads the snapshot published by the mpv event queue.
+    func getIsLoading() -> Bool { playerVC?.isPlayerLoading ?? true }
     func getIsPlaying() -> Bool { return playerVC?.isPlayerPlaying ?? false }
     func getIsEnded() -> Bool { return playerVC?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { return playerVC?.durationMs ?? 0 }
+    func getVideoWidth() -> Int32 { Int32(playerVC?.videoWidth ?? 0) }
+    func getVideoHeight() -> Int32 { Int32(playerVC?.videoHeight ?? 0) }
     func getPositionMs() -> Int64 { return playerVC?.positionMs ?? 0 }
     func getBufferedMs() -> Int64 { return playerVC?.bufferedMs ?? 0 }
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
@@ -301,6 +303,8 @@ final class MPVPlayerViewController: UIViewController {
     var isPlayerPlaying: Bool = false
     var isPlayerEnded: Bool = false
     var durationMs: Int64 = 0
+    var videoWidth: Int = 0
+    var videoHeight: Int = 0
     var positionMs: Int64 = 0
     var bufferedMs: Int64 = 0
     var currentSpeed: Float = 1.0
@@ -545,8 +549,15 @@ final class MPVPlayerViewController: UIViewController {
         mpv_observe_property(mpv, 0, "core-idle", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "seeking", MPV_FORMAT_FLAG)
-        mpv_observe_property(mpv, 0, "track-list", MPV_FORMAT_NODE)
-        mpv_observe_property(mpv, 0, "aid", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
+        mpv_observe_property(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE)
+        mpv_observe_property(mpv, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE)
+        mpv_observe_property(mpv, 0, "cache-buffering-state", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, 0, "speed", MPV_FORMAT_DOUBLE)
+        mpv_observe_property(mpv, 0, "video-params", MPV_FORMAT_NODE)
+        mpv_observe_property(mpv, 1, "track-list", MPV_FORMAT_NODE)
+        mpv_observe_property(mpv, 2, "aid", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, 3, "sid", MPV_FORMAT_INT64)
 
         mpv_set_wakeup_callback(mpv, { ctx in
             let vc = unsafeBitCast(ctx, to: MPVPlayerViewController.self)
@@ -587,6 +598,12 @@ final class MPVPlayerViewController: UIViewController {
     @objc private func enterForeground() {
         guard mpv != nil else { return }
         setStringProperty("vid", "auto")
+        // A paused file may produce no property edge after suspension. Sample mpv on its event
+        // queue anyway so the first foreground Kotlin poll sees the actual loaded state.
+        eventQueue.async { [weak self] in
+            guard let self, let snapshot = self.readPlaybackSnapshot() else { return }
+            DispatchQueue.main.async { self.publishPlaybackSnapshot(snapshot) }
+        }
         // Back to what the runtime wants, not unconditionally playing: resuming here played a film
         // paused before the lock, and in Watch Together a stale position under a party that may be
         // paused. The away return decides when a party member plays again.
@@ -952,10 +969,24 @@ final class MPVPlayerViewController: UIViewController {
 
     // MARK: - State Update
 
-    /// Lightweight state refresh — called by Kotlin polling (every 250ms).
-    /// Only reads cheap scalar properties; does NOT re-enumerate tracks.
-    func refreshPlaybackState() {
-        guard mpv != nil else { return }
+    private struct PlaybackSnapshot {
+        let durationMs: Int64
+        let positionMs: Int64
+        let bufferedMs: Int64
+        let speed: Float
+        let paused: Bool
+        let ended: Bool
+        let idle: Bool
+        let seeking: Bool
+        let pausedForCache: Bool
+        let cacheBuffering: Int
+        let videoWidth: Int
+        let videoHeight: Int
+    }
+
+    /// Called on eventQueue. Kotlin and the main thread only see the published cache.
+    private func readPlaybackSnapshot() -> PlaybackSnapshot? {
+        guard mpv != nil else { return nil }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
         // `demuxer-cache-time` is an absolute playback timestamp for the end of the
@@ -970,19 +1001,38 @@ final class MPVPlayerViewController: UIViewController {
         let seeking = getFlag("seeking")
         let bufferingCache = getFlag("paused-for-cache")
 
-        isPausedForCache = bufferingCache
-        cacheBufferingState = getIntIfAvailable("cache-buffering-state") ?? -1
-        isSeeking = seeking
-        isCoreIdle = idle
-        isPaused = paused
+        return PlaybackSnapshot(
+            durationMs: Int64(duration * 1000),
+            positionMs: Int64(max(position, 0) * 1000),
+            bufferedMs: Int64(max(max(position, cacheEnd), 0) * 1000),
+            speed: Float(speed > 0 ? speed : 1.0),
+            paused: paused,
+            ended: eofReached,
+            idle: idle,
+            seeking: seeking,
+            pausedForCache: bufferingCache,
+            cacheBuffering: getIntIfAvailable("cache-buffering-state") ?? -1,
+            videoWidth: getInt("video-params/w"),
+            videoHeight: getInt("video-params/h")
+        )
+    }
 
-        isPlayerLoading = (idle && !paused && !eofReached) || seeking || bufferingCache
-        isPlayerPlaying = !paused && !idle && !eofReached
-        isPlayerEnded = eofReached
-        durationMs = Int64(duration * 1000)
-        positionMs = Int64(max(position, 0) * 1000)
-        bufferedMs = Int64(max(max(position, cacheEnd), 0) * 1000)
-        currentSpeed = Float(speed > 0 ? speed : 1.0)
+    private func publishPlaybackSnapshot(_ snapshot: PlaybackSnapshot) {
+        durationMs = snapshot.durationMs
+        positionMs = snapshot.positionMs
+        bufferedMs = snapshot.bufferedMs
+        currentSpeed = snapshot.speed
+        isPaused = snapshot.paused
+        isPlayerEnded = snapshot.ended
+        isCoreIdle = snapshot.idle
+        isSeeking = snapshot.seeking
+        isPausedForCache = snapshot.pausedForCache
+        cacheBufferingState = snapshot.cacheBuffering
+        videoWidth = snapshot.videoWidth
+        videoHeight = snapshot.videoHeight
+        isPlayerLoading = (snapshot.idle && !snapshot.paused && !snapshot.ended) ||
+            snapshot.seeking || snapshot.pausedForCache
+        isPlayerPlaying = !snapshot.paused && !snapshot.idle && !snapshot.ended
 
         let shouldPublishNowPlayingState = !isPlayerLoading || isPlayerPlaying || durationMs > 0 || positionMs > 0
         if shouldPublishNowPlayingState {
@@ -999,14 +1049,9 @@ final class MPVPlayerViewController: UIViewController {
         )
     }
 
-    /// Full state + track refresh — called from MPV event loop on property changes.
-    func updateState() {
-        refreshPlaybackState()
-        refreshTracks()
-    }
-
-    private func refreshTracks() {
-        guard mpv != nil else { return }
+    /// Track metadata is expensive. Rebuild only when mpv changes the list or selected IDs.
+    private func readTracks() -> (audio: [TrackInfo], subtitles: [TrackInfo]) {
+        guard mpv != nil else { return ([], []) }
         var audio = [TrackInfo]()
         var subs = [TrackInfo]()
         let count = getInt("track-list/count")
@@ -1042,8 +1087,7 @@ final class MPVPlayerViewController: UIViewController {
                 subIdx += 1
             }
         }
-        audioTracks = audio
-        subtitleTracks = subs
+        return (audio, subs)
     }
 
     func updateNowPlayingMetadata(
@@ -1217,6 +1261,8 @@ final class MPVPlayerViewController: UIViewController {
     private func readEvents() {
         eventQueue.async { [weak self] in
             guard let self, let mpv = self.mpv else { return }
+            var stateChanged = false
+            var tracksChanged = false
 
             while true {
                 let event = mpv_wait_event(mpv, 0)
@@ -1225,21 +1271,25 @@ final class MPVPlayerViewController: UIViewController {
 
                 switch eventPtr.pointee.event_id {
                 case MPV_EVENT_PROPERTY_CHANGE:
-                    DispatchQueue.main.async { self.updateState() }
+                    stateChanged = true
+                    if (1...3).contains(eventPtr.pointee.reply_userdata) {
+                        tracksChanged = true
+                    }
                 case MPV_EVENT_FILE_LOADED:
+                    stateChanged = true
+                    tracksChanged = true
                     DispatchQueue.main.async {
                         self.clearPlaybackError()
-                        self.isPlayerLoading = false
-                        self.updateState()
                         self.publishNowPlayingForPlaybackSession()
                         self.logCurrentAudioOutput()
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:
+                    stateChanged = true
                     DispatchQueue.main.async {
-                        self.updateState()
                         self.publishNowPlayingForPlaybackSession()
                     }
                 case MPV_EVENT_END_FILE:
+                    stateChanged = true
                     if let data = eventPtr.pointee.data {
                         let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
                         if endFile.reason == MPV_END_FILE_REASON_ERROR {
@@ -1260,6 +1310,22 @@ final class MPVPlayerViewController: UIViewController {
                     }
                 default:
                     break
+                }
+            }
+            if stateChanged {
+                let started = CFAbsoluteTimeGetCurrent()
+                let snapshot = self.readPlaybackSnapshot()
+                let tracks = tracksChanged ? self.readTracks() : nil
+                let readMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+                if readMs > 16 {
+                    print("[MPV][timing] event snapshot readMs=\(Int(readMs)) tracks=\(tracksChanged)")
+                }
+                DispatchQueue.main.async {
+                    if let snapshot { self.publishPlaybackSnapshot(snapshot) }
+                    if let tracks {
+                        self.audioTracks = tracks.audio
+                        self.subtitleTracks = tracks.subtitles
+                    }
                 }
             }
         }

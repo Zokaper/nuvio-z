@@ -313,6 +313,7 @@ data class PendingPartySeek(
     val targetMs: Long,
     val issuedAtMs: Long,
     val deadlineAtMs: Long,
+    val reason: String = "unknown",
 ) {
     fun hasLanded(positionMs: Long): Boolean =
         kotlin.math.abs(positionMs - targetMs) <= WatchPartySeekLandedToleranceMs
@@ -328,10 +329,12 @@ fun pendingPartySeek(
     targetMs: Long,
     nowMs: Long,
     timeoutMs: Long = WatchPartySeekLandingTimeoutMs,
+    reason: String = "unknown",
 ): PendingPartySeek = PendingPartySeek(
     targetMs = targetMs,
     issuedAtMs = nowMs,
     deadlineAtMs = nowMs + timeoutMs,
+    reason = reason,
 )
 
 /**

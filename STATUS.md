@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-29
 
+## iOS / Watch Together hardening — in progress (2026-09-29)
+
+Branch `claude/ios-watch-together-hardening` was cut from the final pushed setup/settings
+heads (mobile `97e186792`, desktop `b8e39bab7`). The maintainer reports only the physical
+failures in the hardening prompt have been exercised since the prior ledger; none of these fixes
+is yet device-verified. No setup/settings redesign, Phase 10, stable promotion or main/Dev merge.
+
+Code now routes iOS lobby native removal through the Z departure guard, hides the lobby's
+native back affordance, exposes paused loaded iOS video dimensions, reconciles readiness on
+foreground and stale server states, and moves Away publication to a process-owned UIKit observer.
+The Z backend migration `202609290001_party_away_lease.sql` adds a bounded ten-minute Away
+lease, foreground clearing, and ordinary Social friend-request domain errors; local pgTAP is
+green (332 tests). The Swift/mpv event bridge now caches snapshots and rebuilds tracks only on
+track changes. Shared UI adds an active-party Return action and friendly Social errors.
+
+Verification and desktop parity are still underway. The standalone pure-suite script's first
+group passed 279 tests, then its existing Downloads group failed to compile because its stub
+set omits `DownloadItem`/`DownloadStatus`; host and split suites are the authoritative checks.
+The audio session remains `.playback`/`.moviePlayback` with `.mixWithOthers`: there is no
+established evidence that this option prevents Now Playing ownership, so lock-screen controls
+remain a physical QA item. WT command-path T0–T4 and correlated seek timestamps are instrumented;
+lead constants have not been guessed from the old RTT data.
+
 ## Setup + settings QA follow-ups after debug 68 / desktop 75 - ON BRANCH, UNMERGED (2026-09-29)
 
 Three physical findings, same `claude/setup-settings-architecture` branches. iOS / Watch Together

@@ -5,6 +5,7 @@ import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.navigation.AppRoute
+import com.nuvio.app.features.watchparty.IosPartyLifecycle
 import platform.UIKit.UIColor
 import platform.UIKit.UIViewController
 
@@ -98,9 +99,12 @@ fun AppGateViewController(
 
 private fun nuvioComposeViewController(
     content: @androidx.compose.runtime.Composable () -> Unit,
-): UIViewController = ComposeUIViewController(
+): UIViewController {
+    IosPartyLifecycle.start()
+    return ComposeUIViewController(
     configure = { onFocusBehavior = OnFocusBehavior.DoNothing },
     content = content,
 ).apply {
     view.backgroundColor = nuvioBackgroundColor
+}
 }

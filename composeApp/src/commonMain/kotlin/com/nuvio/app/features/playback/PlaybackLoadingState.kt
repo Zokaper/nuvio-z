@@ -140,6 +140,8 @@ data class PlaybackProgressFailure(
  */
 data class PlaybackLoadingState(
     val step: PlaybackProgressStep,
+    /** A loaded party guest can be waiting for the host, rather than for the media engine. */
+    val stageOverride: String? = null,
     /** 1-based. Above 1 means the failure chain has moved on from a dead candidate. */
     val attempt: Int = 1,
     val maxAttempts: Int = PLAYBACK_MAX_ATTEMPTS,

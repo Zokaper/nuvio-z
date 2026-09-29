@@ -377,6 +377,8 @@ actual fun PlatformPlayerSurface(
                 isPlaying = bridge.getIsPlaying(),
                 isEnded = bridge.getIsEnded(),
                 durationMs = durationMs,
+                videoWidth = bridge.getVideoWidth(),
+                videoHeight = bridge.getVideoHeight(),
                 positionMs = bridge.getPositionMs(),
                 bufferedPositionMs = bridge.getBufferedMs(),
                 playbackSpeed = bridge.getPlaybackSpeed(),

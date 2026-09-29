@@ -154,6 +154,7 @@ fun SocialScreen(
     onOpenContent: (contentType: String, contentId: String, title: String) -> Unit = { _, _, _ -> },
     onJoinParty: (inviteCode: String) -> Unit = {},
     onJoinInvitedParty: (partyId: String) -> Unit = {},
+    onReturnParty: (partyId: String) -> Unit = {},
     onStartParty: (WatchingNowItem) -> Unit = {},
     onCancelJoinRequest: () -> Unit = {},
     outgoingRequest: OutgoingJoinRequestState = OutgoingJoinRequestState.Idle,
@@ -212,6 +213,15 @@ fun SocialScreen(
 
     val sendFriendRequest: (SocialProfileSummary) -> Unit = { profile ->
         scope.launch {
+            val alreadyFriends = profile.isFriend || state.friends.any { it.profileId == profile.profileId }
+            val incoming = state.requests.any { it.sender.profileId == profile.profileId }
+            if (alreadyFriends || incoming) {
+                feedback = SocialFeedback(
+                    if (alreadyFriends) "You're already friends." else "They've already sent you a request. Check your inbox.",
+                    SocialFeedbackTone.Neutral,
+                )
+                return@launch
+            }
             // The result was previously discarded, so a sent request and a refused one both looked
             // like a button that did nothing. On success the row is dropped, because the request is
             // now pending rather than sendable.
@@ -222,7 +232,7 @@ fun SocialScreen(
                 }
                 .onFailure { error ->
                     feedback = SocialFeedback(
-                        error.message ?: "Could not send that friend request",
+                        socialFriendRequestMessage(error.message),
                         SocialFeedbackTone.Negative,
                     )
                 }
@@ -285,6 +295,7 @@ fun SocialScreen(
             feedback = feedback,
             isSearching = isSearching,
             partyCode = partyCode,
+            activePartyId = heldParty?.id,
             shareWatching = shareWatching,
             shareRecent = shareRecent,
             defaultJoinPolicy = defaultJoinPolicy,
@@ -316,6 +327,7 @@ fun SocialScreen(
             onJoinParty = { onJoinParty(partyCode) },
             onRespondRequest = { id, accept -> scope.launch { SocialRepository.respondFriendRequest(id, accept) } },
             onJoinInvitedParty = onJoinInvitedParty,
+            onReturnParty = onReturnParty,
             onNotificationAction = onNotificationAction,
             onOpenContent = onOpenContent,
             onStartParty = onStartParty,
@@ -361,6 +373,7 @@ internal data class SocialFeedModel(
     val feedback: SocialFeedback? = null,
     val isSearching: Boolean = false,
     val partyCode: String = "",
+    val activePartyId: String? = null,
     val shareWatching: Boolean = true,
     val shareRecent: Boolean = true,
     val defaultJoinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
@@ -379,6 +392,7 @@ internal class SocialFeedActions(
     val onJoinParty: () -> Unit = {},
     val onRespondRequest: (String, Boolean) -> Unit = { _, _ -> },
     val onJoinInvitedParty: (String) -> Unit = {},
+    val onReturnParty: (String) -> Unit = {},
     val onNotificationAction: (SocialNotification, SocialNotificationAction) -> Unit = { _, _ -> },
     val onOpenContent: (contentType: String, contentId: String, title: String) -> Unit = { _, _, _ -> },
     val onStartParty: (WatchingNowItem) -> Unit = {},
@@ -542,6 +556,16 @@ internal fun SocialFeed(
                             }
 
                             else -> {
+                                model.activePartyId?.let { partyId ->
+                                    item(key = "active-party-return") {
+                                        SocialPanel {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("In a party", modifier = Modifier.weight(1f))
+                                                Button(onClick = { actions.onReturnParty(partyId) }) { Text("Return") }
+                                            }
+                                        }
+                                    }
+                                }
                                 if (state.isOfflineCache) {
                                     item { SocialNotice(stringResource(Res.string.social_offline_cache)) }
                                 }

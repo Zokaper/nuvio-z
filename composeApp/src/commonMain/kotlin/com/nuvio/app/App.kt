@@ -24,6 +24,11 @@ import com.nuvio.app.core.ui.platformProvidesImageLoader
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.TabsRoute
+import com.nuvio.app.navigation.WatchPartyLobbyRoute
+import com.nuvio.app.features.watchparty.WatchPartyRouteExitGuard
+
+/** Called only when SwiftUI proposes an unguarded native removal of the lobby. */
+fun requestNativeRouteExit(route: WatchPartyLobbyRoute): Boolean = WatchPartyRouteExitGuard.request(route)
 
 fun disposeRoute(route: AppRoute) {
     disposeRouteResources(route)

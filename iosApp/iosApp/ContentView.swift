@@ -224,11 +224,18 @@ final class TabNavigationCoordinator: ObservableObject {
 
     /// Used by NavigationStack's path binding so interactive swipe-back and
     /// programmatic mutations share the same Kotlin route-disposal behavior.
-    func setPath(_ newPath: [RouteWrapper]) {
+    func setPath(_ newPath: [RouteWrapper], fromNative: Bool = false) {
         let retainedIDs = Set(newPath.map(\.id))
         let removedRoutes = path
             .filter { !retainedIDs.contains($0.id) }
             .map(\.route)
+
+        // A SwiftUI pop must not dispose a live party before Compose can ask whether to leave or
+        // end it. Programmatic pops arrive from the lobby only after the RPC succeeds.
+        if fromNative, let lobby = removedRoutes.compactMap({ $0 as? WatchPartyLobbyRoute }).last {
+            _ = AppKt.requestNativeRouteExit(route: lobby)
+            return
+        }
 
         path = newPath
         removedRoutes.forEach { AppKt.disposeRoute(route: $0) }
@@ -794,7 +801,7 @@ struct DetailComposeView: UIViewControllerRepresentable {
         )
         return NuvioComposeHost.wrap(
             controller,
-            disablesInteractiveContentPopGesture: route is PlayerRoute
+            disablesInteractiveContentPopGesture: route is PlayerRoute || route is WatchPartyLobbyRoute
         )
     }
 
@@ -813,7 +820,7 @@ struct TabContentView: View {
         NavigationStack(
             path: Binding(
                 get: { coordinator.path },
-                set: { coordinator.setPath($0) }
+                set: { coordinator.setPath($0, fromNative: true) }
             )
         ) {
             NativeNavComposeView(

@@ -28,6 +28,7 @@ import com.nuvio.app.features.watchparty.lobbyCloseReason
 import com.nuvio.app.features.watchparty.partySourceKey
 import com.nuvio.app.features.watchparty.PartySourceRealizer
 import com.nuvio.app.features.watchparty.WatchPartyRepository
+import com.nuvio.app.features.watchparty.WatchPartyRouteExitGuard
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
 import com.nuvio.app.features.watchparty.WatchPartyState
 import com.nuvio.app.features.watchparty.WatchPartyStatus
@@ -86,17 +87,22 @@ internal fun WatchPartyLobbyDestination(
     // A system back (Escape on desktop) comes here instead of popping the route. Registered for as
     // long as the lobby is composed; `dispatchNavigationBack` fails closed in the gap before it is.
     val latestState by rememberUpdatedState(state)
-    DisposableEffect(route) {
-        onSystemBackHandlerChanged(route) {
-            when (decideLobbyBack(route.partyId ?: boundPartyId, latestState.party)) {
-                LobbyBackAction.RequestDeparture -> {
-                    watchPartyLobbyDestinationLog.i { "system back -> departure question party=${latestState.party?.id?.take(8)}" }
-                    showDepartureDialog = true
-                }
-                LobbyBackAction.Close -> closeLobby("system-back-no-live-party")
+    fun requestRouteExit(reason: String) {
+        when (decideLobbyBack(route.partyId ?: boundPartyId, latestState.party)) {
+            LobbyBackAction.RequestDeparture -> {
+                watchPartyLobbyDestinationLog.i { "$reason -> departure question party=${latestState.party?.id?.take(8)}" }
+                showDepartureDialog = true
             }
+            LobbyBackAction.Close -> closeLobby("$reason-no-live-party")
         }
-        onDispose { onSystemBackHandlerChanged(route, null) }
+    }
+    DisposableEffect(route, boundPartyId) {
+        onSystemBackHandlerChanged(route) { requestRouteExit("system-back") }
+        WatchPartyRouteExitGuard.register(route) { requestRouteExit("native-removal") }
+        onDispose {
+            onSystemBackHandlerChanged(route, null)
+            WatchPartyRouteExitGuard.unregister(route)
+        }
     }
 
     LaunchedEffect(route.partyId, route.inviteCode) {
@@ -215,6 +221,7 @@ internal fun WatchPartyLobbyDestination(
 
     WatchPartyLobbyScreen(
         onBack = { closeLobby("departure-accepted") },
+        onRequestRouteExit = { requestRouteExit("z-back") },
         showDepartureDialog = showDepartureDialog,
         onShowDepartureDialogChange = { showDepartureDialog = it },
         onOpenContent = { contentType, contentId, title ->

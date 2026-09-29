@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
  */
 internal data class PartyPlatformLifecycle(
     val appForeground: Boolean,
+    /** Changes on every process resume, including when Compose missed the background edge. */
+    val resumeRevision: Long = 0L,
     /**
      * The device is locked, or its screen is off.
      *

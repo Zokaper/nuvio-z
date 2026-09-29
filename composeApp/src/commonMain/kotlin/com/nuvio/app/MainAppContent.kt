@@ -13,6 +13,7 @@ import com.nuvio.app.features.watchparty.PartyJoinHandoffInfo
 import com.nuvio.app.features.watchparty.PartyJoinHandoff
 import com.nuvio.app.features.social.WatchTogetherDock
 import com.nuvio.app.features.social.OutgoingJoinRequestStore
+import com.nuvio.app.features.social.holdsLiveParty
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -211,6 +212,8 @@ import com.nuvio.app.features.watchprogress.nextUpDismissKey
 import com.nuvio.app.features.watchprogress.toContinueWatchingItem
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import com.nuvio.app.features.watchparty.resolveWatchPartyEntry
 import com.nuvio.app.navigation.*
 import dev.chrisbanes.haze.hazeSource
@@ -784,6 +787,14 @@ internal fun MainAppContent(
     )
     LaunchedEffect(ownsAppRuntime, activeSocialProfileId) {
         if (!ownsAppRuntime) return@LaunchedEffect
+        if (WatchPartyRepository.uiState.value.activeProfileId != activeSocialProfileId &&
+            WatchPartySessionCoordinator.state.value.phase.holdsLiveParty
+        ) {
+            WatchPartySessionCoordinator.leave()
+            withTimeoutOrNull(10_000L) {
+                WatchPartySessionCoordinator.state.first { !it.phase.holdsLiveParty }
+            }
+        }
         OutgoingJoinRequestStore.start()
         SocialRepository.activate(activeSocialProfileId)
         // The previous profile's join request is cancelled on its own session before the party
@@ -1693,6 +1704,9 @@ internal fun MainAppContent(
                                             navController.navigate(WatchPartyLobbyRoute(partyId = partyId))
                                         }
                                     }
+                                },
+                                onReturnParty = { partyId ->
+                                    navController.navigate(WatchPartyLobbyRoute(partyId = partyId))
                                 },
                                 // The whole of a Join press now lives in `OutgoingJoinRequestStore`: the
                                 // send, the wait, cancel, the outcome and the lobby hand-off. It owns the
