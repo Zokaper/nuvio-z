@@ -1320,11 +1320,19 @@ final class MPVPlayerViewController: UIViewController {
                 if readMs > 16 {
                     print("[MPV][timing] event snapshot readMs=\(Int(readMs)) tracks=\(tracksChanged)")
                 }
+                let rebuiltTracks = tracksChanged
+                let queuedAt = CFAbsoluteTimeGetCurrent()
                 DispatchQueue.main.async {
+                    let mainStarted = CFAbsoluteTimeGetCurrent()
                     if let snapshot { self.publishPlaybackSnapshot(snapshot) }
                     if let tracks {
                         self.audioTracks = tracks.audio
                         self.subtitleTracks = tracks.subtitles
+                    }
+                    let publishMs = (CFAbsoluteTimeGetCurrent() - mainStarted) * 1000
+                    let queuedMs = (mainStarted - queuedAt) * 1000
+                    if publishMs > 16 || queuedMs > 32 {
+                        print("[MPV][timing] snapshot mainQueueMs=\(Int(queuedMs)) publishMs=\(Int(publishMs)) tracks=\(rebuiltTracks)")
                     }
                 }
             }
