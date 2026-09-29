@@ -3460,5 +3460,30 @@
     <string name="advanced_preview_tracking_history">History</string>
     <string name="advanced_preview_tracking_progress">Progress</string>
     <string name="advanced_preview_tracking_lists">Lists</string>
+    <string name="zsettings_section_watching">WATCHING</string>
+    <string name="zsettings_section_look">LOOK &amp; FEEL</string>
+    <string name="zsettings_section_content">CONTENT &amp; SERVICES</string>
+    <string name="zsettings_section_profile">PROFILE &amp; SOCIAL</string>
+    <string name="zsettings_section_setup">SETUP &amp; ABOUT</string>
+    <string name="zsettings_rail_watching">Watching</string>
+    <string name="zsettings_rail_look">Look &amp; feel</string>
+    <string name="zsettings_rail_content">Content &amp; services</string>
+    <string name="zsettings_rail_profile">Profile &amp; social</string>
+    <string name="zsettings_rail_setup">Setup &amp; about</string>
+    <string name="zsettings_appearance">Appearance</string>
+    <string name="zsettings_appearance_description">Theme, home, posters, detail page and source list</string>
+    <string name="zsettings_navigation">Navigation</string>
+    <string name="zsettings_navigation_description_android">Navigation bar style and glow</string>
+    <string name="zsettings_navigation_description_ios">Liquid Glass tab bar</string>
+    <string name="zsettings_navigation_description_desktop">Sidebar or top bar, and its style</string>
+    <string name="zsettings_navigation_style_android">Adaptive shrinks the bar while you scroll; the others keep one size.</string>
+    <string name="zsettings_navigation_style_desktop">Adaptive shows labels when there is room; Always Compact shows icons only.</string>
+    <string name="zsettings_sources">Sources &amp; addons</string>
+    <string name="zsettings_integrations_description">Enhanced metadata, MDBList ratings, Trakt &amp; Simkl, debrid</string>
+    <string name="zsettings_advanced_setup_description">Fine-tune playback, looks and more, with live previews</string>
+    <string name="zsettings_new_badge">New</string>
+    <string name="zsettings_run_initial_setup">Run Initial Setup again</string>
+    <string name="zsettings_run_initial_setup_description">Step through playback, downloads, sources, social and look from the start.</string>
+    <string name="zsettings_about_description">Supporters, privacy, licenses and updates</string>
     <!-- /Nuvio Z: setup + settings architecture pass. -->
 </resources>

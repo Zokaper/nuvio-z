@@ -149,7 +149,7 @@ internal fun LazyListScope.appearanceSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = onAmoledToggle,
                 )
-                if (isDesktop) {
+                if (isDesktop && !zNavigationHasOwnPage) {
                     SettingsGroupDivider(isTablet = isTablet)
                     val desktopNavDescription = if (isTablet) {
                         stringResource(desktopNavigationLayout.labelRes)
@@ -167,7 +167,7 @@ internal fun LazyListScope.appearanceSettingsContent(
                         },
                     )
                 }
-                if (!isIos) {
+                if (!isIos && !zNavigationHasOwnPage) {
                     SettingsGroupDivider(isTablet = isTablet)
                     val isSidebarActive = isDesktop && isTablet && desktopNavigationLayout == DesktopNavigationLayout.Sidebar
                     val styleTitle = if (isSidebarActive) {

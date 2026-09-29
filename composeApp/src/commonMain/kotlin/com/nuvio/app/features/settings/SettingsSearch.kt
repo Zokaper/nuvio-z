@@ -67,6 +67,8 @@ internal sealed class SettingsSearchTarget {
     object SwitchProfile : SettingsSearchTarget()
     object CheckForUpdates : SettingsSearchTarget()
     object RunSetupAgain : SettingsSearchTarget()
+    // Nuvio Z: Advanced Setup is an overlay, not a page (setup + settings pass).
+    object AdvancedSetup : SettingsSearchTarget()
 }
 
 internal data class SettingsSearchEntry(
@@ -1162,6 +1164,8 @@ internal fun settingsSearchEntries(
         )
     }
 
+    // Nuvio Z: the hub's own rows and the pages it added (`ZSettingsSearch.kt`).
+    zAmendSettingsSearchEntries(entries, liquidGlassNativeTabBarSupported, runSetupAgainAvailable)
     return entries
 }
 

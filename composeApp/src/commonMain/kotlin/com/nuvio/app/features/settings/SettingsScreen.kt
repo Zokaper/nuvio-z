@@ -79,6 +79,7 @@ import com.nuvio.app.features.mdblist.MdbListSettings
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
+import com.nuvio.app.features.setup.AdvancedSetupLauncher
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.AndroidLibmpvVideoOutput
 import com.nuvio.app.features.player.AndroidPlaybackEngine
@@ -608,6 +609,7 @@ private fun MobileSettingsScreen(
                 SettingsSearchTarget.SwitchProfile -> onSwitchProfile?.invoke()
                 SettingsSearchTarget.CheckForUpdates -> onCheckForUpdatesClick?.invoke()
                 SettingsSearchTarget.RunSetupAgain -> onRunSetupAgainClick?.invoke()
+                SettingsSearchTarget.AdvancedSetup -> AdvancedSetupLauncher.open()
             }
         }
 
@@ -656,29 +658,23 @@ private fun MobileSettingsScreen(
                         onTargetClick = { openSearchTarget(it) },
                     )
                     if (settingsSearchQuery.isBlank()) {
-                        settingsRootContent(
+                        // Nuvio Z: the reorganised hub (`ZSettingsRoot.kt`); upstream's
+                        // `settingsRootContent` is kept, unused.
+                        zSettingsRootContent(
                             isTablet = false,
-                            onPlaybackClick = { onPageChange(SettingsPage.Playback) },
-                            onSocialClick = { onPageChange(SettingsPage.Social) },
-                            onPlaybackModeClick = onPlaybackModeClick,
-                            onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
-                            onAdvancedClick = { onPageChange(SettingsPage.Advanced) },
-                            onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
-                            onContentDiscoveryClick = { onPageChange(SettingsPage.ContentDiscovery) },
-                            onIntegrationsClick = { onPageChange(SettingsPage.Integrations) },
-                            onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
-                            onSupportersContributorsClick = onSupportersContributorsClick,
-                            onLicensesAttributionsClick = onLicensesAttributionsClick,
-                            onCheckForUpdatesClick = onCheckForUpdatesClick,
+                            section = null,
+                            onPageChange = { target ->
+                                when (target) {
+                                    SettingsPage.Account -> onAccountClick()
+                                    else -> onPageChange(target)
+                                }
+                            },
+                            onDownloadsClick = onDownloadsClick,
+                            onSwitchProfileClick = onSwitchProfile,
                             onWhatsNewClick = onWhatsNewClick,
                             onRunSetupAgainClick = onRunSetupAgainClick,
-                            onTestUpdateBannerClick = onTestUpdateBannerClick,
-                            onDownloadsClick = onDownloadsClick,
-                            onAccountClick = onAccountClick,
-                            onSwitchProfileClick = onSwitchProfile,
                             showDownloadsEntry = AppFeaturePolicy.downloadsEnabled,
                             showNotificationsEntry = AppFeaturePolicy.notificationsEnabled,
-                            showSupportersContributorsPage = AppFeaturePolicy.supportersContributorsPageEnabled,
                         )
                     }
                 }
@@ -801,6 +797,16 @@ private fun MobileSettingsScreen(
                     onTmdbClick = { onPageChange(SettingsPage.TmdbEnrichment) },
                     onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                     onDebridClick = { onPageChange(SettingsPage.Debrid) },
+                    onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
+                )
+                SettingsPage.Navigation -> zNavigationSettingsContent(isTablet = isTabletLayout)
+                SettingsPage.About -> zAboutSettingsContent(
+                    isTablet = false,
+                    onSupportersContributorsClick = onSupportersContributorsClick,
+                    onLicensesAttributionsClick = onLicensesAttributionsClick,
+                    onCheckForUpdatesClick = onCheckForUpdatesClick,
+                    onTestUpdateBannerClick = onTestUpdateBannerClick,
+                    showSupportersContributorsPage = AppFeaturePolicy.supportersContributorsPageEnabled,
                 )
                 SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
                     isTablet = false,
@@ -936,8 +942,9 @@ private fun TabletSettingsScreen(
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
-    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.General.name) }
-    val activeCategory = SettingsCategory.valueOf(selectedCategory)
+    // Nuvio Z: the rail lists the hub's sections (`ZSettingsSection`), not upstream's categories.
+    var selectedCategory by rememberSaveable { mutableStateOf(ZSettingsSection.Watching.name) }
+    val activeCategory = zSettingsSectionForSavedName(selectedCategory)
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val effectiveTopOffset = topChromePadding ?: (statusBarPadding + 24.dp)
 
@@ -945,12 +952,12 @@ private fun TabletSettingsScreen(
 
     LaunchedEffect(page) {
         if (page.opensInlineOnTablet) {
-            selectedCategory = page.category.name
+            selectedCategory = zSettingsSectionFor(page).name
         }
     }
 
     fun openInlinePage(page: SettingsPage) {
-        selectedCategory = page.category.name
+        selectedCategory = zSettingsSectionFor(page).name
         navBarScrollState?.expand()
         onPageChange(page)
     }
@@ -981,9 +988,9 @@ private fun TabletSettingsScreen(
                     maxLines = 1,
                     softWrap = false,
                 )
-                SettingsCategory.entries.forEach { category ->
+                ZSettingsSection.entries.forEach { category ->
                     SettingsSidebarItem(
-                        label = stringResource(category.labelRes),
+                        label = stringResource(category.railLabelRes),
                         icon = category.icon,
                         selected = category == activeCategory,
                         onClick = {
@@ -1038,6 +1045,7 @@ private fun TabletSettingsScreen(
                     SettingsSearchTarget.SwitchProfile -> onSwitchProfile?.invoke()
                     SettingsSearchTarget.CheckForUpdates -> onCheckForUpdatesClick?.invoke()
                     SettingsSearchTarget.RunSetupAgain -> onRunSetupAgainClick?.invoke()
+                    SettingsSearchTarget.AdvancedSetup -> AdvancedSetupLauncher.open()
                 }
             }
 
@@ -1100,7 +1108,7 @@ private fun TabletSettingsScreen(
                         TabletPageHeader(
                             title = if (page == SettingsPage.Root) {
                                 if (settingsSearchQuery.isBlank()) {
-                                    stringResource(activeCategory.labelRes)
+                                    stringResource(activeCategory.railLabelRes)
                                 } else {
                                     stringResource(Res.string.compose_settings_page_root)
                                 }
@@ -1123,33 +1131,17 @@ private fun TabletSettingsScreen(
                                 onTargetClick = { openSearchTarget(it) },
                             )
                             if (settingsSearchQuery.isBlank()) {
-                            settingsRootContent(
-                                isTablet = true,
-                                onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
-                                onSocialClick = { openInlinePage(SettingsPage.Social) },
-                                onPlaybackModeClick = onPlaybackModeClick,
-                                    onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
-                                    onAdvancedClick = { openInlinePage(SettingsPage.Advanced) },
-                                    onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },
-                                    onContentDiscoveryClick = { openInlinePage(SettingsPage.ContentDiscovery) },
-                                    onIntegrationsClick = { openInlinePage(SettingsPage.Integrations) },
-                                    onTrackingClick = { openInlinePage(SettingsPage.TraktAuthentication) },
-                                    onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
-                                    onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
-                                    onCheckForUpdatesClick = onCheckForUpdatesClick,
+                                // Nuvio Z: the reorganised hub, one rail section at a time.
+                                zSettingsRootContent(
+                                    isTablet = true,
+                                    section = activeCategory,
+                                    onPageChange = ::openInlinePage,
+                                    onDownloadsClick = onDownloadsClick,
+                                    onSwitchProfileClick = onSwitchProfile,
                                     onWhatsNewClick = onWhatsNewClick,
                                     onRunSetupAgainClick = onRunSetupAgainClick,
-                                    onTestUpdateBannerClick = onTestUpdateBannerClick,
-                                    onDownloadsClick = onDownloadsClick,
-                                    onAccountClick = { openInlinePage(SettingsPage.Account) },
-                                    onSwitchProfileClick = onSwitchProfile,
                                     showDownloadsEntry = AppFeaturePolicy.downloadsEnabled,
                                     showNotificationsEntry = AppFeaturePolicy.notificationsEnabled,
-                                    showAccountSection = activeCategory == SettingsCategory.Account,
-                                    showGeneralSection = activeCategory == SettingsCategory.General,
-                                    showAboutSection = activeCategory == SettingsCategory.About,
-                                    showAdvancedSection = activeCategory == SettingsCategory.Advanced,
-                                    showSupportersContributorsPage = AppFeaturePolicy.supportersContributorsPageEnabled,
                                 )
                             }
                         }
@@ -1272,6 +1264,16 @@ private fun TabletSettingsScreen(
                             onTmdbClick = { onPageChange(SettingsPage.TmdbEnrichment) },
                             onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                             onDebridClick = { onPageChange(SettingsPage.Debrid) },
+                            onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
+                        )
+                        SettingsPage.Navigation -> zNavigationSettingsContent(isTablet = true)
+                        SettingsPage.About -> zAboutSettingsContent(
+                            isTablet = true,
+                            onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
+                            onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
+                            onCheckForUpdatesClick = onCheckForUpdatesClick,
+                            onTestUpdateBannerClick = onTestUpdateBannerClick,
+                            showSupportersContributorsPage = AppFeaturePolicy.supportersContributorsPageEnabled,
                         )
                         SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
                             isTablet = true,

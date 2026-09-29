@@ -172,6 +172,8 @@ internal fun LazyListScope.posterCustomizationSettingsContent(
         }
     }
     item {
+        // Nuvio Z: Custom Poster URL is an advanced setting (setup + settings pass).
+        if (!LocalShowAdvancedSettings.current) return@item
         CustomPosterUrlRepository.ensureLoaded()
         val currentPattern by CustomPosterUrlRepository.pattern.collectAsState()
         var editingPattern by rememberSaveable(currentPattern) { mutableStateOf(currentPattern) }

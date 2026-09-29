@@ -36,6 +36,9 @@ import nuvio.composeapp.generated.resources.compose_settings_page_trakt
 import nuvio.composeapp.generated.resources.compose_settings_page_tracking
 import nuvio.composeapp.generated.resources.settings_account
 import nuvio.composeapp.generated.resources.settings_social_title
+import nuvio.composeapp.generated.resources.zsettings_appearance
+import nuvio.composeapp.generated.resources.zsettings_navigation
+import nuvio.composeapp.generated.resources.zsettings_sources
 import org.jetbrains.compose.resources.StringResource
 
 internal enum class SettingsCategory(
@@ -96,7 +99,8 @@ internal enum class SettingsPage(
         parentPage = Playback,
     ),
     Appearance(
-        titleRes = Res.string.compose_settings_page_appearance,
+        // Nuvio Z: "Appearance" (upstream's page title is "Layout"), to match the hub row.
+        titleRes = Res.string.zsettings_appearance,
         category = SettingsCategory.General,
         parentPage = Root,
     ),
@@ -131,7 +135,8 @@ internal enum class SettingsPage(
         parentPage = Appearance,
     ),
     ContentDiscovery(
-        titleRes = Res.string.compose_settings_page_content_discovery,
+        // Nuvio Z: "Sources & addons", to match the hub row.
+        titleRes = Res.string.zsettings_sources,
         category = SettingsCategory.General,
         parentPage = Root,
     ),
@@ -178,7 +183,20 @@ internal enum class SettingsPage(
     TraktAuthentication(
         // Keep the enum name for saved navigation-state compatibility.
         titleRes = Res.string.compose_settings_page_tracking,
-        category = SettingsCategory.Account,
+        // Nuvio Z: Trakt & Simkl moved from Account to Integrations (setup + settings pass).
+        category = SettingsCategory.General,
+        parentPage = Integrations,
+    ),
+    // Nuvio Z pages, appended - never rename or reorder the constants above (saved state and
+    // `SettingsPageRoute` match them by name). See `ZSettingsRoot.kt`.
+    Navigation(
+        titleRes = Res.string.zsettings_navigation,
+        category = SettingsCategory.General,
+        parentPage = Root,
+    ),
+    About(
+        titleRes = Res.string.compose_settings_category_about,
+        category = SettingsCategory.About,
         parentPage = Root,
     ),
 }

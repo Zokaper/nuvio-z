@@ -505,21 +505,26 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
     ) {
         if (!isIos) {
             val decoderEnabled = !autoPlayPlayerSettings.externalPlayerEnabled
-            val exoOptionsEnabled = decoderEnabled && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv
-            val libmpvOptionsVisible = androidPlaybackEngine != AndroidPlaybackEngine.ExoPlayer
+            // Nuvio Z: desktop has one engine (libmpv behind JCEF); its Android engine, libmpv, DV7
+            // and tunneling rows did nothing. Vanilla desktop hides them the same way and keeps
+            // Decoder priority, which desktop reads (setup + settings pass, plan §2).
+            val exoOptionsEnabled = decoderEnabled && (isDesktop || androidPlaybackEngine != AndroidPlaybackEngine.Libmpv)
+            val libmpvOptionsVisible = !isDesktop && androidPlaybackEngine != AndroidPlaybackEngine.ExoPlayer
             val libmpvOptionsEnabled = decoderEnabled && libmpvOptionsVisible
             SettingsSection(
                 title = stringResource(Res.string.settings_playback_section_decoder),
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_engine),
-                        description = androidPlaybackEngine.label,
-                        enabled = decoderEnabled,
-                        isTablet = isTablet,
-                        onClick = { showPlaybackEngineDialog = true },
-                    )
+                    if (!isDesktop) {
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_playback_engine),
+                            description = androidPlaybackEngine.label,
+                            enabled = decoderEnabled,
+                            isTablet = isTablet,
+                            onClick = { showPlaybackEngineDialog = true },
+                        )
+                    }
                     if (libmpvOptionsVisible) {
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(
@@ -548,7 +553,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                             onCheckedChange = PlayerSettingsRepository::setAndroidLibmpvYuv420pEnabled,
                         )
                     }
-                    SettingsGroupDivider(isTablet = isTablet)
+                    if (!isDesktop) SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_decoder_priority),
                         description = decoderPriorityLabel(decoderPriority),
@@ -557,6 +562,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                         isTablet = isTablet,
                         onClick = { showDecoderPriorityDialog = true },
                     )
+                    if (!isDesktop) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = stringResource(Res.string.settings_playback_map_dv7_to_hevc),
@@ -577,6 +583,7 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )
+                    }
                 }
             }
         }
