@@ -74,6 +74,7 @@ import com.nuvio.app.features.setup.setupWizardRun
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
+import com.nuvio.app.features.whatsnew.ChangelogAction
 import com.nuvio.app.features.whatsnew.ChangelogCatalog
 import com.nuvio.app.features.whatsnew.ChangelogCategory
 import com.nuvio.app.features.whatsnew.ChangelogRelease
@@ -887,6 +888,15 @@ internal fun AppGate(
                     WhatsNewStorage.saveLastSeenVersion(whatsNewIdentity.versionName)
                     showWhatsNew = false
                 },
+                // "Try Advanced Setup": acknowledge exactly as Done would, close, open the hub.
+                onAction = { action ->
+                    whatsNewAckToWrite?.let(WhatsNewStorage::saveAck)
+                    WhatsNewStorage.saveLastSeenVersion(whatsNewIdentity.versionName)
+                    showWhatsNew = false
+                    when (action) {
+                        ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                    }
+                },
             )
         } else if (showWhatsNewOnDemand) {
             WhatsNewScreen(
@@ -895,6 +905,12 @@ internal fun AppGate(
                 history = whatsNewHistory,
                 dismissible = true,
                 onContinue = { showWhatsNewOnDemand = false },
+                onAction = { action ->
+                    showWhatsNewOnDemand = false
+                    when (action) {
+                        ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
+                    }
+                },
             )
         }
 

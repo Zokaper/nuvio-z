@@ -127,4 +127,30 @@ class WhatsNewSelectionTest {
         assertFalse(changelogHasRelease(releases, "mobile", 130))
         assertFalse(changelogHasRelease(releases, "desktop", 128))
     }
+
+    // Setup + settings pass: an entry may carry an action card ("Try Advanced Setup").
+
+    @Test
+    fun anActionTravelsWithItsEntryIntoTheSections() {
+        val withAction = listOf(
+            ChangelogRelease(
+                "mobile", "0.4.14-z1", 128, "2026-10-01",
+                listOf(
+                    ChangelogEntry(ChangelogCategory.FEATURE, all, "Advanced Setup", action = ChangelogAction.ADVANCED_SETUP),
+                    ChangelogEntry(ChangelogCategory.FEATURE, all, "Plain line"),
+                ),
+            ),
+        )
+        val decision = decideWhatsNew(withAction, "mobile", ChangelogPlatform.IOS, 128, "0.4.14-z1", null, WhatsNewAck(127, 0), null)
+        val entries = decision.sections.single().entries.map { it.entry }
+        assertEquals(ChangelogAction.ADVANCED_SETUP, entries.first { it.title == "Advanced Setup" }.action)
+        assertEquals(null, entries.first { it.title == "Plain line" }.action)
+    }
+
+    @Test
+    fun anUnknownActionKeyIsDroppedNotTheEntry() {
+        assertEquals(ChangelogAction.ADVANCED_SETUP, ChangelogAction.fromKey("advanced_setup"))
+        assertEquals(null, ChangelogAction.fromKey("teleport"))
+        assertEquals(null, ChangelogAction.fromKey(null))
+    }
 }

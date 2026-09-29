@@ -3485,5 +3485,6 @@
     <string name="zsettings_run_initial_setup">Run Initial Setup again</string>
     <string name="zsettings_run_initial_setup_description">Step through playback, downloads, sources, social and look from the start.</string>
     <string name="zsettings_about_description">Supporters, privacy, licenses and updates</string>
+    <string name="whats_new_action_advanced_setup">Try Advanced Setup</string>
     <!-- /Nuvio Z: setup + settings architecture pass. -->
 </resources>

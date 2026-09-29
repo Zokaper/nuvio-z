@@ -14,11 +14,26 @@ enum class ChangelogCategory { FEATURE, IMPROVEMENT, FIX }
 
 enum class ChangelogPlatform { ANDROID, IOS, DESKTOP }
 
+/**
+ * Something an entry can offer to do right there - the setup + settings pass's "Try Advanced Setup"
+ * card. Optional in the file (`"action": "advanced_setup"`), and an unknown key is dropped rather
+ * than the entry, so an older build shows a newer card as an ordinary line.
+ */
+enum class ChangelogAction(val key: String) {
+    ADVANCED_SETUP("advanced_setup"),
+    ;
+
+    companion object {
+        fun fromKey(key: String?): ChangelogAction? = entries.firstOrNull { it.key == key }
+    }
+}
+
 data class ChangelogEntry(
     val category: ChangelogCategory,
     val platforms: Set<ChangelogPlatform>,
     val title: String,
     val body: String? = null,
+    val action: ChangelogAction? = null,
 )
 
 /** A line for the "This debug build" section. Debug builds never reach stable users. */

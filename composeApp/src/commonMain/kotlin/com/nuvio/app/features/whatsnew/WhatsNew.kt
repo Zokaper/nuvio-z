@@ -16,6 +16,8 @@ data class WhatsNewItem(
     val description: String,
     /** The release an entry came from, shown only when one screen merges several releases. */
     val version: String? = null,
+    /** An action card: the entry offers to do something now ("Try Advanced Setup"). */
+    val action: ChangelogAction? = null,
 )
 
 data class WhatsNewSection(
@@ -61,7 +63,7 @@ fun WhatsNewDecision.toSections(): List<WhatsNewSection> {
         WhatsNewSection(
             category = section.category.toWhatsNewCategory(),
             items = section.entries.map {
-                WhatsNewItem(it.entry.title, it.entry.body.orEmpty(), it.version.takeIf { tagVersions })
+                WhatsNewItem(it.entry.title, it.entry.body.orEmpty(), it.version.takeIf { tagVersions }, it.entry.action)
             },
         )
     }

@@ -40,4 +40,30 @@ class ChangelogFileTest {
             "changelog.json has no mobile notes for RELEASE_SERIAL ${AppVersionConfig.RELEASE_SERIAL}",
         )
     }
+
+    @Test
+    fun anActionIsParsedLenientlyAndOptional() {
+        val parsed = ChangelogCatalog.parse(
+            """{"releases":[{"family":"mobile","version":"x","serial":1,"entries":[
+              {"category":"feature","platforms":["android"],"title":"A","action":"advanced_setup"},
+              {"category":"feature","platforms":["android"],"title":"B","action":"from_the_future"},
+              {"category":"feature","platforms":["android"],"title":"C"}]}]}""",
+        ).single().entries
+        assertEquals(listOf(ChangelogAction.ADVANCED_SETUP, null, null), parsed.map { it.action })
+    }
+
+    @Test
+    fun thisReleaseOffersAdvancedSetupOnEveryPlatform() {
+        // Plan section 8: existing users meet Advanced Setup through this release's What's New card.
+        listOf("mobile" to listOf(ChangelogPlatform.ANDROID, ChangelogPlatform.IOS), "desktop" to listOf(ChangelogPlatform.DESKTOP))
+            .forEach { (family, platforms) ->
+                val newest = releases.filter { it.family == family }.maxBy { it.serial }
+                platforms.forEach { platform ->
+                    assertTrue(
+                        newest.entries.any { it.action == ChangelogAction.ADVANCED_SETUP && platform in it.platforms },
+                        "$family ${newest.serial} has no Advanced Setup card for $platform",
+                    )
+                }
+            }
+    }
 }

@@ -340,6 +340,43 @@
           ],
           "title": "Refreshed pop-ups and menus",
           "body": "Dialogs, bottom sheets and drop-down menus have the cleaner current Nuvio look, and the source list shows a gentle shimmer while add-ons are still answering."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Advanced Setup",
+          "body": "An optional guided tour of everything Initial Setup does not ask - the player, skipping, subtitles, posters, Home, the detail page, sources, social and more - each with a live preview. Open it any time from Settings → Setup & about.",
+          "action": "advanced_setup"
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A reorganised Settings",
+          "body": "Settings is grouped by what you are doing: Watching, Look & feel, Content & services, Profile & social, and Setup & about. The navigation bar has its own page, Trakt and Simkl sit with the other integrations, and About has its own page."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Your preferences come with you",
+          "body": "Signing in to a profile you set up on your computer brings its preferences over and asks only what belongs to this device."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Settings that stay put",
+          "body": "More of your settings now reach your other devices, and signing out no longer leaves one account's settings behind for the next - while this device's own preferences stay."
         }
       ],
       "debug": [
@@ -601,6 +638,39 @@
           ],
           "title": "A smoother Home banner",
           "body": "The featured banner now cycles from the last title back to the first without flashing through all the others, settles properly when you come back to Home, and takes less room when you have nothing in Continue Watching."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Advanced Setup",
+          "body": "An optional guided tour of everything Initial Setup does not ask - the player, skipping, subtitles, posters, Home, the detail page, sources, social and more - each with a live preview. Open it any time from Settings → Setup & about.",
+          "action": "advanced_setup"
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "A reorganised Settings",
+          "body": "Settings is grouped by what you are doing: Watching, Look & feel, Content & services, Profile & social, and Setup & about. The sidebar or top bar has its own page, Trakt and Simkl sit with the other integrations, and About has its own page."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Your preferences come with you",
+          "body": "Signing in to a profile you set up on your phone brings its preferences over and asks only what belongs to this device."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Settings that stay put",
+          "body": "More of your settings now reach your other devices, and signing out no longer leaves one account's settings behind for the next - while this device's own preferences stay."
         }
       ],
       "debug": [

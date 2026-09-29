@@ -36,7 +36,7 @@ object ChangelogCatalog {
                     val platforms = entry.platforms.mapNotNull { name ->
                         ChangelogPlatform.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
                     }.toSet()
-                    ChangelogEntry(category, platforms, entry.title, entry.body)
+                    ChangelogEntry(category, platforms, entry.title, entry.body, ChangelogAction.fromKey(entry.action))
                 },
                 debug = release.debug.map { ChangelogDebugNote(it.build, it.text) },
             )
@@ -61,6 +61,8 @@ object ChangelogCatalog {
         val platforms: List<String> = emptyList(),
         val title: String,
         val body: String? = null,
+        /** Optional; unknown keys are ignored (`ChangelogAction.fromKey`). */
+        val action: String? = null,
     )
 
     @Serializable

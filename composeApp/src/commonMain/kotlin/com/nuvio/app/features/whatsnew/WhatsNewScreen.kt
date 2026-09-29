@@ -32,6 +32,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.updater.AppReleaseNotes
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_done
+import nuvio.composeapp.generated.resources.whats_new_action_advanced_setup
 import nuvio.composeapp.generated.resources.whats_new_bug_fixes
 import nuvio.composeapp.generated.resources.whats_new_debug_build
 import nuvio.composeapp.generated.resources.whats_new_improvements
@@ -61,6 +62,11 @@ fun WhatsNewScreen(
     dismissible: Boolean = false,
     /** False after an update: that screen is the missed releases' notes; history lives in Settings. */
     showHistory: Boolean = true,
+    /**
+     * An action card was pressed ("Try Advanced Setup"). The caller closes this screen - and, after
+     * an update, acknowledges it - before doing it. Null hides the cards' buttons.
+     */
+    onAction: ((ChangelogAction) -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
 
@@ -104,7 +110,7 @@ fun WhatsNewScreen(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     items(sections) { section ->
-                        WhatsNewSectionContent(section)
+                        WhatsNewSectionContent(section, onAction)
                     }
                     if (showHistory) {
                         item {
@@ -127,7 +133,7 @@ fun WhatsNewScreen(
 }
 
 @Composable
-private fun WhatsNewSectionContent(section: WhatsNewSection) {
+private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((ChangelogAction) -> Unit)? = null) {
     val tokens = MaterialTheme.nuvio
     val accent = when (section.category) {
         WhatsNewCategory.NewFeatures -> tokens.colors.accent
@@ -184,6 +190,22 @@ private fun WhatsNewSectionContent(section: WhatsNewSection) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = tokens.colors.textMuted,
                     )
+                }
+                val action = item.action
+                if (action != null && onAction != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { onAction(action) },
+                        shape = tokens.shapes.button,
+                    ) {
+                        Text(
+                            stringResource(
+                                when (action) {
+                                    ChangelogAction.ADVANCED_SETUP -> Res.string.whats_new_action_advanced_setup
+                                },
+                            ),
+                        )
+                    }
                 }
             }
         }
