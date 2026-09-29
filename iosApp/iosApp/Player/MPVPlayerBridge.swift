@@ -829,6 +829,11 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func selectSubtitle(_ trackId: Int) {
+        // mpv_set_property can wait for a remote subtitle demuxer. Keep that wait off UIKit.
+        eventQueue.async { [weak self] in self?.selectSubtitleNow(trackId) }
+    }
+
+    private func selectSubtitleNow(_ trackId: Int) {
         guard mpv != nil else { return }
         if trackId < 0 {
             setStringProperty("sid", "no")
@@ -839,8 +844,11 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func addSubtitleUrl(_ url: String) {
-        guard mpv != nil else { return }
-        command("sub-add", args: [url, "select"])
+        // sub-add may fetch the subtitle URL before returning.
+        eventQueue.async { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            self.command("sub-add", args: [url, "select"])
+        }
     }
 
     private func addSubtitle(_ subtitle: PluginSubtitle, mode: String) {
@@ -864,6 +872,10 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func removeExternalSubtitles() {
+        eventQueue.async { [weak self] in self?.removeExternalSubtitlesNow(selecting: nil) }
+    }
+
+    private func removeExternalSubtitlesNow(selecting trackId: Int?) {
         guard mpv != nil else { return }
         let count = getInt("track-list/count")
         for i in stride(from: count - 1, through: 0, by: -1) {
@@ -874,25 +886,11 @@ final class MPVPlayerViewController: UIViewController {
                 command("sub-remove", args: ["\(id)"], checkForErrors: false)
             }
         }
-        setStringProperty("sid", "no")
+        if let trackId { selectSubtitleNow(trackId) } else { setStringProperty("sid", "no") }
     }
 
     func removeExternalSubtitlesAndSelect(_ trackId: Int) {
-        guard mpv != nil else { return }
-        let count = getInt("track-list/count")
-        for i in stride(from: count - 1, through: 0, by: -1) {
-            let type = getString("track-list/\(i)/type") ?? ""
-            let external = getFlag("track-list/\(i)/external")
-            if type == "sub" && external {
-                let id = getInt("track-list/\(i)/id")
-                command("sub-remove", args: ["\(id)"], checkForErrors: false)
-            }
-        }
-        if trackId >= 0 {
-            selectSubtitle(trackId)
-        } else {
-            setStringProperty("sid", "no")
-        }
+        eventQueue.async { [weak self] in self?.removeExternalSubtitlesNow(selecting: trackId) }
     }
 
     func setSubtitleDelayMs(_ delayMs: Int) {
