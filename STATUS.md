@@ -2,6 +2,58 @@
 
 Last updated: 2026-09-29
 
+## Setup + settings QA follow-ups after debug 68 / desktop 75 - ON BRANCH, UNMERGED (2026-09-29)
+
+Three physical findings, same `claude/setup-settings-architecture` branches. iOS / Watch Together
+hardening still not started.
+
+1. **Desktop hover trailer never plays - platform, not the specimen.** On Windows
+   `AppFeaturePolicy.trailerPlaybackMode` is `EXTERNAL` (upstream `5941af60d`), the Windows
+   `HeroTrailerPlayerSurface` is `= Unit`, and `:composeMediaPlayer` is not built on Windows. So no hover
+   trailer plays anywhere in the Windows app; Settings already hid the switches, Advanced Setup did
+   not. Maintainer's decision: hide them. New fact `AdvancedSetupFacts.inAppTrailers` (= policy is
+   `IN_APP`) gates `HoverTrailer` / `HoverTrailerSound`, and the hint under the rail no longer promises
+   a trailer there. Real Windows hover trailers (a trailer surface on the native player) are a
+   separate feature, not started. Also noted: in setup the meta route
+   (`resolveHomePosterHoverTrailerPlaybackSource` -> `MetaDetailsRepository.fetch`) has no addon and
+   then needs TMDB, so it would have failed there even with a surface.
+2. **Android player specimen showed show artwork.** `episodeStillUrl` built
+   `episodes.metahub.space/{id}/{s}/{e}.jpg`, a shape Cinemeta never emits (it uses `/{s}/{e}/w780.jpg`);
+   the host only 301s to `image.tmdb.org`, and `EpisodeFrame` swapped to the show backdrop on error
+   and a `remember`ed flag held it there. Now every specimen episode is pinned to its file on TMDB's
+   keyless image CDN (paths read from the metahub redirects today, each checked `image/jpeg`), the
+   player stages all use Sherlock S1 E1 (a genuine frame; S1 E2's still is a promo shot), and
+   `EpisodeFrame` paints a dim video-frame gradient underneath with **no** second URL. Episode *list*
+   rows keep the app's own backdrop fallback, as the real details page does.
+3. **TMDB enrichment dead in debug 68.** Verified on the published APK with `dexdump`:
+   `TmdbConfig.API_KEY` has **length 0**. Neither `local.properties` nor
+   `NUVIO_LOCAL_PROPERTIES_BASE64` / `NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64` has ever carried
+   `TMDB_API_KEY`, and no other secret did, so `effectiveApiKey()` fell back to `""`. The repository
+   logic (enabled by default, personal key optional, fallback to the bundled key) was already right.
+   Fix: the publishing jobs (`debug-release`, `android-release`; desktop `desktop-debug-release`,
+   `desktop-release`) read a dedicated **`TMDB_API_KEY` repository secret** and set
+   `NUVIO_REQUIRE_TMDB_API_KEY=true`; `generateRuntimeConfigs` then fails on a blank or malformed key
+   without echoing it. `ci.yml`, `ios-build.yml` and local builds leave the flag off and still compile
+   without secrets. Stale comment in `SetupSampleTitle.kt` claiming a personal key is required fixed.
+   **Blocking:** that secret does not exist yet in either repository, so the next debug or release
+   build fails at `generateRuntimeConfigs` until the maintainer adds it
+   (`gh secret set TMDB_API_KEY --repo Zokaper/nuvio-z` and `--repo Zokaper/NuvioZDesktop`).
+
+**Commits** - mobile `764719138` (setup: pinned stills, trailer gate, tests), `73602d14f` (build guard
++ workflows). Desktop: `59fcb3176` (cherry-pick of `764719138`; shared setup files byte-identical,
+checked with `diff --strip-trailing-cr`), `c6efe14c2` (desktop guard + workflows).
+
+**Verification.** Guard exercised with real Gradle runs in both repos: flag on + blank key fails with the
+message, flag on + dummy key passes, flag off passes. Mobile `testAndroidHostTest` for
+`features.setup.*` + `features.tmdb.*` from a deleted results directory: **192 tests, 0 failed**
+(incl. new `SetupSampleTitleTest` and `hoverTrailerSwitchesOnlyWhereATrailerCanPlay`).
+Desktop `desktopTest` for the same packages from a deleted results directory: **228 tests, 0 failed**.
+
+**Still needs a device / network:** TMDB enrichment on a build that carries the key (details cast,
+logos, episode stills, More like this with no personal key on a fresh profile); the Advanced Setup
+player previews on physical Android showing the Sherlock frame on first open and in aeroplane mode
+(the painted frame, not title art); the Windows Hover panel showing only the preview switch.
+
 ## Setup + settings physical-QA polish - ON BRANCH, UNMERGED (2026-09-29)
 
 **Newest work**, on the same `claude/setup-settings-architecture` branches (both repos, pushed, not
