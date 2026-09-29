@@ -112,12 +112,18 @@ object SetupSampleTitle {
      * card claims one show is playing an episode of another.
      */
     val rowItems: List<MetaPreview> = listOf(
-        preview("tt0903747", "Breaking Bad", "2008-2013", listOf("Crime", "Drama", "Thriller")),
-        preview("tt0108778", "Friends", "1994-2004", listOf("Comedy", "Romance")),
-        preview("tt0944947", "Game of Thrones", "2011-2019", listOf("Action", "Adventure", "Drama")),
-        preview("tt1475582", "Sherlock", "2010-2017", listOf("Crime", "Drama", "Mystery")),
-        preview("tt0417299", "Avatar: The Last Airbender", "2005-2008", listOf("Animation", "Action")),
-        preview("tt2861424", "Rick and Morty", "2013-", listOf("Animation", "Comedy", "Sci-Fi")),
+        preview("tt0903747", "Breaking Bad", "2008-2013", listOf("Crime", "Drama", "Thriller"), "9.5",
+            "A chemistry teacher with a terminal diagnosis turns to making methamphetamine to secure his family's future."),
+        preview("tt0108778", "Friends", "1994-2004", listOf("Comedy", "Romance"), "8.9",
+            "Six friends in Manhattan navigate work, love and each other over ten years of shared apartments."),
+        preview("tt0944947", "Game of Thrones", "2011-2019", listOf("Action", "Adventure", "Drama"), "9.2",
+            "Noble families fight for the Iron Throne while an ancient threat gathers beyond the Wall."),
+        preview("tt1475582", "Sherlock", "2010-2017", listOf("Crime", "Drama", "Mystery"), "9.1",
+            "A modern-day Sherlock Holmes and Dr. Watson take on London's strangest cases."),
+        preview("tt0417299", "Avatar: The Last Airbender", "2005-2008", listOf("Animation", "Action"), "9.3",
+            "A young monk who can master all four elements must bring balance to a world at war."),
+        preview("tt2861424", "Rick and Morty", "2013-", listOf("Animation", "Comedy", "Sci-Fi"), "9.1",
+            "A reckless scientist drags his grandson through dimension-hopping adventures."),
     )
 
     private fun preview(
@@ -125,6 +131,8 @@ object SetupSampleTitle {
         name: String,
         releaseInfo: String,
         genres: List<String>,
+        imdbRating: String,
+        description: String,
     ) = MetaPreview(
         id = imdbId,
         type = "series",
@@ -137,6 +145,8 @@ object SetupSampleTitle {
         logo = logoUrl(imdbId),
         releaseInfo = releaseInfo,
         genres = genres,
+        imdbRating = imdbRating,
+        description = description,
     )
 
     /** One episode row in the details specimen. */

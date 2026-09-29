@@ -10,11 +10,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -22,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,19 +33,21 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.FastForward
-import androidx.compose.material.icons.rounded.FastRewind
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Icon
@@ -50,29 +55,37 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.nuvio.app.AppScreenTab
+import com.nuvio.app.DesktopHoverSidebar
+import com.nuvio.app.DesktopSidebarCollapsedWidth
+import com.nuvio.app.DesktopSidebarExpandedWidth
+import com.nuvio.app.core.ui.DesktopNavigationBar
+import com.nuvio.app.core.ui.FloatingNavigationItem
+import com.nuvio.app.core.ui.NuvioNavBarScrollState
 import com.nuvio.app.core.ui.NuvioPosterCard
 import com.nuvio.app.core.ui.NuvioPosterShape
 import com.nuvio.app.core.ui.nuvio
-import com.nuvio.app.features.player.SubtitleStyleState
+import com.nuvio.app.features.home.components.HomePosterHoverPreview
 import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
 import com.nuvio.app.features.settings.DesktopNavigationLayout
@@ -83,6 +96,8 @@ import com.nuvio.app.features.streams.StreamBadgePlacement
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamCard
 import com.nuvio.app.features.streams.StreamItem
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -111,6 +126,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun AdvancedPreviewFrame(
     modifier: Modifier = Modifier,
+    interactive: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -128,7 +144,8 @@ internal fun AdvancedPreviewFrame(
     ) {
         content()
         // Last child, so it is hit first: nothing underneath receives a press, a release or a hover.
-        Box(
+        // Absent on the previews that are meant to be tried (see `AdvancedSetupPanel.previewIsInteractive`).
+        if (!interactive) Box(
             modifier = Modifier
                 .matchParentSize()
                 .pointerInput(Unit) {
@@ -143,391 +160,6 @@ internal fun AdvancedPreviewFrame(
 }
 
 private const val PreviewTweenMillis = 260
-
-// --- player ------------------------------------------------------------------------------
-
-/**
- * The player's own chrome over a still, in the chosen layout, with the three overlays the Player
- * panel switches shown as they would appear: the content-warning card on the frame, and the loading
- * and pause screens as two small frames beneath it.
- *
- * ⚠ Drawn, not the real player controls: those are bound to a running engine. What must stay true
- * is the *difference* the layout switch makes - the legacy layout's centred transport and top title
- * against the current layout's bottom-anchored title and control row.
- */
-@Composable
-internal fun SpecimenPlayerChrome(
-    legacyLayout: Boolean,
-    showLayoutChoice: Boolean,
-    pauseOverlay: Boolean,
-    loadingOverlay: Boolean,
-    contentWarnings: Boolean,
-    touchPanel: Boolean,
-    touchGestures: Boolean,
-    holdToSpeed: Boolean,
-    holdSpeed: Float,
-    scale: Float = 1f,
-) {
-    val sample = SetupSampleTitle.rowItems.first()
-    Column(
-        modifier = Modifier
-            .widthIn(max = 520.dp * scale)
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp * scale),
-        verticalArrangement = Arrangement.spacedBy(10.dp * scale),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        PreviewVideoFrame(backdropUrl = SetupSampleTitle.backgroundUrl(sample.id)) {
-            if (!touchPanel) {
-                PlayerChromeOverlay(
-                    title = sample.name,
-                    legacyLayout = legacyLayout && showLayoutChoice,
-                    scale = scale,
-                )
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = contentWarnings,
-                    enter = fadeIn(tween(PreviewTweenMillis)),
-                    exit = fadeOut(tween(PreviewTweenMillis)),
-                    modifier = Modifier.align(if (legacyLayout && showLayoutChoice) Alignment.CenterStart else Alignment.TopStart),
-                ) {
-                    PreviewContentWarning(scale = scale)
-                }
-            } else {
-                PlayerTouchOverlay(
-                    gestures = touchGestures,
-                    holdToSpeed = holdToSpeed,
-                    holdSpeed = holdSpeed,
-                    scale = scale,
-                )
-            }
-        }
-        if (!touchPanel) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp * scale),
-            ) {
-                PreviewMiniFrame(
-                    caption = stringResource(Res.string.advanced_preview_while_loading),
-                    modifier = Modifier.weight(1f),
-                    scale = scale,
-                ) {
-                    if (loadingOverlay) {
-                        AsyncImage(
-                            model = SetupSampleTitle.backgroundUrl(sample.id),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
-                        AsyncImage(
-                            model = SetupSampleTitle.logoUrl(sample.id),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.5f).height(22.dp * scale),
-                        )
-                    }
-                    PreviewSpinnerDot(
-                        modifier = Modifier.align(if (loadingOverlay) Alignment.BottomCenter else Alignment.Center)
-                            .padding(bottom = if (loadingOverlay) 8.dp * scale else 0.dp),
-                        scale = scale,
-                    )
-                }
-                PreviewMiniFrame(
-                    caption = stringResource(Res.string.advanced_preview_when_paused),
-                    modifier = Modifier.weight(1f),
-                    scale = scale,
-                ) {
-                    AsyncImage(
-                        model = SetupSampleTitle.backgroundUrl(sample.id),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (pauseOverlay) {
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)),
-                            ),
-                        )
-                        Column(
-                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp * scale).fillMaxWidth(0.6f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp * scale),
-                        ) {
-                            PreviewBar(widthFraction = 0.9f, height = 6.dp * scale, alpha = 0.9f)
-                            PreviewBar(widthFraction = 0.7f, height = 3.dp * scale, alpha = 0.5f)
-                            PreviewBar(widthFraction = 0.8f, height = 3.dp * scale, alpha = 0.5f)
-                        }
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.Pause,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.align(Alignment.Center).size(20.dp * scale),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PreviewVideoFrame(
-    backdropUrl: String,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF101014)),
-    ) {
-        AsyncImage(
-            model = backdropUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        content()
-    }
-}
-
-@Composable
-private fun PreviewMiniFrame(
-    caption: String,
-    modifier: Modifier,
-    scale: Float,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp * scale)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.Black),
-        ) {
-            content()
-        }
-        Text(
-            text = caption,
-            style = MaterialTheme.typography.labelSmall,
-            color = tokens.colors.textMuted,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun PreviewSpinnerDot(modifier: Modifier, scale: Float) {
-    Box(
-        modifier = modifier
-            .size(14.dp * scale)
-            .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape),
-    )
-}
-
-@Composable
-private fun PreviewBar(widthFraction: Float, height: Dp, alpha: Float, color: Color = Color.White) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth(widthFraction)
-            .height(height)
-            .clip(RoundedCornerShape(99.dp))
-            .background(color.copy(alpha = alpha)),
-    )
-}
-
-@Composable
-private fun BoxScope.PlayerChromeOverlay(title: String, legacyLayout: Boolean, scale: Float) {
-    // The scrim both layouts draw so their white controls read over any frame.
-    Box(
-        Modifier.matchParentSize().background(
-            Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0.55f),
-                0.35f to Color.Transparent,
-                0.6f to Color.Transparent,
-                1f to Color.Black.copy(alpha = 0.75f),
-            ),
-        ),
-    )
-    val iconSize = 18.dp * scale
-    if (legacyLayout) {
-        // The original controls: title across the top, transport in the middle, seek bar below.
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp * scale),
-        )
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(22.dp * scale),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.FastRewind, null, tint = Color.White, modifier = Modifier.size(iconSize * 1.3f))
-            Box(
-                modifier = Modifier.size(44.dp * scale).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Pause, null, tint = Color.White, modifier = Modifier.size(iconSize * 1.5f))
-            }
-            Icon(Icons.Rounded.FastForward, null, tint = Color.White, modifier = Modifier.size(iconSize * 1.3f))
-        }
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp * scale, vertical = 10.dp * scale),
-        ) {
-            PreviewSeekBar(progress = 0.38f, scale = scale)
-        }
-    } else {
-        // The current layout: everything anchored to the bottom, title above the seek bar and one
-        // row of controls under it.
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp * scale, vertical = 10.dp * scale),
-            verticalArrangement = Arrangement.spacedBy(6.dp * scale),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-            )
-            PreviewSeekBar(progress = 0.38f, scale = scale)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp * scale),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Pause, null, tint = Color.White, modifier = Modifier.size(iconSize))
-                Icon(Icons.Rounded.FastRewind, null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(iconSize))
-                Icon(Icons.Rounded.FastForward, null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(iconSize))
-                Spacer(Modifier.weight(1f))
-                Icon(Icons.Rounded.Subtitles, null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(iconSize))
-                Icon(Icons.Rounded.SkipNext, null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(iconSize))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PreviewSeekBar(progress: Float, scale: Float) {
-    val tokens = MaterialTheme.nuvio
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(4.dp * scale)
-            .clip(RoundedCornerShape(99.dp))
-            .background(Color.White.copy(alpha = 0.3f)),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress)
-                .fillMaxHeight()
-                .background(tokens.colors.accent),
-        )
-    }
-}
-
-@Composable
-private fun PreviewContentWarning(scale: Float) {
-    Row(
-        modifier = Modifier
-            .padding(10.dp * scale)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.6f))
-            .padding(horizontal = 8.dp * scale, vertical = 6.dp * scale),
-        horizontalArrangement = Arrangement.spacedBy(6.dp * scale),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.width(3.dp).height(24.dp * scale).background(MaterialTheme.nuvio.colors.accent))
-        Column {
-            Text(
-                text = stringResource(Res.string.settings_playback_parental_guide),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(Res.string.advanced_preview_warning_sample),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.75f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun BoxScope.PlayerTouchOverlay(gestures: Boolean, holdToSpeed: Boolean, holdSpeed: Float, scale: Float) {
-    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.35f)))
-    val gestureAlpha by animateFloatAsState(if (gestures) 1f else 0.18f, tween(PreviewTweenMillis), label = "touch_gestures")
-    Row(Modifier.matchParentSize()) {
-        TouchZone(
-            label = stringResource(Res.string.advanced_preview_swipe_brightness),
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            alpha = gestureAlpha,
-            scale = scale,
-        )
-        Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.15f * gestureAlpha)))
-        TouchZone(
-            label = stringResource(Res.string.advanced_preview_swipe_volume),
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            alpha = gestureAlpha,
-            scale = scale,
-        )
-    }
-    Text(
-        text = stringResource(if (gestures) Res.string.advanced_preview_double_tap else Res.string.advanced_preview_gestures_off),
-        style = MaterialTheme.typography.labelSmall,
-        color = Color.White.copy(alpha = 0.85f),
-        modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp * scale),
-    )
-    androidx.compose.animation.AnimatedVisibility(
-        visible = holdToSpeed,
-        enter = fadeIn(tween(PreviewTweenMillis)),
-        exit = fadeOut(tween(PreviewTweenMillis)),
-        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp * scale),
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(99.dp))
-                .background(Color.Black.copy(alpha = 0.65f))
-                .padding(horizontal = 12.dp * scale, vertical = 6.dp * scale),
-            horizontalArrangement = Arrangement.spacedBy(6.dp * scale),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.TouchApp, null, tint = Color.White, modifier = Modifier.size(14.dp * scale))
-            Text(
-                text = stringResource(Res.string.advanced_preview_hold_speed, formatSpeed(holdSpeed)),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TouchZone(label: String, modifier: Modifier, alpha: Float, scale: Float) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp * scale)) {
-            Box(
-                Modifier
-                    .width(4.dp * scale)
-                    .height(34.dp * scale)
-                    .clip(RoundedCornerShape(99.dp))
-                    .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = alpha), Color.White.copy(alpha = 0.1f * alpha)))),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = alpha),
-            )
-        }
-    }
-}
 
 /** "2", "1.5", "2.25" - the hold speed the way the settings row writes it. */
 internal fun formatSpeed(speed: Float): String {
@@ -733,76 +365,18 @@ private fun SegmentChip(name: String, outcome: String, highlighted: Boolean, sca
     }
 }
 
-// --- subtitles ---------------------------------------------------------------------------
-
-/**
- * A real line of subtitle text, drawn with the chosen size, colours, outline, weight and offset
- * over a frame of the sample title.
- *
- * The size is the player's own sp value scaled to the frame: the player draws it against a full
- * screen, the preview against a frame roughly half a phone's width, so a straight copy would
- * overstate every size by about half. [SubtitleSizeFrameRatio] is that ratio.
- */
-@Composable
-internal fun SpecimenSubtitles(
-    style: SubtitleStyleState,
-    scale: Float = 1f,
-) {
-    val sample = SetupSampleTitle.rowItems[2]
-    val fontSize by animateFloatAsState(style.fontSizeSp * SubtitleSizeFrameRatio * scale, tween(PreviewTweenMillis), label = "subtitle_size")
-    val offsetFraction by animateFloatAsState((style.bottomOffset / 200f).coerceIn(0f, 1f), tween(PreviewTweenMillis), label = "subtitle_offset")
-    Box(
-        modifier = Modifier
-            .widthIn(max = 520.dp * scale)
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp * scale),
-    ) {
-        PreviewVideoFrame(backdropUrl = SetupSampleTitle.backgroundUrl(sample.id)) {
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.15f)))
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.matchParentSize()) {
-                val lift = maxHeight * 0.45f * offsetFraction + 8.dp
-                val line = stringResource(Res.string.advanced_preview_subtitle_line)
-                val base = TextStyle(
-                    fontSize = fontSize.sp,
-                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    lineHeight = (fontSize * 1.25f).sp,
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 16.dp)
-                        .offset(y = -lift)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(style.backgroundColor)
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (style.outlineEnabled) {
-                        Text(
-                            text = line,
-                            style = base.copy(
-                                color = style.outlineColor,
-                                drawStyle = Stroke(width = (style.outlineWidth.coerceAtLeast(1) * 2f)),
-                            ),
-                        )
-                    }
-                    Text(text = line, style = base.copy(color = style.textColor))
-                }
-            }
-        }
-    }
-}
-
-private const val SubtitleSizeFrameRatio = 0.62f
-
 // --- navigation --------------------------------------------------------------------------
 
-/** Android's real floating bar, in the chosen style, over a strip of the app. */
+/**
+ * Android's real floating bar in the chosen style (`NavigationBarPreview`, the same preview Settings
+ * shows): its tabs select, and in Adaptive its sample grid scrolls and the bar collapses as it does
+ * in the app. The frame lets touches through for this one - the hint under it says so, and it is
+ * true now.
+ */
 @Composable
 internal fun SpecimenAndroidNavigation(style: NavBarStyle, glowEnabled: Boolean) {
     Box(
-        modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 12.dp),
+        modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         NavigationBarPreview(style = style, isTablet = false, glowEnabled = glowEnabled)
@@ -811,157 +385,213 @@ internal fun SpecimenAndroidNavigation(style: NavBarStyle, glowEnabled: Boolean)
 
 /**
  * iOS 26's native tab bar cannot be drawn by Compose - it is UIKit - so this is a drawing of the
- * difference the switch makes: a floating glass capsule over the content, against the flat bar
- * pinned to the bottom edge.
+ * difference the switch makes: a floating glass capsule over the content, against the flat bar pinned
+ * to the bottom edge. Its tabs select, like the real bar's.
  */
 @Composable
 internal fun SpecimenIosTabBar(liquidGlass: Boolean, scale: Float = 1f) {
     val tokens = MaterialTheme.nuvio
     val sample = SetupSampleTitle.rowItems[3]
+    var selected by remember { mutableStateOf(0) }
     val inset by animateDpAsState(if (liquidGlass) 16.dp * scale else 0.dp, tween(PreviewTweenMillis, easing = LinearOutSlowInEasing), label = "glass_inset")
     val radius by animateDpAsState(if (liquidGlass) 28.dp * scale else 0.dp, tween(PreviewTweenMillis), label = "glass_radius")
-    Box(
-        modifier = Modifier
-            .width(260.dp * scale)
-            .height(190.dp * scale)
-            .clip(RoundedCornerShape(22.dp * scale))
-            .background(tokens.colors.background),
-    ) {
-        AsyncImage(
-            model = SetupSampleTitle.backgroundUrl(sample.id),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Row(
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = inset, end = inset, bottom = inset)
-                .clip(RoundedCornerShape(radius))
-                .background(
-                    if (liquidGlass) {
-                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0.16f)))
-                    } else {
-                        Brush.verticalGradient(listOf(tokens.colors.surface, tokens.colors.surface))
-                    },
-                )
-                .then(if (liquidGlass) Modifier.border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(radius)) else Modifier)
-                .padding(vertical = 10.dp * scale),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .width(260.dp * scale)
+                .height(170.dp * scale)
+                .clip(RoundedCornerShape(22.dp * scale))
+                .background(tokens.colors.background),
         ) {
-            listOf(Icons.Rounded.Home, Icons.Rounded.Search, Icons.Rounded.VideoLibrary, Icons.Rounded.Person).forEachIndexed { index, icon ->
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (index == 0) tokens.colors.accent else if (liquidGlass) Color.White else tokens.colors.textSecondary,
-                    modifier = Modifier.size(20.dp * scale),
-                )
+            AsyncImage(
+                model = SetupSampleTitle.backgroundUrl(sample.id),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(start = inset, end = inset, bottom = inset)
+                    .clip(RoundedCornerShape(radius))
+                    .background(
+                        if (liquidGlass) {
+                            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0.16f)))
+                        } else {
+                            Brush.verticalGradient(listOf(tokens.colors.surface, tokens.colors.surface))
+                        },
+                    )
+                    .then(if (liquidGlass) Modifier.border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(radius)) else Modifier)
+                    .padding(vertical = 6.dp * scale),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                listOf(Icons.Rounded.Home, Icons.Rounded.Search, Icons.Rounded.VideoLibrary, Icons.Rounded.Person).forEachIndexed { index, icon ->
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp * scale)
+                            .clip(CircleShape)
+                            .background(if (index == selected && liquidGlass) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable(role = Role.Tab) { selected = index },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (index == selected) tokens.colors.accent else if (liquidGlass) Color.White else tokens.colors.textSecondary,
+                            modifier = Modifier.size(20.dp * scale),
+                        )
+                    }
+                }
             }
         }
+        Text(
+            text = stringResource(Res.string.settings_nav_bar_preview_tap_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textMuted,
+        )
     }
 }
 
 /**
- * The desktop window's navigation: a sidebar down the left or a bar across the top, each in the
- * chosen style - labels always, icons only, or labels that give way when the window narrows.
+ * The desktop window's navigation, with the **real** components: the hover sidebar
+ * (`DesktopHoverSidebar`) or the jelly top bar (`DesktopNavigationBar`), over a page that scrolls.
+ * Everything answers as in the app - tabs select; in Adaptive the sidebar opens on hover and the top
+ * bar's labels give way on Home and on scroll and come back on hover; Expanded and Compact hold still.
+ * The profile entry does nothing here: switching profile from a preview would switch it for real.
  */
 @Composable
-internal fun SpecimenDesktopNavigation(layout: DesktopNavigationLayout, style: NavBarStyle, scale: Float = 1f) {
+internal fun SpecimenDesktopNavigation(
+    layout: DesktopNavigationLayout,
+    style: NavBarStyle,
+    heroEnabled: Boolean,
+    socialEnabled: Boolean,
+    glowEnabled: Boolean,
+) {
     val tokens = MaterialTheme.nuvio
-    val labels = listOf(
-        Icons.Rounded.Home to stringResource(Res.string.compose_nav_home),
-        Icons.Rounded.Search to stringResource(Res.string.compose_nav_search),
-        Icons.Rounded.VideoLibrary to stringResource(Res.string.compose_nav_library),
-        Icons.Rounded.Person to stringResource(Res.string.compose_nav_profile),
-    )
-    val showLabels = style != NavBarStyle.COMPACT
-    Box(
-        modifier = Modifier
-            .width(460.dp * scale)
-            .height(260.dp * scale)
-            .clip(RoundedCornerShape(14.dp))
-            .background(tokens.colors.background)
-            .border(1.dp, tokens.colors.borderSubtle, RoundedCornerShape(14.dp)),
+    var selectedTab by remember { mutableStateOf(AppScreenTab.Home) }
+    val tabs = buildList {
+        add(Triple(AppScreenTab.Home, Res.string.compose_nav_home, Icons.Rounded.Home))
+        add(Triple(AppScreenTab.Search, Res.string.compose_nav_search, Icons.Rounded.Search))
+        add(Triple(AppScreenTab.Library, Res.string.compose_nav_library, Icons.Rounded.VideoLibrary))
+        add(Triple(AppScreenTab.Downloads, Res.string.compose_nav_downloads, Icons.Rounded.Download))
+        if (socialEnabled) add(Triple(AppScreenTab.Social, Res.string.compose_nav_social, Icons.Rounded.Groups))
+        add(Triple(AppScreenTab.Settings, Res.string.compose_nav_settings, Icons.Rounded.Settings))
+    }
+    val items = tabs.map { (tab, label, icon) ->
+        FloatingNavigationItem(
+            label = stringResource(label),
+            selected = selectedTab == tab,
+            onClick = { selectedTab = tab },
+            icon = icon,
+        )
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (layout == DesktopNavigationLayout.Sidebar) {
-            Row(Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .background(tokens.colors.surface)
-                        .padding(horizontal = 10.dp * scale, vertical = 14.dp * scale),
-                    verticalArrangement = Arrangement.spacedBy(10.dp * scale),
-                ) {
-                    labels.forEachIndexed { index, (icon, label) ->
-                        NavItem(icon = icon, label = label.takeIf { showLabels }, selected = index == 0, scale = scale)
-                    }
-                }
-                PreviewContentRows(Modifier.weight(1f).fillMaxHeight(), scale)
+        PreviewStage(
+            logicalWidth = 1280.dp,
+            logicalHeight = 720.dp,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            cornerRadius = 12.dp,
+            background = tokens.colors.background,
+        ) {
+            val scrollState = remember(style, layout) { NuvioNavBarScrollState() }
+            val hazeState = rememberHazeState()
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .hazeSource(hazeState)
+                    .nestedScroll(scrollState.nestedScrollConnection),
+            ) {
+                PreviewScrollingPage(
+                    topPadding = if (layout == DesktopNavigationLayout.TopBar) 112.dp else 32.dp,
+                    startPadding = if (layout == DesktopNavigationLayout.Sidebar) DesktopSidebarCollapsedWidth else 0.dp,
+                )
             }
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 12.dp * scale)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(tokens.colors.surface)
-                        .padding(horizontal = 8.dp * scale, vertical = 6.dp * scale),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp * scale),
-                ) {
-                    labels.forEachIndexed { index, (icon, label) ->
-                        NavItem(icon = icon, label = label.takeIf { showLabels }, selected = index == 0, scale = scale)
-                    }
+            if (layout == DesktopNavigationLayout.Sidebar) {
+                val hoverSource = remember { MutableInteractionSource() }
+                val hovered by hoverSource.collectIsHoveredAsState()
+                val expanded = when (style) {
+                    NavBarStyle.EXPANDED -> true
+                    NavBarStyle.COMPACT -> false
+                    else -> hovered
                 }
-                PreviewContentRows(Modifier.weight(1f).fillMaxWidth(), scale)
+                val width by animateDpAsState(
+                    if (expanded) DesktopSidebarExpandedWidth else DesktopSidebarCollapsedWidth,
+                    tween(200),
+                    label = "preview_sidebar_width",
+                )
+                DesktopHoverSidebar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                    onProfileSelected = {},
+                    onAddProfileRequested = {},
+                    sidebarExpanded = expanded,
+                    sidebarWidth = width,
+                    hoverSource = hoverSource,
+                    profileStackVisible = false,
+                    onProfileStackVisibleChange = {},
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+            } else {
+                DesktopNavigationBar(
+                    items = items,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    contentPadding = PaddingValues(top = 22.dp, bottom = 8.dp),
+                    scrollState = scrollState,
+                    hazeState = hazeState,
+                    navBarStyle = style,
+                    isHeroEnabled = heroEnabled,
+                    windowWidth = 1280.dp,
+                    glowEnabled = glowEnabled,
+                )
             }
         }
+        Text(
+            text = stringResource(
+                when {
+                    style != NavBarStyle.ADAPTIVE -> Res.string.advanced_preview_desktop_nav_tap
+                    layout == DesktopNavigationLayout.Sidebar -> Res.string.advanced_preview_desktop_nav_sidebar_adaptive
+                    else -> Res.string.advanced_preview_desktop_nav_topbar_adaptive
+                },
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textMuted,
+        )
     }
 }
 
+/** A page of catalog rows that scrolls, for the navigation previews to react to. */
 @Composable
-private fun NavItem(icon: ImageVector, label: String?, selected: Boolean, scale: Float) {
-    val tokens = MaterialTheme.nuvio
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(99.dp))
-            .background(if (selected) tokens.colors.accent.copy(alpha = 0.18f) else Color.Transparent)
-            .padding(horizontal = 10.dp * scale, vertical = 6.dp * scale),
-        horizontalArrangement = Arrangement.spacedBy(6.dp * scale),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = if (selected) tokens.colors.accent else tokens.colors.textSecondary, modifier = Modifier.size(16.dp * scale))
-        if (label != null) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (selected) tokens.colors.textPrimary else tokens.colors.textSecondary,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PreviewContentRows(modifier: Modifier, scale: Float) {
+private fun PreviewScrollingPage(topPadding: Dp, startPadding: Dp) {
     val tokens = MaterialTheme.nuvio
     Column(
-        modifier = modifier.padding(14.dp * scale),
-        verticalArrangement = Arrangement.spacedBy(10.dp * scale),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = startPadding + 40.dp, end = 40.dp, top = topPadding, bottom = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
-        repeat(2) { row ->
-            Box(Modifier.width(80.dp * scale).height(8.dp * scale).clip(RoundedCornerShape(99.dp)).background(tokens.colors.overlayHover))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp * scale)) {
-                SetupSampleTitle.rowItems.drop(row * 2).take(4).forEach { item ->
+        repeat(4) { row ->
+            Text(
+                text = SetupSampleTitle.rowItems[row].genres.first(),
+                style = MaterialTheme.typography.titleMedium,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                (SetupSampleTitle.rowItems.drop(row) + SetupSampleTitle.rowItems.take(row)).forEach { item ->
                     AsyncImage(
                         model = item.poster,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .width(44.dp * scale)
+                            .width(150.dp)
                             .aspectRatio(0.675f)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(tokens.colors.surfaceCard),
                     )
                 }
@@ -976,6 +606,12 @@ private fun PreviewContentRows(modifier: Modifier, scale: Float) {
  * A catalog row of the **real** [NuvioPosterCard], called the way `HomePosterCard` calls it, so
  * shape, width, corners, labels and the depth effect are the shipped card's own drawing. The card
  * reads the poster style itself; the controls beside it write that same store.
+ *
+ * On the Hover panel (desktop) every card is wrapped in the **real** `HomePosterHoverPreview`, which
+ * reads the same hover settings the switches write: point at a card and, when previews are on, the
+ * preview card opens after the app's own delay, and a trailer starts in it - muted or with sound -
+ * when trailers are on and the title has one. A line under the row says what the settings will do,
+ * so the behaviour is readable even for a title without a trailer.
  */
 @Composable
 internal fun SpecimenPosterRail(
@@ -987,7 +623,8 @@ internal fun SpecimenPosterRail(
     hoverSound: Boolean = false,
     hoverEnabled: Boolean = false,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -996,62 +633,66 @@ internal fun SpecimenPosterRail(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            SetupSampleTitle.rowItems.forEachIndexed { index, item ->
-                Box {
+            SetupSampleTitle.rowItems.forEach { item ->
+                val card: @Composable (Modifier) -> Unit = { cardModifier ->
                     NuvioPosterCard(
                         title = item.name,
                         imageUrl = if (landscape) item.banner else item.poster,
+                        modifier = cardModifier,
                         basePosterWidthDp = basePosterWidthDp,
                         shape = if (landscape) NuvioPosterShape.Landscape else NuvioPosterShape.Poster,
                         detailLine = if (landscape || hideLabels) null else item.releaseInfo,
                         showTitleBelow = !hideLabels,
                         bottomLeftLogoUrl = if (landscape) item.logo else null,
                     )
-                    if (showHoverCard && index == 1) {
-                        HoverBadge(enabled = hoverEnabled, trailer = hoverTrailer, sound = hoverSound)
-                    }
+                }
+                if (showHoverCard) {
+                    HomePosterHoverPreview(
+                        item = item,
+                        isWatched = false,
+                        // No action row: its buttons would change the real library.
+                        onClick = null,
+                        onLongClick = null,
+                        content = card,
+                    )
+                } else {
+                    card(Modifier)
                 }
             }
         }
-    }
-}
-
-/** What hovering the second card does on desktop: nothing, a details card, or a playing trailer. */
-@Composable
-private fun BoxScope.HoverBadge(enabled: Boolean, trailer: Boolean, sound: Boolean) {
-    val tokens = MaterialTheme.nuvio
-    androidx.compose.animation.AnimatedVisibility(
-        visible = enabled,
-        enter = fadeIn(tween(PreviewTweenMillis)),
-        exit = fadeOut(tween(PreviewTweenMillis)),
-        modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(99.dp))
-                .background(Color.Black.copy(alpha = 0.72f))
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = if (trailer) Icons.Rounded.PlayArrow else Icons.Rounded.Check,
-                contentDescription = null,
-                tint = tokens.colors.accent,
-                modifier = Modifier.size(14.dp),
-            )
-            Text(
-                text = stringResource(
-                    when {
-                        trailer && sound -> Res.string.advanced_preview_hover_trailer_sound
-                        trailer -> Res.string.advanced_preview_hover_trailer
-                        else -> Res.string.advanced_preview_hover_details
+        if (showHoverCard) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(tokens.colors.surfaceCard)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = when {
+                        !hoverEnabled -> Icons.Rounded.VisibilityOff
+                        hoverTrailer && hoverSound -> Icons.AutoMirrored.Rounded.VolumeUp
+                        hoverTrailer -> Icons.AutoMirrored.Rounded.VolumeOff
+                        else -> Icons.Rounded.Image
                     },
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                maxLines = 1,
-            )
+                    contentDescription = null,
+                    tint = if (hoverEnabled) tokens.colors.accent else tokens.colors.textMuted,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = stringResource(
+                        when {
+                            !hoverEnabled -> Res.string.advanced_preview_hover_off
+                            hoverTrailer && hoverSound -> Res.string.advanced_preview_hover_try_sound
+                            hoverTrailer -> Res.string.advanced_preview_hover_try_muted
+                            else -> Res.string.advanced_preview_hover_try_card
+                        },
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = tokens.colors.textPrimary,
+                )
+            }
         }
     }
 }
@@ -1059,8 +700,13 @@ private fun BoxScope.HoverBadge(enabled: Boolean, trailer: Boolean, sound: Boole
 // --- source list -------------------------------------------------------------------------
 
 /**
- * Two rows of the **real** [StreamCard] with fixed sample streams (no addon, no network: the sizes
- * are in the behaviour hints and the logo is the sample artwork host), over the chosen background.
+ * Five rows of the **real** [StreamCard] - different qualities, formats, sizes and addons - over the
+ * chosen background, so every control on the panel visibly changes them: the size badges appear and
+ * move between top and bottom, the addon column appears, and Cinematic puts the title's artwork
+ * behind the list. The list scrolls, at the app's own size, rather than shrinking into a picture.
+ *
+ * No addon, no network: sizes are the behaviour hints, and the addon column shows each addon's name
+ * (a real addon also shows the logo from its manifest, which a sample has none of).
  */
 @Composable
 internal fun SpecimenSourceList(
@@ -1071,30 +717,13 @@ internal fun SpecimenSourceList(
     scale: Float = 1f,
 ) {
     val tokens = MaterialTheme.nuvio
-    val sample = SetupSampleTitle.rowItems.first()
-    val streams = listOf(
-        StreamItem(
-            name = "Sample 4K",
-            description = "Breaking.Bad.S01E01.2160p.WEB-DL.HDR.DDP5.1",
-            addonName = "Sample source",
-            addonId = "sample",
-            addonLogo = SetupSampleTitle.logoUrl(sample.id),
-            behaviorHints = StreamBehaviorHints(videoSize = 6_200_000_000L),
-        ),
-        StreamItem(
-            name = "Sample 1080p",
-            description = "Breaking.Bad.S01E01.1080p.BluRay.x265",
-            addonName = "Sample source",
-            addonId = "sample",
-            addonLogo = SetupSampleTitle.logoUrl(sample.id),
-            behaviorHints = StreamBehaviorHints(videoSize = 1_400_000_000L),
-        ),
-    )
+    val sample = SetupSampleTitle.rowItems[3]
+    val streams = remember { sampleStreams() }
     Box(
         modifier = Modifier
-            .widthIn(max = 520.dp * scale)
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp * scale)
+            .widthIn(max = 560.dp * scale)
+            .fillMaxSize()
+            .padding(horizontal = 14.dp * scale, vertical = 10.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(tokens.colors.background),
     ) {
@@ -1103,12 +732,15 @@ internal fun SpecimenSourceList(
                 model = SetupSampleTitle.backgroundUrl(sample.id),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.matchParentSize().blur(24.dp),
             )
-            Box(Modifier.matchParentSize().background(tokens.colors.background.copy(alpha = 0.78f)))
+            Box(Modifier.matchParentSize().background(tokens.colors.background.copy(alpha = 0.72f)))
         }
         Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             streams.forEach { stream ->
@@ -1123,7 +755,32 @@ internal fun SpecimenSourceList(
                 )
             }
         }
+        // The list continues below the band; a soft fade says so.
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, tokens.colors.background.copy(alpha = 0.9f)))),
+        )
     }
+}
+
+private fun sampleStreams(): List<StreamItem> {
+    fun stream(name: String, description: String, addon: String, bytes: Long) = StreamItem(
+        name = name,
+        description = description,
+        addonName = addon,
+        addonId = addon.lowercase().replace(' ', '-'),
+        behaviorHints = StreamBehaviorHints(videoSize = bytes),
+    )
+    return listOf(
+        stream("4K HDR · Remux", "Sherlock.S01E01.2160p.UHD.BluRay.REMUX.HDR.HEVC.DTS-HD.MA.5.1", "Torrentio", 38_400_000_000L),
+        stream("4K DV · WEB-DL", "Sherlock.S01E01.2160p.WEB-DL.DV.HDR10.DDP5.1.Atmos.H.265", "Comet", 9_800_000_000L),
+        stream("1080p · BluRay", "Sherlock.S01E01.1080p.BluRay.x265.10bit.AAC5.1", "MediaFusion", 2_100_000_000L),
+        stream("1080p · WEB-DL", "Sherlock.S01E01.1080p.WEB-DL.DDP5.1.H.264", "Torrentio", 3_400_000_000L),
+        stream("720p · HDTV", "Sherlock.S01E01.720p.HDTV.x264.AAC", "Comet", 740_000_000L),
+    )
 }
 
 // --- social ------------------------------------------------------------------------------
@@ -1246,103 +903,6 @@ private fun FriendRow(
                     .background(tokens.colors.overlayHover),
             )
         }
-    }
-}
-
-// --- enhanced metadata -------------------------------------------------------------------
-
-/**
- * A detail page's top, with and without enrichment: the addon's own poster and plot against
- * TMDB's artwork, logo, cast and trailers. Two labelled columns rather than a toggle animation,
- * because the point of the panel is the difference.
- */
-@Composable
-internal fun SpecimenMetadata(enriched: Boolean, scale: Float = 1f) {
-    val tokens = MaterialTheme.nuvio
-    val sample = SetupSampleTitle.rowItems.first()
-    Column(
-        modifier = Modifier
-            .widthIn(max = 460.dp * scale)
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp * scale),
-        verticalArrangement = Arrangement.spacedBy(8.dp * scale),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2.1f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(tokens.colors.surfaceCard),
-        ) {
-            if (enriched) {
-                AsyncImage(
-                    model = SetupSampleTitle.backgroundUrl(sample.id),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, tokens.colors.background.copy(alpha = 0.9f)))))
-                AsyncImage(
-                    model = SetupSampleTitle.logoUrl(sample.id),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth(0.45f).height(34.dp * scale),
-                )
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    AsyncImage(
-                        model = sample.poster,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxHeight().aspectRatio(0.675f).clip(RoundedCornerShape(8.dp)).background(tokens.colors.overlayHover),
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(sample.name, style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
-                        PreviewBar(widthFraction = 0.9f, height = 5.dp, alpha = 0.25f, color = tokens.colors.textPrimary)
-                        PreviewBar(widthFraction = 0.7f, height = 5.dp, alpha = 0.25f, color = tokens.colors.textPrimary)
-                    }
-                }
-            }
-        }
-        androidx.compose.animation.AnimatedVisibility(visible = enriched) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp * scale)) {
-                Text(
-                    text = stringResource(Res.string.settings_meta_cast),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = tokens.colors.textSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp * scale)) {
-                    repeat(6) {
-                        Box(Modifier.size(30.dp * scale).clip(CircleShape).background(tokens.colors.overlayHover))
-                    }
-                }
-                Text(
-                    text = stringResource(Res.string.settings_meta_trailers),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = tokens.colors.textSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp * scale)) {
-                    repeat(3) {
-                        Box(
-                            Modifier.width(78.dp * scale).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(tokens.colors.overlayHover),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.PlayArrow, null, tint = tokens.colors.textMuted, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            }
-        }
-        Text(
-            text = stringResource(if (enriched) Res.string.advanced_preview_meta_enhanced else Res.string.advanced_preview_meta_basic),
-            style = MaterialTheme.typography.labelSmall,
-            color = tokens.colors.textMuted,
-        )
     }
 }
 

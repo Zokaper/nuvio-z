@@ -261,6 +261,11 @@ fun SetupWizardScreen(
     val fromRevision = remember { playerSettings.setupWizardCompletedRevision }
     // Captured once for the same reason: finishing writes the device revision.
     val deviceStale = remember { isDeviceSetupStale(DeviceSetupStorage.loadRevision(), isPhone) }
+    // Device Setup's navigation and player steps borrow Advanced Setup's controls and previews, so
+    // they read the same live state those do (setup polish: the curated "this device" steps).
+    val deviceLive = rememberAdvancedSetupLive()
+    val offerDeviceNavigation = deviceSetupControls(SetupStep.DeviceNavigation, deviceLive.facts).isNotEmpty()
+    val offerDevicePlayer = deviceSetupControls(SetupStep.DevicePlayer, deviceLive.facts).isNotEmpty()
     val episodeAlerts by remember {
         EpisodeReleaseNotificationsRepository.ensureLoaded()
         EpisodeReleaseNotificationsRepository.uiState
@@ -304,6 +309,8 @@ fun SetupWizardScreen(
                     fromRevision = fromRevision,
                     arrival = arrival,
                     deviceStale = deviceStale,
+                    offerDeviceNavigation = offerDeviceNavigation,
+                    offerDevicePlayer = offerDevicePlayer,
                 ),
             ).firstOrNull() ?: SetupStep.Done
         }
@@ -330,6 +337,8 @@ fun SetupWizardScreen(
         fromRevision = fromRevision,
         arrival = arrival,
         deviceStale = deviceStale,
+        offerDeviceNavigation = offerDeviceNavigation,
+        offerDevicePlayer = offerDevicePlayer,
     )
     // A gating upgrade or device run can be put off: its close control is "Not now", and that
     // records the revision like finishing does, so it is not asked again.
@@ -639,6 +648,11 @@ fun SetupWizardScreen(
                 onBack = ::back,
                 onAdvance = ::advance,
                 advance = advanceState,
+                customSpecimen = if (specimen == SetupSpecimen.Device) {
+                    { DeviceStepPreview(step = step, live = deviceLive, desktop = true) }
+                } else {
+                    null
+                },
             ) {
                 SetupStepBody(
                     step = step,
@@ -691,13 +705,22 @@ fun SetupWizardScreen(
                     deviceAlertsGranted = episodeAlerts.permissionGranted,
                     deviceAlertsDenied = deviceAlertsDenied,
                     onAllowDeviceAlerts = ::enableDeviceAlerts,
+                    deviceLive = deviceLive,
                 )
             }
             return@BoxWithConstraints
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            SetupSpecimenBand(
+            if (specimen == SetupSpecimen.Device) Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(bandHeight + insets.calculateTopPadding())
+                    .background(tokens.colors.background)
+                    .padding(top = insets.calculateTopPadding()),
+            ) {
+                DeviceStepPreview(step = step, live = deviceLive, desktop = false)
+            } else SetupSpecimenBand(
                 specimen = specimen,
                 step = step,
                 playbackMode = playerSettings.playbackMode,
@@ -798,8 +821,36 @@ fun SetupWizardScreen(
                     deviceAlertsGranted = episodeAlerts.permissionGranted,
                     deviceAlertsDenied = deviceAlertsDenied,
                     onAllowDeviceAlerts = ::enableDeviceAlerts,
+                    deviceLive = deviceLive,
                 )
             }
+        }
+    }
+}
+
+/**
+ * The band for Device Setup's navigation and player steps: Advanced Setup's own previews, interactive
+ * - the real navigation bar to tap and scroll, the player frame to tap, double-tap, hold and swipe.
+ */
+@Composable
+private fun DeviceStepPreview(step: SetupStep, live: AdvancedSetupLive, desktop: Boolean) {
+    val p = live.values.player
+    AdvancedPreviewFrame(Modifier.fillMaxSize(), interactive = true) {
+        when (step) {
+            SetupStep.DeviceNavigation -> AdvancedPanelPreview(
+                panel = AdvancedSetupPanel.NavigationStyle,
+                facts = live.facts,
+                values = live.values,
+                desktop = desktop,
+            )
+            else -> SpecimenPlayerTouch(
+                legacyLayout = p.useLegacyPlayerLayout,
+                showLayoutChoice = live.facts.isMobile,
+                gestures = p.touchGesturesEnabled,
+                holdToSpeed = p.holdToSpeedEnabled,
+                holdSpeed = p.holdToSpeedValue,
+                interactive = true,
+            )
         }
     }
 }
@@ -1094,6 +1145,7 @@ private val SetupStep.specimen: SetupSpecimen
         SetupStep.WelcomeBack,
         SetupStep.Done,
         -> SetupSpecimen.Diagram
+        SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> SetupSpecimen.Device
     }
 
 /**
@@ -1446,6 +1498,7 @@ internal fun SetupStepBody(
     deviceAlertsGranted: Boolean = false,
     deviceAlertsDenied: Boolean = false,
     onAllowDeviceAlerts: () -> Unit = {},
+    deviceLive: AdvancedSetupLive? = null,
 ) {
     AnimatedContent(
         targetState = step,
@@ -1505,6 +1558,18 @@ internal fun SetupStepBody(
                             Text(text = stringResource(Res.string.setup_welcome_back_review))
                         }
                     }
+                }
+
+                // Device Setup's curated "this device" steps: the same controls as the matching
+                // Advanced Setup panels, written through the same setters.
+                SetupStep.DeviceNavigation, SetupStep.DevicePlayer -> if (deviceLive != null) {
+                    AdvancedPanelBody(
+                        panel = if (current == SetupStep.DeviceNavigation) AdvancedSetupPanel.NavigationStyle else AdvancedSetupPanel.PlayerTouch,
+                        facts = deviceLive.facts,
+                        values = deviceLive.values,
+                        onSocialEnabledChange = {},
+                        controlsOverride = deviceSetupControls(current, deviceLive.facts),
+                    )
                 }
 
                 SetupStep.PlaybackMode -> {
@@ -2309,6 +2374,8 @@ private val SetupStep.titleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_title
         SetupStep.WelcomeBack -> Res.string.setup_welcome_back_title
+        SetupStep.DeviceNavigation -> Res.string.setup_device_navigation_title
+        SetupStep.DevicePlayer -> Res.string.setup_device_player_title
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_title
         SetupStep.PlaybackSetup -> Res.string.setup_playback_setup_title
         SetupStep.DownloadMode -> Res.string.download_mode_title
@@ -2357,6 +2424,12 @@ private val SetupStep.subtitleRes
     get() = when (this) {
         SetupStep.Welcome -> Res.string.setup_welcome_subtitle
         SetupStep.WelcomeBack -> Res.string.setup_welcome_back_subtitle
+        SetupStep.DeviceNavigation -> when {
+            isDesktop -> Res.string.setup_device_navigation_subtitle_desktop
+            isIos -> Res.string.setup_device_navigation_subtitle_ios
+            else -> Res.string.setup_device_navigation_subtitle_android
+        }
+        SetupStep.DevicePlayer -> Res.string.setup_device_player_subtitle
         SetupStep.PlaybackMode -> Res.string.playback_mode_selector_subtitle
         // Never read - `setupStepSubtitle` answers for this step - but enumerated so that a new
         // step is a compile error here rather than a header with no subtitle.

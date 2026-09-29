@@ -17,6 +17,16 @@ import org.jetbrains.compose.resources.stringResource
 // because what it binds exists only in this repository. Never carry it across as-is: desktop's copy
 // is the same declarations with empty bodies.
 
+/** Whether Random Episode is on, for the Detail page preview's Shuffle action. Always false on desktop. */
+@Composable
+internal fun rememberAdvancedRandomEpisodeAvailable(): Boolean {
+    val shuffle by remember {
+        EpisodeShuffleRepository.ensureLoaded()
+        EpisodeShuffleRepository.uiState
+    }.collectAsStateWithLifecycle()
+    return shuffle.available
+}
+
 /**
  * Detail page → Random Episode (mobile only, off by default, last on its panel). Writes the same
  * store and shows the same toast as the Settings row in `MetaScreenSettingsPage.kt`.

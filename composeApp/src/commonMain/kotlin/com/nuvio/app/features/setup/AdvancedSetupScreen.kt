@@ -1,5 +1,19 @@
 package com.nuvio.app.features.setup
 
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import kotlinx.coroutines.CoroutineScope
+import com.nuvio.app.features.watchparty.WatchPartySessionCoordinator
+import com.nuvio.app.features.social.holdsLiveParty
+import com.nuvio.app.features.mdblist.MdbListSettingsRepository
+import com.nuvio.app.features.player.AndroidPlaybackEngine
+import com.nuvio.app.features.player.SubtitleRenderer
+import com.nuvio.app.features.settings.ZNestedSettingsPage
+import com.nuvio.app.features.settings.ZNestedSettingsPageHost
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -189,87 +203,23 @@ fun AdvancedSetupScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-
-    val player by remember {
-        PlayerSettingsRepository.ensureLoaded()
-        PlayerSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val posterStyle by remember {
-        PosterCardStyleRepository.ensureLoaded()
-        PosterCardStyleRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val depthStyle by remember {
-        CardDepthStyleRepository.ensureLoaded()
-        CardDepthStyleRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val homeSettings by remember {
-        HomeCatalogSettingsRepository.ensureLoaded()
-        HomeCatalogSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val continueWatching by remember {
-        ContinueWatchingPreferencesRepository.ensureLoaded()
-        ContinueWatchingPreferencesRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val metaSettings by remember {
-        MetaScreenSettingsRepository.ensureLoaded()
-        MetaScreenSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val streamSettings by remember {
-        StreamBadgeSettingsRepository.ensureLoaded()
-        StreamBadgeSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val selectedTheme by remember { ThemeSettingsRepository.selectedTheme }.collectAsStateWithLifecycle()
-    val amoledEnabled by remember { ThemeSettingsRepository.amoledEnabled }.collectAsStateWithLifecycle()
-    val navBarStyle by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
-    val navBarGlow by remember { ThemeSettingsRepository.navBarGlowEnabled }.collectAsStateWithLifecycle()
-    val liquidGlass by remember { ThemeSettingsRepository.liquidGlassNativeTabBarEnabled }.collectAsStateWithLifecycle()
-    val desktopNavLayout by remember {
-        ThemeSettingsRepository.ensureLoaded()
-        ThemeSettingsRepository.desktopNavigationLayout
-    }.collectAsStateWithLifecycle()
-    val downloadPolicy by remember {
-        DownloadPolicyRepository.ensureLoaded()
-        DownloadPolicyRepository.policy
-    }.collectAsStateWithLifecycle()
-    // Read, not loaded: loading the download store starts the engine, so that waits for the panel
-    // that asks a device question (below) - the wizard's rule.
-    val deviceDownloads by remember { DownloadsRepository.deviceSettings }.collectAsStateWithLifecycle()
-    val socialPreferences by remember {
-        SocialFeaturePreferencesRepository.ensureLoaded()
-        SocialFeaturePreferencesRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val socialState by remember { SocialRepository.uiState }.collectAsStateWithLifecycle()
-    val tmdb by remember {
-        TmdbSettingsRepository.ensureLoaded()
-        TmdbSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
+    val live = rememberAdvancedSetupLive()
+    val socialFailed = stringResource(Res.string.advanced_setup_social_save_failed)
+    val social = remember(scope) { AdvancedSocialWrites(scope) { NuvioToastController.show(socialFailed) } }
+    val partySession by remember { WatchPartySessionCoordinator.state }.collectAsStateWithLifecycle()
+    // The switches show the user's choice at once; the repositories catch up (`OptimisticSetting`).
+    social.Observe(live.values)
+    val values = social.applyTo(live.values)
+    val facts = live.facts.copy(socialEnabled = values.socialEnabled)
 
     // Opening the hub is what clears Settings' "New" badge, for this profile on this device.
     LaunchedEffect(Unit) { AdvancedSetupBadge.markOpened(ProfileRepository.activeProfileId) }
 
-    val effectiveDownloadMode = downloadPolicy.effectiveMode(player.playbackMode.forDownloads())
-    val platformFacts = remember {
-        AdvancedSetupFacts(
-            isAndroid = !isIos && !isDesktop,
-            isIos = isIos,
-            isDesktop = isDesktop,
-            navGlowSupported = !isIos && !isDesktop && floatingNavigationGlowSupported,
-            liquidGlassSupported = isIos && isLiquidGlassNativeTabBarSupported(),
-            downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
-            hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
-        )
-    }
-    val facts = platformFacts.copy(
-        playbackModeName = player.playbackMode.name,
-        downloadModeName = effectiveDownloadMode.name,
-        socialEnabled = socialPreferences.enabled,
-        offerSocialIdentity = socialState.me == null && !socialPreferences.hasKnownIdentity,
-        externalPlayer = player.externalPlayerEnabled,
-    )
-
     var panelName by rememberSaveable { mutableStateOf<String?>(null) }
     var touring by rememberSaveable { mutableStateOf(false) }
+    // "Set up in Settings": the real page, drawn over the hub (which stays exactly where it was).
+    var nestedSettingsName by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmLeaveParty by remember { mutableStateOf(false) }
     // Session-only on purpose: "reviewed" means "you looked at it this time", not a stored fact.
     val reviewed = remember { mutableStateListOf<AdvancedSetupCategory>() }
     val panel = advancedSetupPanelForSavedName(panelName)
@@ -331,17 +281,234 @@ fun AdvancedSetupScreen(
     }
 
     fun setSocialEnabled(enabled: Boolean) {
-        // Teardown before the flag, never after - the wizard's ordered shutdown, unchanged.
-        if (enabled) {
-            SocialFeaturePreferencesRepository.setEnabled(true)
+        // Leaving a party is not a silent side effect of a switch - the same confirmation Settings asks.
+        if (!enabled && partySession.phase.holdsLiveParty) {
+            confirmLeaveParty = true
             return
         }
-        scope.launch {
-            shutdownSocialLayer()
-            SocialFeaturePreferencesRepository.setEnabled(false)
+        social.setEnabled(enabled)
+    }
+
+    fun openSettings(page: SettingsPage) {
+        if (ZNestedSettingsPage.supports(page)) {
+            nestedSettingsName = page.name
+        } else {
+            // A page this overlay does not host: leave for real Settings, as before.
+            onClose()
+            ZSettingsNavigation.open(page)
         }
     }
 
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.nuvio.colors.background)
+            .nuvioConsumePointerEvents(),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val insets = WindowInsets.safeDrawing.asPaddingValues()
+            val wideDesktop = isDesktop && maxWidth >= AdvancedSetupDesktopMinWidth
+            // Only the hub <-> panel change crossfades the whole surface. Moving between panels -
+            // Next, Back, the whole tour - keeps the frame, the preview area and the footer in place
+            // and animates only what changes inside them, as Initial Setup does.
+            AnimatedContent(
+                targetState = panel == null,
+                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                label = "advanced_setup_hub",
+            ) { onHub ->
+                if (onHub) {
+                    AdvancedSetupHub(
+                        facts = facts,
+                        values = values,
+                        reviewed = reviewed,
+                        insets = insets,
+                        windowWidth = maxWidth,
+                        onOpenCategory = ::openCategory,
+                        onStartTour = ::startTour,
+                        onClose = onClose,
+                    )
+                } else {
+                    // The last panel shown, held while the hub fades back in.
+                    val held = lastPanelShown(panel)
+                    val current = panel ?: held
+                    if (current != null) {
+                        val position = if (touring) {
+                            val tour = advancedSetupTour(facts)
+                            (tour.indexOfFirst { it.panel == current } + 1).coerceAtLeast(1) to tour.size
+                        } else {
+                            val panels = advancedSetupPanels(current.category, facts)
+                            (panels.indexOf(current) + 1).coerceAtLeast(1) to panels.size
+                        }
+                        val isLast = if (touring) {
+                            nextAdvancedSetupTourStop(current, facts) == null
+                        } else {
+                            nextAdvancedSetupPanel(current, facts) == null
+                        }
+                        AdvancedSetupPanelFrame(
+                            panel = current,
+                            facts = facts,
+                            values = values,
+                            touring = touring,
+                            position = position,
+                            isLast = isLast,
+                            wideDesktop = wideDesktop,
+                            windowHeight = maxHeight,
+                            insets = insets,
+                            onBack = ::back,
+                            onAdvance = ::advance,
+                            onClose = onClose,
+                            onSocialEnabledChange = ::setSocialEnabled,
+                            onSocialSharingChange = social::setSharing,
+                            onJoinPolicyChange = social::setJoinPolicy,
+                            onOpenSettings = ::openSettings,
+                        )
+                    }
+                }
+            }
+        }
+
+        val nestedPage = nestedSettingsName?.let { name -> SettingsPage.entries.firstOrNull { it.name == name } }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = nestedPage != null,
+            enter = fadeIn(tween(200)) + slideInHorizontally(tween(260, easing = LinearOutSlowInEasing)) { it / 8 },
+            exit = fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { it / 8 },
+        ) {
+            val held = lastNestedPage(nestedPage)
+            val page = nestedPage ?: held
+            if (page != null) {
+                ZNestedSettingsPageHost(page = page, onBack = { nestedSettingsName = null })
+            }
+        }
+    }
+
+    if (confirmLeaveParty) {
+        AlertDialog(
+            onDismissRequest = { confirmLeaveParty = false },
+            title = { Text(stringResource(Res.string.settings_social_leave_party_title)) },
+            text = { Text(stringResource(Res.string.settings_social_leave_party_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLeaveParty = false
+                        social.setEnabled(false)
+                    },
+                ) {
+                    Text(stringResource(Res.string.settings_social_leave_party_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeaveParty = false }) {
+                    Text(stringResource(Res.string.settings_social_leave_party_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** Remembers the last non-null panel, so an exit animation keeps drawing what was on screen. */
+@Composable
+private fun lastPanelShown(current: AdvancedSetupPanel?): AdvancedSetupPanel? {
+    val last = remember { mutableStateOf<AdvancedSetupPanel?>(null) }
+    if (current != null) last.value = current
+    return last.value
+}
+
+@Composable
+private fun lastNestedPage(current: SettingsPage?): SettingsPage? {
+    val last = remember { mutableStateOf<SettingsPage?>(null) }
+    if (current != null) last.value = current
+    return last.value
+}
+
+/**
+ * Everything Advanced Setup draws, read live from the repositories its controls write - also what
+ * Device Setup's navigation and player steps render from, so those steps and the panels they borrow
+ * cannot disagree.
+ */
+@Immutable
+internal class AdvancedSetupLive(val facts: AdvancedSetupFacts, val values: AdvancedSetupValues)
+
+@Composable
+internal fun rememberAdvancedSetupLive(): AdvancedSetupLive {
+    val player by remember {
+        PlayerSettingsRepository.ensureLoaded()
+        PlayerSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val posterStyle by remember {
+        PosterCardStyleRepository.ensureLoaded()
+        PosterCardStyleRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val depthStyle by remember {
+        CardDepthStyleRepository.ensureLoaded()
+        CardDepthStyleRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val homeSettings by remember {
+        HomeCatalogSettingsRepository.ensureLoaded()
+        HomeCatalogSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val continueWatching by remember {
+        ContinueWatchingPreferencesRepository.ensureLoaded()
+        ContinueWatchingPreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val metaSettings by remember {
+        MetaScreenSettingsRepository.ensureLoaded()
+        MetaScreenSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val streamSettings by remember {
+        StreamBadgeSettingsRepository.ensureLoaded()
+        StreamBadgeSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val selectedTheme by remember { ThemeSettingsRepository.selectedTheme }.collectAsStateWithLifecycle()
+    val amoledEnabled by remember { ThemeSettingsRepository.amoledEnabled }.collectAsStateWithLifecycle()
+    val navBarStyle by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
+    val navBarGlow by remember { ThemeSettingsRepository.navBarGlowEnabled }.collectAsStateWithLifecycle()
+    val liquidGlass by remember { ThemeSettingsRepository.liquidGlassNativeTabBarEnabled }.collectAsStateWithLifecycle()
+    val desktopNavLayout by remember {
+        ThemeSettingsRepository.ensureLoaded()
+        ThemeSettingsRepository.desktopNavigationLayout
+    }.collectAsStateWithLifecycle()
+    val downloadPolicy by remember {
+        DownloadPolicyRepository.ensureLoaded()
+        DownloadPolicyRepository.policy
+    }.collectAsStateWithLifecycle()
+    // Read, not loaded: loading the download store starts the engine, so that waits for the panel
+    // that asks a device question - the wizard's rule.
+    val deviceDownloads by remember { DownloadsRepository.deviceSettings }.collectAsStateWithLifecycle()
+    val socialPreferences by remember {
+        SocialFeaturePreferencesRepository.ensureLoaded()
+        SocialFeaturePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val socialState by remember { SocialRepository.uiState }.collectAsStateWithLifecycle()
+    val tmdb by remember {
+        TmdbSettingsRepository.ensureLoaded()
+        TmdbSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val mdbList by remember {
+        MdbListSettingsRepository.ensureLoaded()
+        MdbListSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
+    val randomEpisodeAvailable = rememberAdvancedRandomEpisodeAvailable()
+
+    val effectiveDownloadMode = downloadPolicy.effectiveMode(player.playbackMode.forDownloads())
+    val platformFacts = remember {
+        AdvancedSetupFacts(
+            isAndroid = !isIos && !isDesktop,
+            isIos = isIos,
+            isDesktop = isDesktop,
+            navGlowSupported = !isIos && !isDesktop && floatingNavigationGlowSupported,
+            liquidGlassSupported = isIos && isLiquidGlassNativeTabBarSupported(),
+            downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
+            hasTrackingCredentials = TraktAuthRepository.hasRequiredCredentials() || SimklAuthRepository.hasRequiredCredentials(),
+        )
+    }
+    val facts = platformFacts.copy(
+        playbackModeName = player.playbackMode.name,
+        downloadModeName = effectiveDownloadMode.name,
+        socialEnabled = socialPreferences.enabled,
+        offerSocialIdentity = socialState.me == null && !socialPreferences.hasKnownIdentity,
+        externalPlayer = player.externalPlayerEnabled,
+    )
     val values = AdvancedSetupValues(
         playbackMode = player.playbackMode,
         player = player,
@@ -366,6 +533,8 @@ fun AdvancedSetupScreen(
         episodeCardStyle = metaSettings.episodeCardStyle,
         blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
         episodeRatings = metaSettings.episodeRatingsVisibility,
+        randomEpisodeAvailable = randomEpisodeAvailable,
+        mdbListActive = mdbList.isActive,
         streamBackground = streamSettings.backgroundMode,
         streamSizeBadges = streamSettings.showFileSizeBadges,
         streamBadgePlacement = streamSettings.badgePlacement,
@@ -388,67 +557,100 @@ fun AdvancedSetupScreen(
         tmdbEnabled = tmdb.enabled,
         tmdbLanguage = tmdb.language,
     )
+    return AdvancedSetupLive(facts = facts, values = values)
+}
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.nuvio.colors.background)
-            .nuvioConsumePointerEvents(),
-    ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val insets = WindowInsets.safeDrawing.asPaddingValues()
-            val wideDesktop = isDesktop && maxWidth >= AdvancedSetupDesktopMinWidth
-            AnimatedContent(
-                targetState = panel,
-                transitionSpec = {
-                    val forward = (targetState?.ordinal ?: -1) >= (initialState?.ordinal ?: -1)
-                    val offset = if (forward) 1 else -1
-                    (fadeIn(tween(220)) + slideInHorizontally(tween(280, easing = LinearOutSlowInEasing)) { it / 10 * offset }) togetherWith
-                        (fadeOut(tween(140)) + slideOutHorizontally(tween(280, easing = LinearOutSlowInEasing)) { -it / 10 * offset })
-                },
-                label = "advanced_setup",
-            ) { current ->
-                if (current == null) {
-                    AdvancedSetupHub(
-                        facts = facts,
-                        values = values,
-                        reviewed = reviewed,
-                        insets = insets,
-                        windowWidth = maxWidth,
-                        onOpenCategory = ::openCategory,
-                        onStartTour = ::startTour,
-                        onClose = onClose,
-                    )
-                } else {
-                    val position = if (touring) {
-                        val tour = advancedSetupTour(facts)
-                        (tour.indexOfFirst { it.panel == current } + 1).coerceAtLeast(1) to tour.size
-                    } else {
-                        val panels = advancedSetupPanels(current.category, facts)
-                        (panels.indexOf(current) + 1).coerceAtLeast(1) to panels.size
-                    }
-                    val isLast = if (touring) {
-                        nextAdvancedSetupTourStop(current, facts) == null
-                    } else {
-                        nextAdvancedSetupPanel(current, facts) == null
-                    }
-                    AdvancedSetupPanelFrame(
-                        panel = current,
-                        facts = facts,
-                        values = values,
-                        touring = touring,
-                        position = position,
-                        isLast = isLast,
-                        wideDesktop = wideDesktop,
-                        windowHeight = maxHeight,
-                        insets = insets,
-                        onBack = ::back,
-                        onAdvance = ::advance,
-                        onClose = onClose,
-                        onSocialEnabledChange = ::setSocialEnabled,
-                    )
+/**
+ * The Social switches' writes, shown at once (setup polish, physical QA). Every switch here used to
+ * wait for its server round trip before it moved, which read as a frozen control for about two
+ * seconds. Each value now goes through an [OptimisticSetting]: shown immediately, written in the
+ * background, reverted with a toast only if the server refuses. Turning social off keeps its ordered
+ * shutdown - teardown before the flag - it just no longer holds the switch still while it runs.
+ */
+@Stable
+internal class AdvancedSocialWrites(
+    private val scope: CoroutineScope,
+    private val onFailed: () -> Unit,
+) {
+    private var enabled by mutableStateOf(OptimisticSetting<Boolean>())
+    private var watchingNow by mutableStateOf(OptimisticSetting<Boolean>())
+    private var watched by mutableStateOf(OptimisticSetting<Boolean>())
+    private var joinPolicy by mutableStateOf(OptimisticSetting<WatchJoinPolicy>())
+    private var confirmedWatchingNow = true
+    private var confirmedWatched = true
+
+    fun applyTo(values: AdvancedSetupValues): AdvancedSetupValues = values.copy(
+        socialEnabled = enabled.shown(values.socialEnabled),
+        shareWatchingNow = watchingNow.shown(values.shareWatchingNow),
+        shareWatched = watched.shown(values.shareWatched),
+        joinPolicy = joinPolicy.shown(values.joinPolicy),
+    )
+
+    /** Lets each pending choice clear once the repository agrees (or something newer speaks). */
+    @Composable
+    fun Observe(confirmed: AdvancedSetupValues) {
+        LaunchedEffect(confirmed.socialEnabled) { enabled = enabled.observed(confirmed.socialEnabled) }
+        LaunchedEffect(confirmed.shareWatchingNow) {
+            confirmedWatchingNow = confirmed.shareWatchingNow
+            watchingNow = watchingNow.observed(confirmed.shareWatchingNow)
+        }
+        LaunchedEffect(confirmed.shareWatched) {
+            confirmedWatched = confirmed.shareWatched
+            watched = watched.observed(confirmed.shareWatched)
+        }
+        LaunchedEffect(confirmed.joinPolicy) { joinPolicy = joinPolicy.observed(confirmed.joinPolicy) }
+    }
+
+    fun setEnabled(value: Boolean) {
+        enabled = enabled.begin(value)
+        val generation = enabled.generation
+        if (value) {
+            SocialFeaturePreferencesRepository.setEnabled(true)
+            enabled = enabled.succeeded(generation)
+            return
+        }
+        scope.launch {
+            // Teardown before the flag, never after - the wizard's ordered shutdown, unchanged.
+            runCatching { shutdownSocialLayer() }
+            SocialFeaturePreferencesRepository.setEnabled(false)
+            enabled = enabled.succeeded(generation)
+        }
+    }
+
+    fun setSharing(watchingNowValue: Boolean, watchedValue: Boolean) {
+        val nowChanged = watchingNowValue != watchingNow.shown(confirmedWatchingNow)
+        val watchedChanged = watchedValue != watched.shown(confirmedWatched)
+        if (nowChanged) watchingNow = watchingNow.begin(watchingNowValue)
+        if (watchedChanged) watched = watched.begin(watchedValue)
+        val nowGeneration = watchingNow.generation
+        val watchedGeneration = watched.generation
+        scope.launch {
+            SocialRepository.setPrivacy(watchingNowValue, watchedValue)
+                .onSuccess {
+                    watchingNow = watchingNow.succeeded(nowGeneration)
+                    watched = watched.succeeded(watchedGeneration)
                 }
-            }
+                .onFailure {
+                    val a = watchingNow.failed(nowGeneration)
+                    val b = watched.failed(watchedGeneration)
+                    watchingNow = a.state
+                    watched = b.state
+                    if (a.notify || b.notify) onFailed()
+                }
+        }
+    }
+
+    fun setJoinPolicy(value: WatchJoinPolicy) {
+        joinPolicy = joinPolicy.begin(value)
+        val generation = joinPolicy.generation
+        scope.launch {
+            SocialRepository.setDefaultJoinPolicy(value)
+                .onSuccess { joinPolicy = joinPolicy.succeeded(generation) }
+                .onFailure {
+                    val failure = joinPolicy.failed(generation)
+                    joinPolicy = failure.state
+                    if (failure.notify) onFailed()
+                }
         }
     }
 }
@@ -485,6 +687,10 @@ internal data class AdvancedSetupValues(
     val episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
     val blurUnwatchedEpisodes: Boolean = false,
     val episodeRatings: EpisodeRatingsVisibility = EpisodeRatingsVisibility.SHOW_ALL,
+    /** Random Episode (mobile only): the detail page's Shuffle action is available. */
+    val randomEpisodeAvailable: Boolean = false,
+    /** MDBList is configured and on, so the detail page shows its multi-source ratings row. */
+    val mdbListActive: Boolean = false,
     val streamBackground: StreamBackgroundMode = StreamBackgroundMode.Normal,
     val streamSizeBadges: Boolean = true,
     val streamBadgePlacement: StreamBadgePlacement = StreamBadgePlacement.BOTTOM,
@@ -567,11 +773,10 @@ internal fun AdvancedSetupHub(
                 }
                 AdvancedCloseButton(onClose = onClose)
             }
-            OutlinedButton(onClick = onStartTour) {
-                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(Res.string.advanced_setup_tour))
-            }
+            AdvancedTourCard(
+                panelCount = advancedSetupTour(facts).size,
+                onStartTour = onStartTour,
+            )
             AdvancedSetupGroup.entries.forEach { group ->
                 val inGroup = categories.filter { it.group == group }
                 if (inGroup.isEmpty()) return@forEach
@@ -599,6 +804,54 @@ internal fun AdvancedSetupHub(
                 }
             }
             SetupFootnote(stringResource(Res.string.advanced_setup_footnote))
+        }
+    }
+}
+
+/**
+ * "Take the full tour" as the hub's clear primary path (setup polish, physical QA): an accent card
+ * with what it is and how long, and a filled button - where it was a quiet outlined button that read
+ * as a footnote. The categories below stay the pick-and-choose route; nothing here is mandatory.
+ */
+@Composable
+private fun AdvancedTourCard(panelCount: Int, onStartTour: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(tokens.colors.accent.copy(alpha = 0.26f), tokens.colors.accent.copy(alpha = 0.08f)),
+                ),
+            )
+            .border(1.dp, tokens.colors.accent.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+            .clickable(role = Role.Button, onClick = onStartTour)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(tokens.colors.accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = tokens.colors.onAccent, modifier = Modifier.size(24.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = stringResource(Res.string.advanced_setup_tour),
+                style = MaterialTheme.typography.titleMedium,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(Res.string.advanced_setup_tour_body, panelCount),
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textSecondary,
+            )
+        }
+        Button(onClick = onStartTour) {
+            Text(stringResource(Res.string.advanced_setup_tour_start))
         }
     }
 }
@@ -837,8 +1090,16 @@ internal fun AdvancedSetupPanelFrame(
     onAdvance: () -> Unit,
     onClose: () -> Unit,
     onSocialEnabledChange: (Boolean) -> Unit,
+    onSocialSharingChange: (Boolean, Boolean) -> Unit = { _, _ -> },
+    onJoinPolicyChange: (WatchJoinPolicy) -> Unit = {},
+    onOpenSettings: (SettingsPage) -> Unit = ZSettingsNavigation::open,
 ) {
     val tokens = MaterialTheme.nuvio
+    // Which way the panel content slides: forward on Next, backward on Back, as Initial Setup does.
+    var lastOrdinal by remember { mutableStateOf(panel.ordinal) }
+    val goingForward = panel.ordinal >= lastOrdinal
+    LaunchedEffect(panel) { lastOrdinal = panel.ordinal }
+
     val header: @Composable () -> Unit = {
         AdvancedPanelHeader(panel = panel, facts = facts, touring = touring, position = position, onClose = onClose)
     }
@@ -869,19 +1130,40 @@ internal fun AdvancedSetupPanelFrame(
             }
         }
     }
+    // ⚠ **Only the panel's own content moves between panels** - `SetupStepBody`'s transition,
+    // reused. The whole-screen slide this replaced re-drew the preview, the header and the footer on
+    // every Next of the tour, which read as a new screen each time.
     val body: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            AdvancedPanelBody(
-                panel = panel,
-                facts = facts,
-                values = values,
-                onSocialEnabledChange = onSocialEnabledChange,
-                onOpenSettings = { page ->
-                    // Leave for the real page: the hub closes, Settings opens on it.
-                    onClose()
-                    ZSettingsNavigation.open(page)
-                },
-            )
+        AnimatedContent(
+            targetState = panel,
+            transitionSpec = { advancedPanelTransition(goingForward) },
+            label = "advanced_setup_body",
+        ) { current ->
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdvancedPanelBody(
+                    panel = current,
+                    facts = facts,
+                    values = values,
+                    onSocialEnabledChange = onSocialEnabledChange,
+                    onSocialSharingChange = onSocialSharingChange,
+                    onJoinPolicyChange = onJoinPolicyChange,
+                    onOpenSettings = onOpenSettings,
+                )
+            }
+        }
+    }
+    // The preview is swapped only when the panel needs a different one, and crossfades when it is:
+    // two panels over the same preview (Player controls and Touch, the Home panels) keep it on screen
+    // and it changes in place, as the wizard's band does.
+    val preview: @Composable (Boolean) -> Unit = { desktop ->
+        AnimatedContent(
+            targetState = panel.previewKey,
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+            label = "advanced_setup_preview",
+        ) { _ ->
+            AdvancedPreviewFrame(Modifier.fillMaxSize(), interactive = panel.previewIsInteractive) {
+                AdvancedPanelPreview(panel = panel, facts = facts, values = values, desktop = desktop)
+            }
         }
     }
 
@@ -889,28 +1171,30 @@ internal fun AdvancedSetupPanelFrame(
         SetupDesktopSplitFrame(
             topInset = insets.calculateTopPadding(),
             bottomInset = insets.calculateBottomPadding(),
-            header = header,
-            footer = footer,
-            preview = { modifier ->
-                AdvancedPreviewFrame(modifier) {
-                    AdvancedPanelPreview(panel = panel, facts = facts, values = values, desktop = true)
-                }
+            header = {
+                AnimatedContent(targetState = panel, transitionSpec = { advancedPanelTransition(goingForward) }, label = "advanced_setup_header") { _ -> header() }
             },
+            footer = footer,
+            preview = { modifier -> Box(modifier) { preview(true) } },
             body = body,
         )
         return
     }
 
     Column(Modifier.fillMaxSize()) {
-        val band = panel.previewHeight(desktop = false)
-            .coerceAtMost(windowHeight * 0.44f)
-        AdvancedPreviewFrame(
+        val band by animateDpAsState(
+            targetValue = panel.previewHeight(desktop = false).coerceAtMost(windowHeight * 0.46f),
+            animationSpec = tween(320, easing = LinearOutSlowInEasing),
+            label = "advanced_setup_band",
+        )
+        Box(
             Modifier
                 .fillMaxWidth()
                 .height(band + insets.calculateTopPadding())
+                .background(tokens.colors.background)
                 .padding(top = insets.calculateTopPadding()),
         ) {
-            AdvancedPanelPreview(panel = panel, facts = facts, values = values, desktop = false)
+            preview(false)
         }
         Box(
             modifier = Modifier
@@ -932,7 +1216,7 @@ internal fun AdvancedSetupPanelFrame(
                     .fillMaxHeight()
                     .padding(start = 22.dp, end = 22.dp, top = 18.dp, bottom = 14.dp + insets.calculateBottomPadding()),
             ) {
-                header()
+                AnimatedContent(targetState = panel, transitionSpec = { advancedPanelTransition(goingForward) }, label = "advanced_setup_header") { _ -> header() }
                 Spacer(Modifier.height(16.dp))
                 Box(
                     modifier = Modifier
@@ -947,6 +1231,18 @@ internal fun AdvancedSetupPanelFrame(
             }
         }
     }
+}
+
+/** `SetupStepBody`'s transition: a short slide in the direction of travel under a fade. */
+private fun advancedPanelTransition(goingForward: Boolean): ContentTransform {
+    val offset = if (goingForward) 1 else -1
+    return (
+        fadeIn(tween(220)) +
+            slideInHorizontally(tween(280, easing = LinearOutSlowInEasing)) { it / 6 * offset }
+        ) togetherWith (
+        fadeOut(tween(140)) +
+            slideOutHorizontally(tween(280, easing = LinearOutSlowInEasing)) { -it / 6 * offset }
+        )
 }
 
 @Composable
@@ -990,6 +1286,41 @@ private fun AdvancedPanelHeader(
     }
 }
 
+/**
+ * Which previews are meant to be **tried** rather than looked at, and so let touches, clicks, hovers
+ * and scrolls through the frame: the Touch stage, the real navigation bars, the hover cards, the
+ * detail page's tab row and the scrolling source list. Every other preview stays inert, as before.
+ */
+internal val AdvancedSetupPanel.previewIsInteractive: Boolean
+    get() = when (this) {
+        AdvancedSetupPanel.PlayerTouch,
+        AdvancedSetupPanel.NavigationStyle,
+        AdvancedSetupPanel.PosterHover,
+        AdvancedSetupPanel.DetailLayout,
+        AdvancedSetupPanel.SourceListLook,
+        -> true
+        else -> false
+    }
+
+/** Panels that share a preview share this key, so moving between them keeps the preview in place. */
+private val AdvancedSetupPanel.previewKey: String
+    get() = when (this) {
+        AdvancedSetupPanel.PlaybackModeChoice,
+        AdvancedSetupPanel.PlaybackSourcePreferences,
+        AdvancedSetupPanel.PlaybackSourceFormat,
+        -> "playback"
+        AdvancedSetupPanel.DownloadModeChoice,
+        AdvancedSetupPanel.DownloadPreferences,
+        AdvancedSetupPanel.DownloadDevice,
+        -> "downloads"
+        AdvancedSetupPanel.SkipSegments, AdvancedSetupPanel.NextEpisode -> "skip"
+        AdvancedSetupPanel.SubtitleLook, AdvancedSetupPanel.SubtitlePlacement -> "subtitles"
+        AdvancedSetupPanel.PosterShape, AdvancedSetupPanel.PosterEffects -> "posters"
+        AdvancedSetupPanel.HomeHero, AdvancedSetupPanel.HomeContinueWatching -> "home"
+        AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> "social"
+        else -> name
+    }
+
 /** How tall a panel's preview band is on a phone (capped against the window by the caller). */
 private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this) {
     AdvancedSetupPanel.PlaybackModeChoice,
@@ -1000,24 +1331,33 @@ private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this)
     AdvancedSetupPanel.DownloadDevice,
     -> SetupSpecimen.Diagram.preferredHeight
     AdvancedSetupPanel.PlayerControls -> 300.dp
-    AdvancedSetupPanel.PlayerTouch -> 230.dp
+    AdvancedSetupPanel.PlayerTouch -> 250.dp
     AdvancedSetupPanel.SkipSegments -> 150.dp
     AdvancedSetupPanel.NextEpisode -> 230.dp
-    AdvancedSetupPanel.SubtitleLook, AdvancedSetupPanel.SubtitlePlacement -> 230.dp
-    AdvancedSetupPanel.NavigationStyle -> if (isDesktop) 280.dp else 200.dp
+    AdvancedSetupPanel.SubtitleLook, AdvancedSetupPanel.SubtitlePlacement -> 210.dp
+    AdvancedSetupPanel.NavigationStyle -> if (isDesktop) 300.dp else 250.dp
     AdvancedSetupPanel.ThemePalette -> SetupSpecimen.Theme.preferredHeight
     AdvancedSetupPanel.PosterShape, AdvancedSetupPanel.PosterEffects, AdvancedSetupPanel.PosterHover -> 300.dp
-    AdvancedSetupPanel.HomeHero, AdvancedSetupPanel.HomeContinueWatching -> SetupSpecimen.Home.preferredHeight
-    AdvancedSetupPanel.DetailLayout, AdvancedSetupPanel.DetailEpisodes -> SetupSpecimen.Details.preferredHeight
-    AdvancedSetupPanel.SourceListLook -> 220.dp
+    AdvancedSetupPanel.HomeHero, AdvancedSetupPanel.HomeContinueWatching -> 360.dp
+    AdvancedSetupPanel.DetailLayout -> 400.dp
+    AdvancedSetupPanel.DetailEpisodes -> 360.dp
+    AdvancedSetupPanel.SourceListLook -> 300.dp
     AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> 200.dp
-    AdvancedSetupPanel.EnhancedMetadata -> 345.dp
+    AdvancedSetupPanel.EnhancedMetadata -> 360.dp
     AdvancedSetupPanel.TrackingServices -> 160.dp
 }.let { if (desktop) it * DesktopSpecimenScale else it }
 
+/** The renderer this device's player will draw subtitles with (`SubtitleRenderGeometry.kt`). */
+internal fun subtitleRendererFor(player: com.nuvio.app.features.player.PlayerSettingsUiState): SubtitleRenderer = when {
+    isIos || isDesktop -> SubtitleRenderer.Mpv
+    player.androidPlaybackEngine == AndroidPlaybackEngine.Libmpv -> SubtitleRenderer.AndroidMpv
+    else -> SubtitleRenderer.ExoPlayer
+}
+
 /**
  * The preview for [panel]. Wizard specimens are drawn through `SetupSpecimenBand` so the two flows
- * show exactly the same drawing for the same setting; the rest are `AdvancedSetupPreviews.kt`.
+ * show exactly the same drawing for the same setting; the rest are `AdvancedSetupPreviews.kt`,
+ * `AdvancedSetupPlayerPreviews.kt` and `AdvancedSetupScreenPreviews.kt`.
  */
 @Composable
 internal fun AdvancedPanelPreview(
@@ -1041,19 +1381,21 @@ internal fun AdvancedPanelPreview(
         AdvancedSetupPanel.DownloadPreferences,
         AdvancedSetupPanel.DownloadDevice,
         -> band(SetupSpecimen.Diagram, SetupStep.DownloadMode)
-        AdvancedSetupPanel.PlayerControls,
-        AdvancedSetupPanel.PlayerTouch,
-        -> SpecimenPlayerChrome(
+        AdvancedSetupPanel.PlayerControls -> SpecimenPlayerChrome(
             legacyLayout = p.useLegacyPlayerLayout,
             showLayoutChoice = facts.isMobile,
             pauseOverlay = p.pauseOverlayEnabled,
             loadingOverlay = p.showLoadingOverlay,
             contentWarnings = p.showParentalGuide,
-            touchPanel = panel == AdvancedSetupPanel.PlayerTouch,
-            touchGestures = p.touchGesturesEnabled,
+            desktop = desktop || facts.isDesktop,
+        )
+        AdvancedSetupPanel.PlayerTouch -> SpecimenPlayerTouch(
+            legacyLayout = p.useLegacyPlayerLayout,
+            showLayoutChoice = facts.isMobile,
+            gestures = p.touchGesturesEnabled,
             holdToSpeed = p.holdToSpeedEnabled,
             holdSpeed = p.holdToSpeedValue,
-            scale = scale,
+            interactive = true,
         )
         AdvancedSetupPanel.SkipSegments,
         AdvancedSetupPanel.NextEpisode,
@@ -1069,9 +1411,15 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.SubtitleLook,
         AdvancedSetupPanel.SubtitlePlacement,
-        -> SpecimenSubtitles(style = p.subtitleStyle, scale = scale)
+        -> SpecimenSubtitles(style = p.subtitleStyle, renderer = subtitleRendererFor(p), desktop = desktop || facts.isDesktop)
         AdvancedSetupPanel.NavigationStyle -> when {
-            facts.isDesktop -> SpecimenDesktopNavigation(layout = values.desktopNavLayout, style = values.navBarStyle, scale = if (desktop) 1.3f else 0.8f)
+            facts.isDesktop -> SpecimenDesktopNavigation(
+                layout = values.desktopNavLayout,
+                style = values.navBarStyle,
+                heroEnabled = values.heroEnabled,
+                socialEnabled = values.socialEnabled,
+                glowEnabled = values.navBarGlow,
+            )
             facts.isIos -> SpecimenIosTabBar(liquidGlass = values.liquidGlass, scale = scale)
             else -> SpecimenAndroidNavigation(style = values.navBarStyle, glowEnabled = values.navBarGlow)
         }
@@ -1090,10 +1438,31 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.HomeHero,
         AdvancedSetupPanel.HomeContinueWatching,
-        -> band(SetupSpecimen.Home, SetupStep.Look)
+        -> SpecimenHomeScreen(
+            heroEnabled = values.heroEnabled,
+            showCatalogType = values.showCatalogType,
+            continueWatchingVisible = values.continueWatchingVisible,
+            continueWatchingStyle = values.continueWatchingStyle,
+            useEpisodeThumbnails = values.useEpisodeThumbnails,
+            blurNextUp = values.blurNextUp,
+            focusContinueWatching = panel == AdvancedSetupPanel.HomeContinueWatching,
+            desktop = desktop || facts.isDesktop,
+        )
         AdvancedSetupPanel.DetailLayout,
         AdvancedSetupPanel.DetailEpisodes,
-        -> band(SetupSpecimen.Details, SetupStep.Look)
+        -> SpecimenDetailPage(
+            focus = if (panel == AdvancedSetupPanel.DetailLayout) DetailPreviewFocus.Layout else DetailPreviewFocus.Episodes,
+            mode = values.detailBackground,
+            tabLayout = values.detailTabLayout,
+            showOverallRatings = values.showOverallRatings,
+            mdbListActive = values.mdbListActive,
+            episodeCardStyle = values.episodeCardStyle,
+            blurUnwatched = values.blurUnwatchedEpisodes,
+            episodeRatings = values.episodeRatings,
+            randomEpisodeAvailable = facts.isMobile && values.randomEpisodeAvailable,
+            cornerRadiusDp = values.posterCornerRadiusDp,
+            desktop = desktop || facts.isDesktop,
+        )
         AdvancedSetupPanel.SourceListLook -> SpecimenSourceList(
             backgroundMode = values.streamBackground,
             showSizeBadges = values.streamSizeBadges,
@@ -1109,7 +1478,7 @@ internal fun AdvancedPanelPreview(
             shareWatched = values.shareWatched,
             scale = scale,
         )
-        AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, scale = scale)
+        AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, desktop = desktop || facts.isDesktop)
         AdvancedSetupPanel.TrackingServices -> SpecimenTracking(scale = scale)
     }
 }
@@ -1120,8 +1489,8 @@ internal fun AdvancedPanelPreview(
  * On a phone it is the band at the panel's height. On a desktop pane it is drawn exactly as
  * `SetupWizardDesktopLayout` draws it: at the specimen's own desktop budget (`desktopHeight`), capped
  * to the pane, between a `background` filler above and a `surface` filler below that continue the
- * band's own gradient - so the Home and Details mocks are neither cropped nor stretched, and the pane
- * reads as one surface with no step at either edge.
+ * band's own gradient - so the mocks are neither cropped nor stretched, and the pane reads as one
+ * surface with no step at either edge.
  */
 @Composable
 private fun AdvancedSpecimenBand(
@@ -1165,7 +1534,9 @@ private fun AdvancedSpecimenBand(
         )
     }
     if (!desktop) {
-        drawBand(panel.previewHeight(desktop = false))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            drawBand(panel.previewHeight(desktop = false).coerceAtMost(maxHeight))
+        }
         return
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -1190,9 +1561,13 @@ internal fun AdvancedPanelBody(
     facts: AdvancedSetupFacts,
     values: AdvancedSetupValues,
     onSocialEnabledChange: (Boolean) -> Unit,
+    onSocialSharingChange: (Boolean, Boolean) -> Unit = { _, _ -> },
+    onJoinPolicyChange: (WatchJoinPolicy) -> Unit = {},
     onOpenSettings: (SettingsPage) -> Unit = ZSettingsNavigation::open,
+    /** Draw only these controls instead of the panel's own list (Device Setup's borrowed steps). */
+    controlsOverride: List<AdvancedSetupControl>? = null,
 ) {
-    val controls = advancedSetupControls(panel, facts)
+    val controls = controlsOverride ?: advancedSetupControls(panel, facts)
     when (panel) {
         // Whole-panel bodies shared with the wizard, so the two can never ask differently.
         AdvancedSetupPanel.PlaybackModeChoice -> {
@@ -1267,10 +1642,12 @@ internal fun AdvancedPanelBody(
             facts = facts,
             values = values,
             onSocialEnabledChange = onSocialEnabledChange,
+            onSocialSharingChange = onSocialSharingChange,
+            onJoinPolicyChange = onJoinPolicyChange,
             onOpenSettings = onOpenSettings,
         )
     }
-    panelFootnote(panel)?.let { SetupFootnote(stringResource(it)) }
+    if (controlsOverride == null) panelFootnote(panel)?.let { SetupFootnote(stringResource(it)) }
 }
 
 private fun panelFootnote(panel: AdvancedSetupPanel): StringResource? = when (panel) {
@@ -1287,10 +1664,11 @@ private fun AdvancedControl(
     facts: AdvancedSetupFacts,
     values: AdvancedSetupValues,
     onSocialEnabledChange: (Boolean) -> Unit,
+    onSocialSharingChange: (Boolean, Boolean) -> Unit,
+    onJoinPolicyChange: (WatchJoinPolicy) -> Unit,
     onOpenSettings: (SettingsPage) -> Unit,
 ) {
     val p = values.player
-    val scope = rememberCoroutineScope()
     when (control) {
         AdvancedSetupControl.PlaybackModeCards,
         AdvancedSetupControl.QualityLimit,
@@ -1781,17 +2159,13 @@ private fun AdvancedControl(
             title = stringResource(Res.string.settings_social_share_watching),
             description = stringResource(Res.string.settings_social_share_watching_description),
             checked = values.shareWatchingNow,
-            onCheckedChange = { share ->
-                if (values.socialReady) scope.launch { SocialRepository.setPrivacy(share, values.shareWatched) }
-            },
+            onCheckedChange = { share -> if (values.socialReady) onSocialSharingChange(share, values.shareWatched) },
         )
         AdvancedSetupControl.ShareWatched -> SetupToggleRow(
             title = stringResource(Res.string.settings_social_share_recent),
             description = stringResource(Res.string.settings_social_share_recent_description),
             checked = values.shareWatched,
-            onCheckedChange = { share ->
-                if (values.socialReady) scope.launch { SocialRepository.setPrivacy(values.shareWatchingNow, share) }
-            },
+            onCheckedChange = { share -> if (values.socialReady) onSocialSharingChange(values.shareWatchingNow, share) },
         )
         AdvancedSetupControl.JoinPolicy -> SetupQuestion(
             title = stringResource(Res.string.settings_social_join_policy),
@@ -1804,7 +2178,7 @@ private fun AdvancedControl(
                     NuvioSegment(stringResource(Res.string.settings_social_join_policy_disabled), WatchJoinPolicy.disabled),
                 ),
                 selected = values.joinPolicy,
-                onSelected = { policy -> if (values.socialReady) scope.launch { SocialRepository.setDefaultJoinPolicy(policy) } },
+                onSelected = { policy -> if (values.socialReady) onJoinPolicyChange(policy) },
                 compact = true,
             )
         }

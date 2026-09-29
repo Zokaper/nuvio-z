@@ -228,7 +228,7 @@ private val HomeRowBottomPadding = 12.dp
  * `NavItem` is a member of `NuvioNavigationBar`'s content receiver, so it needs no import.
  */
 @Composable
-private fun SetupStillNavigationBar(modifier: Modifier = Modifier) {
+internal fun SetupStillNavigationBar(modifier: Modifier = Modifier) {
     NuvioNavigationBar(modifier = modifier.fillMaxWidth()) {
         NavItem(
             selected = true,

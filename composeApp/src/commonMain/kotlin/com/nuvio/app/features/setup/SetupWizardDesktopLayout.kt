@@ -91,6 +91,8 @@ fun SetupWizardDesktopLayout(
     onAdvance: () -> Unit,
     advance: SetupAdvance = SetupAdvance.Shown,
     modifier: Modifier = Modifier,
+    /** Drawn in the specimen pane instead of the band (Device Setup's navigation and player steps). */
+    customSpecimen: (@Composable () -> Unit)? = null,
     body: @Composable () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -130,7 +132,14 @@ fun SetupWizardDesktopLayout(
             // `surface` continues the gradient's own endpoints exactly, so both edges vanish and
             // the pane reads as one continuous fade - the same thing a full-height band would
             // have drawn, but with the specimen still at the height it was designed for.
-            Column(
+            if (customSpecimen != null) Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(tokens.colors.background),
+            ) {
+                customSpecimen()
+            } else Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
@@ -289,6 +298,7 @@ internal val SetupSpecimen.desktopHeight: Dp
         SetupSpecimen.Cards -> 420.dp
         SetupSpecimen.Theme -> 300.dp
         SetupSpecimen.Diagram -> 420.dp
+        SetupSpecimen.Device -> 560.dp
     }
 
 /**

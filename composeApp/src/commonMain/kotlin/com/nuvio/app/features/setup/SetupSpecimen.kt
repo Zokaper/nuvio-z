@@ -191,6 +191,12 @@ enum class SetupSpecimen(
      * 150; what still does not fit at 80 scrolls.
      */
     Diagram(preferredHeight = 150.dp, minimumHeight = 80.dp),
+
+    /**
+     * Device Setup's navigation and player steps (setup polish): the band is drawn by the caller -
+     * Advanced Setup's own interactive previews - so this specimen draws nothing itself.
+     */
+    Device(preferredHeight = 250.dp),
 }
 
 /**
@@ -314,6 +320,8 @@ fun SetupSpecimenBand(
                     scale = scale,
                     wide = wide,
                 )
+
+                SetupSpecimen.Device -> Unit
 
                 SetupSpecimen.Diagram -> SetupDiagram(
                     step = step,
@@ -1219,7 +1227,7 @@ private fun SpecimenTrailerRail(radius: Dp, scale: Float = 1f) {
  * also what the real screen does.
  */
 @Composable
-private fun rememberDominantBackdropColor(painter: Painter?, enabled: Boolean): Color {
+internal fun rememberDominantBackdropColor(painter: Painter?, enabled: Boolean): Color {
     val colorScheme = MaterialTheme.colorScheme
     val painterColorState = rememberPainterDominantColorState(
         defaultColor = colorScheme.background,

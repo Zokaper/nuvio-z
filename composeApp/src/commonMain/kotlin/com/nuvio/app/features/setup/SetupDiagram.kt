@@ -170,6 +170,8 @@ fun SetupDiagram(
             SetupStep.Welcome,
             SetupStep.Look,
             SetupStep.Theme,
+            SetupStep.DeviceNavigation,
+            SetupStep.DevicePlayer,
             -> Unit
         }
     }
