@@ -83,7 +83,9 @@ internal fun DesktopNavigationBar(
             viewportWidth > 1600.dp -> 30.dp
             else -> 28.dp
         }
-        val trackWidth = ((iconSize + 20.dp + 64.dp * labelFraction) * items.size + 8.dp).coerceAtMost(maxWidth)
+        // Nuvio Z: sized for the widest label rather than upstream's fixed 64 dp, so "Downloads"
+        // is not cut to "Downl..." (`DesktopNavigationTrackWidth.kt`).
+        val trackWidth = rememberDesktopNavigationTrackWidth(items, iconSize, labelFraction, maxWidth)
         JellyNavigationBar(
             items = items,
             labelFraction = labelFraction,
