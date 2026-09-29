@@ -7,6 +7,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
 import com.nuvio.app.features.setup.SetupProfileFlags
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -49,10 +50,16 @@ internal object CrossFamilySettingsImport {
         }
         if (ownBlob != null) return CrossFamilyImportOutcome.FamilyAlreadyUsed
 
-        val otherBlob = ProfileSettingsSync.fetchSettingsBlobJson(profileId, otherFamily).getOrElse { error ->
-            log.w(error) { "$otherFamily read failed for profile $profileId" }
-            return CrossFamilyImportOutcome.TransportFailure
-        } ?: return CrossFamilyImportOutcome.NothingToImport
+        val otherBlob = when (val lookup = awaitArrivingFamilyBlob(fetch = {
+            ProfileSettingsSync.fetchSettingsBlobJson(profileId, otherFamily)
+        })) {
+            is ArrivingFamilyLookup.Found -> lookup.blob
+            ArrivingFamilyLookup.Absent -> return CrossFamilyImportOutcome.NothingToImport
+            is ArrivingFamilyLookup.Failed -> {
+                log.w(lookup.error) { "$otherFamily read failed for profile $profileId" }
+                return CrossFamilyImportOutcome.TransportFailure
+            }
+        }
 
         val revision = CrossFamilyImportRules.importedRevision(
             otherFamilyRevision = otherFamilySetupRevision(otherBlob),
@@ -72,6 +79,30 @@ internal object CrossFamilySettingsImport {
 
     private fun otherFamilySetupRevision(blob: JsonObject): Int? =
         (blob.features()["player_settings"] as? JsonObject)?.decodeSyncInt(CrossFamilyImportRules.SETUP_REVISION_KEY)
+}
+
+/** A missing blob just after setup can be an upload still in flight on the first device. */
+internal sealed interface ArrivingFamilyLookup {
+    data class Found(val blob: JsonObject) : ArrivingFamilyLookup
+    data object Absent : ArrivingFamilyLookup
+    data class Failed(val error: Throwable) : ArrivingFamilyLookup
+}
+
+internal suspend fun awaitArrivingFamilyBlob(
+    fetch: suspend () -> Result<JsonObject?>,
+    pause: suspend (Long) -> Unit = { delay(it) },
+): ArrivingFamilyLookup {
+    for (backoffMs in listOf(250L, 500L, 1_000L, 1_500L, 0L)) {
+        val result = fetch()
+        if (result.isFailure) {
+            val error = result.exceptionOrNull()!!
+            if (error is CancellationException) throw error
+            return ArrivingFamilyLookup.Failed(error)
+        }
+        result.getOrNull()?.let { return ArrivingFamilyLookup.Found(it) }
+        if (backoffMs > 0L) pause(backoffMs)
+    }
+    return ArrivingFamilyLookup.Absent
 }
 
 /**

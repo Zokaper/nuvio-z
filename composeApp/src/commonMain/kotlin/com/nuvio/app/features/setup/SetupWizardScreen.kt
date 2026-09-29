@@ -422,7 +422,7 @@ fun SetupWizardScreen(
         }
     }
 
-    fun complete() {
+    fun complete(afterUpload: () -> Unit = onFinished) {
         // ⚠ `playback_mode_selector_seen` used to be written here too. It is gone: nothing had
         // read it since the setup wizard replaced the standalone selector, and it was being
         // kept alive only to spare a 0.4.x downgrade one extra prompt. The key survives as a
@@ -440,16 +440,22 @@ fun SetupWizardScreen(
         // line above. Nothing else changes a setting right after setup, so the remote went on
         // answering with the old revision indefinitely and the pull re-gated the app with it.
         // `exportSettingsBlob` exports the whole blob, so this carries every choice the wizard
-        // made too. Failure is fine: it retries on the next local change, and the local value is
-        // now protected from the stale remote by `mergeMonotonicSyncInt`.
-        scope.launch { ProfileSettingsSync.pushCurrentProfileToRemote() }
-
-        onFinished()
+        // made too. Keep the gate up until the first upload settles, so another device opened
+        // immediately afterward can see the completed setup. A failed push still lets this device
+        // proceed; the other device treats transport failure separately from an absent blob.
+        scope.launch {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                ProfileSettingsSync.pushCurrentProfileToRemote()
+            }
+            afterUpload()
+        }
     }
 
     fun completeThenOpenAdvancedSetup() {
-        complete()
-        onOpenAdvancedSetup?.invoke()
+        complete {
+            onFinished()
+            onOpenAdvancedSetup?.invoke()
+        }
     }
 
     fun enableDeviceAlerts() {
@@ -628,7 +634,7 @@ fun SetupWizardScreen(
                 plan = plan,
                 specimen = specimen,
                 dismissible = dismissible || skippable,
-                onDismiss = if (skippable) ::complete else onDismiss,
+                onDismiss = if (skippable) ({ complete() }) else onDismiss,
                 playbackMode = playerSettings.playbackMode,
                 posterWidthDp = posterStyle.widthDp,
                 posterCornerRadiusDp = posterStyle.cornerRadiusDp,
@@ -759,7 +765,7 @@ fun SetupWizardScreen(
                 plan = plan,
                 playbackMode = playerSettings.playbackMode,
                 dismissible = dismissible || skippable,
-                onDismiss = if (skippable) ::complete else onDismiss,
+                onDismiss = if (skippable) ({ complete() }) else onDismiss,
                 // Centred and capped on wide windows. The band is what should use the extra
                 // width, not a line of body text stretched across a desktop monitor.
                 maxPanelWidth = if (windowWidth >= 768.dp) 620.dp else windowWidth,

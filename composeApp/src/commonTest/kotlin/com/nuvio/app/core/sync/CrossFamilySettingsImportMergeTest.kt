@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CrossFamilySettingsImportMergeTest {
     private fun blobOf(version: Int, features: Map<String, kotlinx.serialization.json.JsonElement>) = buildJsonObject {
@@ -162,5 +163,32 @@ class CrossFamilySettingsImportMergeTest {
         )
 
         assertEquals(CrossFamilyImportOutcome.TransportFailure, result)
+    }
+
+    @Test
+    fun arrivingDesktopBlobCanAppearAfterTheFirstLookup() = runBlocking {
+        var attempts = 0
+        val pauses = mutableListOf<Long>()
+        val blob = JsonObject(emptyMap())
+        val result = awaitArrivingFamilyBlob(
+            fetch = { Result.success(if (++attempts == 1) null else blob) },
+            pause = { pauses += it },
+        )
+        assertEquals(ArrivingFamilyLookup.Found(blob), result)
+        assertEquals(2, attempts)
+        assertEquals(listOf(250L), pauses)
+    }
+
+    @Test
+    fun lookupFailureIsDistinctFromConfirmedAbsence() = runBlocking {
+        val failed = awaitArrivingFamilyBlob(fetch = { Result.failure(IllegalStateException("offline")) })
+        assertTrue(failed is ArrivingFamilyLookup.Failed)
+        var attempts = 0
+        val absent = awaitArrivingFamilyBlob(
+            fetch = { attempts++; Result.success(null) },
+            pause = {},
+        )
+        assertEquals(ArrivingFamilyLookup.Absent, absent)
+        assertEquals(5, attempts)
     }
 }
