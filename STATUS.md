@@ -35,9 +35,7 @@ hardening still not started.
    `NUVIO_REQUIRE_TMDB_API_KEY=true`; `generateRuntimeConfigs` then fails on a blank or malformed key
    without echoing it. `ci.yml`, `ios-build.yml` and local builds leave the flag off and still compile
    without secrets. Stale comment in `SetupSampleTitle.kt` claiming a personal key is required fixed.
-   **Blocking:** that secret does not exist yet in either repository, so the next debug or release
-   build fails at `generateRuntimeConfigs` until the maintainer adds it
-   (`gh secret set TMDB_API_KEY --repo Zokaper/nuvio-z` and `--repo Zokaper/NuvioZDesktop`).
+   The maintainer added the `TMDB_API_KEY` secret to both repositories on 2026-09-29.
 
 **Commits** - mobile `764719138` (setup: pinned stills, trailer gate, tests), `73602d14f` (build guard
 + workflows). Desktop: `59fcb3176` (cherry-pick of `764719138`; shared setup files byte-identical,
@@ -48,6 +46,11 @@ message, flag on + dummy key passes, flag off passes. Mobile `testAndroidHostTes
 `features.setup.*` + `features.tmdb.*` from a deleted results directory: **192 tests, 0 failed**
 (incl. new `SetupSampleTitleTest` and `hoverTrailerSwitchesOnlyWhereATrailerCanPlay`).
 Desktop `desktopTest` for the same packages from a deleted results directory: **228 tests, 0 failed**.
+
+**Debug builds.** Debug release `36607036088` **success** (Android + iOS) -> **`debug-v0.4.13-z1.69`**;
+Desktop debug release `36607040700` **success** (Windows + macOS) -> **`debug-v0.1.23-alpha-z6.76`**.
+Both published artifacts were checked: the bundled `TmdbConfig.API_KEY` is 32 characters (APK via
+`dexdump`, MSI via `msiexec /a` + `javap`) and TMDB answers `200` with it. The value was never printed.
 
 **Still needs a device / network:** TMDB enrichment on a build that carries the key (details cast,
 logos, episode stills, More like this with no personal key on a fresh profile); the Advanced Setup
