@@ -1289,7 +1289,7 @@ private fun AdvancedPanelHeader(
 /**
  * Which previews are meant to be **tried** rather than looked at, and so let touches, clicks, hovers
  * and scrolls through the frame: the Touch stage, the real navigation bars, the hover cards, the
- * detail page's tab row and the scrolling source list. Every other preview stays inert, as before.
+ * detail page and metadata miniatures (tabs, rails, a page that scrolls) and the source list. Every other preview stays inert, as before.
  */
 internal val AdvancedSetupPanel.previewIsInteractive: Boolean
     get() = when (this) {
@@ -1297,7 +1297,9 @@ internal val AdvancedSetupPanel.previewIsInteractive: Boolean
         AdvancedSetupPanel.NavigationStyle,
         AdvancedSetupPanel.PosterHover,
         AdvancedSetupPanel.DetailLayout,
+        AdvancedSetupPanel.DetailEpisodes,
         AdvancedSetupPanel.SourceListLook,
+        AdvancedSetupPanel.EnhancedMetadata,
         -> true
         else -> false
     }

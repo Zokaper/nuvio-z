@@ -8,6 +8,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,10 +137,10 @@ internal fun SpecimenHomeScreen(
         BoxWithConstraints(Modifier.fillMaxSize().nuvioBlockPointerEvents()) {
             val density = LocalDensity.current
             val heroLayout = homeHeroLayout(maxWidthDp = maxWidth.value, viewportHeightDp = maxHeight.value)
-            val scrollPx = if (heroEnabled && focusContinueWatching) {
-                with(density) { (heroLayout.heroHeight - 250.dp).coerceAtLeast(0.dp).roundToPx() }
-            } else {
-                0
+            val scrollPx = when {
+                !heroEnabled -> 0
+                focusContinueWatching -> with(density) { (heroLayout.heroHeight - 250.dp).coerceAtLeast(0.dp).roundToPx() }
+                else -> with(density) { (heroLayout.heroHeight - 360.dp).coerceAtLeast(0.dp).roundToPx() }
             }
             val listState = remember(heroEnabled, focusContinueWatching, scrollPx) { LazyListState(0, scrollPx) }
             val sectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value)
@@ -288,10 +291,11 @@ internal fun SpecimenDetailPage(
             }
             MetaScreenBackgroundMode.DominantColor -> Box(Modifier.fillMaxSize().background(dominant))
         }
-        Column(Modifier.fillMaxSize()) {
+        // Scrolls like the real page: the sections below the fold are laid out, not squeezed.
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             val heroHeight = when {
-                focus == DetailPreviewFocus.Episodes -> if (desktop) 150.dp else 130.dp
-                desktop -> 260.dp
+                focus == DetailPreviewFocus.Episodes -> if (desktop) 140.dp else 130.dp
+                desktop -> 190.dp
                 else -> 230.dp
             }
             Box(
@@ -326,7 +330,7 @@ internal fun SpecimenDetailPage(
                         add(DetailSecondaryAction(label = stringResource(Res.string.hero_add_to_library), icon = Icons.Rounded.Add))
                         add(DetailSecondaryAction(label = stringResource(Res.string.hero_mark_watched), icon = Icons.Rounded.CheckCircle))
                         if (randomEpisodeAvailable) {
-                            add(DetailSecondaryAction(label = stringResource(Res.string.random_episode_title), icon = Icons.Default.Shuffle))
+                            add(DetailSecondaryAction(label = stringResource(Res.string.advanced_preview_shuffle), icon = Icons.Default.Shuffle))
                         }
                     },
                 )
@@ -374,7 +378,7 @@ private fun DetailSectionsPreview(tabLayout: Boolean, cornerRadiusDp: Int) {
     ) { tabbed ->
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (tabbed) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     titles.forEachIndexed { index, title ->
                         if (index > 0) {
                             Text(
@@ -425,7 +429,7 @@ private fun SectionHeading(title: String) {
 /** `DetailCastSection`'s no-photo state: initials in a `surfaceVariant` circle, the name below. */
 @Composable
 private fun CastRail() {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         SetupSampleTitle.castNames.take(5).forEach { name ->
             Column(Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(
@@ -453,7 +457,7 @@ private fun TrailerRail(cornerRadiusDp: Int) {
         stringResource(Res.string.advanced_preview_trailer_teaser),
         stringResource(Res.string.advanced_preview_trailer_final_season),
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         labels.forEachIndexed { index, label ->
             Column(Modifier.width(150.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(
@@ -490,7 +494,7 @@ private fun TrailerRail(cornerRadiusDp: Int) {
 /** Other titles, as posters with their names - recommendations, not this title's videos. */
 @Composable
 private fun MoreLikeThisRail(cornerRadiusDp: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SetupSampleTitle.rowItems.drop(1).take(4).forEach { item ->
             Column(Modifier.width(78.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AsyncImage(
@@ -533,7 +537,7 @@ private fun DetailEpisodesPreview(
             EpisodeRow(episode, watched, blurUnwatched && !watched, episodeRatings[index].takeIf { showRating })
         }
         when (style) {
-            MetaEpisodeCardStyle.Horizontal -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetaEpisodeCardStyle.Horizontal -> Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 rows.forEach { row ->
                     Column(Modifier.width(220.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         EpisodeStill(row, cornerRadiusDp, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
@@ -636,7 +640,7 @@ internal fun SpecimenMetadata(enriched: Boolean, desktop: Boolean, modifier: Mod
         cornerRadius = 16.dp,
         background = tokens.colors.background,
     ) {
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth().height(190.dp).background(tokens.colors.surfaceCard), contentAlignment = Alignment.BottomStart) {
                 AsyncImage(
                     model = item.banner,

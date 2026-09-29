@@ -11,12 +11,13 @@ package com.nuvio.app.core.ui
  * same width (the jelly pill slides between equal slots), so the widest label is what sets it.
  *
  * The slot is `icon + 20 + allowance * labelFraction`; what a label actually has inside it is the slot
- * minus the tab's own padding (8 + 8), the icon glyph (`iconSize - 10`) and the 6 dp gap - i.e.
- * `allowance + 8`. So the allowance is the widest label less 8, plus [LabelSlackDp] so a label that
- * measures a fraction over does not ellipsize on rounding, and never less than upstream's 64.
+ * minus the tab's own padding (8 + 8), the icon's box (the full `iconSize` - the glyph inside it is
+ * smaller, the box is not) and the 6 dp gap - i.e. `allowance - 2`. So the allowance is the widest
+ * label plus 2, plus [LabelSlackDp] so a label that measures a fraction over does not ellipsize on
+ * rounding, and never less than upstream's 64 (which left "Downloads" 62 dp).
  */
 fun desktopNavigationLabelAllowanceDp(widestLabelDp: Float): Float =
-    maxOf(UpstreamLabelAllowanceDp, widestLabelDp - LabelRoomBeyondAllowanceDp + LabelSlackDp)
+    maxOf(UpstreamLabelAllowanceDp, widestLabelDp + LabelRoomShortOfAllowanceDp + LabelSlackDp)
 
 /** The whole track: equal slots plus the row's 4 dp inset each side, capped at what the window has. */
 fun desktopNavigationTrackWidthDp(
@@ -37,9 +38,9 @@ fun desktopNavigationLabelsFit(
     val allowance = desktopNavigationLabelAllowanceDp(widestLabelDp)
     val track = desktopNavigationTrackWidthDp(iconSizeDp, allowance, 1f, itemCount, maxWidthDp)
     val slot = (track - 8f) / itemCount
-    return slot - (16f + (iconSizeDp - 10f) + 6f) >= widestLabelDp
+    return slot - (16f + iconSizeDp + 6f) >= widestLabelDp
 }
 
 private const val UpstreamLabelAllowanceDp = 64f
-private const val LabelRoomBeyondAllowanceDp = 8f
+private const val LabelRoomShortOfAllowanceDp = 2f
 private const val LabelSlackDp = 4f

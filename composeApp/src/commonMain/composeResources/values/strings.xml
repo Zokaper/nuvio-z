@@ -3495,7 +3495,7 @@
     <string name="advanced_setup_tour_body">Walk through all %1$d screens, one at a time, with a live preview of each.</string>
     <string name="advanced_setup_tour_start">Start</string>
     <string name="advanced_setup_social_save_failed">Couldn't save that change. Check your connection and try again.</string>
-    <string name="advanced_preview_touch_hint">Tap, double-tap, hold or swipe the frame to try it</string>
+    <string name="advanced_preview_touch_hint">Try it: tap, double-tap, hold or swipe</string>
     <string name="advanced_preview_touch_tap_show">Tap: controls shown</string>
     <string name="advanced_preview_touch_tap_hide">Tap: controls hidden</string>
     <string name="advanced_preview_touch_seek_forward">Double-tap right: forward %1$s s</string>
@@ -3523,5 +3523,6 @@
     <string name="advanced_preview_hover_try_card">Point at a card: a preview card opens</string>
     <string name="advanced_preview_hover_try_muted">Point at a card: a preview opens and its trailer plays muted</string>
     <string name="advanced_preview_hover_try_sound">Point at a card: a preview opens and its trailer plays with sound</string>
+    <string name="advanced_preview_shuffle">Shuffle</string>
     <!-- /Nuvio Z: setup + settings architecture pass. -->
 </resources>

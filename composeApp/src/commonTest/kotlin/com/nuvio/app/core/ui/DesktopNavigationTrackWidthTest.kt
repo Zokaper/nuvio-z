@@ -13,7 +13,7 @@ class DesktopNavigationTrackWidthTest {
     @Test
     fun shortLabelsKeepUpstreamsWidth() {
         assertEquals(64f, desktopNavigationLabelAllowanceDp(40f))
-        assertEquals(64f, desktopNavigationLabelAllowanceDp(68f))
+        assertEquals(64f, desktopNavigationLabelAllowanceDp(58f))
     }
 
     @Test
@@ -33,11 +33,12 @@ class DesktopNavigationTrackWidthTest {
 
     @Test
     fun upstreamsFixedAllowanceWasTooNarrowForDownloads() {
-        // The reported "Downl...": a 64 dp allowance leaves 72 dp for a label, and a larger UI zoom
-        // or font scale pushes "Downloads" past it.
+        // The reported "Downl...": a 64 dp allowance leaves 62 dp for a label (the icon's box is the
+        // full 28 dp), and "Downloads" needs about 70.
         val slot = 28f + 20f + 64f
-        val room = slot - (16f + (28f - 10f) + 6f)
-        assertTrue(room < downloadsDp + 2f)
+        val room = slot - (16f + 28f + 6f)
+        assertTrue(room < downloadsDp)
+        assertFalse(desktopNavigationLabelsFit(28f, downloadsDp, 6, 1248f) && desktopNavigationLabelAllowanceDp(downloadsDp) == 64f)
     }
 
     @Test

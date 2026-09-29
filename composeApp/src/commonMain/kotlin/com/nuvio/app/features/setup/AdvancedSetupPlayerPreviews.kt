@@ -623,7 +623,6 @@ internal fun SpecimenSubtitles(
     desktop: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val sample = SetupSampleTitle.rowItems[2]
     val stageW = if (desktop) DesktopStageWidth else PhoneStageWidth
     val stageH = if (desktop) DesktopStageHeight else PhoneStageHeight
     Box(
@@ -634,10 +633,7 @@ internal fun SpecimenSubtitles(
         contentAlignment = Alignment.Center,
     ) {
         PreviewStage(stageW, stageH, modifier = Modifier.fillMaxSize()) {
-            EpisodeFrame(
-                stillUrl = SetupSampleTitle.episodeStillUrl(sample.id, 1, 1),
-                fallbackUrl = SetupSampleTitle.backgroundUrl(sample.id),
-            )
+            EpisodeFrame(stillUrl = SetupSampleTitle.episodeStillUrl(PlayerSample.imdbId, 1, 2))
             val geometry = subtitleFrameGeometry(
                 renderer = renderer,
                 fontSizeSp = style.fontSizeSp,

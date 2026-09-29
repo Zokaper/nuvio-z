@@ -376,7 +376,7 @@ private fun SegmentChip(name: String, outcome: String, highlighted: Boolean, sca
 @Composable
 internal fun SpecimenAndroidNavigation(style: NavBarStyle, glowEnabled: Boolean) {
     Box(
-        modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth().padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         NavigationBarPreview(style = style, isTablet = false, glowEnabled = glowEnabled)
@@ -719,13 +719,19 @@ internal fun SpecimenSourceList(
     val tokens = MaterialTheme.nuvio
     val sample = SetupSampleTitle.rowItems[3]
     val streams = remember { sampleStreams() }
-    Box(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
             .widthIn(max = 560.dp * scale)
             .fillMaxSize()
-            .padding(horizontal = 14.dp * scale, vertical = 10.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(tokens.colors.background),
+            .padding(horizontal = 14.dp * scale, vertical = 10.dp),
+    ) {
+    val listScale = if (maxWidth < 480.dp) 0.8f else 1f
+    PreviewStage(
+        logicalWidth = maxWidth / listScale,
+        logicalHeight = maxHeight / listScale,
+        modifier = Modifier.fillMaxSize(),
+        cornerRadius = 16.dp,
+        background = tokens.colors.background,
     ) {
         if (backgroundMode == StreamBackgroundMode.Cinematic) {
             AsyncImage(
@@ -763,6 +769,7 @@ internal fun SpecimenSourceList(
                 .height(28.dp)
                 .background(Brush.verticalGradient(listOf(Color.Transparent, tokens.colors.background.copy(alpha = 0.9f)))),
         )
+    }
     }
 }
 
