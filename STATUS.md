@@ -2,6 +2,38 @@
 
 Last updated: 2026-09-30
 
+## Watch Together source selection: `invalid_source_media` (2026-09-30)
+
+**Blocker from physical QA (debug mobile 70 / desktop 77).** Host picks a source; the lobby shows a raw
+`invalid_source_media` / `22023` from `party_select_source_v2`. Desktop debug log
+(`nuvio-debug-20260930-010224-*`) confirms four rejections at Start; the source came from an AIOStreams addon.
+
+**Root cause.** `sanitize_source_descriptor_v2` caps each media list (`dynamic_range`, `audio_codecs`,
+`languages`) at 16 entries. `toPartySourceDescriptor()` bounded nothing but token shape, so a multi-audio
+release whose structured `parsedFile.languages` names more than 16 languages produced a descriptor the
+backend refuses. Every other field is normalized through `safeMediaToken()` (which drops what the backend's
+regex would reject), including `audioChannels` (an `Int`, at most `"8"`), so it is not the cause.
+**Caveat:** the debug log does not record the descriptor, so the exact stream was not captured; the
+over-long list is the only client-reachable way to hit this error, and the regression fixture reproduces it
+through the real `SourceFactsExtractor`. `selectSource` now logs the offending field
+(`source descriptor violates the media contract field=...`) if it ever recurs.
+
+**Fix (client layer; backend contract unchanged and not weakened, nothing deployed).**
+`PartyStreamSource.kt` sorts and cuts each list to `PartySourceMediaListLimit` (16); matching reads only
+resolution/quality/codec/size, so V2 match semantics are unchanged. `contractViolation()` restates the backend
+media contract and is checked before the RPC. A refused Postgrest call is classified (`PartyRpcFailure`) and
+shows fixed wording instead of SQLSTATE/URL/RPC text. A source the server rejects is un-staged
+(`discardStagedHostSource`), so the lobby stops saying "Source picked". Transient failures keep the pick.
+New pgTAP: `party_source_media_contract.sql` (real payload accepted, 16 ok / 17 rejected).
+
+**Verification.** pgTAP 343 / 343 (fresh `supabase db reset`). Mobile host suite from a deleted results
+directory: 3,339 tests, 0 failures. Desktop split suite (`scripts/run-desktop-tests-split.sh`): 3,313 tests, 0 failures (rest 1,767 / playback 1,040 / downloads 457 / e2e 49).
+Mobile commit `86f36b268`, cherry-picked to desktop `f455b9453` (histories have diverged; only this commit crosses).
+**Physical retest.** Desktop creates party, Android + iOS join, host picks the same AIOStreams multi-audio
+release that failed: Start must publish and guests must begin resolving. Then force a refusal (or pick a
+source with no identity) and confirm the lobby shows the fixed sentence, no "Source picked", and the
+pick is cleared. Not device-verified yet.
+
 ## iOS / Watch Together hardening — finalized, debug 70 / desktop 77 (2026-09-30)
 
 **Final verification.** Mobile head `a798b06fd` (adds an mpv main-queue snapshot timing log; every
