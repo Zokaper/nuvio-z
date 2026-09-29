@@ -279,7 +279,7 @@ internal fun SetupDesktopSplitFrame(
  * `preferredHeight` stays exactly as it is: it is the phone budget, and the phone layout is
  * unchanged.
  */
-private val SetupSpecimen.desktopHeight: Dp
+internal val SetupSpecimen.desktopHeight: Dp
     get() = when (this) {
         // Banner (up to ~390 at the widest pane) + gap + the tallest Continue Watching style.
         SetupSpecimen.Home -> 660.dp

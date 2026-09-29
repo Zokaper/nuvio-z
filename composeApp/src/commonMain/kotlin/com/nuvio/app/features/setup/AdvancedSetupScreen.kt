@@ -533,6 +533,8 @@ internal fun AdvancedSetupHub(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // Its own background, not only the screen's: the render harness draws the hub alone.
+            .background(tokens.colors.background)
             .verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.TopCenter,
     ) {
@@ -1009,7 +1011,7 @@ private fun AdvancedSetupPanel.previewHeight(desktop: Boolean): Dp = when (this)
     AdvancedSetupPanel.DetailLayout, AdvancedSetupPanel.DetailEpisodes -> SetupSpecimen.Details.preferredHeight
     AdvancedSetupPanel.SourceListLook -> 220.dp
     AdvancedSetupPanel.SocialSharing, AdvancedSetupPanel.SocialIdentity -> 200.dp
-    AdvancedSetupPanel.EnhancedMetadata -> 290.dp
+    AdvancedSetupPanel.EnhancedMetadata -> 345.dp
     AdvancedSetupPanel.TrackingServices -> 160.dp
 }.let { if (desktop) it * DesktopSpecimenScale else it }
 
@@ -1028,34 +1030,7 @@ internal fun AdvancedPanelPreview(
     val p = values.player
     @Composable
     fun band(specimen: SetupSpecimen, step: SetupStep) {
-        SetupSpecimenBand(
-            specimen = specimen,
-            step = step,
-            playbackMode = values.playbackMode,
-            height = if (desktop) panel.previewHeight(desktop = true) else panel.previewHeight(desktop = false),
-            contentPaddingTop = 0.dp,
-            posterWidthDp = values.posterWidthDp,
-            posterCornerRadiusDp = values.posterCornerRadiusDp,
-            landscapeCards = values.landscapeCards,
-            showCardTitles = !values.hidePosterLabels,
-            heroEnabled = values.heroEnabled,
-            continueWatchingStyle = values.continueWatchingStyle,
-            useEpisodeThumbnails = values.useEpisodeThumbnails,
-            blurNextUp = values.blurNextUp,
-            backgroundMode = values.detailBackground,
-            episodeCardStyle = values.episodeCardStyle,
-            blurUnwatchedEpisodes = values.blurUnwatchedEpisodes,
-            tabLayout = values.detailTabLayout,
-            nextUpLabel = stringResource(Res.string.setup_specimen_next_up),
-            modifier = Modifier.fillMaxWidth(),
-            scale = if (specimen == SetupSpecimen.Diagram) {
-                if (desktop) DesktopSpecimenScale * 1.8f else 1f
-            } else {
-                scale
-            },
-            wide = desktop,
-            downloadModeName = values.downloadMode.name,
-        )
+        AdvancedSpecimenBand(panel = panel, specimen = specimen, step = step, values = values, desktop = desktop, scale = scale)
     }
     when (panel) {
         AdvancedSetupPanel.PlaybackModeChoice,
@@ -1136,6 +1111,70 @@ internal fun AdvancedPanelPreview(
         )
         AdvancedSetupPanel.EnhancedMetadata -> SpecimenMetadata(enriched = values.tmdbEnabled, scale = scale)
         AdvancedSetupPanel.TrackingServices -> SpecimenTracking(scale = scale)
+    }
+}
+
+/**
+ * A wizard specimen in an Advanced Setup preview.
+ *
+ * On a phone it is the band at the panel's height. On a desktop pane it is drawn exactly as
+ * `SetupWizardDesktopLayout` draws it: at the specimen's own desktop budget (`desktopHeight`), capped
+ * to the pane, between a `background` filler above and a `surface` filler below that continue the
+ * band's own gradient - so the Home and Details mocks are neither cropped nor stretched, and the pane
+ * reads as one surface with no step at either edge.
+ */
+@Composable
+private fun AdvancedSpecimenBand(
+    panel: AdvancedSetupPanel,
+    specimen: SetupSpecimen,
+    step: SetupStep,
+    values: AdvancedSetupValues,
+    desktop: Boolean,
+    scale: Float,
+) {
+    val tokens = MaterialTheme.nuvio
+    @Composable
+    fun drawBand(height: Dp) {
+        SetupSpecimenBand(
+            specimen = specimen,
+            step = step,
+            playbackMode = values.playbackMode,
+            height = height,
+            contentPaddingTop = 0.dp,
+            posterWidthDp = values.posterWidthDp,
+            posterCornerRadiusDp = values.posterCornerRadiusDp,
+            landscapeCards = values.landscapeCards,
+            showCardTitles = !values.hidePosterLabels,
+            heroEnabled = values.heroEnabled,
+            continueWatchingStyle = values.continueWatchingStyle,
+            useEpisodeThumbnails = values.useEpisodeThumbnails,
+            blurNextUp = values.blurNextUp,
+            backgroundMode = values.detailBackground,
+            episodeCardStyle = values.episodeCardStyle,
+            blurUnwatchedEpisodes = values.blurUnwatchedEpisodes,
+            tabLayout = values.detailTabLayout,
+            nextUpLabel = stringResource(Res.string.setup_specimen_next_up),
+            modifier = Modifier.fillMaxWidth(),
+            scale = if (specimen == SetupSpecimen.Diagram) {
+                if (desktop) DesktopSpecimenScale * 1.8f else 1f
+            } else {
+                scale
+            },
+            wide = desktop,
+            downloadModeName = values.downloadMode.name,
+        )
+    }
+    if (!desktop) {
+        drawBand(panel.previewHeight(desktop = false))
+        return
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val height = specimen.desktopHeight.coerceAtMost(maxHeight)
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth().background(tokens.colors.background))
+            drawBand(height)
+            Box(Modifier.weight(1f).fillMaxWidth().background(tokens.colors.surface))
+        }
     }
 }
 

@@ -1075,7 +1075,7 @@ internal fun SpecimenSourceList(
     val streams = listOf(
         StreamItem(
             name = "Sample 4K",
-            title = "Breaking.Bad.S01E01.2160p.WEB-DL.HDR.DDP5.1",
+            description = "Breaking.Bad.S01E01.2160p.WEB-DL.HDR.DDP5.1",
             addonName = "Sample source",
             addonId = "sample",
             addonLogo = SetupSampleTitle.logoUrl(sample.id),
@@ -1083,7 +1083,7 @@ internal fun SpecimenSourceList(
         ),
         StreamItem(
             name = "Sample 1080p",
-            title = "Breaking.Bad.S01E01.1080p.BluRay.x265",
+            description = "Breaking.Bad.S01E01.1080p.BluRay.x265",
             addonName = "Sample source",
             addonId = "sample",
             addonLogo = SetupSampleTitle.logoUrl(sample.id),
