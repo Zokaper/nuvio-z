@@ -77,7 +77,9 @@ internal fun WatchPartyLobbyDestination(
         // Only while the lobby is actually on top. A lobby still composed under a push transition
         // is not, and latching `closed` there would stop it closing when it comes back - which it
         // does, by recomposing and running these effects again.
+        WatchPartyRouteExitGuard.authorizeRemoval(route)
         closed = navController.popBackStack(route)
+        if (!closed) WatchPartyRouteExitGuard.revokeRemoval(route)
         watchPartyLobbyDestinationLog.i {
             "close target=${route.partyId?.take(8) ?: "invite"} reason=$reason popped=$closed"
         }

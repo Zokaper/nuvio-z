@@ -28,7 +28,7 @@ import com.nuvio.app.navigation.WatchPartyLobbyRoute
 import com.nuvio.app.features.watchparty.WatchPartyRouteExitGuard
 
 /** Called only when SwiftUI proposes an unguarded native removal of the lobby. */
-fun requestNativeRouteExit(route: WatchPartyLobbyRoute): Boolean = WatchPartyRouteExitGuard.request(route)
+fun requestNativeRouteExit(route: WatchPartyLobbyRoute): Boolean = WatchPartyRouteExitGuard.shouldBlockRemoval(route)
 
 fun disposeRoute(route: AppRoute) {
     disposeRouteResources(route)
