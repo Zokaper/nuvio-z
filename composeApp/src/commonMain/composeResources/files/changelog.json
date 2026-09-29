@@ -447,6 +447,10 @@
         {
           "build": 67,
           "text": "Rebuild of 66 whose notes left out that this is the first debug build on the upstream sync (vanilla 0.5.4-beta plus the UX convergence): upstream's floating navigation bar (adaptive, expanded, compact or classic, with glow on Android 13+) carrying Social and Z's tabs, new player controls with the legacy layout still an option, refreshed pop-ups and menus, skip movie credits, your subtitle choice carried to the next episode, a smoother Home banner, shimmering source-list labels, TMDB details on by default, and an expired sign-in no longer signing you out. Everything in 66 is here too."
+        },
+        {
+          "build": 68,
+          "text": "Advanced Setup polish from the device pass: the Player, Touch, Home, Detail page, Enhanced metadata and Source list previews now show the app's real screens and fit a small phone; Touch and Navigation previews can be tried; subtitles preview the way this device's player draws them; Set up in Settings opens the page over Advanced Setup and Back returns to where you were; Social switches respond at once; a clearer Take the full tour; the tour no longer slides the whole screen. Welcome back on a phone now also sets up this phone's navigation and player."
         }
       ]
     },
