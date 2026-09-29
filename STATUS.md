@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-29
 
+## Setup + Settings architecture pass - IN PROGRESS, LOCAL BRANCH (2026-09-29)
+
+**Newest work.** Branch `claude/setup-settings-architecture` (local, unpushed) in `nuvio-z`, cut from
+`34fc1c598`; desktop branch of the same name exists with no commits yet. Approved plan:
+`../PLAN-setup-settings-architecture.md`; exact state and next steps:
+`../HANDOFF-setup-settings-architecture.md`. Stages 1-3 done and tested (sync fixes, semantic
+sign-out, pure models); stage 4 (Device Setup + cross-family import) is committed as
+**uncompiled WIP** `e25165a12` - the AppGate hook is not written yet.
+
 ## Upstream UX convergence, part 2 - ON BRANCH, UNMERGED (2026-09-29)
 
 **This is the current state.** Branch `claude/pre-release-ux-convergence` in both Kotlin repositories,
