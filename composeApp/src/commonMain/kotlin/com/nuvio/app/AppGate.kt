@@ -472,6 +472,7 @@ internal fun AppGate(
 
     LaunchedEffect(pendingProfileSwitch) {
         val request = pendingProfileSwitch ?: return@LaunchedEffect
+        importOutcome = null
         runCatching {
             ProfileRepository.switchToProfile(request.profile.profileIndex)
             warmProfileBoundRepositories()

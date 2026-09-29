@@ -509,11 +509,14 @@ fun SetupWizardScreen(
         onInstallManual = { scope.launch { sourcesController.installManual(emptyUrlMessage) } },
     )
 
-    // System back walks the wizard back. On the first screen of a gating run it is left to the
-    // system (which backgrounds the app) - there is nowhere in the wizard to go, and swallowing it
-    // would trap the user; a dismissible run closes instead.
-    PlatformBackHandler(enabled = previousSetupStep(step, plan) != null || advanceState == SetupAdvance.Disabled || dismissible) {
-        if (previousSetupStep(step, plan) != null || advanceState == SetupAdvance.Disabled) back() else onDismiss()
+    // System back walks the wizard back. A dismissible replay closes on its first step; a gating
+    // run consumes back there because setup is still owed and there is no earlier screen to show.
+    PlatformBackHandler(enabled = true) {
+        when {
+            previousSetupStep(step, plan) != null || advanceState == SetupAdvance.Disabled -> back()
+            dismissible -> onDismiss()
+            else -> Unit
+        }
     }
 
     BoxWithConstraints(
