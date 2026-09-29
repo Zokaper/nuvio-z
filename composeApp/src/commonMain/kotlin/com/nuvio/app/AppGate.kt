@@ -37,6 +37,9 @@ import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.sync.ProfileSettingsSync
+import com.nuvio.app.core.sync.CrossFamilyImportOutcome
+import com.nuvio.app.core.sync.CrossFamilySettingsImport
+import com.nuvio.app.core.sync.pullThenImportCrossFamilySettings
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
@@ -62,6 +65,7 @@ import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.features.setup.DeviceSetupStorage
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
+import com.nuvio.app.features.setup.SetupProfileFlags
 import com.nuvio.app.features.setup.SetupWizardRun
 import com.nuvio.app.features.setup.SetupWizardScreen
 import com.nuvio.app.features.setup.setupWizardRun
@@ -262,6 +266,11 @@ internal fun AppGate(
     // Device-local, so no repository flow re-evaluates the gate when the wizard writes it: the
     // gating wizard's onFinished re-reads it instead.
     var deviceSetupRevision by remember { mutableStateOf(DeviceSetupStorage.loadRevision()) }
+    var arrivalPending by remember {
+        mutableStateOf(SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId))
+    }
+    var importOutcome by remember { mutableStateOf<CrossFamilyImportOutcome?>(null) }
+    var reviewSetupRequested by remember { mutableStateOf(false) }
     var setupWizardOnDemandEpoch by remember { mutableStateOf(0) }
     // null while loading, empty when it could not be fetched. Either way the curated
     // sections still render - this screen has to work offline and on builds where the
@@ -333,8 +342,10 @@ internal fun AppGate(
         deviceRevision = deviceSetupRevision,
         isPhone = !isDesktop,
         currentRevision = SETUP_WIZARD_REVISION,
+        arrivalPending = arrivalPending,
     )
-    val isSetupWizardActive = gateSetupRun != SetupWizardRun.None || showSetupWizardOnDemand
+    val gatingRun = if (reviewSetupRequested) SetupWizardRun.Full else gateSetupRun
+    val isSetupWizardActive = gatingRun != SetupWizardRun.None || showSetupWizardOnDemand
 
     val isWhatsNewActive = (showWhatsNew && gateScreen == AppGateScreen.Main.name) || showWhatsNewOnDemand
 
@@ -465,10 +476,16 @@ internal fun AppGate(
             ProfileRepository.switchToProfile(request.profile.profileIndex)
             warmProfileBoundRepositories()
             if (request.syncOnEnter) {
-                withContext(Dispatchers.Default) {
-                    SyncManager.pullAllForProfile(request.profile.profileIndex)
+                importOutcome = withContext(Dispatchers.Default) {
+                    pullThenImportCrossFamilySettings(
+                        profileId = request.profile.profileIndex,
+                        pullAll = SyncManager::pullAllForProfileAndWait,
+                        importSettings = CrossFamilySettingsImport::importIfArriving,
+                    )
                 }
             }
+            arrivalPending = SetupProfileFlags.arrivalPending(request.profile.profileIndex)
+            reviewSetupRequested = false
         }.onSuccess {
             pendingProfileSwitch = null
             profileSelectionLoading = false
@@ -592,7 +609,7 @@ internal fun AppGate(
         renderMainContent = renderMainContent,
         gateIsMain = gateScreen == AppGateScreen.Main.name,
         externalMainContentReady = externalMainContentReady,
-        setupWizardGating = gateSetupRun != SetupWizardRun.None,
+        setupWizardGating = gatingRun != SetupWizardRun.None,
     )
     val launchOverlayState = remember {
         MutableTransitionState(launchOverlayVisible)
@@ -669,22 +686,47 @@ internal fun AppGate(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                AppGateScreen.Main.name -> if (gateSetupRun != SetupWizardRun.None) {
+                AppGateScreen.Main.name -> if (gatingRun != SetupWizardRun.None) {
                     // The wizard replaced the standalone playback-mode selector, which used to
                     // stand here. Same reasoning as before: read at this one place rather than
                     // as a sixth AppGateScreen value, because five separate transitions set the
                     // gate to Main and wrapping the Main branch covers every one of them.
                     // Keyed on the run: a profile switch can change which one is owed, and the
                     // wizard captures its run's shape when it opens.
-                    key(gateSetupRun) {
+                    key(gatingRun) {
                         SetupWizardScreen(
                             // The profile revision needs nothing here: the wizard writes it through
                             // PlayerSettingsRepository, gatePlayerSettings collects that flow, and this
                             // branch re-evaluates. The device revision is not a flow, so it is re-read -
                             // from storage, which stays the one source of truth across a restart.
-                            onFinished = { deviceSetupRevision = DeviceSetupStorage.loadRevision() },
+                            onFinished = {
+                                deviceSetupRevision = DeviceSetupStorage.loadRevision()
+                                arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
+                                reviewSetupRequested = false
+                            },
                             modifier = Modifier.fillMaxSize(),
-                            run = gateSetupRun,
+                            run = gatingRun,
+                            arrival = arrivalPending,
+                            onReviewSetup = {
+                                SetupProfileFlags.setArrivalPending(ProfileRepository.activeProfileId, false)
+                                arrivalPending = false
+                                reviewSetupRequested = true
+                            },
+                            importRetry = if (
+                                importOutcome == CrossFamilyImportOutcome.TransportFailure &&
+                                gatingRun == SetupWizardRun.Full
+                            ) {
+                                suspend {
+                                    importOutcome = runCatching {
+                                        CrossFamilySettingsImport.importIfArriving(ProfileRepository.activeProfileId)
+                                    }.getOrElse {
+                                        CrossFamilyImportOutcome.TransportFailure
+                                    }
+                                    arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
+                                }
+                            } else {
+                                null
+                            },
                         )
                     }
                 } else {
@@ -812,7 +854,7 @@ internal fun AppGate(
             }
         }
 
-        if (showWhatsNew && gateScreen == AppGateScreen.Main.name) {
+        if (showWhatsNew && gateScreen == AppGateScreen.Main.name && gatingRun == SetupWizardRun.None) {
             WhatsNewScreen(
                 versionName = whatsNewIdentity.versionName,
                 sections = whatsNewSections,
@@ -841,7 +883,11 @@ internal fun AppGate(
         if (showSetupWizardOnDemand && gateScreen == AppGateScreen.Main.name) {
             key(setupWizardOnDemandEpoch) {
                 SetupWizardScreen(
-                    onFinished = { showSetupWizardOnDemand = false },
+                    onFinished = {
+                        deviceSetupRevision = DeviceSetupStorage.loadRevision()
+                        arrivalPending = SetupProfileFlags.arrivalPending(ProfileRepository.activeProfileId)
+                        showSetupWizardOnDemand = false
+                    },
                     dismissible = true,
                     onDismiss = { showSetupWizardOnDemand = false },
                     modifier = Modifier.fillMaxSize(),

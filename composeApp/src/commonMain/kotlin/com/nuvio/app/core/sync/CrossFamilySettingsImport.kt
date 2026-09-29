@@ -6,6 +6,7 @@ import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.setup.SETUP_WIZARD_REVISION
 import com.nuvio.app.features.setup.SetupProfileFlags
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -71,6 +72,27 @@ internal object CrossFamilySettingsImport {
 
     private fun otherFamilySetupRevision(blob: JsonObject): Int? =
         (blob.features()["player_settings"] as? JsonObject)?.decodeSyncInt(CrossFamilyImportRules.SETUP_REVISION_KEY)
+}
+
+/**
+ * The profile-switch gate's ordering seam. The ordinary full-pull API is asynchronous, but setup
+ * cannot inspect the family blobs until that pull has completed. Keeping the sequence here makes
+ * the no-flash guarantee executable in a unit test and keeps an importer exception from sending
+ * the user back to profile selection.
+ */
+internal suspend fun pullThenImportCrossFamilySettings(
+    profileId: Int,
+    pullAll: suspend (Int) -> Unit,
+    importSettings: suspend (Int) -> CrossFamilyImportOutcome,
+): CrossFamilyImportOutcome {
+    pullAll(profileId)
+    return try {
+        importSettings(profileId)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        CrossFamilyImportOutcome.TransportFailure
+    }
 }
 
 private fun JsonObject.features(): JsonObject = this["features"] as? JsonObject ?: JsonObject(emptyMap())

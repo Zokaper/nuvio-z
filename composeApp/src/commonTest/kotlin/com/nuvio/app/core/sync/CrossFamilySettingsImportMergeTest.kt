@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -130,5 +131,36 @@ class CrossFamilySettingsImportMergeTest {
             """{"widthDp":126,"hoverPreviewEnabled":true}""",
             result["poster_card_style_settings_payload"]!!.jsonPrimitive.content,
         )
+    }
+
+    @Test
+    fun ownFamilyPullFinishesBeforeTheArrivalImportStarts() = runBlocking {
+        val events = mutableListOf<String>()
+
+        val result = pullThenImportCrossFamilySettings(
+            profileId = 6,
+            pullAll = {
+                events += "pull:start:$it"
+                events += "pull:end:$it"
+            },
+            importSettings = {
+                events += "import:$it"
+                CrossFamilyImportOutcome.Imported
+            },
+        )
+
+        assertEquals(CrossFamilyImportOutcome.Imported, result)
+        assertEquals(listOf("pull:start:6", "pull:end:6", "import:6"), events)
+    }
+
+    @Test
+    fun importerFailureBecomesRetryableWithoutFailingTheProfileSwitch() = runBlocking {
+        val result = pullThenImportCrossFamilySettings(
+            profileId = 4,
+            pullAll = {},
+            importSettings = { error("server unavailable") },
+        )
+
+        assertEquals(CrossFamilyImportOutcome.TransportFailure, result)
     }
 }

@@ -307,6 +307,24 @@ object SyncManager {
         startFullProfilePull(profileId = profileId, reason = "requested")
     }
 
+    /**
+     * Runs the same full pull synchronously while `AppGate` is holding its profile-switching
+     * screen. Setup must not be planned until the own-family settings pull has finished: starting
+     * the ordinary background request and immediately probing the other family races those two
+     * reads and can briefly gate on stale local settings.
+     */
+    suspend fun pullAllForProfileAndWait(profileId: Int) {
+        val authState = AuthRepository.state.value
+        if (authState !is AuthState.Authenticated || authState.isAnonymous) return
+        if (ProfileRepository.activeProfileId != profileId) return
+        if (hasRecentFullPull(profileId)) return
+
+        // A stale request for the profile we just left must not overlap this profile's ordered
+        // pull. The app gate is the owner of this transition and stays visible until this returns.
+        syncRequestGate.cancel()
+        performFullProfilePull(profileId = profileId, reason = "profile-gate")
+    }
+
     internal fun cancelAccountSync() {
         syncRequestGate.cancel()
         val previousAccountJob = synchronized(accountScopeLock) {
@@ -402,39 +420,7 @@ object SyncManager {
             if (currentAuthState !is AuthState.Authenticated || currentAuthState.isAnonymous) return@launch
             if (ProfileRepository.activeProfileId != profileId) return@launch
 
-            log.i { "Full profile sync started profile=$profileId reason=$reason" }
-            WatchProgressSourceCoordinator.pauseAutomaticTransitions()
-            val syncResult = try {
-                runOrderedProfileSync(
-                    profileId = profileId,
-                    pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
-                    operations = profileSyncOperations,
-                    onFailure = { step, error ->
-                        log.e(error) { "Full profile sync step failed profile=$profileId step=$step" }
-                    },
-                )
-            } finally {
-                WatchProgressSourceCoordinator.resumeAutomaticTransitions()
-            }
-            synchronized(pullStateLock) {
-                activityPullFreshness = activityPullFreshness.recordIfSuccessful(
-                    profileId = profileId,
-                    completedAtEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
-                    result = syncResult,
-                )
-                fullPullFreshness = fullPullFreshness.recordIfSuccessful(
-                    profileId = profileId,
-                    completedAtEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
-                    result = syncResult,
-                )
-            }
-            if (!syncResult.succeeded) {
-                log.w {
-                    "Full profile sync incomplete profile=$profileId reason=$reason " +
-                        "failedSteps=${syncResult.failedSteps}"
-                }
-            }
-            log.i { "Full profile sync completed profile=$profileId reason=$reason" }
+            performFullProfilePull(profileId = profileId, reason = reason)
         }
 
         when (result) {
@@ -446,6 +432,42 @@ object SyncManager {
                 log.d { "Full profile sync replaced stale profile request with profile=$profileId reason=$reason" }
             }
         }
+    }
+
+    private suspend fun performFullProfilePull(profileId: Int, reason: String) {
+        log.i { "Full profile sync started profile=$profileId reason=$reason" }
+        WatchProgressSourceCoordinator.pauseAutomaticTransitions()
+        val syncResult = try {
+            runOrderedProfileSync(
+                profileId = profileId,
+                pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
+                operations = profileSyncOperations,
+                onFailure = { step, error ->
+                    log.e(error) { "Full profile sync step failed profile=$profileId step=$step" }
+                },
+            )
+        } finally {
+            WatchProgressSourceCoordinator.resumeAutomaticTransitions()
+        }
+        synchronized(pullStateLock) {
+            activityPullFreshness = activityPullFreshness.recordIfSuccessful(
+                profileId = profileId,
+                completedAtEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
+                result = syncResult,
+            )
+            fullPullFreshness = fullPullFreshness.recordIfSuccessful(
+                profileId = profileId,
+                completedAtEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
+                result = syncResult,
+            )
+        }
+        if (!syncResult.succeeded) {
+            log.w {
+                "Full profile sync incomplete profile=$profileId reason=$reason " +
+                    "failedSteps=${syncResult.failedSteps}"
+            }
+        }
+        log.i { "Full profile sync completed profile=$profileId reason=$reason" }
     }
 
     private fun hasRecentFullPull(profileId: Int): Boolean =
