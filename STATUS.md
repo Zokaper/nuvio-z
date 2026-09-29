@@ -2,6 +2,101 @@
 
 Last updated: 2026-09-29
 
+## Setup + settings physical-QA polish - ON BRANCH, UNMERGED (2026-09-29)
+
+**Newest work**, on the same `claude/setup-settings-architecture` branches (both repos, pushed, not
+merged to `main` / `Dev`; no release, feed or version change; iOS / Watch Together hardening not
+started). The maintainer tested Advanced Setup on desktop and mobile (debug 66/67 and desktop 74);
+every finding is addressed below. Canonical rows: `Docs/Z-FEATURES.md` W12, W13, W14 and the
+"Physical-QA polish" note under the wizard section; patch surface: `Docs/PATCH-SURFACE.md`
+(2026-09-29 note, last paragraph).
+
+**Findings and what changed**
+- **B - Device Setup too sparse on cross-family arrival.** New arrival steps `DeviceNavigation`
+  (Android style + glow / iOS 26 Liquid Glass / desktop sidebar-top bar + style) and `DevicePlayer`
+  (mobile: new/legacy controls, gestures, hold-to-speed + speed), before the Streamlined/Instant
+  quality/HDR step; device-global questions still only when `deviceStale`. Controls come from
+  `deviceSetupControls()` (same as the Advanced Setup panels); previews are Advanced Setup's
+  interactive ones. Also in an arriving Upgrade. Pure tests: desktop->Android Classic and picking
+  modes, desktop->iOS with/without Liquid Glass, mobile->desktop, device current vs stale, restore,
+  walk forward/back.
+- **C - Player preview cropped / generic.** Now the real `PlayerControlsShell` (new or legacy),
+  `PauseMetadataOverlay`, `PlaybackLoadingScreen`, `ParentalGuideOverlay` (looped while on) over a
+  Sherlock episode frame, on a scale-to-fit `PreviewStage` (landscape phone 800x370 / desktop
+  1280x720) - no crop at 360 dp.
+- **D - Touch passive.** Interactive stage: tap (centre hides), double-tap seek (accumulating 10 s,
+  real `PlayerGestureOverlay` feedback), hold-to-speed while held, vertical swipe brightness/volume;
+  a readout line says what happened, including "gestures are off" cases. No second player engine.
+- **E - Subtitle fidelity.** New import-free `features/player/SubtitleRenderGeometry.kt` holds the
+  ExoPlayer, Android-libmpv and iOS/desktop-mpv mappings; the Android/iOS/desktop engines delegate to
+  it (values unchanged, pinned by tests) and the preview draws from it for this device's renderer
+  (Android `Auto` = ExoPlayer: fixed sp; mpv: frame-relative, 720-line scaled px). Finding: the two
+  engines differ a lot (18 = ~5% of a landscape phone's height on ExoPlayer, ~7.5% on mpv), which is
+  why the old 0.62 approximation could not be right for both.
+- **F - Home specimen.** A miniature of the real Home (`HomeHeroSection`, `HomeContinueWatchingSection`,
+  `HomeCatalogRowSection`, the nav bar) with hero on/off, CW visibility/style/thumbnails, catalog
+  type labels ("Popular - Series").
+- **G - Navigation not interactive.** The frame swallowed every touch; interactive previews now pass
+  input. Android uses the real `NavigationBarPreview` (tabs, adaptive collapse on scroll); desktop
+  uses the real `DesktopHoverSidebar` / `DesktopNavigationBar` over a scrolling page (profile entry
+  inert); iOS tab bar selects.
+- **H - Hover fake.** Desktop Hover panel wraps the sample cards in the real `HomePosterHoverPreview`
+  (no action row), which reads the switches; a line states the resulting behaviour.
+- **I/J - Detail page.** Real `DetailActionButtons` + `DetailMetaInfo`; baseline rating = the IMDb
+  rating the catalog addon supplies (what a fresh install shows); with MDBList active, the real
+  multi-source `DetailRatingsRow`; without it, that row dimmed and labelled "With MDBList". Sections
+  labelled Cast / Trailers (this title's, trailer cards) / More like this (other titles), stacked or
+  tabbed; Episodes panel with watched/unwatched, blur, rating visibility, Shuffle when Random Episode
+  is on. Page scrolls instead of cropping.
+- **K - Source list.** Five varied real `StreamCard`s (remux/DV/BluRay/WEB-DL/HDTV, three addons,
+  sizes), scrollable, ~80% on phones, Cinematic backdrop. Limitation: sample addons have no logo URL,
+  so the addon column shows names only.
+- **L - Social latency.** `OptimisticSetting` (pure, tested): switches move at once, write in the
+  background, revert + toast only on refusal of the latest write. `SocialRepository.setPrivacy` now
+  reflects accepted values in `me`. Ordered shutdown kept; Advanced Setup now also asks Settings'
+  leave-party confirmation.
+- **M - Enhanced metadata.** Off: addon backdrop, title text, names line, empty labelled slots; on:
+  logo, cast, trailers, More like this with accent markers. MDBList stays separate.
+- **N - Set up in Settings ejects.** `ZNestedSettingsPage` hosts MDBList / Trakt & Simkl / TMDB pages
+  over the hub (same `LazyListScope` builders and repositories as Settings); Back returns to the same
+  panel and tour position. Other pages still fall back to real Settings navigation.
+- **O** full-tour card; **P** tour keeps its frame, only header/body animate (Initial Setup's
+  transition), preview crossfades only when its kind changes; **Q** Done copy is the maintainer's text.
+- **R - "Downl..." in the desktop top bar.** Upstream sized every tab for a 64 dp label; the icon box
+  is the full icon size, so a label had 62 dp. The track is now sized from the measured widest label
+  (`DesktopNavigationTrackWidth.kt`, pure-tested; one-line seam in `DesktopNavigationBar.kt`); verified
+  in the render with Social on.
+
+**Commits** - mobile: `a900d143d` device steps, `3034636c8` optimistic writes, `6addd4c26` subtitle
+geometry, `f34b7695d` top-bar width, `aae8fd0d2` pure script, `cea2028c6` previews/flow,
+`2c6b3f025` render-review fixes, then the routing test, docs and debug-build commits. Desktop: the
+same commits cherry-picked (`66b553a00` .. `c89d879bb`, `4ea021ea0`), `5526b606b` desktop pieces
+(no Random Episode binding, `NativePlayerController` delegation, harness), then its test/docs/debug
+commits. Shared setup files are byte-identical across the repos (checked with `diff
+--strip-trailing-cr`); per-repo: `AdvancedSetupRepoBindings.kt`, `SetupHomeStill.kt`, strings.xml.
+
+**Verification.** Mobile: `:androidApp:compileFullDebugKotlin` pass; full
+`:composeApp:testAndroidHostTest --rerun-tasks` from a deleted results directory **3,327 tests, 0
+failures, 0 errors, 6 skipped** (383 suites) on the final code; pure group 3 (setup, optimistic,
+subtitle geometry, top-bar width) **172 / 172**. Desktop: `:composeApp:compileKotlinDesktop` pass;
+`AdvancedSetupRenderHarness` (196 PNGs incl. every Android panel at 360x740, reviewed - the review
+fixed the rail squeeze, detail/metadata crop, desktop hero size, source-list density and the top-bar
+rule) and the new `SetupWizardClickTest.setUpInSettingsOpensThePageWithoutLeavingThePanel` pass.
+⚠ **The desktop split suite did not finish:** Claude Code stopped it because the machine ran low on
+memory. Its `rest` part had **1,760 passed, 0 failed** (every setup / settings / render / click
+test included) when it was stopped; the `playback`, `downloads` and `e2e` parts never ran. Re-run
+`bash scripts/run-desktop-tests-split.sh <dir>` on a quiet machine before relying on a desktop total.
+iOS is compiled by the Debug release run (see below).
+
+**Still needs a device** (render harness cannot show these): every interactive preview by touch on a
+phone (Touch gestures, nav bar scroll-collapse, tab rows), hover previews and trailer sound on
+desktop, the nested Settings page's OAuth round trips returning to the panel (Trakt/Simkl browser
+flow), Social switches against the server (including a refused write and leaving a live party),
+Device Setup arrivals (desktop->Android Classic and Streamlined, desktop->iPhone on iOS 26 and older,
+phone->desktop), the subtitle preview against the real player on Android (ExoPlayer and libmpv),
+iOS and desktop, the desktop player preview against the native controls page (desktop draws its
+chrome natively), and the top bar at narrow/normal/4K with Social on/off and a longer locale.
+
 ## Setup + Settings architecture pass - COMPLETE ON BRANCH, UNMERGED (2026-09-29)
 
 **Newest work.** Branch `claude/setup-settings-architecture` in both Kotlin repositories, cut from

@@ -116,6 +116,19 @@ Advanced Setup, Device Setup and the cross-family import in Z-owned `features/se
 Per-repository files (never carried across as-is): `core/sync/ZProfileSyncContributors.kt` and
 `features/setup/AdvancedSetupRepoBindings.kt` - desktop has no Random Episode store.
 
+**Physical-QA polish, same branches (2026-09-29).** New upstream-file touches, each a one-line seam:
+- `core/ui/DesktopNavigationBar.kt` (upstream jelly top bar, both repos): the track width now comes
+  from `rememberDesktopNavigationTrackWidth` (`DesktopNavigationLabelMeasure.kt` /
+  `DesktopNavigationTrackWidth.kt`, Z) instead of upstream's fixed 64 dp label allowance, which cut
+  "Downloads" to "Downl...".
+- `androidMain/.../PlayerEngine.android.kt` (mobile), `iosMain/.../PlayerEngine.ios.kt` and desktop's
+  `desktopMain/.../NativePlayerController.kt`: the subtitle mappings (mpv font size / outline /
+  `sub-pos`, ExoPlayer bottom padding) delegate to `features/player/SubtitleRenderGeometry.kt` (Z,
+  import-free, pure-tested) so Advanced Setup's preview draws with the players' own numbers. Values
+  unchanged. Desktop's copy of `PlayerEngine.android.kt` is not built there and was left as it was.
+- `SocialRepository.kt` is Z-owned; `setPrivacy` now reflects accepted values in `me`.
+Everything else in the pass is in Z files (`features/setup/`, `features/settings/ZNestedSettingsPage.kt`).
+
 ## The shape of it
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
