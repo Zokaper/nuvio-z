@@ -244,6 +244,12 @@ A sync decides user-facing behaviour, not only text. The rule, set by the mainta
 Decisions already taken under this rule, so a later sync does not reopen them: Z's playback
 loading surface (`PlaybackLoadingHost`) is kept over upstream's; upstream's player controls are
 kept with the legacy layout as an option; episode shuffle is mobile-only and off by default.
+**The platform-family settings blob split is kept** (setup + settings pass, 2026-09-29): upstream's
+`sync_*_profile_settings_blob` keys the blob by `p_platform` (`mobile` / `desktop`) on upstream's
+server, which we cannot change, so nothing is shared across families there. Z bridges it with a
+one-time **cross-family import** on arrival (`core/sync/CrossFamilySettingsImport.kt`, allowlist in
+`CrossFamilyImportRules.kt`), not by writing the other family's blob. A true neutral store on the Z
+backend is logged future architecture, not a sync concern.
 
 ### Cadence
 

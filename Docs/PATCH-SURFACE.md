@@ -83,6 +83,39 @@ them as moved and `FloatingNavigationBar.android.kt` as rewritten - keep `common
 the shared dialog / sheet / menu components were taken from mobile upstream ahead of desktop
 upstream, so desktop's next sync should find them already identical.
 
+### 2026-09-29 setup + settings architecture note
+
+Branch `claude/setup-settings-architecture`, both repositories. The pass reorganises Settings at the
+**hub** in Z files (`ZSettingsRoot.kt`, `ZSettingsSearch.kt`, `ZSettingsNavigation.kt`) and adds
+Advanced Setup, Device Setup and the cross-family import in Z-owned `features/setup/` and
+`core/sync/` files. Upstream-owned files touched, and why:
+
+- **Settings seam** - `SettingsScreen.kt`: both call sites of the root call `zSettingsRootContent`
+  (upstream's `settingsRootContent` is kept, unused); the tablet rail lists `ZSettingsSection`
+  instead of `SettingsCategory`; two `when` branches for the Z pages; one `AdvancedSetup` search
+  target. `SettingsModels.kt`: `Navigation` and `About` **appended**; `TraktAuthentication`
+  re-parented to `Integrations`; `Appearance` / `ContentDiscovery` titled with Z strings.
+  `SettingsSearch.kt`: one sealed-class object and one hook line (`zAmendSettingsSearchEntries`).
+  `IntegrationsSettingsPage.kt`: an optional Tracking row. `AppearanceSettingsPage.kt`: one guard on
+  each of the two navigation rows (`zNavigationHasOwnPage`). `PosterCustomizationSettingsPage.kt`:
+  one line making Custom Poster URL advanced. `AdvancedSettingsPage.kt`: `!isDesktop` guards on the
+  Android engine / libmpv / DV7 / tunneling rows (vanilla desktop has the same guards).
+- **Shell** - `AppGate.kt`: the hub overlay, the launcher collector, arrival / import / Review
+  Setup state, What's New waiting for a gating wizard and its action card. `AppGateController.kt`:
+  `requestAdvancedSetup()`. `MainAppContent.kt`: one collector for `ZSettingsNavigation` ("Set up in
+  Settings" from the hub).
+- **Sync and sign-out** - `ProfileSettingsSync.kt` (signature from the observed list, the
+  `ZProfileSyncContributor` seam, cross-family import entry points), `SyncManager.kt`
+  (`pullAllForProfileAndWait`), `ProfileRepository.kt` (`selectProfile` reloads Debrid and Trakt
+  comments), `LocalAccountDataCleaner.kt` and the Android/iOS `PlatformLocalAccountDataCleaner`
+  actuals (wipe from `LocalStoreRegistry`), the `PlayerSettingsStorage` and
+  `StreamBadgeSettingsStorage` actuals (new sync keys). Desktop only: `DesktopStorage` gained the
+  selective wipe.
+- **Strings** - one appended Z block in `strings.xml` (`setup-settings-tools/zstrings.py`).
+
+Per-repository files (never carried across as-is): `core/sync/ZProfileSyncContributors.kt` and
+`features/setup/AdvancedSetupRepoBindings.kt` - desktop has no Random Episode store.
+
 ## The shape of it
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`

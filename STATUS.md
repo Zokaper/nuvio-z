@@ -2,18 +2,83 @@
 
 Last updated: 2026-09-29
 
-## Setup + Settings architecture pass - IN PROGRESS, LOCAL BRANCH (2026-09-29)
+## Setup + Settings architecture pass - COMPLETE ON BRANCH, UNMERGED (2026-09-29)
 
-**Newest work.** Branch `claude/setup-settings-architecture` (local, unpushed) in `nuvio-z`, cut from
-`34fc1c598`; desktop branch of the same name exists with no commits yet. Approved plan:
-`../PLAN-setup-settings-architecture.md`; exact state and next steps:
-`../HANDOFF-setup-settings-architecture.md`. Stages 1-3 done and tested (sync fixes, semantic
-sign-out, pure models); stage 4 (Device Setup + cross-family import) is committed as
-**uncompiled WIP** `e25165a12` - the AppGate hook is not written yet.
+**Newest work.** Branch `claude/setup-settings-architecture` in both Kotlin repositories, cut from
+`claude/pre-release-ux-convergence` (mobile `34fc1c598`, desktop `3ae61b62f`, both untouched) and
+pushed. Not merged to `main` / `Dev`; no release, RC, tag, version/serial bump or feed change; no
+Phase 10 work; the iOS / Watch Together hardening pass not started. Approved plan:
+`../PLAN-setup-settings-architecture.md`; resume/handoff: `../HANDOFF-setup-settings-architecture.md`.
+
+**What it delivers (all 12 plan stages).** Stage 1 sync correctness (B1-B4, legacy player layout,
+addon logo, Random Episode and home hero newly synced) - `Z-FEATURES` **C23**. Stage 2 semantic
+sign-out through `LocalStoreRegistry` (mobile and desktop) - **C24**. Stages 3-5 Device Setup and the
+cross-family import (Welcome back, Review setup, transport-failure retry, per-profile arrival flag,
+the device alerts row), Done's Advanced Setup, the wizard back handler, What's New waiting for a
+gating wizard - **W13**, **W14**. Stages 6-8 **Advanced Setup** (`features/setup/AdvancedSetup*.kt`):
+hub with live summaries, 14 categories / 26 panels from the pure `AdvancedSetupModel`, full tour,
+session ticks, live previews (wizard specimens reused; real `NavigationBarPreview`, `NuvioPosterCard`
+and `StreamCard`; new drawn specimens for player chrome, skip timeline, subtitles, friend activity,
+metadata, iOS tab bar, desktop navigation), desktop two-pane frame via `SetupDesktopSplitFrame`,
+"New" badge flag, `AppGateController.requestAdvancedSetup()` - **W12**. Stage 9 the **Settings hub**
+(`ZSettingsRoot.kt`): Watching / Look & feel / Content & services / Profile & social / Setup & about /
+Advanced, Navigation and About pages, Trakt & Simkl under Integrations, Custom Poster URL advanced,
+Liquid Glass row restored, search re-indexed, desktop decoder rows fixed - **C22**. Stage 10 the What's
+New **action card** ("Try Advanced Setup") and this pass's changelog entries - **C4**. Stage 11 desktop
+carry, desktop pieces, render harness. Stage 12 docs (`Z-FEATURES` W1/W4 revisions fixed, W12-W14,
+C22-C24, C4; `PATCH-SURFACE` 2026-09-29 note; `UPSTREAM` blob-split decision; `VANILLA-BUGS` V4).
+
+**Mobile commits** (after the stage 1-4 commits listed in the handoff): `c664be9c3` Advanced Setup;
+`b9c412b12` Settings hub; `79dd99ca8` What's New action card + notes; `dacef82fe` keep the shared
+files byte-identical with desktop (`AdvancedSetupRepoBindings.kt` is the one per-repo file);
+`e418de18a` render-review fixes; then this docs commit.
+
+**Verification (mobile, code head `e418de18a`).** `:androidApp:compileFullDebugKotlin` **pass**.
+Full `:composeApp:testAndroidHostTest --rerun-tasks` from a deleted results directory: **3,296 tests,
+0 failures, 0 errors, 6 skipped** across 380 suites (new: `ZSettingsHubTest` 8, `ChangelogFileTest`
++2, `WhatsNewSelectionTest` +2). Pure suites (`scripts/run-pure-suites.sh`, run through an ignored LF
+copy without `set -e`): group 1 **279**, group 3 **141**, 4 **17**, 5 **29**, 6 **191**, 7 **63**,
+8 **3**, 9 **17**, all OK; group 2 fails to compile standalone at `DownloadFlowRules.kt` (the
+documented pre-existing failure, unchanged). Desktop numbers are in `NuvioZDesktop/STATUS.md`.
+
+**Deviations from the plan, all deliberate.** (1) Desktop received the shared commits by
+`git cherry-pick` from `mobile/claude/setup-settings-architecture`, not `git merge` - a full merge pulls
+a large unrelated mobile baseline (tried and aborted in stage 4); the shared files are byte-identical
+afterwards (`diff --strip-trailing-cr`). (2) Advanced Setup opens through a process-wide
+`AdvancedSetupLauncher` request collected by the overlay gate, so the Settings row needs no lambda
+threaded through upstream's shell; `AppGateController.requestAdvancedSetup()` delegates to it.
+(3) "Set up in Settings" links (MDBList, Tracking) close the hub and open the real page through
+`ZSettingsNavigation`, collected in `MainAppContent` (one upstream-file collector). (4) The Navigation
+page uses a Z segmented row rather than upstream's `SettingsChipRow`, which desktop does not have.
+(5) Random Episode's Advanced Setup row lives in the per-repository `AdvancedSetupRepoBindings.kt`
+(empty on desktop). (6) The search test is a Robolectric host test on mobile and an
+`ImageComposeScene` test on desktop.
+
+**Physical QA still required - none of this has been seen on a device.** The plan's §21 matrix, all
+14 rows: fresh account → Initial Setup → Done → Advanced Setup → tour; upgrade in place → no wizard,
+What's New card opens the hub, "New" badge clears; second same-family phone → Device Setup (mobile
+data + alerts only); phone profile first on desktop → import → Welcome back (+ quality/HDR for
+Streamlined/Instant); desktop profile first on a phone → Welcome back → device step; Review setup
+shows imported answers; two profiles on one install; delete / reinstall; Run Initial Setup again ✕
+writes nothing; newly synced settings reach a second device; sign out → other account (no leaked TMDB
+key / AIOStreams creds; language and zoom kept); every Settings root row, moved page and search result
+lands where it says, Liquid Glass on iOS 26+; offline first desktop launch of a phone profile; and
+the second launch after each. Also: the Advanced Setup previews on a real phone (the render harness
+cannot run on Android), the iOS 26 tab bar drawing against the real bar, and What's New's card on a
+real upgrade (none has been published).
+
+**Debt left, not fixed here** (plan §22): true cross-family shared settings (the import is the
+interim); library layout/sort, season view, recent-searches toggle, P2P toggles and per-title tracks
+still unsynced; the two mismatched subtitle-style editors (player vs Settings); offline launch opening
+Download *settings* (`MainAppContent.kt`); the iOS Downloads "Storage" row hidden by an `!isIos`
+block; Trakt/Simkl tokens not syncing between Kotlin clients; codec/audio preference not imported
+cross-family (a one-line allowlist flip if wanted); whether release builds carry Trakt/Simkl
+credentials (the Tracking category auto-hides without them). `ZSettingsHubTest` lives in the desktop
+tree too, where the Android host suite cannot build; `ZSettingsHubDesktopTest` is its desktop twin.
 
 ## Upstream UX convergence, part 2 - ON BRANCH, UNMERGED (2026-09-29)
 
-**This is the current state.** Branch `claude/pre-release-ux-convergence` in both Kotlin repositories,
+**The base of the setup + settings branch above.** Branch `claude/pre-release-ux-convergence` in both Kotlin repositories,
 cut from the completed sync heads (mobile `88c5e010c`, desktop `b4c83e95a`, both untouched) and
 pushed. Not merged to `main` / `Dev`; no release, RC, tag, version/serial or feed change; no wizard,
 settings-reorganization or Phase 10 work; `iosSetup/` untouched. The durable record, including every
