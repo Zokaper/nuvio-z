@@ -14,25 +14,40 @@ import kotlin.math.roundToLong
 internal fun Modifier.playerSurfaceTapGestures(
     layoutSize: IntSize,
     playbackGesturesEnabled: Boolean,
+    doubleTapSeekEnabled: Boolean,
     playerControlsLockedState: State<Boolean>,
+    controlsVisibleState: State<Boolean>,
     onSurfaceTap: State<(Offset) -> Unit>,
-    onSurfaceDoubleTap: State<(Offset) -> Unit>,
+    onSurfaceDoubleTap: State<(Offset, Boolean) -> Unit>,
     activateHoldToSpeedState: State<() -> Unit>,
     deactivateHoldToSpeedState: State<() -> Unit>,
     revealLockedOverlayState: State<() -> Unit>,
 ): Modifier =
-    pointerInput(layoutSize, playbackGesturesEnabled) {
+    pointerInput(layoutSize, playbackGesturesEnabled, doubleTapSeekEnabled) {
+        var beforeFirstTap: Boolean? = null
+        var longPressed = false
         detectTapGestures(
             onPress = {
-                tryAwaitRelease()
+                if (beforeFirstTap == null) beforeFirstTap = controlsVisibleState.value
+                longPressed = false
+                val released = tryAwaitRelease()
+                if (released && !longPressed) onSurfaceTap.value(it)
+                if (!released) beforeFirstTap = null
                 deactivateHoldToSpeedState.value()
             },
-            onTap = { offset -> onSurfaceTap.value(offset) },
-            onDoubleTap = if (playbackGesturesEnabled) {
-                { offset -> onSurfaceDoubleTap.value(offset) }
+            // Compose defers onTap for the full double-tap timeout. onPress completes on the
+            // first release, so visibility changes without waiting for another possible tap.
+            onTap = { beforeFirstTap = null },
+            onDoubleTap = if (doubleTapSeekEnabled) {
+                { offset ->
+                    onSurfaceDoubleTap.value(offset, beforeFirstTap ?: controlsVisibleState.value)
+                    beforeFirstTap = null
+                }
             } else null,
             onLongPress = if (playbackGesturesEnabled) {
                 {
+                    longPressed = true
+                    beforeFirstTap = null
                     if (playerControlsLockedState.value) {
                         revealLockedOverlayState.value()
                     } else {

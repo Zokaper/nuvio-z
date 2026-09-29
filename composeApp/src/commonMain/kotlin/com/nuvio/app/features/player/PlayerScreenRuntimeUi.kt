@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import com.nuvio.app.features.watchparty.currentEpochMs
@@ -932,7 +933,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             .playerSurfaceTapGestures(
                 layoutSize = layoutSize,
                 playbackGesturesEnabled = playbackGesturesEnabled,
+                doubleTapSeekEnabled = playbackGesturesEnabled && playerSettingsUiState.touchGesturesEnabled,
                 playerControlsLockedState = gestureCallbacks.playerControlsLocked,
+                controlsVisibleState = rememberUpdatedState(controlsVisible),
                 onSurfaceTap = gestureCallbacks.onSurfaceTap,
                 onSurfaceDoubleTap = gestureCallbacks.onSurfaceDoubleTap,
                 activateHoldToSpeedState = gestureCallbacks.activateHoldToSpeed,

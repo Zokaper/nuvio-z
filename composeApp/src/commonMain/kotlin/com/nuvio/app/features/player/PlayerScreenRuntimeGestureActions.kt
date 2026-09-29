@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 
 internal data class PlayerSurfaceGestureCallbacks(
     val onSurfaceTap: State<(Offset) -> Unit>,
-    val onSurfaceDoubleTap: State<(Offset) -> Unit>,
+    val onSurfaceDoubleTap: State<(Offset, Boolean) -> Unit>,
     val activateHoldToSpeed: State<() -> Unit>,
     val deactivateHoldToSpeed: State<() -> Unit>,
     val showHorizontalSeekPreview: State<(Long, Long) -> Unit>,
@@ -346,13 +346,10 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
             controlsVisible = !controlsVisible
         }
     }
-    val onSurfaceDoubleTap = rememberUpdatedState { offset: Offset ->
+    val onSurfaceDoubleTap = rememberUpdatedState { offset: Offset, controlsBeforeFirstTap: Boolean ->
+        controlsVisible = controlsBeforeFirstTap
         if (playerControlsLocked) {
             revealLockedOverlay()
-            return@rememberUpdatedState
-        }
-        if (!playerSettingsUiState.touchGesturesEnabled) {
-            controlsVisible = !controlsVisible
             return@rememberUpdatedState
         }
         when {
