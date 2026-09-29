@@ -451,6 +451,10 @@
         {
           "build": 68,
           "text": "Advanced Setup polish from the device pass: the Player, Touch, Home, Detail page, Enhanced metadata and Source list previews now show the app's real screens and fit a small phone; Touch and Navigation previews can be tried; subtitles preview the way this device's player draws them; Set up in Settings opens the page over Advanced Setup and Back returns to where you were; Social switches respond at once; a clearer Take the full tour; the tour no longer slides the whole screen. Welcome back on a phone now also sets up this phone's navigation and player."
+        },
+        {
+          "build": 69,
+          "text": "TMDB details work again: builds now carry Nuvio's built-in TMDB key, so cast, artwork, episode details and More like this come from TMDB with no key of your own (68 shipped without one). Advanced Setup's player previews now show a real episode frame instead of the show's artwork, and never switch to it after a slow load."
         }
       ]
     },
