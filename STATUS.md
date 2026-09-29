@@ -41,6 +41,14 @@ copy without `set -e`): group 1 **279**, group 3 **141**, 4 **17**, 5 **29**, 6 
 8 **3**, 9 **17**, all OK; group 2 fails to compile standalone at `DownloadFlowRules.kt` (the
 documented pre-existing failure, unchanged). Desktop numbers are in `NuvioZDesktop/STATUS.md`.
 
+**CI and debug builds.** The first iOS compile failed on a JVM-only `MutableList.replaceAll` in
+`ZSettingsSearch.kt` (fixed in `9d379ff52`; nothing was published by the failed run). On the fix,
+push CI `36557959509` **success** and Debug release `36557959964` **success** (Android + iOS) →
+`debug-v0.4.13-z1.66`. 66's in-app debug note named only this pass, although it is the **first debug
+build on the upstream sync** (vanilla 0.5.4-beta + the UX convergence); the note is compiled in, so
+**debug build 67** (same code, corrected note; a device from 65 sees both lines) was dispatched as
+run `36561195605` - check its result before testing. Desktop: see `NuvioZDesktop/STATUS.md`.
+
 **Deviations from the plan, all deliberate.** (1) Desktop received the shared commits by
 `git cherry-pick` from `mobile/claude/setup-settings-architecture`, not `git merge` - a full merge pulls
 a large unrelated mobile baseline (tried and aborted in stage 4); the shared files are byte-identical
