@@ -185,6 +185,58 @@ object ProfileSettingsSync {
         }
     }
 
+    // --- the cross-family import's entry points (setup + settings pass) -----------------------
+    // The import itself is `CrossFamilySettingsImport`; these are the only things it needs from
+    // here, so the blob's private shape stays private to this file.
+
+    /** This install's platform family - `"mobile"` or `"desktop"`. */
+    internal val ownFamilyPlatform: String get() = profileSettingsPlatform
+
+    /**
+     * One family's blob for [profileId], read-only: its JSON, null when that family has none, or a
+     * failure when it could not be read. "None" and "could not ask" must stay distinct - only the
+     * first may conclude that there is nothing to import.
+     */
+    internal suspend fun fetchSettingsBlobJson(profileId: Int, platform: String): Result<JsonObject?> = runCatching {
+        val params = buildJsonObject {
+            put("p_profile_id", profileId)
+            put("p_platform", platform)
+        }
+        SupabaseProvider.client.postgrest.rpc("sync_pull_profile_settings_blob", params)
+            .decodeList<SettingsBlobResponse>()
+            .firstOrNull()
+            ?.settingsJson
+    }
+
+    /** This profile's current settings, as the JSON a push would send. */
+    internal fun exportSettingsBlobJson(): JsonObject =
+        json.encodeToJsonElement(MobileProfileSettingsBlob.serializer(), exportSettingsBlob()) as JsonObject
+
+    /**
+     * Applies a blob the cross-family import assembled, through exactly the path a pull uses. False
+     * when [profileId] is no longer active or the blob does not decode - nothing is applied then.
+     */
+    internal suspend fun applyImportedSettingsBlobJson(profileId: Int, blobJson: JsonObject): Boolean {
+        ensureRepositoriesLoaded()
+        return syncMutex.withLock {
+            if (ProfileRepository.activeProfileId != profileId) return@withLock false
+            val blob = runCatching {
+                json.decodeFromJsonElement(MobileProfileSettingsBlob.serializer(), blobJson)
+            }.getOrElse { error ->
+                log.e(error) { "applyImportedSettingsBlobJson(profileId=$profileId) - failed to decode" }
+                return@withLock false
+            }
+            isApplyingRemoteBlob = true
+            try {
+                applyRemoteBlob(blob)
+                skipNextPushSignature = currentObservedStateSignature()
+            } finally {
+                isApplyingRemoteBlob = false
+            }
+            true
+        }
+    }
+
     @OptIn(FlowPreview::class)
     private fun observeLocalChangesAndPush() {
         val signatureFlows: List<Flow<Any?>> = observedSyncStates().map { it.state }

@@ -2865,7 +2865,7 @@
 
     <string name="setup_done_title">You're all set</string>
     <string name="setup_done_subtitle">Everything here can be changed again whenever you like.</string>
-    <string name="setup_done_body">You can change any of this later, and run setup again from the bottom of Settings.</string>
+    <string name="setup_done_body">You can change any of this later in Settings, or run setup again from Settings - Setup and about.</string>
     <string name="setup_done_playback">Playback</string>
     <string name="setup_done_social">Social features</string>
     <string name="setup_done_social_on">On</string>
@@ -3300,4 +3300,24 @@
     <string name="download_library_delete_episode">Delete download</string>
     <string name="download_library_delete_watched_title">Delete watched episodes?</string>
     <string name="download_library_delete_watched_body">Remove %1$d watched episodes of %2$s from this device? This frees %3$s.</string>
+    <!-- Nuvio Z: setup + settings architecture pass (2026-09-29). -->
+    <string name="setup_welcome_back_title">Welcome back</string>
+    <string name="setup_welcome_back_subtitle">Your Nuvio Z preferences came with you.</string>
+    <string name="setup_welcome_back_body">We brought over your Nuvio Z preferences from your other device. A few things belong to this device, and the next steps ask only those.</string>
+    <string name="setup_welcome_back_body_nothing_left">We brought over your Nuvio Z preferences from your other device. There is nothing else to set up here.</string>
+    <string name="setup_welcome_back_continue">Continue with these settings</string>
+    <string name="setup_welcome_back_review">Review setup</string>
+    <string name="setup_welcome_back_theme">Theme</string>
+    <string name="setup_import_retry_body">Couldn't reach your settings from your other device.</string>
+    <string name="setup_import_retry_action">Try again</string>
+    <string name="setup_import_retry_busy">Checking…</string>
+    <string name="setup_import_retry_none">No settings from another device were found.</string>
+    <string name="setup_done_advanced_body">Nuvio Z has many more ways to customise how it looks and works. Change them later in Settings, or set them up now.</string>
+    <string name="setup_done_advanced">Advanced Setup</string>
+    <string name="setup_device_alerts_title">New-episode alerts</string>
+    <string name="setup_device_alerts_body">New-episode alerts are on for this profile. Allow them on this device too?</string>
+    <string name="setup_device_alerts_allow">Allow on this device</string>
+    <string name="setup_device_alerts_allowed">Allowed on this device</string>
+    <string name="setup_device_alerts_denied">Not allowed. You can allow notifications later in the system settings.</string>
+    <!-- /Nuvio Z: setup + settings architecture pass. -->
 </resources>

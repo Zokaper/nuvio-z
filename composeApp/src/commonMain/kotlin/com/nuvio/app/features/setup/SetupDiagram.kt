@@ -161,7 +161,9 @@ fun SetupDiagram(
             SetupStep.SocialIdentity,
             -> DiagramSocial()
 
-            SetupStep.Done -> DiagramDone()
+            SetupStep.WelcomeBack,
+            SetupStep.Done,
+            -> DiagramDone()
 
             // Never reached - these steps have a real specimen - but enumerated rather than
             // defaulted so that adding a step is a compile error here instead of a blank band.
