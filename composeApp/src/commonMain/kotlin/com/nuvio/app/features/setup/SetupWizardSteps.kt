@@ -59,8 +59,13 @@ const val SETUP_DEVICE_REVISION: Int = 10
  *
  * - [Full]: a fresh profile, or one whose answers predate revision 8.
  * - [Upgrade]: revision 8 or 9 - only the steps [setupStepOfferedOnUpgradeFrom] names.
- * - [Device]: the profile is current but this phone has never been set up (mobile data).
+ * - [Device]: **Device Setup.** The profile is current, but either this phone has never been set up
+ *   (mobile data), or the profile has just *arrived* on this platform family through the
+ *   cross-family import and owes the few per-device choices the import deliberately left behind.
  * - [None]: nothing is owed.
+ *
+ * Device Setup is curated device-local configuration - the few per-device choices worth asking on
+ * arrival - not a walk through every setting that happens to be stored locally.
  *
  * **Skipping any of them counts as finishing it**: the revision is written either way, so nobody is
  * asked twice. Skipping an upgrade leaves the Download Mode unanswered, which means derived from
@@ -72,6 +77,8 @@ enum class SetupWizardRun { Full, Upgrade, Device, None }
  * @param profileRevision the synced `setup_wizard_completed_revision`.
  * @param deviceRevision this device's own setup revision, null when never written.
  * @param isPhone false on desktop, which has no device steps (no mobile data rule to ask).
+ * @param arrivalPending this profile was just imported from the other platform family on this
+ *   device (`CrossFamilySettingsImport`) and has not finished its Device Setup here yet.
  *
  * A stored revision **higher** than the current one never re-asks: that is a downgrade, and the
  * user has answered a superset of what this build would ask.
@@ -81,15 +88,25 @@ fun setupWizardRun(
     deviceRevision: Int?,
     isPhone: Boolean,
     currentRevision: Int = SETUP_WIZARD_REVISION,
+    arrivalPending: Boolean = false,
 ): SetupWizardRun {
     val profile = profileRevision ?: 0
     return when {
         profile < minOf(currentRevision, SETUP_WIZARD_FULL_REQUIRED_BELOW) -> SetupWizardRun.Full
         profile < currentRevision -> SetupWizardRun.Upgrade
-        isPhone && (deviceRevision ?: 0) < SETUP_DEVICE_REVISION -> SetupWizardRun.Device
+        arrivalPending -> SetupWizardRun.Device
+        isDeviceSetupStale(deviceRevision, isPhone) -> SetupWizardRun.Device
         else -> SetupWizardRun.None
     }
 }
+
+/**
+ * Whether this device still owes its own questions. Device-global rather than per profile, on
+ * purpose: every genuinely device-local setting (the mobile-data rule, the notification permission)
+ * belongs to the installation, so a second profile on the same phone is not asked again.
+ */
+fun isDeviceSetupStale(deviceRevision: Int?, isPhone: Boolean): Boolean =
+    isPhone && (deviceRevision ?: 0) < SETUP_DEVICE_REVISION
 
 /**
  * Whether the profile's own answers are out of date - [SetupWizardRun.Full] or
@@ -127,6 +144,14 @@ fun setupStepOfferedOnUpgradeFrom(step: SetupStep): Int? = when (step) {
 enum class SetupStep {
     /** Name the thing and offer a way out. Sets nothing. */
     Welcome,
+
+    /**
+     * Device Setup's greeting after a cross-family import: "Welcome back - we brought over your Nuvio
+     * Z preferences from your other device", with what came over. Offers **Review setup**, which
+     * switches to a normal Initial Setup with every imported answer preselected. Sets nothing.
+     * Only in a plan with [SetupWizardPlan.arrival].
+     */
+    WelcomeBack,
 
     /**
      * How Nuvio picks sources - the first substantive decision, and the one that decides which
@@ -330,21 +355,48 @@ data class SetupWizardPlan(
 
     /** The profile's revision before this run; decides what an [SetupWizardRun.Upgrade] asks. */
     val fromRevision: Int = 0,
+
+    /**
+     * The profile arrived on this platform family through the cross-family import. Adds
+     * [SetupStep.WelcomeBack] and - for a mode that uses them - the playback preferences the import
+     * deliberately did not bring (quality limit and HDR depend on the device and its connection).
+     */
+    val arrival: Boolean = false,
+
+    /** This device still owes its own questions (see [isDeviceSetupStale]). Read by a Device run. */
+    val deviceStale: Boolean = true,
 )
 
 /** What the download-setup step asks in this plan. */
 fun downloadSetupVariant(plan: SetupWizardPlan): DownloadSetupVariant =
     downloadSetupVariant(plan.downloadModeName, plan.isPhone, plan.run)
 
-/** The steps this run will actually show, in order. */
-fun setupWizardSteps(plan: SetupWizardPlan): List<SetupStep> = SetupStep.entries.filter { step ->
+/**
+ * The steps this run will actually show, in order.
+ *
+ * A Device run whose only step would be Done shows nothing at all - a desktop that is current and
+ * was not just imported has nothing to ask, and a screen that only says "done" is not a wizard.
+ */
+fun setupWizardSteps(plan: SetupWizardPlan): List<SetupStep> {
+    val steps = setupWizardStepsUnpruned(plan)
+    return if (plan.run == SetupWizardRun.Device && steps == listOf(SetupStep.Done)) emptyList() else steps
+}
+
+private fun setupWizardStepsUnpruned(plan: SetupWizardPlan): List<SetupStep> = SetupStep.entries.filter { step ->
     val offeredHere = when (plan.run) {
         SetupWizardRun.Full -> true
         SetupWizardRun.Upgrade -> (setupStepOfferedOnUpgradeFrom(step) ?: 0) > plan.fromRevision
-        SetupWizardRun.Device -> step == SetupStep.DownloadSetup
+        SetupWizardRun.Device -> when (step) {
+            SetupStep.WelcomeBack, SetupStep.PlaybackSetup -> plan.arrival
+            SetupStep.DownloadSetup -> plan.deviceStale
+            SetupStep.Done -> true
+            else -> false
+        }
         SetupWizardRun.None -> false
     }
-    offeredHere && when (step) {
+    val arrivalGreeting = step == SetupStep.WelcomeBack && plan.arrival && plan.run == SetupWizardRun.Upgrade
+    (offeredHere || arrivalGreeting) && when (step) {
+        SetupStep.WelcomeBack -> plan.arrival
         SetupStep.PlaybackSetup ->
             playbackSetupVariant(plan.playbackModeName) != PlaybackSetupVariant.None
         SetupStep.DownloadSetup -> downloadSetupVariant(plan) != DownloadSetupVariant.None

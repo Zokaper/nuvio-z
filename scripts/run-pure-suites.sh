@@ -226,10 +226,12 @@ rm -rf "$WORK/out-setup"
 kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
   "$M/features/setup/SetupWizardSteps.kt" \
   "$M/features/setup/SetupModeStoryboard.kt" \
+  "$M/features/setup/AdvancedSetupModel.kt" \
   "$M/features/whatsnew/WhatsNewSelection.kt" \
   "$M/AppGateOverlayRules.kt" \
   "$T/features/setup/SetupWizardStepsTest.kt" \
   "$T/features/setup/SetupModeStoryboardTest.kt" \
+  "$T/features/setup/AdvancedSetupModelTest.kt" \
   "$T/features/whatsnew/WhatsNewSelectionTest.kt" \
   "$T/AppGateOverlayRulesTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
@@ -237,6 +239,7 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
 java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.setup.SetupWizardStepsTest \
   com.nuvio.app.features.setup.SetupModeStoryboardTest \
+  com.nuvio.app.features.setup.AdvancedSetupModelTest \
   com.nuvio.app.features.whatsnew.WhatsNewSelectionTest \
   com.nuvio.app.AppGateOverlayRulesTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
@@ -389,6 +392,21 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-title-presentation" \
 
 java -cp "$WORK/out-title-presentation:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.home.components.TitlePresentationTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+
+# --- Group 9: what crosses a boundary - sign-out and the cross-family import --------------------
+# Both files are import-free (setup + settings pass): which local stores signing out clears, and
+# which settings a profile brings the first time it reaches the other platform family.
+rm -rf "$WORK/out-boundaries"
+kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-boundaries" \
+  "$M/core/storage/LocalStoreRegistry.kt" \
+  "$M/core/sync/CrossFamilyImportRules.kt" \
+  "$T/core/storage/LocalStoreRegistryTest.kt" \
+  "$T/core/sync/CrossFamilyImportRulesTest.kt" \
+  2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
+
+java -cp "$WORK/out-boundaries:$CP_RUN" org.junit.runner.JUnitCore \
+  com.nuvio.app.core.storage.LocalStoreRegistryTest \
+  com.nuvio.app.core.sync.CrossFamilyImportRulesTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # Deliberately not run here, and CI is the gate for all three:
 #   PlaybackSourceSelectorTest  - reaches the real AIO types

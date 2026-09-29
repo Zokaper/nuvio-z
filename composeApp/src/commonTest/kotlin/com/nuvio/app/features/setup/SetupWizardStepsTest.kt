@@ -144,8 +144,104 @@ class SetupWizardStepsTest {
         assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = null, isPhone = true))
         assertEquals(SetupWizardRun.Device, setupWizardRun(10, deviceRevision = 9, isPhone = true))
         val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Device, fromRevision = 10)
-        assertEquals(listOf(SetupStep.DownloadSetup), setupWizardSteps(plan))
+        // Done since the setup + settings pass: it offers Advanced Setup.
+        assertEquals(listOf(SetupStep.DownloadSetup, SetupStep.Done), setupWizardSteps(plan))
         assertEquals(DownloadSetupVariant.DeviceOnly, downloadSetupVariant(plan))
+    }
+
+    // --- Device Setup after a cross-family import ------------------------------------------
+
+    @Test
+    fun anArrivalIsADeviceRunOnEveryPlatform() {
+        listOf(true, false).forEach { phone ->
+            assertEquals(
+                SetupWizardRun.Device,
+                setupWizardRun(10, deviceRevision = 10, isPhone = phone, arrivalPending = true),
+                "phone $phone",
+            )
+        }
+        // The profile's own answers still come first: an imported revision 9 is an Upgrade.
+        assertEquals(SetupWizardRun.Upgrade, setupWizardRun(9, deviceRevision = 10, isPhone = false, arrivalPending = true))
+        assertEquals(SetupWizardRun.Full, setupWizardRun(null, deviceRevision = 10, isPhone = false, arrivalPending = true))
+    }
+
+    @Test
+    fun anArrivalOnDesktopGreetsAsksQualityForAPickingModeAndFinishes() {
+        val streamlined = SetupWizardPlan(playbackModeName = "STREAMLINED", isPhone = false, run = SetupWizardRun.Device, arrival = true, deviceStale = false)
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.Done), setupWizardSteps(streamlined))
+        val classic = streamlined.copy(playbackModeName = "CLASSIC")
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.Done), setupWizardSteps(classic))
+    }
+
+    @Test
+    fun anArrivalOnANewPhoneAlsoAsksTheDeviceQuestion() {
+        val plan = SetupWizardPlan(playbackModeName = "INSTANT", run = SetupWizardRun.Device, arrival = true, deviceStale = true)
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.DownloadSetup, SetupStep.Done),
+            setupWizardSteps(plan),
+        )
+        // A phone already set up here (another profile did it) is not asked again.
+        assertEquals(
+            listOf(SetupStep.WelcomeBack, SetupStep.PlaybackSetup, SetupStep.Done),
+            setupWizardSteps(plan.copy(deviceStale = false)),
+        )
+    }
+
+    @Test
+    fun aSameFamilyDeviceRunNeverGreetsOrAsksPlayback() {
+        val plan = SetupWizardPlan(playbackModeName = "INSTANT", run = SetupWizardRun.Device, arrival = false)
+        assertFalse(SetupStep.WelcomeBack in setupWizardSteps(plan))
+        assertFalse(SetupStep.PlaybackSetup in setupWizardSteps(plan))
+    }
+
+    @Test
+    fun aDeviceRunWithNothingToAskShowsNothing() {
+        val plan = SetupWizardPlan(isPhone = false, run = SetupWizardRun.Device, arrival = false, deviceStale = false)
+        assertEquals(emptyList(), setupWizardSteps(plan))
+    }
+
+    @Test
+    fun anArrivingUpgradeGreetsFirst() {
+        val plan = SetupWizardPlan(downloadModeName = "AUTOMATIC", run = SetupWizardRun.Upgrade, fromRevision = 9, arrival = true)
+        assertEquals(listOf(SetupStep.WelcomeBack, SetupStep.DownloadMode, SetupStep.DownloadSetup), setupWizardSteps(plan))
+    }
+
+    @Test
+    fun reviewSetupIsAFullRunWithoutTheGreeting() {
+        // "Review setup" switches to a Full run and clears the arrival from the plan.
+        val plan = SetupWizardPlan(run = SetupWizardRun.Full, arrival = false)
+        assertEquals(SetupStep.Welcome, setupWizardSteps(plan).first())
+        assertFalse(SetupStep.WelcomeBack in setupWizardSteps(plan))
+    }
+
+    @Test
+    fun theDeviceRevisionIsPerDeviceAndDesktopNeverOwesOne() {
+        assertTrue(isDeviceSetupStale(null, isPhone = true))
+        assertTrue(isDeviceSetupStale(9, isPhone = true))
+        assertFalse(isDeviceSetupStale(10, isPhone = true))
+        assertFalse(isDeviceSetupStale(null, isPhone = false))
+    }
+
+    @Test
+    fun aSavedWelcomeBackRestores() {
+        assertEquals(SetupStep.WelcomeBack, setupStepForSavedName("WelcomeBack"))
+    }
+
+    @Test
+    fun everyArrivalPlanWalksForwardAndBackWithinItself() {
+        listOf("CLASSIC", "STREAMLINED", "INSTANT").forEach { mode ->
+            listOf(true, false).forEach { phone ->
+                listOf(true, false).forEach { stale ->
+                    val plan = SetupWizardPlan(playbackModeName = mode, isPhone = phone, run = SetupWizardRun.Device, arrival = true, deviceStale = stale)
+                    val steps = setupWizardSteps(plan)
+                    assertEquals(SetupStep.WelcomeBack, steps.first(), "$plan")
+                    assertEquals(SetupStep.Done, steps.last(), "$plan")
+                    val walked = generateSequence(steps.first()) { nextSetupStep(it, plan) }.toList()
+                    assertEquals(steps, walked, "$plan")
+                    assertTrue(isFinalSetupStep(SetupStep.Done, plan))
+                }
+            }
+        }
     }
 
     @Test
@@ -314,8 +410,9 @@ class SetupWizardStepsTest {
             offerSocialIdentity = true,
             downloadModeName = "AUTOMATIC",
         )
-        assertEquals(SetupStep.entries, setupWizardSteps(full))
-        assertEquals(12, SetupStep.entries.size)
+        // WelcomeBack belongs to Device Setup after a cross-family import, never to a full run.
+        assertEquals(SetupStep.entries - SetupStep.WelcomeBack, setupWizardSteps(full))
+        assertEquals(13, SetupStep.entries.size)
     }
 
     @Test
