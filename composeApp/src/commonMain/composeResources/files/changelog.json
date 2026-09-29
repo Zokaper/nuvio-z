@@ -443,6 +443,10 @@
         {
           "build": 66,
           "text": "Setup + settings pass: Advanced Setup (Settings → Setup & about, the Done page, the What's New card), a reorganised Settings with Navigation and About pages, Welcome back / Device Setup when a profile arrives from desktop, and sync and sign-out fixes."
+        },
+        {
+          "build": 67,
+          "text": "Rebuild of 66 whose notes left out that this is the first debug build on the upstream sync (vanilla 0.5.4-beta plus the UX convergence): upstream's floating navigation bar (adaptive, expanded, compact or classic, with glow on Android 13+) carrying Social and Z's tabs, new player controls with the legacy layout still an option, refreshed pop-ups and menus, skip movie credits, your subtitle choice carried to the next episode, a smoother Home banner, shimmering source-list labels, TMDB details on by default, and an expired sign-in no longer signing you out. Everything in 66 is here too."
         }
       ]
     },
