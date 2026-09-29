@@ -44,7 +44,7 @@ internal fun zAmendSettingsSearchEntries(
     val runInitialSetupDescription = stringResource(Res.string.zsettings_run_initial_setup_description)
 
     // The renamed pages: every entry that named them, as title or as the page it sits on.
-    entries.replaceAll { entry ->
+    entries.updateEach { entry ->
         entry.copy(
             title = when (entry.title) {
                 oldLayoutPage -> appearancePage
@@ -60,7 +60,7 @@ internal fun zAmendSettingsSearchEntries(
     }
 
     // Moved rows: they are found under their new section, and say so.
-    entries.replaceAll { entry ->
+    entries.updateEach { entry ->
         when (entry.key) {
             "run-setup-again" -> entry.copy(
                 title = runInitialSetupTitle,
@@ -187,4 +187,12 @@ internal fun zAmendSettingsSearchEntries(
             }
         }
     }
+}
+
+/**
+ * In-place map. Not `MutableList.replaceAll`: that is a JVM API, and on Kotlin/Native it needs an
+ * `ExperimentalNativeApi` opt-in - which is what failed the first iOS build of this file.
+ */
+private inline fun MutableList<SettingsSearchEntry>.updateEach(transform: (SettingsSearchEntry) -> SettingsSearchEntry) {
+    for (index in indices) this[index] = transform(this[index])
 }
