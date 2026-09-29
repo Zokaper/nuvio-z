@@ -341,6 +341,16 @@ object SocialRepository {
         ZSupabaseProvider.client.postgrest.rpc("social_set_privacy", buildJsonObject {
             put("p_profile_id", profileId); put("p_share_watching_now", shareWatchingNow); put("p_share_recently_watched", shareRecentlyWatched)
         })
+        Unit
+    }.onSuccess {
+        // The server has the new values; reflect them in `me` now rather than on the next refresh,
+        // so a switch bound to `me` does not snap back to the old value in between (setup polish).
+        val current = _uiState.value
+        current.me?.let { me ->
+            _uiState.value = current.copy(
+                me = me.copy(shareWatchingNow = shareWatchingNow, shareRecentlyWatched = shareRecentlyWatched),
+            )
+        }
     }
 
     suspend fun setDefaultJoinPolicy(policy: WatchJoinPolicy): Result<Unit> = socialMutation("social_set_default_join_policy") {
