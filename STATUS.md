@@ -82,11 +82,17 @@ subtitle geometry, top-bar width) **172 / 172**. Desktop: `:composeApp:compileKo
 `AdvancedSetupRenderHarness` (196 PNGs incl. every Android panel at 360x740, reviewed - the review
 fixed the rail squeeze, detail/metadata crop, desktop hero size, source-list density and the top-bar
 rule) and the new `SetupWizardClickTest.setUpInSettingsOpensThePageWithoutLeavingThePanel` pass.
-⚠ **The desktop split suite did not finish:** Claude Code stopped it because the machine ran low on
-memory. Its `rest` part had **1,760 passed, 0 failed** (every setup / settings / render / click
-test included) when it was stopped; the `playback`, `downloads` and `e2e` parts never ran. Re-run
-`bash scripts/run-desktop-tests-split.sh <dir>` on a quiet machine before relying on a desktop total.
-iOS is compiled by the Debug release run (see below).
+Desktop split suite (`scripts/run-desktop-tests-split.sh`, code head `5526b606b` + the click test):
+**3,301 / 3,301**, 0 failed / skipped / duplicates (rest 1,763; playback 1,032; downloads 457; E2E
+49). (Claude Code stopped the wrapper shell once for low memory; the script itself ran to the end and
+its summary is the source of these numbers.)
+
+**CI and debug builds.** Mobile push CI `36588314296` **success**; iOS build `36588314061`
+**success** (device + simulator frameworks, unsigned app); Debug release `36588351045` **success**
+(Android + iOS) -> **`debug-v0.4.13-z1.68`**. Desktop push CI `36588328017`: Windows MSI **success**,
+Linux job red only at the pre-existing vendored `frame_copy_test` (`player != NULL`); Desktop debug
+release `36588356606` **success** -> **`debug-v0.1.23-alpha-z6.75`**. Builds 67 / 74 untouched; no
+stable, feed or updater promotion.
 
 **Still needs a device** (render harness cannot show these): every interactive preview by touch on a
 phone (Touch gestures, nav bar scroll-collapse, tab rows), hover previews and trailer sound on
