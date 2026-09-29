@@ -6,6 +6,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.nuvio.app.core.sync.AppForegroundMonitor
+import com.nuvio.app.core.sync.AppVisibility
+import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.SyncClientIdentity
 import com.nuvio.app.features.social.SocialPlaybackState
 import com.nuvio.app.features.social.SocialPresenceHeartbeatMs
@@ -42,6 +48,13 @@ internal fun PlayerScreenRuntime.BindSocialPresenceEffect() {
     val videoKey = "$parentMetaType:$parentMetaId:$activeVideoId:$activeSeasonNumber:$activeEpisodeNumber"
     val defaultJoinPolicy = SocialRepository.uiState.value.me?.defaultJoinPolicy
         ?: com.nuvio.app.features.social.WatchJoinPolicy.approval
+    var appForeground by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        // Desktop keeps playing when its window loses focus; only the mobile lifecycle auto-pauses.
+        if (ProfileSettingsSync.ownFamilyPlatform != "mobile") return@LaunchedEffect
+        AppForegroundMonitor.events().collect { appForeground = it == AppVisibility.Foreground }
+    }
 
     LaunchedEffect(deviceId, sessionId, defaultJoinPolicy) {
         SocialPresenceSession.attach(deviceId, sessionId, defaultJoinPolicy)
@@ -95,7 +108,7 @@ internal fun PlayerScreenRuntime.BindSocialPresenceEffect() {
                 positionMs = snapshot.positionMs.coerceAtLeast(0L),
                 durationMs = snapshot.durationMs,
                 playbackSpeed = nominalPlaybackSpeed,
-                state = if (snapshot.isPlaying) SocialPlaybackState.playing else SocialPlaybackState.paused,
+                state = effectiveSocialPlaybackState(snapshot.isPlaying, appForeground),
                 effectiveJoinPolicy = SocialPresenceSession.state.value.effectivePolicy,
                 sourceFingerprint = activePartySourceDescriptor,
             ),
@@ -120,7 +133,7 @@ internal fun PlayerScreenRuntime.BindSocialPresenceEffect() {
     }
 
     // Immediate updates for play/pause, item/source transition, and first known duration.
-    LaunchedEffect(videoKey, playbackSnapshot.isPlaying, playbackSnapshot.isLoading, playbackSnapshot.isEnded, playbackSnapshot.durationMs) {
+    LaunchedEffect(videoKey, playbackSnapshot.isPlaying, playbackSnapshot.isLoading, playbackSnapshot.isEnded, playbackSnapshot.durationMs, appForeground) {
         publishCurrent()
     }
     LaunchedEffect(videoKey) {
