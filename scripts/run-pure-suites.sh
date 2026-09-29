@@ -229,11 +229,17 @@ kotlinc -nowarn -cp "$CP_BUILD" -d "$WORK/out-setup" \
   "$M/features/setup/AdvancedSetupModel.kt" \
   "$M/features/whatsnew/WhatsNewSelection.kt" \
   "$M/AppGateOverlayRules.kt" \
+  "$M/features/setup/OptimisticSetting.kt" \
+  "$M/features/player/SubtitleRenderGeometry.kt" \
+  "$M/core/ui/DesktopNavigationTrackWidth.kt" \
   "$T/features/setup/SetupWizardStepsTest.kt" \
   "$T/features/setup/SetupModeStoryboardTest.kt" \
   "$T/features/setup/AdvancedSetupModelTest.kt" \
   "$T/features/whatsnew/WhatsNewSelectionTest.kt" \
   "$T/AppGateOverlayRulesTest.kt" \
+  "$T/features/setup/OptimisticSettingTest.kt" \
+  "$T/features/player/SubtitleRenderGeometryTest.kt" \
+  "$T/core/ui/DesktopNavigationTrackWidthTest.kt" \
   2>&1 | grep -v "^warning:" | grep -v "Picked up JAVA" || true
 
 java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
@@ -241,7 +247,10 @@ java -cp "$WORK/out-setup:$CP_RUN" org.junit.runner.JUnitCore \
   com.nuvio.app.features.setup.SetupModeStoryboardTest \
   com.nuvio.app.features.setup.AdvancedSetupModelTest \
   com.nuvio.app.features.whatsnew.WhatsNewSelectionTest \
-  com.nuvio.app.AppGateOverlayRulesTest 2>&1 | grep -v "Picked up JAVA_TOOL"
+  com.nuvio.app.AppGateOverlayRulesTest \
+  com.nuvio.app.features.setup.OptimisticSettingTest \
+  com.nuvio.app.features.player.SubtitleRenderGeometryTest \
+  com.nuvio.app.core.ui.DesktopNavigationTrackWidthTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
 # --- Group 4: the two rules that decide what a settings sync may overwrite -------------------
 # SyncPreferenceJson.kt is shared by every settings store on every platform, so a fault in it is
