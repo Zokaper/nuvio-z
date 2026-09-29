@@ -1,8 +1,19 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
-## iOS / Watch Together hardening — in progress (2026-09-29)
+## iOS / Watch Together hardening — finalized, debug 70 / desktop 77 (2026-09-30)
+
+**Final verification.** Mobile head `a798b06fd` (adds an mpv main-queue snapshot timing log; every
+iOS lobby removal now needs a one-shot leave authorization, `792eb61ef`): `testAndroidHostTest` from a
+deleted results directory **3,348 tests, 0 failures, 0 errors**; `:androidApp:compileFullDebugKotlin`
+green. iOS build run `36613204896` and CI run `36613918499` were green on the earlier head. Desktop
+head `21d1adea9`: split suite **3,309 tests, 0 failures** (rest 1,767 / playback 1,036 /
+downloads 457 / e2e 49); the route-exit guard files are byte-identical with mobile
+(`diff --strip-trailing-cr`). Backend pgTAP 336/336; the corrected Social RPC is deployed.
+Debug 70 / desktop 77 tags and run IDs: see the line appended below once published.
+
+### Earlier notes (2026-09-29)
 
 Branch `claude/ios-watch-together-hardening` was cut from the final pushed setup/settings
 heads (mobile `97e186792`, desktop `b8e39bab7`). The maintainer reports only the physical
