@@ -68,6 +68,17 @@ internal class NuvioNavigator(
         return onExternalBack != null
     }
 
+    /** A root-tab action must reveal TabsRoute, not select a tab behind a detail destination. */
+    fun popToTabsRoot(): Boolean {
+        val rootIndex = backStack.indexOfLast { it is TabsRoute }
+        if (rootIndex < 0) return false
+        if (rootIndex < backStack.lastIndex) {
+            onLocalPop?.invoke()
+            backStack.subList(rootIndex + 1, backStack.size).clear()
+        }
+        return true
+    }
+
     /**
      * Pops from playback. When [skipRetainedStreamRoute] is true and a [StreamRoute] immediately
      * precedes the player destination (retained specifically to host the auto-play failure chain),

@@ -484,6 +484,7 @@ internal fun MainAppContent(
 
     /** Every "open Downloads" - toast, notification, deep link, choose-quality link - goes here. */
     fun openDownloads() {
+        if (!useNativeNavigation) navController.popToTabsRoot()
         if (!downloadsIsOwnDestination) LibraryDestinationController.show(LibrarySubDestination.Downloads)
         activateTab(if (downloadsIsOwnDestination) AppScreenTab.Downloads else AppScreenTab.Library)
     }

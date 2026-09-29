@@ -12,7 +12,6 @@ import nuvio.composeapp.generated.resources.download_choice_ready_action
 import nuvio.composeapp.generated.resources.download_choice_ready_body
 import nuvio.composeapp.generated.resources.download_choice_ready_title
 import nuvio.composeapp.generated.resources.download_choice_season_label
-import nuvio.composeapp.generated.resources.download_flow_change
 import nuvio.composeapp.generated.resources.download_flow_early_chosen
 import nuvio.composeapp.generated.resources.download_flow_finding_source
 import nuvio.composeapp.generated.resources.download_flow_needs_attention
@@ -43,16 +42,12 @@ internal object ToastDownloadFlowNotices : DownloadFlowNotices {
             } else {
                 getString(Res.string.download_flow_started_detail, detail)
             }
-            if (onChange != null) {
-                NuvioToastController.show(
-                    message = message,
-                    durationMillis = ACTION_TOAST_MS,
-                    actionLabel = getString(Res.string.download_flow_change),
-                    effect = onChange,
-                )
-            } else {
-                NuvioToastController.show(message)
-            }
+            NuvioToastController.show(
+                message = message,
+                durationMillis = ACTION_TOAST_MS,
+                actionLabel = getString(Res.string.download_batch_view_downloads),
+                action = NuvioToastAction.OpenDownloads,
+            )
         }
     }
 

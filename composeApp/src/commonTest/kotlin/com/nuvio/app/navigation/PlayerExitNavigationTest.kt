@@ -17,6 +17,18 @@ import kotlin.test.assertTrue
 class PlayerExitNavigationTest {
 
     @Test
+    fun downloadsTabActionRevealsRootWithoutAddingAnotherRoute() {
+        val detail = DetailRoute(type = "movie", id = "tt1234567")
+        val backStack = NavBackStack<NavKey>(TabsRoute, detail)
+        val navigator = NuvioNavigator(backStack)
+        assertTrue(navigator.popToTabsRoot())
+        assertEquals(TabsRoute, navigator.currentRoute)
+        assertEquals(1, backStack.size)
+        assertTrue(navigator.popToTabsRoot())
+        assertEquals(1, backStack.size)
+    }
+
+    @Test
     fun intentionalExitFromFailureChainLaunchPopsDirectlyToPrecedingDestination() {
         val detailRoute = DetailRoute(type = "movie", id = "tt1234567")
         val streamRoute = StreamRoute(launchId = 100L)
