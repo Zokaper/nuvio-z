@@ -73,6 +73,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Official builds must bundle a working TMDB key; the build refuses a blank one.
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      NUVIO_REQUIRE_TMDB_API_KEY: "true"
       GH_TOKEN: ${{ github.token }}
 
     steps:
@@ -201,6 +204,9 @@ jobs:
       NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Official builds must bundle a working TMDB key; the build refuses a blank one.
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      NUVIO_REQUIRE_TMDB_API_KEY: "true"
       IOS_CONFIGURATION: Debug
       IOS_IPA_NAME: Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa
 

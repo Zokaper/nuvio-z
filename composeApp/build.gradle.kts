@@ -56,8 +56,25 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val tmdbApiKey: Property<String>
 
+    // Set by the workflows that publish (debug channel and releases). Local and CI builds leave it
+    // off, so they still compile without secrets - and ship no working TMDB enrichment.
+    @get:Input
+    abstract val requireTmdbApiKey: Property<Boolean>
+
     @TaskAction
     fun generate() {
+        if (requireTmdbApiKey.get()) {
+            // Never echo the key; say only what is wrong with it.
+            val key = tmdbApiKey.get()
+            check(key.isNotBlank()) {
+                "TMDB_API_KEY is blank, but NUVIO_REQUIRE_TMDB_API_KEY is set: this build would ship " +
+                    "with TMDB enrichment silently dead. Set the TMDB_API_KEY repository secret."
+            }
+            check(key.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }) {
+                "TMDB_API_KEY contains characters a TMDB key never has (${key.length} chars)."
+            }
+        }
+
         val props = Properties()
         localPropertiesFile.asFile.orNull?.takeIf { it.exists() }?.inputStream()?.use { props.load(it) }
 
@@ -391,6 +408,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     zSupabasePublishableKey.set(runtimeConfigValue("NUVIO_Z_SUPABASE_PUBLISHABLE_KEY"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
     tmdbApiKey.set(runtimeConfigValue("TMDB_API_KEY"))
+    requireTmdbApiKey.set(runtimeConfigBoolean("NUVIO_REQUIRE_TMDB_API_KEY", default = false))
     sentryEnvironment.set(
         when {
             requestedGradleTasks.any { "benchmark" in it } -> "benchmark"

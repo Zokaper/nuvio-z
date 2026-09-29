@@ -119,6 +119,9 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Official builds must bundle a working TMDB key; the build refuses a blank one.
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      NUVIO_REQUIRE_TMDB_API_KEY: "true"
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v6
@@ -192,6 +195,9 @@ jobs:
       NUVIO_GRADLE_JVMARGS: -Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4g
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Official builds must bundle a working TMDB key; the build refuses a blank one.
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      NUVIO_REQUIRE_TMDB_API_KEY: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -234,6 +240,9 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Official builds must bundle a working TMDB key; the build refuses a blank one.
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      NUVIO_REQUIRE_TMDB_API_KEY: "true"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
