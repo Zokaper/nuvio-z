@@ -132,7 +132,6 @@ import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.features.settings.SettingsPage
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.settings.ZSettingsNavigation
-import com.nuvio.app.features.shuffle.EpisodeShuffleRepository
 import com.nuvio.app.features.simkl.SimklAuthRepository
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.social.SocialIdentityBody
@@ -243,10 +242,6 @@ fun AdvancedSetupScreen(
     val tmdb by remember {
         TmdbSettingsRepository.ensureLoaded()
         TmdbSettingsRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val shuffle by remember {
-        EpisodeShuffleRepository.ensureLoaded()
-        EpisodeShuffleRepository.uiState
     }.collectAsStateWithLifecycle()
     val profileState by remember { ProfileRepository.state }.collectAsStateWithLifecycle()
 
@@ -371,7 +366,6 @@ fun AdvancedSetupScreen(
         episodeCardStyle = metaSettings.episodeCardStyle,
         blurUnwatchedEpisodes = metaSettings.blurUnwatchedEpisodes,
         episodeRatings = metaSettings.episodeRatingsVisibility,
-        randomEpisode = shuffle.available,
         streamBackground = streamSettings.backgroundMode,
         streamSizeBadges = streamSettings.showFileSizeBadges,
         streamBadgePlacement = streamSettings.badgePlacement,
@@ -491,7 +485,6 @@ internal data class AdvancedSetupValues(
     val episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
     val blurUnwatchedEpisodes: Boolean = false,
     val episodeRatings: EpisodeRatingsVisibility = EpisodeRatingsVisibility.SHOW_ALL,
-    val randomEpisode: Boolean = false,
     val streamBackground: StreamBackgroundMode = StreamBackgroundMode.Normal,
     val streamSizeBadges: Boolean = true,
     val streamBadgePlacement: StreamBadgePlacement = StreamBadgePlacement.BOTTOM,
@@ -1699,15 +1692,9 @@ private fun AdvancedControl(
                 compact = true,
             )
         }
-        AdvancedSetupControl.RandomEpisode -> {
-            val failed = stringResource(Res.string.shuffle_save_failed)
-            SetupToggleRow(
-                title = stringResource(Res.string.random_episode_title),
-                description = stringResource(Res.string.layout_random_episode_sub),
-                checked = values.randomEpisode,
-                onCheckedChange = { if (!EpisodeShuffleRepository.setAvailable(it)) NuvioToastController.show(failed) },
-            )
-        }
+        // Mobile only (the model never lists it on desktop), and the store behind it exists only in
+        // the mobile repository - so the row lives in the per-repo `AdvancedSetupRepoBindings.kt`.
+        AdvancedSetupControl.RandomEpisode -> AdvancedRandomEpisodeRow()
 
         AdvancedSetupControl.SourceBackground -> SetupQuestion(title = stringResource(Res.string.settings_stream_background_title)) {
             NuvioSegmentedChoice(

@@ -42,7 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppVersionPolicy
 import com.nuvio.app.core.build.NuvioZVersion
-import com.nuvio.app.core.ui.Chip
+import com.nuvio.app.core.ui.NuvioSegment
+import com.nuvio.app.core.ui.NuvioSegmentedChoice
 import com.nuvio.app.core.ui.floatingNavigationGlowSupported
 import com.nuvio.app.core.ui.isLiquidGlassNativeTabBarSupported
 import com.nuvio.app.core.ui.nuvio
@@ -442,37 +443,28 @@ internal fun LazyListScope.zNavigationSettingsContent(isTablet: Boolean) {
                     }
                     isDesktop -> {
                         if (isTablet) {
-                            SettingsChipRow(
+                            ZChoiceRow(
                                 title = stringResource(Res.string.settings_appearance_desktop_navigation),
                                 description = stringResource(Res.string.advanced_setup_desktop_nav_detail),
                                 isTablet = isTablet,
-                            ) {
-                                DesktopNavigationLayout.entries.forEach { layout ->
-                                    Chip(
-                                        label = stringResource(layout.labelRes),
-                                        selected = layout == desktopLayout,
-                                        onClick = { ThemeSettingsRepository.setDesktopNavigationLayout(layout) },
-                                    )
-                                }
-                            }
+                                segments = DesktopNavigationLayout.entries.map { NuvioSegment(stringResource(it.labelRes), it) },
+                                selected = desktopLayout,
+                                onSelected = ThemeSettingsRepository::setDesktopNavigationLayout,
+                            )
                             SettingsGroupDivider(isTablet = isTablet)
                         }
                         val sidebar = isTablet && desktopLayout == DesktopNavigationLayout.Sidebar
-                        SettingsChipRow(
+                        ZChoiceRow(
                             title = stringResource(
                                 if (sidebar) Res.string.settings_appearance_sidebar_style else Res.string.settings_appearance_top_bar_style,
                             ),
                             description = stringResource(Res.string.zsettings_navigation_style_desktop),
                             isTablet = isTablet,
-                        ) {
-                            listOf(NavBarStyle.ADAPTIVE, NavBarStyle.EXPANDED, NavBarStyle.COMPACT).forEach { style ->
-                                Chip(
-                                    label = stringResource(style.labelRes),
-                                    selected = style == navBarStyle,
-                                    onClick = { ThemeSettingsRepository.setNavBarStyle(style) },
-                                )
-                            }
-                        }
+                            segments = listOf(NavBarStyle.ADAPTIVE, NavBarStyle.EXPANDED, NavBarStyle.COMPACT)
+                                .map { NuvioSegment(stringResource(it.labelRes), it) },
+                            selected = navBarStyle,
+                            onSelected = ThemeSettingsRepository::setNavBarStyle,
+                        )
                     }
                     else -> {
                         // A phone-class tablet always uses the compact floating bar; the preview
@@ -483,19 +475,14 @@ internal fun LazyListScope.zNavigationSettingsContent(isTablet: Boolean) {
                         }
                         if (!isTablet) {
                             SettingsGroupDivider(isTablet = isTablet)
-                            SettingsChipRow(
+                            ZChoiceRow(
                                 title = stringResource(Res.string.settings_appearance_nav_bar_style),
                                 description = stringResource(Res.string.zsettings_navigation_style_android),
                                 isTablet = isTablet,
-                            ) {
-                                NavBarStyle.entries.forEach { style ->
-                                    Chip(
-                                        label = stringResource(style.labelRes),
-                                        selected = style == navBarStyle,
-                                        onClick = { ThemeSettingsRepository.setNavBarStyle(style) },
-                                    )
-                                }
-                            }
+                                segments = NavBarStyle.entries.map { NuvioSegment(stringResource(it.labelRes), it) },
+                                selected = navBarStyle,
+                                onSelected = ThemeSettingsRepository::setNavBarStyle,
+                            )
                         }
                         if (floatingNavigationGlowSupported && effectiveStyle != NavBarStyle.CLASSIC) {
                             SettingsGroupDivider(isTablet = isTablet)
@@ -511,6 +498,48 @@ internal fun LazyListScope.zNavigationSettingsContent(isTablet: Boolean) {
                 }
             }
         }
+    }
+}
+
+/**
+ * A titled one-row choice. Z's own rather than upstream's `SettingsChipRow`, which exists in the
+ * mobile repository only: this file is byte-identical in both, so it draws with the shared
+ * `NuvioSegmentedChoice` the setup flows already use.
+ */
+@Composable
+private fun <T> ZChoiceRow(
+    title: String,
+    description: String,
+    isTablet: Boolean,
+    segments: List<NuvioSegment<T>>,
+    selected: T,
+    onSelected: (T) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = if (isTablet) 16.dp else 14.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.colors.textPrimary,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.colors.textMuted,
+        )
+        Spacer(Modifier.height(10.dp))
+        NuvioSegmentedChoice(
+            segments = segments,
+            selected = selected,
+            onSelected = onSelected,
+            compact = segments.size > 3,
+        )
     }
 }
 
