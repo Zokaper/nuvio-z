@@ -1,6 +1,2155 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-24
+Last updated: 2026-09-30
+
+## Final iOS Watch Together RC blockers (2026-09-30) — Away source fixes, reconnect cause open
+
+Active mobile/desktop branch remains `claude/ios-watch-together-hardening`. Maintainer physically
+tested mobile debug 72 + desktop 78: Android guest and other requested RC behavior pass; only iOS
+Home/Away/pause and spontaneous foreground reconnect remain blockers. No new build publication.
+
+Away cause confirmed against the **deployed Z trigger**: `party_member_broadcast_update` omits
+`away_since`, so a lost iOS peer packet leaves observers on the five-second durable poll. The
+separate host hold bug ignores durable Away. Mobile `7846909dc` adds a lease-bounded durable union,
+fresh peer roster, and durable-return clearing of older peer Away. Only these five shared files
+are merged into desktop (`371e71dcf`, via isolated `rc-wt-away-shared` / `c3822e4b0`).
+Backend migration `202609300001_broadcast_party_away.sql` adds Away to the existing notification
+predicate; local fresh-reset pgTAP **347/347 pass**. Migration is **not deployed**.
+
+Mobile recovery now retains protocol evidence across reconnects of the same party/profile while
+invalidating it on departure/generation changes; health still requires both channels and fresh
+proof. iOS publishes before suspension at WillResignActive. The supplied latest Files export
+`ios-recparty-logs/nuvio_diagnostics/session-20260930-161855.log` contains Swift lifecycle/view
+snapshots but **no Kotlin WT/socket/auth trace**. Exact spontaneous reconnect trigger remains
+unproved. Normal generation/sequence updates do not recreate desired channels; pinned SDK
+`setAuth()` updates tokens in place. Added persistent privacy-safe `watchparty-*.log` in the same
+Files folder for socket/heartbeat, plane status, auth, lifecycle, health stale and recreation events.
+
+Final focused WT + native-error diagnostic tests: **413/413**, zero failures/errors/skips.
+Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 failures /
+0 errors / 6 skipped**. Desktop compiles and focused presence tests **51/51 pass**. XML and logs:
+`../.rc-investigation/wt-ios/`. Source branches are pushed. iOS framework/Xcode compiler check
+`36731939532` is running; its Swift lifecycle regression job passed. Source
+commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
+Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
+the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
+gate against a new published build before both causes are understood. No migration deployed.
+Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
+Keep publication held until the foreground drop is captured and explained; do not claim both
+blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
+
+## Debug 72 physical retest / remaining Classic toast (2026-09-30)
+
+Maintainer tested 72: ten enter/exit/reopen cycles worked, playback eventually started,
+and Live Activity became vague on lock. Subtitle switching and other playback modes
+were not tested. The remaining message is a **brief toast**, not an episode panel.
+
+Reproduced against 72 in a real Compose Classic source-tap test with StreamDestination
+retained behind navigation: exact selected PlayerLaunch is correct, but after the grace
+period the old route emits "No safe automatic source matched. Choose a source manually."
+The source route's dead-end backstop treated post-handoff `HandOff` as stalled automatic
+selection. It did not check current-route ownership, `playbackHandedOff`, or manual startup.
+This corrects the prior attribution of the maintainer's paraphrased message to next-episode
+EOF. The EOF guard fixed a separate unsafe path; it was not the reproduced toast's cause.
+
+The backstop now delegates to a playback policy that requires the current route to still
+own selection, no completed handoff, and no manual startup. These facts also cancel the
+grace timer, and live ownership is checked again after its delay. Genuine automatic dead
+ends retain their fallback. Regression went red on 72 with the exact toast, then green
+after the ownership guard. Full Android host **3,358 total / 0 failures / 0 errors /
+6 skipped**; CI `36705535208` and iOS framework/Xcode `36705535297` pass. No native
+lifecycle change.
+
+**Mobile debug 73 dispatched**, run `36706038578`, source
+`dac42f329a691c56cf33584275747ab1801ad810`; APK build passed, IPA still building at handoff.
+Maintainer also authorized desktop same-fix merge/build: scoped shared branch
+`rc-toast-shared` (`c1d448df7`) merged into desktop `71c8386d4`, local focused tests
+36/36 and Windows MSI compile pass. Desktop **debug 79 dispatched**, run `36708599493`.
+Its full local split suite is still running (`../.rc-investigation/desktop79/`); Linux CI
+repeats a pre-existing native `frame_copy_test` player-creation failure before Kotlin tests.
+
+Maintainer disconnecting requested dispatch now; both dispatched. On return verify release
+completion/assets/checksums and canonical mobile SideStore feed, collect desktop split
+suite totals, and physically repeat the slow Classic first-source opening on iOS/Android/
+desktop: the automatic-source toast must never appear after a manual pick. Subtitle and
+other-mode checks from 72 remain untested.
+
+## Final RC blocker — Classic iOS freeze investigation (2026-09-30)
+
+Recent debug 71 diagnostics prove a downloads lock inversion, **not mpv**: matching release
+binary UUID symbolicates main to `DownloadsRepository.ensureLoaded`/`DownloadStore.lock`;
+transfer thread 61 holds that lock while Live Activity notification delivery waits for its
+`.main` observer. Swift now observes on the posting thread and asynchronously dispatches UI.
+This explains freezing after title reopen/restored downloads and interrupted background
+Live Activity updates. See `Docs/IOS-CLASSIC-RC.md` for offsets, trace, evidence limits and retest.
+
+Classic's manual source survives tap → launch → player with no automatic failure chain.
+The reported "was found" wording belongs to the **next episode** picker. Its EOF effect
+ignored the existing settled snapshot guard and could advance opening/failed/stale playback;
+it now calls `hasCompletedCurrentEpisode`. iOS EOF is gated on a loaded file/no error and
+loadfile refusal is actionable. No physical playback event trace was supplied, so the
+original source's precise EOF response remains unverified.
+
+The subtitle queue patch is retained in intent and hardened: one `MPVSerialExecutor` owns
+all native work and destruction, closes without waiting on main, drops stale work/publications,
+and retains the old context/controller/layer through off-main shutdown. Regression harness:
+production notification observer plus 50 simulated blocked-subtitle exit/recreation cycles.
+Verification: full Android host suite **3,353 total / 0 failures / 0 errors / 6 skipped**;
+production Swift observer and 50 executor lifecycle cycles pass (run `36696305232`).
+Final review also keeps FILE_LOADED error clearing in native event order so it cannot erase
+a following END_FILE error. Final iOS Kotlin framework + Xcode compile **pass** (`36698242903`), and CI **pass**
+(`36698242875`) on `d30111e3d`.
+Authorized Android + iOS **debug 72 published** (`debug-v0.4.13-z1.72`, workflow
+`36698673742`, source `d30111e3dcd4c6424543decfff93fec14fe85ab6`). Downloaded APK
+(156,157,864 bytes) and unsigned IPA (92,813,179 bytes) match published SHA-256 checksums;
+IPA bundle `com.nuvio.app.z.debug`, version `0.4.13-z1.72`, build `72`. Canonical main
+SideStore debug feed points to 72. No stable promotion or desktop changes. Physical RC
+clearance remains pending; follow `Docs/IOS-CLASSIC-RC.md` with active downloads.
+
+## Release Candidate Integration & Verification — Final Debug Set 71 / 78 (2026-09-30)
+
+**Final Heads & Commits:**
+- Mobile head: `6c424bf23` (`claude/ios-watch-together-hardening`)
+- Desktop head: `f89098227` (`claude/ios-watch-together-hardening`)
+
+**Integrated Fixes:**
+
+1. **Watch Together source selection: `invalid_source_media` (22023) blocker**
+   - **Root Cause:** `sanitize_source_descriptor_v2` caps each media list (`dynamic_range`, `audio_codecs`, `languages`) at 16 entries. A multi-audio release with >16 languages produced a descriptor that violated the backend contract.
+   - **Fix:** In `PartyStreamSource.kt`, media lists are sorted and bounded to `PartySourceMediaListLimit` (16 entries). `contractViolation()` validates the media contract on the client side before the RPC. Refused calls are classified via `PartyRpcFailure` to present friendly messages instead of raw SQLSTATE/Postgres errors. A rejected source is un-staged (`discardStagedHostSource`) to avoid falsely showing "Source picked" in the lobby. Backend contract remains strict and untouched.
+
+2. **Mobile player single-tap controls latency**
+   - **Root Cause:** Shared Compose `detectTapGestures` waited for the double-tap timeout before firing `onTap`. It also installed double-tap arbitration even when touch gestures were disabled.
+   - **Fix:** Toggles controls on tap release without double-tap delay. Double-tap seek restores controls to their pre-tap state. Disabling touch gestures removes double-tap arbitration entirely. Covers both new and legacy controls across Android and iOS.
+
+3. **iOS subtitle UI stall**
+   - **Root Cause:** Synchronous mpv track selection and subtitle loading executed on the main UI queue.
+   - **Fix:** Subtitle track loading and track switching moved off the main thread onto the serial MPV event queue in `MPVPlayerBridge.swift`.
+
+4. **Watching Now lifecycle presence**
+   - **Root Cause:** Mobile app backgrounding kept publishing playback presence or lagged behind engine lifecycle pauses.
+   - **Fix:** Mobile backgrounding publishes `SocialPlaybackState.paused` immediately while preserving title/episode/session metadata (`effectiveSocialPlaybackState`). Foregrounding resumes `playing` state when playback continues. Desktop window focus handling remains untouched.
+
+5. **Cross-family setup race**
+   - **Root Cause:** Setup completion could return while the first settings blob push was still in flight, causing another device opened immediately afterward to see a missing blob and drop into full initial setup. Import also treated a single missing lookup as definitive absence.
+   - **Fix:** Setup completion awaits the initial upload for up to 8s (`withTimeoutOrNull`). Arriving family blob lookup retries for up to 3.25s (with backoff: 250ms, 500ms, 1000ms, 1500ms) and distinguishes transport failure from confirmed absence (`awaitArrivingFamilyBlob`). Ported to desktop to ensure byte-identical cross-family sync behavior.
+
+6. **Downloads toast navigation**
+   - **Root Cause:** "Go to Downloads" action failed to surface the Downloads view in front of Details when launched from toast notices.
+   - **Fix:** `NuvioNavigator` reveals the tab root before selecting Downloads, bringing Downloads in front of the active Details screen. Applied across single-download and size-estimation toast variants.
+
+**Test Counts & Verification:**
+- Backend pgTAP: 343 / 343 assertions passing (unchanged contract).
+- Mobile host suite (`:composeApp:testAndroidHostTest --rerun`): **3,346 tests, 0 failures, 6 skipped** (clean results directory).
+- Mobile focused tests: `PlayerSurfaceGesturesTest` (5/5), `PlayerTrackSelectionTest` (21/21), `SocialEffectivePlaybackStateTest` (1/1), `CrossFamilySettingsImportMergeTest` (12/12), `DownloadFlowNoticesTest` (1/1), `PlayerExitNavigationTest` (7/7), `PartyRpcFailureTest` (2/2), `PartyStreamSourceTest` (6/6).
+- Mobile local compilation: `:androidApp:assembleFullDebug` BUILD SUCCESSFUL (`androidApp-full-debug.apk`).
+- Desktop split suite (`scripts/run-desktop-tests-split.sh`): **3,315 tests, 0 failures, 0 duplicates** (rest 1,769 / playback 1,040 / downloads 457 / e2e 49).
+- Desktop focused tests: `CrossFamilySettingsImportMergeTest` (12/12), `PartyRpcFailureTest` (2/2), `PartyStreamSourceTest` (6/6).
+- Desktop local compilation & packaging: `:composeApp:packageReleaseMsi` BUILD SUCCESSFUL (`Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.78.msi`).
+
+**Published Debug Releases:**
+- **Mobile Debug Build 71:**
+  - Tag: `debug-v0.4.13-z1.71`
+  - Workflow Run ID: `36683009123` (Conclusion: `success`)
+  - Built Commit SHA: `6c424bf230fb0c717078890afea0b3a064106186`
+  - Published Assets: `androidApp-full-debug.apk`, `Nuvio-Z-iOS-0.4.13-z1-71-debug-unsigned.ipa`, `SHA256SUMS-Debug.txt`, `source-debug.json`
+- **Desktop Debug Build 78:**
+  - Tag: `debug-v0.1.23-alpha-z6.78`
+  - Workflow Run ID: `36683020633` (Conclusion: `success`)
+  - Built Commit SHA: `f89098227af66a3d5437833c433501af9a8ac453`
+  - Published Assets: `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.78.msi`, `Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.78.dmg`
+
+**Remaining Physical QA Checklist (Not device-verified from CI):**
+1. **Watch Together:**
+   - Desktop host creates party; Android + iOS join.
+   - Host picks multi-audio AIOStreams source with >16 languages that previously failed.
+   - Start must succeed; guests resolve stream; play/pause/seek sync.
+   - Confirm no raw RPC errors appear; verify rejected sources do not falsely report "Source picked".
+2. **Mobile Controls Latency:**
+   - On Android and iOS, single tap immediately toggles controls visibility on release.
+   - Double tap (±10s) seeks cleanly without controls flashing.
+   - Verify feel with both new and legacy controls.
+3. **iOS Subtitle Selection:**
+   - Repeatedly change subtitle tracks during playback; verify UI remains fluid and unblocked.
+4. **Watching Now Presence:**
+   - Play media on iOS; background the application.
+   - Profile presence must show paused (not playing).
+   - Return to foreground; playback resumes and status returns to playing.
+5. **Cross-Family Setup:**
+   - Complete initial setup on a fresh desktop profile.
+   - Immediately switch/open that profile on mobile.
+   - Confirm it imports settings and presents Welcome Back / Device Setup rather than full initial wizard.
+6. **Downloads Navigation:**
+   - Start download from Android Details page; tap "Go to Downloads" on toast notice.
+   - Confirm Downloads tab displays in front of Details.
+
+
+
+**Blocker from physical QA (debug mobile 70 / desktop 77).** Host picks a source; the lobby shows a raw
+`invalid_source_media` / `22023` from `party_select_source_v2`. Desktop debug log
+(`nuvio-debug-20260930-010224-*`) confirms four rejections at Start; the source came from an AIOStreams addon.
+
+**Root cause.** `sanitize_source_descriptor_v2` caps each media list (`dynamic_range`, `audio_codecs`,
+`languages`) at 16 entries. `toPartySourceDescriptor()` bounded nothing but token shape, so a multi-audio
+release whose structured `parsedFile.languages` names more than 16 languages produced a descriptor the
+backend refuses. Every other field is normalized through `safeMediaToken()` (which drops what the backend's
+regex would reject), including `audioChannels` (an `Int`, at most `"8"`), so it is not the cause.
+**Caveat:** the debug log does not record the descriptor, so the exact stream was not captured; the
+over-long list is the only client-reachable way to hit this error, and the regression fixture reproduces it
+through the real `SourceFactsExtractor`. `selectSource` now logs the offending field
+(`source descriptor violates the media contract field=...`) if it ever recurs.
+
+**Fix (client layer; backend contract unchanged and not weakened, nothing deployed).**
+`PartyStreamSource.kt` sorts and cuts each list to `PartySourceMediaListLimit` (16); matching reads only
+resolution/quality/codec/size, so V2 match semantics are unchanged. `contractViolation()` restates the backend
+media contract and is checked before the RPC. A refused Postgrest call is classified (`PartyRpcFailure`) and
+shows fixed wording instead of SQLSTATE/URL/RPC text. A source the server rejects is un-staged
+(`discardStagedHostSource`), so the lobby stops saying "Source picked". Transient failures keep the pick.
+New pgTAP: `party_source_media_contract.sql` (real payload accepted, 16 ok / 17 rejected).
+
+**Verification.** pgTAP 343 / 343 (fresh `supabase db reset`). Mobile host suite from a deleted results
+directory: 3,339 tests, 0 failures. Desktop split suite (`scripts/run-desktop-tests-split.sh`): 3,313 tests, 0 failures (rest 1,767 / playback 1,040 / downloads 457 / e2e 49).
+Mobile commit `86f36b268`, cherry-picked to desktop `f455b9453` (histories have diverged; only this commit crosses).
+**Physical retest.** Desktop creates party, Android + iOS join, host picks the same AIOStreams multi-audio
+release that failed: Start must publish and guests must begin resolving. Then force a refusal (or pick a
+source with no identity) and confirm the lobby shows the fixed sentence, no "Source picked", and the
+pick is cleared. Not device-verified yet.
+
+## iOS / Watch Together hardening — finalized, debug 70 / desktop 77 (2026-09-30)
+
+**Final verification.** Mobile head `a798b06fd` (adds an mpv main-queue snapshot timing log; every
+iOS lobby removal now needs a one-shot leave authorization, `792eb61ef`): `testAndroidHostTest` from a
+deleted results directory **3,348 tests, 0 failures, 0 errors**; `:androidApp:compileFullDebugKotlin`
+green. iOS build run `36613204896` and CI run `36613918499` were green on the earlier head. Desktop
+head `21d1adea9`: split suite **3,309 tests, 0 failures** (rest 1,767 / playback 1,036 /
+downloads 457 / e2e 49); the route-exit guard files are byte-identical with mobile
+(`diff --strip-trailing-cr`). Backend pgTAP 336/336; the corrected Social RPC is deployed.
+**Debug builds.** Debug release `36631852581` **success** (Android APK + iOS unsigned IPA) from `0a9bab78f`
+-> **`debug-v0.4.13-z1.70`**; CI `36631831915` and iOS build `36631831805` success on the same head.
+Desktop debug release `36631857017` **success** from `2ae049e14` -> **`debug-v0.1.23-alpha-z6.77`**.
+Desktop push CI `36631845606`: Windows MSI success; the "Desktop tests" job fails in
+`composeMediaPlayer:buildNativeLinux` (CTest `frame_copy_test.c:36: player != NULL`, Linux runner) and has
+failed on every recent desktop branch head - not this pass; the local split suite is the authority.
+
+### Earlier notes (2026-09-29)
+
+Branch `claude/ios-watch-together-hardening` was cut from the final pushed setup/settings
+heads (mobile `97e186792`, desktop `b8e39bab7`). The maintainer reports only the physical
+failures in the hardening prompt have been exercised since the prior ledger; none of these fixes
+is yet device-verified. No setup/settings redesign, Phase 10, stable promotion or main/Dev merge.
+
+Code now routes iOS lobby native removal through the Z departure guard, hides the lobby's
+native back affordance, exposes paused loaded iOS video dimensions, reconciles readiness on
+foreground and stale server states, and moves Away publication to a process-owned UIKit observer.
+The Z backend migration `202609290001_party_away_lease.sql` adds a bounded ten-minute Away
+lease, foreground clearing, and ordinary Social friend-request domain errors; local pgTAP is
+green (332 tests). The Swift/mpv event bridge now caches snapshots and rebuilds tracks only on
+track changes. Shared UI adds an active-party Return action and friendly Social errors.
+
+Verification and desktop parity are still underway. The standalone pure-suite script's first
+group passed 279 tests, then its existing Downloads group failed to compile because its stub
+set omits `DownloadItem`/`DownloadStatus`; host and split suites are the authoritative checks.
+The audio session remains `.playback`/`.moviePlayback` with `.mixWithOthers`: there is no
+established evidence that this option prevents Now Playing ownership, so lock-screen controls
+remain a physical QA item. WT command-path T0–T4 and correlated seek timestamps are instrumented;
+lead constants have not been guessed from the old RTT data.
+
+## Setup + settings QA follow-ups after debug 68 / desktop 75 - ON BRANCH, UNMERGED (2026-09-29)
+
+Three physical findings, same `claude/setup-settings-architecture` branches. iOS / Watch Together
+hardening still not started.
+
+1. **Desktop hover trailer never plays - platform, not the specimen.** On Windows
+   `AppFeaturePolicy.trailerPlaybackMode` is `EXTERNAL` (upstream `5941af60d`), the Windows
+   `HeroTrailerPlayerSurface` is `= Unit`, and `:composeMediaPlayer` is not built on Windows. So no hover
+   trailer plays anywhere in the Windows app; Settings already hid the switches, Advanced Setup did
+   not. Maintainer's decision: hide them. New fact `AdvancedSetupFacts.inAppTrailers` (= policy is
+   `IN_APP`) gates `HoverTrailer` / `HoverTrailerSound`, and the hint under the rail no longer promises
+   a trailer there. Real Windows hover trailers (a trailer surface on the native player) are a
+   separate feature, not started. Also noted: in setup the meta route
+   (`resolveHomePosterHoverTrailerPlaybackSource` -> `MetaDetailsRepository.fetch`) has no addon and
+   then needs TMDB, so it would have failed there even with a surface.
+2. **Android player specimen showed show artwork.** `episodeStillUrl` built
+   `episodes.metahub.space/{id}/{s}/{e}.jpg`, a shape Cinemeta never emits (it uses `/{s}/{e}/w780.jpg`);
+   the host only 301s to `image.tmdb.org`, and `EpisodeFrame` swapped to the show backdrop on error
+   and a `remember`ed flag held it there. Now every specimen episode is pinned to its file on TMDB's
+   keyless image CDN (paths read from the metahub redirects today, each checked `image/jpeg`), the
+   player stages all use Sherlock S1 E1 (a genuine frame; S1 E2's still is a promo shot), and
+   `EpisodeFrame` paints a dim video-frame gradient underneath with **no** second URL. Episode *list*
+   rows keep the app's own backdrop fallback, as the real details page does.
+3. **TMDB enrichment dead in debug 68.** Verified on the published APK with `dexdump`:
+   `TmdbConfig.API_KEY` has **length 0**. Neither `local.properties` nor
+   `NUVIO_LOCAL_PROPERTIES_BASE64` / `NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64` has ever carried
+   `TMDB_API_KEY`, and no other secret did, so `effectiveApiKey()` fell back to `""`. The repository
+   logic (enabled by default, personal key optional, fallback to the bundled key) was already right.
+   Fix: the publishing jobs (`debug-release`, `android-release`; desktop `desktop-debug-release`,
+   `desktop-release`) read a dedicated **`TMDB_API_KEY` repository secret** and set
+   `NUVIO_REQUIRE_TMDB_API_KEY=true`; `generateRuntimeConfigs` then fails on a blank or malformed key
+   without echoing it. `ci.yml`, `ios-build.yml` and local builds leave the flag off and still compile
+   without secrets. Stale comment in `SetupSampleTitle.kt` claiming a personal key is required fixed.
+   The maintainer added the `TMDB_API_KEY` secret to both repositories on 2026-09-29.
+
+**Commits** - mobile `764719138` (setup: pinned stills, trailer gate, tests), `73602d14f` (build guard
++ workflows). Desktop: `59fcb3176` (cherry-pick of `764719138`; shared setup files byte-identical,
+checked with `diff --strip-trailing-cr`), `c6efe14c2` (desktop guard + workflows).
+
+**Verification.** Guard exercised with real Gradle runs in both repos: flag on + blank key fails with the
+message, flag on + dummy key passes, flag off passes. Mobile `testAndroidHostTest` for
+`features.setup.*` + `features.tmdb.*` from a deleted results directory: **192 tests, 0 failed**
+(incl. new `SetupSampleTitleTest` and `hoverTrailerSwitchesOnlyWhereATrailerCanPlay`).
+Desktop `desktopTest` for the same packages from a deleted results directory: **228 tests, 0 failed**.
+
+**Debug builds.** Debug release `36607036088` **success** (Android + iOS) -> **`debug-v0.4.13-z1.69`**;
+Desktop debug release `36607040700` **success** (Windows + macOS) -> **`debug-v0.1.23-alpha-z6.76`**.
+Both published artifacts were checked: the bundled `TmdbConfig.API_KEY` is 32 characters (APK via
+`dexdump`, MSI via `msiexec /a` + `javap`) and TMDB answers `200` with it. The value was never printed.
+
+**Still needs a device / network:** TMDB enrichment on a build that carries the key (details cast,
+logos, episode stills, More like this with no personal key on a fresh profile); the Advanced Setup
+player previews on physical Android showing the Sherlock frame on first open and in aeroplane mode
+(the painted frame, not title art); the Windows Hover panel showing only the preview switch.
+
+## Setup + settings physical-QA polish - ON BRANCH, UNMERGED (2026-09-29)
+
+**Newest work**, on the same `claude/setup-settings-architecture` branches (both repos, pushed, not
+merged to `main` / `Dev`; no release, feed or version change; iOS / Watch Together hardening not
+started). The maintainer tested Advanced Setup on desktop and mobile (debug 66/67 and desktop 74);
+every finding is addressed below. Canonical rows: `Docs/Z-FEATURES.md` W12, W13, W14 and the
+"Physical-QA polish" note under the wizard section; patch surface: `Docs/PATCH-SURFACE.md`
+(2026-09-29 note, last paragraph).
+
+**Findings and what changed**
+- **B - Device Setup too sparse on cross-family arrival.** New arrival steps `DeviceNavigation`
+  (Android style + glow / iOS 26 Liquid Glass / desktop sidebar-top bar + style) and `DevicePlayer`
+  (mobile: new/legacy controls, gestures, hold-to-speed + speed), before the Streamlined/Instant
+  quality/HDR step; device-global questions still only when `deviceStale`. Controls come from
+  `deviceSetupControls()` (same as the Advanced Setup panels); previews are Advanced Setup's
+  interactive ones. Also in an arriving Upgrade. Pure tests: desktop->Android Classic and picking
+  modes, desktop->iOS with/without Liquid Glass, mobile->desktop, device current vs stale, restore,
+  walk forward/back.
+- **C - Player preview cropped / generic.** Now the real `PlayerControlsShell` (new or legacy),
+  `PauseMetadataOverlay`, `PlaybackLoadingScreen`, `ParentalGuideOverlay` (looped while on) over a
+  Sherlock episode frame, on a scale-to-fit `PreviewStage` (landscape phone 800x370 / desktop
+  1280x720) - no crop at 360 dp.
+- **D - Touch passive.** Interactive stage: tap (centre hides), double-tap seek (accumulating 10 s,
+  real `PlayerGestureOverlay` feedback), hold-to-speed while held, vertical swipe brightness/volume;
+  a readout line says what happened, including "gestures are off" cases. No second player engine.
+- **E - Subtitle fidelity.** New import-free `features/player/SubtitleRenderGeometry.kt` holds the
+  ExoPlayer, Android-libmpv and iOS/desktop-mpv mappings; the Android/iOS/desktop engines delegate to
+  it (values unchanged, pinned by tests) and the preview draws from it for this device's renderer
+  (Android `Auto` = ExoPlayer: fixed sp; mpv: frame-relative, 720-line scaled px). Finding: the two
+  engines differ a lot (18 = ~5% of a landscape phone's height on ExoPlayer, ~7.5% on mpv), which is
+  why the old 0.62 approximation could not be right for both.
+- **F - Home specimen.** A miniature of the real Home (`HomeHeroSection`, `HomeContinueWatchingSection`,
+  `HomeCatalogRowSection`, the nav bar) with hero on/off, CW visibility/style/thumbnails, catalog
+  type labels ("Popular - Series").
+- **G - Navigation not interactive.** The frame swallowed every touch; interactive previews now pass
+  input. Android uses the real `NavigationBarPreview` (tabs, adaptive collapse on scroll); desktop
+  uses the real `DesktopHoverSidebar` / `DesktopNavigationBar` over a scrolling page (profile entry
+  inert); iOS tab bar selects.
+- **H - Hover fake.** Desktop Hover panel wraps the sample cards in the real `HomePosterHoverPreview`
+  (no action row), which reads the switches; a line states the resulting behaviour.
+- **I/J - Detail page.** Real `DetailActionButtons` + `DetailMetaInfo`; baseline rating = the IMDb
+  rating the catalog addon supplies (what a fresh install shows); with MDBList active, the real
+  multi-source `DetailRatingsRow`; without it, that row dimmed and labelled "With MDBList". Sections
+  labelled Cast / Trailers (this title's, trailer cards) / More like this (other titles), stacked or
+  tabbed; Episodes panel with watched/unwatched, blur, rating visibility, Shuffle when Random Episode
+  is on. Page scrolls instead of cropping.
+- **K - Source list.** Five varied real `StreamCard`s (remux/DV/BluRay/WEB-DL/HDTV, three addons,
+  sizes), scrollable, ~80% on phones, Cinematic backdrop. Limitation: sample addons have no logo URL,
+  so the addon column shows names only.
+- **L - Social latency.** `OptimisticSetting` (pure, tested): switches move at once, write in the
+  background, revert + toast only on refusal of the latest write. `SocialRepository.setPrivacy` now
+  reflects accepted values in `me`. Ordered shutdown kept; Advanced Setup now also asks Settings'
+  leave-party confirmation.
+- **M - Enhanced metadata.** Off: addon backdrop, title text, names line, empty labelled slots; on:
+  logo, cast, trailers, More like this with accent markers. MDBList stays separate.
+- **N - Set up in Settings ejects.** `ZNestedSettingsPage` hosts MDBList / Trakt & Simkl / TMDB pages
+  over the hub (same `LazyListScope` builders and repositories as Settings); Back returns to the same
+  panel and tour position. Other pages still fall back to real Settings navigation.
+- **O** full-tour card; **P** tour keeps its frame, only header/body animate (Initial Setup's
+  transition), preview crossfades only when its kind changes; **Q** Done copy is the maintainer's text.
+- **R - "Downl..." in the desktop top bar.** Upstream sized every tab for a 64 dp label; the icon box
+  is the full icon size, so a label had 62 dp. The track is now sized from the measured widest label
+  (`DesktopNavigationTrackWidth.kt`, pure-tested; one-line seam in `DesktopNavigationBar.kt`); verified
+  in the render with Social on.
+
+**Commits** - mobile: `a900d143d` device steps, `3034636c8` optimistic writes, `6addd4c26` subtitle
+geometry, `f34b7695d` top-bar width, `aae8fd0d2` pure script, `cea2028c6` previews/flow,
+`2c6b3f025` render-review fixes, then the routing test, docs and debug-build commits. Desktop: the
+same commits cherry-picked (`66b553a00` .. `c89d879bb`, `4ea021ea0`), `5526b606b` desktop pieces
+(no Random Episode binding, `NativePlayerController` delegation, harness), then its test/docs/debug
+commits. Shared setup files are byte-identical across the repos (checked with `diff
+--strip-trailing-cr`); per-repo: `AdvancedSetupRepoBindings.kt`, `SetupHomeStill.kt`, strings.xml.
+
+**Verification.** Mobile: `:androidApp:compileFullDebugKotlin` pass; full
+`:composeApp:testAndroidHostTest --rerun-tasks` from a deleted results directory **3,327 tests, 0
+failures, 0 errors, 6 skipped** (383 suites) on the final code; pure group 3 (setup, optimistic,
+subtitle geometry, top-bar width) **172 / 172**. Desktop: `:composeApp:compileKotlinDesktop` pass;
+`AdvancedSetupRenderHarness` (196 PNGs incl. every Android panel at 360x740, reviewed - the review
+fixed the rail squeeze, detail/metadata crop, desktop hero size, source-list density and the top-bar
+rule) and the new `SetupWizardClickTest.setUpInSettingsOpensThePageWithoutLeavingThePanel` pass.
+Desktop split suite (`scripts/run-desktop-tests-split.sh`, code head `5526b606b` + the click test):
+**3,301 / 3,301**, 0 failed / skipped / duplicates (rest 1,763; playback 1,032; downloads 457; E2E
+49). (Claude Code stopped the wrapper shell once for low memory; the script itself ran to the end and
+its summary is the source of these numbers.)
+
+**CI and debug builds.** Mobile push CI `36588314296` **success**; iOS build `36588314061`
+**success** (device + simulator frameworks, unsigned app); Debug release `36588351045` **success**
+(Android + iOS) -> **`debug-v0.4.13-z1.68`**. Desktop push CI `36588328017`: Windows MSI **success**,
+Linux job red only at the pre-existing vendored `frame_copy_test` (`player != NULL`); Desktop debug
+release `36588356606` **success** -> **`debug-v0.1.23-alpha-z6.75`**. Builds 67 / 74 untouched; no
+stable, feed or updater promotion.
+
+**Still needs a device** (render harness cannot show these): every interactive preview by touch on a
+phone (Touch gestures, nav bar scroll-collapse, tab rows), hover previews and trailer sound on
+desktop, the nested Settings page's OAuth round trips returning to the panel (Trakt/Simkl browser
+flow), Social switches against the server (including a refused write and leaving a live party),
+Device Setup arrivals (desktop->Android Classic and Streamlined, desktop->iPhone on iOS 26 and older,
+phone->desktop), the subtitle preview against the real player on Android (ExoPlayer and libmpv),
+iOS and desktop, the desktop player preview against the native controls page (desktop draws its
+chrome natively), and the top bar at narrow/normal/4K with Social on/off and a longer locale.
+
+## Setup + Settings architecture pass - COMPLETE ON BRANCH, UNMERGED (2026-09-29)
+
+**Newest work.** Branch `claude/setup-settings-architecture` in both Kotlin repositories, cut from
+`claude/pre-release-ux-convergence` (mobile `34fc1c598`, desktop `3ae61b62f`, both untouched) and
+pushed. Not merged to `main` / `Dev`; no release, RC, tag, version/serial bump or feed change; no
+Phase 10 work; the iOS / Watch Together hardening pass not started. Approved plan:
+`../PLAN-setup-settings-architecture.md`; resume/handoff: `../HANDOFF-setup-settings-architecture.md`.
+
+**What it delivers (all 12 plan stages).** Stage 1 sync correctness (B1-B4, legacy player layout,
+addon logo, Random Episode and home hero newly synced) - `Z-FEATURES` **C23**. Stage 2 semantic
+sign-out through `LocalStoreRegistry` (mobile and desktop) - **C24**. Stages 3-5 Device Setup and the
+cross-family import (Welcome back, Review setup, transport-failure retry, per-profile arrival flag,
+the device alerts row), Done's Advanced Setup, the wizard back handler, What's New waiting for a
+gating wizard - **W13**, **W14**. Stages 6-8 **Advanced Setup** (`features/setup/AdvancedSetup*.kt`):
+hub with live summaries, 14 categories / 26 panels from the pure `AdvancedSetupModel`, full tour,
+session ticks, live previews (wizard specimens reused; real `NavigationBarPreview`, `NuvioPosterCard`
+and `StreamCard`; new drawn specimens for player chrome, skip timeline, subtitles, friend activity,
+metadata, iOS tab bar, desktop navigation), desktop two-pane frame via `SetupDesktopSplitFrame`,
+"New" badge flag, `AppGateController.requestAdvancedSetup()` - **W12**. Stage 9 the **Settings hub**
+(`ZSettingsRoot.kt`): Watching / Look & feel / Content & services / Profile & social / Setup & about /
+Advanced, Navigation and About pages, Trakt & Simkl under Integrations, Custom Poster URL advanced,
+Liquid Glass row restored, search re-indexed, desktop decoder rows fixed - **C22**. Stage 10 the What's
+New **action card** ("Try Advanced Setup") and this pass's changelog entries - **C4**. Stage 11 desktop
+carry, desktop pieces, render harness. Stage 12 docs (`Z-FEATURES` W1/W4 revisions fixed, W12-W14,
+C22-C24, C4; `PATCH-SURFACE` 2026-09-29 note; `UPSTREAM` blob-split decision; `VANILLA-BUGS` V4).
+
+**Mobile commits** (after the stage 1-4 commits listed in the handoff): `c664be9c3` Advanced Setup;
+`b9c412b12` Settings hub; `79dd99ca8` What's New action card + notes; `dacef82fe` keep the shared
+files byte-identical with desktop (`AdvancedSetupRepoBindings.kt` is the one per-repo file);
+`e418de18a` render-review fixes; then this docs commit.
+
+**Verification (mobile, code head `e418de18a`).** `:androidApp:compileFullDebugKotlin` **pass**.
+Full `:composeApp:testAndroidHostTest --rerun-tasks` from a deleted results directory: **3,296 tests,
+0 failures, 0 errors, 6 skipped** across 380 suites (new: `ZSettingsHubTest` 8, `ChangelogFileTest`
++2, `WhatsNewSelectionTest` +2). Pure suites (`scripts/run-pure-suites.sh`, run through an ignored LF
+copy without `set -e`): group 1 **279**, group 3 **141**, 4 **17**, 5 **29**, 6 **191**, 7 **63**,
+8 **3**, 9 **17**, all OK; group 2 fails to compile standalone at `DownloadFlowRules.kt` (the
+documented pre-existing failure, unchanged). Desktop numbers are in `NuvioZDesktop/STATUS.md`.
+
+**CI and debug builds.** The first iOS compile failed on a JVM-only `MutableList.replaceAll` in
+`ZSettingsSearch.kt` (fixed in `9d379ff52`; nothing was published by the failed run). On the fix,
+push CI `36557959509` **success** and Debug release `36557959964` **success** (Android + iOS) →
+`debug-v0.4.13-z1.66`. 66's in-app debug note named only this pass, although it is the **first debug
+build on the upstream sync** (vanilla 0.5.4-beta + the UX convergence); the note is compiled in, so
+**debug build 67** (same code, corrected note; a device from 65 sees both lines) was dispatched as
+run `36561195605` - check its result before testing. Desktop: see `NuvioZDesktop/STATUS.md`.
+
+**Deviations from the plan, all deliberate.** (1) Desktop received the shared commits by
+`git cherry-pick` from `mobile/claude/setup-settings-architecture`, not `git merge` - a full merge pulls
+a large unrelated mobile baseline (tried and aborted in stage 4); the shared files are byte-identical
+afterwards (`diff --strip-trailing-cr`). (2) Advanced Setup opens through a process-wide
+`AdvancedSetupLauncher` request collected by the overlay gate, so the Settings row needs no lambda
+threaded through upstream's shell; `AppGateController.requestAdvancedSetup()` delegates to it.
+(3) "Set up in Settings" links (MDBList, Tracking) close the hub and open the real page through
+`ZSettingsNavigation`, collected in `MainAppContent` (one upstream-file collector). (4) The Navigation
+page uses a Z segmented row rather than upstream's `SettingsChipRow`, which desktop does not have.
+(5) Random Episode's Advanced Setup row lives in the per-repository `AdvancedSetupRepoBindings.kt`
+(empty on desktop). (6) The search test is a Robolectric host test on mobile and an
+`ImageComposeScene` test on desktop.
+
+**Physical QA still required - none of this has been seen on a device.** The plan's §21 matrix, all
+14 rows: fresh account → Initial Setup → Done → Advanced Setup → tour; upgrade in place → no wizard,
+What's New card opens the hub, "New" badge clears; second same-family phone → Device Setup (mobile
+data + alerts only); phone profile first on desktop → import → Welcome back (+ quality/HDR for
+Streamlined/Instant); desktop profile first on a phone → Welcome back → device step; Review setup
+shows imported answers; two profiles on one install; delete / reinstall; Run Initial Setup again ✕
+writes nothing; newly synced settings reach a second device; sign out → other account (no leaked TMDB
+key / AIOStreams creds; language and zoom kept); every Settings root row, moved page and search result
+lands where it says, Liquid Glass on iOS 26+; offline first desktop launch of a phone profile; and
+the second launch after each. Also: the Advanced Setup previews on a real phone (the render harness
+cannot run on Android), the iOS 26 tab bar drawing against the real bar, and What's New's card on a
+real upgrade (none has been published).
+
+**Debt left, not fixed here** (plan §22): true cross-family shared settings (the import is the
+interim); library layout/sort, season view, recent-searches toggle, P2P toggles and per-title tracks
+still unsynced; the two mismatched subtitle-style editors (player vs Settings); offline launch opening
+Download *settings* (`MainAppContent.kt`); the iOS Downloads "Storage" row hidden by an `!isIos`
+block; Trakt/Simkl tokens not syncing between Kotlin clients; codec/audio preference not imported
+cross-family (a one-line allowlist flip if wanted); whether release builds carry Trakt/Simkl
+credentials (the Tracking category auto-hides without them). `ZSettingsHubTest` lives in the desktop
+tree too, where the Android host suite cannot build; `ZSettingsHubDesktopTest` is its desktop twin.
+
+## Upstream UX convergence, part 2 - ON BRANCH, UNMERGED (2026-09-29)
+
+**The base of the setup + settings branch above.** Branch `claude/pre-release-ux-convergence` in both Kotlin repositories,
+cut from the completed sync heads (mobile `88c5e010c`, desktop `b4c83e95a`, both untouched) and
+pushed. Not merged to `main` / `Dev`; no release, RC, tag, version/serial or feed change; no wizard,
+settings-reorganization or Phase 10 work; `iosSetup/` untouched. The durable record, including every
+area audited and why anything was kept Z, is **`Docs/UPSTREAM-SYNC-0.5.4.md`, "Part 2"**. The rule
+that drove it is now in `Docs/UPSTREAM.md` ("Resolving a conflict") and `AGENTS.md` rule 7.
+
+**What changed for users.** Mobile: upstream's floating jelly navigation bar (adaptive / expanded /
+compact / classic, glow on Android 13+, live preview in Settings -> Layout -> Navigation Bar) with
+Social and Z's tabs; tablets get upstream's compact floating bar at the top. Desktop: upstream's
+jelly top bar, now carrying Downloads and Social, with the sidebar still selectable; narrow windows
+use the top bar. Both: subtitle choice carried to the next episode (never the old URL), mobile's Home
+hero brought to desktop Z's (upstream-fixed) version, shimmer on the source list's loading labels,
+TMDB enrichment on for any profile with no stored choice. Desktop also takes upstream's current
+dialogs / sheets / menus (mobile already had them) and `752962638` (custom posters kept on return).
+Z's playback loading surface, Downloads, updater, Social / Watch Together, both player-control
+layouts and shuffle (mobile, off by default) are unchanged.
+
+**PiP + Watch Together (desktop, code audit only):** PiP reparents the one native surface into its
+window (`NativePlayerController.reparentSurface`) - no second engine, controller or party session.
+The PiP window has no controls of its own; native control events still go through the runtime's
+`onAction` (party-gated) before any local fallback, so PiP cannot bypass party transport or host-only
+restrictions, and remote play/pause/seek drives the same controller. Engine teardown (leaving,
+source or episode change) runs `DesktopPlayerPictureInPicture.release()`, so PiP never outlives its
+engine. Presence already treats PiP as Watching (`PartyPresenceTest`). No new PiP test: the action
+handler is private and PiP needs a real window. **Not physically verified.**
+
+**Verification.** Mobile Android host suite **3,224 total / 3,218 passed / 6 skipped / 0 failed** (373
+suites, results deleted, `--rerun`) on code head `fd344d707`; the only later code change, the review
+fix `8ffcb8d74`, compiled in `assembleFullDebug` (pass) and in push CI `36487916987` (success, host
+suite + debug APK). iOS build `36486408856` (device + simulator frameworks, unsigned app) succeeded
+on `fd344d707`. Pure group 1 passes 279; group 2 keeps its documented standalone Downloads failure.
+Desktop split suite **3,206 / 3,206**, 0 skipped / failed / duplicates (rest 1,673, playback 1,027,
+Downloads 457, E2E 49) on final code head `7bf01c009`; desktop CI `36487928657` builds the Windows MSI
+and is red only at the pre-existing vendored Linux `frame_copy_test` (`player != NULL`).
+Release R8 was not re-run in this pass.
+
+**Review finding fixed:** upstream memoized the tab actions on the lambda's identity; with Z's inline
+lambda that could hold stale callbacks, so Z's per-composition call was restored (`8ffcb8d74`).
+
+**Debt, not fixed:** `TabletFloatingTopBar` / `TabletTopPillItem` in `AppShellComponents.kt` are now
+unused in both repos (desktop upstream still carries them); `StreamsScreen.kt` keeps a local
+`ProviderFilterRow` beside upstream's shared one; mobile's jelly files sit in `commonMain` while
+mobile upstream keeps them in `androidMain` (see the PATCH-SURFACE note).
+
+**Physical QA still required (none of this was seen on a device):** the mobile bar in each style
+with and without Social, RTL, a 320 dp phone and a tablet; the desktop top bar vs sidebar at narrow,
+normal and 4K widths, including the profile popup; Home hero cycling and return on both; subtitles
+across a binge (addon subtitle, embedded, off); TMDB on a fresh profile and on a profile that had
+turned it off; desktop PiP as host and as guest (enter, exit, remote pause/seek while in PiP, episode
+change while in PiP, leave the party while in PiP); the restyled desktop dialogs and sheets. Plus
+everything already listed under the part-1 section below.
+
+## Pre-release upstream convergence - COMPLETE ON INTEGRATION BRANCH (2026-09-28)
+
+Branches `claude/pre-release-upstream-sync` in both Kotlin repositories are pushed and remain
+unmerged. Mobile now carries vanilla `0.5.4-beta`; desktop carries vanilla `0.1.26-alpha`. The
+durable conflict and decision record is `Docs/UPSTREAM-SYNC-0.5.4.md`. No stable release, feed
+promotion, final RC, merge to `main` / desktop `Dev`, or Phase 10 work was performed.
+
+**Final code heads before this documentation reconciliation:** mobile `671237076`; desktop
+`9a095d8cd`. Mobile preserved Phase 9 Downloads, the standalone Downloads route, Z updater and
+identity, Z Social / Watch Together (including its entry in the new player toolbar), party-owned
+transport, and the iOS release-hardening fixes. Desktop preserved the same Z subsystems plus its
+organized storage/migration, offline playback and Java 17 redirected-download timeout fix.
+
+**Social/session recovery:** selectively integrated in both repos. Upstream was re-inspected at the
+new exact tags and still contains both vanilla defects. V2 (an ordinary expired access token can be
+classified as a dead account) and V3 (desktop installs share supabase-kt's JVM session storage) are
+therefore retained as `drop-at-next-sync` patches. The recovery path waits for/refreshes the official
+session, retries stale Social activation, and desktop moves the legacy shared login once into the
+install data root. The full desktop run includes 3 rejection, 3 access/expiry, 6 install-scoped
+storage, 1 bridge, 10 renewal and 5 Social recovery tests, all passing.
+
+**Verification on those exact code heads:**
+- Mobile Android host: **3,187 total / 3,181 passed / 6 skipped / 0 failed** across 367 suites.
+  `assembleFullDebug`, release Kotlin compilation and release R8 all pass. A combined release
+  assemble stops only at `validateSigningFullRelease`, because this machine has no release keystore.
+- Mobile iOS CI run `36460723843`: **success** - device framework, simulator framework and unsigned
+  Xcode app. Push CI `36459921568`: **success**, both on `671237076`.
+- Desktop documented four-way split: **3,184 / 3,184**, 0 failed, 0 skipped and 0 duplicates - rest
+  1,651; playback 1,027; Downloads 457; E2E 49. Windows MSI CI is green on `9a095d8cd`.
+- Desktop CI run `36460011350` is red only before Kotlin tests at the pre-existing vendored Linux
+  `frame_copy_test` assertion `player != NULL`; the Windows MSI job in that run succeeds.
+- Pure harness: group 1 passes (**279 mobile, 278 desktop**). Group 2 still has the documented
+  standalone-harness source-list failure (`DownloadItem`, `DownloadStatus`, `downloadSizeFigure`),
+  followed by class-not-found fallout. The product Gradle suites above compile and run those tests.
+
+**Focused convergence review:** no bad conflict resolution or release correctness defect remained.
+No conflict markers, resurrected upstream scheduler/updater/navigation implementation, duplicate
+old/new API, Watch Together transport bypass, identity/version/feed change, or lost player-toolbar
+entry was found. The shared audit classified all 235 raw file differences: 146 are the expected
+mobile-upstream 0.5.2 -> 0.5.4 gap, 59 pre-existed this convergence, 24 come from desktop's own
+upstream delta, 3 are declared never-copy files, and 3 inspected seams are intentional (mobile's
+lazy Android Downloads host scope and two fixtures adjusted for the new short-placeholder rule).
+The Social/auth files are byte-identical; `ZSessionBridge` differs only by Native `atomicfu` versus
+JVM `@Volatile`. No shared Z change is missing.
+
+**Still required before a final RC:** physical QA remains the debug-65 Watch Together checklist in
+the next section (iOS Social/lifecycle/sync/readiness/lock-screen/foreground/host-lock and the Android
+Phase 6 party debt). The final-RC build must additionally smoke-test the synced player on Android,
+iOS and desktop: new and legacy controls, the Watch Together toolbar entry, source/episode changes,
+credits/post-credits skipping, subtitles, custom posters/shuffle where present, Phase 9 Downloads
+and offline playback. Exercise Social after sleep/token expiry, and on desktop verify that release,
+debug and vanilla installs do not steal one another's login. Then perform the version/serial bump as
+the final tracked release commit and follow the release gate; none of that was done here.
+
+## Mobile release hardening - Watch Together / iOS readiness (opened 2026-09-28)
+
+**This is the current mobile state. Phase 9 below is DONE and is history.** A narrow pass to clear the
+remaining mobile stable-release blockers. Feature-frozen: no Social / Watch Together UX, no Downloads, no TV,
+no Phase 10. Branch `claude/mobile-release-hardening` (from `ca842ae19`), pushed, **not merged to `main`**.
+No stable release, tag or feed promotion has been made.
+
+### Blocker ledger
+
+| # | Blocker | State |
+| --- | --- | --- |
+| 1 | iOS lock-screen / Now Playing party routing | **FIXED** (code + tests). Physical: OPEN |
+| 2 | iOS `engineReadiness` | **FIXED** (code + tests). Physical: OPEN |
+| 3 | iOS Social + Watch Together hardware QA | **OPEN**. Checklist below, on debug 65 |
+| 4 | Android Phase 6 Watch Together QA debt | **OPEN**. Checklist below, on debug 65 |
+
+Nothing moves to PHYSICAL PASS / PASS until the maintainer reports the device result.
+
+### What changed
+
+**Blocker 1: where the bypass was.** Two places in upstream's iOS player moved mpv without asking the runtime.
+- `NowPlayingController.swift`: every `MPRemoteCommandCenter` handler (play, pause, toggle, skip +/-10 s,
+  scrub) called `playPlayback` / `pausePlayback` / `seekByMs` / `seekToMs` directly.
+- `MPVPlayerBridge.swift` `enterForeground`: it resumed mpv **unconditionally** on every return from the
+  background. That played a film paused before the lock and, in a party, a stale position under a party that
+  might be paused. This is vanilla behaviour, and the same bypass class.
+
+**The fix reuses Android's seam rather than adding a second one.** `PlayerRemoteCommands` (a public Kotlin
+interface that Swift calls) is implemented by `PlayerRemoteCommandRouter` over the existing
+`PlayerExternalTransport`:
+- Play and pause become `externalSetPlaybackState`, the path Android's media session uses. In a party,
+  `submitPartyPlayPause` decides: permission, barrier, command execution. The engine moves only when no party
+  owns the transport.
+- Seeks and skips become a finished scrub (`handlePlayerControlsScrubFinished`, then `submitPartySeek`).
+  Skips are relative to mpv's position read fresh, not to the 250 ms poll.
+- Toggle decides from mpv's `pause` flag. "Is playing" is false during a rebuffer, so a pause pressed then was
+  sent as a play, which in a party is a force start.
+- The foreground return asks the runtime (`externalRestorePlaybackIntent`), which restores its **live**
+  `shouldPlay`. It never resumes through a barrier hold, and it **never resumes a party guest**: the guest
+  stays paused, and the away return or the next tick's drift correction (seek, then resume) puts it back. The
+  host, being the party clock, keeps its own intent.
+- A surface with no runtime (the trailer popup) keeps working: unanswered seeks and restores fall back to the
+  engine.
+
+Swift: `MPVPlayerRemoteCommands.swift` (new Z file) holds the `remote*` methods, and `NowPlayingController.swift`
+calls them. This adds `NowPlayingController.swift` to the patch surface (`Docs/PATCH-SURFACE.md`, 2026-09-28
+note).
+
+**Blocker 2: a bridge gap, not an engine limit.** iOS runs libmpv, which already exposes everything Android's
+libmpv reports. `mpvEngineReadiness` moved unchanged from `androidMain` to `commonMain`
+(`MpvEngineReadiness.kt`). The Swift bridge now exposes `paused-for-cache`, `cache-buffering-state` (-1 when
+unavailable, never read as 0 = empty), `seeking`, `core-idle` and `pause` from its existing refresh.
+`PlayerEngine.ios.kt` reports `engineName = "libmpv"` and the real readiness, so `partyStarvedFor` no longer
+falls back to the buffered-ahead guess on iOS. What each state means:
+- **No source:** nothing loaded yet, a file being replaced, or the player torn down.
+- **Buffering:** `paused-for-cache`, or a cache still filling, even while the party holds the member paused.
+- **Unknown:** a seek is in flight, so the buffered-ahead fallback answers.
+- **Ready:** everything else.
+
+**Commits:** `3fbe02c92` (both fixes), `a30403eed` and `e482e3c04` (review fixes), `c38988d4b` (docs),
+`1e198524f` (debug build 65). Android behaviour is unchanged: it does not use the router, and the moved
+function is byte-identical.
+
+### Verification
+
+- **Android host:** **2,632 / 2,632** on `e482e3c04` (results deleted, `--rerun`), which is 2,616 plus 16 new
+  tests: `PlayerRemoteCommandRouterTest` 7 and `IosEngineReadinessTest` 9. `:androidApp:compileFullDebugKotlin`
+  green. What's New tests 21 / 21 after the changelog edit. `check-changelog.py` passes for mobile 127
+  (25 entries).
+- **iOS build (CI, macOS):** green on `3fbe02c92` (run `36402862053`) and `a30403eed` (run `36405558246`), which
+  is all the Swift and iosMain code. `e482e3c04` onward touch only `commonMain`, docs and resources, which are
+  compiled again by the debug release below.
+- **Push CI:** green on `3fbe02c92` (`36402861986`) and `e482e3c04` (`36406297387`).
+- **Pure suites:** group 1 OK (279). Group 2 still fails to compile on Downloads files, which is pre-existing
+  and known, and `set -e` stops the script there. No file from this pass is in any pure group.
+- **No iOS test can run here** (Windows). The routing and readiness logic live in `commonMain` so the host
+  suite covers them; the Swift glue is covered only by the iOS compile and the physical pass.
+
+### Debug build 65 (the physical QA build)
+
+`debug-v0.4.13-z1.65`, a GitHub prerelease built from **`1e198524f`** by Debug release run **`36407706713`**. All four jobs
+succeeded, and the iOS app was compiled again from the final code, so this covers `e482e3c04`. Assets:
+`androidApp-full-debug.apk` (sha256 `b0d98e91...47c7f2`), `Nuvio-Z-iOS-0.4.13-z1-65-debug-unsigned.ipa` (sha256
+`1852fd06...0e470`), `SHA256SUMS-Debug.txt` and `source-debug.json`. The SideStore debug feed on `main` was updated by
+the workflow (`3a406ba27`). **No stable build.**
+
+### /code-review gate (two passes, high then medium)
+
+| Finding | Class | Outcome |
+| --- | --- | --- |
+| Foreground restore used the composed (stale) `playWhenReady`, and moved the engine in a party | Correctness | Fixed `a30403eed`: the runtime's live intent, barrier-aware |
+| Party guest resumed at a stale position on the foreground return | Correctness | Fixed `e482e3c04`: a guest stays paused, and the party resumes it |
+| Trailer popup: lock-screen seeks silently dropped (default callbacks) | Correctness (regression) | Fixed: engine fallback when no runtime answers |
+| Toggle during a rebuffer sent play (party force start) | Correctness | Fixed: mpv `pause` flag |
+| Skips computed from the 250 ms poll | Correctness | Fixed: fresh read. Two skips inside one mpv seek can still collapse (non-blocking) |
+| Patch-surface widening not declared | Correctness (process) | Fixed: Z-owned Swift extension, commit message, PATCH-SURFACE note |
+| Skip precision "undoes upstream's exact skip" | No action | False positive: mpv's default `hr-seek` makes the absolute seeks this now uses precise |
+| Headset toggle during a barrier hold sends play | Non-blocking debt | Same as the in-app play button during a hold; holds are sub-second to seconds |
+| External seek during an on-screen drag ends the drag | Non-blocking debt | Same on Android |
+| Android computes `cache-buffering-state` inline; `paused` unused by the mapping; readiness test mirrors the adapter | Nit / debt | Not changed (Android untouched by design) |
+
+**Release blockers found by the review: none.**
+
+### Physical QA - debug build 65
+
+Install `debug-v0.4.13-z1.65` (APK on the release; iOS through the SideStore debug feed). Parties need two
+devices. Use desktop as the trusted reference peer where a second phone is not available. Record PASS / FAIL
+and, for any FAIL, the time and which device.
+
+**iOS (blockers 1-3)**
+1. **Social shell.** The Social tab loads; your identity and avatar are correct; the Watch Together entry
+   opens; switching tabs and back does not misroute.
+2. **Lifecycle.** iPhone hosts and a guest joins, then the reverse. The lobby shows the right title and source,
+   with no stale media from a previous party. Leave from both sides. Rejoin.
+3. **Sync.** The host plays, pauses and seeks (forward, back, by scrub), and the guest follows each within a
+   second or two. No 3-second or stale-source regression. No seek-then-rebuffer loop.
+4. **Readiness.** The party holds through the initial load. Starve the iPhone (a heavy source, or Wi-Fi off for
+   about 5 s): the party should hold or show it waiting, not run on while the iPhone is frozen. On recovery it
+   returns to normal sync.
+5. **Lock screen, iPhone as host.** Play, pause and seek from the lock screen and Control Center: the guest
+   follows each. Headphone button toggle: same.
+6. **Lock screen, iPhone as guest, host-only control.** Lock-screen pause and seek do **not** move the iPhone's
+   player (refused), and it stays with the party. With collaborative control on, they move everyone.
+7. **Lock and unlock.** Pause, lock, unlock: the film stays paused (it used to start again). In a playing
+   party, the guest locks for about 30 s and unlocks: it does not play from where it stopped, it jumps to the
+   party's position and plays. Watch whether the other members see it as **Away** while locked. iOS reports
+   Away only from Compose, so this is the one to watch.
+8. **Host lock.** The host locks for about 30 s and unlocks: guests see the party paused or waiting (not "host
+   buffering"), and it resumes cleanly.
+
+**Android (blocker 4, Phase 6 debt)**, S25 plus a second Android phone, or S25 plus desktop:
+1. Host and guest join; play / pause / seek both ways.
+2. Rebuffer recovery (Wi-Fi off for about 5 s on the guest).
+3. Lock and unlock, Away shown and cleared, notification pause.
+4. Leave and rejoin; no stale lobby media; title and logo correct.
+5. Source realization: a guest picks a different compatible source and still syncs.
+6. The Phase 6 extras if convenient: an Android-to-Android party; doze after 10+ minutes; an incoming call;
+   a Wi-Fi-to-cellular handover.
+
+## Phase 9 — Downloads Redesign: DONE (opened 2026-09-24, closed 2026-09-28)
+
+**Plan:** `Nuvio Z/PLAN-phase-9-downloads-redesign.md` (the maintainer-approved product model and
+the staged build sequence). Branches: `nuvio-z` `claude/phase-9-downloads`, `NuvioZDesktop`
+`claude/phase-9-downloads`. Shared commits reach desktop by **cherry-pick** of the mobile commit
+(a branch merge drags in mobile history desktop never merged - the Phase 8 convergence applied a
+diff), plus desktop-only actuals.
+
+### Phase 9 final physical QA - DONE (2026-09-28)
+
+**This is the current state of Phase 9. Everything below it is history.** The maintainer reported the last physical
+checks and closed the phase. No stable release, stable tag, feed promotion or merge to `main` / `Dev` has been
+made, and **Phase 10 has not started** (maintainer instruction: do not start it yet).
+
+**Reported by the maintainer on 2026-09-28:**
+- **Desktop folder migration: PASS, physical.**
+- **Desktop redirected download longer than 60 s: PASS, physical.** No retry at the 60-second boundary, and the
+  transfer finished normally. This confirms the 60-second fix on a device.
+- **iOS folder migration: not tested, waived.** The maintainer confirmed that downloads work on the latest iOS
+  debug build but did not run the migration over an existing flat library, and chose to close the phase without
+  it. That is a maintainer waiver, not a pass. Android migration was also not run. So **neither mobile platform
+  has physically exercised the migration**, and the plan's "desktop once, plus one mobile platform" is met on
+  desktop only. The migration mechanics differ from desktop only in the rename call (iOS `moveItemAtPath`,
+  Android `renameTo`) and are covered by the host suite. Watch for this in the first stable's reports: a user
+  upgrading over an existing flat library is the first real run.
+
+**Distribution decision (maintainer, 2026-09-28): SideStore is the official iOS distribution path for Nuvio Z.**
+TestFlight and an Apple Developer account are **no longer release requirements**. The unsigned SideStore IPA that
+`android-release.yml`'s `publish` already ships next to the Android APKs *is* the matching iOS build, so the
+policy and the workflow now agree. `Docs/RELEASES.md` and `ROADMAP.md` are updated to match. The TestFlight path
+stays in the workflow, parked (`ios_testflight: if: false`), for a possible later App Store route.
+
+**Final QA matrix changes** (the matrix below is updated in place): Folder migration is Desktop **Physical**,
+iOS **Waived (not tested)**, Android **Not tested**. Transfer > 60 s through a redirect is Desktop **Physical**.
+
+**What still stands between Phase 9 and a stable release** (none of it is Phase 9 work):
+- **Mobile:** the iOS `NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch
+  Together hardware pass, and the Phase 6 Android Watch Together QA debt. These are the remaining global mobile
+  blockers, to be cleared or waived by the maintainer. The Apple account is no longer one of them.
+- **Both:** an explicit maintainer GO, then the release procedure in `ROADMAP.md` Phase 9 ("Release-gate pass").
+  The desktop-title layout fix (mobile `42906a61d`, desktop `4ce5c9af7`) is pushed but not in debug 64 / 73.
+
+### Phase 9 release-gate pass - DONE, RELEASE GATE PENDING (2026-09-28)
+
+*Superseded by "Phase 9 final physical QA" above; kept as the record.* No stable release, stable tag, feed
+promotion or TestFlight upload has been made, and no Phase 10 work has started.
+
+**Final commits** (both branches clean, pushed, and **not merged** to `main` / `Dev`):
+- **Mobile** `claude/phase-9-downloads` at **`43d9a325f`** (debug build 64). Last code commit `6ab634f46`. After it:
+  STATUS, the changelog copy fix `f39f6133f`, the docs `0ae694190`, and the debug counter with debug changelog
+  lines `43d9a325f`.
+- **Desktop** `claude/phase-9-downloads` at **`71f483d27`** (debug build 73). Last product-code commit
+  `f7526b5f2`. After it: `e55de6982` (STATUS), `89e54c9cb` (test-only race fixes), `aba35cb48` (the same
+  changelog copy fix), `589ca0a58` (the split runner), and `71f483d27` (debug counter and debug lines).
+  The earlier "owed on `f7526b5f2`" and "HEAD `e55de6982`" were the same code; that is resolved.
+
+**After the gate pass (2026-09-28, found while making the promo screenshots):** one shared layout fix,
+mobile `42906a61d`, cherry-picked to desktop as `4ce5c9af7` - `DownloadsWideLayout` now pads its column by
+`screenTop` + status-bar inset + platform extra, as `NuvioScreen` does, so desktop's Downloads title no
+longer sits ~10dp above every other tab's. Only the desktop two-pane view reaches that layout. Verified by
+`:androidApp:compileFullDebugKotlin` and a desktop render; **not in debug build 64 / 73, not pushed**.
+Desktop also carries test-only promo commits `b8cba74ef` and `50751ce63` (`ScreenshotRenderHarness`).
+
+**Architecture (final).** One device-wide download engine (`DownloadStore`, `DownloadScheduler`, `SourceRealizer`,
+`TransferHost`) under three platform hosts: Android in-process with a user-initiated job and a `dataSync`
+fallback; desktop in-process, one `HttpClient` per attempt; iOS a system-owned background `URLSession` with a
+handover window of 30 and **no "Downloads at once" setting**. Download Mode (Automatic / Assisted / Manual) is a
+profile policy independent of Playback Mode. Finished files sit in `Title/Season XX/`, and the store stays
+authoritative. Rows: Z-FEATURES D16-D24, W11 and C21 (now revision 15).
+
+**Automated verification on the final code:**
+- **Mobile.** On `6ab634f46`: Android host **2,616 / 2,616** (results deleted, `--rerun`) and
+  `:androidApp:compileFullDebugKotlin`; iOS build run `36360424724` success; CI success on `6ab634f46` and
+  `b8727a6ea`. The later changes are resource and docs only. After the changelog edit, the What's New host tests
+  passed **21 / 21** (`ChangelogFileTest`, `WhatsNewSelectionTest`, `ReleaseNotesMarkdownTest`). Push CI on the
+  final head runs the full host suite, the `AndroidUpdateChannelTest` release-channel guard and
+  `assembleFullDebug`. Debug release run `36385902184` builds the APK and the iOS IPA from `43d9a325f`.
+- **Desktop: `desktopTest` 2,799 / 2,799 on `589ca0a58`**, the complete suite. It ran in four disjoint parts
+  with `scripts/run-desktop-tests-split.sh`: rest 1,291 (16 m 13 s), playback 1,002, downloads 457, E2E 49
+  (9 m 8 s). There were 0 duplicates, every part reached `BUILD SUCCESSFUL`, and results were deleted before
+  each part, with `--rerun`. The first complete run, on `e55de6982`, had **1 failure in 2,799**:
+  `AssistedChoiceFlowTest.realSizesOverTheSizeRuleBecomeTheOverLimitDecision`. It was a test race, not the
+  product. Two more of the same kind turned up when the class ran alone; all three are fixed in `89e54c9cb`,
+  and the class then passed 15 / 15 alone. Details are in the desktop STATUS. `71f483d27` adds only the debug
+  counter and debug changelog lines. Desktop CI (`36361360751`) is red only on the pre-existing Linux
+  `frame_copy_test`; its Windows MSI job is green.
+- `check-changelog.py`: mobile 127 (24 entries) and desktop 132 (12) pass.
+- **Shared-code convergence:** no Phase 9 download, What's New, wizard or changelog file differs between the
+  repos. Phase 9 touched only three files that differ, all known to be divergent: `strings.xml`,
+  `MainAppContent.kt` and `MetaDetailsScreen.kt`. All 302 Phase 9 strings match, and the Phase 9 hunks of
+  `MainAppContent.kt` are identical. Desktop's hero wires the same title-level `SelectedSeasons(emptySet())`
+  flow and the same season-delete confirmation. There is no accidental drift.
+
+**Physical QA matrix** (Physical = seen on a device; Automated = tests or renders only):
+
+| | Android | iOS | Desktop |
+| --- | --- | --- | --- |
+| Automatic / Assisted / Manual | Physical | Physical (used through Phase 9) | Physical (used through Phase 9) |
+| Assisted background discovery | Physical | Physical (`.56`) | Automated |
+| Choose now | Physical | Physical tap (`.56`); the later visibility fix is automated | Automated |
+| Ready / finished notification | Physical | Automated (never reported) | N/A |
+| Pause / Resume | Physical (Pause all, Resume) | Physical (57: paused through the lock, resumed from its partial) | Automated (E2E) |
+| Background / locked | Physical (screen off) | Physical (`.46`/`.47`, 57, the 42 episodes locked) | N/A |
+| 30-task handover | N/A | Physical (the 42-episode run) | N/A |
+| Notice past 30 | N/A | Automated (not rendered, not seen) | N/A |
+| Network policy | Physical (Wi-Fi / mobile data) | Automated | Automated (never metered) |
+| Progress (season, summary) | Physical | Automated | Physical (24-episode S6) |
+| Live Activity | N/A | Automated (the Phase 9 lines were not reported) | N/A |
+| Queue / concurrency | Physical | N/A (iOS decides) | Physical (24 episodes, 0 retries) |
+| Delete / cancel, incl. discovery | Physical | Automated | Automated |
+| Downloads UI / library | Physical (queue screen); the library redesign is render-only | Automated (render) | Physical (approved) |
+| Title-level Download | Automated | Automated | Physical (wide hero) |
+| Offline playback | Automated | Physical in Phase 8 (`.42`); the Phase 9 policy is automated | Physical |
+| Offline autoplay | Automated | Automated | Physical |
+| Profile / setup wizard | Renders approved; not reported on a device | Physical (`.56`) | Renders approved; not reported on a device |
+| **Folder migration** | Not tested (automated only) | **Waived by the maintainer, not tested** (downloads on the latest debug work) | **Physical: PASS** |
+| **Transfer > 60 s through a redirect** | N/A | N/A | **Physical: PASS** (no retry at 60 s, normal finish) |
+
+**Remaining Phase 9 items (physical only)** - *closed 2026-09-28: 1 passed on desktop and was waived on mobile,
+2 passed. See "Phase 9 final physical QA" above.*
+1. **Folder migration smoke.** Launch over an existing flat library, then check that the files move into
+   `Title/Season XX/`, the library lists them, and Play, autoplay and delete work, with nothing lost. Do it on
+   desktop once, plus one mobile platform. The mechanics differ only in the actual's rename call (Android
+   `renameTo`, iOS `moveItemAtPath`, desktop `Files.move`), so either Android or iOS is enough for mobile. The
+   iOS debug build shows `nuvio_downloads` in Files; Android's folder is app-private
+   (`adb shell run-as com.nuvio.app.z.debug ls -R files/downloads`). Debug 64 / 73 are the first builds that
+   carry it.
+2. **Desktop 60-second redirect fix.** One transfer that keeps receiving for **more than 60 s** through a debrid
+   redirect, with no "Retrying shortly" at the minute, no timeout while bytes arrive, and a normal finish.
+
+**Not Phase 9 work:** 10a / 10b are completed, rejected experiments. Subtitles (plan stage 11, a stretch) were
+not built and are deferred. TV is Phase 10.
+
+**Global stable-release blockers outside Phase 9:**
+- ~~**Mobile:** no Apple Developer account and no TestFlight.~~ **Settled 2026-09-28: SideStore is the official
+  iOS path, so this is no longer a blocker.** The original note: ⚠ The workflow and the written policy disagree.
+  `android-release.yml` has `ios_testflight: if: false` ("parked in favor of SideStore"), and its `publish` ships
+  Android plus an **unsigned SideStore IPA**. `Docs/RELEASES.md` and the ROADMAP still say Android waits for the
+  matching iOS/TestFlight build. **Maintainer decision:** does the SideStore IPA count as the matching iOS build?
+  Until that is decided, the written policy holds.
+- **Mobile, also:** the iOS `NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch
+  Together hardware pass, and the Phase 6 Android Watch Together QA debt.
+- **Desktop:** none outside Phase 9. It needs the merge to `Dev`, the bump and a `dry-run`. macOS ships unsigned.
+
+**Non-blocking debt:**
+- The Android host can stay up on mobile data while the rest of the queue waits for Wi-Fi (battery only).
+- Startup makes about 2 filesystem checks per downloaded item.
+- Desktop per-attempt `HttpClient`s are released only by GC on Java 17.
+- Another profile's batch is judged with the on-screen profile's download policy.
+- The full `desktopTest` now has to run split (scripts added).
+- In `AssistedDiscovery`, the batch reads ready a moment before its candidates are handed over. A "Choose
+  quality" tap inside that window shows "Finding sources N of N" briefly, then the choice.
+- Older debt: deleting a profile leaves its downloads; the desktop live-status hook is a no-op; iOS force-quit
+  restarts the window from zero; a queue beyond 30 needs the app reopened (by design); desktop CI
+  `frame_copy_test`.
+
+**Proposed stable identities** (read from the code; not applied):
+- **Mobile:** `0.4.13-z1`, build **126**. `CURRENT_PROJECT_VERSION` is still `125`, which `0.5.0-beta+126`
+  already shipped under `com.nuvio.app.z`, so the release bump must raise it. Serial `127` is already set. Tag
+  `0.4.13-z1+127`. Android `com.nuvio.app.z`; iOS `com.nuvio.app.z` + `.DownloadsWidgetExtension`. Published as a
+  stable GitHub release on `Zokaper/nuvio-z`, plus the SideStore `source.json`.
+- **Desktop:** `0.1.23-alpha-z7`, `VERSION_CODE` 46, serial **132**, MSI ProductVersion `2.0.132` (upgrade UUID
+  unchanged). Tag `0.1.23-alpha-z7+132`. Published as a stable GitHub release on `Zokaper/NuvioZDesktop`, through
+  the in-app updater.
+- Both bumps are release steps: each is the final commit on `main` / `Dev` before promotion, so they were
+  deliberately **not** made here. The step-by-step procedure is in `ROADMAP.md` Phase 9, "Release-gate pass".
+
+**Changelog copy (both repos, identical):**
+- "Your downloads as a library" no longer says the page is "marked Downloaded", because the chip was removed.
+- "Downloads now continue with the screen off" is iOS-only. Its text is about iPhone, and Android users were
+  shown it.
+- The stable copy was otherwise read as a user would read it: no build numbers, experiment names or engineering
+  terms, and every claim has test or device evidence.
+- Mobile has no "sorted into folders" line on purpose: mobile users cannot see that folder (Android's is
+  app-private; Files sharing is on only in the iOS debug build).
+
+**Debug builds for device QA** (maintainer request, dispatched and not watched): mobile **debug 64** (run
+`36385902184`) and desktop **debug 73** (run `36385963112`). They are the first builds with the organized
+folders, the chip removal and the five `/code-review` fixes.
+
+### Phase 9 closeout - final /code-review gate (2026-09-28)
+
+**Scope.** `/code-review` at *high*, read-only, then every finding re-checked against the code before any
+change. Mobile: `git diff a8c52ccff..67a9595d4`. The base `a8c52ccff` is `main` at the Phase 8
+closeout, the parent of the first Phase 9 commit `c4ba61523`. Production code in commonMain,
+androidMain and iosMain, the Swift app, release workflows and scripts, and the changelog. Desktop:
+`ca11c0cb7..c34152da5` (`Dev` after Stage 0's two merges), reviewed for what differs from mobile:
+`desktopMain`, the build and workflows, and the shared-code drift. **The drift check came back
+clean**: no Phase 9 download file under `commonMain` differs between the repos. Only the known
+divergent `strings.xml`, `MetaDetailsScreen.kt` and `MainAppContent.kt` differ, and in the last one
+only pre-existing social and back-handling code does.
+
+**Result: 0 release blockers, 5 correctness fixes, 4 non-blocking debt items, 1 nit (fixed as a doc
+correction).**
+
+| # | Finding | Class | Outcome |
+| --- | --- | --- | --- |
+| 1 | `enqueueFromStream` took the owner, and the "existing copy" it replaces, from the profile **on screen**. Automatic and Choose-now queue from background work (`queueBatch`), so after a profile switch B's finished episode was deleted and A's download was filed under B | Correctness | **Fixed**: an `ownerProfileId` parameter; `queueBatch` passes `batch.ownerProfileId`; the replace lookup matches that owner. E2E `a download queued for another profile never replaces this profile's copy` |
+| 2 | Desktop inherited the mobile-data rule (default Wi-Fi only) with no setting shown, and Windows reports any cost-flagged connection (a hotspot, metered Wi-Fi or Ethernet) as metered, so every download waited for Wi-Fi forever. **Regression vs `z6`** | Correctness | **Fixed**: `DownloadScheduler.isMeteredNetwork` is never true on desktop. The engine rule itself stays tested, since the E2E sets metered explicitly. E2E `desktop never holds a download for a metered connection` |
+| 3 | `onDiscoveryFinished` looked the batch up in the on-screen profile's view, so a profile switch during background Assisted discovery dropped the result. An early Choose-now quality was never applied, and A was asked again | Correctness | **Fixed**: a device-wide lookup, as `batchExists` already does. Another profile's batch is still decided and queued, but nothing is announced on screen. Test `AssistedChoiceFlowTest.anEarlyChoiceIsAppliedForItsOwnerAfterAProfileSwitch` |
+| 4 | Android: when the host was started for discovery (metered allowed), or by a "Download now anyway" item, it keeps running on mobile data while the rest of the queue waits for Wi-Fi. That costs battery; it transfers nothing wrong | Non-blocking debt | **Not changed.** Ending the host would also end the only thing that resumes those items when Wi-Fi returns (the in-process connectivity callback). A correct fix reschedules an unmetered host from the background, which Android 14 restricts, and that reopens the physically validated Android host (the brief says no without failing evidence). Post-Phase 9 |
+| 5 | Offline autoplay crossed to the next season whenever nothing later in the current one was downloaded, so the last undownloaded episodes of a season were skipped silently, against "stops at a gap" | Correctness | **Fixed**: `offlineEpisodeRun(lastEpisodeOf)`. The player passes each season's last episode from the offline metadata snapshot (every episode of a downloaded season), and the boundary is crossed only from it. Unknown keeps the old rule. Test in `LocalPlaybackPolicyTest` |
+| 6 | After `PlayLocal`, a blank URI read-back (the file deleted or moved a moment before) fell through to the network source list, **even offline** | Correctness | **Fixed**: `LocalPlaybackPolicy.whenLocalFileVanished`. Offline shows the missing-file message; online opens the sources as before. In both repos' `MainAppContent`. Test in `LocalPlaybackPolicyTest` |
+| 7 | The organizer's load-time pass runs on every cold start under the store lock: a canonical path lookup and an exists check per completed item, possibly on the main thread | Non-blocking debt | Cost only: about 2 syscalls per item (a few ms for hundreds of items), and no wrong behaviour. A one-time "migrated" marker or an off-lock pass is the follow-up |
+| 8 | Desktop `closeQuietly` calls `HttpClient.shutdownNow` reflectively, which does not exist on the shipped Java 17, so a per-attempt client is only released by GC. Two comments disagree about the runtime | Non-blocking debt | A client's selector thread and sockets outlive its attempt until GC; nothing is held forever. Follow-up: an explicit close path on 17, and one comment |
+| 9 | iOS downloader comments still said the window is 12 | Nit | **Fixed** (comment only, both repos): 30, the 42-episode evidence, the late-position link-expiry trade-off, and a pointer to the do-not-shrink note |
+
+**Also recorded (found while verifying #3; debt, not fixed):** `onDiscoveryFinished` / `applyEarlyChoice`
+evaluate the batch with `policyProvider()`, the on-screen profile's download policy. Its size level
+and fallback rules apply to another profile's batch in the same edge case as #3. Not a data-loss or
+wrong-owner problem; fixing it means carrying a policy snapshot per batch.
+
+**Checked and dismissed:**
+- An interrupted file move heals on load.
+- Pause all / Resume all from the notification load the store first.
+- The iOS resolve-ahead persists its own result.
+- The size telemetry and debug diagnostics are debug-only.
+- The changelog guard has mobile 127 and desktop 132.
+- Organized paths are confined to the downloads folder, with `..`, empty and absolute segments refused.
+
+Commits: mobile `6ab634f46`, desktop `f7526b5f2`. The new tests would fail without their fixes: the
+owner test sees its copy replaced, and the profile-switch test never sees the season queued. The
+desktop-metered test is weaker: on this PC the old code also answered "not metered", so it pins the
+rule rather than reproducing the bug. `AssistedChoiceFlowTest.whenTheSourcesAreInTheEarlyChoice...`
+failed once in the Part 1 full run (2,746 / 2,747). It checked the notice log in the instant between
+the items appearing and `announceMany` posting. Test race only; the assertion now waits for the
+notice.
+
+Tests after the fixes: mobile downloads + player + whatsnew 684 / 684 + app compile; desktop targeted
+169 / 169. Final heads (mobile `6ab634f46`, desktop `f7526b5f2`):
+- **Mobile:** full host suite **2,616 / 2,616** (results deleted, `--rerun`) +
+  `:androidApp:compileFullDebugKotlin`. **iOS build success** (run `36360424724`) and CI success on
+  `6ab634f46`.
+- **Desktop:** the targeted 169 / 169 includes the whole `DesktopDownloadQueueE2ETest` (49) and
+  `AssistedChoiceFlowTest`. ⚠ **The full non-E2E run was stopped by Claude Code under system memory
+  pressure** after 2,748 passes and **0 failures**, before it finished; its orphaned Gradle worker was
+  stopped. Owed: one complete `desktopTest` pass on `f7526b5f2` (split run, a quiet machine). Desktop CI
+  stays red only on the pre-existing Linux `frame_copy_test`.
+
+### Phase 9 closeout - organized download folders + the Downloaded chip removed (2026-09-28)
+
+Maintainer request at closeout. Commits: mobile `67a9595d4`, desktop `c34152da5` (shared half + desktop
+actual + E2E).
+
+**1. The "Downloaded" chip over the logo on a downloaded show's page is removed.** The On this device block
+already says it. Presentation only: layout, Resume, tabs and offline behaviour are unchanged. Re-rendered
+(`DownloadsScreenRenderHarness`, `show-*` at phone, large-phone and four desktop widths) and read.
+
+**2. Finished files are organized on disk: implemented, not deferred.** The engine turned out to allow it
+without touching transfers. `fileName` stays the identity of the `.part` file and the flat destination,
+every completed-file lookup goes through the persisted `localFileUri`, and nothing scans the folder. The
+step is added after completion, not inside the transfer.
+
+- **Layout** (`DownloadFileLayout`, pure): `Modern Family/Season 01/S01E01 - Pilot.mkv`; season 0 goes to
+  `Specials/S00E02 - ...`; a film goes to `Dune - Part Two (2024)/Dune - Part Two.mkv` (the year comes
+  from the offline title metadata when known). Names are sanitized for every platform: `: ` becomes
+  ` - `, `/ \ |` become `-`, `"` becomes `'`, `* ? < >` are dropped, and control characters, leading
+  dots, trailing dots/spaces, Windows device names and surrogate-safe truncation are handled (title 80,
+  episode title 60, which keeps a Windows path under 260). Unicode is kept. Collisions are
+  deterministic and case-insensitive. A title folder belongs to one `parentMetaId`: another title of
+  the same name gets `(Year)`, then ` [tag]` (a 6-hex FNV of the id). A taken file name gets ` (2)`,
+  ` (3)`..., for example the same episode on two profiles. **Names are presentation only**, and
+  nothing derives identity from a path.
+- **Moving** (`DownloadFileOrganizer`): only `Completed` items whose file sits flat in the downloads
+  folder are moved, so a running, queued, paused or failed item, every `.part` file and every iOS
+  background task are untouched. The new URI is **persisted first** (one immediate write for the
+  batch). Then each file is **renamed** (Android `renameTo`, iOS `moveItemAtPath`, desktop
+  `Files.move` without `REPLACE_EXISTING`): never a copy, never an overwrite. A failed rename writes
+  the old URI back. A crash between the write and the rename leaves the store pointing at a path that
+  does not exist yet; the existing `<downloads>/<fileName>` fallback in `resolveLocalFileUri` finds the
+  unmoved file on load, and the load-time run moves it again. It runs at completion
+  (`DownloadScheduler.onTransferCompleted`, under the store lock) and at every store load
+  (`DownloadsRepository.ensureLoaded`), which **is** the migration. Being idempotent, an organized file
+  is never picked again. It needs no network and no re-download.
+- **Platform surface** (`expect` + Android / iOS / desktop actuals): `relativePathOf`,
+  `existsInDownloads`, `fileUriFor`, `moveCompletedFile`. Each refuses a path with an empty, `.` or
+  `..` segment, or one that resolves outside the downloads folder. `removeFile` then deletes only the
+  layout folders it left empty (`File.delete` / an empty-contents check; never recursive).
+  `resolveLocalFileUri` also finds an organized file after the data folder moved (the iOS container
+  path changes across installs).
+- **Deletion, offline, storage:** unchanged in kind. Deletes go through the persisted path per item.
+  Offline play, autoplay and "file missing" read `resolveLocalFileUri` / `findPlayableDownload` as
+  before. Storage figures are item bytes.
+- **Race note:** between the URI write and the rename (sub-millisecond, under the lock), a reader of
+  the raw URI could see a path that is not there yet. Every production reader resolves through
+  `resolveLocalFileUri`, which finds the flat file in that instant. The E2E helper
+  `assertContentOnDisk` now reads the same way.
+
+**Tests.** `DownloadFileLayoutTest` 12 covers episode, film and year, specials, no episode title,
+unsafe characters and device names, Unicode and cut, same-name titles and films, shared folder,
+numbered copies, determinism and year parsing. `DownloadFileOrganizerTest` 10 covers flat-library
+migration, persist-before-move, a failed move keeping the old path (then succeeding next run),
+idempotence, the interrupted move, active and unfinished downloads untouched, a missing file left
+alone, single-item completion, two profiles, and a row changed meanwhile. The desktop E2E adds 2 on
+real files through the real repository: a finished episode filed with nothing left flat, and the
+migration case. That one covers a flat library migrating on load with a paused download's `.part`
+left in place, a restart reloading the same paths, the next episode playable at its new path, a
+missing file still reading as missing, and episode and title deletes removing only what they
+emptied.
+
+Results: mobile focused 53 / 53 + `:androidApp:compileFullDebugKotlin`; desktop targeted 72 / 72 (E2E
+47 / 47, new common tests, render harness, request test). Full suites on `67a9595d4` / `c34152da5`: mobile host 2,608 / 2,608 (the 6 `androidFullHostTest` tests run only when the build graph selects the full distribution); desktop 2,746 / 2,747 + E2E 47 / 47 (the one failure is a test race, fixed with the review below). iOS build on `67a9595d4`: **success** (run `36357393226`), CI success.
+
+**Not physically seen yet.** The first launch of a build with this moves an existing library. Worth watching
+once on each platform: the library still plays offline, and the folder reads as `Show/Season 01/...`.
+
+### Phase 9 closeout verification (2026-09-27)
+
+**Feature-frozen.** From here on, only regressions, release blockers, correctness bugs and doc
+corrections change code. The gate table is in `ROADMAP.md` Phase 9 §L, "Closeout state".
+
+**Repo state checked first.** Both `claude/phase-9-downloads` branches were clean and level with
+`origin` (mobile `6de571d28`, desktop `c55486a6e`). They are not merged to trunk, and neither merge
+conflicts: mobile `main` is ahead only by 15 `source-debug.json` feed commits, and desktop `Dev`
+(`ca11c0cb7`) is an ancestor of the branch.
+
+**Published QA builds, checked on GitHub:** mobile `debug-v0.4.13-z1.63` is a prerelease on tag
+commit `7aeddc1a7` (run `36348950109` success), with the APK, the unsigned IPA, SHA256SUMS and
+`source-debug.json`. Desktop `debug-v0.1.23-alpha-z6.72` is a prerelease on `c55486a6e` (run
+`36348951840` success), with the MSI and the arm64 DMG. Stable lines are untouched: mobile's last is
+`0.5.0-beta+126`, desktop's `0.1.23-alpha-z6+131`.
+
+**Release identity, as the next stable would take it:** mobile `Version.xcconfig` reads
+`0.4.13-z1`, build `125`, and `ReleaseSerial.xcconfig` reads `127`. ⚠ `CURRENT_PROJECT_VERSION` is
+still **125, the same as `0.5.0-beta`**, so the release bump must raise it (Android `versionCode` /
+iOS `CFBundleVersion`). The serial is already 127, the next free one. Desktop reads
+`0.1.23-alpha-z6` / serial 131; its release bump goes to `0.1.23-alpha-z7` / **132**, which the
+changelog already carries. Both bumps are release steps and were not made here.
+
+**Physical evidence reported by the maintainer at closeout** (recorded in Z-FEATURES D16-D24 and
+ROADMAP §L):
+- **iOS, final 30-window model:** Modern Family S2 + S3, about 42 episodes, queued, phone
+  locked. On return **every episode had completed**, and the files were checked valid. This is the
+  strongest evidence yet for the system-owned model. It does **not** prove a queue beyond 30,
+  force-quit mid-queue, or the `.48` checklist as a formal pass.
+- **Android:** Automatic / Assisted / Manual flows, background discovery and the ready
+  notification, atomic Pause all, Resume, partials surviving retries, a stable season denominator
+  (the notification too), mobile data vs Wi-Fi, deleting active work and discovery, the
+  dead-connection fix, logical FIFO without idle slots, later items running during an earlier
+  item's backoff.
+- **Desktop:** downloaded content plays offline, autoplay reaches the next episode, the wide
+  title-level Download works, and the current UI was approved. **The 60-second redirect fix has not
+  been re-run on desktop 72.** The desktop debug log on this PC
+  (`nuvio-debug-20260927-223322-p51872-1fb8.log`) is the pre-fix diagnosis run: it started at 22:33
+  local, before 72 was published at 23:54. A **desktop 72 run** since then
+  (`nuvio-debug-20260928-002707-p29536-13a8.log`, Java 17.0.20.1) downloaded Modern Family S6: 24
+  episodes, **24 completions, 0 failures, 0 retries**. The longest transfer was only 30 s, though (fast
+  link), and the cut only ever hit transfers past 60 s. So this run is clean, but it **does not
+  confirm the fix**. That needs one transfer running longer than 60 s.
+
+**Doc/changelog corrections made at closeout (no behaviour change):**
+- `Docs/Z-FEATURES.md` **revision 14**: the owed Phase 9 rows (D17-D24, W11, C21). D16 is moved to
+  the final iOS model and its 42-episode evidence. D1/D3/D4 (presets) are superseded and moved to
+  §11, and the D6 note on the desktop sidebar is settled.
+- `changelog.json` (both repos, identical): the unreleased stable entries described Phase 9 as it
+  stood before the last three passes. Now: Assisted described as "you choose the quality"; the
+  size levels named; **Your downloads as a library** and **Seasons find their sources in the
+  background** (mobile 127 and desktop 132); **Long queues keep going on a locked iPhone** (mobile,
+  iOS); **Downloads no longer restart every minute** (desktop 132). That last one is user-facing:
+  stable `z6` still sets `HttpRequest.timeout(60 s)`, so shipped desktop users hit the redirect cut.
+  `check-changelog.py` passes for mobile 127 (24 entries) and desktop 132 (11).
+- `IosBackgroundTransferReconciler.SUBMISSION_WINDOW`: the comment now says outright that lowering
+  the window cannot limit concurrency, why 10a/10b were rejected, and the 42-episode evidence.
+  Comment only.
+- `ROADMAP.md`: "Guided" -> "Assisted", the Phase 9 heading state, and the §L closeout table.
+
+**Verification (closeout HEAD, results deleted first):**
+- Android host `:composeApp:testAndroidHostTest` **2,592 / 2,592** (`--rerun`) +
+  `:androidApp:compileFullDebugKotlin` pass.
+- Desktop `desktopTest`: **2,770 / 2,770** on desktop `f982d176b` (the closeout commit), in two runs: everything except the
+  download E2E class, 2,725 / 2,725 in 19 m 40 s (`-I` a session-only init script excluding the class), then
+  `DesktopDownloadQueueE2ETest` alone, 45 / 45 in 9 m 2 s. Results were deleted before each run, with `--rerun`.
+  ⚠ **Run as one task, the suite now exceeds `desktopTest`'s fixed 20-minute `timeout` on this machine.**
+  It hit the cap twice at about 20 m 30 s, still making progress, with no hang. It needs a split run or a
+  higher cap (non-blocking release-engineering debt).
+- CI on the branch heads: mobile `CI` and `iOS build` green on `7aeddc1a7` (the IPA of debug 63 is
+  the iOS compile check for the last code change). **Desktop `CI` is red on every push since
+  2026-09-03, `Dev` included**: its `Desktop tests` job dies in the vendored native
+  `frame_copy_test` (`buildNativeLinux`) on Linux before `desktopTest` runs, and its Windows MSI job
+  passes. This is pre-existing (recorded at the Phase 6 closeout), is not run by the release
+  workflow, and is non-blocking debt. The local `desktopTest` stands in for it.
+
+**Still open before stable (outside Phase 9's code):** no Apple Developer account and no
+TestFlight, so by policy there is no mobile stable (Android may not ship alone). Also open:
+`NowPlayingController` party transport, iOS `engineReadiness`, the iOS Social/Watch Together
+hardware pass, and the Phase 6 Android Watch Together debt. For desktop stable: a device re-run of
+the 60-second fix on 72, then the trunk merge, the version bump and a `dry-run`.
+
+**What the maintainer reported at the opening (the standing question):**
+- iOS `.48`: checklist not formally run; "Choose source manually" downloads; downloads functional.
+- **Android: screen off -> rows read "Waiting for connection" on return; no notification at all.**
+- **Desktop: a friend on the live release, offline on a plane, pressed play on a downloaded
+  Modern Family episode -> error dialog -> OK -> the app closed.** Worked later online. That
+  "dialog, then exit" is Compose Desktop's default window exception handler: an uncaught
+  exception, not a file fault. **Not yet reproduced** - see the offline harness below.
+
+**Stage 0 (done):** desktop `Dev` got Phase 7 and the Phase 8 convergence as two separate
+`--no-ff` merges after verifying Phase 7 on its own (`desktopTest` 2,427/2,427 on `9a1489645`).
+`Dev` = `ca11c0cb7`, tree identical to the tested convergence (2,512/2,512). Pushed.
+
+**Checkpoint 1 (`c4ba61523`; desktop `7ab4d6edc` + actual):**
+- Android: downloads ask for `POST_NOTIFICATIONS` at the first request; the user-initiated
+  job's schedule result is checked, with a `dataSync` foreground-worker fallback; a
+  `ConnectivityManager` callback re-checks connectivity on every change; foreground and host
+  start resume System-paused items (`resumeSystemPausedDownloads` had no production caller).
+  One summary notification (the host's own id) + a per-title/season "finished" notification.
+  Debug builds log to `Download/NuvioZ-diagnostics/`.
+- Offline play, all platforms: `LocalPlaybackPolicy` (offline never reaches for the network),
+  missing-file message, offline title page -> Downloads view, offline autoplay through
+  downloaded episodes (stops at a gap), damaged-local-file message, offline Home banner.
+- Verification: pure 872/872, Android host 2,392/2,392, desktop 2,533/2,533. **No device yet.**
+- Published for QA: mobile `debug-v0.4.13-z1.49` (run `36045406001`), desktop debug 62
+  (run `36047294182`).
+
+**Stage 5 policy core (`8207ceba9`):** `DownloadPolicy` / `DownloadSizeLevels` /
+`DownloadEntryRouter` (pure), `DownloadSourceSelector`, `DownloadPolicyRepository` with its own
+`download_policy` sync payload and preset migration. Not wired into any flow yet. Size-level
+numbers are **provisional** until calibrated and reviewed. Pure 883/883, host 2,425/2,425.
+Also fixed: `SocialFeaturePreferencesStorage` was never initialized on Android.
+
+**Offline reproduction harness (desktop):** the shipped runtime is Java 17, so the resolver SPI
+is unavailable; `-Djdk.net.hosts.file=<file listing only localhost>` makes one JVM offline.
+`offline-repro.ps1` runs an installed build against a *copy* of its data (`APPDATA` redirected),
+with `-Dnuvio.debugTools=true` so the release build writes its debug log. A synthetic Completed
+Modern Family S01E01 (libmpv-encoded) can be injected. Startup offline was verified clean; the
+play-path clicks need the maintainer. Tools are in the session scratchpad; they move into
+`NuvioZDesktop/scripts/` with the next desktop commit.
+
+**Stage 4, first slice - device settings (`bf0aa7697`; desktop cherry-pick):** `DownloadDeviceSettings`
+(device-local, stored with the download state, never synced): mobile data Wi-Fi only (default) /
+Ask / Always; downloads at once 1-4 (default 2, Android + desktop; iOS keeps window 12). Items the
+network may not carry read **"Waiting for Wi-Fi"** with a **Download now anyway** row action.
+The platform request carries the effective permission, so iOS `allowsCellularAccess` and the
+Android job constraint agree with the queue (before this, rule Always would still have been
+refused by both). Wi-Fi return: Android's network callback; elsewhere a recheck loop runs only
+while something waits for Wi-Fi. iOS background behaviour is unchanged.
+Known gaps, by plan: **Ask** behaves like Wi-Fi only until the Ask prompt (stage 6); no settings
+UI yet (stage 8); on desktop the setting is profile-scoped until the device-wide store (rest of
+stage 4). This session resumed an interrupted one: the partial diff was intact; added on top were
+the platform-request fix, the iOS Live Activity mapping, the recheck loop, the row action and the
+desktop E2E cases. Pure 883/883, Android host 2,430/2,430, common + Android compile pass;
+desktop `desktopTest` 2,573/2,573 (with policy core cherry-picked + a desktop `DownloadPolicyStorage` actual).
+
+**Physical `.49` (maintainer, 2026-09-24, Android on mobile data / hotspot, not Wi-Fi):** screen off,
+back later -> the row read "Waiting to retry... retrying in 5, 4, 3...". **Android background
+downloading is NOT physically passed.** This is an unresolved observation from a metered
+environment, not a clean Wi-Fi baseline. Code has changed since (`.49` scheduled the background
+job with an UNMETERED constraint for every item, since nothing could allow mobile data - so on
+mobile data the host job could never run; that is a *hypothesis* for this run, not a confirmed
+cause). Re-test the final stage 4 build, ideally on Wi-Fi. Desktop debug 62: no result yet.
+
+**Stage 4 - engine simplification (`514b2faae`; desktop `bf282a4c2` + `f12dbcee5`):**
+`DownloadsRepository` (2,766 lines) keeps the public API; the engine moved out, code verbatim
+where it could be:
+- `DownloadStore` - persistence, **one device-wide store**, `ownerProfileId` on items and batches,
+  per-profile views (`uiState`, `batches`) that follow the active profile reactively. A profile
+  switch changes the view only (it used to reload the queue). The Android notification, the iOS
+  Live Activity, the Android host's idle wait and "Pause all" use every profile's items
+  (`deviceItems`). Migration: owner-less payloads -> primary profile (1); desktop's
+  `downloads_<profile>` payloads merge into `downloads_device`, tagged, and are **left on disk**.
+- `DownloadScheduler` - slots, connectivity + Wi-Fi gates, retry/watchdog timers, reclaim sweep,
+  transfer callbacks and the generation fence.
+- `SourceRealizer` - re-minting, size verification, freshness. `failureOutcome` is pure and
+  tested (a known-uncached source fails at once - the NothingCached rule).
+- `SystemOwnedTransfers` - the iOS background-session model (inventory, claims, snapshot,
+  ordered submission, resolve-ahead) **moved unchanged**, reached only via
+  `TransferHost.SystemOwned(window = 12)`.
+- `TransferHost` replaces seven platform members (five were no-ops off iOS). Android
+  `InProcess(recoversSystemPauses = true)`, desktop `InProcess(false)`, iOS `SystemOwned`.
+- Queue moves: To top / To bottom queue-wide; Up / Down swap with the **visible** neighbour.
+- Android host: network requirement is queue-wide (`DownloadHostPlanner`), not the first
+  transfer's - addresses the `.49` hypothesis, **unverified on a device**.
+- Diagnostics (all platforms): failure / retry / connection-wait lines now carry
+  `net=<type> metered=<bool>` and on Android `foreground=` / `hosting=`; new events
+  `engine_start`, `store_loaded`, `store_migrated`, `store_corrupt`, `profile_view`, `wifi_wait`,
+  `inventory_plan`, `load_placeholder_requeued`, host queue summaries. Nothing was removed.
+- JVM loops: the 416 and 206/200 decisions are shared pure functions. **No `jvmCommon` source
+  set:** the loops differ in HTTP stack (OkHttp vs `java.net.http`) and stall mechanics, and a
+  merge would rewrite the Android path whose screen-off behaviour is still unresolved.
+- **Not done in stage 4, deliberately:** `DownloadPresentation` (the shared user-facing state
+  mapping). It lands with the stage 7 screen/notification redesign that consumes it.
+- Known gap: deleting a profile leaves its downloads in the device store (not shown anywhere).
+
+Verification: pure 883/883; Android host 2,452/2,452 (`--rerun-tasks`, +22 tests); common +
+Android compile pass; CI + iOS quick check green on `514b2faae`; desktop `desktopTest`
+2,597/2,597 (`--rerun-tasks`, JBR SDK; +2 E2E: per-profile views over one engine, per-profile
+payload migration). Debug build **50** ([`debug-v0.4.13-z1.50`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.50), prerelease, Debug release run `36065558816`, IPA + APK, commit `94fa7fdbf`) is published for the physical re-test:
+iPhone locked-queue regression (must match `.46`), Android screen-off **on Wi-Fi**, desktop.
+None of those are verified until the maintainer reports them.
+
+**Stage 6 - flows UI (`7a99073aa` + render fix `c6b501ecb`; desktop cherry-picked, see
+`NuvioZDesktop/STATUS.md`):** `DownloadFlowController` is the only way into a download - title
+button, episode rows, seasons, long-press sheets, "Change" (toast and queue-row menu), "Choose
+manually" on attention cards. By Download Mode:
+- **Automatic**: starts at once; a whole show asks for seasons first (All / Unwatched / None, "Only
+  unwatched episodes"; opens on Unwatched for a started show, All otherwise). Toast "Downloading ·
+  1080p · 2.1 GB" with **Change** -> the Assisted sheet for that item.
+- **Assisted**: one row per resolution (best match each, preferred pre-selected; season rows show
+  "about 24 GB for 22 episodes" and "not for N episodes" -> those become Use-nearest entries while
+  the rest proceed). "Choose manually" at the bottom for a single item.
+- **Manual**: single -> the download source list (tap enqueues with **Undo**, never plays, goes
+  back); several -> new **Choose sources** screen (Pick per episode, "Let Nuvio pick the rest" =
+  the Assisted sheet over what is left).
+- `DownloadBatchCoordinator` replaces `PresetDownloadCoordinator`. Entries carry their reason
+  (`OVER_LIMIT`, `RESOLUTION_MISSING`, `NOTHING_CACHED`, `NO_SOURCES`, `MANUAL_PICK`).
+  **NothingCached rule held:** discovery now runs the local debrid cache check, and the selector
+  reads the service's answer before the addon's text (before this, an unmarked but cached torrent
+  would have been NothingCached for lack of a marker). NothingCached/NoSources offer **Check again**
+  and never the manual list; known-uncached rows in the download source list are disabled and
+  labelled "Not cached on your debrid service".
+- Free-space warning before a batch starts (Download what fits / Cancel); mobile-data rule **Ask**
+  now asks once per app session; delete confirms (title-page season delete, manage sheet, queue rows).
+- Retired: `PresetDownloadDialog`, `PlaybackModeDownloadRouter` (+ tests), the stream list's preset
+  sheet, the dead `onDownloadManually` plumbing. The Playback Mode card's download line now names the
+  derived Download Mode. The review card only stops offering impossible actions; its redesign is stage 7.
+- Presets still exist in Settings -> Downloads until stage 8 replaces that screen.
+- **Size levels are still provisional** (calibration + maintainer review owed).
+
+Verification: pure **900/900**; Android host **2,468/2,468** (results deleted, `--rerun`: +33 new,
+-17 retired router/copy tests); `:androidApp:compileFullDebugKotlin` passes; desktop `desktopTest`
+2,620/2,620 and pure 890/890. Render review: 11 surfaces x 4 widths, PNGs read; three defects fixed.
+**Nothing physical** - no debug build cut for stage 6 alone; the next one carries stages 6+7.
+
+**Stage 7 - Downloads screen + attention (`301137be4`, render fix `b6e23a9a6`; desktop cherry-picked):**
+- **`DownloadPresenter`** (`DownloadPresentation.kt`) is the one vocabulary: Finding a source / Queued /
+  Downloading / Waiting (connection, Wi-Fi, retrying shortly, starting, resuming) / Paused / Needs you /
+  Downloaded. Plain line only; attempts, provider, last error, retry countdown and engine state are the
+  **detail on tap**. The screen, the **Android summary notification** (waiting reason + "N need you") and the
+  **iOS Live Activity** state all read it (`plainText` / `plainTextOf` share one string mapping). The widget's
+  state names are unchanged; a system pause still shows as paused there. The `.49` "Waiting to retry...
+  retrying in 5, 4, 3" line is now "Retrying shortly" with the countdown in the detail - a wording change,
+  **not** a fix for whatever made Android retry (still unresolved physically).
+- **Needs you = exactly four kinds.** `DownloadItem.failureKind` (STORAGE / NOT_CACHED) is set where a download
+  fails, so nothing parses localized error text. `AttentionGrouping`: one card per title/season and reason;
+  actions Allow (with size) / Use nearest / Check again / Retry / Free up space / Choose sources + Let Nuvio pick /
+  Remove, per-episode "Choose" only where a pick can help (never for nothing-cached, no-sources or storage).
+- Screen: storage bar (all profiles + free space), Needs you, "Free up X of watched episodes" (suggested,
+  confirmed, never automatic), queue with a **season as one expandable row** (combined progress, "Season 2 · 4
+  left · 2 done", pause/resume all, move up/down past the neighbour row, cancel remaining keeps completed), detail
+  sheet (Pause/Resume, Change, Download next, Delete), On this device. Remove/cancel/delete all confirm.
+- **Deliberately not done:** `DownloadBatchEntryState` was not shrunk to Deciding/NeedsDecision/Enqueued (it is
+  persisted; the presenter maps the old states instead). The title page's download controls still use
+  `DownloadPresence`, not the presenter.
+- **Found by CI:** stage 6 used JVM-only `toSortedMap`, so the iOS link failed from `7a99073aa` until
+  the fix `709531113`. Android/desktop never saw it.
+
+Verification: pure **900/900**; Android host **2,491/2,491** (results deleted, `--rerun`; +17 presentation
+tests, +6 summary/flow); `:androidApp:compileFullDebugKotlin` passes; desktop `desktopTest` **2,638/2,638**
+(+ `DownloadsScreenRenderHarness`). iOS build (dispatched: it only runs on pushes touching iOS paths, which is how the stage 6 break got through) **passed** on `709531113`, run `36081660584`.
+Render review: stage 6 (11 surfaces) + stage 7 (screen + detail) x 4 widths, PNGs read, five defects fixed.
+
+**Stage 7 render review (maintainer, 2026-09-25):** the functionality and information model are **approved**; the
+visual design was **not** ("a debug/admin dashboard, not a media app": identical rounded rectangles, 1,900px desktop
+rows with actions at the far end, Needs you painted pink, a busy season mega-card, "Unwatched" twice in the season
+chooser, six floating "Pick" labels, no artwork in the fixtures). Decisions carried with it: **no physical-QA build
+and no stage 8 until the revised renders are approved**; the size levels stay provisional; the next physical-QA build
+must carry lightweight debug catalogue/source-size logging (no URLs, no headers) so the levels can be calibrated.
+
+**Stage 7 composition pass (`de8038613`; desktop `8fc71cb03` + harness `cb51188ce`):** presentation only - no state,
+engine or presenter change. Made on desktop (where the render harness lives) and cherry-picked here; `strings.xml`
+auto-merged.
+- Artwork everywhere (`DownloadsArtwork.kt`: poster / still, the title's initial when there is none). The Downloads
+  screen caps at 880dp and Choose sources at 720dp, centred (`Modifier.downloadsContentWidth`), header included.
+- **Needs you** = one panel: poster, title, the problem in one line with the colour on its icon only, up to 3
+  episodes (+N more; "Choose" kept within 440dp of its episode), one filled primary pill + tonal alternatives.
+  **Remove is a corner close control** (still confirms). "Season 3 · 2 episodes"; a single episode drops the count.
+- Queue rows are flat. A season shows **its own totals** ("1.7 GB of 3.7 GB · 45%", previously the lead episode's
+  bytes against the season's bar), chevron by the title, and a dense inset episode list (E3 · title · state).
+  **"Download now anyway" lives inside the Wi-Fi-waiting episode's text column.** Row controls tinted (they
+  rendered dim outside a Surface).
+- Watched cleanup moved under the storage bar as a quiet outlined line. "On this device" rows flat, "3 episodes"
+  instead of "3 downloaded episode(s)".
+- **Season chooser - one selection model:** Unwatched / All episodes (shown only once the show is started) + a
+  checklist with per-season counts; a fully watched season cannot be ticked under Unwatched; Select all / Clear.
+  The All / Unwatched / None presets and the "Only unwatched episodes" switch are gone. Rules:
+  `DownloadFlowRules.isSelectable / selectionForMode / selectAll / offersUnwatchedMode` (+3 tests).
+- **Choose sources:** poster header with progress, one list with three visibly different states (tick / spinner /
+  open ring + chevron); the whole row is the pick target. **Resolution sheet:** poster heading, radio + 2dp accent
+  border, size on the right with "about X each" for seasons, cautions behind a warning icon.
+- Render harnesses: generated poster/still art per title (`DownloadRenderFixtures.kt`, via Coil's preview handler,
+  offline) and plausible titles/episodes/sizes; the screen harness now renders the production
+  `downloadsRootContent` inside `NuvioScreen`. The review caught and fixed: Choose sources' primary button eating
+  the title column on desktop (title rendered one letter per line), a heading line-cap truncating dialog bodies,
+  pills wrapping one per line on phones.
+- **Revised render set:** `Nuvio Z/render-review/phase-9-stage-7-composition/` (`screen/` 8, `flows/` 44 PNGs;
+  360 / 420 / 1280 / 1920 wide). Source: `NuvioZDesktop/composeApp/build/{downloads-screen-render,download-flow-render}/`.
+
+Verification: pure **903/903**; Android host **2,494/2,494** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,641 run, 2,640 pass** - the one failure is
+`NetworkQualityPlatformDesktopTest.currentReturnsPromptlyWithoutBlockingCaller` (a 200ms wall-clock assertion on a
+PowerShell probe), which failed twice while other Gradle builds loaded the machine and then passed 2/2 on this tree
+and 2/2 at the pre-pass commit `890518221`: load-sensitive, not this change. iOS build (dispatched) **passed** on
+`d1ac7d472`, run `36145095349`.
+
+**Stage 7 render review (maintainer, 2026-09-25): revised set APPROVED in direction.** Do not redesign stage 7
+again. Five small polish items were asked for and done (`822563046`; desktop `41f0d6e0b` + fixture `3a1da754d`):
+- Choose sources: "Let Nuvio pick the rest" -> a **tonal "Auto-pick remaining"** (the Needs you action uses the
+  same words); the episode list stays the focus.
+- Chosen rows read **"1080p · 2.3 GB · WEB-DL"** (resolution · size · `releaseQuality`), not the stream's file name.
+- Season chooser: **"187 episodes selected"** over **"9 seasons"**. The count already followed Unwatched / All
+  episodes - the old one-line "N episodes · N seasons" just did not say so, and wrapped mid-phrase on phones.
+- Resolution sheet: **"4K unavailable for 2 episodes" / "720p unavailable for 1 episode"** (plurals), one caution
+  per full-width line under the row. Before, the caution shared a column with the size and wrapped letter by
+  letter at 360dp.
+- Needs you: several problems on one title/season render under **one poster and name**, each with its own
+  problem line, Remove, episodes and actions. Presentation only (`groupBy(parentMetaId, season)` in the panel);
+  `AttentionGrouping` and the cards are unchanged.
+Re-rendered at four widths and read; no further full render review is owed unless the UI changes materially.
+
+**Size telemetry (`575f247eb`; desktop cherry-pick):** `DownloadSizeTelemetry`, **debug builds only**. Every
+discovery writes `event=size_sample kind=episode|movie runtime=N total=N part=i/n sources=...`, 20 sources per line,
+80 max; each source is `height:MB:GBh:cache:quality:codec:hdr:dur` (`GBh` from the source's own duration `s`, else
+the title runtime `t`; `cache` C/H/N is the selector's evidence). Every decided entry - Automatic, Assisted
+resolution pick, Use nearest - writes `event=size_pick ... decision=... source=<token>`. **No URL, header, token,
+file name, stream title, provider, addon or title**; quality/codec are reduced to 12-char tags and anything URL- or
+header-shaped becomes `other` (tested). Lines land where `DownloadDiagnostics` already goes: Android
+`Download/NuvioZ-diagnostics/`, the iOS debug probe log, the desktop debug log. **The size levels stay
+provisional**; proposed calibrated values go to the maintainer once real samples exist.
+
+Verification: pure **903/903**; Android host **2,498/2,498** (results deleted, `--rerun-tasks`; +4 telemetry) +
+`:androidApp:compileFullDebugKotlin`; desktop `desktopTest` **2,645/2,645** (results deleted,
+`--rerun-tasks`; the load-sensitive `NetworkQualityPlatformDesktopTest` passed this time).
+
+**Published for physical QA (2026-09-25):** mobile **debug 51**
+([`debug-v0.4.13-z1.51`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.51), run `36166846582`,
+IPA + APK, commit `1d8c9ee32` - the IPA build is also the iOS compile check for the polish) and desktop **debug 63**
+(`debug-v0.1.23-alpha-z6.63`, run `36167041339`). What to test on it: stage 6 flows (Automatic / Assisted / Manual,
+season chooser, Choose sources, free-space warning, mobile-data Ask, delete confirms, NothingCached); stage 7 screen
+and Needs you; **iPhone locked-screen queue regression** (must match `.46`); **Android screen-off/background on
+Wi-Fi**; Android mobile-data vs Wi-Fi rules (the rule is still only settable from stage 8, which is *not* in 51 -
+Wi-Fi only is the default); size samples (`size_sample` / `size_pick` in the diagnostics logs). **Nothing is
+verified until the maintainer reports it.**
+
+**Stage 8 - wizard + settings (`1ebb6da97`, fix `d92655767`; desktop `aaf98b2b3` + `8997cffcd` + actual/harness
+`e9d3d0f90`). Not in debug 51.**
+- **Wizard revision 10.** Two new steps after Playback setup: **Download Mode** (Automatic "Recommended" /
+  Assisted / Manual cards; the mode storyboard reuses playback's three processes - Manual = Classic, Assisted =
+  Streamlined, Automatic = Instant - ending on a download icon) and **Download setup**, per mode (plan stage 2):
+  Automatic = resolution, file size (with "About 2 GB per hour of video at 1080p"), fallback; Assisted = file size;
+  Manual = nothing; phones add mobile data. Manual on desktop drops the step.
+- **Three runs** (`setupWizardRun`, pure, tested): **Full** (fresh, or completed < 8); **Upgrade** (8 or 9: only
+  the two download steps, no Welcome, subtitle "New: downloads have their own mode now", closable - the close
+  control is "Not now"); **Device** (profile current, this *phone* never set up: the mobile-data question alone).
+  Skipping any run records its revision; skipping an upgrade leaves `DownloadPolicy.mode` null (derived). Walking
+  past the mode step commits the preselected (derived) mode, as the social step does. Sources is still never
+  replayed for revision 8.
+- **Device revision:** new device-local `DeviceSetupStorage` (Android SharedPreferences, iOS NSUserDefaults,
+  desktop `DesktopStorage`). Its own store because the gate reads it before anything starts and loading the
+  download store starts the engine. The gate re-reads it in the wizard's `onFinished`.
+- Android asks for `POST_NOTIFICATIONS` once, when leaving the download-setup step (the existing request-once path).
+- **Settings -> Downloads rebuilt:** Download Mode cards ("Following Playback Mode until you choose one" while
+  unanswered), Preferences (resolution, file size + GB/hour, fallback, pick rule, HDR), On this device (mobile data
+  on phones; downloads at once 1-4 and the folder off iOS), Advanced (addon filter, unchanged). **Preset editor
+  retired** (the repository's preset API stays for migration). Settings search indexes the new rows. All labels live
+  once in `DownloadModeUi.kt`.
+- Renders (desktop harnesses): `setup-wizard-render/` gains the download steps at three desktop sizes, a phone pass
+  (full x3 modes, upgrade, device at 360 and 420) and the download storyboard frames; `downloads-screen-render/`
+  gains `settings-*` at four widths. Read; one defect fixed (the empty-addons line rendered near-black on black -
+  older code, newly in view). Known: Automatic's four controls scroll inside the panel on a 360x780 phone, as
+  Playback setup already does. The storyboard PNGs show only the title frame - a harness limit (a single render at a
+  virtual time does not advance the `delay` loop), the same for the existing playback storyboards; the frame data is
+  pure-tested.
+- **Deliberately not done:** the separate "Set up this device" notification step - the request rides on the
+  download-setup step instead; ROADMAP §D wording ("Automatic never asks") still to be updated at the release gate.
+
+Verification: pure **918/918** (setup group 72 -> 87); Android host **2,507/2,507** (results deleted,
+`--rerun-tasks`) + `:androidApp:compileFullDebugKotlin`.
+
+iOS build (dispatched) **passed** on stage 8, run `36174107743`.
+
+**Stage 9 - What's New (`3889e237e`; desktop `5fc9479dc` + actual/release step/test).**
+- **One changelog for both repos:** `composeApp/src/commonMain/composeResources/files/changelog.json`. Releases by
+  family and `RELEASE_SERIAL`; entries feature/improvement/fix tagged android/ios/desktop; `debug` lines per debug
+  build. **Deviation from plan 4.10, implementation only:** it ships as a Compose resource parsed at runtime
+  (`ChangelogCatalog`), not a Gradle-generated Kotlin catalog - equally offline, shared by cherry-pick, and no
+  generator to port into desktop's divergent `build.gradle.kts`.
+- **Seeded:** mobile **127 / `0.4.13-z1`** - 127 is the *unreleased* serial (the last stable is `0.5.0-beta+126`),
+  so it carries the Phase 8 notes that were hand-written in `CurrentReleaseNotes` (moved verbatim) plus draft Phase 9
+  entries; desktop **132 / `0.1.23-alpha-z7`** (desktop is on 131) with the desktop subset. Both dated
+  `unreleased`. **The copy is a draft for the maintainer.** Entries that claim physical behaviour (Android
+  notification, offline) must match the QA results before release. Version strings for 127/132 are placeholders the
+  release sets. No history before these (older releases still come from the releases feed in Settings).
+- **Selection** (`WhatsNewSelection.kt`, import-free, pure-suite tested): fresh install (no ack, no old key) shows
+  nothing and acks; upgrade from the old `last_seen_version` shows only the current release (nothing if the old key
+  already names it); otherwise every missed release of the family merged by category, newest first, with version
+  tags when more than one release is merged; debug builds add unseen debug lines ("THIS DEBUG BUILD"). Device-local
+  ack `(serial, debugBuild)` in new keys; Continue acknowledges; a downgrade never lowers it.
+- **Identity per platform** (`WhatsNewStorage.releaseIdentity`): mobile = `RELEASE_SERIAL` / `VERSION_NAME` /
+  `DEBUG_BUILD` when `isDebugBuild`; **desktop** = `DESKTOP_VERSION_NAME` (debug number from its fourth component)
+  and desktop's own serial - the desktop fix. ⚠ iOS debug lines depend on `Platform.isDebugBinary`; if the debug IPA
+  is a release binary they simply don't show.
+- Post-update screen = missed notes only; **Settings -> What's new** = this release + shipped history + older feed
+  releases not in the changelog.
+- **Release guard:** `scripts/check-changelog.py --family --serial check|notes`, wired into `android-release.yml`
+  and desktop's `desktop-release.yml` (no notes for the serial fails; curated notes lead the body under "What's
+  new"). `ChangelogFileTest` (mobile host) runs the same guard on every push; desktop's test checks shape and
+  identity only (desktop's current serial predates the changelog). `AGENTS.md` updated.
+- Retired: `CurrentReleaseNotes`, `shouldShowWhatsNew` (+ its test).
+
+Verification: pure **931/931** (+13); Android host **2,519/2,519** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`.
+
+**Published (2026-09-25):** mobile **debug 52** ([`debug-v0.4.13-z1.52`](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.52),
+run `36182730459`, IPA + APK - the IPA build is the iOS compile check for stage 9) and desktop **debug 64**
+(`debug-v0.1.23-alpha-z6.64`, run `36182733969`). Both carry stages 6-9.
+
+### Physical `.52` findings (Android, 2026-09-25) - diagnosed from ADB, fixed, debug 53 / desktop 65
+
+Lanterns S1, Assisted, 6 episodes over StremThru -> TorBox (`sourceOrigin: null`: the resolver mints
+the TorBox link *inside* our GET, then 302s to `store-0xx.wnam.tb-cdn.io`).
+
+**Root cause of the eps 3/4/6 "Starting" -> "Retrying shortly" loop: a dead pooled HTTP/2 connection.**
+From ~23:35 every request in the app hit the 60 s watchdog with no response headers (`bytes=0`, no
+`transfer_open`), retries included, for 20 minutes. Evidence: `curl` on the *same phone and cellular
+network* fetched all six links in 1.6-3.8 s at the same time; a PC OkHttp 4.12 repro showed the
+StremThru hop is h2 (one shared connection for every episode) and the CDN hop HTTP/1.1; and after
+`am force-stop`, Retry opened eps 3 and 4 in ~2 s. OkHttp never learns about a dead connection from a
+*cancelled* call (our watchdog cancels), and there was no `pingInterval`. Not explained: ep 4's very
+first attempt (23:31:55) also hung while ep 5 at 23:32:55 went through - slow first TorBox link
+generation or the same fault; the new `http_*` diagnostics will say next time.
+- Ep 3's first failure was a genuine mid-body stall; attempts 2-5 were unanswered requests, after which
+  the restart-from-zero rule **discarded its 2.47 GB partial**. Eps 4/6 failed with "stopped part-way
+  through" though they never received a byte.
+- FIFO held: every slot went to the lowest-ranked eligible item. Ep 5 starting while ep 4 was in a 2 s
+  backoff is the planner's intended work-conserving behaviour (backoff items are skipped); cost: that
+  2 s became ~3 min. Left as is.
+- No lifecycle involvement (`foreground=true hosting=true` throughout, no process death, no host
+  loss); no sign of the `.49` screen-off/mobile-data problem (no connection/Wi-Fi waits; Ask worked).
+- **Pause all** (notification, 23:26:58) paused one item at a time; each pause freed a slot the queue
+  refilled - three real requests fired and cancelled (eps 4, 5, 6 `slot` burst).
+
+**Fixes (`87db7ee3e`, `74b205152`; desktop `565e83140`, `4e1bb07ca` + desktop actual):**
+- Android: a `ConnectionPool` per transfer attempt, evicted at its end, + h2 pings (15 s). Desktop: an
+  `HttpClient` per attempt (`shutdownNow` at the end); its request timeout now reads
+  `DownloadsTiming.stallTimeoutMs` so the harness can drive it.
+- `DownloadFailureReason.NoResponse` (a stall/timeout before any response): Transient budget, never
+  restart-from-zero, message "This source isn't answering". Desktop E2E `requests nobody answers keep
+  the partial file and a retry resumes it` (`FaultyMediaServer.Behavior.NeverAnswer`).
+- `DownloadDiag` `http_request` (hop, conn new/reused, protocol), `http_response`, `http_failed`.
+- `DownloadsRepository.pauseDownloads` pauses a set atomically; `pauseDownload` and Pause all use it.
+- **Season/batch progress** (`DownloadAggregateProgress`): the selection is the denominator - unfinished
+  episodes (Needs-you included), finished ones from the same run, batch entries still preparing. Bytes
+  when every size is known (advertised size until the transfer opens), otherwise episode-weighted;
+  indeterminate when nothing is measurable. One model for the season row ("5.2 GB of 12 GB · 43%" /
+  "2 of 6 episodes · 38%"), the Android notification ("2 of 6 done · 38%", bar = whole queue) and the
+  iOS Live Activity (same queue aggregate; iOS compile is checked only by the debug IPA build).
+
+Verification: Android host downloads package **370/370** (results deleted, `--rerun`) incl. 11 new
+aggregate tests; `:androidApp:compileFullDebugKotlin` green; desktop `features.downloads.*` **415/415** (414 on the first
+run; the new E2E then asserted exactly one-third of the file on disk, but the drop fault's RST discards
+unread bytes - it now asserts recorded bytes == partial file and that the retry resumes from there).
+
+**Assisted discovery UX - DECIDED 2026-09-25, refined 2026-09-26, BUILT (see below).** The maintainer's
+refinement supersedes two details recorded here the day before: the "ready" state is **not** a Needs-you card, and
+the system notification is sent **only when Nuvio is in the background** (in-app prompt otherwise).
+
+**Published (2026-09-26):** mobile **debug 53** (`debug-v0.4.13-z1.53`, run `36194043123`, APK + IPA - the IPA
+build is the iOS compile check for the Live Activity change) and desktop **debug 65** (`debug-v0.1.23-alpha-z6.65`, run
+`36195874627`; the first dispatch `36194046412` failed: CI compiles desktop against JDK 17, which has no
+`HttpClient.shutdownNow`, now called reflectively - `60a3ea1d3`).
+
+### Phase 9 - `.53` results, long-pause contract, Assisted "choose when ready" (2026-09-26)
+
+**Physical Android `.53` (maintainer):** Lanterns S1 completed; Pause all no longer bursts; Resume works; season
+progress and the notification match the screen; the `.52` dead-connection loop did not recur. **Passed.**
+
+**`.53` throughput, episode 1 vs 2 (ADB log `downloads-20260926-013530-18397`, concurrency 2, metered):** both took
+the same path (StremThru h2 hop, 302 to a TorBox CDN over HTTP/1.1, **new connections each**), with the same latencies
+(302 in ~2.0-2.4 s, 200 at 2.8/3.4 s). First pass until Pause all: E1 **11.0 MB/s** (2.51 GB file), E2 **29.8 MB/s**
+(2.20 GB). After Resume - new connections, range 206s from the partials - E1 **21.0**, E2 **21.8 MB/s**; the pair's
+combined rate stayed ~41-43 MB/s throughout. E3-E6 ran at 12.6-25.2 MB/s with the same per-pass variance. Same code,
+same host path, parity once the connections were re-made: **per-connection (CDN node / TCP share) variance, not
+app-side. No scheduler/network change.** No stalls, timeouts or reconnects. The two `SocketException` lines are the
+Pause all cancellations. Backing hosts are not logged (no URLs, by design). Added for next time: debug
+`transfer_progress` every 15 s per transfer (bytes, total, window KB/s).
+
+**Long-pause contract - verified, one gap fixed (`f623e6796`; desktop `1491a44b3`, E2E `716b9db19`).** Already true:
+Resume keeps the partial (reads it from disk), clears the resolve stamp, and every start of a download with an origin
+re-mints before the transfer, which then sends `Range` from the partial's length (`If-Range` with the old validator;
+`.53` re-mints answered 206 four times out of four). **Gap:** the stall rule's restart-from-zero also fired on
+`SourceExpired` - after the re-mint budget, and **at once** for a download with no origin (a 403 is not retryable
+there) - deleting the partial to replay the same dead URL. `canRestartFromZero` (pure, tested) now excludes
+`SourceExpired` as it already excluded `NoResponse`/`Fatal`: an expired link fails the download with the partial
+kept for a later Retry. Desktop E2E: `a long pause whose link expired resumes on a fresh link from the partial file`
+(dead link never replayed, fresh link's first range = the paused length, no zero-start) and `an expired link that
+cannot be re-minted keeps the partial file` (**fails on the old rule** - mutation-checked). Residual, not changed: if a
+fresh link's host answers `If-Range` with a different validator for the same bytes, the server's 200 still restarts
+the file - that is the corruption guard, and `.53` gave no sign of it.
+
+**Assisted "choose when ready" (`cecfdce2f` + render fix; desktop cherry-picks + desktop actual/tests):**
+- Assisted with **more than one** episode (not Change, not Manual's "pick the rest") saves a batch at once
+  (`awaitsQualityChoice`, entries `DISCOVERING`) and `AssistedDiscovery` finds sources outside the flow session. The
+  finding sheet says "You can leave this…" with **Continue in background**; closing it never cancels. One film or
+  episode keeps the modal sheet (seconds).
+- Downloads: **"Lanterns S1 · Finding sources · 7 of 22"** with progress, then **"Ready to choose quality · 22
+  episodes"** + **Choose quality** + Remove (confirms, cancels discovery). Tapping a still-finding row opens the
+  finding sheet, which moves to the choice by itself.
+- New entry state `AWAITING_CHOICE` / phase `READY_TO_CHOOSE` - **not** Needs you (tested: no attention card). Only a
+  discovery that found nothing at all converts entries to NO_SOURCES / NOTHING_CACHED Needs-you cards.
+- When done (`AssistedChoiceRules.announcement`): sheet still open -> straight to the quality sheet; Nuvio on screen ->
+  in-app toast "Lanterns S1 is ready · Choose download quality" with **Choose**; backgrounded -> system notification
+  (Android channel "Ready to choose"; iOS local notification), deep link `nuvio://downloads?choose=<batch>` ->
+  Downloads + the quality sheet. Never both. Desktop is always "on screen". Choosing clears the notification.
+- The choice writes into the same batch (flag cleared, candidates dropped) and queues through the existing free-space
+  check. Totals are exact - the sheet only opens once every source is found.
+- **Process death:** the batch survives the store load (no longer turned into "Preparation was interrupted");
+  candidates were **memory only** (no provider URLs on disk); `DownloadFlowHost` re-runs discovery for such batches
+  ("Refreshing sources…") and does not prompt a second time if it already did.
+- Keep-alive: Android schedules its download host while discovery runs (`awaitDownloadQueueIdle` waits for it too; the
+  summary notification already shows "Finding sources"); iOS takes background time (a few minutes; what is left
+  finishes when the app is back). **Neither is physically verified.**
+- Tests: `AssistedChoiceTest` (8, pure + deep link) and desktop `AssistedChoiceFlowTest` (8, real controller + store:
+  dismiss keeps discovery, in-app vs system, sheet-open straight to choice with real totals, choice into the same batch,
+  process-death refresh without a second prompt, choose-while-finding, nothing-found -> Needs you, remove stops it).
+  Render review: Downloads screen + finding sheet (background / refreshing) x 4 widths, read; one defect fixed (the
+  pill beside the text cut the phone title to "Lantern…").
+
+Verification: pure **932/932**; Android host **2,546/2,546** (results deleted, `--rerun-tasks`) +
+`:androidApp:compileFullDebugKotlin`. Desktop: see `NuvioZDesktop/STATUS.md`.
+
+**Published (2026-09-26):** mobile **debug 54** (`debug-v0.4.13-z1.54`, run `36203714804`, APK + IPA - the IPA
+build is the iOS compile check for the new notification / background-task code) and desktop **debug 66**
+(`debug-v0.1.23-alpha-z6.66`, run `36203717889`, MSI + DMG).
+
+### Phase 9 - `.54` physical results, the iOS profile-loading fix, paused notification, Assisted "Choose now" (2026-09-26)
+
+**Physical `.54` (maintainer):** Android essentially **passed** - Assisted background discovery, the background "ready"
+notification (present; DND kept it from interrupting), downloads complete, Pause all / Resume, whole-season and notification
+progress, deleting active downloads and discovery batches (no zombie work or notification), Lanterns season complete, a
+~1-minute pause resumed fine. Two findings: the Android notification vanished while the queue was paused, and **iOS stuck on
+the loading screen after choosing a profile** (new, blocks iOS QA). Desktop `.66`: no result yet.
+
+**iOS profile-loading hang - root cause from the code, fixed (`f2bfbf475`; desktop `19190b5c8`).** No device log was
+available on this machine (no libimobiledevice), so this is a code diagnosis, **not yet confirmed on the phone**. On iOS the
+gate hosts no `MainAppContent` (`renderMainContent = false`, the native tabs render it) and shows its launch overlay (profile
+backdrop + spinner, `AppLaunchOverlay`) until the native main content reports ready. Since Phase 8's iOS bring-up
+(`7e293c7de`), main content is deliberately **not mounted while the setup wizard gates the app** - so it can never report
+ready, and the overlay sat on top of the wizard forever. Latent until stage 8: revision 10 made the Upgrade run owed by every
+existing profile, and the new per-device run is owed by every phone that never answered it - so every existing iPhone hit it.
+Android renders main content inline and never shows that overlay. Fix: `appLaunchOverlayVisible` (pure, pure-suite group 3,
+3 tests) is false while the wizard gates. Expected on the phone: the wizard's download steps (or the mobile-data question)
+appear after choosing a profile, then Home.
+
+**Paused queue keeps its Android notification (`65b94b458`; desktop `832bca85d`).** Paused work is unfinished work in
+`DownloadsSummaryPolicy` (`pausedCount`, `isPausedOnly`); when it is all that is left the summary reads **"Downloads paused ·
+N remaining · 38%"** with a static bar and **Resume** (every paused item, user or system, device-wide). It posts under its own
+id (`0x4e5a47`): the host runs under the summary's id with `JOB_END_NOTIFICATION_POLICY_REMOVE` (WorkManager likewise), and a
+paused queue lets the host go idle - under the same id the job's end would remove it the moment it was posted. Exactly one of
+the two ids carries the summary. Removed only when nothing is downloading, queued, preparing or paused (failed/Needs-you
+alone still removes it, as before). +3 `DownloadsSummaryPolicyTest`. **Not physically verified.**
+
+**Published:** mobile **debug 55** (`debug-v0.4.13-z1.55`, run `36210064323`, APK + IPA) carries the two fixes above - the
+IPA build is the iOS compile check. No desktop build for them (desktop renders main content inline; no Android notification).
+
+**Assisted "Choose now" (`ff2ef1715` + `4908e540c`; desktop `b69eaaff7` + `22b201950`).** Waiting for the exact sizes stays the
+default. The finding sheet of a background batch now offers **Choose now** under **Continue in background**:
+- The familiar resolution sheet at **4K / 1080p / 720p** (the resolutions a preference can name - which exist is unknown yet),
+  preferred pre-selected, each row **"~12–25 GB · Estimated"**, plus "Estimated size · Exact size available after source
+  discovery"; primary button **Choose**. Estimate (`DownloadSizeLevels.estimateBytes`, pure): the episodes' runtimes (unknown
+  ones = the known average) x the size level's GB/hour, from the level below to the level itself. **"Size estimate
+  unavailable"** when not one runtime is known or the level is Any - no assumed runtimes, no fake precision. Provisional with
+  the size table.
+- The choice is stored on the batch (`DownloadBatch.earlyResolutionHeight`, persisted - survives a process death; candidates
+  still memory-only) and never asked again. Toast "1080p chosen · downloads start when sources are found"; the Downloads row
+  reads **"Finding sources · 7 of 22 · 1080p chosen"**; tapping it opens the finding sheet with that line and **Change
+  quality**.
+- When discovery ends, each entry is decided **as Automatic would with the chosen resolution as the preference**
+  (`automaticEntry` with `preferredResolution` overridden): inside the size rule; missing resolution -> the user's fallback
+  (Lower / Higher, or **Ask -> the grouped Use-nearest Needs you card**); real sizes over the rule -> the over-limit decision
+  (the estimate was not a promise); nothing cached / no sources -> Needs you. Then the usual free-space check. No "ready"
+  prompt; foreground toasts what started, background relies on the summary notification (a system notice only if nothing
+  could start). Queued rows carry the real sizes.
+- If the estimate sheet is still open when discovery ends, the exact sheet replaces it (like the finding sheet); a choice that
+  lands in that instant is applied at once.
+- Tests: pure +5 (estimate range, unknown runtimes, no estimate; early heights / preference mapping; range label); desktop
+  `AssistedChoiceFlowTest` +8 (real controller + store: estimates and no start, Any -> no estimate, starts without a second
+  prompt, row-opened sheet closes at the end, fallback Ask -> `RESOLUTION_MISSING`, fallback Lower -> 1080p, over the rule ->
+  `OVER_LIMIT`, survives a process death, estimate sheet -> exact sheet). Renders (desktop flow harness): `finding-chosen`,
+  `resolution-estimated`, `resolution-estimate-unavailable` x 4 widths, read; no defects.
+
+Verification: pure **940/940**; Android host **2,557/2,557** (results deleted, `--rerun`) + `:androidApp:compileFullDebugKotlin`;
+desktop `desktopTest` **2,723/2,723** (results deleted, `--rerun`, JBR SDK).
+
+**Published (2026-09-26):** mobile **debug 56** (`debug-v0.4.13-z1.56`, run `36212095114`, APK + IPA - the IPA build is the
+iOS compile check for Choose now) and desktop **debug 67** (run `36212103659`). Both carry everything above.
+**Nothing in this section is physically verified.**
+
+**Owed:** ~~Phase 9 has no rows in `Docs/Z-FEATURES.md` yet~~ - done at closeout (revision 14).
+
+**Next:** physical QA of debug 56 / desktop 67 - **iPhone first**: choosing a profile reaches the wizard's download steps
+(or the mobile-data question) and then Home; then the iOS baseline owed since `.54` (Assisted background discovery, ready
+notification, Ready to choose quality, locked-screen queue vs `.46`, aggregate Live Activity, long-pause resume, Choose now);
+Android: paused queue keeps "Downloads paused · N remaining" with Resume, Choose now (estimates, chosen row, starts without a
+second prompt, fallback/over-limit cases); desktop `.67`: fully offline playback, season/autoplay, no network fallback,
+background discovery, long-pause resume. Then size-level calibration from the `size_sample` logs (maintainer approval), iOS
+experiments 10a/10b only if still wanted, `Docs/Z-FEATURES.md` rows, changelog QA, release gate (12). Cleanup list: the iOS
+workflow's path filter misses shared-code-only pushes (keep dispatching by hand).
+
+### Phase 9 - `.56` findings, Choose-now visibility, tabs, desktop destination, iOS experiments 10a/10b (2026-09-26)
+
+**Physical `.56` (maintainer):** iOS profile -> wizard -> Home **passes** (the `.54` hang is fixed). Tapping **Choose now**
+works. **Bug:** after Choose now the Downloads screen was empty while the season was being resolved. iOS still starts
+~6 downloads at once (the known system-owned behaviour; window 12).
+
+**Choose-now visibility - root cause and fix (`5cdf0bbd9`; desktop `f6b9afc62`).** Not iOS-specific. When discovery
+ended, `applyEarlyChoice` "claimed" the batch by clearing `awaitsQualityChoice` and only then decided each entry -
+and `automaticEntry` HEAD-checks a direct source's size (through StremThru that mints the TorBox link: seconds each),
+one episode after another. For that whole pass the batch was neither an Assisted row (flag cleared) nor preparing
+(entries still `AWAITING_CHOICE`) and had no items: the screen, the iOS Live Activity (`firstOrNull { isPreparing }` ->
+no payload -> activity ended) and the Android summary all showed nothing, for minutes on a 22-episode season.
+- The claim moves the entries to `RESOLVING` in the same write; entries are decided 3 at a time and written as
+  decided; a batch removed meanwhile stops and queues nothing.
+- `DownloadBatch.showsAsChoiceRow` / `choiceStatus` - one reading for the row and the Live Activity: **"Finding sources ·
+  7 of 22 · 1080p chosen"**, then **"Checking sources · 3 of 22 · 1080p chosen"**. The Live Activity now shows
+  "Lanterns S1" with that line instead of a bare "Finding sources". The empty state no longer shows under a finding row.
+- Process death mid-check: `EarlyChoiceRestart` re-runs discovery and applies the same early choice (was "Preparation
+  was interrupted").
+- Tests: `AssistedChoiceTest` +4 (including the old claim's no-row state); desktop `AssistedChoiceFlowTest` +2 (size
+  check held open: still an Assisted CHECKING row and still preparing; removing it then queues nothing).
+- **Not physically verified.** Next iPhone check: Choose now on a season, stay on Downloads - the row never disappears;
+  lock the phone during "Checking sources" - the Live Activity shows the same line.
+
+**Mobile Library/Downloads tabs (`b013fd855`).** Two layout causes, no animation: (1) `LibraryScreen` runs an unpadded
+`NuvioScreen` and pads its switcher 16dp; `DownloadsScreen` kept the default 16dp screen padding and padded the switcher
+**another** 16dp - the chips jumped 16dp sideways on every switch; (2) `LibraryChip` renders the selected label
+SemiBold, so selecting changed the chip's width and moved its neighbour. Fixed by dropping the second padding and
+having the chip always measure its SemiBold label (drawn invisibly, no semantics). Verified by desktop
+`LibraryTabSwitcherRenderHarness` - the **production** Library and Downloads screens at 360/420, chip bounds equal to the
+pixel across both tabs; mutation-checked (the old padding fails it with a 32px shift). Header icons tinted like
+Library's (`f404a7a37` desktop / mobile `fix(downloads): header icons tinted`). Renders:
+`Nuvio Z/render-review/phase-9-tabs-and-desktop/`.
+
+**Desktop: Downloads is its own destination (decided 2026-09-26, supersedes "inside Library").** `downloadsIsOwnDestination
+= isDesktop` (`AppScreenTab.kt`): sidebar item restored, `AppScreenTab.Downloads` is a real tab, `coerceAvailableTab` /
+`NavigationIntent.fromTab` keep it, and every "open Downloads" (toast, notification, deep link, choose-quality link) goes
+through `openDownloads()`. One `DownloadsScreen`, no Library switcher on desktop. Phones unchanged (tested both ways in
+`SocialTabAvailabilityTest`).
+
+**Desktop Downloads width.** Cause: the screen's own 880dp cap (`DownloadsContentMaxWidth`) - ~290dp of nothing each side
+at 1920 (logical width ~1458dp at UI scale 1.32). Widening the column would bring back rows whose actions sit a screen
+from their title, so from 1000dp of content the destination is **two panes** (`DownloadsWideLayout`): Needs you + the
+downloads under way (max 860dp) and a 340dp rail with storage, the watched-cleanup suggestion and On this device - the
+same sections in the same order, 32dp gutters, the pair centres beyond ~1300dp. Narrow windows and a show's page keep one
+column; everything finished -> "Nothing downloading right now" in the main pane. Rendered 960 / 1280 / 1440 / 1920 (+ full
+height) by `DownloadsScreenRenderHarness` with a 68dp sidebar.
+
+**iOS transfer experiments (not adopted - awaiting the maintainer's physical comparison).**
+
+| Build | Branch | Transfer model |
+| --- | --- | --- |
+| **debug 57** `debug-v0.4.13-z1.57` | `claude/phase-9-downloads` | **Baseline** = `.56` exactly (window 12, created and resumed in the foreground). Carries the fixes above + diagnostics. |
+| **debug 58** `debug-v0.4.13-z1.58` | `claude/phase-9-ios-exp-10a` | **10a controlled resume**: window's tasks still created in the foreground, at most **2** resumed; the rest held suspended in the session, each finished task (also on a background wake) resumes the next held one in queue order. Held tasks keep their window slot. |
+| **debug 59** `debug-v0.4.13-z1.59` | `claude/phase-9-ios-exp-10b` | **10b connection limit**: `.56` window unchanged; `HTTPMaximumConnectionsPerHost = 2` on the background session. |
+
+58 and 59 are each 57 + one change; neither is merged. Diagnostics in all three (`0973dc707`, iOS probe log): `session_config`
+(variant, window, the session's per-host limit - 57 logs iOS's default), `concurrency` (held / running / suspended / moving in
+the last 5 s; every 15 s while bytes arrive and at each completion), `metrics` gains `hosts` and a 24-bit `hostTag` (never a
+host or URL), 12 log files kept. `scripts/ios-transfer-report.py <folder>` prints peak/average concurrent responses from the
+system's own metrics (valid while locked), per locked period the transfers started / finished, outcomes, errors, throughput
+and distinct final hosts. **Adoption needs the maintainer's physical evidence**; if neither keeps `.57`'s locked progression,
+the `.56` model stays for Phase 9 and iOS keeps no "Downloads at once" setting.
+
+**Verification:** Android host **2,562 run, 2,561 pass** (results deleted, `--rerun`) - the one failure is
+`WatchedItemsStoreTest.concurrent updates publish coherent item snapshots`, unrelated (watched store) and failing again when run
+alone; `:androidApp:compileFullDebugKotlin` passes. Desktop: see `NuvioZDesktop/STATUS.md`. iOS: compiled only by the Debug
+release runs below.
+
+**Published:** mobile **debug 57** (`debug-v0.4.13-z1.57`, run `36239064765`; the first dispatch `36238405990` failed the iOS compile - an `@OptIn` displaced by the host-tag helper, fixed in `fix(ios): keep ExperimentalForeignApi opt-in`), **debug 58** = 10a (run `36239750427`), **debug 59** = 10b (run `36239759753`), each APK + IPA. Desktop **debug 68** (run `36238907396`). ⚠ The debug updater offers the newest prerelease (59) to 57/58 - install each IPA by hand and decline the update prompt during the comparison. **Nothing here is physically verified.**
+
+**Next:** the maintainer's physical comparison of 57 / 58 / 59 (procedure in the session handoff and below), then adopt a
+winner or keep the baseline; size-level calibration; desktop offline QA if still pending; `Docs/Z-FEATURES.md` rows (owed);
+changelog audit; final matrix; release gate.
+
+**iOS comparison procedure (each of 57, 58, 59, same phone, same conditions):** Wi-Fi, battery > 50 %, not charging, Low
+Power Mode off. Delete `nuvio_diagnostics` files (Files -> On My iPhone -> Nuvio Z Debug) before each run. Same ~10-episode
+season each time (delete it between runs), Automatic or Assisted at the same quality. Start it in the foreground; after ~30 s
+count the rows whose bytes are moving; lock the phone and leave it untouched **30-40 min**; unlock, open Downloads, note
+completed / failed / still waiting and any Live Activity oddity. Pause one downloading episode > 1 min and resume it (must
+continue from its partial). Export the whole `nuvio_diagnostics` folder and run `python scripts/ios-transfer-report.py
+<folder>`. In 58, rows beyond the first two read "Starting" while held - expected.
+
+### Phase 9 - physical iOS comparison 57 / 58 / 59: results (2026-09-26)
+
+Logs: `Nuvio Z/ios-download-tests-57-58-59/nuvio_diagnostics {57,58,59}` (one `downloads-*.jsonl` each; the 57 file starts
+after the session was created, so it has no `session_config` line, but every `concurrency` line reads `experiment=baseline`).
+Same iPhone, Reacher S1 (8 episodes, 720p) in each run; 57 adds a 6-episode season with the pause test. Every task in all
+three runs completed at exactly the expected size: no errors, no system cancels, no retries.
+
+**Reading the logs - a report caveat.** `metrics` describes a task's **last transaction only**. When a task was interrupted
+and range-resumed (3 transactions, HTTP 206), the report's intervals lose its earlier transfer. That is 58's t4/t5 and
+57's paused episode, so 58's report figures (peak 5, avg 2.37, "1 started while locked") are **under-counts**. The
+script now flags such tasks.
+
+| | 57 baseline | 58 = 10a (2 runnable) | 59 = 10b (2 per host) |
+| --- | --- | --- | --- |
+| Peak truly transferring | **6** (foreground and locked) | **>=3 locked, 5 foreground** (6 for a few s) | **4** |
+| Average while any active | 4.42 | ~2.8 (corrected) | 2.30 |
+| Time at 2 or fewer | 95 s of 514 s | ~170 s of 435 s | 237 s of 301 s |
+| Started while locked | 2 (the daemon's own ceiling of 6) | t3 at +2 s, t4/t5 (inferred) | 3 (per-host handoffs) |
+| Stalled until unlock | none | none | none |
+| Final hosts | 7 over 14 tasks | 3 over 8 | 3 over 8 (6 tasks on one) |
+
+**57 (baseline).** The system runs **6 at once**, a session-wide ceiling: with 4 tasks on host A and 2 on host B, the
+7th/8th waited ~1.5 and ~3 min and each started the moment *any* transfer ended, whatever its host. Locked progression is
+excellent. **The pause test is a control that matters for 10a:** the episode paused at 16:04:00 after 20 s of running stayed
+suspended through a 3.5-min lock *and* through the unlock (inventory `state=1`, bytes unchanged at 200 MB) until the app
+resumed it at 16:09:33. It resumed from its partial with a 206.
+
+**58 (10a) - what actually happened.** Tasks 1-2 were resumed, 3-8 created and held (never resumed). Then:
+- **16:14:44 the app is backgrounded; 16:14:46 task 3's request starts.** t1/t2 were still running, and **no `release` or
+  `resume` was logged**. Every `task.resume()` in the build is followed by a logged `create`/`resume`/`release`. None exists
+  for t3 here, for t4/t5, or for t6-t8 later. **iOS started never-resumed tasks by itself.**
+- While locked: t2 ended 16:15:23, t1 16:15:58, with **no wake** (their `complete`/`release` lines are stamped 16:17:03, at
+  the unlock, when the queued delegate events arrived). Yet at 16:17:03 t4 already had 1.31 GB and t5 0.84 GB: the system
+  replaced each finished transfer with a held one, keeping **~3 running while locked** (the maintainer's "about 3" was
+  right). The `release` lines at 16:17:03 "released" t3/t4, which had been transferring for minutes.
+- **The foreground burst:** the app became active at 16:17:04.045 and inventory showed t6-t8 `state=1` with 0 bytes. Their
+  requests started at 16:17:04.9-05.0, **again with no app `resume()`**. Foreground reconciliation (`requestInventory` ->
+  adoption) resumes nothing; 10a's `start()`/`resumeOrHold`/`releaseHeld` never ran for them. The burst is iOS, not our
+  reconciliation.
+- **`task.state` lies for held tasks:** at 16:17:04 t5 read `state=1` (suspended) with 850 MB received and climbing. 10a's
+  bookkeeping (`running=2 heldByLimit=3` while 5 moved) was built on that property.
+- Second lock (1 min): t3, t6, t7, t8 = 4 running; three ended, no wake. Third lock: t3 ended 16:21:21, and the wake and
+  finish events came in the same second. The whole season was done in 7.2 min.
+
+**So the reading "10a proved held work advances from background callbacks" does not hold.** 10a's release path never
+executed while locked in this run. The progress while locked was iOS starting tasks that 10a thought were held.
+
+**When iOS wakes a locked app (all three builds, 16 completions while locked):** exactly three wakes, each **in the same
+second the session's last task ended** (57 15:45:33, 58 16:21:21, 59 16:30:04). The 13 other completions while locked woke
+nothing. 57's third lock is the decisive case: the four running tasks ended 16:06:19-16:06:36 with the paused one still
+**suspended** in the session, and there was **no wake for 3 minutes, until the user unlocked**. A suspended task keeps the
+session "unfinished", so the app is never woken.
+
+**Answers to the 10a questions.**
+1. Locked concurrency was **~3, not 2** (>=3 proven: the metrics show t1/t2/t3 overlapping 16:14:49-16:15:23, and the byte
+   counts show t3/t4/t5 overlapping).
+2. It exceeded 2 because **iOS resumed never-resumed tasks on its own**. It was not a completion race, double callbacks or
+   misclassification. Our accounting was also wrong (it trusted `task.state`), but correct accounting would not have
+   stopped it.
+3./4. The foreground explosion was **iOS starting the three remaining never-resumed tasks ~1 s after the app became active**.
+   No foreground path of ours resumed anything.
+5. The adoption code cannot tell "held by 10a" from "user-paused" from "running but reporting suspended". It cannot be
+   made to, because the native state property is not truthful for these tasks.
+6. **10a cannot be corrected into a locked-safe cap.** Both ways to hold a task fail. A never-resumed task is not a hold,
+   because iOS starts it. A task suspended after running *is* honoured (57), but then the app is never woken while it sits
+   there, so nothing can release it until the unlock (57, third lock). Even with a wake, a transfer begun from the background
+   is discretionary and delayed (`.45`, Apple's "Downloading files in the background"). A "10a-v2" that re-suspends extras in
+   the foreground would turn them into the honoured-but-stranded kind, and the queue would stall while locked. **No 10a-v2 is
+   built.** It would spend a physical test cycle on a result the logs already predict.
+
+**59 (10b).** `HTTPMaximumConnectionsPerHost = 2` is enforced **exactly, per final (post-redirect) host, locked or not**. The
+6 tasks on host `aae81e` ran 2 at a time, and each next request started within **1 ms** of the previous transfer ending
+(t7->t8, t8->t4, t3->t6, t4->t5). t1 and t2 ended on two other hosts, so the peak was 2 + 1 + 1 = **4**. Global concurrency
+is `2 x (distinct CDN hosts in play)`, and the debrid service decides the host per file (57 saw 7 hosts over 14 files).
+**As a global cap or a "Downloads at once" setting, 10b fails.** It did show that the per-host limit is the only limit iOS
+demonstrably enforces: zero stalls, handoffs while locked, and no unlock burst (the "ep5 Starting" at unlock was t5 waiting
+for host `aae81e`).
+
+**Decision - confirmed by the maintainer 2026-09-26:**
+- **10a rejected** (the wake/hold evidence above). **10b rejected**: its limit is per CDN host, not global. Neither is
+  merged; branches `claude/phase-9-ios-exp-10a` / `-10b` stay pushed and unmerged as the record.
+- **The `.57` system-owned model is the final Phase 9 iOS architecture** (window 12, created and resumed while Nuvio is
+  open; iOS decides concurrency, observed ~6 at once). Reliability wins.
+- **iOS has no "Downloads at once" setting.** Settings -> Downloads already hid the row on iOS (`if (!isIos)`) and the iOS
+  window ignores `maxConcurrent` (`DownloadEngineSplitTest.theIosWindowIgnoresTheDownloadsAtOnceSetting`); **Settings
+  search still indexed it on iOS**, pointing at a row that is not there - fixed (`SettingsSearch.kt`, `takeUnless { isIos }`).
+
+**Research behind "is there really no way" (2026-09-26).** Apple's documentation and DTS confirm each mechanism the logs showed:
+- The only concurrency control is `httpMaximumConnectionsPerHost`: "per session", per host, HTTP/1.1 only ("HTTP/2 and later
+  ... ignore this property"). = 59.
+- `suspend()` is not a hold. Quinn (DTS): suspend/resume "is not really designed to implement a user-level 'pause the
+  transfer' feature ... a suspended task can still be active on the wire". = 58.
+- `application(_:handleEventsForBackgroundURLSession:)` is called "after all background transfers associated with an
+  URLSession object are done", or when authentication is required. = our 3 wakes out of 16 locked completions.
+- Transfers started while the app is in the background are always discretionary; "the delay increases each time the system
+  resumes or relaunches your app" and resets only when the user brings the app to the foreground. = `.45`.
+- `earliestBeginDate` only guarantees "not sooner"; it cannot be triggered on demand.
+- Rejected tricks: forced auth challenges to get wakes (each wake grows the delay; needs our server in the path), one proxy
+  host so the per-host limit becomes global (every video byte through a server we pay for), silent-audio keep-alive (App
+  Review), several sessions (limits are per session).
+- **The one real route to a cap: iOS 26 `BGContinuedProcessingTask`** (user-initiated, keeps the app running in the
+  background, "can also use the network", system Live Activity with Cancel). Not pursued: DTS confirmed a bug where its work
+  stops when the device locks/sleeps (FB19916760, Aug 2025; still reported on 26.1 and 26.2 beta, FB21233240); DTS calls the
+  system "very aggressive" at expiring these tasks; iOS 26+ only. Post-Phase-9 avenue, worth a small lock-survival probe first.
+- Streaming apps (Netflix, Disney+) use `AVAssetDownloadURLSession`, a subclass of the same background session - same rules.
+  They get away with it: small HLS files, iOS schedules the segments, and they hand the batch over while the app is open.
+- Unlocking the phone without opening Nuvio refreshes nothing: Nuvio stays suspended. Only opening Nuvio resets iOS's delay,
+  re-mints links and submits the next window.
+
+**Open, not decided - the window vs a long season.** A 22-episode season submits episodes 1-12; 13-22 are never handed to iOS
+while the app is open. When the 12th ends iOS wakes the app once; by then the minted links are usually past the 15-minute
+freshness and anything submitted from that wake is discretionary (`.45`), so **13-22 most likely wait until Nuvio is opened**.
+Not physically tested (every run had <= 8 episodes). Proposed fix inside the `.57` model: window 12 -> ~30 (Quinn: "tens is
+definitely fine"; iOS still runs ~6 at once). Risk: late episodes start on links 30-60 min old; an expired link fails that
+episode, retried on the next open - no worse than today. The probe log already records URL age and HTTP status per task.
+Awaiting the maintainer.
+
+### Phase 9 - size-level calibration: first pass (2026-09-26)
+
+**Data on this PC:** every `size_sample` line from the iPhone 57/58/59 logs, the desktop debug log of 2026-09-26 and two
+Android diagnostics logs from 2026-09-25/26. 40 discoveries and 3,200 source rows, but **only two shows**: Reacher S1
+(runtime 49, re-discovered in each iPhone run) and one 6-episode show (runtime 52, on iPhone, desktop and Android). After
+removing the files that repeat across runs, 1,021 distinct cached files remain. All are TV episodes. There are no films,
+no sitcoms, no animation and nothing older.
+
+**The telemetry was biased - fixed.** Discovery returns candidates in addon order, and addons list their **biggest files
+first**. `DownloadSizeTelemetry` kept the first 80 of 100-440 candidates, so it dropped the small end of every list: the
+files the Small and Medium levels are about. It now keeps 80 **spread evenly across the whole list**
+(`DownloadSizeTelemetry.spread`), and the header says `sample=spread` so new lines can't be mixed with old ones. Tests: +2.
+
+**What the biased sample says about the provisional table** (GB per hour, distinct cached files; the share of candidates
+each level admits):
+
+| res | n | p25 | median | p75 | p90 | Small | Medium | Large | Huge |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 720 | 124 | 0.63 | 1.35 | 1.99 | 2.47 | 0.5 -> 16% | 1.0 -> 40% | 2.0 -> 77% | 3.5 -> 93% |
+| 1080 | 493 | 1.30 | 2.00 | 3.60 | 4.95 | 1.0 -> 17% | 2.0 -> 50% | 4.0 -> 78% | 8.0 -> 96% |
+| 2160 | 392 | 6.34 | 7.47 | 9.81 | 16.76 | 4.0 -> 20% | 8.0 -> 57% | 15 -> 88% | 30 -> 100% |
+
+By release type (medians): 1080 WEB-DL 2.26 (AVC files 3.58, HEVC 1.35), 1080 BluRay encode 1.85, 1080 REMUX 17.4; 2160
+WEB-DL 7.25, BluRay encode 9.4, REMUX 18.9; 720 WEB-DL 1.79.
+
+Reading: the ladder is **not obviously wrong** - Small keeps roughly the compact fifth, Medium lands near the typical file
+at 1080 and 2160, Large admits ~80%, Huge nearly everything. Three product questions came out of it, **for the maintainer**:
+1. **What is Huge?** At 1080 it (8 GB/h) excludes REMUX (~17); at 2160 it (30) includes REMUX (~19). One definition should
+   hold at every resolution: either "everything short of a disc copy" (2160 Huge ~16) or "disc copies too" (1080 Huge ~20).
+2. **720 Medium (1.0) sits below the typical 720p WEB-DL (1.8)**, so 720 Medium mostly picks small re-encodes. Is that the
+   intent of "Medium", or should Medium mean "the ordinary streaming file" (720 ~2.0, 1080 ~2.5)?
+3. **480 Small (0.3) admits nothing** here (all 480p files are 0.33-0.48). Minor: 480 is only reached by Best available or
+   a fallback.
+
+**No numbers change yet.** Two dramas are not "a sample of titles", and the lower levels can't be judged from a sample
+missing its small files. Needed: a spread-sampled pass over a varied title set - films (recent 4K, older, animated, 3 h),
+a 22-minute sitcom (Modern Family), an animated series, an anime, an older SD-era show. Then the maintainer reviews the
+proposed table.
+
+### Phase 9 - size levels calibrated, renamed and shown with their numbers (2026-09-26)
+
+**Dataset.** The maintainer ran the spread-sampled build (a local run of the desktop branch with
+`-Pnuvio.desktop.debugChannel=true`) through a planned title list in Assisted mode, plus extras: **166 discoveries,
+3,521 distinct cached files** (3,081 uncached files ignored). That covers 5 films (runtimes 113-181), about 10 shows
+(21/22/25/35/41/48/49/53/58/65-minute episodes), sitcoms, animation, anime, older shows and 4K documentaries. Log:
+`%APPDATA%\Nuvio Z Debug\logs\nuvio-debug-20260926-174457-p9492-cf44.log`.
+
+**Distributions** (GB/h, cached, outliers above 60 excluded): 720p median 0.93 (WEB-DL 1.46); 1080p median 2.32
+(WEB-DL 2.49, BluRay encode 2.62, REMUX 16.3, REMUX p25 12.2); 4K median 7.5 (WEB-DL 6.56, BluRay encode 7.42, REMUX
+21.0, REMUX p25 19.2); 480p median 0.64.
+
+**Maintainer decisions:**
+- **Names:** Small / **Standard** / Large / Huge / Any. Standard is the recommended default, "about what Netflix
+  serves, if not a bit more". Only the label changed: the stored and synced value stays `MEDIUM`, so no preference
+  resets.
+- **Calibrate by meaning:** Small = the compressed end; Standard = an ordinary streaming file; Large = a high-quality
+  encode; Huge = the top of normal encodes, **stopping below REMUX at every resolution**; Any = no limit. 480p Small
+  must admit something.
+- **Presentation: per hour, quoted at both 1080p and 4K** on every level (episodes vary too much for "per episode").
+
+**The table (`fc270bbd1`), old -> new, GB/h:**
+
+| res | Small | Standard | Large | Huge |
+| --- | --- | --- | --- | --- |
+| 480 | 0.3 -> 0.4 | 0.6 -> 1.0 | 1.0 -> 1.5 | 2.0 -> 2.5 |
+| 720 | 0.5 -> 0.6 | 1.0 -> 2.0 | 2.0 -> 3.0 | 3.5 -> 4.0 |
+| 1080 | 1.0 -> 1.2 | 2.0 -> 3.0 | 4.0 -> 6.0 | 8.0 -> 10 |
+| 1440 | 2.0 -> 2.5 | 4.0 -> 5.0 | 8.0 -> 9.0 | 14 (interpolated; 7 files) |
+| 2160 | 4 | 8 | 15 -> 14 | 30 -> 18 |
+
+Share admitted at 1080p: 25 / 61 / 83 / 93%. At 4K, Huge now admits 11 of 89 REMUX files instead of 66. 4320p is
+unchanged and has no data.
+
+**Preset migration changed with it.** The rule's stated intent is "nobody's downloads get worse on upgrade", but it
+picked the *nearest* level, and with the new numbers that would have sent Balanced (1.5 at 1080p) - and every user
+with no preset history - to Small. It now picks the smallest level admitting the preset's limit: Saver -> Standard,
+Balanced -> Standard, 4K Low -> Standard, 4K High -> **Huge** (15 > Large's 14).
+
+**Presentation (`330f3b464`).** The wizard's size chips carry a second line, "1080p · 3 GB/h / 4K · 8 GB/h" (Any:
+"No limit"), so no level has to be tapped to be read. Under them is the chosen level at the resolution chosen (1080p
+for Best available and Assisted): "At 1080p: about 1 GB for a 20-minute episode, 3 GB for an hour-long one, 6 GB for
+a 2-hour film". Settings -> Downloads uses the same line as the row's description, and its dropdown lists each level
+with both figures. Rendered with `SetupWizardRenderHarness` (phone 360/420, desktop 1280/2560/3840) and
+`DownloadsScreenRenderHarness`; PNGs read.
+
+Verification: Android host downloads + setup **394/394**; desktop policy/flow/telemetry suites pass. Full suites not
+re-run. **Not physically seen yet** - the next debug builds carry it.
+
+### Phase 9 - iOS handover window 30 + notice; debug 60 / desktop 69 (2026-09-26)
+
+- **Window 12 -> 30** (`f46c3058d`; desktop `493f47b07`): `IosBackgroundTransferReconciler.SUBMISSION_WINDOW`, used by
+  the iOS downloader (`IOS_SUBMISSION_WINDOW`), still logged by `session_config` / `engine_start`. Safeguards unchanged
+  (freshness boundary, queue order, running tasks count against it). Tests +4: a 22-episode season is submitted whole, a
+  40-item queue is cut at 30 in order, running tasks count, and a stale link is still a boundary.
+- **Notice past 30** (`4450a5350`; desktop `3bd7cd15d`), maintainer request, iOS only, once per app session: when a
+  request takes queued + downloading from <= 30 to > 30, a dialog ("Keep Nuvio handy for big queues" - the first 30 keep
+  going while locked, the rest start when Nuvio is next opened). Never on app start. Logged `handover_notice`. Tests +2.
+  Not rendered.
+- Android host downloads **400/400**; desktop reconciler/flow-rules/engine suites pass.
+- **Published:** mobile **debug 60** (run `36252233600`, commit `8ae73d336`; 58/59 were the experiment builds) and
+  desktop **debug 69** (run `36252557375`, commit `4da3aed56`). Both carry the calibrated size levels; mobile also
+  carries window 30 + the notice. **Not physically verified.** The iPhone check: queue a 22-episode season, lock for an
+  hour, and count the finished episodes; queue past 30 to see the notice once.
+
+### Phase 9 - Wizard UX Polish Pass + title-level Download at every width (2026-09-27)
+
+Maintainer brief: wizard/setup UX, copy and layout cleanup plus one responsive title-page bug. **Presentation and copy
+only** - stored values, sync payloads (`download_policy`, the playback preferences) and engine behaviour are unchanged.
+Made on desktop (render harness) and cherry-picked: mobile `988451b6c` (wizard), `fea73e700` (details; mobile's
+`MetaDetailsScreen.kt` edited by hand - known divergence), `8bbc817ae` (no-break space). Desktop: see its STATUS.
+
+- **Shared choice controls** (`core/ui/NuvioChoiceControls.kt`, new): radio cards (modes), a radio list with per-row
+  figures (size levels) and a measured segmented control (labels wrap between words only, never mid-word). Every wizard
+  question is `SetupQuestion` (heading, control, one line saying what the answer does); the old pill/chip groups
+  (`SetupChoiceGroup`) are gone, the Look step included.
+- **Download preferences:** each level on its own row - Small "Saves storage", Standard **Recommended** "Streaming
+  quality", Large "Higher-quality encodes", Huge "Very high quality", Any size "Best file available" / "No limit" - with
+  **GB/h at 1080p and 4K** on the right, and "GB/h is the size of one hour of video." The pill grid and the per-episode /
+  film caption are gone; Settings -> Downloads' summary is GB/h too ("Streaming quality · 3 GB/h at 1080p"). Contextual
+  per-title estimates (Choose now, season rows) are unchanged. Subtitle (Assisted): "The largest file Nuvio may pick. You
+  still choose the quality each time."
+- **Download Mode:** Recommended moved to **Assisted** (`RecommendedDownloadMode`; only the badge - the preselected mode is
+  still derived from Playback Mode). Automatic "Nuvio chooses everything / It only asks when something needs your
+  attention."; Assisted "You choose the quality / Nuvio chooses the best matching file."; Manual "You choose the exact
+  file / Nothing is selected automatically." ("Downloading never opens the player" removed.)
+- **Playback Mode cards:** playback only - the STREAMING/DOWNLOADING sections and every "Downloads use X unless..." line
+  removed (the derivation itself is untouched). Classic "Full control / Every source is listed. You pick one.";
+  Streamlined "Choose a quality / Nuvio picks the best release at that quality."; Instant "Press play, it plays / Nuvio
+  matches quality to your connection." The escape hatch is a footnote. Fits without scrolling at 393x852.
+- **Playback setup ("How should Nuvio choose?"):** **Quality limit** = Auto / Data saver / Balanced / High / Very high
+  (0 / 10 / 20 / 35 / 60 Mb/s, Mb/s secondary under each; one line under the row says what it admits). 0 is
+  **Automatic** (was "No limit"): no cap - in Instant the measured connection decides, in Streamlined every quality stays
+  on offer, and the sentence says which. **Your language** Any / Prefer / Require (Settings: "Any language" / "Prefer my
+  language" / "Require my language"; Require is described as demoting, which is what `byLanguage` does). **HDR**
+  Automatic / Prefer SDR / Prefer HDR in the row, "Require HDR" / "Require Dolby Vision" as quiet secondary pills
+  ("...used only if nothing else works" - they demote, `UNSATISFIED_REQUIREMENT`); Automatic = "Prefers HDR for 4K, no
+  preference below that" (the per-resolution default in `PlaybackQualityOptions`). Settings shows the same names
+  ("Balanced · up to 20 Mb/s", one-line seam in `PlaybackSettingsPage.playbackQualityCeilingLabel`).
+- **Sources:** `setupSourcesStatus` (pure, +6 tests) -> Recommended ("Recommended setup is already active", no "use
+  recommended instead", secondary "Add a source manually"), Custom ("Your sources are already configured / Using X...",
+  outlined "Use recommended setup" + "Your current addons stay installed."), NeedsAttention (warning banner, addons failed
+  to load or turned off), Checking (still loading - no verdict), None ("Set up sources", Use recommended / Set up
+  manually). **Going on is always the footer:** Next for working sources, a quiet **"Skip for now"** otherwise (the old
+  in-body "Keep current sources" / "Do it later" are gone). The manual path hides "Use recommended setup instead" when it
+  is already active. Judgment: "Add a source manually" rather than "Manage sources" - the wizard can add, not remove.
+- **Assisted discovery sheet:** "Choose now" -> **"Choose now with size estimates"** (copy only).
+- **Title-level Download at every width** (`TitleDownloadAction.kt`): cause - on desktop >= 1000 dp the details screen
+  draws `DesktopDetailHero`, which owns the ACTIONS section (where the stacked layout's Download lives) and built its own
+  list without it. Both layouts now take one `titleDownloadSecondaryAction` (show: whole-show flow + season chooser;
+  film: start, or manage an existing download), first in the row. The season row's download is unchanged. The film's
+  label is "Download" (was the retired "Download with preset"). Mobile never draws the wide hero, so phones and tablets
+  already had it; the shared file is updated anyway.
+
+**Renders** (desktop, `composeApp/build/`; read): `setup-wizard-render/phone-step-*`, `phone-sources-*`,
+`phone-step-playbacksetup-instant-*` at 360x780 / 393x852 / 412x915 in the production stacked frame (40/24 dp insets),
+`desktop-*` at three window sizes; `title-download-render/{series,movie}-{400x860,820x900,1280x820}.png`;
+`downloads-screen-render/settings-*`. Fixed from the review: a double-measure crash in the segmented control (caught by
+the harness), the Recommended badge truncating, "Automat/ic" mid-word breaks, Playback Mode / setup overflowing by a line,
+an off-theme tonal button, "3 / GB/h". **Known:** at 360x780 with insets, Download preferences (Assisted: the last row)
+and Playback setup (the strict pills) still scroll inside the panel - the 150 dp band plus five 56 dp level rows do not
+fit; 393x852 and up fit. Shrinking the band per step was left alone.
+
+**Verification:** Android host **2,577/2,577** (results deleted, `--rerun`) + `:androidApp:compileFullDebugKotlin`.
+Pure suites: groups 1 and 3-8 **691/691** (setup group 109, +6). ⚠ **Group 2 does not compile at `1c3821f24` either**
+(`DownloadFlowRules.kt` references `DownloadItem`, `DownloadPolicyTest` uses `downloadSizeFigure` from a Compose file) -
+pre-existing, it stops the script before group 3; not fixed here. Desktop `desktopTest` **2,753 run, 2,751 pass, 1
+skipped**; the one failure was `AssistedChoiceFlowTest.chooseNowShowsEstimates...` asserting the provisional 1-2 GB/h band
+since calibration - fixed to read the table (desktop `1ae657e9a`), 19/19. New `TitleDownloadActionBreakpointTest` fails at
+1280 only without the hero fix (mutation-checked). iOS build (dispatched, build-only) **passed** on `05db2bd7c`, run
+`36327862396`. **No debug build cut** (per brief). Renders for review: `Nuvio Z/render-review/phase-9-wizard-polish/`.
+
+### Phase 9 - responsive wizard band; debug 61 / desktop 70 for physical QA (2026-09-27)
+
+Maintainer decision on the polish pass's open question: on a phone the priority is **controls > the pinned footer >
+the illustration**, so the band gives way when the panel would scroll - adaptively, not a one-off for 360x780.
+
+- **How** (desktop `f59ef67d7`, mobile `c15249216`, byte-identical): `SetupPanel` measures what it needs
+  (`SetupPanelFit`: panel chrome + the body's natural height inside the scroll). The stacked band's target is
+  `setupStackedBandHeightDp` (pure, `SetupWizardSteps.kt`): the specimen's preferred height capped at half the window as
+  before, shrinking toward `SetupSpecimen.minimumHeight` only by the panel's overflow. Neither input moves with the band,
+  so it settles in one step (no oscillation). Only **Diagram** gives way (150 -> min **80 dp**); its drawing is scaled as a
+  whole through the existing density override (`setupDiagramScale`, floor 0.6) rather than clipped. Cards / Theme /
+  Home / Details keep minimum = preferred. The desktop two-pane layout is untouched. Pure tests +6.
+- **The harness now uses the production rule** (desktop `818c967b2`): `renderPhoneFrame` measures with `SetupPanelFit`,
+  renders two frames, prints `band Xdp, panel overflow Ydp` per frame and fails a frame that scrolls while the band is
+  above its minimum.
+- **Measured result (harness insets: 40 dp status bar, 24 dp gesture bar):**
+
+  | step | 360x780 | 393x852 | 412x915 |
+  | --- | --- | --- | --- |
+  | Download preferences (phone: + Mobile data + notification note) | band 80, **still scrolls 68 dp** (was 138) | band **84, fits** (was 66 dp over, cut mid Mobile-data control) | 150, fits (unchanged) |
+  | Playback setup (Streamlined) | band 80, **still scrolls 60 dp** (was 130) | 150, fits (unchanged) | 150, fits |
+  | Playback setup (Instant, Require HDR) | band 80, still scrolls 78 dp | 150, fits | 150, fits |
+  | Playback Mode | band **103, fits** (used to scroll) | 150 | 150 |
+  | Language | band 146, fits | 150 | 150 |
+
+  ⚠ **Two corrections to the polish pass's note.** (1) 360x780 was not "about one row" over: Download preferences was
+  ~138 dp over and Playback setup ~130 dp, so no sensible band size makes them fit - reaching zero would mean removing
+  the illustration, which the brief ruled out. They now scroll by 60-70 dp with the band at its 80 dp minimum. (2) "393x852 fits" was
+  wrong for the **phone** Download preferences step (the Mobile-data question sat under the fold,
+  `render-review/phase-9-wizard-polish/wizard-phone/phone-step-downloadsetup-393x852.png`); it now fits. Real iPhones
+  have larger insets (59/34 pt) than the harness, so on an iPhone 15/16 that step likely still scrolls ~25 dp (band at its minimum).
+  Automatic-mode Download preferences scrolls at every phone size (247 dp at 360) - it asks more; unchanged in kind.
+- Renders (read): `Nuvio Z/render-review/phase-9-wizard-responsive-band/` (after) and `.../before/` (the polish pass).
+
+**Verification:** pure setup group **115/115** (+6); Android host setup + gate + changelog **112/112** (results deleted,
+`--rerun`) + `:androidApp:compileFullDebugKotlin` pass; desktop `features.setup.*` + `AppGate*` **153/153** (JBR SDK,
+`--rerun`) including the harness. Full suites not re-run (setup-only change; the polish pass's full runs stand).
+
+**Published for physical QA** (debug only - no stable, no TestFlight):
+- mobile **debug 61** `debug-v0.4.13-z1.61` - Debug release run ``36330862477``, commit `5b252a474`: published - `androidApp-full-debug.apk`, `Nuvio-Z-iOS-0.4.13-z1-61-debug-unsigned.ipa`, `SHA256SUMS-Debug.txt`, prerelease; SideStore feed `source-debug.json` on `main` updated (`a2998577f`, version 0.4.13-z1.61 / build 61).
+- desktop **debug 70** `debug-v0.1.23-alpha-z6.70` - Desktop debug release run ``36330864845``, commit `fb5d1c7e9`:
+  published - `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.70.msi` and `Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.70.dmg`, prerelease.
+
+Both carry everything on `claude/phase-9-downloads`: the wizard polish, the responsive band, title-level Download,
+the calibrated size table, the Downloads UI/navigation, and on iOS the final `.57` transfer model with window 30 + notice.
+Changelog debug lines 61 / 70 added (the mobile file also gained desktop 68's line, so the two files are identical again).
+**None of this is physically verified.**
+
+### Phase 9 - final library polish + the desktop 60-second retry, diagnosed live (2026-09-27)
+
+The last pass before closeout, on the maintainer's review of debug 62 / desktop 71.
+
+**1. Desktop "Retrying shortly" at ~60 % - an app-side (runtime) defect, fixed.** Diagnosed from the live
+desktop debug log (`nuvio-debug-20260927-223322-p51872-1fb8.log`, Modern Family S1, 158 MB episodes, 2 at once,
+`net=WIFI metered=false` throughout) before any change:
+- **Every attempt longer than 60 s failed at 60.0 s (+-0.05) after its slot**, while `transfer_progress` showed
+  1-2.5 MB/s in the window before; every attempt shorter than 60 s completed. E1/E2 started together and failed
+  together; E5/E6 started 3 s apart and failed 3 s apart - a per-request timer, not a shared network event.
+  Category `Transient`; the one persisted `errorMessage` was `"closed"`. No `http_failed`, no connection or Wi-Fi
+  waits, no stall-watchdog message, one `HttpClient` per attempt (no reused connection).
+- **Resume was correct every time:** retry = `206`, `transfer_open resumed=` exactly the bytes at the failure
+  (e.g. E1 81,059,840 -> resumed 81,059,840), completion = the advertised total. Partial files kept; nothing from zero.
+- **Not the server:** curl on the same live link (one redirect, HTTP/1.1) at 1 MB/s ran 154 s to the full
+  158,275,568 bytes with no cut.
+- **Cause, reproduced:** on the shipped runtime (Temurin **17.0.20.1**) `HttpRequest.timeout` stays armed for the
+  whole body when the request **followed a redirect** - debrid links always do (resolver -> CDN). Local repro, 40 MB
+  at 1 MB/s through one 302 with a 5 s timeout: body dies at 5.0 s with `IOException: closed` (cause
+  `HttpTimeoutException: request timed out`) on 17; completes on JDK 25; completes on 17 without the redirect. Our
+  request timeout was the 60 s stall deadline - hence 60.0 s. The comment in the downloader said the timeout "stops
+  short of the body", which is true only without a redirect.
+- **Fix (desktop `a30843126`):** no `HttpRequest.timeout`; the header deadline (still `stallTimeoutMs`, still ->
+  `NoResponse`) is enforced around `sendAsync(...).get(...)`. Verified on Temurin 17.0.20.1 with the redirect (full
+  40 MB). `DesktopDownloadRequestTest` pins "no timeout on the request" (the test JVM is 25, so an E2E cannot see the
+  defect); `DesktopDownloadQueueE2ETest` **45/45** incl. the never-answering server. Android (OkHttp) and iOS are not
+  affected. Cost before the fix: one reconnect and a "Retrying shortly" per minute of every transfer, the queue
+  opening the next episode meanwhile; the progress-based budget meant it never failed outright.
+
+**2. Local identity on a show's page** (shared, `e91793c04` / mobile `77fee8199`): a **Downloaded** badge over the
+logo, and **On this device / 3 seasons · 58 episodes · 99.3 GB** (+ "2 more on the way") as its own block with an icon
+chip, replacing the muted line. Same page, playback, offline behaviour and season management.
+
+**3. Desktop Downloads composition** (same commit): nothing under way (no queue, Needs you or preparing batch) ->
+**no split**: one column up to 1400 dp, storage and the cleanup suggestion side by side, the library as a grid
+(`downloadsLibraryColumns`, cards >= 360 dp: 3 at 1280 / 1440 / 1920). Something under way -> two panes, the library
+pane **38 % of the width (360-520 dp)** instead of a fixed 340 dp rail, with **2.1:1 banner** cards. Mobile unchanged.
+Renders: `Nuvio Z/render-review/phase-9-downloaded-library/final-pass/` (`library-*` idle, `screen-desktop*` active,
+`show-*`), read at 1280 / 1440 / 1920 and phone.
+
+Verification: desktop `DownloadsScreenRenderHarness` pass; `DesktopDownloadRequestTest` 2/2; download E2E 45/45;
+mobile `DownloadLibraryTest` 9/9 + `:androidApp:compileFullDebugKotlin`. Full suites not re-run.
+Published for the maintainer: mobile **debug 63** (`debug-v0.4.13-z1.63`, run `36348950109`, APK + IPA - the iOS compile check for the shared change) and desktop **debug 72** (`debug-v0.1.23-alpha-z6.72`, run `36348951840`, MSI + DMG). **Not physically verified** - the 60-second fix wants the same Modern Family queue on desktop 72: no `failure` lines at ~60 s in the debug log.
+
+### Phase 9 - downloaded library redesign (2026-09-27)
+
+The maintainer asked for the last pre-Phase-9 surface: "On this device" (a poster + a byte count per title) and a
+show's page (every episode of every season as its own card - a Modern Family season is 24). Priorities given: clean,
+practical for many episodes, and **use the title's metadata**, not just its poster. All platforms (shared commonMain).
+
+- **Library cards** (`DownloadsLibraryUi.kt`): the backdrop with the title's logo (name if none), "3 seasons · 58
+  episodes · 99.3 GB" (films: year · runtime · size), "Resume S3 E7" with the resume bar on the card's edge, a round
+  play button that plays what is next, delete in an overflow. Two to a row once the single column fits two (>= 600 dp);
+  the desktop rail stays one. Most recently finished title first.
+- **A show's page** (`DownloadedShowPage`): hero (backdrop, logo, year / age rating / IMDb / genres, "on this device"
+  line with what is still coming, 3-line synopsis, **Resume S3 E7** / Play + minutes left, delete all), seasons as
+  **tabs, one season at a time**, compact episode rows (still with watched tick or resume bar, "7. Phil on Wire",
+  runtime or "12 min left", size, overview; unfinished episodes show their presenter line and open the detail sheet).
+  Season menu: **Delete watched episodes (N)** (confirms) / Delete this season. "Continue to Season 4" at the end of a
+  season. Two episode rows across from 1000 dp; content capped at 1180 dp. Floating back button that becomes a solid
+  bar with the title once the hero scrolls away (not drawn under iOS native navigation). Deleting the whole title from
+  its page goes back. Mobile's `DownloadShowRoute` and the offline title fallback both land here.
+- **Next up** (`DownloadLibrary.nextUp`, tested): the most recent in-progress download (2-95 %), else the first
+  unwatched after the furthest watched, else the first unwatched, else S1 E1 again. Watched = a watched mark or effectively
+  completed progress, from `WatchProgressRepository` + `WatchedRepository` (the active profile's).
+- **Metadata offline** (`DownloadTitleMetadata` / `DownloadTitleMetadataStore`): per title, synopsis, year, genres (3),
+  IMDb, age rating, runtime, logo/backdrop, and for each **downloaded season** every episode's still, overview, runtime.
+  Its own `DownloadsStorage` key (`downloads_title_metadata`), not the engine payload (rewritten every second while
+  bytes arrive). Filled from `MetaDetailsRepository.peek` or one `fetch(cacheResult = false)` per title while
+  **Online**, one after another, retried once per session; refreshed after 7 days or when a new season appears; pruned
+  when a title has nothing left on the device (any profile). Side benefit: batch downloads never stored an episode
+  still (`episodeThumbnail = null` in `queueBatch`), so their rows get one from here.
+- Retired: `DownloadTitleRow`, `DownloadRow`, the queue `QueueMenu` it carried, `downloadsShowContent`,
+  `DownloadTitleGroup`.
+- Patch surface: `DownloadsStorage` gains two members (every actual: Android, iOS, desktop); strings appended as one Z block.
+
+Commits: mobile `4cd57664e` + `cbf992c63` (render fix); desktop `ee74654b8` + `f9a9c5717` (cherry-picks) +
+`79511b5d3` (desktop storage actual, harness).
+
+**Verification:** `DownloadLibraryTest` **9/9** (Android host); `:androidApp:compileFullDebugKotlin` pass after both commits;
+desktop `DownloadsScreenRenderHarness` passes with the new scenes (compiles the desktop actual). **Not run:** the full host
+suite, full `desktopTest`, iOS compile (the new iOS actual is two `NSUserDefaults` calls; the next Debug release run is
+its compile check). Render review: `Nuvio Z/render-review/phase-9-downloaded-library/` - `library-*` (library alone)
+and `show-*` (window, `-full` whole season, `-season1`) at 360 / 420 / 960 / 1280 / 1440 / 1920. Two defects found and
+fixed (tabs 10 dp off the content edge on desktop; phone stills starving the overview). **The maintainer has not reviewed
+the renders yet; nothing is physically verified** - in particular that real logos (varied aspect ratios) sit well at
+38 dp on a card and that the metadata fetch fills in on a real library.
+
+**Published for the maintainer to look at on devices** (asked for instead of reading the renders):
+- mobile **debug 62** `debug-v0.4.13-z1.62` - Debug release run `36343623524`, commit `2cf1609bf`: APK + unsigned IPA
+  (the IPA build is the iOS compile check for the new `DownloadsStorage` actual - passed), prerelease.
+- desktop **debug 71** `debug-v0.1.23-alpha-z6.71` - run `36343625718`, commit `66f7a05b1`: MSI + DMG, prerelease.
+Changelog debug lines 62 / 71 added (both `changelog.json` files identical). No feedback yet.
 
 ## Phase 8 closeout: DONE WITH DOCUMENTED DEBT (2026-09-24)
 

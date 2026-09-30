@@ -174,6 +174,10 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
 6. **Retro-refactor opportunistically.** The `PlayerScreenRuntime*` cluster (5 files, 53 commits)
    and the `PlayerSettings*` cluster (4 files, 49) are where a sync will hurt. Refactor one into an
    extension point **the first time a sync conflicts in it** - not in advance.
+7. **Upstream's behaviour is the default in a sync.** Keep upstream features unless they conflict
+   with a deliberate Z feature or decision; a drifted file is not a reason to drop one. For a
+   divergent file, port the old-tag -> new-tag upstream delta surgically. Full rule:
+   `Docs/UPSTREAM.md`, "Resolving a conflict".
 
 ### General
 
@@ -332,10 +336,13 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
 - A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
   `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
   the user searched for by name is worse than showing it.
-- What's New keeps the current version's notes curated in `CurrentReleaseNotes` and
-  fetches only older releases. **Add an entry per release before the version bump** -
-  a docs commit after the bump fails release validation. Never gate the screen on the
-  in-app updater; it has to work offline.
+- What's New comes from **one changelog for both repos**,
+  `composeApp/src/commonMain/composeResources/files/changelog.json` (Phase 9): releases by family
+  and `RELEASE_SERIAL`, entries tagged feature/improvement/fix and android/ios/desktop, plus
+  `debug` lines for debug builds. The app reads it offline; `decideWhatsNew` picks what to show
+  against a device-local ack. **Add the release's entries before the version bump** -
+  `scripts/check-changelog.py ... check` fails the release workflow, and `ChangelogFileTest`
+  fails CI, for a serial with no notes. Never gate the screen on the in-app updater.
 - **The setup wizard writes every choice immediately, through the real repository setter**
   (`features/setup/`). That is what lets `SetupPreviewStage` render the shipped
   `HomeHeroSection` / `HomeContinueWatchingSection` / `HomeCatalogRowSection` / `DetailHero`
@@ -704,6 +711,16 @@ host (see "Verifying without Gradle" below):
 .\gradlew.bat :composeApp:desktopTest --console=plain
 ```
 
+⚠ **For a full-suite count, run it split** (since the Phase 9 closeout, 2026-09-28). As one task the
+suite now takes longer than `desktopTest`'s fixed 20-minute `timeout` on the reference Windows
+machine, and hitting the cap fails the task while tests are still passing. That reads like a test
+failure and is not one. `scripts/run-desktop-tests-split.sh [output-dir]` in `NuvioZDesktop` runs
+four disjoint parts through `scripts/desktop-test-split.init.gradle`: `rest` (by exclusion, so no
+package can fall between parts), `playback` (player / playback / watchparty), `downloads` (without
+the E2E class) and `e2e` (`DesktopDownloadQueueE2ETest`). It deletes the results before each part,
+uses `--rerun`, and prints per-part and total counts plus a duplicate check. Report a count only from
+its summary with every part at `rc=0`. Targeted `--tests` runs are unaffected.
+
 Release builds run R8 and can use substantial CPU. Use a bounded worker count
 unless the user explicitly prefers maximum throughput.
 
@@ -892,7 +909,7 @@ and moving it does **not** repair what already happened: `chore: debug build 15`
 newest `Version.xcconfig` touch before `0.5.0-beta`, so that release's generated body
 starts there and omits everything before it, including `5058a313` - the whole Streamlined
 pass. Only rewriting history could undo it. **Curate `0.5.0-beta`'s notes by hand** and
-check the generated range before publishing; `CurrentReleaseNotes` is curated anyway,
+check the generated range before publishing; the changelog's curated notes lead the body anyway,
 which is what makes this survivable rather than fatal.
 
 `NuvioZDesktop` also carries `iosApp/Configuration/Version.xcconfig` as the
