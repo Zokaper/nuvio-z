@@ -28,7 +28,9 @@ Fixes:
   also publish Away until DidBecomeActive, consistent with inactive playback being paused.
 - Add `away_since` to the existing backend member-change broadcast predicate. Its authority-plane
   invalidation causes a coalesced snapshot refresh immediately; bare heartbeat stamps stay quiet.
-  Entry, return and reaper expiry all notify. **Migration not deployed.**
+  Entry, return and reaper expiry all notify. **Migration deployed** only to Z project
+  `pzbpghmmordvzcfbayoh`, after a public-schema backup and dry-run confirming this was the only
+  pending migration. Read-only live trigger verification and migration-history check passed.
 - Host holds for fresh realtime Away **or** an active durable Away lease, excluding self, left,
   failed and ended parties. A leased suspended guest may have its heartbeat marked disconnected;
   that does not release the Away hold until return/lease expiry. Without a lease, the existing
@@ -113,7 +115,7 @@ Supabase-Realtime, may identify it without publishing anything. The new persiste
 a privately installed diagnostic artifact; build-only compiler CI is not an installable artifact.
 Do not declare the reconnect blocker fixed from code inspection alone.
 
-Once an installable candidate is authorized and the backend notification migration is applied:
+The backend notification migration is applied. Once an installable candidate is authorized:
 
 1. Desktop host + Android/iOS guests, Pause for Away ON: press Home on iOS; Away and host pause
    should arrive immediately via peer or durable refresh. Stay away beyond 20 seconds to cross

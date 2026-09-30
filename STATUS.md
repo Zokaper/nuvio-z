@@ -14,7 +14,9 @@ separate host hold bug ignores durable Away. Mobile `7846909dc` adds a lease-bou
 fresh peer roster, and durable-return clearing of older peer Away. Only these five shared files
 are merged into desktop (`371e71dcf`, via isolated `rc-wt-away-shared` / `c3822e4b0`).
 Backend migration `202609300001_broadcast_party_away.sql` adds Away to the existing notification
-predicate; local fresh-reset pgTAP **347/347 pass**. Migration is **not deployed**.
+predicate; local fresh-reset pgTAP **347/347 pass**. Applied to Z project `pzbpghmmordvzcfbayoh`
+after a schema backup and a dry-run confirming only this migration was pending. Read-only live
+trigger verification confirms Away in the predicate; migration history is up to date.
 
 Mobile recovery now retains protocol evidence across reconnects of the same party/profile while
 invalidating it on departure/generation changes; health still requires both channels and fresh
@@ -33,7 +35,7 @@ Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 
 commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
 Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
 the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
-gate against a new published build before both causes are understood. No migration deployed.
+gate against a new published build before both causes are understood. Scoped migration deployed.
 Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
 Keep publication held until the foreground drop is captured and explained; do not claim both
 blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
