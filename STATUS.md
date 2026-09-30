@@ -20,7 +20,12 @@ The diagnostic regression reproduced the exact missing-plugin exception, then bo
 passed a real heartbeat/reply exchange. Focused WT + diagnostics **416/416 pass**, no failures,
 errors or skips. Privacy-safe error classification now names missing WebSockets. XML/logs are in
 `../.rc-investigation/wt-ios/socket-green-results/` and `socket-regression-{red,green}.*`.
-Replacement diagnostic-only IPA build pending.
+Fix committed/pushed: `8aedfd9f5`. Replacement **diagnostic-only IPA run `36766427491`** is
+in progress on that source: https://github.com/Zokaper/nuvio-z/actions/runs/36766427491 .
+Android is skipped and release/feed publication is disabled; base debug 73 retained.
+At handoff native compilation/artifact verification and standard push CI are still pending.
+After the run succeeds, verify the SHA-named artifact/checksum/manifest before sideloading,
+then repeat the five-minute foreground capture and export the latest `watchparty-*.log`.
 See `Docs/IOS-WATCH-TOGETHER-RC.md`. Debug/stable counters and feeds remain unchanged; original
 foreground reconnect and physical Away acceptance remain open. No desktop/backend changes.
 

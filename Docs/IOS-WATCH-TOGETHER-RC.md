@@ -75,7 +75,12 @@ exception. After restoring setup, both diagnostic and standard clients open and 
 serialized heartbeat/reply over a real localhost websocket. Focused WT + diagnostics:
 **416 tests, zero failures/errors/skips**. Added privacy-safe classification of this specific
 configuration error. Logs and XML: `../.rc-investigation/wt-ios/socket-regression-{red,green}.*`
-and `socket-green-results/`. Replacement diagnostic-only IPA build pending; no release/feed change.
+and `socket-green-results/`. Fix committed and pushed as `8aedfd9f5`. Replacement
+[diagnostic-only IPA run 36766427491](https://github.com/Zokaper/nuvio-z/actions/runs/36766427491)
+is building that exact source; Android is skipped and release/feed publication is disabled.
+It retains debug 73. At handoff the native build is still running: do not call it downloadable or
+iOS-compiler-verified yet. After success, verify its artifact checksum/manifest and sideload it
+with SideStore, then repeat the foreground capture. No release/feed change.
 
 **Retest required:** the previous diagnostic IPA cannot supply evidence for the original intermittent
 drop. Repeat the five-minute foreground capture on the corrected diagnostic IPA. Stable RC
