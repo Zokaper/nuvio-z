@@ -262,6 +262,69 @@ class PartyPresenceTest {
 
     // --- the away hold --------------------------------------------------------------------------
 
+    private val leaseNow = kotlin.time.Instant.parse("2026-09-30T12:00:00Z").toEpochMilliseconds()
+
+    @Test
+    fun peerAwayExpiresWithoutNewTelemetry() {
+        assertEquals(setOf("guest"), partyFreshAwayProfiles(mapOf("guest" to true), mapOf("guest" to 100L), 101L))
+        assertEquals(emptySet(), partyFreshAwayProfiles(mapOf("guest" to true), mapOf("guest" to 100L),
+            101L + WatchPartyClockStaleMs))
+        assertEquals(emptySet(), partyFreshAwayProfiles(mapOf("guest" to true), emptyMap(), 101L))
+        assertEquals(emptySet(), partyFreshAwayProfiles(mapOf("guest" to false), mapOf("guest" to 100L), 101L))
+    }
+
+    @Test
+    fun durableReturnAndExpiryClearOlderPeerAway() {
+        val away = party(members = listOf(member("host"), member("guest").copy(awaySince = "2026-09-30T11:59:59Z")))
+        val returned = away.copy(members = away.members.map { it.copy(awaySince = null) })
+        assertEquals(setOf("guest"), partyDurableAwayCleared(away, returned))
+        assertEquals(emptySet(), partyDurableAwayCleared(returned, returned))
+        assertEquals(emptySet(), partyDurableAwayCleared(away, returned.copy(id = "different")))
+    }
+
+    @Test
+    fun durableAwayHoldsWithoutAPeerPacketAndClearsOnReturn() {
+        val away = party(members = listOf(member("host"), member("guest").copy(awaySince = "2026-09-30T11:59:59Z")))
+        assertEquals(listOf("guest"), partyAwayHoldMembers(away, emptySet(), "host", true, leaseNow))
+        val returned = away.copy(members = away.members.map { it.copy(awaySince = null) })
+        assertEquals(emptyList(), partyAwayHoldMembers(returned, emptySet(), "host", true, leaseNow))
+    }
+
+    @Test
+    fun realtimeFastPathAndDurableFallbackAreAUnion() {
+        val live = party(members = listOf(member("host"), member("android"),
+            member("ios").copy(awaySince = "2026-09-30T11:59:59Z")))
+        assertEquals(listOf("android", "ios"), partyAwayHoldMembers(live, setOf("android"), "host", true, leaseNow))
+        assertEquals(emptyList(), partyAwayHoldMembers(live, setOf("android"), "host", false, leaseNow))
+    }
+
+    @Test
+    fun suspendedGuestLeaseSurvivesHeartbeatDisconnectionButExpires() {
+        val live = party(members = listOf(member("host"),
+            member("guest", SourceResolutionState.disconnected, connected = false)
+                .copy(awaySince = "2026-09-30T11:59:59Z")))
+        assertEquals(listOf("guest"), partyAwayHoldMembers(live, emptySet(), "host", true, leaseNow))
+        assertEquals(emptyList(), partyAwayHoldMembers(live, emptySet(), "host", true, leaseNow + 600_000L))
+    }
+
+    @Test
+    fun durableAwayCannotHoldALeftFailedOrEndedParty() {
+        for (state in listOf(SourceResolutionState.left, SourceResolutionState.failed)) {
+            val live = party(members = listOf(member("host"), member("guest", state)
+                .copy(awaySince = "2026-09-30T11:59:59Z")))
+            assertEquals(emptyList(), partyAwayHoldMembers(live, emptySet(), "host", true, leaseNow))
+        }
+        assertEquals(emptyList(), partyAwayHoldMembers(party(status = WatchPartyStatus.ended), setOf("guest"), "host", true, leaseNow))
+    }
+
+    @Test
+    fun malformedOrExpiredDurableAwayDoesNotHold() {
+        for (since in listOf("invalid", "2026-09-30T11:50:00Z")) {
+            val live = party(members = listOf(member("host"), member("guest").copy(awaySince = since)))
+            assertEquals(emptyList(), partyAwayHoldMembers(live, emptySet(), "host", true, leaseNow))
+        }
+    }
+
     /** Case 1: preference off, so nothing is held and the party plays on. */
     @Test
     fun pauseForAwayOffHoldsNobody() {

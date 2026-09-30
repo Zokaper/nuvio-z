@@ -980,6 +980,7 @@ internal fun PlayerScreenRuntime.BindWatchPartyEffect() {
                 awayProfileIds = WatchPartySync.state.value.awayProfileIds,
                 viewerProfileId = live.activeProfileId,
                 pauseForAwayUsers = live.pauseForAwayUsers,
+                serverNowMs = currentEpochMs() + live.serverClockOffsetMs,
             )
             if (holding != reactedTo) {
                 reactedTo = holding

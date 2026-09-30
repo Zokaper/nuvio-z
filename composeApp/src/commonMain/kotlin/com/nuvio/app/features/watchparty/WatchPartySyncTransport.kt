@@ -142,6 +142,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
 
     /** Each guest's last reported presence. See `PartyPresence.kt`. */
     private val guestAway = mutableMapOf<String, Boolean>()
+    private val guestAwayClearedAtPartyMs = mutableMapOf<String, Long>()
 
     /**
      * This client's own presence, and it is the only client that can know it.
@@ -399,6 +400,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         guestStatus.clear()
         guestStarved.clear()
         guestAway.clear()
+        guestAwayClearedAtPartyMs.clear()
         guestLastTelemetryAtPartyMs.clear()
         guestStatusAtPartyMs.clear()
         outstandingPings.clear()
@@ -427,6 +429,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // own does not - it is about a window, and a new episode does not put the phone back into a
         // hand. `selfAway` deliberately survives, and `awayRoster` republishes it immediately.
         guestAway.clear()
+        guestAwayClearedAtPartyMs.clear()
         guestLastTelemetryAtPartyMs.clear()
         guestStatusAtPartyMs.clear()
         outstandingPings.clear()
@@ -700,9 +703,23 @@ internal object WatchPartySync : PartyRealtimeTransport {
      */
     private fun hostAwayRoster(): List<String> {
         val self = authority?.selfProfileId
-        val reported = guestAway.filterValues { it }.keys
+        val reported = partyFreshAwayProfiles(guestAway, guestLastTelemetryAtPartyMs, partyNowMs())
         val all = if (selfAway && self != null) reported + self else reported
         return all.sorted()
+    }
+
+    fun reconcileDurablePresence(previous: WatchPartyState?, next: WatchPartyState) {
+        if (!isHost() || authority?.partyId != next.id) return
+        val cleared = partyDurableAwayCleared(previous, next)
+        if (cleared.isEmpty()) return
+        val now = partyNowMs()
+        cleared.forEach { id ->
+            guestAway[id] = false
+            guestAwayClearedAtPartyMs[id] = now
+        }
+        WatchPartyDiagnostics.transport("durable-away-cleared", next.id, realtime = "presence",
+            detail = "members=${cleared.joinToString { it.shortId() }}")
+        publishState()
     }
 
     /**
@@ -994,11 +1011,13 @@ internal object WatchPartySync : PartyRealtimeTransport {
         // Presence is part of the transition for the same reason `starved` is: an away member and a
         // member who pressed pause send the identical `paused`, and the away hold is decided on the
         // difference. A log that cannot show the transition cannot be used to diagnose the hold.
-        val awayBefore = guestAway.put(message.fromProfileId, message.away)
+        val clearedAt = guestAwayClearedAtPartyMs[message.fromProfileId]
+        val away = message.away && (clearedAt == null || message.atPartyMs > clearedAt)
+        val awayBefore = guestAway.put(message.fromProfileId, away)
         if (
             guestStatus.put(message.fromProfileId, message.status) != message.status ||
             starvedBefore != message.starved ||
-            awayBefore != message.away ||
+            awayBefore != away ||
             before != after
         ) {
             log.i {

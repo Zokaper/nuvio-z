@@ -741,6 +741,7 @@ object WatchPartyRepository {
         // one. The realizer's authority moves in the same update that installs the snapshot, so no
         // frame is ever composed with one party's state and another's pick or realization.
         val previousParty = _uiState.value.party
+        WatchPartySync.reconcileDurablePresence(previousParty, snapshot)
         val stagedPickCarriesOver = shouldRetainStagedHostSource(previousParty, snapshot)
         // An ended party is never re-entered as a party, so its resolved media has no remaining
         // use - and it is the kind of thing that must not sit in memory for want of a reason to

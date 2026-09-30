@@ -339,20 +339,44 @@ fun partyAwayHoldMembers(
     awayProfileIds: Set<String>,
     viewerProfileId: String?,
     pauseForAwayUsers: Boolean,
+    serverNowMs: Long = currentEpochMs(),
 ): List<String> {
     if (!pauseForAwayUsers) return emptyList()
     if (party == null || party.status == WatchPartyStatus.ended) return emptyList()
-    if (awayProfileIds.isEmpty()) return emptyList()
     return party.members.filter { member ->
-        if (member.profileId !in awayProfileIds) return@filter false
+        val durableAway = member.hasActiveAwayLease(serverNowMs)
+        if (member.profileId !in awayProfileIds && !durableAway) return@filter false
         if (member.profileId == viewerProfileId) return@filter false
-        if (!member.connected) return@filter false
+        // A suspended iOS guest cannot heartbeat. Its bounded lease survives the ordinary
+        // disconnected stamp; a failed/left member never participates in this hold.
+        if (!member.connected && !durableAway) return@filter false
         if (member.readyState == SourceResolutionState.left ||
             member.readyState == SourceResolutionState.failed ||
-            member.readyState == SourceResolutionState.disconnected
+            (member.readyState == SourceResolutionState.disconnected && !durableAway)
         ) return@filter false
         true
     }.map { it.profileId }.sorted()
+}
+
+/** Matches the backend's ten-minute lease; never caches an Away after a return or expiry. */
+internal fun WatchPartyParticipant.hasActiveAwayLease(serverNowMs: Long): Boolean {
+    val since = awaySince?.let {
+        runCatching { kotlin.time.Instant.parse(it).toEpochMilliseconds() }.getOrNull()
+    } ?: return false
+    return since > serverNowMs - 600_000L
+}
+
+/** Only receipt-time-fresh peer evidence belongs in the fast roster. */
+internal fun partyFreshAwayProfiles(away: Map<String, Boolean>, receivedAt: Map<String, Long>, nowMs: Long): Set<String> =
+    away.filter { (id, isAway) ->
+        isAway && receivedAt[id]?.let { nowMs - it <= WatchPartyClockStaleMs } == true
+    }.keys
+
+/** A durable return/lease expiry supersedes peer Away reported before that transition. */
+internal fun partyDurableAwayCleared(previous: WatchPartyState?, next: WatchPartyState): Set<String> {
+    if (previous?.id != next.id) return emptySet()
+    val wasAway = previous.members.filter { it.awaySince != null }.map { it.profileId }.toSet()
+    return next.members.filter { it.awaySince == null && it.profileId in wasAway }.map { it.profileId }.toSet()
 }
 
 /**
