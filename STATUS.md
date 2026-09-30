@@ -2,6 +2,53 @@
 
 Last updated: 2026-09-30
 
+## iOS return retest: recovery churn and old desktop host (2026-09-30, 23:06–23:12 Arabia)
+
+Active branch: `claude/ios-watch-together-hardening`. Maintainer tested the corrected diagnostic
+IPA (`8aedfd9f5`, run `36766427491`, success); replacement checksum/manifest verified locally.
+Export: `../ios-reconn-logs/2/nuvio_diagnostics/watchparty-1790798761121.log`. Maintainer says the
+two banners appeared after returning. The first foreground interval is healthy; two native socket
+receive failures (numeric code 53, not attributed to a specific network cause) follow inactivity.
+Each recovery then races SDK rejoin against adapter channel replacement: duplicate subscription
+transitions, `phx_close`, timeouts and nine channel instances. A healthy third socket closes exactly
+15 seconds after opening, without sending a heartbeat, after the prior socket lost a pending one.
+Pinned SDK outstanding-heartbeat carryover reproduced in a real-SDK regression (healthy second
+socket incorrectly closed, third opened). Mobile now re-sends that heartbeat on the new socket;
+only a real server reply clears it. Genuine unanswered heartbeat timeouts remain enabled.
+
+Adapter now retains both channel objects/collectors/protocol while SDK reconnects and rejoins;
+only connected-socket join recovery has a 30-second deadline before adapter replacement. Offline
+time belongs to SDK recovery. Restores broadcast callbacks after SDK callback resets and re-tracks
+presence on recovery; Live still requires both planes, connected socket and validated traffic.
+Queued iOS return publication now has the same revision guard as Away: the trace captured a false
+RPC completing after a newer background event during a brief active/inactive flap.
+
+Installed desktop is **debug 79** (`1.45.79`, source `71c8386d4`), which predates host Away fix
+`371e71dcf`. Laptop host log confirms stale peer Away held playback after successful iPhone durable
+return clear (110–174 ms); maintainer disabled waiting before peer recovery. Use a host containing
+the fix for acceptance. Already-built Windows MSI from desktop source `d020c0c609` downloaded to
+`../.rc-investigation/wt-ios/desktop-away-host/`; it is a **stable-channel build-only artifact**, not
+an update to installed Debug. Windows job passed; overall CI failed in Linux native frame-copy
+test (`player != NULL`) before Kotlin tests. Prior local Away tests/compile remain 51/51 passing.
+No desktop code, backend, debug counter or feed changes in this follow-up.
+
+Authoritative final `:composeApp:testAndroidHostTest --rerun`: **3,384 tests / 0 failures /
+0 errors / 6 skipped**, including **424/424** focused WT/diagnostic cases. Real-SDK regressions
+confirm one join per plane per socket, healthy replacement survival, genuine unanswered-heartbeat
+timeout, and restored durable state messages after callback reset. Lifecycle tests cover queued
+obsolete return and latest return after an in-flight Away. XML/logs:
+`../.rc-investigation/wt-ios/resume-recovery-full-results/` and `resume-recovery-full.log`;
+original red SDK regression: `heartbeat-recovery-red.{log,xml}`.
+Source fix pushed as `8658c6576`. Authorized **diagnostic-only iOS IPA run `36776265055`**
+is queued/in progress on that exact source:
+https://github.com/Zokaper/nuvio-z/actions/runs/36776265055 . Android/release/feed publication
+is disabled and base debug 73 retained. Native compilation/artifact verification are pending;
+do not claim this source is iOS-compiled or an IPA is downloadable until the run succeeds.
+After success, verify SHA-named IPA/checksum/manifest, then test five quiet foreground minutes,
+repeated Home/return and lock/unlock with Pause for Away ON/OFF on a host containing `371e71dcf`.
+Desktop investigation handoff pushed as `292601c44`. Physical acceptance and stable RC publication
+remain open. All coherent source/docs are committed; no code merge to desktop in this follow-up.
+
 ## iOS diagnostic IPA reconnect retest (2026-09-30, 22:08–22:10 Arabia time)
 
 Active branch: `claude/ios-watch-together-hardening`. Maintainer tested diagnostic source
@@ -20,12 +67,12 @@ The diagnostic regression reproduced the exact missing-plugin exception, then bo
 passed a real heartbeat/reply exchange. Focused WT + diagnostics **416/416 pass**, no failures,
 errors or skips. Privacy-safe error classification now names missing WebSockets. XML/logs are in
 `../.rc-investigation/wt-ios/socket-green-results/` and `socket-regression-{red,green}.*`.
-Fix committed/pushed: `8aedfd9f5`. Replacement **diagnostic-only IPA run `36766427491`** is
-in progress on that source: https://github.com/Zokaper/nuvio-z/actions/runs/36766427491 .
+Fix committed/pushed: `8aedfd9f5`. Replacement **diagnostic-only IPA run `36766427491`**
+succeeded on that source: https://github.com/Zokaper/nuvio-z/actions/runs/36766427491 .
 Android is skipped and release/feed publication is disabled; base debug 73 retained.
-At handoff native compilation/artifact verification and standard push CI are still pending.
-After the run succeeds, verify the SHA-named artifact/checksum/manifest before sideloading,
-then repeat the five-minute foreground capture and export the latest `watchparty-*.log`.
+Native compilation and standard source CI `36766426697` passed. SHA-named IPA checksum/manifest
+verified; maintainer's second test on it is recorded above. IPA SHA-256:
+`d292d612e1ed5758f1a8b4dc1d2fa7d72e9e093bde15b7f260bfa8264c62189a`.
 See `Docs/IOS-WATCH-TOGETHER-RC.md`. Debug/stable counters and feeds remain unchanged; original
 foreground reconnect and physical Away acceptance remain open. No desktop/backend changes.
 
