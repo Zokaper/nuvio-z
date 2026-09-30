@@ -31,7 +31,7 @@ Final focused WT + native-error diagnostic tests: **413/413**, zero failures/err
 Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 failures /
 0 errors / 6 skipped**. Desktop compiles and focused presence tests **51/51 pass**. XML and logs:
 `../.rc-investigation/wt-ios/`. Source branches are pushed. iOS framework/Xcode compiler check
-`36731939532` is running; its Swift lifecycle regression job passed. Source
+`36731939532` **passed** (Swift lifecycle regressions, Kotlin device framework and unsigned Xcode app). Source
 commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
 Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
 the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
@@ -43,7 +43,9 @@ Maintainer cannot use Xcode and explicitly allowed a **diagnostic-only iOS IPA**
 the no-new-build gate. Added opt-in `diagnostic_ios_only` dispatch mode to the existing debug
 workflow: same full iOS builder, SHA-named IPA/checksum/manifest Actions artifact; Android and
 release/feed publisher jobs skipped. Existing default release path retained; actionlint passes.
-No debug counter, stable version, release tag or feed change. Diagnostic dispatch/result pending.
+No debug counter, stable version, release tag or feed change. Diagnostic run `36735100392`, source
+`628737989`, is building; its Android job is confirmed skipped. The IPA retains base debug 73
+and must be sideloaded explicitly; it is not a claimed reconnect fix or an updater release.
 
 ## Debug 72 physical retest / remaining Classic toast (2026-09-30)
 

@@ -817,6 +817,9 @@ still be checked locally.
 Both debug workflows refuse to run if their tag already exists. Bump the counter
 instead - `DEBUG_BUILD` in `iosApp/Configuration/DebugVersion.xcconfig` for mobile, and
 in `composeApp/Configuration/DesktopDebugVersion.properties` for desktop.
+Mobile's opt-in `diagnostic_ios_only=true` dispatch is an exception: it builds only a
+SHA-identified iOS Actions artifact on the current counter, skipping Android and release/feed
+publication. Use it only for explicitly authorized diagnostic capture, not an updater release.
 
 ⚠ **Publish debug builds *before* a release bump, never after.** `Validate release
 state` rejects any file changed between the bump and the release commit except the
