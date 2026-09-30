@@ -39,6 +39,11 @@ gate against a new published build before both causes are understood. Scoped mig
 Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
 Keep publication held until the foreground drop is captured and explained; do not claim both
 blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
+Maintainer cannot use Xcode and explicitly allowed a **diagnostic-only iOS IPA** exception to
+the no-new-build gate. Added opt-in `diagnostic_ios_only` dispatch mode to the existing debug
+workflow: same full iOS builder, SHA-named IPA/checksum/manifest Actions artifact; Android and
+release/feed publisher jobs skipped. Existing default release path retained; actionlint passes.
+No debug counter, stable version, release tag or feed change. Diagnostic dispatch/result pending.
 
 ## Debug 72 physical retest / remaining Classic toast (2026-09-30)
 

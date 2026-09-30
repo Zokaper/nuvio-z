@@ -11,6 +11,11 @@ name: Debug release
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic_ios_only:
+        description: 'Build only an iOS diagnostic artifact; no release or update-feed changes'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -37,6 +42,7 @@ jobs:
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          DIAGNOSTIC_IOS_ONLY: ${{ inputs.diagnostic_ios_only }}
         run: |
           set -euo pipefail
           config=iosApp/Configuration/Version.xcconfig
@@ -60,6 +66,10 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "project_version=${project}" >> "${GITHUB_OUTPUT}"
 
+          if [[ "${DIAGNOSTIC_IOS_ONLY}" == "true" ]]; then
+            echo "iOS diagnostic artifact only, source ${GITHUB_SHA}; no release or feed publication."
+            exit 0
+          fi
           echo "Publishing ${tag} (expected Android versionCode $((project * 1000 + debug_build)))"
 
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
@@ -69,6 +79,7 @@ jobs:
 
   android_debug:
     name: Build Android debug APK
+    if: ${{ !inputs.diagnostic_ios_only }}
     needs: prepare
     runs-on: ubuntu-latest
     env:
@@ -208,7 +219,7 @@ jobs:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
       IOS_CONFIGURATION: Debug
-      IOS_IPA_NAME: Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa
+      IOS_IPA_NAME: ${{ inputs.diagnostic_ios_only && format('Nuvio-Z-iOS-WT-diagnostic-{0}-unsigned.ipa', github.sha) || format('Nuvio-Z-iOS-{0}-{1}-debug-unsigned.ipa', needs.prepare.outputs.marketing_version, needs.prepare.outputs.debug_build) }}
 
     steps:
       - name: Check out source
@@ -240,7 +251,16 @@ jobs:
           ./scripts/prepare-ios-dependencies.sh
           ./scripts/build-ios-ipa.sh "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.debug_build }}"
 
+      - name: Identify diagnostic source and checksum
+        if: ${{ inputs.diagnostic_ios_only }}
+        run: |
+          printf 'Watch Together diagnostic only\nSource: %s\nBase debug version: %s\n' \
+            "${GITHUB_SHA}" "${{ needs.prepare.outputs.version }}" > build/ios-ipa/DIAGNOSTIC.txt
+          cd build/ios-ipa
+          shasum -a 256 "${IOS_IPA_NAME}" > SHA256SUMS.txt
+
       - name: Upload iOS Debug artifact
+        if: ${{ !inputs.diagnostic_ios_only }}
         uses: actions/upload-artifact@v7
         with:
           name: nuvio-debug-ios
@@ -248,7 +268,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload Watch Together diagnostic IPA
+        if: ${{ inputs.diagnostic_ios_only }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-watchparty-diagnostic-ios
+          path: |
+            build/ios-ipa/${{ env.IOS_IPA_NAME }}
+            build/ios-ipa/DIAGNOSTIC.txt
+            build/ios-ipa/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
+    if: ${{ !inputs.diagnostic_ios_only }}
     name: Publish to debug channel
     needs: [prepare, android_debug, ios_debug]
     runs-on: ubuntu-latest

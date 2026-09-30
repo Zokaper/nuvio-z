@@ -109,10 +109,14 @@ Diagnostics:
 
 ## Minimum remaining physical work
 
-The foreground drop needs a runtime trace before another build is published. A connected-device
+The foreground drop needs a runtime trace before an RC build is published. A connected-device
 console capture on the current build, filtered to WatchPartySync / WatchPartyTrace /
 Supabase-Realtime, may identify it without publishing anything. The new persistent trace requires
-a privately installed diagnostic artifact; build-only compiler CI is not an installable artifact.
+a diagnostic artifact; build-only compiler CI is not an installable artifact. The maintainer
+cannot use Xcode and explicitly authorized a diagnostic-only iOS IPA. The existing debug workflow
+now has an opt-in artifact-only mode that skips Android and release/feed publication. It uses the
+same full iOS builder, keeps the current debug counter, and identifies the source SHA in the IPA
+filename and a checksum/manifest. Workflow validation with actionlint passed.
 Do not declare the reconnect blocker fixed from code inspection alone.
 
 The backend notification migration is applied. Once an installable candidate is authorized:
