@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-30
 
-## Final iOS Watch Together RC blockers (2026-09-30) — investigation active
+## Final iOS Watch Together RC blockers (2026-09-30) — Away fixed, reconnect cause open
 
 Active mobile/desktop branch remains `claude/ios-watch-together-hardening`. Maintainer physically
 tested mobile debug 72 + desktop 78: Android guest and other requested RC behavior pass; only iOS
@@ -25,8 +25,15 @@ unproved. Normal generation/sequence updates do not recreate desired channels; p
 `setAuth()` updates tokens in place. Added persistent privacy-safe `watchparty-*.log` in the same
 Files folder for socket/heartbeat, plane status, auth, lifecycle, health stale and recreation events.
 
-First focused WT pass: **408/408** (before final return/health diagnostics); final focused rerun,
-full mobile host suite and iOS compilation pending. Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
+Final focused WT + native-error diagnostic tests: **413/413**, zero failures/errors/skips.
+Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 failures /
+0 errors / 6 skipped**. Desktop compiles and focused presence tests **51/51 pass**. XML and logs:
+`../.rc-investigation/wt-ios/`. iOS framework/Xcode compiler check pending GitHub push. Source
+commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
+Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
+the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
+gate against a new published build before both causes are understood. No migration deployed.
+Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
 Keep publication held until the foreground drop is captured and explained; do not claim both
 blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
 

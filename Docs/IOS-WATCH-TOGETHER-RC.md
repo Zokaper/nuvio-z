@@ -95,10 +95,13 @@ Diagnostics:
 
 - Fresh local backend reset + pgTAP: **347 assertions, all pass**. Four added cases cover durable
   Away notification, unchanged-Away heartbeat silence, immediate return notification and expiry.
-- First mobile focused WT run: **408 tests, all pass**. Final rerun includes return tombstones,
-  per-plane receive-health guard and privacy-safe native error classification; result pending.
-- Full authoritative mobile host suite and iOS framework/Xcode compile: pending.
-- Desktop focused presence compile/test after the minimal shared merge: pending.
+- Final mobile focused WT + diagnostic run: **413 tests, zero failures/errors/skips**, including
+  real adapter protocol preservation and delayed pre-return Away, per-plane receive-health guard,
+  identity/generation stability and privacy-safe native error classification.
+- Full authoritative `:composeApp:testAndroidHostTest --rerun`: **3,373 tests, zero failures/errors,
+  6 skipped**. iOS framework/Xcode compiler check pending.
+- Desktop compile and focused presence tests after the minimal shared merge: **51/51 pass**.
+- Logs and copied XML: `../.rc-investigation/wt-ios/`.
 - No physical result is inferred from a host test, and no debug release/version/feed was published.
 
 ## Minimum remaining physical work
