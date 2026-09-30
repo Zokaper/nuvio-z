@@ -22,8 +22,12 @@ The subtitle queue patch is retained in intent and hardened: one `MPVSerialExecu
 all native work and destruction, closes without waiting on main, drops stale work/publications,
 and retains the old context/controller/layer through off-main shutdown. Regression harness:
 production notification observer plus 50 simulated blocked-subtitle exit/recreation cycles.
-Focused Kotlin/Android integration tests added. Verification is running; no debug build,
-version change, release promotion, or desktop changes. Physical RC clearance remains pending.
+Verification: full Android host suite **3,353 total / 0 failures / 0 errors / 6 skipped**;
+production Swift observer and 50 executor lifecycle cycles pass (run `36696305232`).
+Final review also keeps FILE_LOADED error clearing in native event order so it cannot erase
+a following END_FILE error. iOS framework compilation passed; Xcode validation is running.
+The maintainer authorized Android + iOS debug 72 after green checks; counter and notes
+prepared. No stable promotion or desktop changes. Physical RC clearance remains pending.
 
 ## Release Candidate Integration & Verification — Final Debug Set 71 / 78 (2026-09-30)
 

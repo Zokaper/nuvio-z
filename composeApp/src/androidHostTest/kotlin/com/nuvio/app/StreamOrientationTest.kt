@@ -101,8 +101,8 @@ class StreamOrientationTest {
                         """.trimIndent()
                         else -> """
                             {"streams":[
-                              {"name":"Manually chosen RC source","url":"https://example.invalid/selected.mp4"},
-                              {"name":"Other RC source","url":"https://example.invalid/other.mp4"}]}
+                              {"name":"Manually chosen RC source 1080p","url":"https://example.invalid/selected.mp4"},
+                              {"name":"Other RC source 1080p","url":"https://example.invalid/other.mp4"}]}
                         """.trimIndent()
                     },
                 )
@@ -115,16 +115,20 @@ class StreamOrientationTest {
             }
             openStreamList(StreamLaunch(profileId = ProfileRepository.activeProfileId,
                 type = "movie", videoId = "manual-rc", title = "RC title"))
-            compose.waitUntil(timeoutMillis = 5_000) {
-                StreamsRepository.uiState.value.groups.flatMap { it.streams }.size == 2 &&
-                    !StreamsRepository.uiState.value.isAnyLoading
+            try {
+                compose.waitUntil(timeoutMillis = 5_000) {
+                    StreamsRepository.uiState.value.groups.flatMap { it.streams }.size == 2 &&
+                        !StreamsRepository.uiState.value.isAnyLoading
+                }
+            } catch (failure: Throwable) {
+                throw AssertionError("RC fixture requests=${server.requestCount}, state=${StreamsRepository.uiState.value}, addons=${AddonRepository.uiState.value}", failure)
             }
-            compose.onNodeWithText("Manually chosen RC source").performClick()
+            compose.onNodeWithText("Manually chosen RC source 1080p").performClick()
             compose.waitUntil(timeoutMillis = 5_000) { PlayerLaunchStore.get(1L) != null }
             compose.runOnIdle {
                 val picked = assertNotNull(PlayerLaunchStore.get(1L))
                 assertEquals("https://example.invalid/selected.mp4", picked.sourceUrl)
-                assertEquals("Manually chosen RC source", picked.streamTitle)
+                assertEquals("Manually chosen RC source 1080p", picked.streamTitle)
                 assertFalse(picked.autoPickedWithFailureChain)
             }
         }

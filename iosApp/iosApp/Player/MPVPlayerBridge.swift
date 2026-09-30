@@ -1315,7 +1315,7 @@ final class MPVPlayerViewController: UIViewController {
             var stateChanged = false
             var tracksChanged = false
 
-            while true {
+            while self.mpvWork.isOpen {
                 let event = mpv_wait_event(mpv, 0)
                 guard let eventPtr = event else { break }
                 if eventPtr.pointee.event_id == MPV_EVENT_NONE { break }
@@ -1328,11 +1328,13 @@ final class MPVPlayerViewController: UIViewController {
                     }
                 case MPV_EVENT_FILE_LOADED:
                     self.hasLoadedFile = true
+                    // Clear in event order: a main-queued clear could erase a following END_FILE
+                    // error already recorded by this drain, leaving a failed videoless player.
+                    self.clearPlaybackError()
                     stateChanged = true
                     tracksChanged = true
                     DispatchQueue.main.async {
                         guard self.mpvWork.isOpen else { return }
-                        self.clearPlaybackError()
                         self.publishNowPlayingForPlaybackSession()
                         self.logCurrentAudioOutput()
                     }
@@ -1367,6 +1369,7 @@ final class MPVPlayerViewController: UIViewController {
                     break
                 }
             }
+            guard self.mpvWork.isOpen else { return }
             if stateChanged {
                 let started = CFAbsoluteTimeGetCurrent()
                 let snapshot = self.readPlaybackSnapshot()

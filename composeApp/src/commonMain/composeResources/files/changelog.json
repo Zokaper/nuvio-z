@@ -455,6 +455,10 @@
         {
           "build": 69,
           "text": "TMDB details work again: builds now carry Nuvio's built-in TMDB key, so cast, artwork, episode details and More like this come from TMDB with no key of your own (68 shipped without one). Advanced Setup's player previews now show a real episode frame instead of the show's artwork, and never switch to it after a slow load."
+        },
+        {
+          "build": 72,
+          "text": "iOS: fixes the confirmed app freeze caused by download progress and Live Activity updates, and makes player exit safe during subtitle loading. Failed or opening playback no longer starts an unrelated next-episode source picker; manual source errors remain actionable. Retest Classic playback while downloads run, repeated exit/reopen, subtitle switching, and the Live Activity's background message when locking the phone."
         }
       ]
     },

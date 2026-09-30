@@ -89,7 +89,8 @@ Focused Kotlin tests cover an actual Classic source tap/launch, actionable manua
 opening/zero-duration/stale/error EOF, and valid completion in all three modes. Native Swift
 tests use the production Live Activity observer and 50 ordered subtitle/exit/recreation
 cycles; build-only iOS CI runs them before compiling Kotlin/Swift. Record actual results
-in STATUS.md. No version bump or debug release is authorized by this investigation.
+in STATUS.md. The maintainer subsequently authorized Android + iOS debug 72 after green checks;
+physical RC clearance still requires the steps below.
 
 1. With an active download, Classic → Futurama S1E1 → first source. Check the chosen
    source opens; if it fails, the player says why and offers retry/another source.
