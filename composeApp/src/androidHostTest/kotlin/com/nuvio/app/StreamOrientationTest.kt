@@ -4,11 +4,15 @@ import android.app.Activity
 import android.app.Application
 import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.AddonStorage
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.features.playback.PlaybackMode
 import com.nuvio.app.features.player.PlayerSettingsStorage
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
@@ -23,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Rule
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -62,6 +68,7 @@ class StreamOrientationTest {
         MetaDetailsRepository.clear()
         StreamsRepository.clear()
         StreamLaunchStore.clear()
+        PlayerLaunchStore.clear()
         OrientationTrackingActivity.requests.clear()
     }
 
@@ -70,9 +77,57 @@ class StreamOrientationTest {
         PlayerSettingsRepository.clearLocalState()
         StreamsRepository.clear()
         StreamLaunchStore.clear()
+        PlayerLaunchStore.clear()
         AddonRepository.clearLocalState()
         MetaDetailsRepository.clear()
         BingeGroupCacheRepository.remove("orientation-series")
+    }
+
+    @Test
+    fun classicManualTapHandsExactlyThatSourceToPlayerWithoutAutomaticFailover() {
+        PlayerSettingsRepository.ensureLoaded()
+        PlayerSettingsRepository.setPlaybackMode(PlaybackMode.CLASSIC)
+        PlayerSettingsRepository.setStreamAutoPlayMode(StreamAutoPlayMode.MANUAL)
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = MockResponse().setBody(
+                    when {
+                        request.path.orEmpty().contains("manifest") -> """
+                            {"id":"manual-rc","name":"RC sources","description":"","version":"1",
+                             "resources":["meta","stream"],"types":["movie"],"catalogs":[]}
+                        """.trimIndent()
+                        request.path.orEmpty().contains("/meta/") -> """
+                            {"meta":{"id":"manual-rc","type":"movie","name":"RC title"}}
+                        """.trimIndent()
+                        else -> """
+                            {"streams":[
+                              {"name":"Manually chosen RC source","url":"https://example.invalid/selected.mp4"},
+                              {"name":"Other RC source","url":"https://example.invalid/other.mp4"}]}
+                        """.trimIndent()
+                    },
+                )
+            }
+            AddonStorage.saveInstalledAddonUrls(ProfileRepository.activeProfileId,
+                listOf(server.url("/manifest.json").toString()))
+            runBlocking {
+                AddonRepository.initialize()
+                withTimeout(5_000) { AddonRepository.awaitManifestsLoaded() }
+            }
+            openStreamList(StreamLaunch(profileId = ProfileRepository.activeProfileId,
+                type = "movie", videoId = "manual-rc", title = "RC title"))
+            compose.waitUntil(timeoutMillis = 5_000) {
+                StreamsRepository.uiState.value.groups.flatMap { it.streams }.size == 2 &&
+                    !StreamsRepository.uiState.value.isAnyLoading
+            }
+            compose.onNodeWithText("Manually chosen RC source").performClick()
+            compose.waitUntil(timeoutMillis = 5_000) { PlayerLaunchStore.get(1L) != null }
+            compose.runOnIdle {
+                val picked = assertNotNull(PlayerLaunchStore.get(1L))
+                assertEquals("https://example.invalid/selected.mp4", picked.sourceUrl)
+                assertEquals("Manually chosen RC source", picked.streamTitle)
+                assertFalse(picked.autoPickedWithFailureChain)
+            }
+        }
     }
 
     @Test

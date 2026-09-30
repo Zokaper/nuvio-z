@@ -17,6 +17,7 @@ on:
   push:
     paths:
       - 'iosApp/**'
+      - 'scripts/ios-rc-regressions/**'
       - 'MPVKit'
       - 'composeApp/src/iosMain/**'
       - 'composeApp/src/iosAppStore/**'
@@ -31,7 +32,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rc_regressions:
+    name: iOS RC lifecycle regressions
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          swiftc iosApp/iosApp/Player/MPVSerialExecutor.swift iosApp/iosApp/DownloadsLiveActivityManager.swift scripts/ios-rc-regressions/main.swift -o /tmp/nuvio-ios-rc-regressions
+          /tmp/nuvio-ios-rc-regressions
   build:
+    needs: rc_regressions
     name: Compile Kotlin framework and Xcode app
     runs-on: macos-latest
     timeout-minutes: 90

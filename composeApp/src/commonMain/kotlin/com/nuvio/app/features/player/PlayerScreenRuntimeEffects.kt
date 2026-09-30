@@ -1159,9 +1159,9 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         }
     }
 
-    LaunchedEffect(playbackSnapshot.isEnded, nextEpisodeInfo) {
+    LaunchedEffect(playbackSnapshot, playbackSnapshotKey, activePlaybackKey, initialLoadCompleted, initialSeekApplied, errorMessage, nextEpisodeInfo) {
         if (
-            playbackSnapshot.isEnded &&
+            hasCompletedCurrentEpisode() &&
             nextEpisodeInfo != null &&
             // Same rule at the end of the episode: the host advances the party, guests follow.
             ownsNextEpisode &&

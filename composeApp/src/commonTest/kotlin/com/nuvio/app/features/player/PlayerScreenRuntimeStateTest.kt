@@ -13,6 +13,64 @@ import kotlin.test.assertTrue
 class PlayerScreenRuntimeStateTest {
 
     @Test
+    fun manualSourceEndedDuringOpeningCannotStartAutomaticNextEpisodeSelection() {
+        val runtime = completedEpisodeRuntime().apply { initialLoadCompleted = false }
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+        assertEquals("https://example.com/video.mp4", runtime.activeSourceUrl)
+        assertNull(runtime.args.onFatalPlaybackError)
+    }
+
+    @Test
+    fun failedManualSourceKeepsTheSourceAndItsActionableError() {
+        val runtime = completedEpisodeRuntime()
+        runtime.failPlaybackFatally("Unable to open this source. Choose another source or retry.")
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+        assertEquals("https://example.com/video.mp4", runtime.activeSourceUrl)
+        assertEquals("Unable to open this source. Choose another source or retry.", runtime.errorMessage)
+        assertTrue(runtime.controlsVisible)
+    }
+
+    @Test
+    fun zeroDurationEofCannotStartAnUnrelatedAutomaticPicker() {
+        val runtime = completedEpisodeRuntime().apply {
+            playbackSnapshot = playbackSnapshot.copy(durationMs = 0)
+        }
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+    }
+
+    @Test
+    fun oldSourceEofCannotAdvanceAReopenedTitle() {
+        val runtime = completedEpisodeRuntime().apply { activeSourceUrl = "https://example.com/retry.mp4" }
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+    }
+
+    @Test
+    fun endedSnapshotMustFinishLoadingAndResumeBeforeAdvancing() {
+        val runtime = completedEpisodeRuntime().apply { initialSeekApplied = false }
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+        runtime.initialSeekApplied = true
+        runtime.playbackSnapshot = runtime.playbackSnapshot.copy(isLoading = true)
+        assertFalse(runtime.hasCompletedCurrentEpisode())
+    }
+
+    @Test
+    fun genuineCompletedEpisodeStillAdvancesInEveryPlaybackMode() {
+        for (mode in com.nuvio.app.features.playback.PlaybackMode.entries) {
+            val runtime = completedEpisodeRuntime().apply {
+                playerSettingsUiState = playerSettingsUiState.copy(playbackMode = mode)
+            }
+            assertTrue(runtime.hasCompletedCurrentEpisode(), "mode=$mode")
+        }
+    }
+
+    private fun completedEpisodeRuntime() = PlayerScreenRuntime(testPlayerScreenArgs()).apply {
+        initialSeekApplied = true
+        initialLoadCompleted = true
+        updatePlaybackSnapshot(PlayerPlaybackSnapshot(isLoading = false, isEnded = true,
+            positionMs = 1_200_000L, durationMs = 1_200_000L))
+    }
+
+    @Test
     fun controlsStartHidden() {
         assertFalse(PlayerScreenRuntime(testPlayerScreenArgs()).controlsVisible)
     }

@@ -24,9 +24,11 @@ final class DownloadsLiveActivityManager {
         observer = NotificationCenter.default.addObserver(
             forName: downloadsLiveStatusUpdatedNotification,
             object: nil,
-            queue: .main
+            // A transfer posts while holding DownloadStore.lock. Foundation waits for observers
+            // registered on .main, deadlocking if composition is waiting for that same lock.
+            queue: nil
         ) { [weak self] _ in
-            self?.syncFromPayloadStore()
+            DispatchQueue.main.async { [weak self] in self?.syncFromPayloadStore() }
         }
 
         syncFromPayloadStore()

@@ -2,6 +2,29 @@
 
 Last updated: 2026-09-30
 
+## Final RC blocker — Classic iOS freeze investigation (2026-09-30)
+
+Recent debug 71 diagnostics prove a downloads lock inversion, **not mpv**: matching release
+binary UUID symbolicates main to `DownloadsRepository.ensureLoaded`/`DownloadStore.lock`;
+transfer thread 61 holds that lock while Live Activity notification delivery waits for its
+`.main` observer. Swift now observes on the posting thread and asynchronously dispatches UI.
+This explains freezing after title reopen/restored downloads and interrupted background
+Live Activity updates. See `Docs/IOS-CLASSIC-RC.md` for offsets, trace, evidence limits and retest.
+
+Classic's manual source survives tap → launch → player with no automatic failure chain.
+The reported "was found" wording belongs to the **next episode** picker. Its EOF effect
+ignored the existing settled snapshot guard and could advance opening/failed/stale playback;
+it now calls `hasCompletedCurrentEpisode`. iOS EOF is gated on a loaded file/no error and
+loadfile refusal is actionable. No physical playback event trace was supplied, so the
+original source's precise EOF response remains unverified.
+
+The subtitle queue patch is retained in intent and hardened: one `MPVSerialExecutor` owns
+all native work and destruction, closes without waiting on main, drops stale work/publications,
+and retains the old context/controller/layer through off-main shutdown. Regression harness:
+production notification observer plus 50 simulated blocked-subtitle exit/recreation cycles.
+Focused Kotlin/Android integration tests added. Verification is running; no debug build,
+version change, release promotion, or desktop changes. Physical RC clearance remains pending.
+
 ## Release Candidate Integration & Verification — Final Debug Set 71 / 78 (2026-09-30)
 
 **Final Heads & Commits:**

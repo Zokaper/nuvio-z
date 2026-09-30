@@ -45,6 +45,7 @@ scripts/scrape_android_compose_animation_docs.py
 tools
 PERFORMANCE_FINDINGS.md
 scripts/*
+!scripts/ios-rc-regressions/
 !scripts/sign-ios-device-app.py
 iosApp/Configuration/DeviceSigning.local.json
 
