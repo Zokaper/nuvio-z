@@ -2,7 +2,84 @@
 
 Last updated: 2026-09-30
 
-## Watch Together source selection: `invalid_source_media` (2026-09-30)
+## Release Candidate Integration & Verification — Final Debug Set 71 / 78 (2026-09-30)
+
+**Final Heads & Commits:**
+- Mobile head: `6c424bf23` (`claude/ios-watch-together-hardening`)
+- Desktop head: `f89098227` (`claude/ios-watch-together-hardening`)
+
+**Integrated Fixes:**
+
+1. **Watch Together source selection: `invalid_source_media` (22023) blocker**
+   - **Root Cause:** `sanitize_source_descriptor_v2` caps each media list (`dynamic_range`, `audio_codecs`, `languages`) at 16 entries. A multi-audio release with >16 languages produced a descriptor that violated the backend contract.
+   - **Fix:** In `PartyStreamSource.kt`, media lists are sorted and bounded to `PartySourceMediaListLimit` (16 entries). `contractViolation()` validates the media contract on the client side before the RPC. Refused calls are classified via `PartyRpcFailure` to present friendly messages instead of raw SQLSTATE/Postgres errors. A rejected source is un-staged (`discardStagedHostSource`) to avoid falsely showing "Source picked" in the lobby. Backend contract remains strict and untouched.
+
+2. **Mobile player single-tap controls latency**
+   - **Root Cause:** Shared Compose `detectTapGestures` waited for the double-tap timeout before firing `onTap`. It also installed double-tap arbitration even when touch gestures were disabled.
+   - **Fix:** Toggles controls on tap release without double-tap delay. Double-tap seek restores controls to their pre-tap state. Disabling touch gestures removes double-tap arbitration entirely. Covers both new and legacy controls across Android and iOS.
+
+3. **iOS subtitle UI stall**
+   - **Root Cause:** Synchronous mpv track selection and subtitle loading executed on the main UI queue.
+   - **Fix:** Subtitle track loading and track switching moved off the main thread onto the serial MPV event queue in `MPVPlayerBridge.swift`.
+
+4. **Watching Now lifecycle presence**
+   - **Root Cause:** Mobile app backgrounding kept publishing playback presence or lagged behind engine lifecycle pauses.
+   - **Fix:** Mobile backgrounding publishes `SocialPlaybackState.paused` immediately while preserving title/episode/session metadata (`effectiveSocialPlaybackState`). Foregrounding resumes `playing` state when playback continues. Desktop window focus handling remains untouched.
+
+5. **Cross-family setup race**
+   - **Root Cause:** Setup completion could return while the first settings blob push was still in flight, causing another device opened immediately afterward to see a missing blob and drop into full initial setup. Import also treated a single missing lookup as definitive absence.
+   - **Fix:** Setup completion awaits the initial upload for up to 8s (`withTimeoutOrNull`). Arriving family blob lookup retries for up to 3.25s (with backoff: 250ms, 500ms, 1000ms, 1500ms) and distinguishes transport failure from confirmed absence (`awaitArrivingFamilyBlob`). Ported to desktop to ensure byte-identical cross-family sync behavior.
+
+6. **Downloads toast navigation**
+   - **Root Cause:** "Go to Downloads" action failed to surface the Downloads view in front of Details when launched from toast notices.
+   - **Fix:** `NuvioNavigator` reveals the tab root before selecting Downloads, bringing Downloads in front of the active Details screen. Applied across single-download and size-estimation toast variants.
+
+**Test Counts & Verification:**
+- Backend pgTAP: 343 / 343 assertions passing (unchanged contract).
+- Mobile host suite (`:composeApp:testAndroidHostTest --rerun`): **3,346 tests, 0 failures, 6 skipped** (clean results directory).
+- Mobile focused tests: `PlayerSurfaceGesturesTest` (5/5), `PlayerTrackSelectionTest` (21/21), `SocialEffectivePlaybackStateTest` (1/1), `CrossFamilySettingsImportMergeTest` (12/12), `DownloadFlowNoticesTest` (1/1), `PlayerExitNavigationTest` (7/7), `PartyRpcFailureTest` (2/2), `PartyStreamSourceTest` (6/6).
+- Mobile local compilation: `:androidApp:assembleFullDebug` BUILD SUCCESSFUL (`androidApp-full-debug.apk`).
+- Desktop split suite (`scripts/run-desktop-tests-split.sh`): **3,315 tests, 0 failures, 0 duplicates** (rest 1,769 / playback 1,040 / downloads 457 / e2e 49).
+- Desktop focused tests: `CrossFamilySettingsImportMergeTest` (12/12), `PartyRpcFailureTest` (2/2), `PartyStreamSourceTest` (6/6).
+- Desktop local compilation & packaging: `:composeApp:packageReleaseMsi` BUILD SUCCESSFUL (`Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.78.msi`).
+
+**Published Debug Releases:**
+- **Mobile Debug Build 71:**
+  - Tag: `debug-v0.4.13-z1.71`
+  - Workflow Run ID: `36683009123` (Conclusion: `success`)
+  - Built Commit SHA: `6c424bf230fb0c717078890afea0b3a064106186`
+  - Published Assets: `androidApp-full-debug.apk`, `Nuvio-Z-iOS-0.4.13-z1-71-debug-unsigned.ipa`, `SHA256SUMS-Debug.txt`, `source-debug.json`
+- **Desktop Debug Build 78:**
+  - Tag: `debug-v0.1.23-alpha-z6.78`
+  - Workflow Run ID: `36683020633` (Conclusion: `success`)
+  - Built Commit SHA: `f89098227af66a3d5437833c433501af9a8ac453`
+  - Published Assets: `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.78.msi`, `Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.78.dmg`
+
+**Remaining Physical QA Checklist (Not device-verified from CI):**
+1. **Watch Together:**
+   - Desktop host creates party; Android + iOS join.
+   - Host picks multi-audio AIOStreams source with >16 languages that previously failed.
+   - Start must succeed; guests resolve stream; play/pause/seek sync.
+   - Confirm no raw RPC errors appear; verify rejected sources do not falsely report "Source picked".
+2. **Mobile Controls Latency:**
+   - On Android and iOS, single tap immediately toggles controls visibility on release.
+   - Double tap (±10s) seeks cleanly without controls flashing.
+   - Verify feel with both new and legacy controls.
+3. **iOS Subtitle Selection:**
+   - Repeatedly change subtitle tracks during playback; verify UI remains fluid and unblocked.
+4. **Watching Now Presence:**
+   - Play media on iOS; background the application.
+   - Profile presence must show paused (not playing).
+   - Return to foreground; playback resumes and status returns to playing.
+5. **Cross-Family Setup:**
+   - Complete initial setup on a fresh desktop profile.
+   - Immediately switch/open that profile on mobile.
+   - Confirm it imports settings and presents Welcome Back / Device Setup rather than full initial wizard.
+6. **Downloads Navigation:**
+   - Start download from Android Details page; tap "Go to Downloads" on toast notice.
+   - Confirm Downloads tab displays in front of Details.
+
+
 
 **Blocker from physical QA (debug mobile 70 / desktop 77).** Host picks a source; the lobby shows a raw
 `invalid_source_media` / `22023` from `party_select_source_v2`. Desktop debug log
