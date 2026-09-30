@@ -99,7 +99,8 @@ Diagnostics:
   real adapter protocol preservation and delayed pre-return Away, per-plane receive-health guard,
   identity/generation stability and privacy-safe native error classification.
 - Full authoritative `:composeApp:testAndroidHostTest --rerun`: **3,373 tests, zero failures/errors,
-  6 skipped**. iOS framework/Xcode compiler check pending.
+  6 skipped**. iOS framework/Xcode compiler check [36731939532](https://github.com/Zokaper/nuvio-z/actions/runs/36731939532)
+  is running; its Swift lifecycle regression job passed. All three source branches are pushed.
 - Desktop compile and focused presence tests after the minimal shared merge: **51/51 pass**.
 - Logs and copied XML: `../.rc-investigation/wt-ios/`.
 - No physical result is inferred from a host test, and no debug release/version/feed was published.

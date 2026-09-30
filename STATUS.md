@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-30
 
-## Final iOS Watch Together RC blockers (2026-09-30) — Away fixed, reconnect cause open
+## Final iOS Watch Together RC blockers (2026-09-30) — Away source fixes, reconnect cause open
 
 Active mobile/desktop branch remains `claude/ios-watch-together-hardening`. Maintainer physically
 tested mobile debug 72 + desktop 78: Android guest and other requested RC behavior pass; only iOS
@@ -28,7 +28,8 @@ Files folder for socket/heartbeat, plane status, auth, lifecycle, health stale a
 Final focused WT + native-error diagnostic tests: **413/413**, zero failures/errors/skips.
 Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 failures /
 0 errors / 6 skipped**. Desktop compiles and focused presence tests **51/51 pass**. XML and logs:
-`../.rc-investigation/wt-ios/`. iOS framework/Xcode compiler check pending GitHub push. Source
+`../.rc-investigation/wt-ios/`. Source branches are pushed. iOS framework/Xcode compiler check
+`36731939532` is running; its Swift lifecycle regression job passed. Source
 commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
 Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
 the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
