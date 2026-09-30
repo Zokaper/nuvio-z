@@ -251,3 +251,12 @@ fun hasSilentUncover(inputs: StreamRouteSurfaceInputs): Boolean =
         !inputs.isClassic &&
         !inputs.isManualLaunch &&
         inputs.uncoverReason == null
+
+/** Only a visible route still choosing a source can exhaust automatic selection. */
+fun canReportStreamRouteDeadEnd(
+    surface: StreamRouteSurface,
+    isCurrentRoute: Boolean,
+    playbackHandedOff: Boolean,
+    manualPlaybackStarting: Boolean,
+): Boolean = isCurrentRoute && !playbackHandedOff && !manualPlaybackStarting &&
+    (surface == StreamRouteSurface.ProgressOverlay || surface == StreamRouteSurface.HandOff)

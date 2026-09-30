@@ -478,4 +478,36 @@ class StreamRouteSurfaceTest {
         assertEquals(StreamRouteSurface.SourceList, streamRouteSurface(inputs))
         assertFalse(hasSilentUncover(inputs))
     }
+    @Test
+    fun retainedManualHandoffCannotReportAutomaticFailure() {
+        val surface = streamRouteSurface(inputs(isClassic = true, hasNavigatedAway = true))
+        assertEquals(StreamRouteSurface.HandOff, surface)
+        assertFalse(canReportStreamRouteDeadEnd(surface, true, true, false))
+    }
+
+    @Test
+    fun manualSourceOpeningCannotReportAutomaticFailure() {
+        assertFalse(canReportStreamRouteDeadEnd(StreamRouteSurface.ProgressOverlay, true, false, true))
+    }
+
+    @Test
+    fun hiddenSourceRouteCannotReportAutomaticFailure() {
+        assertFalse(canReportStreamRouteDeadEnd(StreamRouteSurface.HandOff, false, false, false))
+    }
+
+    @Test
+    fun automaticHandoffsCannotReportFailureWhilePlayerOwnsPlayback() {
+        for (mode in listOf(inputs(isAutoPickRoute = true), inputs(isQualitySheetRoute = true))) {
+            val surface = streamRouteSurface(mode.copy(hasNavigatedAway = true))
+            assertFalse(canReportStreamRouteDeadEnd(surface, true, true, false))
+        }
+    }
+
+    @Test
+    fun realAutomaticDeadEndsStillHaveTheBackstop() {
+        assertTrue(canReportStreamRouteDeadEnd(StreamRouteSurface.ProgressOverlay, true, false, false))
+        assertTrue(canReportStreamRouteDeadEnd(StreamRouteSurface.HandOff, true, false, false))
+        assertFalse(canReportStreamRouteDeadEnd(StreamRouteSurface.SourceList, true, false, false))
+        assertFalse(canReportStreamRouteDeadEnd(StreamRouteSurface.QualitySheet, true, false, false))
+    }
 }

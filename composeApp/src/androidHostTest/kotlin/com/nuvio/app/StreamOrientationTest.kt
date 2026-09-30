@@ -4,6 +4,12 @@ import android.app.Activity
 import android.app.Application
 import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import com.nuvio.app.navigation.NuvioNavigator
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.player.ExternalPlaybackOutcome
+import kotlin.test.assertNull
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.nuvio.app.core.ui.NuvioTheme
@@ -70,6 +76,7 @@ class StreamOrientationTest {
         StreamLaunchStore.clear()
         PlayerLaunchStore.clear()
         OrientationTrackingActivity.requests.clear()
+        NuvioToastController.dismiss()
     }
 
     @AfterTest
@@ -114,7 +121,7 @@ class StreamOrientationTest {
                 withTimeout(5_000) { AddonRepository.awaitManifestsLoaded() }
             }
             openStreamList(StreamLaunch(profileId = ProfileRepository.activeProfileId,
-                type = "movie", videoId = "manual-rc", title = "RC title"))
+                type = "movie", videoId = "manual-rc", title = "RC title"), retainStreamDestination = true)
             try {
                 compose.waitUntil(timeoutMillis = 5_000) {
                     StreamsRepository.uiState.value.groups.flatMap { it.streams }.size == 2 &&
@@ -131,6 +138,11 @@ class StreamOrientationTest {
                 assertEquals("Manually chosen RC source 1080p", picked.streamTitle)
                 assertFalse(picked.autoPickedWithFailureChain)
             }
+            // iOS can retain the old destination through a slow player opening. Its watchdog
+            // must not toast an automatic-selection failure after this explicit handoff.
+            compose.mainClock.advanceTimeBy(3_000)
+            compose.waitForIdle()
+            compose.runOnIdle { assertNull(NuvioToastController.currentToast.value) }
         }
     }
 
@@ -243,15 +255,25 @@ class StreamOrientationTest {
         )
     }
 
-    private fun openStreamList(launch: StreamLaunch) {
+    private fun openStreamList(launch: StreamLaunch, retainStreamDestination: Boolean = false) {
         val launchId = StreamLaunchStore.put(launch)
         compose.setContent {
             NuvioTheme {
-                MainAppContent(
-                    initialRoute = StreamRoute(launchId, launch.title),
-                    ownsAppRuntime = false,
-                    showLaunchOverlay = false,
-                )
+                if (retainStreamDestination) {
+                    val route = StreamRoute(launchId, launch.title)
+                    val navigator = androidx.compose.runtime.remember {
+                        NuvioNavigator(NavBackStack<NavKey>(route))
+                    }
+                    StreamDestination(route, navigator, p2pEnabled = false,
+                        openExternalPlayback = { ExternalPlaybackOutcome.PlayerUnavailable },
+                        openExternalStreamUrl = { false })
+                } else {
+                    MainAppContent(
+                        initialRoute = StreamRoute(launchId, launch.title),
+                        ownsAppRuntime = false,
+                        showLaunchOverlay = false,
+                    )
+                }
             }
         }
         compose.waitForIdle()

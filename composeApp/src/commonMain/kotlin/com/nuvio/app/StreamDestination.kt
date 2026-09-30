@@ -73,6 +73,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.features.playback.PlaybackAttemptLog
 import com.nuvio.app.features.playback.PLAYBACK_MAX_ATTEMPTS
 import com.nuvio.app.features.playback.hasSilentUncover
+import com.nuvio.app.features.playback.canReportStreamRouteDeadEnd
 import com.nuvio.app.features.playback.PlaybackSelectionContext
 import com.nuvio.app.features.playback.PlaybackSelectionResult
 import com.nuvio.app.features.playback.PlaybackSourceCandidate
@@ -2018,6 +2019,13 @@ internal fun StreamDestination(
         ),
     )
 
+    val deadEndBackstopAllowed = canReportStreamRouteDeadEnd(
+        surface = streamSurface,
+        isCurrentRoute = navController.currentRoute == route,
+        playbackHandedOff = playbackHandedOff,
+        manualPlaybackStarting = manualPlaybackStarting,
+    )
+
     // The backstop, for the dead ends nobody has found yet.
     //
     // Three separate paths reached "overlay up, nothing left to run" in this
@@ -2030,6 +2038,7 @@ internal fun StreamDestination(
     // transient - a tier pick seeds its chain in the same frame it raises the
     // flag - so anything still true after it has genuinely stopped moving.
     LaunchedEffect(
+        deadEndBackstopAllowed,
         streamSurface,
         streamsUiState.autoPlayStream,
         streamsUiState.isAnyLoading,
@@ -2047,10 +2056,9 @@ internal fun StreamDestination(
         // to be a navigation in flight and nothing else, so resting on it once
         // the fetch has settled is the original blank screen returning by some
         // route nobody has found yet.
-        if (
-            streamSurface != StreamRouteSurface.ProgressOverlay &&
-            streamSurface != StreamRouteSurface.HandOff
-        ) return@LaunchedEffect
+        // A retained destination behind Player is a successful handoff, not a dead end.
+        // Manual startup is owned by the chosen source's player/resolver, not auto selection.
+        if (!deadEndBackstopAllowed) return@LaunchedEffect
         if (streamsUiState.autoPlayStream != null) return@LaunchedEffect
         if (resolvingDebridStream) return@LaunchedEffect
         // A question on screen is not a dead end. Under a remembered band the
@@ -2084,6 +2092,13 @@ internal fun StreamDestination(
             streamsUiState.isAnyLoading
         ) return@LaunchedEffect
         delay(PLAYBACK_PROGRESS_STALL_GRACE_MS)
+        // Recheck live ownership even if navigation changed before the next recomposition.
+        if (!canReportStreamRouteDeadEnd(
+                surface = streamSurface,
+                isCurrentRoute = navController.currentRoute == route,
+                playbackHandedOff = playbackHandedOff,
+                manualPlaybackStarting = manualPlaybackStarting,
+            )) return@LaunchedEffect
         giveUpToSourceList(path = "dead_end_backstop")
     }
 

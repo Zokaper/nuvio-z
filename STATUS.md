@@ -2,6 +2,26 @@
 
 Last updated: 2026-09-30
 
+## Debug 72 physical retest / remaining Classic toast (2026-09-30)
+
+Maintainer tested 72: ten enter/exit/reopen cycles worked, playback eventually started,
+and Live Activity became vague on lock. Subtitle switching and other playback modes
+were not tested. The remaining message is a **brief toast**, not an episode panel.
+
+Reproduced against 72 in a real Compose Classic source-tap test with StreamDestination
+retained behind navigation: exact selected PlayerLaunch is correct, but after the grace
+period the old route emits "No safe automatic source matched. Choose a source manually."
+The source route's dead-end backstop treated post-handoff `HandOff` as stalled automatic
+selection. It did not check current-route ownership, `playbackHandedOff`, or manual startup.
+This corrects the prior attribution of the maintainer's paraphrased message to next-episode
+EOF. The EOF guard fixed a separate unsafe path; it was not the reproduced toast's cause.
+
+The backstop now delegates to a playback policy that requires the current route to still
+own selection, no completed handoff, and no manual startup. These facts also cancel the
+grace timer, and live ownership is checked again after its delay. Genuine automatic dead
+ends retain their fallback. Regression went red on 72 with the exact toast; final checks
+and authorized Android/iOS debug 73 are in preparation. No native lifecycle change.
+
 ## Final RC blocker — Classic iOS freeze investigation (2026-09-30)
 
 Recent debug 71 diagnostics prove a downloads lock inversion, **not mpv**: matching release

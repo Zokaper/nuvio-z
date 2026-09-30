@@ -352,3 +352,11 @@ At every sync, for each row:
 
 A row with no reason is a refactor waiting to happen. A row that has not conflicted in three syncs
 is fine where it is.
+
+### RC follow-up: Classic startup toast (2026-09-30)
+
+`StreamDestination.kt` keeps its existing stall-backstop seam and calls the Z playback
+package's `canReportStreamRouteDeadEnd` policy. The policy excludes manual startup,
+completed handoff and inactive routes; timer keys plus a live post-delay recheck enforce
+ownership. No new upstream-owned production file. Retained-route source-tap integration
+reproduces the debug 72 toast before the fix and protects the selected source afterward.

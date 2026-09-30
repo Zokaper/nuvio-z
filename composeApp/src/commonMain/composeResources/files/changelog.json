@@ -459,6 +459,10 @@
         {
           "build": 72,
           "text": "iOS: fixes the confirmed app freeze caused by download progress and Live Activity updates, and makes player exit safe during subtitle loading. Failed or opening playback no longer starts an unrelated next-episode source picker; manual source errors remain actionable. Retest Classic playback while downloads run, repeated exit/reopen, subtitle switching, and the Live Activity's background message when locking the phone."
+        },
+        {
+          "build": 73,
+          "text": "Classic playback: removes the incorrect 'No safe automatic source' toast while your manually chosen source opens. The source list now stops its automatic-selection watchdog after handing playback to the player. Debug 72's download freeze and lock-screen Live Activity fixes remain included."
         }
       ]
     },

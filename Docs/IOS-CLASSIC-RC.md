@@ -43,24 +43,32 @@ then `PlayerLaunchStore`, `PlayerDestination`, `PlayerScreen`, the iOS bridge an
 The manual launch leaves `autoPickedWithFailureChain` false; its fatal callback is null.
 There is no ranked automatic picker in that initial manual handoff.
 
-The **"No safe automatic source was found. Choose a source to continue."** wording is
-`player_next_episode_choose_source`, emitted by the in-player next-episode picker.
-The separate initial automatic route says **"No safe automatic source matched."**
-The EOF effect previously accepted `isEnded` without the keyed lifecycle/error/seek
-guard used by the threshold effect, so a failed/opening/old EOF could start next-episode
-selection and put that automatic failure above a videoless manual player. A duration
-of zero is not rejected by `isShortPlaceholderDuration`, so that also needs an explicit guard.
+### Debug 72 retest: exact remaining toast reproduced
 
-The new `hasCompletedCurrentEpisode` requires a completed load, positive duration,
-current snapshot key, finished seek, and no loading/scrubbing/error before EOF advances
-the episode. iOS additionally requires `FILE_LOADED` and no playback error before publishing
-`isEnded`; synchronous `loadfile` refusal sets an actionable player error. The existing
-manual error screen retains its source and controls instead of substituting another picker.
+The maintainer clarified that the message is a brief toast/banner and the manually chosen
+source plays after a delay. Ten enter/exit/reopen cycles worked and locking correctly made
+the Live Activity vague. Subtitles and other playback modes were not tested.
 
-**Evidence limit:** the supplied freeze files contain no playback event log or selected
-StreamItem. The wrong-message path and its missing guard are reproducible in regression
-fixtures; the exact mpv EOF/source response in the physical Futurama attempt is not captured.
-Do not claim the first source was playable or the exact original EOF timing was observed.
+The exact reproduced toast is **"No safe automatic source matched. Choose a source manually."**,
+`playback_quality_no_match`. A real Classic tap test retains StreamDestination behind the
+player handoff, verifies the selected URL/title and `autoPickedWithFailureChain == false`,
+then advances beyond the backstop grace period. On debug 72 code it fails with that exact
+toast. The source was preserved; the old route incorrectly reported automatic failure.
+
+`streamRouteSurface` intentionally returns `HandOff` after navigation. The source route's
+dead-end backstop accepted that surface without checking `playbackHandedOff`, the current
+route, or manual startup ownership. Thus a route retained while player startup proceeds
+could run `giveUpToSourceList`, close the old loading token, and emit the generic automatic
+selection toast. Playback itself still starts, matching the maintainer's 72 observation.
+
+The backstop now calls `canReportStreamRouteDeadEnd`: only the current route still choosing
+a source may report a dead end. Manual startup and completed handoff cancel the timer;
+ownership is checked again after the delay. Genuine automatic failure fallback remains.
+
+**Correction:** the prior investigation associated the paraphrased wording with
+`player_next_episode_choose_source` ("was found"), an episode-panel message. The EOF guard
+closed a separate unsafe path, but did not fix this toast. The source-route regression now
+reproduces the actual message independently of mpv or next-episode playback.
 
 ## Subtitle patch / mpv audit
 
@@ -119,12 +127,15 @@ Production:
 - `iosApp/iosApp/Player/MPVSerialExecutor.swift` (new)
 - `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerCompletedEpisode.kt` (new)
 - `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerScreenRuntimeEffects.kt`
+- `composeApp/src/commonMain/kotlin/com/nuvio/app/StreamDestination.kt`
+- `composeApp/src/commonMain/kotlin/com/nuvio/app/features/playback/StreamRouteSurface.kt`
 
 Regression coverage:
 
 - `composeApp/src/commonTest/kotlin/com/nuvio/app/features/player/PlayerScreenRuntimeStateTest.kt`
 - `composeApp/src/androidHostTest/kotlin/com/nuvio/app/StreamOrientationTest.kt`
 - `scripts/ios-rc-regressions/main.swift` (new)
+- `composeApp/src/commonTest/kotlin/com/nuvio/app/features/playback/StreamRouteSurfaceTest.kt`
 - `.github/workflows/ios-build.yml`
 - `.gitignore` (allow the native harness)
 
