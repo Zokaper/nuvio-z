@@ -28,7 +28,9 @@ Fixes:
   also publish Away until DidBecomeActive, consistent with inactive playback being paused.
 - Add `away_since` to the existing backend member-change broadcast predicate. Its authority-plane
   invalidation causes a coalesced snapshot refresh immediately; bare heartbeat stamps stay quiet.
-  Entry, return and reaper expiry all notify. **Migration not deployed.**
+  Entry, return and reaper expiry all notify. **Migration deployed** only to Z project
+  `pzbpghmmordvzcfbayoh`, after a public-schema backup and dry-run confirming this was the only
+  pending migration. Read-only live trigger verification and migration-history check passed.
 - Host holds for fresh realtime Away **or** an active durable Away lease, excluding self, left,
   failed and ended parties. A leased suspended guest may have its heartbeat marked disconnected;
   that does not release the Away hold until return/lease expiry. Without a lease, the existing
@@ -100,29 +102,47 @@ Diagnostics:
   identity/generation stability and privacy-safe native error classification.
 - Full authoritative `:composeApp:testAndroidHostTest --rerun`: **3,373 tests, zero failures/errors,
   6 skipped**. iOS framework/Xcode compiler check [36731939532](https://github.com/Zokaper/nuvio-z/actions/runs/36731939532)
-  is running; its Swift lifecycle regression job passed. All three source branches are pushed.
+  **passed** (Swift lifecycle regressions, device framework and unsigned Xcode app). All three source branches are pushed.
 - Desktop compile and focused presence tests after the minimal shared merge: **51/51 pass**.
+- Standard mobile source CI [36735101305](https://github.com/Zokaper/nuvio-z/actions/runs/36735101305) passed.
 - Logs and copied XML: `../.rc-investigation/wt-ios/`.
 - No physical result is inferred from a host test, and no debug release/version/feed was published.
 
 ## Minimum remaining physical work
 
-The foreground drop needs a runtime trace before another build is published. A connected-device
+The foreground drop needs a runtime trace before an RC build is published. A connected-device
 console capture on the current build, filtered to WatchPartySync / WatchPartyTrace /
 Supabase-Realtime, may identify it without publishing anything. The new persistent trace requires
-a privately installed diagnostic artifact; build-only compiler CI is not an installable artifact.
+a diagnostic artifact; build-only compiler CI is not an installable artifact. The maintainer
+cannot use Xcode and explicitly authorized a diagnostic-only iOS IPA. The existing debug workflow
+now has an opt-in artifact-only mode that skips Android and release/feed publication. It uses the
+same full iOS builder, keeps the current debug counter, and identifies the source SHA in the IPA
+filename and a checksum/manifest. Workflow validation with actionlint passed.
+Diagnostic run [36735100392](https://github.com/Zokaper/nuvio-z/actions/runs/36735100392), source
+`628737989`, **passed**. Android and release/feed publication jobs are skipped.
+[Download diagnostic artifact](https://github.com/Zokaper/nuvio-z/actions/runs/36735100392/artifacts/11108185929),
+unzip it, then sideload the unsigned IPA with SideStore. It keeps base debug 73; no release tag,
+version-counter bump or feed update is made. Archive CRC, SHA-256, bundle/version, Files export
+keys and compiled WT probe markers verified. IPA SHA-256:
+`8ad38557125d442e2da628e787b064a5d3455d95d34971308dbca6925ee9fe4c`.
 Do not declare the reconnect blocker fixed from code inspection alone.
 
-Once an installable candidate is authorized and the backend notification migration is applied:
+The backend notification migration is applied and the diagnostic IPA is ready. Immediate capture:
 
-1. Desktop host + Android/iOS guests, Pause for Away ON: press Home on iOS; Away and host pause
+1. Sideload the IPA, then keep iOS foregrounded in a party for at least five minutes on stable
+   network. After a banner, export the latest `watchparty-*.log` from Files → Nuvio Z Debug →
+   `nuvio_diagnostics`, with the approximate banner time. This is the evidence needed to classify
+   the initiating socket/plane/auth/health event without Xcode.
+2. Interrupt the real network, restore it, then play/pause/seek. Reconnecting must appear during
+   loss and recovery must preserve meaningful member/timeline state. Confirm Android remains stable.
+
+Final Away acceptance after a desktop host containing the fix is installed:
+
+1. Use a desktop host containing `371e71dcf` for the final Away fallback acceptance; existing
+   desktop debug 78 lacks that host fix. Desktop host + Android/iOS guests, Pause for Away ON: press Home on iOS; Away and host pause
    should arrive immediately via peer or durable refresh. Stay away beyond 20 seconds to cross
    heartbeat disconnection; host should remain held under the ten-minute lease. Return: Away
    clears and existing resume policy runs. Repeat lock/unlock.
 2. Repeat Home/return with Pause for Away OFF: host continues; returning iOS catches up.
-3. Keep iOS foregrounded for at least five minutes on stable network. If a banner appears, export
-   `watchparty-*.log` with its timestamp; correlate initiating socket/plane/auth/health event.
-4. Interrupt the real network, restore it, then play/pause/seek. Reconnecting must appear during
-   loss and recovery must preserve meaningful member/timeline state. Confirm Android remains stable.
 
-Publication remains held: spontaneous foreground reconnect cause and physical acceptance are open.
+RC publication remains held: spontaneous foreground reconnect cause and physical acceptance are open.

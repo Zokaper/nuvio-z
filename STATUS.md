@@ -14,7 +14,9 @@ separate host hold bug ignores durable Away. Mobile `7846909dc` adds a lease-bou
 fresh peer roster, and durable-return clearing of older peer Away. Only these five shared files
 are merged into desktop (`371e71dcf`, via isolated `rc-wt-away-shared` / `c3822e4b0`).
 Backend migration `202609300001_broadcast_party_away.sql` adds Away to the existing notification
-predicate; local fresh-reset pgTAP **347/347 pass**. Migration is **not deployed**.
+predicate; local fresh-reset pgTAP **347/347 pass**. Applied to Z project `pzbpghmmordvzcfbayoh`
+after a schema backup and a dry-run confirming only this migration was pending. Read-only live
+trigger verification confirms Away in the predicate; migration history is up to date.
 
 Mobile recovery now retains protocol evidence across reconnects of the same party/profile while
 invalidating it on departure/generation changes; health still requires both channels and fresh
@@ -29,14 +31,28 @@ Final focused WT + native-error diagnostic tests: **413/413**, zero failures/err
 Authoritative full `:composeApp:testAndroidHostTest --rerun`: **3,373 tests / 0 failures /
 0 errors / 6 skipped**. Desktop compiles and focused presence tests **51/51 pass**. XML and logs:
 `../.rc-investigation/wt-ios/`. Source branches are pushed. iOS framework/Xcode compiler check
-`36731939532` is running; its Swift lifecycle regression job passed. Source
+`36731939532` **passed** (Swift lifecycle regressions, Kotlin device framework and unsigned Xcode app). Source
 commits: mobile `7846909dc` + `ac121af02`; desktop `371e71dcf`; backend `9d6376c`.
 Maintainer explicitly authorized GitHub pushes/releases after automatic approval review rejected
 the public-source push. Proceed with pushes and build-only compiler CI; preserve the original
-gate against a new published build before both causes are understood. No migration deployed.
+gate against a new published build before both causes are understood. Scoped migration deployed.
 Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
 Keep publication held until the foreground drop is captured and explained; do not claim both
 blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
+Maintainer cannot use Xcode and explicitly allowed a **diagnostic-only iOS IPA** exception to
+the no-new-build gate. Added opt-in `diagnostic_ios_only` dispatch mode to the existing debug
+workflow: same full iOS builder, SHA-named IPA/checksum/manifest Actions artifact; Android and
+release/feed publisher jobs skipped. Existing default release path retained; actionlint passes.
+No debug counter, stable version, release tag or feed change. Diagnostic run `36735100392`, source
+`628737989`, **passed**; Android and release/feed publisher jobs are confirmed skipped.
+Artifact: https://github.com/Zokaper/nuvio-z/actions/runs/36735100392/artifacts/11108185929 .
+IPA SHA-256 `8ad38557125d442e2da628e787b064a5d3455d95d34971308dbca6925ee9fe4c`;
+archive CRC, debug bundle/version, Files keys and compiled WT probe markers verified. The IPA
+retains base debug 73 and must be sideloaded explicitly; it is not a claimed reconnect fix or
+an updater release. Standard source CI `36735101305` also passed.
+Next: sideload the diagnostic IPA, foreground a party for five minutes and export the latest
+`watchparty-*.log` after a banner, with its time, to identify the initiating event. Final durable
+Away policy acceptance needs a desktop build containing `371e71dcf`; existing debug 78 lacks it.
 
 ## Debug 72 physical retest / remaining Classic toast (2026-09-30)
 
