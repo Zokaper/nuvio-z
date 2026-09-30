@@ -2,13 +2,13 @@ package com.nuvio.app.core.network
 
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.debug.isDebugBuild
+import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.auth.MemorySessionManager
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.realtime.Realtime
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.http.HttpHeaders
 
@@ -31,7 +31,7 @@ object ZSupabaseProvider {
     val isConfigured: Boolean get() = ZSupabaseConfig.isConfigured
 
     @OptIn(SupabaseInternal::class)
-    val client by lazy {
+    val client: SupabaseClient by lazy {
         val userAgent = "NuvioZ/${AppVersionConfig.VERSION_NAME.ifBlank { "dev" }}"
         createSupabaseClient(
             supabaseUrl = ZSupabaseConfig.URL,
@@ -61,9 +61,7 @@ object ZSupabaseProvider {
                 autoSetupPlatform = false
             }
             install(Postgrest)
-            install(Realtime) {
-                if (isDebugBuild) websocketFactory = ZRealtimeDiagnostics
-            }
+            installZRealtime(isDebugBuild) { client.httpClient.httpClient }
         }
     }
 }

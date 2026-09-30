@@ -23,4 +23,12 @@ class ZRealtimeDiagnosticsTest {
         assertTrue("reason=connection-lost" in safeRealtimeFailure(IllegalStateException("Code=-1005")))
         assertTrue("reason=offline" in safeRealtimeFailure(IllegalStateException("Code=-1009")))
     }
+
+    @Test
+    fun missingWebsocketPluginIsIdentifiedWithoutPersistingTheMessage() {
+        val output = safeRealtimeFailure(IllegalStateException(
+            "Plugin io.ktor.client.plugins.websocket.WebSockets is not installed. PRIVATE_TOKEN"))
+        assertTrue("reason=missing-websockets-plugin" in output)
+        assertFalse("PRIVATE" in output)
+    }
 }

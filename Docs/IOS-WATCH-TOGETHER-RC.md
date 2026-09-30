@@ -43,7 +43,45 @@ Fixes:
 
 ## Foreground reconnects — still an RC blocker
 
-**The exact initiating cause is not established.** The latest supplied export is
+### Diagnostic IPA retest (2026-09-30, 22:08–22:10 Arabia time)
+
+Maintainer sideloaded the diagnostic IPA from source `628737989` and reported the banner almost
+immediately, with brief retry transitions. Export: `../ios-reconn-logs/nuvio_diagnostics/`
+`watchparty-1790795293156.log`. This trace captures **a diagnostic-build regression**, not the
+initiating cause of the older debug-72 intermittent reconnect:
+
+- First socket failure is 22:08:17.142, before the desired party binds at 22:08:35.473.
+- All **23 socket creations fail** with `IllegalStateException`, no nested cause/native code,
+  within 0–2 ms. No socket opens, heartbeat exchanges or subscribed planes occur.
+- Nine party subscription attempts remain unsubscribed; eight reach the 12-second timeout and
+  the ninth is cancelled when the party is left. API polling succeeds and all nine auth observations
+  remain Authenticated with a session present and no token change.
+- The only inactive/background events follow departure at 22:10:43.893/22:10:44.991. The one
+  generation update retains its channel. Neither explains the initial socket failure.
+
+The probe assigned a custom `Realtime.Config.websocketFactory` but delegated to the SDK's Ktor
+factory. In [Supabase 3.4.1 `Realtime.setup`](https://github.com/supabase-community/supabase-kt/blob/3.4.1/Realtime/src/commonMain/kotlin/io/github/jan/supabase/realtime/Realtime.kt),
+a custom factory suppresses automatic installation of Ktor WebSockets and its JSON converter.
+The probe therefore tried to open sockets on a client missing WebSockets. Earlier tests exercised
+error redaction and adapter recovery, but did not open a real diagnostic socket.
+
+The production setup is now shared with a localhost websocket regression for both diagnostic and
+standard clients. Diagnostic setup must explicitly install the same SDK WebSockets/converter;
+the factory wraps that client's transport rather than looking up the global provider. No heartbeat,
+timeout or retry thresholds change. Verification and replacement artifact state are recorded below.
+
+Local verification: the diagnostic regression first reproduced Ktor's exact missing-WebSockets
+exception. After restoring setup, both diagnostic and standard clients open and exchange a
+serialized heartbeat/reply over a real localhost websocket. Focused WT + diagnostics:
+**416 tests, zero failures/errors/skips**. Added privacy-safe classification of this specific
+configuration error. Logs and XML: `../.rc-investigation/wt-ios/socket-regression-{red,green}.*`
+and `socket-green-results/`. Replacement diagnostic-only IPA build pending; no release/feed change.
+
+**Retest required:** the previous diagnostic IPA cannot supply evidence for the original intermittent
+drop. Repeat the five-minute foreground capture on the corrected diagnostic IPA. Stable RC
+publication and original-reconnect acceptance remain held.
+
+**The earlier intermittent drop's exact initiating cause is not established.** The earlier export is
 `ios-recparty-logs/nuvio_diagnostics/session-20260930-161855.log` (76,640 bytes). It contains Swift
 lifecycle/view/player diagnostics, with no WatchPartySync, WatchPartyTrace or Supabase-Realtime
 socket/auth/health events. The older exported sessions likewise do not contain those events.
@@ -120,14 +158,15 @@ same full iOS builder, keeps the current debug counter, and identifies the sourc
 filename and a checksum/manifest. Workflow validation with actionlint passed.
 Diagnostic run [36735100392](https://github.com/Zokaper/nuvio-z/actions/runs/36735100392), source
 `628737989`, **passed**. Android and release/feed publication jobs are skipped.
-[Download diagnostic artifact](https://github.com/Zokaper/nuvio-z/actions/runs/36735100392/artifacts/11108185929),
-unzip it, then sideload the unsigned IPA with SideStore. It keeps base debug 73; no release tag,
+[Superseded diagnostic artifact](https://github.com/Zokaper/nuvio-z/actions/runs/36735100392/artifacts/11108185929).
+**Do not use this candidate for another capture:** its probe lacks WebSockets setup, as shown
+in the 22:08 retest above. It kept base debug 73; no release tag,
 version-counter bump or feed update is made. Archive CRC, SHA-256, bundle/version, Files export
 keys and compiled WT probe markers verified. IPA SHA-256:
 `8ad38557125d442e2da628e787b064a5d3455d95d34971308dbca6925ee9fe4c`.
 Do not declare the reconnect blocker fixed from code inspection alone.
 
-The backend notification migration is applied and the diagnostic IPA is ready. Immediate capture:
+The backend notification migration is applied. After the corrected diagnostic IPA is ready:
 
 1. Sideload the IPA, then keep iOS foregrounded in a party for at least five minutes on stable
    network. After a banner, export the latest `watchparty-*.log` from Files → Nuvio Z Debug →

@@ -2,6 +2,28 @@
 
 Last updated: 2026-09-30
 
+## iOS diagnostic IPA reconnect retest (2026-09-30, 22:08–22:10 Arabia time)
+
+Active branch: `claude/ios-watch-together-hardening`. Maintainer tested diagnostic source
+`628737989`: Reconnecting appears almost immediately and briefly transitions during retries.
+New `../ios-reconn-logs/nuvio_diagnostics/watchparty-1790795293156.log` identifies a probe
+regression: all 23 socket creations fail within 0–2 ms, before any websocket opens. API polling
+works; nine auth observations remain authenticated. First failure precedes party binding;
+inactive/background events occur only after departure. Eight of nine subscriptions time out;
+the last is cancelled on departure. No evidence here clears the original debug-72 intermittent drop.
+
+The custom diagnostic factory bypasses Supabase 3.4.1's automatic Ktor WebSockets/converter
+installation while relying on its Ktor factory. Production setup and a real localhost websocket
+heartbeat regression now share one helper, with client-local factory injection. Restored the same
+SDK WebSockets plugin/JSON converter explicitly for diagnostics; standard setup stays SDK-owned.
+The diagnostic regression reproduced the exact missing-plugin exception, then both socket paths
+passed a real heartbeat/reply exchange. Focused WT + diagnostics **416/416 pass**, no failures,
+errors or skips. Privacy-safe error classification now names missing WebSockets. XML/logs are in
+`../.rc-investigation/wt-ios/socket-green-results/` and `socket-regression-{red,green}.*`.
+Replacement diagnostic-only IPA build pending.
+See `Docs/IOS-WATCH-TOGETHER-RC.md`. Debug/stable counters and feeds remain unchanged; original
+foreground reconnect and physical Away acceptance remain open. No desktop/backend changes.
+
 ## Final iOS Watch Together RC blockers (2026-09-30) — Away source fixes, reconnect cause open
 
 Active mobile/desktop branch remains `claude/ios-watch-together-hardening`. Maintainer physically
