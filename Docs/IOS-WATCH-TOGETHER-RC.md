@@ -43,6 +43,64 @@ Fixes:
 
 ## Foreground reconnects — still an RC blocker
 
+### Corrected diagnostic retest (2026-09-30, 23:06–23:12 Arabia time)
+
+Maintainer tested diagnostic source `8aedfd9f5`, run `36766427491` (success), and reports roughly
+two banners, probably only after returning. Export: `../ios-reconn-logs/2/nuvio_diagnostics/`
+`watchparty-1790798761121.log`. The laptop's installed Debug configuration identifies **desktop
+79**, version `1.45.79`, source `71c8386d4`; that host predates Away policy merge `371e71dcf`.
+
+| Local time | Evidence |
+| --- | --- |
+| 23:06:21–23:09:01 | Both planes subscribed, Live, regular successful heartbeat replies; no foreground drop before the first inactive transition. This is under five minutes and does not complete the original foreground acceptance. |
+| 23:09:01–23:09:02 | Brief active/inactive flap: a queued return RPC executes after a newer background event. Away and return need symmetric revision guards. |
+| 23:09:25–23:09:34 | Away RPC succeeds; native receive fails with numeric code 53 after backgrounding. Return clears durable Away in 174 ms. No auth/session loss or identity churn. Numeric code alone is not a proved network diagnosis. |
+| 23:09:41–23:09:57 | SDK reconnect opens a socket; adapter subscription competes with automatic SDK rejoin. Repeated subscribed/subscribing transitions and server `phx_close` follow, then subscription timeout. |
+| 23:09:57–23:09:58 | Second receive failure, with heartbeat ref outstanding for 112 ms. Return clears durable Away in 110 ms. |
+| 23:10:04.961–23:10:19.966 | Third socket receives traffic, then closes exactly 15.005 seconds after opening, without sending its own heartbeat; last receive is only 128 ms old. |
+| 23:10:27–23:10:45 | Fourth socket opens; channel churn continues until instance nine becomes Live. Later heartbeat replies remain healthy through the end of capture. |
+
+The extra third-socket disconnect is consistent with the pinned SDK retaining its prior pending
+heartbeat reference across reconnect. Its next heartbeat timer sees that old reference and closes
+the new socket. **Reproduced using the actual pinned SDK:** a server drops a socket while its
+heartbeat is unanswered; the healthy replacement is incorrectly closed and a third socket opens.
+That regression went red before the shim. SDK implementation:
+[RealtimeImpl 3.4.1](https://github.com/supabase-community/supabase-kt/blob/3.4.1/Realtime/src/commonMain/kotlin/io/github/jan/supabase/realtime/RealtimeImpl.kt).
+
+Mobile fixes in this follow-up:
+
+- Re-send only the retained Phoenix heartbeat on a newly opened socket. A genuine server reply
+  clears the SDK's reference. No synthetic acknowledgement, disabled timeout or increased
+  heartbeat interval. Applies to both diagnostic and standard Z clients; Ktor setup stays explicit.
+- Keep channel objects, receive collectors and protocol while SDK reconnects/rejoins. The adapter
+  no longer removes/recreates channels at the first loss and competes with the automatic rejoin.
+  Connected-socket join recovery is bounded at 30 seconds; offline time stays with SDK recovery.
+  Restore callbacks after SDK resets, re-track presence and refresh durable state on recovery.
+  Only validated receive traffic with both planes and socket connected establishes Live.
+- Give queued return publication the same latest-revision check as Away. An obsolete return must
+  not publish false after a later inactive/background event. In-flight writes remain serialized.
+
+The laptop log separately confirms the stale host problem: it enters the Away hold at 23:09:27,
+does not consume the durable return clear, and sees fresh peer false only at 23:10:11. Maintainer
+turned waiting off at 23:10:07. That is the missing desktop host policy already fixed in source,
+not a failed iPhone return RPC. Installed 79 lacks it, as did 78. Current Windows build-only MSI
+on desktop source `d020c0c609` contains it:
+[Windows artifact](https://github.com/Zokaper/NuvioZDesktop/actions/runs/36734266044/artifacts/11105899064).
+It is a **stable-channel** MSI, separate from Debug, downloaded to
+`../.rc-investigation/wt-ios/desktop-away-host/`; no installation performed. SHA-256:
+`651c896ada71e1862f4d869f9d40a62cab3bbeb930ca57bfbf0dee901b8ba06b`.
+The Windows job passed. The run's Linux native frame-copy test failed at `player != NULL` before
+Kotlin tests; do not label the overall run green. Existing local host presence tests remain 51/51.
+
+Final full Android host suite: **3,384 tests, zero failures/errors, 6 skipped**, including
+**424/424** focused WT/diagnostic cases. Actual pinned-SDK regressions verify one join per plane
+per socket, healthy replacement survival, genuine unanswered-heartbeat timeout, and durable state
+delivery after callback reset. Lifecycle queue ordering regressions pass. XML/logs:
+`../.rc-investigation/wt-ios/resume-recovery-full-results/` and `resume-recovery-full.log`.
+New diagnostic IPA/native compilation is pending. No backend, counter, release or feed change. Both physical
+acceptance gates remain open; this capture explains return recovery churn, without claiming that
+the old foreground-only report is cleared.
+
 ### Diagnostic IPA retest (2026-09-30, 22:08–22:10 Arabia time)
 
 Maintainer sideloaded the diagnostic IPA from source `628737989` and reported the banner almost
@@ -77,10 +135,11 @@ serialized heartbeat/reply over a real localhost websocket. Focused WT + diagnos
 configuration error. Logs and XML: `../.rc-investigation/wt-ios/socket-regression-{red,green}.*`
 and `socket-green-results/`. Fix committed and pushed as `8aedfd9f5`. Replacement
 [diagnostic-only IPA run 36766427491](https://github.com/Zokaper/nuvio-z/actions/runs/36766427491)
-is building that exact source; Android is skipped and release/feed publication is disabled.
-It retains debug 73. At handoff the native build is still running: do not call it downloadable or
-iOS-compiler-verified yet. After success, verify its artifact checksum/manifest and sideload it
-with SideStore, then repeat the foreground capture. No release/feed change.
+successfully built that exact source; Android and release/feed publication were skipped.
+It retains debug 73. Native compilation and standard source CI `36766426697` passed. SHA-named
+artifact/checksum/manifest verified, IPA SHA-256
+`d292d612e1ed5758f1a8b4dc1d2fa7d72e9e093bde15b7f260bfa8264c62189a`.
+Maintainer's completed retest on it is above. No release/feed change.
 
 **Retest required:** the previous diagnostic IPA cannot supply evidence for the original intermittent
 drop. Repeat the five-minute foreground capture on the corrected diagnostic IPA. Stable RC
@@ -153,7 +212,8 @@ Diagnostics:
 
 ## Minimum remaining physical work
 
-The foreground drop needs a runtime trace before an RC build is published. A connected-device
+The return recovery failure is now captured and reproduced. Foreground-only physical acceptance
+still needs a full quiet interval on the corrected source before an RC build is published. A connected-device
 console capture on the current build, filtered to WatchPartySync / WatchPartyTrace /
 Supabase-Realtime, may identify it without publishing anything. The new persistent trace requires
 a diagnostic artifact; build-only compiler CI is not an installable artifact. The maintainer
@@ -183,7 +243,7 @@ The backend notification migration is applied. After the corrected diagnostic IP
 Final Away acceptance after a desktop host containing the fix is installed:
 
 1. Use a desktop host containing `371e71dcf` for the final Away fallback acceptance; existing
-   desktop debug 78 lacks that host fix. Desktop host + Android/iOS guests, Pause for Away ON: press Home on iOS; Away and host pause
+   desktop debug 78 **and 79** lack that host fix. Desktop host + Android/iOS guests, Pause for Away ON: press Home on iOS; Away and host pause
    should arrive immediately via peer or durable refresh. Stay away beyond 20 seconds to cross
    heartbeat disconnection; host should remain held under the ten-minute lease. Return: Away
    clears and existing resume policy runs. Repeat lock/unlock.

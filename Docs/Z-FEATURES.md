@@ -6,8 +6,12 @@ now participates in the host hold policy with the existing ten-minute lease and 
 the minimal host policy is merged to desktop. The missing Away invalidation trigger is fixed in
 a locally tested migration deployed to the Z project. Mobile reconnect recovery preserves useful
 protocol evidence and adds persistent iOS socket diagnostics. The 22:08 diagnostic retest exposes
-a missing WebSockets setup in the probe (23 failed opens); the original intermittent reconnect
-requires another capture after correcting the probe. Neither iOS blocker is declared
+a missing WebSockets setup in the probe (23 failed opens). The corrected 23:06–23:12 capture
+shows return-triggered socket loss, competing channel rejoin/replacement and an interrupted
+heartbeat carried into a healthy socket. Mobile fixes retain SDK-owned rejoin, restore receive
+callbacks, re-send the pending heartbeat for a real acknowledgement, and guard stale lifecycle
+return publications. Installed desktop debug 79 predates the merged Away policy; final host
+acceptance requires a build containing it. Neither iOS blocker is declared
 physically cleared. Evidence and remaining gate: `IOS-WATCH-TOGETHER-RC.md`.
 
 **Revision 19 is the iOS / Watch Together hardening branch (2026-09-29).** S1/S3's

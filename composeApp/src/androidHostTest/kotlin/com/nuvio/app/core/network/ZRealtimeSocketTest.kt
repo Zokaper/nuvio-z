@@ -44,7 +44,7 @@ class ZRealtimeSocketTest {
             try {
                 val factory = client.realtime.config.websocketFactory
                     ?: KtorRealtimeWebsocketFactory(client.httpClient.httpClient)
-                assertEquals(diagnosticsEnabled, factory is ZRealtimeDiagnostics)
+                assertTrue(factory is ZRealtimeHeartbeatRecovery)
                 withTimeout(5_000) {
                     val socket = factory.create(server.url("/realtime/v1/websocket").toString().replace("http://", "ws://"))
                     try {

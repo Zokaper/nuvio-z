@@ -9,8 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import platform.Foundation.NSNotificationCenter
@@ -25,7 +23,7 @@ import platform.UIKit.UIBackgroundTaskInvalid
 /** Installed when the iOS controller is created, independently of the Compose display link. */
 internal object IosPartyLifecycle {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val publicationMutex = Mutex()
+    private val publication = PartyLifecyclePublication()
     private val _facts = MutableStateFlow(
         PartyPlatformLifecycle(
             appForeground = UIApplication.sharedApplication.applicationState !=
@@ -34,7 +32,6 @@ internal object IosPartyLifecycle {
     )
     val facts = _facts.asStateFlow()
     private var started = false
-    private var revision = 0L
     private var awayTask: UIBackgroundTaskIdentifier = UIBackgroundTaskInvalid
 
     fun start() {
@@ -46,8 +43,7 @@ internal object IosPartyLifecycle {
             WatchPartyDiagnostics.transport("ios-lifecycle", WatchPartyRepository.uiState.value.party?.id,
                 realtime = "lifecycle", detail = "event=$event away=true")
             if (!_facts.value.appForeground) return
-            revision += 1L
-            val observedRevision = revision
+            val observedRevision = publication.nextRevision()
             _facts.value = _facts.value.copy(appForeground = false)
             WatchPartySync.setLocalPresence(true)
             if (WatchPartyRepository.uiState.value.party == null) return
@@ -59,10 +55,8 @@ internal object IosPartyLifecycle {
             awayTask = task
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
-                    publicationMutex.withLock {
-                        if (observedRevision == revision) {
-                            withTimeoutOrNull(8_000L) { WatchPartyRepository.setAway(true) }
-                        }
+                    publication.publishIfCurrent(observedRevision) {
+                        withTimeoutOrNull(8_000L) { WatchPartyRepository.setAway(true) }
                     }
                 } finally {
                     endAwayTask(task)
@@ -80,14 +74,14 @@ internal object IosPartyLifecycle {
         center.addObserverForName(UIApplicationDidBecomeActiveNotification, null, null) {
             WatchPartyDiagnostics.transport("ios-lifecycle", WatchPartyRepository.uiState.value.party?.id,
                 realtime = "lifecycle", detail = "event=did-become-active away=false")
-            revision += 1L
+            val observedRevision = publication.nextRevision()
             _facts.value = _facts.value.copy(
                 appForeground = true,
                 resumeRevision = _facts.value.resumeRevision + 1L,
             )
             WatchPartySync.setLocalPresence(false)
             scope.launch {
-                publicationMutex.withLock {
+                publication.publishIfCurrent(observedRevision) {
                     WatchPartyRepository.setAway(false)
                     if (WatchPartyRepository.uiState.value.party != null) WatchPartyRepository.refresh()
                 }

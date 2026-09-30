@@ -18,7 +18,7 @@ import kotlinx.serialization.json.contentOrNull
 
 /** Wraps the pinned SDK socket without changing its heartbeat, timeout or recovery behavior. */
 @OptIn(SupabaseInternal::class)
-internal class ZRealtimeDiagnostics(private val httpClient: () -> HttpClient) : RealtimeWebsocketFactory {
+internal class ZRealtimeDiagnostics(private val factory: RealtimeWebsocketFactory) : RealtimeWebsocketFactory {
     private var serial = 0L
 
     override suspend fun create(url: String): RealtimeWebsocket {
@@ -28,7 +28,7 @@ internal class ZRealtimeDiagnostics(private val httpClient: () -> HttpClient) : 
         )
         trace("socket-create")
         val delegate = try {
-            KtorRealtimeWebsocketFactory(httpClient()).create(url)
+            factory.create(url)
         } catch (error: Throwable) {
             trace("socket-open-failed", safeRealtimeFailure(error))
             throw error
@@ -109,17 +109,18 @@ internal class ZRealtimeDiagnostics(private val httpClient: () -> HttpClient) : 
 
 @OptIn(SupabaseInternal::class)
 internal fun SupabaseClientBuilder.installZRealtime(diagnosticsEnabled: Boolean, httpClient: () -> HttpClient) {
-    // Supabase 3.4.1 skips its Ktor setup when a custom factory is supplied. The probe still
-    // delegates to that Ktor factory, so install the same plugin and converter explicitly.
-    if (diagnosticsEnabled) {
-        httpConfig {
-            install(WebSockets) {
-                contentConverter = KotlinxWebsocketSerializationConverter(supabaseJson)
-            }
+    // Both paths wrap the SDK's Ktor socket, so restore setup suppressed by a custom factory.
+    httpConfig {
+        install(WebSockets) {
+            contentConverter = KotlinxWebsocketSerializationConverter(supabaseJson)
         }
     }
+    val native = object : RealtimeWebsocketFactory {
+        override suspend fun create(url: String) = KtorRealtimeWebsocketFactory(httpClient()).create(url)
+    }
+    val observed = if (diagnosticsEnabled) ZRealtimeDiagnostics(native) else native
     install(Realtime) {
-        if (diagnosticsEnabled) websocketFactory = ZRealtimeDiagnostics(httpClient)
+        websocketFactory = ZRealtimeHeartbeatRecovery(observed)
     }
 }
 

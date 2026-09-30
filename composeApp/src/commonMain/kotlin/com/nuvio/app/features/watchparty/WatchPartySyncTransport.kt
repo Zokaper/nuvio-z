@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -24,10 +25,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -383,6 +381,10 @@ internal object WatchPartySync : PartyRealtimeTransport {
             "attach party=${partyId.shortId()} role=${if (isHost()) "host" else "guest"} " +
                 "authority=${watchPartyAuthorityTopic(partyId)} peer=${watchPartyPeerTopic(partyId)}"
         }
+        startBroadcastCollectors(authority, peer)
+    }
+
+    private fun startBroadcastCollectors(authority: RealtimeChannel, peer: RealtimeChannel) {
         authorityCollector = authority.broadcastFlow<JsonObject>(WatchPartySyncEvent)
             .onEach { payload -> receive(payload, PartyRealtimePlane.Authority) }
             .launchIn(scope)
@@ -392,6 +394,15 @@ internal object WatchPartySync : PartyRealtimeTransport {
         stateCollector = authority.broadcastFlow<JsonObject>("state")
             .onEach(stateBroadcastSink)
             .launchIn(scope)
+    }
+
+    internal suspend fun restartBroadcastCollectors(authority: RealtimeChannel, peer: RealtimeChannel) {
+        // SDK disconnect() clears its callback manager. Rejoin must restore callbacks too;
+        // await old collector cleanup so it cannot remove a freshly registered callback.
+        authorityCollector?.cancelAndJoin()
+        peerCollector?.cancelAndJoin()
+        stateCollector?.cancelAndJoin()
+        startBroadcastCollectors(authority, peer)
     }
 
     private fun stopChannelJobs() {
@@ -468,19 +479,28 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 retryMs = 500L
                 val liveAuthority = authorityChannel ?: continue
                 val livePeer = peerChannel ?: continue
-                // Either plane going away is the transport going away. A party running on the
-                // authority plane alone takes commands and never publishes a tick; one running on
-                // the peer plane alone follows the host's position and never hears a pause. Both
-                // are worse than a reconnect, and both would look "subscribed" to the health state.
-                // Do not drop the current value: a loss between subscribe and this collector
-                // attaching must also be observed. Keep the plane name for the physical trace.
-                val lost = merge(
-                    liveAuthority.status.map { PartyRealtimePlane.Authority to it },
-                    livePeer.status.map { PartyRealtimePlane.Peer to it },
-                ).first { it.second == RealtimeChannel.Status.UNSUBSCRIBED }
-                WatchPartyDiagnostics.transport("plane-lost", partyId, realtime = "degraded",
-                    detail = "plane=${lost.first} instance=$channelInstance socket=${ZSupabaseProvider.client.realtime.status.value}")
-                healthSink(PartyHealthEvent.RealtimeDegraded(channelInstance))
+                monitorPartyRealtimeRecovery(
+                    liveAuthority.status, livePeer.status, ZSupabaseProvider.client.realtime.status,
+                    onDegraded = {
+                        WatchPartyDiagnostics.transport("recovery-wait", partyId, realtime = "degraded",
+                            detail = "instance=$channelInstance authority=${liveAuthority.status.value} peer=${livePeer.status.value} socket=${ZSupabaseProvider.client.realtime.status.value}")
+                        healthSink(PartyHealthEvent.RealtimeDegraded(channelInstance))
+                    },
+                    onRecovered = {
+                        restartBroadcastCollectors(liveAuthority, livePeer)
+                        WatchPartyDiagnostics.transport("recovery-subscribed", partyId, realtime = "subscribed",
+                            detail = "instance=$channelInstance")
+                        // SDK rejoin does not re-track presence. A socket/status change can race
+                        // this send; keep recovery ownership with the SDK rather than joining again.
+                        try {
+                            livePeer.track(buildJsonObject { put("profile_id", profileId) })
+                        } catch (failure: Throwable) {
+                            if (!currentCoroutineContext().isActive) throw failure
+                        }
+                        peerStatus?.let { publishPeerStatus(it, peerStarved) }
+                        refreshRequest()
+                    },
+                )
             } catch (failure: Throwable) {
                 if (partyChannelFailureIsScopeCancellation(failure, currentCoroutineContext().isActive)) {
                     WatchPartyDiagnostics.transport("channel-cancelled", partyId, realtime = "degraded",
