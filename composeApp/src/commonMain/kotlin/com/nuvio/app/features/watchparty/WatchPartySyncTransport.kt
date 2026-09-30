@@ -4,6 +4,8 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.ZSessionBridge
 import com.nuvio.app.core.network.ZSupabaseProvider
 import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.broadcastFlow
@@ -21,13 +23,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
@@ -127,6 +132,8 @@ internal object WatchPartySync : PartyRealtimeTransport {
     private var peerCollector: Job? = null
     private var stateCollector: Job? = null
     private var statusCollector: Job? = null
+    private var socketCollector: Job? = null
+    private var authCollector: Job? = null
     private var clockJob: Job? = null
     private var healthMonitorJob: Job? = null
     private val desiredAuthority = MutableStateFlow<PartyAuthorityContext?>(null)
@@ -220,8 +227,13 @@ internal object WatchPartySync : PartyRealtimeTransport {
             invalidateGenerationState()
         }
         val desired = desiredAuthority.value
-        if (desired?.partyId != context?.partyId || desired?.selfProfileId != context?.selfProfileId) {
+        if (partyChannelIdentityChanged(desired, context)) {
+            WatchPartyDiagnostics.transport("desired-channel-change", context?.partyId ?: previous?.partyId,
+                realtime = "changing", detail = "reason=party-or-profile previous=${previous?.partyId.shortId()}")
             desiredAuthority.value = context
+        } else if (previous?.generation != context?.generation) {
+            WatchPartyDiagnostics.transport("generation-change", context?.partyId, realtime = "retained",
+                detail = "channelRetained=true generation=${context?.generation}")
         }
     }
 
@@ -237,7 +249,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
     fun isPrecise(): Boolean {
         val held = tick ?: return false
         if (held.isStale(partyNowMs())) return false
-        return isHost() || clock.locked
+        return isHost() || (clock.locked && !clock.isStale(currentEpochMs()))
     }
 
     /**
@@ -248,7 +260,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
      * barrier scheduled against it would be either far in the future or long past. The host is
      * always usable, because it *is* the clock.
      */
-    fun isClockUsable(): Boolean = isHost() || clock.samples.isNotEmpty()
+    fun isClockUsable(): Boolean = isHost() || !clock.isStale(currentEpochMs())
 
     fun heldTick(): PartyTick? = tick
 
@@ -361,7 +373,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         partyId: String,
         channelInstance: Long,
     ) {
-        resetProtocolState()
+        stopChannelJobs()
         this.authorityChannel = authority
         this.peerChannel = peer
         boundPartyId = partyId
@@ -382,15 +394,23 @@ internal object WatchPartySync : PartyRealtimeTransport {
             .launchIn(scope)
     }
 
-    private fun resetProtocolState() {
+    private fun stopChannelJobs() {
         WatchPartyDiagnostics.channelDetached(boundPartyId)
         authorityCollector?.cancel(); authorityCollector = null
         peerCollector?.cancel(); peerCollector = null
         stateCollector?.cancel(); stateCollector = null
         statusCollector?.cancel(); statusCollector = null
+        socketCollector?.cancel(); socketCollector = null
+        authCollector?.cancel(); authCollector = null
         clockJob?.cancel(); clockJob = null
         healthMonitorJob?.cancel(); healthMonitorJob = null
         boundPartyId = null
+        lastValidatedReceiveAtMs = null
+        outstandingPings.clear()
+    }
+
+    private fun resetProtocolState() {
+        stopChannelJobs()
         clock = PartyClock()
         commandLog = PartyCommandLog()
         bufferWatch = GuestBufferingWatch()
@@ -452,17 +472,27 @@ internal object WatchPartySync : PartyRealtimeTransport {
                 // authority plane alone takes commands and never publishes a tick; one running on
                 // the peer plane alone follows the host's position and never hears a pause. Both
                 // are worse than a reconnect, and both would look "subscribed" to the health state.
-                merge(liveAuthority.status.drop(1), livePeer.status.drop(1))
-                    .first { it == RealtimeChannel.Status.UNSUBSCRIBED }
+                // Do not drop the current value: a loss between subscribe and this collector
+                // attaching must also be observed. Keep the plane name for the physical trace.
+                val lost = merge(
+                    liveAuthority.status.map { PartyRealtimePlane.Authority to it },
+                    livePeer.status.map { PartyRealtimePlane.Peer to it },
+                ).first { it.second == RealtimeChannel.Status.UNSUBSCRIBED }
+                WatchPartyDiagnostics.transport("plane-lost", partyId, realtime = "degraded",
+                    detail = "plane=${lost.first} instance=$channelInstance socket=${ZSupabaseProvider.client.realtime.status.value}")
                 healthSink(PartyHealthEvent.RealtimeDegraded(channelInstance))
             } catch (failure: Throwable) {
-                if (partyChannelFailureIsScopeCancellation(failure)) throw failure
+                if (partyChannelFailureIsScopeCancellation(failure, currentCoroutineContext().isActive)) {
+                    WatchPartyDiagnostics.transport("channel-cancelled", partyId, realtime = "degraded",
+                        detail = "type=${failure::class.simpleName} desired=${desiredAuthority.value?.partyId.shortId()}")
+                    throw failure
+                }
                 reportOpenFailure(partyId, failure)
             } finally {
                 val stillDesired = desiredAuthority.value?.let {
                     it.partyId == partyId && it.selfProfileId == profileId
                 } == true
-                closeChannel(clearProtocol = true, detached = !stillDesired)
+                closeChannel(clearProtocol = !stillDesired, detached = !stillDesired)
             }
             healthSink(PartyHealthEvent.RealtimeDegraded(channelInstance))
             delay(retryMs)
@@ -486,6 +516,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
             throw IllegalStateException(ZSessionBridge.lastFailure ?: "Nuvio Z session unavailable")
         }
         ZSupabaseProvider.client.realtime.setAuth()
+        WatchPartyDiagnostics.transport("set-auth", partyId, realtime = "subscribing", detail = "caller=party-open")
         channelInstance += 1
         val openingInstance = channelInstance
         healthSink(PartyHealthEvent.RealtimeConnecting(openingInstance))
@@ -501,24 +532,24 @@ internal object WatchPartySync : PartyRealtimeTransport {
             presence { key = profileId }
         }
         attach(nextAuthority, nextPeer, partyId, openingInstance)
-        statusCollector = merge(nextAuthority.status, nextPeer.status).onEach { _ ->
-            val authorityStatus = nextAuthority.status.value
-            val peerStatus = nextPeer.status.value
-            when {
-                // Subscribed is the *conjunction*. Reporting it on the first plane to arrive is how
-                // a half-open transport would be reported as live.
-                authorityStatus == RealtimeChannel.Status.SUBSCRIBED &&
-                    peerStatus == RealtimeChannel.Status.SUBSCRIBED ->
-                    healthSink(PartyHealthEvent.RealtimeSubscribed(openingInstance))
-                authorityStatus == RealtimeChannel.Status.UNSUBSCRIBED ||
-                    peerStatus == RealtimeChannel.Status.UNSUBSCRIBED ||
-                    authorityStatus == RealtimeChannel.Status.UNSUBSCRIBING ||
-                    peerStatus == RealtimeChannel.Status.UNSUBSCRIBING ->
-                    if (desiredAuthority.value?.partyId == partyId) {
-                        healthSink(PartyHealthEvent.RealtimeDegraded(openingInstance))
-                    }
-                else -> healthSink(PartyHealthEvent.RealtimeConnecting(openingInstance))
+        statusCollector = combine(nextAuthority.status, nextPeer.status) { a, p -> a to p }.onEach { (a, p) ->
+            WatchPartyDiagnostics.transport("plane-status", partyId, realtime = "${partyPlaneHealth(a, p)}",
+                detail = "authority=$a peer=$p instance=$openingInstance")
+            if (desiredAuthority.value?.partyId == partyId) {
+                healthSink(partyPlaneHealthEvent(a, p, openingInstance))
             }
+        }.launchIn(scope)
+        socketCollector = ZSupabaseProvider.client.realtime.status.onEach {
+            WatchPartyDiagnostics.transport("websocket-status", partyId, realtime = it.name,
+                detail = "instance=$openingInstance")
+            if (it != Realtime.Status.CONNECTED) healthSink(PartyHealthEvent.RealtimeDegraded(openingInstance))
+        }.launchIn(scope)
+        var heldToken = ZSupabaseProvider.client.auth.currentSessionOrNull()?.accessToken
+        authCollector = ZSupabaseProvider.client.auth.sessionStatus.onEach {
+            val token = ZSupabaseProvider.client.auth.currentSessionOrNull()?.accessToken
+            WatchPartyDiagnostics.transport("auth-state", partyId, realtime = "observed",
+                detail = "state=${it::class.simpleName} tokenChanged=${token != heldToken} sessionPresent=${token != null}")
+            heldToken = token
         }.launchIn(scope)
         withTimeout(WatchPartyChannelSubscribeTimeoutMs) {
             nextAuthority.subscribe(blockUntilSubscribed = true)
@@ -527,12 +558,16 @@ internal object WatchPartySync : PartyRealtimeTransport {
         nextPeer.track(buildJsonObject { put("profile_id", profileId) })
         clockJob = scope.launch { runClockExchange(partyId) }
         healthMonitorJob = scope.launch {
+            var reportedStale = false
             while (true) {
                 delay(1_000)
                 val lastReceive = lastValidatedReceiveAtMs ?: continue
                 if (currentEpochMs() - lastReceive > WatchPartyClockStaleMs) {
+                    if (!reportedStale) WatchPartyDiagnostics.transport("health-stale", partyId,
+                        realtime = "degraded", detail = "receiveAgeMs=${currentEpochMs() - lastReceive}")
+                    reportedStale = true
                     healthSink(PartyHealthEvent.RealtimeDegraded(openingInstance))
-                }
+                } else reportedStale = false
             }
         }
         failureSink(null)
@@ -552,10 +587,13 @@ internal object WatchPartySync : PartyRealtimeTransport {
             boundPartyId = closingPartyId,
             channelInstance = closingInstance,
             detached = detached,
-        ) ?: return
+        ) ?: run {
+            if (clearProtocol) resetProtocolState()
+            return
+        }
         authorityChannel = null
         peerChannel = null
-        if (clearProtocol) resetProtocolState()
+        if (clearProtocol) resetProtocolState() else stopChannelJobs()
         listOfNotNull(closingAuthority, closingPeer).forEach { closing ->
             runCatching {
                 withTimeout(WatchPartyChannelCloseTimeoutMs) {
@@ -564,7 +602,8 @@ internal object WatchPartySync : PartyRealtimeTransport {
             }
         }
         if (closePlan.detached) healthSink(PartyHealthEvent.RealtimeDetached(closePlan.channelInstance))
-        WatchPartyDiagnostics.transport("channel-closed", closePlan.partyId, realtime = "disconnected")
+        WatchPartyDiagnostics.transport("channel-closed", closePlan.partyId, realtime = "disconnected",
+            detail = "instance=$closingInstance protocolRetained=${!clearProtocol} detached=$detached")
     }
 
     /**
@@ -843,13 +882,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         if (message.fromProfileId == self) {
             if (plane == PartyRealtimePlane.Authority) {
                 lastValidatedReceiveAtMs = currentEpochMs()
-                healthSink(
-                    PartyHealthEvent.RealtimeReceived(
-                        channelInstance,
-                        lastValidatedReceiveAtMs ?: currentEpochMs(),
-                        PartyRealtimeTrafficKind.Authority,
-                    ),
-                )
+                recordLiveReceive(lastValidatedReceiveAtMs ?: currentEpochMs(), PartyRealtimeTrafficKind.Authority)
             }
             return
         }
@@ -862,7 +895,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
         }
         val receivedAt = currentEpochMs()
         lastValidatedReceiveAtMs = receivedAt
-        healthSink(PartyHealthEvent.RealtimeReceived(channelInstance, receivedAt, trafficKind))
+        recordLiveReceive(receivedAt, trafficKind)
         if (
             message.contentGeneration != generation.contentGeneration ||
             message.sourceGeneration != generation.sourceGeneration ||
@@ -878,6 +911,14 @@ internal object WatchPartySync : PartyRealtimeTransport {
             is PartyCommandMessage -> acceptCommand(message, context)
             is PartyPeerStatusMessage -> acceptPeerStatus(message)
         }
+    }
+
+    private fun recordLiveReceive(atMs: Long, kind: PartyRealtimeTrafficKind) {
+        healthSink(partyLiveReceiveEvent(
+            authorityChannel?.status?.value, peerChannel?.status?.value,
+            ZSupabaseProvider.client.realtime.status.value == Realtime.Status.CONNECTED,
+            channelInstance, atMs, kind,
+        ))
     }
 
     private suspend fun answerPing(ping: PartyClockPingMessage, context: PartyAuthorityContext) {

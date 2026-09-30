@@ -41,11 +41,15 @@ internal fun partyChannelClosePlan(
  * through the `collectLatest` on the desired-authority flow that drives `WatchPartySync` for the
  * whole process. One subscribe that ran long took the authority collector with it: every party
  * after that one was left on the poll floor, with nothing left in the process to reopen a channel.
- * A cancellation the loop caused itself is a failed attempt; only one it did not cause belongs to
- * the scope.
+ * Timeouts and SDK cancellation while the owning coroutine is active are failed attempts. Only
+ * cancellation of the owning coroutine belongs to the scope.
  */
-internal fun partyChannelFailureIsScopeCancellation(failure: Throwable): Boolean =
-    failure is CancellationException && failure !is TimeoutCancellationException
+internal fun partyChannelFailureIsScopeCancellation(failure: Throwable, scopeActive: Boolean = false): Boolean =
+    failure is CancellationException && failure !is TimeoutCancellationException && !scopeActive
+
+/** Socket identity excludes sequence, permissions, host and generation: those update in place. */
+internal fun partyChannelIdentityChanged(a: PartyAuthorityContext?, b: PartyAuthorityContext?): Boolean =
+    a?.partyId != b?.partyId || a?.selfProfileId != b?.selfProfileId
 
 /**
  * The summary of the timing plane that the UI and the debug overlay want.

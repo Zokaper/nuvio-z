@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-30
 
+## Final iOS Watch Together RC blockers (2026-09-30) — investigation active
+
+Active mobile/desktop branch remains `claude/ios-watch-together-hardening`. Maintainer physically
+tested mobile debug 72 + desktop 78: Android guest and other requested RC behavior pass; only iOS
+Home/Away/pause and spontaneous foreground reconnect remain blockers. No new build publication.
+
+Away cause confirmed against the **deployed Z trigger**: `party_member_broadcast_update` omits
+`away_since`, so a lost iOS peer packet leaves observers on the five-second durable poll. The
+separate host hold bug ignores durable Away. Mobile `7846909dc` adds a lease-bounded durable union,
+fresh peer roster, and durable-return clearing of older peer Away. Only these five shared files
+are merged into desktop (`371e71dcf`, via isolated `rc-wt-away-shared` / `c3822e4b0`).
+Backend migration `202609300001_broadcast_party_away.sql` adds Away to the existing notification
+predicate; local fresh-reset pgTAP **347/347 pass**. Migration is **not deployed**.
+
+Mobile recovery now retains protocol evidence across reconnects of the same party/profile while
+invalidating it on departure/generation changes; health still requires both channels and fresh
+proof. iOS publishes before suspension at WillResignActive. The supplied latest Files export
+`ios-recparty-logs/nuvio_diagnostics/session-20260930-161855.log` contains Swift lifecycle/view
+snapshots but **no Kotlin WT/socket/auth trace**. Exact spontaneous reconnect trigger remains
+unproved. Normal generation/sequence updates do not recreate desired channels; pinned SDK
+`setAuth()` updates tokens in place. Added persistent privacy-safe `watchparty-*.log` in the same
+Files folder for socket/heartbeat, plane status, auth, lifecycle, health stale and recreation events.
+
+First focused WT pass: **408/408** (before final return/health diagnostics); final focused rerun,
+full mobile host suite and iOS compilation pending. Details/retest: `Docs/IOS-WATCH-TOGETHER-RC.md`.
+Keep publication held until the foreground drop is captured and explained; do not claim both
+blockers cleared or reopen initial small drift/source matching/player controls/Downloads/setup.
+
 ## Debug 72 physical retest / remaining Classic toast (2026-09-30)
 
 Maintainer tested 72: ten enter/exit/reopen cycles worked, playback eventually started,

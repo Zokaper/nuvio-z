@@ -13,6 +13,9 @@ import kotlin.uuid.Uuid
  * credential. The T0-T4 names are stable so logs from two clients can be joined mechanically.
  */
 internal object WatchPartyDiagnostics {
+    /** Privacy-safe events only; iOS persists these independently of console/Kermit logging. */
+    @kotlin.concurrent.Volatile
+    var sink: ((String) -> Unit)? = null
     private val log = Logger.withTag("WatchPartyTrace")
     private var channelSerial = 0L
     private var channelInstanceId: String? = null
@@ -110,10 +113,10 @@ internal object WatchPartyDiagnostics {
     fun transport(event: String, partyId: String?, realtime: String, detail: String? = null) {
         if (!isDebugBuild) return
         realtimeState = realtime
-        log.i {
-            "transport atEpochMs=${currentEpochMs()} event=$event party=${partyId.shortId()} " +
-                "realtime=$realtime ${transportFacts()}${detail?.let { " detail=$it" } ?: ""}"
-        }
+        val line = "transport atEpochMs=${currentEpochMs()} event=$event party=${partyId.shortId()} " +
+            "realtime=$realtime ${transportFacts()}${detail?.let { " detail=$it" } ?: ""}"
+        log.i { line }
+        sink?.invoke(line)
     }
 
     fun poll(partyId: String?, running: Boolean, api: String, sequence: Long? = null, durationMs: Long? = null) {

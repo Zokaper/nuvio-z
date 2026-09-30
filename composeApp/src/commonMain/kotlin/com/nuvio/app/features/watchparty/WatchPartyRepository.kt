@@ -148,6 +148,9 @@ object WatchPartyRepository {
             before.api != after.api ||
             before.capability() != after.capability()
         ) {
+            WatchPartyDiagnostics.transport("health-transition", _uiState.value.party?.id,
+                realtime = after.realtime.name,
+                detail = "from=${before.realtime} by=${event::class.simpleName} instance=${after.channelInstance}")
             log.i {
                 "health realtime=${before.realtime}->${after.realtime} api=${before.api}->${after.api} " +
                     "capability=${before.capability()}->${after.capability()} " +
@@ -237,6 +240,8 @@ object WatchPartyRepository {
     suspend fun setAway(away: Boolean): Result<Unit> {
         val partyId = _uiState.value.party?.id ?: return Result.success(Unit)
         val profileId = _uiState.value.activeProfileId ?: return Result.success(Unit)
+        val startedAt = currentEpochMs()
+        WatchPartyDiagnostics.transport("durable-away-start", partyId, realtime = "presence", detail = "away=$away")
         return runCatching {
             if (!ZSessionBridge.ensureSession(profileId)) error("Nuvio Z session unavailable")
             val snapshot = ZSupabaseProvider.client.postgrest.rpc("party_set_away", buildJsonObject {
@@ -248,7 +253,11 @@ object WatchPartyRepository {
                 installSnapshot(snapshot)
             }
             log.i { "away published party=${partyId.shortId()} away=$away" }
+            WatchPartyDiagnostics.transport("durable-away-complete", partyId, realtime = "presence",
+                detail = "away=$away durationMs=${currentEpochMs() - startedAt}")
         }.onFailure { error ->
+            WatchPartyDiagnostics.transport("durable-away-failed", partyId, realtime = "presence",
+                detail = "away=$away durationMs=${currentEpochMs() - startedAt} type=${error::class.simpleName}")
             log.w(error) { "away publish failed party=${partyId.shortId()} away=$away" }
         }
     }

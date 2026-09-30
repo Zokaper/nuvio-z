@@ -1,6 +1,7 @@
 package com.nuvio.app.core.network
 
 import com.nuvio.app.core.build.AppVersionConfig
+import com.nuvio.app.core.debug.isDebugBuild
 import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
@@ -60,7 +61,9 @@ object ZSupabaseProvider {
                 autoSetupPlatform = false
             }
             install(Postgrest)
-            install(Realtime)
+            install(Realtime) {
+                if (isDebugBuild) websocketFactory = ZRealtimeDiagnostics
+            }
         }
     }
 }

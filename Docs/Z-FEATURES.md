@@ -1,5 +1,13 @@
 # Nuvio Z Feature Ledger
 
+**2026-09-30 final WT RC follow-up:** maintainer's mobile 72 / desktop 78 physical run passes
+Android guest behavior; iOS Home/Away pause and foreground reconnects remain open. Durable Away
+now participates in the host hold policy with the existing ten-minute lease and return clearing;
+the minimal host policy is merged to desktop. The missing Away invalidation trigger is fixed in
+a locally tested, undeployed backend migration. Mobile reconnect recovery preserves useful
+protocol evidence and adds persistent iOS socket diagnostics. Neither iOS blocker is declared
+physically cleared. Evidence and remaining gate: `IOS-WATCH-TOGETHER-RC.md`.
+
 **Revision 19 is the iOS / Watch Together hardening branch (2026-09-29).** S1/S3's
 physically reproduced iOS lobby, paused-guest, background-return and Social error paths
 have code fixes and a bounded backend Away lease. Shared WT diagnostics now correlate command

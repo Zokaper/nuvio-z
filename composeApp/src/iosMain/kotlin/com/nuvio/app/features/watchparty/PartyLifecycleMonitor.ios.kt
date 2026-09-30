@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -16,6 +17,7 @@ import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationDidEnterBackgroundNotification
+import platform.UIKit.UIApplicationWillResignActiveNotification
 import platform.UIKit.UIApplicationState
 import platform.UIKit.UIBackgroundTaskIdentifier
 import platform.UIKit.UIBackgroundTaskInvalid
@@ -38,17 +40,24 @@ internal object IosPartyLifecycle {
     fun start() {
         if (started) return
         started = true
+        WatchPartyProbeLog.enable()
         val center = NSNotificationCenter.defaultCenter
-        center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, null) {
+        fun publishAway(event: String) {
+            WatchPartyDiagnostics.transport("ios-lifecycle", WatchPartyRepository.uiState.value.party?.id,
+                realtime = "lifecycle", detail = "event=$event away=true")
+            if (!_facts.value.appForeground) return
             revision += 1L
             val observedRevision = revision
             _facts.value = _facts.value.copy(appForeground = false)
             WatchPartySync.setLocalPresence(true)
-            if (WatchPartyRepository.uiState.value.party == null) return@addObserverForName
-            awayTask = UIApplication.sharedApplication.beginBackgroundTaskWithName("nuvio.party.away") {
-                endAwayTask()
+            if (WatchPartyRepository.uiState.value.party == null) return
+            endAwayTask(awayTask)
+            var task: UIBackgroundTaskIdentifier = UIBackgroundTaskInvalid
+            task = UIApplication.sharedApplication.beginBackgroundTaskWithName("nuvio.party.away") {
+                endAwayTask(task)
             }
-            scope.launch {
+            awayTask = task
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
                     publicationMutex.withLock {
                         if (observedRevision == revision) {
@@ -56,11 +65,21 @@ internal object IosPartyLifecycle {
                         }
                     }
                 } finally {
-                    endAwayTask()
+                    endAwayTask(task)
                 }
             }
         }
+        // The app switcher/lock transition starts here, while the socket can still run. Waiting
+        // for DidEnterBackground left the peer send racing suspension after the engine paused.
+        center.addObserverForName(UIApplicationWillResignActiveNotification, null, null) {
+            publishAway("will-resign-active")
+        }
+        center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, null) {
+            publishAway("did-enter-background")
+        }
         center.addObserverForName(UIApplicationDidBecomeActiveNotification, null, null) {
+            WatchPartyDiagnostics.transport("ios-lifecycle", WatchPartyRepository.uiState.value.party?.id,
+                realtime = "lifecycle", detail = "event=did-become-active away=false")
             revision += 1L
             _facts.value = _facts.value.copy(
                 appForeground = true,
@@ -76,9 +95,10 @@ internal object IosPartyLifecycle {
         }
     }
 
-    private fun endAwayTask() {
-        val task = awayTask
+    private fun endAwayTask(task: UIBackgroundTaskIdentifier) {
         if (task == UIBackgroundTaskInvalid) return
+        // An older publication finishing must not end a newer background task.
+        if (awayTask != task) return
         awayTask = UIBackgroundTaskInvalid
         UIApplication.sharedApplication.endBackgroundTask(task)
     }
