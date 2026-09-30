@@ -25,9 +25,14 @@ production notification observer plus 50 simulated blocked-subtitle exit/recreat
 Verification: full Android host suite **3,353 total / 0 failures / 0 errors / 6 skipped**;
 production Swift observer and 50 executor lifecycle cycles pass (run `36696305232`).
 Final review also keeps FILE_LOADED error clearing in native event order so it cannot erase
-a following END_FILE error. iOS framework compilation passed; Xcode validation is running.
-The maintainer authorized Android + iOS debug 72 after green checks; counter and notes
-prepared. No stable promotion or desktop changes. Physical RC clearance remains pending.
+a following END_FILE error. Final iOS Kotlin framework + Xcode compile **pass** (`36698242903`), and CI **pass**
+(`36698242875`) on `d30111e3d`.
+Authorized Android + iOS **debug 72 published** (`debug-v0.4.13-z1.72`, workflow
+`36698673742`, source `d30111e3dcd4c6424543decfff93fec14fe85ab6`). Downloaded APK
+(156,157,864 bytes) and unsigned IPA (92,813,179 bytes) match published SHA-256 checksums;
+IPA bundle `com.nuvio.app.z.debug`, version `0.4.13-z1.72`, build `72`. Canonical main
+SideStore debug feed points to 72. No stable promotion or desktop changes. Physical RC
+clearance remains pending; follow `Docs/IOS-CLASSIC-RC.md` with active downloads.
 
 ## Release Candidate Integration & Verification — Final Debug Set 71 / 78 (2026-09-30)
 

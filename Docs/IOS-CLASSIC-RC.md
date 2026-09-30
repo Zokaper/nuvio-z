@@ -92,6 +92,12 @@ cycles; build-only iOS CI runs them before compiling Kotlin/Swift. Record actual
 in STATUS.md. The maintainer subsequently authorized Android + iOS debug 72 after green checks;
 physical RC clearance still requires the steps below.
 
+Debug 72 published: [APK + unsigned IPA](https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.72),
+source `d30111e3d`; Android host 3,353 total / zero failures or errors / six skipped;
+native observer and 50 lifecycle cycles pass; final CI and iOS Xcode compile pass.
+Both downloaded artifacts match the published checksums and the canonical SideStore
+debug feed points to 72.
+
 1. With an active download, Classic → Futurama S1E1 → first source. Check the chosen
    source opens; if it fails, the player says why and offers retry/another source.
 2. Exit, Home → Futurama → source list immediately. Repeat enter/exit/retry ten times,
@@ -103,3 +109,29 @@ physical RC clearance still requires the steps below.
 
 The blocking freeze and wrong-message path are separate defects, joined by this user
 journey. Physical confirmation is still required for RC clearance.
+
+## Files changed
+
+Production:
+
+- `iosApp/iosApp/DownloadsLiveActivityManager.swift`
+- `iosApp/iosApp/Player/MPVPlayerBridge.swift`
+- `iosApp/iosApp/Player/MPVSerialExecutor.swift` (new)
+- `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerCompletedEpisode.kt` (new)
+- `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerScreenRuntimeEffects.kt`
+
+Regression coverage:
+
+- `composeApp/src/commonTest/kotlin/com/nuvio/app/features/player/PlayerScreenRuntimeStateTest.kt`
+- `composeApp/src/androidHostTest/kotlin/com/nuvio/app/StreamOrientationTest.kt`
+- `scripts/ios-rc-regressions/main.swift` (new)
+- `.github/workflows/ios-build.yml`
+- `.gitignore` (allow the native harness)
+
+Handoff and authorized debug release:
+
+- `Docs/IOS-CLASSIC-RC.md` (this report)
+- `Docs/PATCH-SURFACE.md`
+- `STATUS.md`
+- `iosApp/Configuration/DebugVersion.xcconfig` (72)
+- `composeApp/src/commonMain/composeResources/files/changelog.json`
