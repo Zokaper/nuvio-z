@@ -97,7 +97,11 @@ Final full Android host suite: **3,384 tests, zero failures/errors, 6 skipped**,
 per socket, healthy replacement survival, genuine unanswered-heartbeat timeout, and durable state
 delivery after callback reset. Lifecycle queue ordering regressions pass. XML/logs:
 `../.rc-investigation/wt-ios/resume-recovery-full-results/` and `resume-recovery-full.log`.
-New diagnostic IPA/native compilation is pending. No backend, counter, release or feed change. Both physical
+Fix pushed as `8658c6576`. New diagnostic-only
+[IPA run 36776265055](https://github.com/Zokaper/nuvio-z/actions/runs/36776265055) is queued/in
+progress on that exact source, keeping debug 73 and skipping Android/release/feed publication.
+Native compilation and SHA-named artifact/checksum/manifest verification are pending; do not
+claim the IPA is downloadable yet. No backend, counter, release or feed change. Both physical
 acceptance gates remain open; this capture explains return recovery churn, without claiming that
 the old foreground-only report is cleared.
 

@@ -39,8 +39,15 @@ timeout, and restored durable state messages after callback reset. Lifecycle tes
 obsolete return and latest return after an in-flight Away. XML/logs:
 `../.rc-investigation/wt-ios/resume-recovery-full-results/` and `resume-recovery-full.log`;
 original red SDK regression: `heartbeat-recovery-red.{log,xml}`.
-Next: push source and build the authorized diagnostic-only iOS IPA on the same debug counter.
-Physical acceptance and stable RC publication remain open.
+Source fix pushed as `8658c6576`. Authorized **diagnostic-only iOS IPA run `36776265055`**
+is queued/in progress on that exact source:
+https://github.com/Zokaper/nuvio-z/actions/runs/36776265055 . Android/release/feed publication
+is disabled and base debug 73 retained. Native compilation/artifact verification are pending;
+do not claim this source is iOS-compiled or an IPA is downloadable until the run succeeds.
+After success, verify SHA-named IPA/checksum/manifest, then test five quiet foreground minutes,
+repeated Home/return and lock/unlock with Pause for Away ON/OFF on a host containing `371e71dcf`.
+Desktop investigation handoff pushed as `292601c44`. Physical acceptance and stable RC publication
+remain open. All coherent source/docs are committed; no code merge to desktop in this follow-up.
 
 ## iOS diagnostic IPA reconnect retest (2026-09-30, 22:08–22:10 Arabia time)
 
