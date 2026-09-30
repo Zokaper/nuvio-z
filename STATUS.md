@@ -44,8 +44,15 @@ the no-new-build gate. Added opt-in `diagnostic_ios_only` dispatch mode to the e
 workflow: same full iOS builder, SHA-named IPA/checksum/manifest Actions artifact; Android and
 release/feed publisher jobs skipped. Existing default release path retained; actionlint passes.
 No debug counter, stable version, release tag or feed change. Diagnostic run `36735100392`, source
-`628737989`, is building; its Android job is confirmed skipped. The IPA retains base debug 73
-and must be sideloaded explicitly; it is not a claimed reconnect fix or an updater release.
+`628737989`, **passed**; Android and release/feed publisher jobs are confirmed skipped.
+Artifact: https://github.com/Zokaper/nuvio-z/actions/runs/36735100392/artifacts/11108185929 .
+IPA SHA-256 `8ad38557125d442e2da628e787b064a5d3455d95d34971308dbca6925ee9fe4c`;
+archive CRC, debug bundle/version, Files keys and compiled WT probe markers verified. The IPA
+retains base debug 73 and must be sideloaded explicitly; it is not a claimed reconnect fix or
+an updater release. Standard source CI `36735101305` also passed.
+Next: sideload the diagnostic IPA, foreground a party for five minutes and export the latest
+`watchparty-*.log` after a banner, with its time, to identify the initiating event. Final durable
+Away policy acceptance needs a desktop build containing `371e71dcf`; existing debug 78 lacks it.
 
 ## Debug 72 physical retest / remaining Classic toast (2026-09-30)
 
