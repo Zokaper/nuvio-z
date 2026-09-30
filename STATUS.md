@@ -19,8 +19,24 @@ EOF. The EOF guard fixed a separate unsafe path; it was not the reproduced toast
 The backstop now delegates to a playback policy that requires the current route to still
 own selection, no completed handoff, and no manual startup. These facts also cancel the
 grace timer, and live ownership is checked again after its delay. Genuine automatic dead
-ends retain their fallback. Regression went red on 72 with the exact toast; final checks
-and authorized Android/iOS debug 73 are in preparation. No native lifecycle change.
+ends retain their fallback. Regression went red on 72 with the exact toast, then green
+after the ownership guard. Full Android host **3,358 total / 0 failures / 0 errors /
+6 skipped**; CI `36705535208` and iOS framework/Xcode `36705535297` pass. No native
+lifecycle change.
+
+**Mobile debug 73 dispatched**, run `36706038578`, source
+`dac42f329a691c56cf33584275747ab1801ad810`; APK build passed, IPA still building at handoff.
+Maintainer also authorized desktop same-fix merge/build: scoped shared branch
+`rc-toast-shared` (`c1d448df7`) merged into desktop `71c8386d4`, local focused tests
+36/36 and Windows MSI compile pass. Desktop **debug 79 dispatched**, run `36708599493`.
+Its full local split suite is still running (`../.rc-investigation/desktop79/`); Linux CI
+repeats a pre-existing native `frame_copy_test` player-creation failure before Kotlin tests.
+
+Maintainer disconnecting requested dispatch now; both dispatched. On return verify release
+completion/assets/checksums and canonical mobile SideStore feed, collect desktop split
+suite totals, and physically repeat the slow Classic first-source opening on iOS/Android/
+desktop: the automatic-source toast must never appear after a manual pick. Subtitle and
+other-mode checks from 72 remain untested.
 
 ## Final RC blocker — Classic iOS freeze investigation (2026-09-30)
 

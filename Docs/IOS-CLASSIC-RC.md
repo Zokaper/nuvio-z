@@ -70,6 +70,15 @@ ownership is checked again after the delay. Genuine automatic failure fallback r
 closed a separate unsafe path, but did not fix this toast. The source-route regression now
 reproduces the actual message independently of mpv or next-episode playback.
 
+Follow-up verification: mobile 3,358 host tests / zero failures or errors / six skipped;
+CI and iOS Xcode compile pass. Desktop carries the same guard via scoped shared merge;
+36 focused tests and Windows MSI compile pass. Full Windows split suite is running;
+Linux CI is blocked before Kotlin tests by the same pre-existing native player-creation
+fixture failure. Mobile debug 73 (`36706038578`) and desktop debug 79 (`36708599493`)
+are dispatched at the maintainer's disconnect request. Publication/asset checks remain
+for the next turn. Retest the same manual first-source opening and wait through startup:
+no automatic-source toast should appear, whether video starts quickly or slowly.
+
 ## Subtitle patch / mpv audit
 
 `6ec82e819` (`4ea93e489` originally) is **not the captured freeze's cause**: the crash's

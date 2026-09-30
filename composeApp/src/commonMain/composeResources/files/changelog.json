@@ -745,6 +745,10 @@
         {
           "build": 73,
           "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: downloads no longer wait forever on a connection Windows marks as metered; a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
+        },
+        {
+          "build": 79,
+          "text": "Playback: removes an incorrect 'No safe automatic source' toast after a chosen source has been handed to the player. The source-selection watchdog now respects manual startup and player ownership; genuine automatic-selection failures still return to the source list."
         }
       ]
     }
