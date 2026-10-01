@@ -216,3 +216,41 @@ are not guaranteed side-effect free through the Auth plugin error parser. SDK au
 refresh also imports/clears independently of coordinator authority. The current validation
 heads are provisional; do not publish debug builds until those SDK boundaries are corrected
 and the affected merged-head matrix reruns. No performance work or publication.
+
+Correction in progress: StatelessAuthRequests sends raw requests through the existing
+SupabaseHttpClient (same transport, rate-limit/fallback/retry configuration), with captured
+Authorization tokens and Email.encodeCredentials. Its error contains only HTTP status and
+an invalid-session category; no SDK Auth parseErrorResponse runs and no server body is
+retained in diagnostics. Successful login/refresh sessions remain unimported until coordinator
+authority is checked. Email-confirmation signup decodes a user response without adopting
+the SDK session. Current supported email/password flow is IMPLICIT; no PKCE/custom redirect
+is configured. Browser/code behavior is retained; code fallback lookup now bypasses Auth's
+error parser as well. SDK alwaysAutoRefresh and Android enableLifecycleCallbacks are false;
+captured near-expiry renewal belongs to the coordinator (30s check, 60s ahead). Storage
+restoration remains supported through a coordinator-owned read/import, with SDK auto-loading
+disabled so a delayed disk read cannot import A over B. The SDK's initial empty status is
+ignored until that guarded read settles; empty/unreadable storage settles without deleting
+stored credentials, and offline validation retains the restored session. The SDK
+status echo after a same-account import clears obsolete validation ownership, allowing
+subsequent timer refreshes. New real-SDK tests reproduce parser clearing an unrelated B,
+then prove raw validation/refresh/credential/logout requests cannot trigger that parser.
+New coordinator tests cover timer expiry, status echo, and stale success/rejection behind B.
+
+Historical e68cff3 mobile validation: 3432 host cases, 0 failures/errors, six distribution
+policy skips; auth 63, WT/player 764 (same six skips), profile 185, updater 53. All six service
+cases pass under full distribution. Android debug and unsigned release/R8 pass. Historical
+e8089d7: auth/fixture 88 pass; playback 1062 and downloads 457 pass; rest still times out at
+20m (initial external override ran before the build's timeout assignment); e2e 49 has one
+missing-file assertion in the quiet-source case. Windows/macOS arm64/x86_64 build-only
+family and independently downloaded installer checksum comparison pass. iOS explicit
+device+simulator/Xcode build-only succeeds, coordinated IPA remains pending when recorded.
+All results are retained as historical proof, not approval of the new SDK correction.
+
+The quiet-source e2e failure reproduced in one of three unchanged two-case probes. The
+second failure was FileNotFoundException after resolving/existence-checking the flat file,
+while completion's organizer moved it. The fixture read a captured URI outside the store
+critical section; completion publishes before organizeLocked completes its rename under
+that same lock. The test helper now acquires that lock, reads the current item and verifies
+completion, existence, exact size and exact bytes without a concurrent rename. Production
+downloads are unchanged. Five consecutive two-case probes passed with this coherent read;
+the complete final-head e2e partition remains required.

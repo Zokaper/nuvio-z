@@ -18,7 +18,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeout
+import kotlin.time.Clock
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import nuvio.composeapp.generated.resources.*
@@ -30,6 +33,8 @@ object AuthRepository {
     private val lifecycleLock = SynchronizedObject()
     private var initialized = false
     private var sessionStatusJob: Job? = null
+    private var refreshJob: Job? = null
+    private var restorationJob: Job? = null
     private val coordinator = AuthSessionCoordinator(SupabaseAuthSessionPort) { message -> log.i { message } }
     val state = coordinator.state
     val error = coordinator.error
@@ -38,6 +43,15 @@ object AuthRepository {
         if (initialized) return
         initialized = true
         coordinator.initialize()
+        restorationJob = scope.launch {
+            try {
+                coordinator.restoreStoredSession()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                log.i { "auth session restoration unavailable" }
+            }
+        }
         sessionStatusJob = scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
                 when (status) {
@@ -51,6 +65,18 @@ object AuthRepository {
                     is SessionStatus.NotAuthenticated -> coordinator.notAuthenticated(SupabaseAuthSessionPort.currentSession() != null)
                     is SessionStatus.Initializing -> coordinator.initializing()
                     is SessionStatus.RefreshFailure -> coordinator.refreshFailure()
+                }
+            }
+        }
+        refreshJob = scope.launch {
+            while (isActive) {
+                delay(30_000)
+                try {
+                    coordinator.refreshDue(Clock.System.now().toEpochMilliseconds())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    log.i { "auth scheduled refresh unavailable" }
                 }
             }
         }
@@ -74,7 +100,11 @@ object AuthRepository {
 
     fun reinitialize() = synchronized(lifecycleLock) {
         sessionStatusJob?.cancel()
+        refreshJob?.cancel()
+        restorationJob?.cancel()
         sessionStatusJob = null
+        refreshJob = null
+        restorationJob = null
         initialized = false
         initialize()
     }
@@ -101,34 +131,34 @@ object AuthRepository {
 
 private object SupabaseAuthSessionPort : AuthSessionPort {
     override fun currentSession() = SupabaseProvider.client.auth.currentSessionOrNull()?.owned()
+    override suspend fun loadStoredSession() = SupabaseProvider.client.auth.sessionManager.loadSession()?.owned()
     override fun loadAnonymousId() = AuthStorage.loadAnonymousUserId()
     override fun saveAnonymousId(id: String) = AuthStorage.saveAnonymousUserId(id)
     override fun clearAnonymousId() = AuthStorage.clearAnonymousUserId()
     override fun wipeAccountData() = LocalAccountDataCleaner.wipe()
     override suspend fun login(email: String, password: String, signUp: Boolean): OwnedAuthSession? {
-        // Use the same Email provider as Auth.signInWith, but capture its response before import.
-        // Reading currentSession after a request would allow an unrelated stored/timer session.
-        var result: OwnedAuthSession? = null
-        val onSession: suspend (UserSession) -> Unit = { result = it.owned() }
-        if (signUp) Email.signUp(SupabaseProvider.client, onSession, null) { this.email = email; this.password = password }
-        else Email.login(SupabaseProvider.client, onSession, null) { this.email = email; this.password = password }
-        return result
+        return StatelessAuthRequests(SupabaseProvider.client).login(email, password, signUp)?.owned()
     }
-    override suspend fun signOut() = SupabaseProvider.client.auth.signOut()
+    override suspend fun signOut() {
+        val client = SupabaseProvider.client
+        client.auth.currentSessionOrNull()?.accessToken?.let {
+            withTimeout(10_000) { StatelessAuthRequests(client).signOut(it) }
+        }
+    }
     override suspend fun clearSession() = SupabaseProvider.client.auth.clearSession()
     override suspend fun deleteAccount() { SupabaseProvider.client.functions.invoke("delete-account") }
     override suspend fun validate(session: OwnedAuthSession): SessionValidation = try {
-        val user = withTimeout(10_000) { SupabaseProvider.client.auth.retrieveUser(session.accessToken) }
+        val user = withTimeout(10_000) { StatelessAuthRequests(SupabaseProvider.client).user(session.accessToken) }
         if (user.id == session.userId) SessionValidation.Valid else SessionValidation.Unavailable
     } catch (error: Throwable) {
         if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) throw error
         if (looksInvalidSession(error)) SessionValidation.NeedsRefresh else SessionValidation.Unavailable
     }
     override suspend fun refresh(session: OwnedAuthSession): OwnedAuthSession =
-        withTimeout(10_000) { SupabaseProvider.client.auth.refreshSession(session.refreshToken) }.owned()
+        withTimeout(10_000) { StatelessAuthRequests(SupabaseProvider.client).refresh(session.refreshToken) }.owned()
             ?: throw IllegalStateException("Refresh has no identity")
     override suspend fun importSession(session: OwnedAuthSession) {
-        SupabaseProvider.client.auth.importSession(session.payload as UserSession)
+        SupabaseProvider.client.auth.importSession(session.payload as UserSession, autoRefresh = false)
     }
     override fun isDefinitiveRefreshRejection(error: Throwable): Boolean =
         refreshOutcomeForStatus(error.restStatus()) == OfficialRefreshOutcome.Rejected
@@ -137,14 +167,17 @@ private object SupabaseAuthSessionPort : AuthSessionPort {
 private fun UserSession.owned(): OwnedAuthSession? {
     val user = user ?: return null
     if (user.id.isBlank() || accessToken.isBlank() || refreshToken.isBlank()) return null
-    return OwnedAuthSession(user.id, user.email, accessToken, refreshToken, this)
+    return OwnedAuthSession(user.id, user.email, accessToken, refreshToken, this, expiresAt.toEpochMilliseconds())
 }
 
 private fun Throwable.restStatus(): Int? =
-    generateSequence(this as Throwable?) { it.cause }.filterIsInstance<RestException>().firstOrNull()?.statusCode
+    generateSequence(this as Throwable?) { it.cause }.mapNotNull {
+        when (it) { is AuthHttpFailure -> it.status; is RestException -> it.statusCode; else -> null }
+    }.firstOrNull()
 
 private fun looksInvalidSession(error: Throwable): Boolean {
     if (error.restStatus() in listOf(401, 403)) return true
+    if (generateSequence(error as Throwable?) { it.cause }.filterIsInstance<AuthHttpFailure>().any { it.invalidSession }) return true
     val rest = generateSequence(error as Throwable?) { it.cause }.filterIsInstance<RestException>().firstOrNull()
     val message = listOf(error.message, rest?.error, rest?.description).joinToString(" ").lowercase()
     return ("jwt" in message && listOf("invalid", "expired", "malformed").any { it in message }) ||

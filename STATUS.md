@@ -8,7 +8,7 @@ boundary. Epoch/public-state/storage changes are atomic; SDK mutation/cleanup is
 Validation uses a captured access token without importing/refreshing/clearing. A separate,
 authority-checked confirmation uses the captured refresh token before importing or clearing.
 RefreshFailure's unowned cause never identifies a newer session as the failed request.
-Email provider responses are captured before import, so even a same-email stored session
+Credential HTTP responses are captured before import, so even a same-email stored session
 cannot stand in for the credential request. Anonymous and device-code imports share authority.
 AppGate consumes the tested reducer and reloads the current identity's profile cache first.
 Auth diagnostics exclude exception payloads and raw identities. Gemini/performance branches
@@ -31,6 +31,28 @@ Full merged-head suites, Android debug/release builds, Windows packaging and iOS
 remain pending. Next combined regular debug pair is gated on those results. Physical iPhone
 Home/Away/return/lock/unlock/quiet-foreground WT acceptance and desktop+iOS auth smoke
 (Android where practical) remain open. RC is not accepted.
+
+SDK-boundary follow-up: 3.4.1 Auth error parsing schedules an unowned clearSession for
+session_not_found, including retrieveUser/refreshSession calls. Its automatic timer can also
+import/clear independently of coordinator authority. StatelessAuthRequests uses the existing
+configured raw HTTP stack for email/password, captured-user lookup, refresh and remote logout;
+no SDK Auth error parser runs. Device-code fallback lookup uses it too. Auth SDK timer and
+Android lifecycle refresh and SDK auto-loading are disabled; coordinator-owned restoration
+reads stored sessions and guards import against late completion behind logout/new login.
+Coordinator-owned near-expiry refresh runs every 30s
+and refreshes only within 60s of expiry. Same-account SDK status echoes settle old validation
+without blocking the next refresh. Real pinned-SDK/MockEngine tests reproduce the hidden
+clear and verify that replacement requests leave B intact. These new source changes invalidate
+the e68cff3/e8089d7 matrix for final approval. That historical mobile head passed 3432 host
+tests, focused 63/764/185/53, Android debug/release/R8 and all six full-policy service tests;
+historical desktop packages/checksums all passed, playback 1062 and downloads 457 passed,
+rest still reached 20m because the initial external allowance was overwritten by the build
+script, and e2e 49 had a missing-file assertion. Apply the external allowance after project
+configuration and retain every rest test. Investigate the e2e failure before claiming green.
+E2E follow-up reproduced the failure in one of three unchanged two-case probes: the test
+read a captured URI while completion's organizer renamed it under the store lock. The
+test-only content helper now reads current state and checks all file assertions under that
+lock; five subsequent probes passed. Complete final-head e2e validation is still required.
 ## Corrected Gemini auth review — integration rejected (2026-10-01)
 
 Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads

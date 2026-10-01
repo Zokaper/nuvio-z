@@ -174,7 +174,7 @@ object DeviceLinkAuthRepository {
             }
             val response = SupabaseProvider.client.functions.invoke("tv-logins-exchange", payload)
             val result = json.decodeFromString<DeviceLinkExchangeResponse>(response.bodyAsText())
-            val user = result.user ?: SupabaseProvider.client.auth.retrieveUser(result.accessToken)
+            val user = result.user ?: StatelessAuthRequests(SupabaseProvider.client).user(result.accessToken)
             val expiresIn = requireNotNull(result.expiresIn?.takeIf { it > 0L })
             AuthRepository.importExternalSession(
                 UserSession(

@@ -607,6 +607,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
         }
     }

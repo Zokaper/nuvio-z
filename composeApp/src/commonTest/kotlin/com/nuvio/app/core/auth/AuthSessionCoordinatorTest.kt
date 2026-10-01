@@ -25,7 +25,10 @@ class AuthSessionCoordinatorTest {
         var signOutHook: suspend () -> Unit = {}
         var validateHook: suspend (OwnedAuthSession) -> SessionValidation = { SessionValidation.Valid }
         var refreshHook: suspend (OwnedAuthSession) -> OwnedAuthSession = { it }
+        var importHook: suspend (OwnedAuthSession) -> Unit = {}
+        var loadStoredHook: suspend () -> OwnedAuthSession? = { null }
         override fun currentSession() = session
+        override suspend fun loadStoredSession() = loadStoredHook()
         override fun loadAnonymousId() = anonymous
         override fun saveAnonymousId(id: String) { anonymous = id }
         override fun clearAnonymousId() { anonymous = null }
@@ -39,7 +42,7 @@ class AuthSessionCoordinatorTest {
         override suspend fun deleteAccount() {}
         override suspend fun validate(session: OwnedAuthSession) = validateHook(session)
         override suspend fun refresh(session: OwnedAuthSession): OwnedAuthSession { refreshes++; return refreshHook(session) }
-        override suspend fun importSession(session: OwnedAuthSession) { imports++; this.session = session }
+        override suspend fun importSession(session: OwnedAuthSession) { imports++; this.session = session; importHook(session) }
         override fun isDefinitiveRefreshRejection(error: Throwable) = error is Rejected
     }
 
@@ -249,5 +252,78 @@ class AuthSessionCoordinatorTest {
         assertTrue(auth.state.value is AuthState.Authenticated)
         assertEquals(0, port.clears)
         assertEquals(0, port.wipes)
+    }
+
+    @Test fun scheduledRefreshUsesExpiryAndSurvivesItsSdkStatusEcho() = runTest {
+        fun expiring(token: String, expiry: Long) = OwnedAuthSession("A", "A@example.test", "access-$token", "refresh-$token", expiresAtEpochMilliseconds = expiry)
+        val port = Port().also { it.session = expiring("old", 100_000) }
+        val auth = AuthSessionCoordinator(port).also { it.initialize(); it.authenticated(port.session!!) }
+        port.refreshHook = { expiring("new", 200_000) }
+        port.importHook = { auth.authenticated(it) }
+        auth.refreshDue(0)
+        assertEquals(0, port.refreshes)
+        auth.refreshDue(40_000)
+        assertEquals(1, port.refreshes)
+        assertEquals("access-new", port.session!!.accessToken)
+        auth.refreshDue(140_000)
+        assertEquals(2, port.refreshes, "A status echo must not leave an active validation that blocks the timer")
+    }
+
+    @Test fun scheduledRefreshCannotImportOrClearAfterNewLogin() = runTest {
+        for (reject in listOf(false, true)) {
+            val port = Port().also { it.session = OwnedAuthSession("A", "A@example.test", "access-A", "refresh-A", expiresAtEpochMilliseconds = 0) }
+            val auth = AuthSessionCoordinator(port).also { it.initialize(); it.authenticated(port.session!!) }
+            val finish = CompletableDeferred<Unit>()
+            port.refreshHook = { finish.await(); if (reject) throw Rejected() else session("A", token = "late") }
+            val refresh = launch { auth.refreshDue(0) }
+            runCurrent()
+            val login = launch { auth.login("B@example.test", "secret", false, "failure") }
+            runCurrent()
+            finish.complete(Unit); refresh.join(); login.join()
+            assertEquals("B", port.session!!.userId)
+            assertEquals("B", (auth.state.value as AuthState.Authenticated).userId)
+            assertEquals(1, port.imports)
+            assertEquals(0, port.clears)
+            assertEquals(0, port.wipes)
+        }
+    }
+
+    @Test fun storedSessionRestoresThroughValidationAndEmptyStorageSettlesStartup() = runTest {
+        val port = Port()
+        val auth = AuthSessionCoordinator(port).also { it.initialize() }
+        auth.notAuthenticated(false)
+        assertEquals(AuthState.Loading, auth.state.value)
+        port.loadStoredHook = { session("A") }
+        port.validateHook = { SessionValidation.Unavailable } // Offline startup retains a stored session.
+        auth.restoreStoredSession()
+        assertEquals("A", (auth.state.value as AuthState.Authenticated).userId)
+        assertEquals(1, port.imports)
+        val empty = AuthSessionCoordinator(Port()).also { it.initialize() }
+        empty.restoreStoredSession()
+        assertEquals(AuthState.Unauthenticated, empty.state.value)
+    }
+
+    @Test fun delayedStorageCannotImportAfterSignOutOrNewLogin() = runTest {
+        for (signOut in listOf(false, true)) {
+            val port = Port()
+            val auth = AuthSessionCoordinator(port).also { it.initialize() }
+            val finish = CompletableDeferred<Unit>()
+            port.loadStoredHook = { finish.await(); session("A") }
+            val restore = launch { auth.restoreStoredSession() }
+            runCurrent()
+            val next = launch {
+                if (signOut) auth.signOut("failure") else auth.login("B@example.test", "secret", false, "failure")
+            }
+            runCurrent()
+            finish.complete(Unit); restore.join(); next.join()
+            assertEquals(if (signOut) 0 else 1, port.imports)
+            if (signOut) {
+                assertEquals(AuthState.Unauthenticated, auth.state.value)
+                assertNull(port.session)
+            } else {
+                assertEquals("B", port.session!!.userId)
+                assertEquals("B", (auth.state.value as AuthState.Authenticated).userId)
+            }
+        }
     }
 }

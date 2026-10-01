@@ -108,6 +108,11 @@ object SupabaseProvider {
                 }
             }
             install(Auth) {
+                // AuthSessionCoordinator owns refresh/import/rejection. SDK timer/error-parser
+                // mutations do not carry our epoch and can clear/import over a newer login.
+                alwaysAutoRefresh = false
+                enableLifecycleCallbacks = false
+                autoLoadFromStorage = false // Guarded storage restoration belongs to the coordinator too.
                 // Z: vanilla-bug patch V3, drop-at-next-sync (OfficialSessionStorage.kt).
                 officialSessionManager(configuration.backendUrl)?.let { sessionManager = it }
             }

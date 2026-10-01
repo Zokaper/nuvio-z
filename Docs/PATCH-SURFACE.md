@@ -367,4 +367,10 @@ Existing AuthRepository patch surface delegates SDK/storage orchestration to the
 AuthSessionCoordinator. Existing AppGate seam keeps reducer wiring and uses profiles after
 identity cache reload. ProfileRepository drops pulls after an identity change. Device-link
 imports enter the same authority seam; auth diagnostics omit raw throwable payloads.
+Existing SupabaseProvider Auth configuration disables SDK timer/lifecycle refresh and auto-loading, which
+has no coordinator epoch. Z-owned StatelessAuthRequests bypasses Auth's destructive
+session_not_found error parser using the existing configured HTTP stack; coordinator-owned
+near-expiry refresh preserves renewal; guarded storage read/import preserves authenticated
+restart without an unowned startup import. The commonTest-only Ktor MockEngine dependency
+tests the actual pinned SDK parser against the replacement request path.
 No performance, Watch Together, release feed or version changes.

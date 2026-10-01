@@ -270,7 +270,7 @@ internal object AuthStateMachine {
         val currentAuth = state.authState as? AuthState.Authenticated
         if (currentAuth != null && !currentAuth.isAnonymous && currentAuth.userId == sessionUserId && state.validatedUserId == sessionUserId) {
             return AuthTransitionResult(
-                newState = state,
+                newState = state.copy(activeValidationRequest = null),
                 clearAnonymousStorage = true,
                 shouldValidateRemote = false,
                 logReason = "Session already authoritative for ${maskId(sessionUserId)}",

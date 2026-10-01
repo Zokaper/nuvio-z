@@ -15,6 +15,7 @@ internal class OwnedAuthSession(
     val accessToken: String,
     val refreshToken: String,
     val payload: Any? = null,
+    val expiresAtEpochMilliseconds: Long? = null,
 ) {
     fun sameSession(other: OwnedAuthSession?) =
         other != null && userId == other.userId && accessToken == other.accessToken
@@ -27,6 +28,7 @@ internal enum class SessionValidation { Valid, NeedsRefresh, Unavailable }
 /** The SDK/storage boundary; the coordinator below is used unchanged by production and async tests. */
 internal interface AuthSessionPort {
     fun currentSession(): OwnedAuthSession?
+    suspend fun loadStoredSession(): OwnedAuthSession? = null
     fun loadAnonymousId(): String?
     fun saveAnonymousId(id: String)
     fun clearAnonymousId()
@@ -69,6 +71,36 @@ internal class AuthSessionCoordinator(
     }
 
     fun clearError() = synchronized(lock) { mutableError.value = null }
+
+    /** Read-only storage loading, with the import fenced just like an explicit login. */
+    suspend fun restoreStoredSession() {
+        val epoch = synchronized(lock) {
+            if (!allowRestoration || machine.inFlightIntent != null) return
+            machine.currentEpoch
+        }
+        val restored = mutations.withLock {
+            if (!synchronized(lock) { owns(epoch) && allowRestoration }) return@withLock null
+            val session = try { port.loadStoredSession() } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                diagnostic("auth session storage unavailable")
+                null
+            }
+            if (!synchronized(lock) { owns(epoch) && allowRestoration }) return@withLock null
+            if (session == null) {
+                synchronized(lock) {
+                    if (owns(epoch) && allowRestoration) {
+                        allowRestoration = false
+                        publish(AuthStateMachine.onSessionStatusNotAuthenticated(machine, false, port.loadAnonymousId() != null))
+                    }
+                }
+                return@withLock null
+            }
+            port.importSession(session)
+            session.takeIf { synchronized(lock) { owns(epoch) && allowRestoration } }
+        }
+        restored?.let { authenticated(it) }
+    }
 
     private fun ownsAccess(epoch: Long, session: OwnedAuthSession) =
         owns(epoch) && machine.inFlightIntent == null &&
@@ -252,6 +284,7 @@ internal class AuthSessionCoordinator(
     suspend fun authenticated(session: OwnedAuthSession, external: Boolean = false) {
         val request = synchronized(lock) {
             if (machine.inFlightIntent != null || session.userId.isBlank() || !session.sameSession(port.currentSession())) return
+            if (machine.activeValidationRequest != null && session.sameSession(pendingSession)) return
             val active = machine.authState as? AuthState.Authenticated
             if (!external && !allowRestoration && (active == null || active.isAnonymous || active.userId != session.userId)) return
             // Timer/status refreshes may replace the token of the same account; never a different identity.
@@ -261,6 +294,7 @@ internal class AuthSessionCoordinator(
             machine = transition.newState
             if (!transition.shouldValidateRemote) {
                 acceptedSession = session
+                pendingSession = null
                 publish(transition)
                 return
             }
@@ -286,9 +320,34 @@ internal class AuthSessionCoordinator(
         validate(captured.first, captured.second)
     }
 
+    /** SDK timer refresh is disabled: its parser/import/clear bypass current authority. */
+    suspend fun refreshDue(nowEpochMilliseconds: Long) {
+        val captured = synchronized(lock) {
+            if (machine.inFlightIntent != null || machine.activeValidationRequest != null) return
+            val session = acceptedSession ?: return
+            val expiresAt = session.expiresAtEpochMilliseconds ?: return
+            if (expiresAt - nowEpochMilliseconds > 60_000 || !session.sameSession(port.currentSession())) return
+            val request = ValidationRequest(machine.currentEpoch, session.userId, session.email)
+            pendingSession = session
+            machine = machine.copy(activeValidationRequest = request)
+            request to session
+        }
+        try {
+            confirmRejection(captured.first, captured.second)
+        } finally {
+            synchronized(lock) {
+                if (owns(captured.first, captured.second)) {
+                    machine = machine.copy(activeValidationRequest = null)
+                    pendingSession = null
+                }
+            }
+        }
+    }
+
     suspend fun notAuthenticated(hasSession: Boolean) {
         val recheck = synchronized(lock) {
             if (machine.inFlightIntent != null) return
+            if (allowRestoration) return // Our guarded loader, not the SDK's initial empty status, settles startup.
             if (acceptedSession != null) !hasSession
             else {
                 publish(AuthStateMachine.onSessionStatusNotAuthenticated(machine, hasSession, port.loadAnonymousId() != null))
