@@ -1,3 +1,25 @@
+## RC production auth corrections (2026-10-01, validation in progress)
+
+Codex owns corrections directly on `claude/ios-watch-together-hardening`. Gemini's exact
+mobile head is being merged through normal history with additional production fixes; the
+original review rejection below remains historical evidence, not approval of the unmodified tip.
+`AuthSessionCoordinator` is the actual production orchestration tested at the SDK/storage
+boundary. Epoch/public-state/storage changes are atomic; SDK mutation/cleanup is serialized.
+Validation uses a captured access token without importing/refreshing/clearing. A separate,
+authority-checked confirmation uses the captured refresh token before importing or clearing.
+RefreshFailure's unowned cause never identifies a newer session as the failed request.
+Email provider responses are captured before import, so even a same-email stored session
+cannot stand in for the credential request. Anonymous and device-code imports share authority.
+AppGate consumes the tested reducer and reloads the current identity's profile cache first.
+Auth diagnostics exclude exception payloads and raw identities. Gemini/performance branches
+are untouched. The mistaken performance prompt created only empty branch/worktree references,
+now removed; no performance edits, commits or builds occurred. Both RC worktrees were checked
+clean before these legitimate auth edits began. No feed/counter/stable changes.
+
+Full merged-head suites, Android debug/release builds, Windows packaging and iOS/macOS CI
+remain pending. Next combined regular debug pair is gated on those results. Physical iPhone
+Home/Away/return/lock/unlock/quiet-foreground WT acceptance and desktop+iOS auth smoke
+(Android where practical) remain open. RC is not accepted.
 ## Corrected Gemini auth review — integration rejected (2026-10-01)
 
 Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads

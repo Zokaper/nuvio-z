@@ -83,10 +83,10 @@ object DeviceLinkAuthRepository {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: DeviceLinkAuthException) {
-                log.w(error) { "Device link sign-in stopped" }
+                log.w { "Device link sign-in stopped" }
                 _state.value = DeviceLinkAuthState.Failed(error.reason)
             } catch (error: Throwable) {
-                log.w(error) { "Device link sign-in failed" }
+                log.w { "Device link sign-in failed" }
                 _state.value = DeviceLinkAuthState.Failed(DeviceLinkAuthFailure.Start)
             }
         }
@@ -176,7 +176,7 @@ object DeviceLinkAuthRepository {
             val result = json.decodeFromString<DeviceLinkExchangeResponse>(response.bodyAsText())
             val user = result.user ?: SupabaseProvider.client.auth.retrieveUser(result.accessToken)
             val expiresIn = requireNotNull(result.expiresIn?.takeIf { it > 0L })
-            SupabaseProvider.client.auth.importSession(
+            AuthRepository.importExternalSession(
                 UserSession(
                     accessToken = result.accessToken,
                     refreshToken = result.refreshToken,
@@ -184,7 +184,7 @@ object DeviceLinkAuthRepository {
                     tokenType = result.tokenType?.takeIf { it.isNotBlank() } ?: "bearer",
                     user = user,
                 ),
-            )
+            ).getOrThrow()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {

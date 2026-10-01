@@ -162,3 +162,35 @@ https://github.com/Zokaper/NuvioZDesktop/actions/runs/36829662346
   logout→email login, authenticated restart, anonymous→email login, browser/code login.
 - RC is **not accepted**. iPhone physical QA remains mandatory after a corrected merge
   and verified regular debug pair. No stable publication is authorized.
+
+## Codex production correction pass (2026-10-01, merged-head validation pending)
+
+The unmodified Gemini tips remain rejected. The RC integrates their reducer and AppGate
+wiring with additional fixes owned by Codex, without modifying Gemini's branches.
+
+- Actual production `AuthSessionCoordinator` is injected only at the SDK/storage boundary
+  for coroutine race tests. Public state, reducer and storage publication share one lock.
+- SDK login/import/sign-out/clear/delete mutations and account cleanup share one mutex.
+  Explicit authority is allocated before suspension; old errors and completions cannot
+  clear a newer operation. Delayed sign-out cleanup completes before the newer SDK login.
+- Validation sends the captured access token to retrieveUser and performs no SDK mutation.
+  Refresh confirmation uses the captured refresh token and imports/clears only with current
+  authority. The unused refresh-current-session rejection helper has been removed.
+- SDK RefreshFailure has no originating identity: its cause is never relabelled as B's
+  rejection. It instead triggers independent validation of the accepted captured session.
+- In-flight SDK Authenticated events never complete an explicit operation. Credential login
+  captures Email provider's own response before import rather than reading currentSession.
+  Case-insensitive trimmed email is an additional identity check, not request provenance.
+- AppGate calls the same tested transition reducer and uses the reloaded current profile
+  list. Profile pull drops a response after an auth/cache identity change.
+- Auth/AppGate diagnostics use fixed categories or masked identity, never raw exceptions,
+  email, full ID, password or token. Short IDs are entirely masked.
+
+Supabase password lookup compares LOWER(email); pending email changes are not login aliases.
+The check preserves primary-email accounts, case differences and surrounding input whitespace;
+OAuth/device-code flows do not use the email check. References:
+[Supabase auth user lookup](https://github.com/supabase/auth/blob/master/internal/models/user.go),
+[pinned SDK 3.4.1 signInWith implementation](https://github.com/supabase-community/supabase-kt/blob/3.4.1/Auth/src/commonMain/kotlin/io/github/jan/supabase/auth/AuthImpl.kt).
+
+These are production-boundary tests with controlled transport/storage, not physical SDK/server
+or iPhone acceptance. Full matrix and physical blockers from the audit still apply. No stable.

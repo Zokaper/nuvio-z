@@ -54,7 +54,7 @@ object DeviceSessionRegistration {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w(error) { "Device session registration failed" }
+                log.w { "Device session registration failed" }
                 false
             }
         }

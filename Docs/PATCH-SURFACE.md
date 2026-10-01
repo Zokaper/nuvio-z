@@ -360,3 +360,11 @@ package's `canReportStreamRouteDeadEnd` policy. The policy excludes manual start
 completed handoff and inactive routes; timer keys plus a live post-delay recheck enforce
 ownership. No new upstream-owned production file. Retained-route source-tap integration
 reproduces the debug 72 toast before the fix and protects the selected source afterward.
+
+### RC auth authority correction (2026-10-01)
+
+Existing AuthRepository patch surface delegates SDK/storage orchestration to the new Z-owned
+AuthSessionCoordinator. Existing AppGate seam keeps reducer wiring and uses profiles after
+identity cache reload. ProfileRepository drops pulls after an identity change. Device-link
+imports enter the same authority seam; auth diagnostics omit raw throwable payloads.
+No performance, Watch Together, release feed or version changes.

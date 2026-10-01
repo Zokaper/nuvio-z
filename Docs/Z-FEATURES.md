@@ -743,3 +743,10 @@ Every subject should map to a row here.
 **Related:** `Docs/UPSTREAM.md` (the doctrine, versioning and sync), `Docs/PATCH-SURFACE.md` (every
 upstream-owned file we modify), `nuvioweb/docs/Z-PORT-MATRIX.md` (the TV app's own answer),
 `STATUS.md` (the working handoff), `PLAYBACK_MODES_PLAN.md` (the mode plan and its ledger).
+
+### RC auth correctness verification (2026-10-01)
+
+Existing email/anonymous/browser-code auth and profile startup behavior is corrected on both
+RC families through a tested production coordinator. This is a bug correction, not a new
+feature or a shipped claim. Full merged-head validation and desktop/iOS physical auth smoke
+remain required; all physical iPhone Watch Together acceptance remains open. No stable.

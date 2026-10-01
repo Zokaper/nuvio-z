@@ -37,6 +37,7 @@ import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -132,9 +133,15 @@ object ProfileRepository {
             }
             return
         }
+        val requestAuth = AuthRepository.state.value
+        val requestCacheUser = loadedCacheForUserId
+        log.i { "Starting profile pull" }
         try {
             val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profiles")
             val profiles = result.decodeList<NuvioProfile>()
+            if (AuthRepository.state.value != requestAuth || loadedCacheForUserId != requestCacheUser) return
+            if (requestAuth is AuthState.Authenticated &&
+                SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id != requestAuth.userId) return
             _state.value = _state.value.copy(
                 profiles = profiles.sortedBy { it.profileIndex },
                 isLoaded = true,
@@ -145,9 +152,10 @@ object ProfileRepository {
                 activeProfileIndex = _state.value.activeProfile!!.profileIndex
             }
             persist()
+            log.i { "pullProfiles succeeded: count=${profiles.size}" }
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile pull")) return
-            log.e(e) { "Failed to pull profiles" }
+            log.e { "Failed to pull profiles" }
             if (!_state.value.isLoaded) {
                 _state.value = _state.value.copy(isLoaded = true)
             }
