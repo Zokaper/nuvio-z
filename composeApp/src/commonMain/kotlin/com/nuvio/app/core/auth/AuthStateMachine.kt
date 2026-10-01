@@ -13,13 +13,67 @@ import com.nuvio.app.features.profiles.NuvioProfile
  * 5. Transient connectivity failures (network timeout, 5xx, 429) do not log the user out and do not destroy sessions.
  * 6. UI/profile gating derives deterministically from authenticated state.
  */
+sealed interface InFlightAuthIntent {
+    val epoch: Long
+
+    data class EmailSignIn(
+        override val epoch: Long,
+        val email: String,
+    ) : InFlightAuthIntent
+
+    data class EmailSignUp(
+        override val epoch: Long,
+        val email: String,
+    ) : InFlightAuthIntent
+
+    data class Anonymous(
+        override val epoch: Long,
+    ) : InFlightAuthIntent
+
+    data class SignOut(
+        override val epoch: Long,
+    ) : InFlightAuthIntent
+
+    data class ExternalSession(
+        override val epoch: Long,
+        val expectedUserId: String? = null,
+    ) : InFlightAuthIntent
+}
+
+data class ValidationRequest(
+    val epoch: Long,
+    val userId: String,
+    val email: String?,
+)
+
+sealed interface RemoteValidationResult {
+    val userId: String
+
+    data class Success(
+        override val userId: String,
+        val email: String?,
+    ) : RemoteValidationResult
+
+    data class TransientFailure(
+        override val userId: String,
+        val email: String?,
+    ) : RemoteValidationResult
+
+    data class DefinitiveRejection(
+        override val userId: String,
+    ) : RemoteValidationResult
+}
+
 data class AuthMachineState(
     val authState: AuthState = AuthState.Loading,
     val validatedUserId: String? = null,
     val anonymousUserId: String? = null,
     val currentEpoch: Long = 0L,
-    val inFlightEpoch: Long? = null,
-)
+    val inFlightIntent: InFlightAuthIntent? = null,
+    val activeValidationRequest: ValidationRequest? = null,
+) {
+    val inFlightEpoch: Long? get() = inFlightIntent?.epoch
+}
 
 data class AuthTransitionResult(
     val newState: AuthMachineState,
@@ -27,7 +81,8 @@ data class AuthTransitionResult(
     val saveAnonymousStorage: String? = null,
     val clearLocalStorage: Boolean = false,
     val shouldValidateRemote: Boolean = false,
-    val userIdToValidate: String? = null,
+    val validationRequest: ValidationRequest? = null,
+    val userIdToValidate: String? = validationRequest?.userId,
     val isDropped: Boolean = false,
     val logReason: String? = null,
 )
@@ -58,7 +113,8 @@ internal object AuthStateMachine {
                 validatedUserId = null,
                 anonymousUserId = savedAnonId,
                 currentEpoch = currentEpoch,
-                inFlightEpoch = null,
+                inFlightIntent = null,
+                activeValidationRequest = null,
             )
         } else {
             AuthMachineState(
@@ -66,19 +122,29 @@ internal object AuthStateMachine {
                 validatedUserId = null,
                 anonymousUserId = null,
                 currentEpoch = currentEpoch,
-                inFlightEpoch = null,
+                inFlightIntent = null,
+                activeValidationRequest = null,
             )
         }
     }
 
     fun onExplicitSignInStarted(
         state: AuthMachineState,
+        intent: InFlightAuthIntent,
+    ): AuthMachineState {
+        val nextEpoch = maxOf(state.currentEpoch, intent.epoch)
+        return state.copy(
+            currentEpoch = nextEpoch,
+            inFlightIntent = intent,
+            activeValidationRequest = null,
+        )
+    }
+
+    fun onExplicitSignInStarted(
+        state: AuthMachineState,
         epoch: Long,
     ): AuthMachineState {
-        return state.copy(
-            currentEpoch = maxOf(state.currentEpoch, epoch),
-            inFlightEpoch = epoch,
-        )
+        return onExplicitSignInStarted(state, InFlightAuthIntent.ExternalSession(epoch))
     }
 
     fun onExplicitSignInSucceeded(
@@ -87,7 +153,7 @@ internal object AuthStateMachine {
         userId: String,
         email: String?,
     ): AuthTransitionResult {
-        if (epoch < state.currentEpoch && state.inFlightEpoch != epoch) {
+        if (epoch < state.currentEpoch || (state.inFlightIntent != null && state.inFlightIntent.epoch != epoch)) {
             return AuthTransitionResult(
                 newState = state,
                 isDropped = true,
@@ -97,7 +163,7 @@ internal object AuthStateMachine {
         if (userId.isBlank()) {
             return AuthTransitionResult(
                 newState = state.copy(
-                    inFlightEpoch = if (state.inFlightEpoch == epoch) null else state.inFlightEpoch,
+                    inFlightIntent = if (state.inFlightIntent?.epoch == epoch) null else state.inFlightIntent,
                 ),
                 isDropped = true,
                 logReason = "Explicit sign-in succeeded but userId was blank",
@@ -113,13 +179,14 @@ internal object AuthStateMachine {
             validatedUserId = userId,
             anonymousUserId = null,
             currentEpoch = maxOf(state.currentEpoch, epoch),
-            inFlightEpoch = if (state.inFlightEpoch == epoch) null else state.inFlightEpoch,
+            inFlightIntent = if (state.inFlightIntent?.epoch == epoch) null else state.inFlightIntent,
+            activeValidationRequest = null,
         )
         return AuthTransitionResult(
             newState = updated,
             clearAnonymousStorage = true,
             shouldValidateRemote = false,
-            logReason = "Explicit sign-in adopted authoritatively",
+            logReason = "Explicit sign-in adopted authoritatively for ${maskId(userId)}",
         )
     }
 
@@ -127,8 +194,8 @@ internal object AuthStateMachine {
         state: AuthMachineState,
         epoch: Long,
     ): AuthMachineState {
-        return if (state.inFlightEpoch == epoch) {
-            state.copy(inFlightEpoch = null)
+        return if (state.inFlightIntent?.epoch == epoch) {
+            state.copy(inFlightIntent = null)
         } else {
             state
         }
@@ -148,7 +215,8 @@ internal object AuthStateMachine {
             validatedUserId = null,
             anonymousUserId = generatedAnonId,
             currentEpoch = maxOf(state.currentEpoch, epoch),
-            inFlightEpoch = null,
+            inFlightIntent = null,
+            activeValidationRequest = null,
         )
         return AuthTransitionResult(
             newState = updated,
@@ -161,18 +229,20 @@ internal object AuthStateMachine {
         state: AuthMachineState,
         epoch: Long,
     ): AuthTransitionResult {
+        val nextEpoch = maxOf(state.currentEpoch, epoch)
         val updated = state.copy(
             authState = AuthState.Unauthenticated,
             validatedUserId = null,
             anonymousUserId = null,
-            currentEpoch = maxOf(state.currentEpoch, epoch),
-            inFlightEpoch = null,
+            currentEpoch = nextEpoch,
+            inFlightIntent = null,
+            activeValidationRequest = null,
         )
         return AuthTransitionResult(
             newState = updated,
             clearAnonymousStorage = true,
             clearLocalStorage = true,
-            logReason = "Explicit sign-out completed",
+            logReason = "Explicit sign-out completed at epoch $nextEpoch",
         )
     }
 
@@ -189,67 +259,211 @@ internal object AuthStateMachine {
             )
         }
 
+        // 1. If an explicit credential mutation is actively in flight:
+        val intent = state.inFlightIntent
+        if (intent != null) {
+            when (intent) {
+                is InFlightAuthIntent.EmailSignIn -> {
+                    val matchesEmail = email != null && email.equals(intent.email, ignoreCase = true)
+                    if (matchesEmail) {
+                        val updated = state.copy(
+                            authState = AuthState.Authenticated(
+                                userId = sessionUserId,
+                                email = email,
+                                isAnonymous = false,
+                            ),
+                            validatedUserId = sessionUserId,
+                            anonymousUserId = null,
+                        )
+                        return AuthTransitionResult(
+                            newState = updated,
+                            clearAnonymousStorage = true,
+                            shouldValidateRemote = false,
+                            logReason = "Adopted in-flight email sign-in session for ${maskEmail(intent.email)}",
+                        )
+                    } else {
+                        return AuthTransitionResult(
+                            newState = state,
+                            isDropped = true,
+                            logReason = "Dropped unrelated SessionStatus.Authenticated(userId=${maskId(sessionUserId)}, email=${maskEmail(email)}) while email sign-in for ${maskEmail(intent.email)} is in flight",
+                        )
+                    }
+                }
+                is InFlightAuthIntent.EmailSignUp -> {
+                    val matchesEmail = email != null && email.equals(intent.email, ignoreCase = true)
+                    if (matchesEmail) {
+                        val updated = state.copy(
+                            authState = AuthState.Authenticated(
+                                userId = sessionUserId,
+                                email = email,
+                                isAnonymous = false,
+                            ),
+                            validatedUserId = sessionUserId,
+                            anonymousUserId = null,
+                        )
+                        return AuthTransitionResult(
+                            newState = updated,
+                            clearAnonymousStorage = true,
+                            shouldValidateRemote = false,
+                            logReason = "Adopted in-flight email sign-up session for ${maskEmail(intent.email)}",
+                        )
+                    } else {
+                        return AuthTransitionResult(
+                            newState = state,
+                            isDropped = true,
+                            logReason = "Dropped unrelated SessionStatus.Authenticated during sign-up for ${maskEmail(intent.email)}",
+                        )
+                    }
+                }
+                is InFlightAuthIntent.SignOut -> {
+                    return AuthTransitionResult(
+                        newState = state,
+                        isDropped = true,
+                        logReason = "Dropped SessionStatus.Authenticated while signOut is in flight",
+                    )
+                }
+                is InFlightAuthIntent.Anonymous -> {
+                    return AuthTransitionResult(
+                        newState = state,
+                        isDropped = true,
+                        logReason = "Dropped SessionStatus.Authenticated while anonymous sign-in is in flight",
+                    )
+                }
+                is InFlightAuthIntent.ExternalSession -> {
+                    val updated = state.copy(
+                        authState = AuthState.Authenticated(
+                            userId = sessionUserId,
+                            email = email,
+                            isAnonymous = false,
+                        ),
+                        validatedUserId = sessionUserId,
+                        anonymousUserId = null,
+                        inFlightIntent = null,
+                    )
+                    return AuthTransitionResult(
+                        newState = updated,
+                        clearAnonymousStorage = true,
+                        shouldValidateRemote = false,
+                        logReason = "Adopted expected external session for ${maskId(sessionUserId)}",
+                    )
+                }
+            }
+        }
+
+        // 2. If NO in-flight intent:
         val currentAuth = state.authState as? AuthState.Authenticated
-
-        // 1. If we are already authenticated as this user, keep authority and avoid redundant validation
-        if (currentAuth != null && !currentAuth.isAnonymous && currentAuth.userId == sessionUserId) {
-            val updated = state.copy(
-                validatedUserId = sessionUserId,
-                anonymousUserId = null,
-            )
+        if (currentAuth != null && !currentAuth.isAnonymous && currentAuth.userId == sessionUserId && state.validatedUserId == sessionUserId) {
             return AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                shouldValidateRemote = false,
-                logReason = "Session already authoritative for $sessionUserId",
-            )
-        }
-
-        // 2. If an explicit sign-in mutation is actively in flight, adopt this session directly
-        // as the result of the mutation without initiating redundant remote validation
-        if (state.inFlightEpoch != null) {
-            val updated = state.copy(
-                authState = AuthState.Authenticated(
-                    userId = sessionUserId,
-                    email = email,
-                    isAnonymous = false,
-                ),
-                validatedUserId = sessionUserId,
-                anonymousUserId = null,
-            )
-            return AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                shouldValidateRemote = false,
-                logReason = "Adopted in-flight mutation session for $sessionUserId",
-            )
-        }
-
-        // 3. Otherwise (e.g. startup rehydration or DeviceLink import):
-        // If already validated, adopt directly; otherwise request remote validation
-        return if (state.validatedUserId == sessionUserId) {
-            val updated = state.copy(
-                authState = AuthState.Authenticated(
-                    userId = sessionUserId,
-                    email = email,
-                    isAnonymous = false,
-                ),
-                anonymousUserId = null,
-            )
-            AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                shouldValidateRemote = false,
-                logReason = "Adopted previously validated session for $sessionUserId",
-            )
-        } else {
-            AuthTransitionResult(
                 newState = state,
                 clearAnonymousStorage = true,
-                shouldValidateRemote = true,
-                userIdToValidate = sessionUserId,
-                logReason = "Requesting remote validation for rehydrated session $sessionUserId",
+                shouldValidateRemote = false,
+                logReason = "Session already authoritative for ${maskId(sessionUserId)}",
             )
+        }
+
+        val valRequest = ValidationRequest(
+            epoch = state.currentEpoch,
+            userId = sessionUserId,
+            email = email,
+        )
+        val updated = state.copy(activeValidationRequest = valRequest)
+        return AuthTransitionResult(
+            newState = updated,
+            clearAnonymousStorage = true,
+            shouldValidateRemote = true,
+            validationRequest = valRequest,
+            userIdToValidate = sessionUserId,
+            logReason = "Requesting remote validation for session ${maskId(sessionUserId)} at epoch ${state.currentEpoch}",
+        )
+    }
+
+    fun onRemoteValidationCompleted(
+        state: AuthMachineState,
+        request: ValidationRequest,
+        result: RemoteValidationResult,
+    ): AuthTransitionResult {
+        if (request.epoch < state.currentEpoch) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                clearAnonymousStorage = false,
+                logReason = "Stale remote validation outcome for ${maskId(request.userId)} dropped (reqEpoch=${request.epoch} < currentEpoch=${state.currentEpoch})",
+            )
+        }
+
+        if (state.inFlightIntent != null) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                clearAnonymousStorage = false,
+                logReason = "Remote validation outcome for ${maskId(request.userId)} dropped because in-flight intent is active",
+            )
+        }
+
+        val currentAuth = state.authState as? AuthState.Authenticated
+        if (currentAuth != null && !currentAuth.isAnonymous && currentAuth.userId != request.userId) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                clearAnonymousStorage = false,
+                logReason = "Remote validation outcome for ${maskId(request.userId)} dropped because active user is ${maskId(currentAuth.userId)}",
+            )
+        }
+
+        return when (result) {
+            is RemoteValidationResult.DefinitiveRejection -> {
+                val updated = state.copy(
+                    authState = AuthState.Unauthenticated,
+                    validatedUserId = null,
+                    anonymousUserId = null,
+                    activeValidationRequest = null,
+                )
+                AuthTransitionResult(
+                    newState = updated,
+                    clearAnonymousStorage = true,
+                    clearLocalStorage = true,
+                    logReason = "Remote session definitively rejected for ${maskId(request.userId)}; clearing auth",
+                )
+            }
+            is RemoteValidationResult.Success -> {
+                val updated = state.copy(
+                    authState = AuthState.Authenticated(
+                        userId = result.userId,
+                        email = result.email,
+                        isAnonymous = false,
+                    ),
+                    validatedUserId = result.userId,
+                    anonymousUserId = null,
+                    activeValidationRequest = null,
+                )
+                AuthTransitionResult(
+                    newState = updated,
+                    clearAnonymousStorage = true,
+                    shouldValidateRemote = false,
+                    logReason = "Remote validation successful for ${maskId(result.userId)}",
+                )
+            }
+            is RemoteValidationResult.TransientFailure -> {
+                val updated = state.copy(
+                    authState = AuthState.Authenticated(
+                        userId = result.userId,
+                        email = result.email,
+                        isAnonymous = false,
+                    ),
+                    validatedUserId = result.userId,
+                    anonymousUserId = null,
+                    activeValidationRequest = null,
+                )
+                AuthTransitionResult(
+                    newState = updated,
+                    clearAnonymousStorage = true,
+                    shouldValidateRemote = false,
+                    logReason = "Remote validation transient failure for ${maskId(result.userId)}; retaining cached session",
+                )
+            }
         }
     }
 
@@ -259,44 +473,17 @@ internal object AuthStateMachine {
         isSuccessOrTransient: Boolean,
         isDefinitiveRejection: Boolean,
         email: String?,
+        epoch: Long = state.currentEpoch,
     ): AuthTransitionResult {
-        if (isDefinitiveRejection) {
-            val updated = state.copy(
-                authState = AuthState.Unauthenticated,
-                validatedUserId = null,
-                anonymousUserId = null,
-            )
-            return AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                clearLocalStorage = true,
-                logReason = "Remote session definitively rejected; clearing auth",
-            )
+        val request = state.activeValidationRequest ?: ValidationRequest(epoch, userId, email)
+        val result = if (isDefinitiveRejection) {
+            RemoteValidationResult.DefinitiveRejection(userId)
+        } else if (isSuccessOrTransient) {
+            RemoteValidationResult.Success(userId, email)
+        } else {
+            RemoteValidationResult.TransientFailure(userId, email)
         }
-
-        if (isSuccessOrTransient) {
-            val updated = state.copy(
-                authState = AuthState.Authenticated(
-                    userId = userId,
-                    email = email,
-                    isAnonymous = false,
-                ),
-                validatedUserId = userId,
-                anonymousUserId = null,
-            )
-            return AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                shouldValidateRemote = false,
-                logReason = "Remote validation successful or transient; retaining cached session",
-            )
-        }
-
-        return AuthTransitionResult(
-            newState = state,
-            isDropped = true,
-            logReason = "Remote validation outcome was non-terminal",
-        )
+        return onRemoteValidationCompleted(state, request, result)
     }
 
     fun onSessionStatusNotAuthenticated(
@@ -312,7 +499,7 @@ internal object AuthStateMachine {
             )
         }
 
-        if (state.inFlightEpoch != null) {
+        if (state.inFlightIntent != null) {
             return AuthTransitionResult(
                 newState = state,
                 isDropped = true,
@@ -332,6 +519,7 @@ internal object AuthStateMachine {
         val updated = state.copy(
             authState = AuthState.Unauthenticated,
             validatedUserId = null,
+            activeValidationRequest = null,
         )
         return AuthTransitionResult(
             newState = updated,
@@ -367,25 +555,56 @@ internal object AuthStateMachine {
     fun onSessionStatusRefreshFailure(
         state: AuthMachineState,
         isDefinitiveRejection: Boolean,
+        failingUserId: String? = null,
     ): AuthTransitionResult {
-        if (isDefinitiveRejection) {
-            val updated = state.copy(
-                authState = AuthState.Unauthenticated,
-                validatedUserId = null,
-                anonymousUserId = null,
-            )
+        if (state.inFlightIntent != null) {
             return AuthTransitionResult(
-                newState = updated,
-                clearAnonymousStorage = true,
-                clearLocalStorage = true,
-                logReason = "Refresh failure was definitive rejection; clearing auth",
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                logReason = "RefreshFailure dropped because explicit mutation is in flight",
             )
         }
 
+        val currentAuth = state.authState as? AuthState.Authenticated
+        if (currentAuth != null && currentAuth.isAnonymous) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                logReason = "RefreshFailure dropped because active user is anonymous",
+            )
+        }
+
+        if (failingUserId != null && currentAuth != null && currentAuth.userId != failingUserId) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                logReason = "RefreshFailure for ${maskId(failingUserId)} dropped because active user is ${maskId(currentAuth.userId)}",
+            )
+        }
+
+        if (!isDefinitiveRejection) {
+            return AuthTransitionResult(
+                newState = state,
+                isDropped = true,
+                clearLocalStorage = false,
+                logReason = "Refresh failure was transient; retaining cached session",
+            )
+        }
+
+        val updated = state.copy(
+            authState = AuthState.Unauthenticated,
+            validatedUserId = null,
+            anonymousUserId = null,
+            activeValidationRequest = null,
+        )
         return AuthTransitionResult(
-            newState = state,
-            isDropped = true,
-            logReason = "Refresh failure was transient; retaining cached session",
+            newState = updated,
+            clearAnonymousStorage = true,
+            clearLocalStorage = true,
+            logReason = "Refresh failure was definitive rejection; clearing auth",
         )
     }
 
@@ -422,6 +641,12 @@ internal object AuthStateMachine {
             }
         }
     }
+}
+
+internal fun safeAuthStateDescription(state: AuthState): String = when (state) {
+    is AuthState.Authenticated -> "Authenticated(userId=${maskId(state.userId)}, isAnon=${state.isAnonymous})"
+    is AuthState.Loading -> "Loading"
+    is AuthState.Unauthenticated -> "Unauthenticated"
 }
 
 internal fun maskEmail(email: String?): String {

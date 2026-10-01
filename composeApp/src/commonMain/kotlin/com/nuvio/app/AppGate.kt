@@ -25,11 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.auth.AppGateTransitionDecision
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.auth.AuthStateMachine
 import com.nuvio.app.core.auth.DeviceSessionRegistration
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.maskId
+import com.nuvio.app.core.auth.safeAuthStateDescription
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.whats_new_bug_fixes
 import nuvio.composeapp.generated.resources.whats_new_improvements
@@ -554,43 +557,41 @@ internal fun AppGate(
     }
 
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
+        val currentAuth = authState
         val cachedProfiles = profileState.profiles
-        val userStr = (authState as? AuthState.Authenticated)?.userId?.let(::maskId) ?: "<none>"
-        log.i { "[AppGate] Evaluating transition: authState=$authState (userId=$userStr), gateScreen=$gateScreen, cachedProfiles=${cachedProfiles.size}" }
-        val hasCachedProfileAccess =
-            cachedProfiles.isNotEmpty() &&
-                authState !is AuthState.Authenticated
-        val allowCachedProfileAccess =
-            hasCachedProfileAccess &&
-                (
-                    networkStatusUiState.condition != NetworkCondition.Online ||
-                        gateScreen != AppGateScreen.Auth.name
-                )
+        val authDesc = safeAuthStateDescription(currentAuth)
+        log.i { "[AppGate] Evaluating transition: authState=$authDesc, gateScreen=$gateScreen, cachedProfiles=${cachedProfiles.size}" }
 
-        when (authState) {
-            is AuthState.Loading -> {
-                if (hasCachedProfileAccess) {
-                    enterProfileGate(cachedProfiles, syncOnEnter = false)
-                } else {
-                    gateScreen = AppGateScreen.Loading.name
+        val decision = AuthStateMachine.decideAppGateTransition(
+            currentGateScreen = gateScreen,
+            authState = currentAuth,
+            cachedProfiles = cachedProfiles,
+            isOnline = networkStatusUiState.condition == NetworkCondition.Online,
+        )
+
+        when (decision) {
+            is AppGateTransitionDecision.StayOnCurrent -> {
+                if (currentAuth is AuthState.Authenticated) {
+                    ProfileRepository.ensureLoaded(currentAuth.userId)
                 }
             }
-            is AuthState.Unauthenticated -> {
-                if (allowCachedProfileAccess) {
-                    enterProfileGate(cachedProfiles, syncOnEnter = false)
-                } else {
-                    ProfileRepository.clearInMemory()
-                    profileSelectionLoading = false
-                    profileSelectionTransitionActive = false
-                    gateScreen = AppGateScreen.Auth.name
-                }
+            is AppGateTransitionDecision.ShowLoading -> {
+                gateScreen = AppGateScreen.Loading.name
             }
-            is AuthState.Authenticated -> {
-                val authenticatedState = authState as AuthState.Authenticated
-                ProfileRepository.ensureLoaded(authenticatedState.userId)
-                if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
+            is AppGateTransitionDecision.ShowAuth -> {
+                ProfileRepository.clearInMemory()
+                profileSelectionLoading = false
+                profileSelectionTransitionActive = false
+                gateScreen = AppGateScreen.Auth.name
+            }
+            is AppGateTransitionDecision.EnterProfileGate -> {
+                if (currentAuth is AuthState.Authenticated) {
+                    ProfileRepository.ensureLoaded(currentAuth.userId)
                     log.i { "[AppGate] Authenticated state transitioning gate away from $gateScreen to ProfileGate" }
-                    enterProfileGate(ProfileRepository.state.value.profiles, syncOnEnter = true)
+                    val profilesToUse = if (decision.profiles.isNotEmpty()) decision.profiles else ProfileRepository.state.value.profiles
+                    enterProfileGate(profilesToUse, syncOnEnter = decision.syncOnEnter)
+                } else {
+                    enterProfileGate(decision.profiles, syncOnEnter = decision.syncOnEnter)
                 }
             }
         }

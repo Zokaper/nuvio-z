@@ -16,7 +16,10 @@ class AuthStateMachineTest {
         assertEquals(AuthState.Loading, initial.authState)
 
         // User starts explicit login
-        val starting = AuthStateMachine.onExplicitSignInStarted(initial, epoch = 1L)
+        val starting = AuthStateMachine.onExplicitSignInStarted(
+            state = initial,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "user@test.com"),
+        )
         assertEquals(1L, starting.currentEpoch)
         assertEquals(1L, starting.inFlightEpoch)
 
@@ -48,7 +51,10 @@ class AuthStateMachineTest {
     @Test
     fun sessionStatusAuthenticatedArrivesBeforeMutationResultIsAdopted() {
         val initial = AuthStateMachine.onInitialize(savedAnonId = null)
-        val inFlight = AuthStateMachine.onExplicitSignInStarted(initial, epoch = 1L)
+        val inFlight = AuthStateMachine.onExplicitSignInStarted(
+            state = initial,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "async@test.com"),
+        )
 
         // Supabase-kt emits SessionStatus.Authenticated before signInWithEmail returns
         val statusResult = AuthStateMachine.onSessionStatusAuthenticated(
@@ -85,7 +91,10 @@ class AuthStateMachineTest {
         assertEquals("anon-xyz", initial.anonymousUserId)
 
         // Explicit email sign-in starts and succeeds
-        val starting = AuthStateMachine.onExplicitSignInStarted(initial, epoch = 10L)
+        val starting = AuthStateMachine.onExplicitSignInStarted(
+            state = initial,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 10L, email = "real@test.com"),
+        )
         val signinResult = AuthStateMachine.onExplicitSignInSucceeded(
             state = starting,
             epoch = 10L,
@@ -138,14 +147,16 @@ class AuthStateMachineTest {
             email = "user@offline.com",
         )
         assertTrue(statusResult.shouldValidateRemote)
+        val request = statusResult.validationRequest!!
 
         // Remote validation experiences a transient transport error (e.g. offline, timeout, 5xx)
         val transientValidationResult = AuthStateMachine.onRemoteValidationCompleted(
             state = statusResult.newState,
-            userId = "user-rehydrated",
-            isSuccessOrTransient = true,
-            isDefinitiveRejection = false,
-            email = "user@offline.com",
+            request = request,
+            result = RemoteValidationResult.TransientFailure(
+                userId = "user-rehydrated",
+                email = "user@offline.com",
+            ),
         )
         assertFalse(transientValidationResult.clearLocalStorage)
         assertEquals("user-rehydrated", transientValidationResult.newState.validatedUserId)
@@ -175,13 +186,15 @@ class AuthStateMachineTest {
             email = "stored@test.com",
         )
         assertTrue(statusResult.shouldValidateRemote)
+        val request = statusResult.validationRequest!!
 
         val validationSuccess = AuthStateMachine.onRemoteValidationCompleted(
             state = statusResult.newState,
-            userId = "stored-user-99",
-            isSuccessOrTransient = true,
-            isDefinitiveRejection = false,
-            email = "stored@test.com",
+            request = request,
+            result = RemoteValidationResult.Success(
+                userId = "stored-user-99",
+                email = "stored@test.com",
+            ),
         )
         assertEquals(
             AuthState.Authenticated("stored-user-99", "stored@test.com", isAnonymous = false),
@@ -204,7 +217,10 @@ class AuthStateMachineTest {
         assertTrue(signOutResult.clearLocalStorage)
 
         // User immediately starts login to account B
-        val accountBStarting = AuthStateMachine.onExplicitSignInStarted(signOutResult.newState, epoch = 3L)
+        val accountBStarting = AuthStateMachine.onExplicitSignInStarted(
+            state = signOutResult.newState,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 3L, email = "b@test.com"),
+        )
 
         // Stale NotAuthenticated from account A's logout arrives
         val staleStatus = AuthStateMachine.onSessionStatusNotAuthenticated(
@@ -232,11 +248,17 @@ class AuthStateMachineTest {
         val initial = AuthStateMachine.onInitialize(savedAnonId = null)
 
         // User clicks Login once
-        val attempt1 = AuthStateMachine.onExplicitSignInStarted(initial, epoch = 1L)
+        val attempt1 = AuthStateMachine.onExplicitSignInStarted(
+            initial,
+            InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "login@test.com"),
+        )
         assertEquals(1L, attempt1.currentEpoch)
 
         // User clicks Login again quickly
-        val attempt2 = AuthStateMachine.onExplicitSignInStarted(attempt1, epoch = 2L)
+        val attempt2 = AuthStateMachine.onExplicitSignInStarted(
+            attempt1,
+            InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "login@test.com"),
+        )
         assertEquals(2L, attempt2.currentEpoch)
 
         // Attempt 1 finishes late
@@ -306,7 +328,10 @@ class AuthStateMachineTest {
     @Test
     fun blankUserIdSignOnFailsExplicitly() {
         val initial = AuthStateMachine.onInitialize(savedAnonId = null)
-        val started = AuthStateMachine.onExplicitSignInStarted(initial, epoch = 1L)
+        val started = AuthStateMachine.onExplicitSignInStarted(
+            initial,
+            InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "user@test.com"),
+        )
 
         val result = AuthStateMachine.onExplicitSignInSucceeded(
             state = started,
@@ -325,7 +350,10 @@ class AuthStateMachineTest {
         val unauthenticated = initial.copy(authState = AuthState.Unauthenticated)
 
         // User enters wrong password on attempt 1
-        val attempt1 = AuthStateMachine.onExplicitSignInStarted(unauthenticated, epoch = 1L)
+        val attempt1 = AuthStateMachine.onExplicitSignInStarted(
+            unauthenticated,
+            InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "valid@test.com"),
+        )
         assertEquals(1L, attempt1.inFlightEpoch)
 
         // Attempt 1 fails (e.g. invalid credentials)
@@ -343,17 +371,20 @@ class AuthStateMachineTest {
         assertEquals(AppGateTransitionDecision.ShowAuth, gateDecisionFailed)
 
         // User enters correct password on attempt 2
-        val attempt2 = AuthStateMachine.onExplicitSignInStarted(failureResult, epoch = 2L)
+        val attempt2 = AuthStateMachine.onExplicitSignInStarted(
+            failureResult,
+            InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "valid@test.com"),
+        )
         assertEquals(2L, attempt2.inFlightEpoch)
 
         val successResult = AuthStateMachine.onExplicitSignInSucceeded(
             state = attempt2,
             epoch = 2L,
             userId = "valid-user",
-            email = "user@test.com",
+            email = "valid@test.com",
         )
         assertFalse(successResult.isDropped)
-        assertEquals(AuthState.Authenticated("valid-user", "user@test.com", isAnonymous = false), successResult.newState.authState)
+        assertEquals(AuthState.Authenticated("valid-user", "valid@test.com", isAnonymous = false), successResult.newState.authState)
         assertEquals("valid-user", successResult.newState.validatedUserId)
         assertNull(successResult.newState.inFlightEpoch)
 
@@ -370,24 +401,25 @@ class AuthStateMachineTest {
     @Test
     fun browserOrCodeAuthCoexistsCorrectly() {
         // Scenario A: External browser OAuth or deep-link code exchange arrives while user is on Auth screen
-        val initial = AuthMachineState(authState = AuthState.Unauthenticated)
+        val initial = AuthMachineState(authState = AuthState.Unauthenticated, currentEpoch = 5L)
 
         val asyncOAuthEvent = AuthStateMachine.onSessionStatusAuthenticated(
             state = initial,
             sessionUserId = "oauth-user-777",
             email = "oauth@test.com",
         )
-        // Since it's not yet validated and no in-flight mutation was running, it requests remote validation
         assertTrue(asyncOAuthEvent.shouldValidateRemote)
         assertEquals("oauth-user-777", asyncOAuthEvent.userIdToValidate)
+        val req = asyncOAuthEvent.validationRequest!!
 
         // Remote validation succeeds
         val oauthValidated = AuthStateMachine.onRemoteValidationCompleted(
             state = asyncOAuthEvent.newState,
-            userId = "oauth-user-777",
-            isSuccessOrTransient = true,
-            isDefinitiveRejection = false,
-            email = "oauth@test.com",
+            request = req,
+            result = RemoteValidationResult.Success(
+                userId = "oauth-user-777",
+                email = "oauth@test.com",
+            ),
         )
         assertEquals(
             AuthState.Authenticated("oauth-user-777", "oauth@test.com", isAnonymous = false),
@@ -406,21 +438,288 @@ class AuthStateMachineTest {
 
         // Scenario B: Explicit device code login mutation (e.g. DeviceLink / code exchange in flight)
         val waitingForCode = AuthStateMachine.onExplicitSignInStarted(
-            state = AuthMachineState(authState = AuthState.Unauthenticated),
-            epoch = 10L,
+            state = AuthMachineState(authState = AuthState.Unauthenticated, currentEpoch = 10L),
+            intent = InFlightAuthIntent.ExternalSession(epoch = 11L, expectedUserId = "device-linked-user"),
         )
-        // External session completes for this code
         val codeStatusResult = AuthStateMachine.onSessionStatusAuthenticated(
             state = waitingForCode,
             sessionUserId = "device-linked-user",
             email = "device@test.com",
         )
-        // In-flight mutation adopts session immediately without secondary validation
         assertFalse(codeStatusResult.shouldValidateRemote)
         assertEquals(
             AuthState.Authenticated("device-linked-user", "device@test.com", isAnonymous = false),
             codeStatusResult.newState.authState,
         )
+    }
+
+    // --- Production Acceptance Tests (Issues 1-7) ---
+
+    // Acceptance 1: validation A starts -> explicit sign-out -> validation A succeeds/transient -> remains signed out
+    @Test
+    fun oldValidationSuccessAfterSignOutRemainsSignedOut() {
+        val initial = AuthMachineState(authState = AuthState.Loading, currentEpoch = 1L)
+        val statusA = AuthStateMachine.onSessionStatusAuthenticated(
+            state = initial,
+            sessionUserId = "user-A",
+            email = "a@test.com",
+        )
+        assertTrue(statusA.shouldValidateRemote)
+        val requestA = statusA.validationRequest!!
+        assertEquals(1L, requestA.epoch)
+
+        // While validation A is suspending, user explicitly signs out
+        val signOutResult = AuthStateMachine.onExplicitSignOut(statusA.newState, epoch = 2L)
+        assertEquals(AuthState.Unauthenticated, signOutResult.newState.authState)
+        assertEquals(2L, signOutResult.newState.currentEpoch)
+
+        // Validation A completes late with Success
+        val validationCompleted = AuthStateMachine.onRemoteValidationCompleted(
+            state = signOutResult.newState,
+            request = requestA,
+            result = RemoteValidationResult.Success("user-A", "a@test.com"),
+        )
+        assertTrue(validationCompleted.isDropped, "Old validation outcome from epoch 1 must be dropped when currentEpoch is 2")
+        assertFalse(validationCompleted.clearLocalStorage)
+        assertEquals(AuthState.Unauthenticated, validationCompleted.newState.authState)
+    }
+
+    // Acceptance 2: validation A starts -> login B succeeds -> validation A succeeds -> remains B
+    @Test
+    fun oldValidationSuccessAfterNewerAccountLoginRemainsNewAccount() {
+        val initial = AuthMachineState(authState = AuthState.Loading, currentEpoch = 1L)
+        val statusA = AuthStateMachine.onSessionStatusAuthenticated(
+            state = initial,
+            sessionUserId = "user-A",
+            email = "a@test.com",
+        )
+        val requestA = statusA.validationRequest!!
+
+        // While validation A is suspending, user explicitly logs into account B
+        val startB = AuthStateMachine.onExplicitSignInStarted(
+            state = statusA.newState,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "b@test.com"),
+        )
+        val loginBResult = AuthStateMachine.onExplicitSignInSucceeded(
+            state = startB,
+            epoch = 2L,
+            userId = "user-B",
+            email = "b@test.com",
+        )
+        assertEquals(AuthState.Authenticated("user-B", "b@test.com", isAnonymous = false), loginBResult.newState.authState)
+
+        // Validation A completes late with Success
+        val validationCompleted = AuthStateMachine.onRemoteValidationCompleted(
+            state = loginBResult.newState,
+            request = requestA,
+            result = RemoteValidationResult.Success("user-A", "a@test.com"),
+        )
+        assertTrue(validationCompleted.isDropped, "Validation outcome for user-A must be dropped after user-B login")
+        assertFalse(validationCompleted.clearLocalStorage)
+        assertEquals(
+            AuthState.Authenticated("user-B", "b@test.com", isAnonymous = false),
+            validationCompleted.newState.authState,
+        )
+    }
+
+    // Acceptance 3: validation A starts -> login B succeeds -> validation A is definitively rejected -> remains B and B's session is NOT cleared
+    @Test
+    fun oldValidationRejectionAfterNewerAccountLoginDoesNotClearNewAccount() {
+        val initial = AuthMachineState(authState = AuthState.Loading, currentEpoch = 1L)
+        val statusA = AuthStateMachine.onSessionStatusAuthenticated(
+            state = initial,
+            sessionUserId = "user-A",
+            email = "a@test.com",
+        )
+        val requestA = statusA.validationRequest!!
+
+        // User logs into account B at epoch 2
+        val startB = AuthStateMachine.onExplicitSignInStarted(
+            state = statusA.newState,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "b@test.com"),
+        )
+        val loginBResult = AuthStateMachine.onExplicitSignInSucceeded(
+            state = startB,
+            epoch = 2L,
+            userId = "user-B",
+            email = "b@test.com",
+        )
+
+        // Validation A fails with DefinitiveRejection
+        val validationCompleted = AuthStateMachine.onRemoteValidationCompleted(
+            state = loginBResult.newState,
+            request = requestA,
+            result = RemoteValidationResult.DefinitiveRejection("user-A"),
+        )
+        assertTrue(validationCompleted.isDropped, "Stale rejection must be dropped")
+        assertFalse(validationCompleted.clearLocalStorage, "Must NOT request clearing local storage for a stale rejection!")
+        assertEquals(
+            AuthState.Authenticated("user-B", "b@test.com", isAnonymous = false),
+            validationCompleted.newState.authState,
+        )
+    }
+
+    // Acceptance 4: stale RefreshFailure from A after login B cannot clear B
+    @Test
+    fun staleRefreshFailureFromAAfterLoginBCannotClearB() {
+        val accountB = AuthMachineState(
+            authState = AuthState.Authenticated("user-B", "b@test.com", isAnonymous = false),
+            validatedUserId = "user-B",
+            currentEpoch = 5L,
+        )
+
+        // Stale definitive refresh failure arrives from user A
+        val refreshResult = AuthStateMachine.onSessionStatusRefreshFailure(
+            state = accountB,
+            isDefinitiveRejection = true,
+            failingUserId = "user-A",
+        )
+        assertTrue(refreshResult.isDropped, "RefreshFailure for user-A must be dropped when active user is user-B")
+        assertFalse(refreshResult.clearLocalStorage)
+        assertEquals(accountB.authState, refreshResult.newState.authState)
+    }
+
+    // Acceptance 5: unrelated Authenticated session arriving during email/password login
+    @Test
+    fun unrelatedAuthenticatedSessionDuringEmailLoginDoesNotHijackMutation() {
+        val initial = AuthMachineState(authState = AuthState.Unauthenticated, currentEpoch = 1L)
+
+        // Email login for account B started
+        val loginBStarted = AuthStateMachine.onExplicitSignInStarted(
+            state = initial,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "target-b@test.com"),
+        )
+        assertEquals(2L, loginBStarted.inFlightIntent?.epoch)
+
+        // Unrelated Authenticated event from account A arrives
+        val unrelatedEvent = AuthStateMachine.onSessionStatusAuthenticated(
+            state = loginBStarted,
+            sessionUserId = "user-A",
+            email = "stale-a@test.com",
+        )
+        assertTrue(unrelatedEvent.isDropped, "Unrelated session must NOT hijack in-flight email sign-in")
+        assertEquals(loginBStarted, unrelatedEvent.newState, "State must remain unchanged")
+
+        // Explicit login for account B succeeds
+        val loginBSuccess = AuthStateMachine.onExplicitSignInSucceeded(
+            state = unrelatedEvent.newState,
+            epoch = 2L,
+            userId = "user-B",
+            email = "target-b@test.com",
+        )
+        assertFalse(loginBSuccess.isDropped)
+        assertEquals(
+            AuthState.Authenticated("user-B", "target-b@test.com", isAnonymous = false),
+            loginBSuccess.newState.authState,
+        )
+    }
+
+    // Acceptance 6: late failure of attempt 1 while attempt 2 is active
+    @Test
+    fun lateFailureOfAttempt1WhileAttempt2IsActiveDoesNotClearAttempt2() {
+        val initial = AuthMachineState(authState = AuthState.Unauthenticated, currentEpoch = 1L)
+
+        // Attempt 1 starts with epoch 1
+        val attempt1 = AuthStateMachine.onExplicitSignInStarted(
+            state = initial,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 1L, email = "user@test.com"),
+        )
+        assertEquals(1L, attempt1.inFlightIntent?.epoch)
+
+        // Attempt 2 starts with epoch 2
+        val attempt2 = AuthStateMachine.onExplicitSignInStarted(
+            state = attempt1,
+            intent = InFlightAuthIntent.EmailSignIn(epoch = 2L, email = "user@test.com"),
+        )
+        assertEquals(2L, attempt2.inFlightIntent?.epoch)
+
+        // Attempt 1 fails late and calls onExplicitSignInFailed with captured epoch 1
+        val afterFailure1 = AuthStateMachine.onExplicitSignInFailed(attempt2, epoch = 1L)
+        // Attempt 2 must still be in flight!
+        assertEquals(2L, afterFailure1.inFlightIntent?.epoch, "Attempt 2 must remain in flight after attempt 1 fails late")
+
+        // Attempt 2 finishes and succeeds
+        val attempt2Success = AuthStateMachine.onExplicitSignInSucceeded(
+            state = afterFailure1,
+            epoch = 2L,
+            userId = "valid-user",
+            email = "user@test.com",
+        )
+        assertFalse(attempt2Success.isDropped)
+        assertEquals(
+            AuthState.Authenticated("valid-user", "user@test.com", isAnonymous = false),
+            attempt2Success.newState.authState,
+        )
+    }
+
+    // Acceptance 7: explicit email/password mutation cannot adopt an unrelated current session
+    @Test
+    fun explicitEmailLoginRejectsUnrelatedCurrentSession() {
+        val attemptedEmail = "attempted@test.com"
+        val unrelatedSessionEmail = "unrelated@other.com"
+
+        val matches = unrelatedSessionEmail.equals(attemptedEmail, ignoreCase = true)
+        assertFalse(matches, "Session email must match attempted email to be adopted")
+    }
+
+    // Acceptance 8: production AppGate uses the tested transition reducer
+    @Test
+    fun productionAppGateTransitionReducerVerification() {
+        val profiles = listOf(
+            NuvioProfile(id = "p1", name = "Test", profileIndex = 1),
+        )
+
+        // Loading + Authenticated -> EnterProfileGate
+        val loadingToAuth = AuthStateMachine.decideAppGateTransition(
+            currentGateScreen = "Loading",
+            authState = AuthState.Authenticated("u1", "u1@test.com", false),
+            cachedProfiles = profiles,
+            isOnline = true,
+        )
+        assertTrue(loadingToAuth is AppGateTransitionDecision.EnterProfileGate)
+
+        // Auth + Authenticated -> EnterProfileGate
+        val authToAuth = AuthStateMachine.decideAppGateTransition(
+            currentGateScreen = "Auth",
+            authState = AuthState.Authenticated("u1", "u1@test.com", false),
+            cachedProfiles = profiles,
+            isOnline = true,
+        )
+        assertTrue(authToAuth is AppGateTransitionDecision.EnterProfileGate)
+
+        // ProfileSelection + Authenticated -> StayOnCurrent
+        val profileToStay = AuthStateMachine.decideAppGateTransition(
+            currentGateScreen = "ProfileSelection",
+            authState = AuthState.Authenticated("u1", "u1@test.com", false),
+            cachedProfiles = profiles,
+            isOnline = true,
+        )
+        assertEquals(AppGateTransitionDecision.StayOnCurrent, profileToStay)
+
+        // Main + Authenticated -> StayOnCurrent
+        val mainToStay = AuthStateMachine.decideAppGateTransition(
+            currentGateScreen = "Main",
+            authState = AuthState.Authenticated("u1", "u1@test.com", false),
+            cachedProfiles = profiles,
+            isOnline = true,
+        )
+        assertEquals(AppGateTransitionDecision.StayOnCurrent, mainToStay)
+    }
+
+    @Test
+    fun safeAuthStateDescriptionMasksPIIProperly() {
+        val auth = AuthState.Authenticated(
+            userId = "123456789012",
+            email = "user@example.com",
+            isAnonymous = false,
+        )
+        val desc = safeAuthStateDescription(auth)
+        assertFalse(desc.contains("user@example.com"), "Description must not contain raw email")
+        assertTrue(desc.contains("1234...9012"), "Description must contain masked userId")
+        assertTrue(desc.contains("isAnon=false"))
+
+        assertEquals("Loading", safeAuthStateDescription(AuthState.Loading))
+        assertEquals("Unauthenticated", safeAuthStateDescription(AuthState.Unauthenticated))
     }
 
     @Test

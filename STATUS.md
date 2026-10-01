@@ -5,23 +5,30 @@ Last updated: 2026-10-01
 ## Authentication login state machine and session authority fix (2026-10-01)
 
 Active branch: `gemini/auth-login-state-machine-fix` (isolated worktrees `auth-mobile` and `auth-desktop`), rebased onto current Watch Together RC head behind mobile Debug 74 (`e77954662`) and desktop Debug 80 (`9085e881b`).
-Root cause identified and fixed:
-1. Unsynchronized async session-status race: Supabase-kt emitted `SessionStatus.Authenticated` during `signInWith(Email)` before `signInWithEmail` recorded `validatedRemoteUserId`. The async collector triggered redundant `validateRemoteSession`, making a secondary GET `/auth/v1/user` network call. If that call failed (transient network, timeout, or 401/400 from GoTrue token refresh), `OfficialSessionRejection.isSessionGone` called `clearLocalSessionAfterRemoteInvalidation`, clearing the newly issued session from disk and local state. When `signInWithEmail` completed, `currentSessionOrNull()` was null, returning silently without setting `_state` or `_error`, leaving the user stuck on `AuthScreen`. Because the session on disk was destroyed, restarting the app also failed to recover.
-2. Stale status flow clobbering: `SessionStatus.NotAuthenticated` and `SessionStatus.Initializing` events emitted from startup rehydration or prior sign-out lacked epoch guards and blindly wiped `_state.value = AuthState.Unauthenticated` or `AuthState.Loading` even after an explicit email login succeeded, sending `AppGate` back to `AuthScreen`.
-3. Lack of explicit error reporting: `signInWithEmail` and `signUpWithEmail` silently exited `runCatching` without error if `userId.isNotBlank()` was false.
 
-Architecture & State Machine Invariants:
-- Introduced pure `AuthStateMachine` (new KMP file `composeApp/src/commonMain/kotlin/com/nuvio/app/core/auth/AuthStateMachine.kt`) governing state transitions, operation epochs, and session authority:
-  1. A successful explicit credential mutation is authoritative immediately (`_state.value = AuthState.Authenticated`, `validatedUserId = userId`). Redundant remote validation on explicit mutations is eliminated.
-  2. Async `sessionStatus` events reconcile external/background changes and respect the operation epoch. An older async event cannot overwrite newer explicit auth state. Stale `NotAuthenticated` events arriving when an active session is valid are dropped.
-  3. Anonymous identity is immediately cleared when adopting authenticated credentials.
-  4. Transient connectivity failures (network errors, timeouts, 429 rate limits, 5xx) retain cached authenticated state and do not wipe local sessions.
-  5. UI/profile gating (`decideAppGateTransition` in `AppGate`) derives deterministically from authenticated state, transitioning to profile selection/Main without getting stuck on Auth.
-- Privacy-safe diagnostic logging: tagged `[Auth #<opId>]` across mutation start/finish, sessionStatus emissions, validation decisions, and `[AppGate]` screen transitions without logging passwords, tokens, or sensitive payloads (email and ID masking via `maskEmail` / `maskId`).
-- Regression suite: added `AuthStateMachineTest` in `commonTest` covering all required scenarios (email login before status emission, status before mutation return, stale anonymous identity, stale unauthenticated/initializing clobber, transient validation transport failure, startup rehydration, logout-then-login, repeated attempts / epoch supersession, gate progression away from Auth, blank user ID failure, wrong password -> correct password, and browser/code auth coexistence) — 14 tests / 0 failures / 0 errors / 0 skipped.
-- Mobile host test: `:composeApp:testAndroidHostTest` PASSED (**3,409 tests / 0 failures / 0 errors / 6 skipped**).
+Production race conditions addressed:
+1. **Scoped remote validation without side-effects**: `validateRemoteSession` returns a classified `RemoteValidationResult` (`Success`, `TransientFailure`, `DefinitiveRejection`) and no longer directly mutates state or clears local storage. `AuthStateMachine.onRemoteValidationCompleted` checks the validation request epoch and target user ID against the current state; stale validation completions (e.g. from an old session after sign-out, or after login to account B) are discarded harmlessly without clearing new sessions or reverting state.
+2. **Correlated in-flight session status adoption**: `InFlightAuthIntent` explicitly tags operations (`EmailSignIn`, `EmailSignUp`, `Anonymous`, `SignOut`, `ExternalSession`). Unrelated `SessionStatus.Authenticated` events arriving during an explicit credential mutation are ignored and do not hijack the active mutation. Browser/code auth continues to adopt when no credential mutation owns the transition.
+3. **Explicit email session proof**: `signInWithEmail` verifies that the active Supabase session matches the attempted login email (`userEmail.equals(cleanEmail, ignoreCase = true)`). Unrelated pre-existing sessions are rejected rather than falsely declared successful.
+4. **Stable operation epoch in failure handlers**: `signInWithEmail` and `signUpWithEmail` capture `val opId = operationEpoch.incrementAndGet()` before `runCatching`. The `onFailure` block receives this exact `opId` instead of reading the mutable global epoch, preventing a late failure of attempt 1 from clearing an active attempt 2.
+5. **Identity-safe RefreshFailure**: `SessionStatus.RefreshFailure` is scoped to the failing user ID and dropped if an explicit mutation is active or the user is anonymous, preventing stale refresh failures from older sessions from wiping newer logins.
+6. **Unified AppGate transition reducer**: Production `AppGate.kt` directly delegates its screen transition logic to `AuthStateMachine.decideAppGateTransition()`, ensuring identical behavior between tested reducer rules and production UI transitions.
+7. **Zero-PII diagnostic logging**: Replaced raw `$authState` string interpolations with `safeAuthStateDescription(authState)` (logging only state type, masked ID, and safe epoch/intent tags). No passwords, tokens, raw email addresses, or unmasked user IDs appear in logs.
+
+Verification:
+- Common regression suite: `AuthStateMachineTest` expanded to **23 tests / 0 failures / 0 errors / 0 skipped** covering all previous test cases plus the 8 required production race regressions:
+  1. Old validation success after sign-out remains signed out
+  2. Old validation success after newer account login remains newer account
+  3. Old validation rejection after newer account login does not clear newer account or session
+  4. Stale RefreshFailure from account A after login B cannot clear account B
+  5. Unrelated Authenticated session arriving during email login does not hijack mutation
+  6. Explicit email login rejects unrelated pre-existing session
+  7. Late failure of attempt 1 while attempt 2 is active does not clear attempt 2
+  8. AppGate transition reducer verification
+- Mobile Android host test suite: `:composeApp:testAndroidHostTest` PASSED (**3,418 tests / 0 failures / 0 errors / 6 skipped**).
 - Mobile Android compile: `:composeApp:compileAndroidMain` PASSED.
-- Desktop test: focused auth, session-storage, AppGate, and profile test suite (**50 tests / 0 failures / 0 errors / 0 skips**) PASSED.
+- Desktop auth test suite: `:composeApp:desktopTest` PASSED (**28 tests: 23 AuthStateMachineTest + 2 DeviceSessionRegistrationTest + 3 OfficialSessionRejectionTest / 0 failures / 0 errors / 0 skipped**).
+- Desktop network & profile test suite: `:composeApp:desktopTest` PASSED (**31 tests: AppGateOverlayRulesTest, InstallScopedSessionManagerTest, OfficialSessionAccessTest, ZSessionBridgeTest, ZSessionRenewalTest, ProfileSettingsCredentialPolicyTest, ProfileSelectionRoutingTest / 0 failures / 0 errors / 0 skipped**).
 - Desktop compile: `:composeApp:compileKotlinDesktop` PASSED.
 
 ## Home/lock Away acceptance and return readiness (2026-10-01)

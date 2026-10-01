@@ -57,142 +57,160 @@ object AuthRepository {
             machineState = AuthStateMachine.onInitialize(savedAnonId, operationEpoch.value)
             _state.value = machineState.authState
         }
-        log.i { "[Auth #init] Initialized with state=${_state.value} (savedAnon=${maskId(savedAnonId)})" }
+        log.i { "[Auth #init] Initialized with state=${safeAuthStateDescription(_state.value)} (savedAnon=${maskId(savedAnonId)})" }
 
         sessionStatusJob = scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
-                when (status) {
-                    is SessionStatus.Authenticated -> {
-                        val user = status.session.user
-                        val userId = user?.id.orEmpty()
-                        log.i { "[Auth #status] SessionStatus.Authenticated received (userId=${maskId(userId)})" }
-                        if (userId.isBlank()) return@collect
-
-                        val transition = synchronized(stateLock) {
-                            AuthStateMachine.onSessionStatusAuthenticated(machineState, userId, user?.email).also {
-                                machineState = it.newState
-                            }
-                        }
-
-                        if (transition.clearAnonymousStorage) {
-                            AuthStorage.clearAnonymousUserId()
-                        }
-
-                        if (!transition.shouldValidateRemote) {
-                            _state.value = transition.newState.authState
-                            log.i { "[Auth #status] ${transition.logReason}; state is ${_state.value}" }
-                            return@collect
-                        }
-
-                        log.i { "[Auth #status] Validating remote session for ${maskId(userId)}" }
-                        val isValid = validateRemoteSession(userId)
-                        log.i { "[Auth #status] Remote session validation result for ${maskId(userId)}: isValid=$isValid" }
-
-                        val outcome = synchronized(stateLock) {
-                            AuthStateMachine.onRemoteValidationCompleted(
-                                state = machineState,
-                                userId = userId,
-                                isSuccessOrTransient = isValid,
-                                isDefinitiveRejection = !isValid,
-                                email = user?.email,
-                            ).also { machineState = it.newState }
-                        }
-
-                        if (outcome.clearAnonymousStorage) {
-                            AuthStorage.clearAnonymousUserId()
-                        }
-                        _state.value = outcome.newState.authState
-                    }
-
-                    is SessionStatus.NotAuthenticated -> {
-                        log.i { "[Auth #status] SessionStatus.NotAuthenticated received (isSignOut=${status.isSignOut})" }
-                        val hasActiveSession = SupabaseProvider.client.auth.currentSessionOrNull() != null
-                        val hasAnonStorage = AuthStorage.loadAnonymousUserId() != null
-
-                        val transition = synchronized(stateLock) {
-                            AuthStateMachine.onSessionStatusNotAuthenticated(
-                                state = machineState,
-                                hasActiveSession = hasActiveSession,
-                                hasAnonIdInStorage = hasAnonStorage,
-                            ).also { machineState = it.newState }
-                        }
-
-                        if (transition.isDropped) {
-                            log.i { "[Auth #status] Dropped NotAuthenticated event (${transition.logReason})" }
-                            return@collect
-                        }
-                        _state.value = transition.newState.authState
-                        log.i { "[Auth #status] ${transition.logReason}; state is ${_state.value}" }
-                    }
-
-                    is SessionStatus.Initializing -> {
-                        log.i { "[Auth #status] SessionStatus.Initializing received" }
-                        val transition = synchronized(stateLock) {
-                            AuthStateMachine.onSessionStatusInitializing(machineState).also {
-                                machineState = it.newState
-                            }
-                        }
-                        if (transition.isDropped) {
-                            log.i { "[Auth #status] Dropped Initializing event (${transition.logReason})" }
-                            return@collect
-                        }
-                        _state.value = transition.newState.authState
-                    }
-
-                    is SessionStatus.RefreshFailure -> {
-                        val exception: Throwable? = when (val cause = status.cause) {
-                            is RefreshFailureCause.InternalServerError -> cause.exception
-                            is RefreshFailureCause.NetworkError -> cause.exception
-                            else -> null
-                        }
-                        log.w(exception) { "[Auth #status] SessionStatus.RefreshFailure: ${status.cause}" }
-                        val isDefinitive = when (val cause = status.cause) {
-                            is RefreshFailureCause.InternalServerError ->
-                                OfficialSessionRejection.isSessionGone(cause.exception, ::isInvalidRemoteSessionError)
-                            else -> false
-                        }
-                        val transition = synchronized(stateLock) {
-                            AuthStateMachine.onSessionStatusRefreshFailure(
-                                state = machineState,
-                                isDefinitiveRejection = isDefinitive,
-                            ).also { machineState = it.newState }
-                        }
-                        if (transition.clearLocalStorage) {
-                            log.w { "[Auth #status] Refresh failure was definitive session invalidation; clearing local auth" }
-                            clearLocalSessionAfterRemoteInvalidation()
-                            return@collect
-                        }
-                        if (transition.isDropped) {
-                            log.i { "[Auth #status] ${transition.logReason}" }
-                        }
-                    }
-                }
+                processSessionStatus(status)
             }
         }
     }
 
-    private suspend fun validateRemoteSession(userId: String): Boolean {
-        if (userId.isBlank()) return true
+    private suspend fun processSessionStatus(status: SessionStatus) {
+        when (status) {
+            is SessionStatus.Authenticated -> {
+                val user = status.session.user
+                val userId = user?.id.orEmpty()
+                log.i { "[Auth #status] SessionStatus.Authenticated received (userId=${maskId(userId)}, email=${maskEmail(user?.email)})" }
+                if (userId.isBlank()) return
+
+                val transition = synchronized(stateLock) {
+                    AuthStateMachine.onSessionStatusAuthenticated(machineState, userId, user?.email).also {
+                        machineState = it.newState
+                    }
+                }
+
+                if (transition.isDropped) {
+                    log.i { "[Auth #status] ${transition.logReason}" }
+                    return
+                }
+
+                if (transition.clearAnonymousStorage) {
+                    AuthStorage.clearAnonymousUserId()
+                }
+
+                if (!transition.shouldValidateRemote) {
+                    _state.value = transition.newState.authState
+                    log.i { "[Auth #status] ${transition.logReason}; state is ${safeAuthStateDescription(_state.value)}" }
+                    return
+                }
+
+                val validationReq = transition.validationRequest ?: ValidationRequest(machineState.currentEpoch, userId, user?.email)
+                log.i { "[Auth #status] Validating remote session for ${maskId(userId)} at epoch ${validationReq.epoch}" }
+                val validationResult = performRemoteValidation(userId, user?.email)
+                log.i { "[Auth #status] Remote validation result for ${maskId(userId)}: $validationResult" }
+
+                val outcome = synchronized(stateLock) {
+                    AuthStateMachine.onRemoteValidationCompleted(
+                        state = machineState,
+                        request = validationReq,
+                        result = validationResult,
+                    ).also { machineState = it.newState }
+                }
+
+                if (outcome.isDropped) {
+                    log.i { "[Auth #status] ${outcome.logReason}" }
+                    return
+                }
+
+                if (outcome.clearLocalStorage) {
+                    log.w { "[Auth #status] Remote session rejected; clearing local session" }
+                    clearLocalSessionAfterRemoteInvalidation()
+                    _state.value = outcome.newState.authState
+                    return
+                }
+
+                if (outcome.clearAnonymousStorage) {
+                    AuthStorage.clearAnonymousUserId()
+                }
+                _state.value = outcome.newState.authState
+            }
+
+            is SessionStatus.NotAuthenticated -> {
+                log.i { "[Auth #status] SessionStatus.NotAuthenticated received (isSignOut=${status.isSignOut})" }
+                val hasActiveSession = SupabaseProvider.client.auth.currentSessionOrNull() != null
+                val hasAnonStorage = AuthStorage.loadAnonymousUserId() != null
+
+                val transition = synchronized(stateLock) {
+                    AuthStateMachine.onSessionStatusNotAuthenticated(
+                        state = machineState,
+                        hasActiveSession = hasActiveSession,
+                        hasAnonIdInStorage = hasAnonStorage,
+                    ).also { machineState = it.newState }
+                }
+
+                if (transition.isDropped) {
+                    log.i { "[Auth #status] Dropped NotAuthenticated event (${transition.logReason})" }
+                    return
+                }
+                _state.value = transition.newState.authState
+                log.i { "[Auth #status] ${transition.logReason}; state is ${safeAuthStateDescription(_state.value)}" }
+            }
+
+            is SessionStatus.Initializing -> {
+                log.i { "[Auth #status] SessionStatus.Initializing received" }
+                val transition = synchronized(stateLock) {
+                    AuthStateMachine.onSessionStatusInitializing(machineState).also {
+                        machineState = it.newState
+                    }
+                }
+                if (transition.isDropped) {
+                    log.i { "[Auth #status] Dropped Initializing event (${transition.logReason})" }
+                    return
+                }
+                _state.value = transition.newState.authState
+            }
+
+            is SessionStatus.RefreshFailure -> {
+                val exception: Throwable? = when (val cause = status.cause) {
+                    is RefreshFailureCause.InternalServerError -> cause.exception
+                    is RefreshFailureCause.NetworkError -> cause.exception
+                    else -> null
+                }
+                log.w(exception) { "[Auth #status] SessionStatus.RefreshFailure: ${status.cause}" }
+                val isDefinitive = when (val cause = status.cause) {
+                    is RefreshFailureCause.InternalServerError ->
+                        OfficialSessionRejection.isSessionGone(cause.exception, ::isInvalidRemoteSessionError)
+                    else -> false
+                }
+                val currentUserId = SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id
+                val transition = synchronized(stateLock) {
+                    AuthStateMachine.onSessionStatusRefreshFailure(
+                        state = machineState,
+                        isDefinitiveRejection = isDefinitive,
+                        failingUserId = currentUserId,
+                    ).also { machineState = it.newState }
+                }
+                if (transition.isDropped) {
+                    log.i { "[Auth #status] ${transition.logReason}" }
+                    return
+                }
+                if (transition.clearLocalStorage) {
+                    log.w { "[Auth #status] Refresh failure was definitive session invalidation; clearing local auth" }
+                    clearLocalSessionAfterRemoteInvalidation()
+                    _state.value = transition.newState.authState
+                    return
+                }
+                _state.value = transition.newState.authState
+            }
+        }
+    }
+
+    private suspend fun performRemoteValidation(userId: String, email: String?): RemoteValidationResult {
+        if (userId.isBlank()) return RemoteValidationResult.DefinitiveRejection(userId)
         val alreadyValidated = synchronized(stateLock) { machineState.validatedUserId == userId }
-        if (alreadyValidated) return true
+        if (alreadyValidated) return RemoteValidationResult.Success(userId, email)
 
         return runCatching {
             SupabaseProvider.client.auth.retrieveUserForCurrentSession(false)
-            synchronized(stateLock) {
-                machineState = machineState.copy(validatedUserId = userId)
-            }
-            true
+            RemoteValidationResult.Success(userId, email)
         }.getOrElse { e ->
             if (OfficialSessionRejection.isSessionGone(e, ::isInvalidRemoteSessionError)) { // Z: vanilla-bug patch V2, drop-at-next-sync
-                log.w(e) { "Stored Supabase session no longer belongs to an active account; clearing local auth" }
-                clearLocalSessionAfterRemoteInvalidation()
-                false
+                log.w(e) { "Stored Supabase session for ${maskId(userId)} rejected definitively" }
+                RemoteValidationResult.DefinitiveRejection(userId)
             } else {
-                log.w(e) { "Unable to validate stored Supabase session; keeping cached auth state" }
-                synchronized(stateLock) {
-                    machineState = machineState.copy(validatedUserId = userId)
-                }
-                true
+                log.w(e) { "Unable to validate stored Supabase session for ${maskId(userId)}; keeping cached auth state" }
+                RemoteValidationResult.TransientFailure(userId, email)
             }
         }
     }
@@ -217,33 +235,108 @@ object AuthRepository {
         log.i { "[Auth #$opId] Adopted anonymous authenticated state" }
     }
 
-    suspend fun signUpWithEmail(email: String, password: String): Result<Unit> = runCatching {
+    suspend fun signUpWithEmail(email: String, password: String): Result<Unit> {
         val opId = operationEpoch.incrementAndGet()
         val cleanEmail = email.trim()
         _error.value = null
         log.i { "[Auth #$opId] signUpWithEmail started (email=${maskEmail(cleanEmail)})" }
 
         synchronized(stateLock) {
-            machineState = AuthStateMachine.onExplicitSignInStarted(machineState, opId)
+            machineState = AuthStateMachine.onExplicitSignInStarted(
+                state = machineState,
+                intent = InFlightAuthIntent.EmailSignUp(epoch = opId, email = cleanEmail),
+            )
         }
 
-        SupabaseProvider.client.auth.signUpWith(Email) {
-            this.email = cleanEmail
-            this.password = password
+        return runCatching {
+            SupabaseProvider.client.auth.signUpWith(Email) {
+                this.email = cleanEmail
+                this.password = password
+            }
+
+            val session = SupabaseProvider.client.auth.currentSessionOrNull()
+            val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
+            val userId = user?.id.orEmpty().trim()
+            val userEmail = user?.email.orEmpty().trim()
+            val emailMatches = userEmail.equals(cleanEmail, ignoreCase = true)
+            log.i { "[Auth #$opId] Supabase signUpWith returned (hasSession=${session != null}, userId=${maskId(userId)}, emailMatches=$emailMatches)" }
+
+            if (userId.isNotBlank() && emailMatches) {
+                val transition = synchronized(stateLock) {
+                    AuthStateMachine.onExplicitSignInSucceeded(
+                        state = machineState,
+                        epoch = opId,
+                        userId = userId,
+                        email = userEmail,
+                    ).also { machineState = it.newState }
+                }
+
+                if (transition.clearAnonymousStorage) {
+                    AuthStorage.clearAnonymousUserId()
+                }
+                _state.value = transition.newState.authState
+                log.i { "[Auth #$opId] Adopted authenticated state (userId=${maskId(userId)})" }
+            } else {
+                synchronized(stateLock) {
+                    machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
+                }
+                log.i { "[Auth #$opId] Sign-up created user but no immediate matching session returned" }
+            }
+            Unit
+        }.onFailure { e ->
+            synchronized(stateLock) {
+                machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
+            }
+            log.e(e) { "[Auth #$opId] Email sign-up failed: ${e.message}" }
+            if (_error.value == null) {
+                _error.value = e.safeAuthErrorDescription()
+                    ?: getString(Res.string.auth_sign_up_failed)
+            }
+        }
+    }
+
+    suspend fun signInWithEmail(email: String, password: String): Result<Unit> {
+        val opId = operationEpoch.incrementAndGet()
+        val cleanEmail = email.trim()
+        _error.value = null
+        log.i { "[Auth #$opId] signInWithEmail started (email=${maskEmail(cleanEmail)})" }
+
+        synchronized(stateLock) {
+            machineState = AuthStateMachine.onExplicitSignInStarted(
+                state = machineState,
+                intent = InFlightAuthIntent.EmailSignIn(epoch = opId, email = cleanEmail),
+            )
         }
 
-        val session = SupabaseProvider.client.auth.currentSessionOrNull()
-        val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
-        val userId = user?.id.orEmpty()
-        log.i { "[Auth #$opId] Supabase signUpWith returned (hasSession=${session != null}, userId=${maskId(userId)})" }
+        return runCatching {
+            SupabaseProvider.client.auth.signInWith(Email) {
+                this.email = cleanEmail
+                this.password = password
+            }
 
-        if (userId.isNotBlank()) {
+            val session = SupabaseProvider.client.auth.currentSessionOrNull()
+            val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
+            val userId = user?.id.orEmpty().trim()
+            val userEmail = user?.email.orEmpty().trim()
+            val emailMatches = userEmail.equals(cleanEmail, ignoreCase = true)
+            log.i { "[Auth #$opId] Supabase signInWith returned (hasSession=${session != null}, userId=${maskId(userId)}, emailMatches=$emailMatches)" }
+
+            if (userId.isBlank() || !emailMatches) {
+                synchronized(stateLock) {
+                    machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
+                }
+                val errorMsg = getString(Res.string.auth_sign_in_failed)
+                _error.value = errorMsg
+                log.e { "[Auth #$opId] Sign-in session did not match attempted credentials (expected=${maskEmail(cleanEmail)}, actual=${maskEmail(userEmail)}); failing explicitly" }
+                throw IllegalStateException("Authenticated session did not match attempted credentials")
+            }
+
             val transition = synchronized(stateLock) {
                 AuthStateMachine.onExplicitSignInSucceeded(
                     state = machineState,
                     epoch = opId,
                     userId = userId,
-                    email = user?.email ?: cleanEmail,
+                    email = userEmail,
                 ).also { machineState = it.newState }
             }
 
@@ -252,76 +345,17 @@ object AuthRepository {
             }
             _state.value = transition.newState.authState
             log.i { "[Auth #$opId] Adopted authenticated state (userId=${maskId(userId)})" }
-        } else {
+            Unit
+        }.onFailure { e ->
             synchronized(stateLock) {
                 machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
             }
-            log.i { "[Auth #$opId] Sign-up created user but no immediate session returned" }
-        }
-        Unit
-    }.onFailure { e ->
-        val opId = operationEpoch.value
-        synchronized(stateLock) {
-            machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
-        }
-        log.e(e) { "[Auth #$opId] Email sign-up failed: ${e.message}" }
-        _error.value = e.safeAuthErrorDescription()
-            ?: getString(Res.string.auth_sign_up_failed)
-    }
-
-    suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
-        val opId = operationEpoch.incrementAndGet()
-        val cleanEmail = email.trim()
-        _error.value = null
-        log.i { "[Auth #$opId] signInWithEmail started (email=${maskEmail(cleanEmail)})" }
-
-        synchronized(stateLock) {
-            machineState = AuthStateMachine.onExplicitSignInStarted(machineState, opId)
-        }
-
-        SupabaseProvider.client.auth.signInWith(Email) {
-            this.email = cleanEmail
-            this.password = password
-        }
-
-        val session = SupabaseProvider.client.auth.currentSessionOrNull()
-        val user = session?.user ?: SupabaseProvider.client.auth.currentUserOrNull()
-        val userId = user?.id.orEmpty()
-        log.i { "[Auth #$opId] Supabase signInWith returned (hasSession=${session != null}, userId=${maskId(userId)})" }
-
-        if (userId.isBlank()) {
-            synchronized(stateLock) {
-                machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
+            log.e(e) { "[Auth #$opId] Email sign-in failed: ${e.message}" }
+            if (_error.value == null) {
+                _error.value = e.safeAuthErrorDescription()
+                    ?: getString(Res.string.auth_sign_in_failed)
             }
-            val errorMsg = getString(Res.string.auth_sign_in_failed)
-            _error.value = errorMsg
-            log.e { "[Auth #$opId] Sign-in succeeded but returned blank userId; failing explicitly" }
-            throw IllegalStateException(errorMsg)
         }
-
-        val transition = synchronized(stateLock) {
-            AuthStateMachine.onExplicitSignInSucceeded(
-                state = machineState,
-                epoch = opId,
-                userId = userId,
-                email = user?.email ?: cleanEmail,
-            ).also { machineState = it.newState }
-        }
-
-        if (transition.clearAnonymousStorage) {
-            AuthStorage.clearAnonymousUserId()
-        }
-        _state.value = transition.newState.authState
-        log.i { "[Auth #$opId] Adopted authenticated state (userId=${maskId(userId)})" }
-        Unit
-    }.onFailure { e ->
-        val opId = operationEpoch.value
-        synchronized(stateLock) {
-            machineState = AuthStateMachine.onExplicitSignInFailed(machineState, opId)
-        }
-        log.e(e) { "[Auth #$opId] Email sign-in failed: ${e.message}" }
-        _error.value = e.safeAuthErrorDescription()
-            ?: getString(Res.string.auth_sign_in_failed)
     }
 
     suspend fun signOut(): Result<Unit> {
@@ -453,6 +487,22 @@ object AuthRepository {
     fun clearError() {
         _error.value = null
     }
+
+    internal suspend fun processSessionStatusForTesting(status: SessionStatus) {
+        processSessionStatus(status)
+    }
+
+    internal fun getMachineStateForTesting(): AuthMachineState = synchronized(stateLock) { machineState }
+
+    internal fun resetForTesting(initialState: AuthMachineState = AuthMachineState()) {
+        synchronized(stateLock) {
+            machineState = initialState
+            _state.value = initialState.authState
+            _error.value = null
+        }
+    }
+
+    internal fun allocateEpochForTesting(): Long = operationEpoch.incrementAndGet()
 
     private fun isInvalidRemoteSessionError(error: Throwable): Boolean {
         val restError = error.findCause<RestException>()
