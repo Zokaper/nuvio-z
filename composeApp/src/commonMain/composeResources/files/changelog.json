@@ -463,6 +463,10 @@
         {
           "build": 73,
           "text": "Classic playback: removes the incorrect 'No safe automatic source' toast while your manually chosen source opens. The source list now stops its automatic-selection watchdog after handing playback to the player. Debug 72's download freeze and lock-screen Live Activity fixes remain included."
+        },
+        {
+          "build": 74,
+          "text": "Watch Together: returning from Away now catches up and proves player readiness before the host resumes, using the existing short recovery settle. Keeps the iOS socket recovery fixes and adds host hold diagnostics for the remaining lock retest."
         }
       ]
     },
@@ -749,6 +753,10 @@
         {
           "build": 79,
           "text": "Playback: removes an incorrect 'No safe automatic source' toast after a chosen source has been handed to the player. The source-selection watchdog now respects manual startup and player ownership; genuine automatic-selection failures still return to the source list."
+        },
+        {
+          "build": 80,
+          "text": "Watch Together: Away and buffering holds now retain independent ownership, and a skipped Away pause is retried. Returning guests must report fresh playback readiness before the normal short recovery settle. Includes durable Away support and logs for the Home/lock acceptance retest."
         }
       ]
     }

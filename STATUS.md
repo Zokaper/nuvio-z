@@ -1,6 +1,35 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
+
+## Home/lock Away acceptance and return readiness (2026-10-01)
+
+Active mobile/desktop branch: `claude/ios-watch-together-hardening`. Maintainer's diagnostic IPA
+`8658c6576` + desktop host containing durable Away policy physically passes foreground recovery
+without the prior rejoin churn. Home pauses correctly; lock shows Away but fails to pause;
+return resumes the host before the iPhone catches up. Lock remains an acceptance blocker.
+Source export: `../ios-reconn-logs/3/nuvio_diagnostics/watchparty-1790831734048.log`.
+Away RPCs succeed in 184/186 ms and returns in 335/281 ms. Socket recovery retains channel
+instance one, with no adapter replacement/rejoin competition. Background socket loss is still
+observed; the maintainer accepts the recovered behavior. No new reconnect changes in this pass.
+
+The tested desktop MSI was the previous build-only stable artifact. Its workflow did not enable
+debug tools, and `AppData/Roaming/Nuvio Z/logs` is absent. Exact Home/lock member inputs cannot be
+reconstructed from the iPhone transport-only export. Do not claim a measured lock root cause.
+The existing eligibility policy accepts every nonterminal readiness state, including disconnected,
+with an active durable lease; left/failed remain excluded. Two independently reproducible reactor
+hazards are addressed: consuming a skipped pause edge without retry, and one automatic hold
+resuming through another. Fresh policy diagnostics record connected/ready/away_since, roster,
+eligibility output, host intent and return readiness for the next physical comparison.
+
+Return now withdraws stale playback readiness at the lifecycle edge, keeps it withdrawn across
+socket recovery/catch-up, then reports a fresh ready engine. Host recovery reuses startup/seek
+positive peer readiness, the 400 ms stall-recovery settle and the existing 12 s ceiling. No new
+fixed delay or source re-resolution. Shared fix mobile `211ed26a3`, desktop merge `889209050` via `5a0384cdc`.
+Final mobile host suite: **3,395 tests / 0 failures / 0 errors / 6 skipped**, including the
+9 new common regressions and 4 adapter recovery cases. Existing real-SDK reconnect cases pass.
+Desktop focused compile/tests and regular debug 74 (Android/iOS) / 80 (desktop) publication
+are pending. Logs/XML: `../.rc-investigation/wt-ios/away-recovery-*`.
 
 ## iOS return retest: recovery churn and old desktop host (2026-09-30, 23:06–23:12 Arabia)
 

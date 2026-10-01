@@ -1,5 +1,12 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-01 physical retest:** the new diagnostic IPA and durable-Away desktop host pass
+foreground reconnect recovery per the maintainer. Home pauses; lock remains an acceptance blocker
+despite visible Away. Return readiness is being integrated with the existing short recovery settle.
+The build-only stable MSI did not capture host logs; exact lock eligibility inputs remain unproven.
+Shared host hold ownership/retry fixes, readiness withdrawal and new diagnostics/regressions apply
+to Android, iOS and desktop. Regular debug builds and a logged physical retest are pending.
+
 **2026-09-30 final WT RC follow-up:** maintainer's mobile 72 / desktop 78 physical run passes
 Android guest behavior; iOS Home/Away pause and foreground reconnects remain open. Durable Away
 now participates in the host hold policy with the existing ten-minute lease and return clearing;
