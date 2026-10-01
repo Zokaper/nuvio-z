@@ -2,6 +2,31 @@
 
 Last updated: 2026-10-01
 
+## RC convergence audit / auth integration gate (2026-10-01)
+
+Release owner: Codex; mobile and desktop RC remain `claude/ios-watch-together-hardening`.
+Audited heads: mobile `e77954662e8d9cefffcc38ecd5da0d2c45cecead`, desktop
+`9085e881b936be7dd2c5bd15fd2eccf7937fc975`; source-identical to Debug 74 / 80 except docs.
+GitHub release targets, successful debug/iOS builds, asset digest metadata and canonical
+main debug feed 74 rechecked. Stable publication and physical iPhone lock/Away/return
+acceptance remain blocked. No behavior, backend deployment, debug counter or performance change.
+
+Canonical audit, provisional auth findings, exact validation matrix and promotion sequence:
+`Docs/RC-CONVERGENCE-AUDIT.md`. Gemini origin auth tips `e81280ffb` / `02524bb2e` are
+NOT approved/merged: actual branch-machine reproduction confirms stale validation can
+reauthenticate after sign-out or reject a newer account, and in-flight auth adopts any
+session identity. Also review operation failure epochs, publication/storage ordering and
+full-identity logging. Final rebased SHAs/test evidence requested; Gemini branches untouched.
+
+Desktop current CI fails before Kotlin tests at the pre-existing Linux native frame-copy
+fixture; Windows MSI passes. Full split-suite evidence is owed on the final auth merge
+(416 focused tests on 80 are not the full suite). Explicit iOS dispatch is required after
+auth integration because commonMain auth paths are outside its push filter. Mobile pure
+runner group 1 passes 284 tests, group 2 reproduces its known standalone compile gap.
+Feature S10's stale readiness/member-write claims and agent named-base pointers corrected.
+Mobile source base is 0.5.4-beta, desktop 0.1.26-alpha; debug version labels remain unchanged
+until the final stable metadata commit. Reserved next stable serials: mobile 127, desktop 132.
+
 ## Home/lock Away acceptance and return readiness (2026-10-01)
 
 Active mobile/desktop branch: `claude/ios-watch-together-hardening`. Maintainer's diagnostic IPA

@@ -12,8 +12,9 @@ completed, verified, deferred, or blocked.
 - Android debug application ID: `com.nuvio.app.z.debug`
 - Kotlin namespace remains `com.nuvio.app`.
 - The project forked from NuvioMobile commit
-  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and is synced to upstream tag `0.4.13`
-  (`42a9febf`), merged 2026-09-04.
+  `979d5680d4a1a755a3e833332c36e5cb3b4d3f71` and is synced to upstream source base `0.5.4-beta`
+  (`9bb601f04`), integrated into the RC after the 2026-09-28 sync. The debug version
+  files retain `0.4.13-z1` until the final stable release metadata bump.
 - `upstream` must continue to point to
   `https://github.com/NuvioMedia/NuvioMobile.git`.
 - The private personal fork should use the `origin` remote.
@@ -809,10 +810,10 @@ still be checked locally.
 | --- | --- | --- | --- |
 | both | `ci.yml` | every push | nuvio-z: Android host tests + debug APK. Desktop: desktop tests. |
 | `nuvio-z` | `android-release.yml` | `workflow_dispatch` | `mode`: `dry-run` / `draft` / `publish` |
-| `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes a debug APK as a `debug-v*` prerelease. |
-| `nuvio-z` | `ios-build.yml` | `workflow_dispatch`, or a push touching iOS paths | **The only thing that compiles iOS.** Build-only, unsigned. |
-| `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows` |
-| `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes a debug MSI as a `debug-v*` prerelease. |
+| `nuvio-z` | `debug-release.yml` | `workflow_dispatch` | Publishes debug APK + unsigned IPA as a `debug-v*` prerelease and updates the canonical SideStore debug feed. |
+| `nuvio-z` | `ios-build.yml` | `workflow_dispatch`, or a push touching iOS paths | Dedicated device/simulator compiler check. Build-only, unsigned; IPA workflows compile iOS too. |
+| `NuvioZDesktop` | `desktop-release.yml` | `workflow_dispatch` | `mode`: `build-only` / `dry-run` / `draft` / `publish`, `target`: `windows-macos` for the full stable family |
+| `NuvioZDesktop` | `desktop-debug-release.yml` | `workflow_dispatch` | Publishes debug Windows MSI + macOS arm64 DMG as a `debug-v*` prerelease. |
 
 Both debug workflows refuse to run if their tag already exists. Bump the counter
 instead - `DEBUG_BUILD` in `iosApp/Configuration/DebugVersion.xcconfig` for mobile, and
@@ -826,7 +827,7 @@ state` rejects any file changed between the bump and the release commit except t
 release workflows and the two release scripts, and the debug counter is not on that
 list. This is the same trap as a `STATUS.md` commit after the bump.
 
-**`ios-build.yml` is the only compiler iOS has.** `ci.yml` runs on ubuntu, where cinterop cannot
+**`ios-build.yml` is the dedicated build-only iOS check; debug/stable IPA workflows also compile iOS.** `ci.yml` runs on ubuntu, where cinterop cannot
 cross-compile, so its Android job disables `iosArm64`/`iosSimulatorArm64` - which is why `iosMain`
 accumulated for months against nothing. The job links the Kotlin framework for device and simulator,
 then runs `xcodebuild` with `CODE_SIGNING_ALLOWED=NO`, so it needs **no Apple Developer account**;
@@ -949,7 +950,7 @@ Verify before dispatching `publish`:
 
 ```
 # nuvio-z: host suite + debug APK - runs automatically on push
-# NuvioZDesktop: the only desktopMain compile
+# NuvioZDesktop: branch-safe artifact verification before promotion
 desktop-release.yml -> mode=build-only, target=windows
 ```
 
@@ -961,14 +962,14 @@ Configured as GitHub Actions secrets; never present in the repository:
   Supabase backend configuration. Without it CI still builds, but the app ships
   with no backend and sign-in and Trakt will not work.
 - `NUVIO_RELEASE_KEYSTORE_BASE64` (nuvio-z) - the release signing keystore.
-  Required for any mode except `dry-run`.
+  Required for `publish`; build-only/dry-run may use the workflow's unsigned verification path.
 - `NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64` (NuvioZDesktop) - same idea.
 
-macOS desktop builds need Apple signing and notarisation secrets **this
-repository does not hold**, which is why every macOS job failed at "Configure
-desktop runtime" and `target` now offers only `windows`. The macOS job is still
-in the workflow behind a guard that can no longer match; restoring it means
-adding the secrets and putting the options back.
+The desktop stable family is Windows x64 plus macOS arm64 and x86_64. The
+`windows-macos` build-only/dry-run path supports unsigned macOS without Apple
+credentials; publish on that compatibility path requires
+`acknowledge_unsigned_macos=true`. Notarized builds require the existing Apple
+secrets. See `Docs/RELEASES.md` for the current workflow and signing contracts.
 
 Signing matters for updates: CI releases from `0.3.3` on all carry signer
 certificate SHA-256
