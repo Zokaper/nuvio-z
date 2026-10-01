@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-01
 
+## Performance audit: desktop stutter and iPhone heat (2026-10-01) — investigation only
+
+Branch `claude/perf-investigation` (both Kotlin repos, isolated worktrees). No production code,
+versions, feeds or builds changed. Full report: `Docs/PERFORMANCE-AUDIT-2026-10.md`; desktop
+harness: `nuviozdesktop/scripts/perf/` (drives the **installed** apps in-process, JFR + per-frame
+UI-thread timing, side by side with an installed vanilla Nuvio).
+
+Desktop Home scroll hitches and the 1.3-1.5 s freeze when the main shell first composes are
+**upstream** (vanilla measures the same). Z regressions found: `AppGate` starts
+`ProfileSettingsSync` on the UI thread inside the first frame (~0.5-0.75 s of the cold-start
+freeze); the profile gate blocks on a full sync (click->Home 4.5-5.5 s vs 2.3 s vanilla); the
+ungated always-mounted Home keeps its hero animating behind other tabs (`LocalScreenActive` has no
+provider since the 0.5.4 merge dropped `RootTabHost`), and on iOS every native tab hosts its own
+hidden live HomeScreen. Debug/diagnostic IPAs link the unoptimised Kotlin/Native framework; the
+physical A/B in report section 7 is needed to size iPhone heat. A static AppCDS archive cut the
+first UI task 38 % and the shell freeze 29 %. Ranked plan in report section 6; nothing implemented.
+
 ## Home/lock Away acceptance and return readiness (2026-10-01)
 
 Active mobile/desktop branch: `claude/ios-watch-together-hardening`. Maintainer's diagnostic IPA
