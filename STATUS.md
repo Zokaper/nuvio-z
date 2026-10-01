@@ -1,70 +1,48 @@
-## RC production auth corrections (2026-10-01, validation in progress)
+## RC auth correction validation — 2026-10-01
 
-Codex owns corrections directly on `claude/ios-watch-together-hardening`. Gemini's exact
-mobile head is being merged through normal history with additional production fixes; the
-original review rejection below remains historical evidence, not approval of the unmodified tip.
-`AuthSessionCoordinator` is the actual production orchestration tested at the SDK/storage
-boundary. Epoch/public-state/storage changes are atomic; SDK mutation/cleanup is serialized.
-Validation uses a captured access token without importing/refreshing/clearing. A separate,
-authority-checked confirmation uses the captured refresh token before importing or clearing.
-RefreshFailure's unowned cause never identifies a newer session as the failed request.
-Credential HTTP responses are captured before import, so even a same-email stored session
-cannot stand in for the credential request. Anonymous and device-code imports share authority.
-AppGate consumes the tested reducer and reloads the current identity's profile cache first.
-Auth diagnostics exclude exception payloads and raw identities. Gemini/performance branches
-are untouched. The mistaken performance prompt created only empty branch/worktree references,
-now removed; no performance edits, commits or builds occurred. Both RC worktrees were checked
-clean before these legitimate auth edits began. No feed/counter/stable changes.
+Owner: Codex; both active branches: `claude/ios-watch-together-hardening`.
+Frozen product heads: mobile `439835c8ec4913e654cceafdfa6aaa56e2c679fb`,
+desktop `dea69997826a2a57b805b65cb85ed7a18f623aec`.
 
-Further review found OfficialSessionAccess still importing a stale refresh through the SDK's
-refreshCurrentSession. That path now uses the same captured-token/mutation/authority seam,
-with a production-coordinator late-refresh regression. The desktop process-death fixture
-also allowed cancelled old discoveries to write into its restarted simulation; the test-only
-reset exposes cancelled jobs so restart tests can await termination. No production download
-behavior change. These follow-ups require fresh affected/full validation; earlier first-head
-3430 host tests (0 failures/errors, 6 baseline Play Store skips), focused 61/764/185/53 and
-Android debug/unsigned-release successes are historical, not final-head approval. Desktop
-first-head build-only Windows/macOS arm64/x86_64 packages pass; full suite hits the promo
-20-minute timeout and one restart fixture race. No debug pair has been cut.
+Mobile: full host 3440, zero failures/errors, six Play Store policy skips; auth 71,
+WT/player 764 (same six skips), profile/setup 185, updater 53. All six service cases pass
+under full distribution. Android debug and unsigned release/R8 pass. Explicit iOS device
+and simulator frameworks, Swift lifecycle regressions and Xcode app pass (36897067682).
+Coordinated build-only Android ABI artifacts pass with independently matched hashes;
+unsigned release IPA remains running (36897072101), TestFlight skipped.
 
-Full merged-head suites, Android debug/release builds, Windows packaging and iOS/macOS CI
-remain pending. Next combined regular debug pair is gated on those results. Physical iPhone
-Home/Away/return/lock/unlock/quiet-foreground WT acceptance and desktop+iOS auth smoke
-(Android where practical) remain open. RC is not accepted.
+Desktop: complete disjoint rest/playback/downloads/e2e matrix 1814/1062/457/49 = 3382,
+zero failures/errors/skips and zero duplicates. First rest run had one unchanged scraper
+concurrency 60s timeout; four isolated unchanged probes and the entire rest rerun pass.
+No scraper source, deadline or assertions changed. Focused auth 76, WT/player 709,
+profile/setup 233, updater 75 pass. Local Windows compile/MSI and build-only Windows plus
+macOS arm64/x86_64 family pass (36897075909); all three installer hashes independently
+match its manifest. Linux CI 36897043064 remains red at native frame_copy_test.c:36,
+player construction, before Kotlin tests; unchanged native/CI paths. Missing playbin/appsink
+runtime factories are a hypothesis, not proven. Never count that job as Kotlin success.
 
-SDK-boundary follow-up: 3.4.1 Auth error parsing schedules an unowned clearSession for
-session_not_found, including retrieveUser/refreshSession calls. Its automatic timer can also
-import/clear independently of coordinator authority. StatelessAuthRequests uses the existing
-configured raw HTTP stack for email/password, captured-user lookup, refresh and remote logout;
-no SDK Auth error parser runs. Device-code fallback lookup uses it too. Auth SDK timer and
-Android lifecycle refresh and SDK auto-loading are disabled; coordinator-owned restoration
-reads stored sessions and guards import against late completion behind logout/new login.
-Coordinator-owned near-expiry refresh runs every 30s
-and refreshes only within 60s of expiry. Same-account SDK status echoes settle old validation
-without blocking the next refresh. Real pinned-SDK/MockEngine tests reproduce the hidden
-clear and verify that replacement requests leave B intact. These new source changes invalidate
-the e68cff3/e8089d7 matrix for final approval. That historical mobile head passed 3432 host
-tests, focused 63/764/185/53, Android debug/release/R8 and all six full-policy service tests;
-historical desktop packages/checksums all passed, playback 1062 and downloads 457 passed,
-rest still reached 20m because the initial external allowance was overwritten by the build
-script, and e2e 49 had a missing-file assertion. Apply the external allowance after project
-configuration and retain every rest test. Investigate the e2e failure before claiming green.
-E2E follow-up reproduced the failure in one of three unchanged two-case probes: the test
-read a captured URI while completion's organizer renamed it under the store lock. The
-test-only content helper now reads current state and checks all file assertions under that
-lock; five subsequent probes passed. Complete final-head e2e validation is still required.
+Unmodified Gemini heads were rejected. Codex corrected the six reproduced production races
+and the AppGate/profile, token-consumer, SDK error-parser, automatic refresh/storage and
+clear-status reentry boundaries directly on the RC. Production review now passes the ten-item
+checklist through actual coordinator and pinned-SDK/MockEngine regressions. Credential-response
+provenance precedes import; case-insensitive primary-email matching is an additional check.
+Remote validation uses raw captured-token HTTP without SDK Auth error-parser side effects.
+Storage restore, refresh, import, clearing and publication check current authority.
 
-Final callback follow-up: NotAuthenticated emitted by an owned clearSession could reenter
-current rejection confirmation and publish Authenticated before cleanup settled; a real
-production-coordinator async test reproduced that failure. RefreshFailure has the same
-competing-validation seam. Both handlers now defer while a validation/confirmation is
-active; the new regression covers both callback types and requires one clear/wipe and
-Unauthenticated with no SDK session. The d21029e39 full mobile host run passed 3439 tests,
-focused groups and Android debug, but the remaining local matrix was stopped because this
-new fix invalidates it. Only the two owned RC launcher trees were stopped; shared daemons,
-Hot Reload and other worktrees were untouched. The new committed heads must rerun the
-complete matrix. No combined debug pair/counter/feed/stable change yet; physical blockers
-above remain open.
+Gemini refs and Claude performance work remain untouched. The mistaken prompt caused no
+performance edits, commits or builds: only empty refs/worktree were created and removed.
+Both RC worktrees were verified clean of accidental performance modifications. No stable,
+feed or debug-counter change. Exact integration history and defects: canonical
+`Docs/AUTH-CORRECTED-REVIEW.md` (desktop: `../nuvio-z/Docs/AUTH-CORRECTED-REVIEW.md`).
+
+Physical iPhone WT acceptance remains OPEN: Home/Away pause; return waits for guest readiness
+and resumes smoothly; lock/Away pause; unlock/return recovery; quiet foreground without
+spontaneous reconnect. Auth smoke remains OPEN on desktop+iOS, Android where practical:
+wrong then correct password; logout then email login; authenticated restart; anonymous to
+email; browser/code login. RC is NOT accepted. Next regular debug pair waits for all build
+gates; publish only existing prerelease/debug channels, never stable. Preserve main's newer
+SideStore/feed state on eventual promotion. Historical entries below are not current status.
+
 ## Corrected Gemini auth review — integration rejected (2026-10-01)
 
 Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads

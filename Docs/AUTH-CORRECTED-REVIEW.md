@@ -1,6 +1,10 @@
 # Corrected Gemini auth review — 2026-10-01
 
-Verdict: **NOT approved for integration**. No auth merge or debug/stable publication.
+Current verdict: **corrected production implementation passes review**. Exact unmodified
+Gemini tips failed review; the findings below are historical red evidence. They were integrated
+through normal history with Codex-owned corrections. The final test matrix passes; coordinated
+unsigned release IPA remains running. No debug/stable publication yet, and physical RC
+acceptance remains open.
 
 Reviewed exact heads:
 
@@ -267,3 +271,44 @@ shared by normal merges and requires another frozen merged-head matrix. Prior d2
 mobile full host passed 3439, focused groups passed, Android debug passed; pending local
 runs were explicitly canceled at only their verified RC launcher trees. Shared daemons,
 Hot Reload and other worktrees were left untouched. No debug release has been cut.
+
+## Frozen corrected-head matrix — 2026-10-01
+
+Product heads: mobile `439835c8ec4913e654cceafdfa6aaa56e2c679fb`, desktop
+`dea69997826a2a57b805b65cb85ed7a18f623aec`, both on the existing RC branch.
+Initial normal Gemini integration merges: mobile `1153105c6207dc67c5fe65e3fcd0d798541e336b`,
+desktop `9780ded1a393c09194960769668a0fcd3c8d06e2`. Later SDK/clear guards also travel
+through normal helper-history merges; no performance branch or whole divergent-file copying.
+
+| Final-head check | Result |
+| --- | --- |
+| Mobile full host | 3440, zero failures/errors; six distribution-policy skips |
+| Mobile focused auth / WT-player / profile-setup / updater | 71 / 764 / 185 / 53, zero failures/errors; WT same six skips |
+| Mobile full-distribution service coverage | All six previously policy-skipped cases pass |
+| Android debug / unsigned release-R8 | Both pass |
+| iOS Swift lifecycle, device+sim frameworks, unsigned Xcode | [36897067682](https://github.com/Zokaper/nuvio-z/actions/runs/36897067682), success |
+| Coordinated build-only mobile family | [36897072101](https://github.com/Zokaper/nuvio-z/actions/runs/36897072101), Android success; unsigned release IPA running; TestFlight skipped |
+| Desktop complete rest / playback / downloads / e2e | 1814 / 1062 / 457 / 49 = 3382; zero failures/errors/skips/duplicates |
+| Desktop focused auth / WT-player / profile-setup / updater | 76 / 709 / 233 / 75, zero failures/errors/skips |
+| Local Windows compile / MSI | Both pass |
+| Windows + both macOS architecture build-only packages | [36897075909](https://github.com/Zokaper/NuvioZDesktop/actions/runs/36897075909), all pass; publication skipped |
+
+First final-head rest attempt had one PluginRuntimeDesktopTest 60s concurrent-scraper timeout.
+The code, pinned dependency and test are unchanged vs the pre-integration RC. Four consecutive
+unchanged focused probes and the entire rest partition rerun passed. No assertion, scraper
+deadline, production code or filtering change. Rest's external overall task allowance is
+90 minutes, applied after project configuration; all cases retained. Red evidence remains in
+`../.rc-investigation/auth-final-guard-desktop/results-rest`; green full rerun in
+`rest-rerun-results`. Test-only download fixture corrections described above are distinct.
+
+Linux final-source [36897043064](https://github.com/Zokaper/NuvioZDesktop/actions/runs/36897043064)
+fails at native frame_copy_test.c:36, `player != NULL`, before Kotlin tests. Native C compilation
+succeeds, then CTest fails. Native Linux and CI source is unchanged vs the old RC. The fixture
+uses playbin/appsink; missing runtime plugin factories remain the leading unproven hypothesis.
+No test skip or native workaround was introduced. This job is not Kotlin success, product
+success, or established auth regression. Local Windows full partitions provide Kotlin proof.
+
+All four downloaded Android APK hashes match SHA256SUMS-Android.txt. All three desktop
+installers independently match SHA256SUMS-Windows-macOS.txt. Exact source/run/hash records
+are retained under `../.rc-investigation/auth-final-guard-{mobile,desktop}/`. No regular debug
+pair/counter/feed change yet. Physical iPhone WT and desktop+iOS auth blockers stay open.
