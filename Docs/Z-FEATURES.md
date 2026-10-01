@@ -2,11 +2,13 @@
 
 **2026-10-01 physical retest:** the new diagnostic IPA and durable-Away desktop host pass
 foreground reconnect recovery per the maintainer. Home pauses; lock remains an acceptance blocker
-despite visible Away. Return readiness is being integrated with the existing short recovery settle.
+despite visible Away. Return readiness now uses fresh player evidence and the existing short recovery settle.
 The build-only stable MSI did not capture host logs; exact lock eligibility inputs remain unproven.
 Shared host hold ownership/retry fixes, readiness withdrawal and new diagnostics/regressions apply
-to Android, iOS and desktop. Mobile debug 74 and desktop debug 80 are building after 3,395 mobile host and 416 desktop
-focused tests pass. Publication verification and a logged physical retest are pending.
+to Android, iOS and desktop. Mobile debug 74 and desktop debug 80 are published with all four
+package hashes verified,
+after 3,395 mobile host and 416 desktop focused tests pass. Logged Home/lock physical acceptance
+remains pending; the old release MSI did not capture the needed host policy inputs.
 
 **2026-09-30 final WT RC follow-up:** maintainer's mobile 72 / desktop 78 physical run passes
 Android guest behavior; iOS Home/Away pause and foreground reconnects remain open. Durable Away

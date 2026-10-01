@@ -29,12 +29,16 @@ fixed delay or source re-resolution. Shared fix mobile `211ed26a3`, desktop merg
 Final mobile host suite: **3,395 tests / 0 failures / 0 errors / 6 skipped**, including the
 9 new common regressions and 4 adapter recovery cases. Existing real-SDK reconnect cases pass.
 Desktop Kotlin compile and focused suite: **416 tests / 0 failures / 0 errors / 0 skips**.
-Regular debug **74** (Android/iOS) dispatched on `d2bb3f542`, run `36822400793`:
-https://github.com/Zokaper/nuvio-z/actions/runs/36822400793 . Regular desktop debug **80**
-dispatched on `5b75a12e7`, run `36822781351`:
-https://github.com/Zokaper/NuvioZDesktop/actions/runs/36822781351 . Desktop debug channel enables
-file logs by default. Native packaging/publication/checksum verification is pending; no build is
-declared downloadable yet. Logs/XML: `../.rc-investigation/wt-ios/away-recovery-*`.
+Regular debug **74** (Android/iOS) published from `d2bb3f542`, run `36822400793` succeeded:
+https://github.com/Zokaper/nuvio-z/releases/tag/debug-v0.4.13-z1.74 . Regular desktop debug **80**
+published from `5b75a12e7`, run `36822781351` succeeded:
+https://github.com/Zokaper/NuvioZDesktop/releases/tag/debug-v0.1.23-alpha-z6.80 . All four packages
+were downloaded and their SHA-256 digests verified against GitHub; APK/IPA also match the release
+checksum manifest. The canonical SideStore debug feed on main matches IPA build 74, size and hash.
+IPA identity is `com.nuvio.app.z.debug` / `Nuvio Z Debug`; MSI identity is `Nuvio Z Debug` / `1.45.80`.
+Desktop debug channel enables file logs by default. macOS packaging/launch smoke passed in CI.
+Verification: `../.rc-investigation/wt-ios/away-release-verification.json`; logs/XML:
+`../.rc-investigation/wt-ios/away-recovery-*`.
 Retest Home and lock with Pause for Away ON/OFF, including a return during another guest's
 buffer hold. Confirm the host resumes only after `away return release ... reason=all-ready`.
 If lock still fails, compare the desktop `away policy` input/output lines; do not reassign the
