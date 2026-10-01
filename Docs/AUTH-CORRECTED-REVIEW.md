@@ -208,3 +208,11 @@ jobs; restart fixtures await them before resuming, matching actual process death
 and production download behavior are unchanged. Promo rendering reached the existing task's
 20-minute cap; retain that failure, then rerun every rest test with an external 90-minute
 allowance, without exclusions. New corrections invalidate affected prior-head validation.
+## SDK boundary correction discovered during final validation
+
+Pinned Supabase 3.4.1 AuthImpl.checkErrorCodes schedules clearSession when an HTTP error
+contains session_not_found. Consequently retrieveUser(capturedToken) and refreshSession
+are not guaranteed side-effect free through the Auth plugin error parser. SDK automatic
+refresh also imports/clears independently of coordinator authority. The current validation
+heads are provisional; do not publish debug builds until those SDK boundaries are corrected
+and the affected merged-head matrix reruns. No performance work or publication.
