@@ -2,6 +2,28 @@
 
 Last updated: 2026-10-01
 
+## Authentication login state machine and session authority fix (2026-10-01)
+
+Active branch: `gemini/auth-login-state-machine-fix` (isolated worktrees `auth-mobile` and `auth-desktop`), rebased onto current Watch Together RC head behind mobile Debug 74 (`e77954662`) and desktop Debug 80 (`9085e881b`).
+Root cause identified and fixed:
+1. Unsynchronized async session-status race: Supabase-kt emitted `SessionStatus.Authenticated` during `signInWith(Email)` before `signInWithEmail` recorded `validatedRemoteUserId`. The async collector triggered redundant `validateRemoteSession`, making a secondary GET `/auth/v1/user` network call. If that call failed (transient network, timeout, or 401/400 from GoTrue token refresh), `OfficialSessionRejection.isSessionGone` called `clearLocalSessionAfterRemoteInvalidation`, clearing the newly issued session from disk and local state. When `signInWithEmail` completed, `currentSessionOrNull()` was null, returning silently without setting `_state` or `_error`, leaving the user stuck on `AuthScreen`. Because the session on disk was destroyed, restarting the app also failed to recover.
+2. Stale status flow clobbering: `SessionStatus.NotAuthenticated` and `SessionStatus.Initializing` events emitted from startup rehydration or prior sign-out lacked epoch guards and blindly wiped `_state.value = AuthState.Unauthenticated` or `AuthState.Loading` even after an explicit email login succeeded, sending `AppGate` back to `AuthScreen`.
+3. Lack of explicit error reporting: `signInWithEmail` and `signUpWithEmail` silently exited `runCatching` without error if `userId.isNotBlank()` was false.
+
+Architecture & State Machine Invariants:
+- Introduced pure `AuthStateMachine` (new KMP file `composeApp/src/commonMain/kotlin/com/nuvio/app/core/auth/AuthStateMachine.kt`) governing state transitions, operation epochs, and session authority:
+  1. A successful explicit credential mutation is authoritative immediately (`_state.value = AuthState.Authenticated`, `validatedUserId = userId`). Redundant remote validation on explicit mutations is eliminated.
+  2. Async `sessionStatus` events reconcile external/background changes and respect the operation epoch. An older async event cannot overwrite newer explicit auth state. Stale `NotAuthenticated` events arriving when an active session is valid are dropped.
+  3. Anonymous identity is immediately cleared when adopting authenticated credentials.
+  4. Transient connectivity failures (network errors, timeouts, 429 rate limits, 5xx) retain cached authenticated state and do not wipe local sessions.
+  5. UI/profile gating (`decideAppGateTransition` in `AppGate`) derives deterministically from authenticated state, transitioning to profile selection/Main without getting stuck on Auth.
+- Privacy-safe diagnostic logging: tagged `[Auth #<opId>]` across mutation start/finish, sessionStatus emissions, validation decisions, and `[AppGate]` screen transitions without logging passwords, tokens, or sensitive payloads (email and ID masking via `maskEmail` / `maskId`).
+- Regression suite: added `AuthStateMachineTest` in `commonTest` covering all required scenarios (email login before status emission, status before mutation return, stale anonymous identity, stale unauthenticated/initializing clobber, transient validation transport failure, startup rehydration, logout-then-login, repeated attempts / epoch supersession, gate progression away from Auth, blank user ID failure, wrong password -> correct password, and browser/code auth coexistence) — 14 tests / 0 failures / 0 errors / 0 skipped.
+- Mobile host test: `:composeApp:testAndroidHostTest` PASSED (**3,409 tests / 0 failures / 0 errors / 6 skipped**).
+- Mobile Android compile: `:composeApp:compileAndroidMain` PASSED.
+- Desktop test: focused auth, session-storage, AppGate, and profile test suite (**50 tests / 0 failures / 0 errors / 0 skips**) PASSED.
+- Desktop compile: `:composeApp:compileKotlinDesktop` PASSED.
+
 ## Home/lock Away acceptance and return readiness (2026-10-01)
 
 Active mobile/desktop branch: `claude/ios-watch-together-hardening`. Maintainer's diagnostic IPA
