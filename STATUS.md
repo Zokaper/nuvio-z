@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-01
 
+## Performance Phase 1 (2026-10-01) — four low-risk fixes, measured
+
+Branch `claude/perf-phase-1` in both Kotlin repos (from `claude/perf-investigation`; isolated
+worktrees). **Not merged into the RC / Watch Together or auth branches, no builds published, `main`
+untouched.** Implemented and measured in `nuviozdesktop`, carried here with `git am -3` (production
+code + `commonTest`; the touched shared files are identical across the repos). Results, method and
+Phase 2 order: `Docs/PERFORMANCE-AUDIT-2026-10.md` §8.
+
+1. `AppGate` starts `ProfileSettingsSync`'s observer after the first frame on `Dispatchers.Default`
+   (start is now locked): ~990 ms off the UI thread, **-894 ms (-18 %)** UI blocking before the picker.
+2. The always-mounted Home is wrapped in `TabPaneActivity` (new, `core/ui`): hidden Home gets
+   `LocalScreenActive = false` and a CREATED lifecycle. Home hidden behind Library: frames
+   200-404 -> 22-23/min, CPU 0.17-0.20 -> 0.10-0.12 cores, hero stops; resumes on return.
+3. iOS 16+ native-tab hosts no longer compose a hidden Home (`keepHomeBehindOtherTabs =
+   !useNativeNavigation`): native Library host 19 -> 6 collectors, 49 -> 21 nodes. **Not measured on
+   a device** — the §7 iPhone A/B now sizes this too.
+4. `OutgoingJoinRequestStore`'s 500 ms clock runs only while a request is in flight: 120 -> 0 ticks/min.
+
+**Verification so far:** desktop focused tests pass - `ProfileSettingsSyncStartTest`, `AppTabHostHomeActivityTest` (4), `HiddenHomeActivityHarness` (3), all 104 `features.social.*` tests. **Still pending at handoff:** the full split desktop suite (was running, `nuviozdesktop` `build/perf-phase1-split/summary.txt` in the `perf-desktop` worktree) and the mobile host suite + `:androidApp:compileFullDebugKotlin`, never started here. Handoff: `../HANDOFF-perf-phase-1.md`.
+
+Not exercised end to end (the harness runs signed out on purpose): settings pushes and Social join
+requests; iOS routing is covered by host-level tests only. Next: physical iPhone A/B (§7) and
+desktop smoke on a signed-in build before merging anywhere.
+
 ## Performance audit: desktop stutter and iPhone heat (2026-10-01) — investigation only
 
 Branch `claude/perf-investigation` (both Kotlin repos, isolated worktrees). No production code,

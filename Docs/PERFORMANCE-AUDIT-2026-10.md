@@ -1,5 +1,8 @@
 # Performance audit — desktop stutter and iPhone heat (2026-10-01)
 
+> **Phase 1 implemented (2026-10-01):** Tier A items 1, 2 (desktop and iOS) and 4 of section 6 -
+> measured before and after in section 8, on branch `claude/perf-phase-1`.
+
 Branch `claude/perf-investigation` in both Kotlin repos (isolated worktrees; no release, feed or
 version changes). This is an **investigation only**: no production code was changed. The harness
 that produced every desktop number below is committed in `nuviozdesktop/scripts/perf/`.
@@ -321,3 +324,61 @@ same three phases answers it directly.
 show: how scrolling *feels* on a touchpad (high-rate precise wheel events; the harness sends notched
 wheel events), and GPU-side cost. If touchpad scrolling feels worse than the numbers suggest, run
 `scripts/perf/full.py` while scrolling by hand and send `out/<run>/frames.txt` and `driver.log`.
+
+## 8. Performance Phase 1 — implemented and measured (2026-10-01)
+
+Branch `claude/perf-phase-1` in both Kotlin repos (from `claude/perf-investigation`). Implemented in
+`nuviozdesktop` and measured there, then carried to `nuvio-z` with `git format-patch | git am -3`
+(production code and `commonTest` only; the JVM harness tests stay in `desktopTest`). The touched
+shared files are identical across the repos afterwards. Not merged into any RC, auth or release
+branch; no builds published.
+
+**Method.** Local `createDistributable` builds of each step (baseline `50e501cc1` → B1 → B2 → B4),
+copied aside, run by `scripts/perf/phase1.py` on a fresh copy of the signed-out data directory per
+run, with an in-memory `java.util.prefs` so no run can touch the shared registry login. Before and
+after runs were **interleaved**: other agents' Gradle builds were running throughout, and
+uninterleaved startup runs drifted by more than the effect being measured. The decisive numbers
+come from **JDK 25 JFR method tracing** (JEP 520), which counts and times a named method on a named
+thread, instead of inferring work from timer wakeups (tried first: too noisy).
+
+| # | Fix | Root cause | Before | After | Change |
+|---|---|---|---|---|---|
+| 1 | Settings-sync observer off the UI thread, after the first frame (`AppGate`, `ProfileSettingsSync` lock) | `remember { ProfileSettingsSync.startObserving() }` in `AppGate`'s first composition (Z `bacb3a2343`) | `startObserving` **984-994 ms on the UI thread**; window task 3,626 ms; first-frame task 797 ms; all UI tasks >= 100 ms before the picker **4,936 ms** | 0 ms on the UI thread (624-683 ms in the background); 2,556 ms; 883 ms; **4,042 ms** | **-894 ms (-18 %)** of UI-thread blocking before the picker (JDK 25 + JFR, n = 4 alternating; tracing inflates absolute numbers). Without JFR, interleaved: window 3,386 -> 2,479 ms, blocked 4,357 -> 3,773 ms (n = 3 vs 5) |
+| 2 | Hidden Home paused (`TabPaneActivity`: `LocalScreenActive` + lifecycle capped at CREATED) | Upstream's `RootTabHost` gating dropped in the 0.5.4 merge; nothing provided `LocalScreenActive` | Home hidden behind Library, 60 s: **200-404 frames/min**, UI busy 2.2-3.0 %, CPU 0.17-0.20 cores, hero `animateScrollToPage` 14-15/min (n = 5) | **22-23 frames/min**, UI busy 0.1-0.2 %, CPU 0.10-0.12 cores, hero 0 (n = 5) | frames -90 %+, CPU ~-35-40 %; hero back at 15.0-15.3/min once Home is shown again. In the real `AppTabHost` (harness): Home's live collectors 21 -> 7 (Library's own), hero changes 10 -> 0, snapshot writes 182 -> 0 per 60 s |
+| 3 | No Home in non-Home iOS native-tab hosts (`keepHomeBehindOtherTabs = !useNativeNavigation`) | `AppTabHost` composed `HomeScreen` behind every tab, and each iOS 16+ native tab is its own host | Native Library host (harness): 19 collectors, 49 semantics nodes, Home + hero composed and paging | 6 collectors, 21 nodes, Home not composed | Home's whole subtree gone from 4 of 5 hosts. **Not measured on a device** (no iPhone or Mac); §7's protocol sizes it |
+| 4 | Join-request clock only while a request is in flight (`outgoingJoinRequestNeedsTicks`) | 500 ms loop started with the shell and never stopped | `OutgoingJoinRequestStore.tick` **116-120/min** in every idle phase | **0** | One background wakeup every 500 ms removed; its CPU (~13 ms/min) is below the harness's resolution, so process CPU shows no difference |
+
+**Overall (baseline -> final build, Home hidden behind Library):** 211 -> 23 frames/min, UI busy
+2.2 -> 0.1 %, process CPU 0.17 -> 0.11-0.12 cores, hero and join-request timers 15 + 118/min -> 0.
+**Startup:** ~0.9 s less UI-thread blocking before the profile picker. Profile -> Home was not a
+target and is unchanged within noise (largest after-click task 1.35-2.28 s across every build).
+
+**First attempt at fix 1, kept for the record.** Hopping straight to `Dispatchers.Default` (B1)
+removed ~1.0 s from the window task but made the first-frame task ~170 ms slower: the repository
+load competed with the first frame for CPU and class loading. Waiting one frame (`withFrameNanos`)
+recovered about half of that (797 -> 883 ms instead of 970 ms) and the net blocking win grew from
+-734 to -894 ms.
+
+**Regression checks.** New tests: `ProfileSettingsSyncStartTest` (eight concurrent starts leave one
+observer), `AppTabHostHomeActivityTest` (hero pages while Home is shown, stops when hidden while Home
+stays composed, resumes on return; a native host composes no Home behind its tab, and a working Home
+when Home is its tab), two `OutgoingJoinRequestTest` cases (only Idle stops the clock; every state it
+excludes ignores every Tick and never polls). The harness runs showed Home loading and returning with
+its content and Continue Watching intact. **Not exercised end to end:** settings pushes and join
+requests need a signed-in session, and the harness runs signed out on purpose; iOS native routing is
+covered by the host-level tests only.
+
+**Upstream vs Z.** Fix 1: Z's call site in an upstream file (`AppGate.kt`, already on the patch
+surface), lock in upstream `ProfileSettingsSync.kt` (already on it). Fixes 2-3: Z's always-mounted
+Home block in `AppShellComponents.kt` / one argument in `MainTabsDestination.kt` (both already on
+it); the gating is the new Z file `core/ui/TabPaneActivity.kt` and restores upstream's own
+`RootTabPane` behaviour. Fix 4: Z-owned files only. None widens the patch surface by a file.
+
+**Worth keeping:** all four. 1 and 2 are the measurable wins; 3 is the same mechanism on iOS and
+can only be sized on a phone; 4 is small but free and removes the only always-on sub-second timer.
+
+**Recommended Phase 2 order.** (1) Upstream `ScaledBitmapPainter` rescale off the UI thread (§2.3 A,
+the largest remaining lever on Home scroll hitches; offer upstream). (2) Windows AppCDS archive in the
+packaging job (§2.4; -38 % first UI task, -29 % shell freeze, no app-code risk). (3) Mount Home from
+cache after profile selection once the auth work has settled (§2.2; -2 to -4 s per profile entry,
+medium risk). Run §7's iPhone A/B whenever a phone is at hand: it now also measures fix 3.
