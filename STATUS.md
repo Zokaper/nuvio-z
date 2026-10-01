@@ -20,7 +20,7 @@ Phase 2 order: `Docs/PERFORMANCE-AUDIT-2026-10.md` §8.
    a device** — the §7 iPhone A/B now sizes this too.
 4. `OutgoingJoinRequestStore`'s 500 ms clock runs only while a request is in flight: 120 -> 0 ticks/min.
 
-**Verification so far:** desktop focused tests pass - `ProfileSettingsSyncStartTest`, `AppTabHostHomeActivityTest` (4), `HiddenHomeActivityHarness` (3), all 104 `features.social.*` tests. **Still pending at handoff:** the full split desktop suite (was running, `nuviozdesktop` `build/perf-phase1-split/summary.txt` in the `perf-desktop` worktree) and the mobile host suite + `:androidApp:compileFullDebugKotlin`, never started here. Handoff: `../HANDOFF-perf-phase-1.md`.
+**Verified (2026-10-01):** desktop focused tests pass - `ProfileSettingsSyncStartTest`, `AppTabHostHomeActivityTest` (4), `HiddenHomeActivityHarness` (3), all 104 `features.social.*` tests. Desktop full split suite (JBR SDK, results deleted, `--rerun`): rest 1779, playback 1062, downloads 457, all green; `e2e` 48 / 49 run alone - the one failure, "requests nobody answers keep the partial file and a retry resumes it", passes by itself, and a loaded first run had failed two *other* E2E tests that passed here (the class is load-sensitive; no download code changed on this branch). Mobile: `:composeApp:testAndroidHostTest --rerun` **3397 tests, 0 failures, 6 skipped**, and `:androidApp:compileFullDebugKotlin` succeeds. iOS not compiled (Windows; CI would publish a debug build). Handoff: `../HANDOFF-perf-phase-1.md`.
 
 Not exercised end to end (the harness runs signed out on purpose): settings pushes and Social join
 requests; iOS routing is covered by host-level tests only. Next: physical iPhone A/B (§7) and

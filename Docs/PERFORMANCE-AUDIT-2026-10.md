@@ -368,6 +368,14 @@ its content and Continue Watching intact. **Not exercised end to end:** settings
 requests need a signed-in session, and the harness runs signed out on purpose; iOS native routing is
 covered by the host-level tests only.
 
+**Suites (2026-10-01).** Desktop full split suite (JBR SDK, results deleted, `--rerun`): rest 1779,
+playback 1062, downloads 457, all green; the download E2E class 48 / 49 when run alone, and its one
+failure passes by itself. A first E2E run under other agents' load crawled for two hours and failed
+two different tests that then passed: the class is load-sensitive, and this branch touches no
+download code. Mobile `:composeApp:testAndroidHostTest --rerun`: 3397 tests, 0 failures, 6 skipped;
+`:androidApp:compileFullDebugKotlin` succeeds. iOS was not compiled (Windows only; the CI compile
+publishes a debug build).
+
 **Upstream vs Z.** Fix 1: Z's call site in an upstream file (`AppGate.kt`, already on the patch
 surface), lock in upstream `ProfileSettingsSync.kt` (already on it). Fixes 2-3: Z's always-mounted
 Home block in `AppShellComponents.kt` / one argument in `MainTabsDestination.kt` (both already on
