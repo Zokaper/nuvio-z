@@ -1,3 +1,21 @@
+## Performance Phase 2 (2026-10-01) — desktop only: poster scaling off the UI thread, JDK CDS archive
+
+Branch `claude/perf-phase-2` in both Kotlin repos (from `claude/perf-phase-1`). **Code is in
+`NuvioZDesktop` only**; this branch carries documents: `Docs/PERFORMANCE-AUDIT-2026-10.md` §9 (results,
+method, upstream notes) and a `Docs/PATCH-SURFACE.md` note (`AsyncImage.desktop.kt` joins the desktop
+surface). Not merged into the RC / Watch Together or auth branches; no builds published.
+
+- **Posters scaled off the UI thread** (desktop `896af1e3d`): Home scroll frames >= 33 ms down in
+  every group (cold load 67 -> 45, Continue Watching 25 -> 6, warm 59 -> 40, return pass 27 -> 10, 4
+  interleaved runs), UI-thread painter time 1,179 -> 34 ms per run, memory lower, pixels identical.
+  Worth offering upstream.
+- **JDK CDS archive in the Windows runtime** (desktop `1aeb9749a`, `b1c24b6fd`): first UI stall
+  -11 %, MSI +7.5 MB, fail-safe. The app-class archive behind the audit's -47 % cannot ship on JDK 17
+  MSI installs (paths and installer-shifted mtimes, §9.2).
+
+Mobile / iOS: nothing changed (both parts are `desktopMain` / desktop packaging), so no mobile suite
+was run. Next, after auth and the RC settle: Home from cache after profile selection (§2.2).
+
 # Nuvio Z Status
 
 Last updated: 2026-10-01
