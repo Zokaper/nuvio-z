@@ -28,8 +28,17 @@ positive peer readiness, the 400 ms stall-recovery settle and the existing 12 s 
 fixed delay or source re-resolution. Shared fix mobile `211ed26a3`, desktop merge `889209050` via `5a0384cdc`.
 Final mobile host suite: **3,395 tests / 0 failures / 0 errors / 6 skipped**, including the
 9 new common regressions and 4 adapter recovery cases. Existing real-SDK reconnect cases pass.
-Desktop focused compile/tests and regular debug 74 (Android/iOS) / 80 (desktop) publication
-are pending. Logs/XML: `../.rc-investigation/wt-ios/away-recovery-*`.
+Desktop Kotlin compile and focused suite: **416 tests / 0 failures / 0 errors / 0 skips**.
+Regular debug **74** (Android/iOS) dispatched on `d2bb3f542`, run `36822400793`:
+https://github.com/Zokaper/nuvio-z/actions/runs/36822400793 . Regular desktop debug **80**
+dispatched on `5b75a12e7`, run `36822781351`:
+https://github.com/Zokaper/NuvioZDesktop/actions/runs/36822781351 . Desktop debug channel enables
+file logs by default. Native packaging/publication/checksum verification is pending; no build is
+declared downloadable yet. Logs/XML: `../.rc-investigation/wt-ios/away-recovery-*`.
+Retest Home and lock with Pause for Away ON/OFF, including a return during another guest's
+buffer hold. Confirm the host resumes only after `away return release ... reason=all-ready`.
+If lock still fails, compare the desktop `away policy` input/output lines; do not reassign the
+blocker to iOS detection without evidence. No stable versions, serials or backend changes.
 
 ## iOS return retest: recovery churn and old desktop host (2026-09-30, 23:06–23:12 Arabia)
 
