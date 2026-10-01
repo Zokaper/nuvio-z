@@ -2,6 +2,10 @@
 
 > **Phase 1 implemented (2026-10-01):** Tier A items 1, 2 (desktop and iOS) and 4 of section 6 -
 > measured before and after in section 8, on branch `claude/perf-phase-1`.
+>
+> **Phase 2 implemented (2026-10-01):** Tier B item 5 (poster scaling off the UI thread) and the
+> CDS half of item 7 - measured in section 9, on branch `claude/perf-phase-2`. Only the JDK half of
+> the CDS archive is shippable on JDK 17 MSI installs; section 9.2 says why.
 
 Branch `claude/perf-investigation` in both Kotlin repos (isolated worktrees; no release, feed or
 version changes). This is an **investigation only**: no production code was changed. The harness
@@ -390,3 +394,194 @@ the largest remaining lever on Home scroll hitches; offer upstream). (2) Windows
 packaging job (§2.4; -38 % first UI task, -29 % shell freeze, no app-code risk). (3) Mount Home from
 cache after profile selection once the auth work has settled (§2.2; -2 to -4 s per profile entry,
 medium risk). Run §7's iPhone A/B whenever a phone is at hand: it now also measures fix 3.
+
+## 9. Performance Phase 2 — poster scaling off the UI thread, JDK class-data sharing (2026-10-01)
+
+Branch `claude/perf-phase-2`, from `claude/perf-phase-1` (so it carries Phase 1): code in
+`nuviozdesktop`, this document and STATUS in `nuvio-z`. Not merged into any RC, auth or release
+branch; no builds published; no version, feed or workflow changes. Both parts are desktop-only:
+`AsyncImage.desktop.kt` and the packaging step have no counterpart in this repository, so the mobile
+and iOS image pipelines are untouched (`NuvioAsyncImage`'s Android/iOS actuals and `commonMain`
+declaration are unchanged).
+
+### 9.1 Part A — Home poster scaling
+
+**Path traced.** Every Home poster (`ShelfComponents` poster card), Continue Watching card
+(`TitlePresentationCard`), poster grid, hover preview, and the Social / lobby artwork goes through
+`NuvioAsyncImage`, whose desktop actual is upstream's `AsyncImage.desktop.kt` (no Z commits before
+this phase). Hero and detail backdrops pass `NuvioDesktopImageScaling.Disabled` and are unaffected.
+
+| Step | Where it ran |
+| --- | --- |
+| Fetch (Ktor fetcher, disk cache) | Coil's IO dispatcher |
+| Decode at `size(1536)` (precision INEXACT, so never upscaled) | Coil's decoder dispatcher. Coil 3.6.3's JVM decoder downsamples with `SamplingMode.DEFAULT` (nearest neighbour) - which is why upstream added its own scaler |
+| Memory cache | Coil's, keyed by URL + size; 15 % of the JVM's max heap by default (~1.2 GB on the audit machine) |
+| Transform | `transform` wraps each `Success` in a **new** `ScaledBitmapPainter` - per state, so per composition of a card |
+| Rescale (`Image.makeFromBitmap` + mipmapped `scalePixels` into a new bitmap) | **UI thread, inside `onDraw`**, the first time a painter draws at a size |
+| Draw | UI thread (composition, layout and draw all run there on desktop) |
+
+**Root cause.** The rescale ran synchronously inside draw, and its result lived only as long as the
+painter, so every card that re-entered composition - scrolling back, a row recomposing while
+content streams in, returning to Home - paid for it again. JFR method tracing (JDK 25, one full
+protocol run): **169 rescales on the UI thread, ~11 ms each**, 14 of them while Home sat idle.
+
+**Change** (`896af1e3d`):
+
+- New `core/ui/DesktopImageDownscaler.kt` (desktopMain, Z-new): the same mipmapped Skia scale on two
+  `Dispatchers.Default` workers, newest request first. Identical requests share one job. A queued job
+  whose painters have not drawn for 250 ms is skipped (the card left the screen); if it was in fact
+  still visible, the skip invalidates it and its next draw asks again.
+- Results are stored in **Coil's existing memory cache** under the source image's key plus
+  `nuvio#desktopScaledSize`, so a returning card or the same poster in another row draws at once.
+  No second cache: the scaled copies live inside Coil's budget and are evicted by it.
+- `ScaledBitmapPainter` (upstream file, now on the patch surface) only looks the result up in
+  `onDraw`. Until it lands the card draws nothing for a frame or two, or an earlier size stretched
+  (window resize). A failed scale falls back to upstream's direct draw instead of retrying each frame.
+  The scaled bitmap is now immutable.
+- Unchanged on purpose: the 1536 px decode, the scaler, the size quantisation, the >1.25 MP and
+  <1.08x cut-offs, and the Windows-only gate.
+
+**Method.** Phase 1's final build (`1d259263d`, "before") against `896af1e3d` ("after"), both JBR 25,
+no JFR, signed-out data copy, **4 rounds interleaved** (other agents' Gradle builds loaded the
+machine at 60-99 % CPU throughout). New protocol `scripts/perf/phase2.py scroll`: cold Home load ->
+Continue Watching right/left (Shift+wheel) -> 3 vertical wheel passes down/up -> Library and back x3
+-> one more pass. Frames pooled per group across the 4 runs (`phase2_summary.py`).
+
+| Group (4 runs pooled) | frames | p50 | p95 | p99 | worst | >=16.7 | >=33 | >=50 | >=100 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Cold Home load, before | 680 | 4.1 | 57.3 | 225 | 3041 | 94 | 67 | 39 | 18 |
+| Cold Home load, after | 803 | 3.9 | 35.1 | 124 | 2229 | 94 | **45** | **27** | **10** |
+| Continue Watching, before | 407 | 2.8 | 34.9 | 170 | 260 | 46 | 25 | 12 | 6 |
+| Continue Watching, after | 365 | 4.0 | 24.2 | 49 | 75 | 27 | **6** | **3** | **0** |
+| First vertical pass, before | 470 | 3.7 | 71.0 | 251 | 922 | 74 | 50 | 34 | 17 |
+| First vertical pass, after | 511 | 3.5 | 49.8 | 155 | 302 | 46 | **31** | **25** | **9** |
+| Warm passes 2-3, before | 1661 | 3.1 | 27.0 | 71 | 319 | 108 | 59 | 26 | 7 |
+| Warm passes 2-3, after | 1730 | 3.3 | 12.0 | 46 | 66 | 56 | **40** | **13** | **0** |
+| Library <-> Home x3, before | 3129 | 2.0 | 11.8 | 37 | 809 | 85 | 36 | 24 | 9 |
+| Library <-> Home x3, after | 3258 | 1.9 | 8.9 | 16 | 275 | 29 | **12** | **6** | **4** |
+| Pass after returning, before | 676 | 3.2 | 28.0 | 106 | 180 | 52 | 27 | 15 | 7 |
+| Pass after returning, after | 908 | 2.9 | 8.2 | 34 | 50 | 26 | **10** | **1** | **0** |
+
+Median frames are unchanged (3-4 ms): this was always a long-tail problem, and the tail is what
+moved. Frames >= 33 ms per run, before / after: cold load 17,16,17,17 / 10,11,12,12; warm
+8,16,25,10 / 10,9,12,9 (the warm group is the noisiest; its >= 50 and >= 100 counts and p95 are the
+clearer signal). What remains is mostly card composition (section 2.3 B), which this phase did not
+touch.
+
+**Attribution** (JFR method tracing, one run each): time inside the painter's `onDraw` on the UI
+thread over the whole protocol **1,179 ms -> 34 ms**; rescales **169 on the UI thread -> 18 on the
+workers** (~8.5 ms each). After the first load every warm pass, tab switch and the return pass were
+memory-cache hits with zero scales. No queued job was skipped in that run (the queue never backed up).
+
+**Memory** (whole-process private bytes, median of 4 runs): before 1,171 MB at Home loaded -> 1,245-
+1,263 MB after scrolling and tab switches; after 1,144 MB -> 1,195-1,218 MB. Flat across the three
+Library round trips and the final pass in both - no growth. It goes *down* because the old painter
+kept a scaled copy per live painter (and re-created it per composition) while the new path keeps one
+per poster and size in Coil's cache. Coil's cache budget is unchanged and still bounds everything.
+
+**Visual / caching behaviour.** Same scaler, same sizes: the seven posters of a scrolled row are
+**pixel-identical** before and after (the only differing pixels in the screenshot are inside the
+hover-preview card, which showed different content). A brand-new card can show its background for a
+frame or two before the poster appears - indistinguishable from a network load, and absent for
+returning cards (cache hits). Cancellation: a card that leaves the screen stops drawing, so its
+queued job is skipped. Wrong images cannot appear: results are keyed by the source's Coil memory key
+(or, uncached, the source bitmap's identity) plus the size.
+
+**Tests.** `DesktopImageDownscalerTest` (10): one scale for identical requests, stored in Coil's cache
+under its own key; newest first; skipped when nobody draws; the scale averages (a 1-px checkerboard
+comes out mid-grey, where nearest-neighbour would be black or white); first draw queues instead of
+scaling; a returning card draws from the cache at once; near-size sources drawn directly; a skipped
+job is asked for again; a failure falls back without retrying every frame; uncached sources still
+scale in the background.
+
+**Upstream vs Z.** `AsyncImage.desktop.kt` is upstream's (NuvioDesktop `Dev`) and joins the patch
+surface. `DesktopImageDownscaler.kt` depends only on Coil, Skia and coroutines - no Z code - so the
+two files together are a self-contained patch. **Recommend offering it upstream**: upstream has the
+same cost (section 2.3 measured vanilla's rescale at 0.62 s of long-frame time against Z's 0.33 s).
+
+### 9.2 Part B — JDK class-data sharing for the Windows runtime
+
+**What ships** (`1aeb9749a`, `b1c24b6fd`): right after `createRuntimeImage` (jlink), on Windows hosts,
+a default CDS archive is dumped into the runtime at `bin/server/classes.jsa` from a checked-in list
+of the JDK classes a real session loads (`composeApp/src/desktopMain/cds/windows-jdk-classlist.txt`,
+5,153 entries recorded on the shipped Temurin 17 runtime over startup -> Home -> scrolling -> tabs).
+jpackage copies that runtime into both the app image and the MSI. The JVM maps it by itself under its
+default `-Xshare:auto` - no launcher option is needed to find it - and `-XX:+VerifySharedSpaces`
+(Windows packages only) checksums it first. jpackage strips the runtime's `java.exe`, so the step
+borrows the linking JDK's (it only loads the runtime's own `jli.dll`/`jvm.dll`) and deletes it
+again; it skips with a warning, never failing the build, if the runtime and JDK versions differ or
+the dump fails. `-Pnuvio.desktop.cds=false` turns it off.
+
+**Why only JDK classes - the investigation's main finding.** The audit's -38 % / -29 % (section 2.4)
+came from an archive holding the *app's* classes too. On JDK 17 (what `desktop-release.yml`
+ships) such an archive cannot be prebuilt for an MSI install:
+
+1. It records the app jars' absolute paths. Moved to another directory it is rejected outright
+   (`APP classpath mismatch`; JDK 17 has no relocation support). An archive built in CI would only
+   ever match the CI path.
+2. It records each jar's modification time, and **an MSI install rewrites those**: the cabinet
+   stores local time at 2-second resolution and the installer applies the installing machine's UTC
+   offset. Shown both ways: the installed Debug 1.45.79 (CI run 11:26-11:43 UTC) has files stamped
+   11:34 *local* (+03:00); a local MSI moved `classes.jsa` from 17:54:40.02 to 17:54:42.
+3. Generating it on the user's machine does not help either: Program Files is not writable, and the
+   JDK 17 jpackage launcher expands only `$APPDIR`/`$BINDIR`/`$ROOTDIR` in `java-options` - tested:
+   `%LOCALAPPDATA%`, `$LOCALAPPDATA` and `${LOCALAPPDATA}` all pass through literally.
+
+The JDK's own classes have none of these problems: the archive checks `lib/modules` by size only, so
+it validates wherever the app is installed and whatever the timestamps.
+
+**Benchmark** (Phase 1 jars on the shipped Temurin 17 runtime image, `phase2.py startup` = launch ->
+picker -> click -> Home, no JFR, 5 rounds interleaved, quieter machine):
+
+| median of 5 (ms) | no CDS | **JDK archive (shipped)** | JDK + app archive (ceiling, not shippable) |
+| --- | --- | --- | --- |
+| launch -> JVM main | 436 | **369** (-15 %) | 438 |
+| first UI stall (window + picker) | 1,765 | **1,568** (-11 %) | 939 (-47 %) |
+| UI blocked >= 100 ms before the picker | 4,211 | **3,890** (-8 %) | 1,812 (-57 %) |
+| launch -> picker usable | 6,467 | **6,048** (-6 %) | 2,807 (-57 %) |
+| first Home freeze after the click | 1,265 | **1,209** (-4 %) | 872 (-31 %) |
+| spread of the first UI stall | 1,725-2,009 | 1,544-1,604 | 926-961 |
+
+A repeat on the actual release image from a Temurin 17 `packageReleaseMsi` (8 rounds, alternating
+order) ran under 60-99 % load from other agents and is too noisy to resolve a 10 % effect (the
+first stall ranged 1.9-7.3 s within one variant). Its medians point the same way: UI-thread CPU of
+the first stall 2,038 -> 1,874 ms, of the Home freeze 1,640 -> 1,453 ms, JVM boot 497 -> 468 ms.
+"First launch after install" with a cold disk cache could not be measured (flushing the OS file
+cache needs admin); every run here was a first launch for the app's *data* (fresh copy each run).
+
+**Size.** Archive 27 MB on Temurin 17 (33 MB on JBR 25). MSI **256.5 -> 264.0 MB (+7.5 MB,
++2.9 %)**; installed 413 -> 441 MB.
+
+**Fail-safe, verified through the real launcher** on the MSI's administratively extracted image
+(`msiexec /a`, which registers nothing), signed-out data copy, in-memory prefs:
+
+| `classes.jsa` | Result |
+| --- | --- |
+| present | picker renders; 3,928 classes from the archive |
+| missing | normal start, no sharing ("Specified shared archive not found") |
+| corrupted (zeroed pages) | normal start; "Checksum verification failed" - **without** `VerifySharedSpaces` the corrupted archive *was mapped*, which is why the flag is there |
+| truncated / garbage | normal start ("Unable to read the file header") |
+| another JVM's (JBR 25 archive in the 17 runtime) | normal start ("wrong version") |
+
+Install / update: the archive is an ordinary file of the MSI (unversioned, like the jars), replaced
+by an upgrade and removed on uninstall; one left behind by anything else is rejected by the same
+version and size checks. The debug channel gets its own from its own build; nothing is
+channel-specific. `VerifySharedSpaces` is accepted by JDK 17, 21 and 25.
+
+**Regression risk: low.** No app code; the JVM decides per launch and falls back silently. Costs:
++7.5 MB download, +28 MB on disk, ~10 s more packaging per build. Release, update feeds and workflows
+are untouched; the step runs inside the existing Gradle tasks.
+
+### 9.3 Phase 2 verdict and next step
+
+- **Part A: keep.** The largest scroll lever that did not need the cards reworked, measured on every
+  group, memory down, pixels unchanged. Worth offering upstream.
+- **Part B: keep, but expect little.** It is safe and real but small (~-0.2 s first stall). The big
+  CDS win (-47 % first stall, -31 % Home freeze) is out of reach for MSI installs on JDK 17 for the
+  reasons in 9.2. Getting it needs an MSI custom action that dumps the app archive into the install
+  directory at install time (WiX work inside Compose's packaging - its own decision), or a runtime
+  upgrade *plus* a way to generate the archive on the user's machine (out of scope here; newer JDKs'
+  archives are also bound to the class path, so an upgrade alone is not assumed to fix it).
+- **Next, once auth and the RC have settled:** mount Home from cache after profile selection
+  (section 2.2; -2 to -4 s per profile entry). After that, card composition cost (section 2.3 B) is
+  what remains of the scroll tail.
