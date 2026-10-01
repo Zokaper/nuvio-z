@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.joinAll
@@ -96,11 +97,17 @@ object OutgoingJoinRequestStore {
         if (started) return
         started = true
         scope.launch { for (envelope in events) handle(envelope) }
+        // The clock runs only while a request is in flight (Performance Phase 1). It used to wake
+        // every 500 ms for the life of the process to tick a reducer that ignores ticks when idle.
         scope.launch {
-            while (true) {
-                delay(TickMs)
-                tick()
-            }
+            _state.map(::outgoingJoinRequestNeedsTicks)
+                .distinctUntilChanged()
+                .collectLatest { needsTicks ->
+                    while (needsTicks) {
+                        delay(TickMs)
+                        tick()
+                    }
+                }
         }
         // The friend's presence going away ends a pending request. Only a settled, online state
         // counts: an empty Watching Now while loading or on the offline cache says nothing.

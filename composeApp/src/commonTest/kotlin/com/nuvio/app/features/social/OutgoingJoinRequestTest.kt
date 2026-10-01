@@ -318,6 +318,53 @@ class OutgoingJoinRequestTest {
         val declined = reduce(pending(), statusRead(JoinRequestServerStatus.declined)).state
         assertEquals(OutgoingJoinRequestState.Idle, reduceOutgoingJoinRequest(declined, OutgoingJoinEvent.IdentityBoundary("profileA", true)).state)
     }
+
+    // The store's clock (Performance Phase 1) ------------------------------------------------------
+
+    private fun everyState(): List<OutgoingJoinRequestState> {
+        val p = pending()
+        return listOf(
+            OutgoingJoinRequestState.Idle,
+            OutgoingJoinRequestState.Sending(a1, target, content),
+            p,
+            OutgoingJoinRequestState.Cancelling(a1, target, content, p.requestId, p.expiresAtMs),
+            OutgoingJoinRequestState.Accepted(a1, target, content, party(), countdownDeadlineMs = 9_000L),
+            OutgoingJoinRequestState.Accepted(a1, target, content, party(), countdownDeadlineMs = null),
+            OutgoingJoinRequestState.Joining(a1, target, content, party()),
+        ) + OutgoingJoinOutcome.entries.flatMap { kind ->
+            listOf(
+                OutgoingJoinRequestState.Outcome(a1, target, content, kind, clearAtMs = 9_000L),
+                OutgoingJoinRequestState.Outcome(a1, target, content, kind, clearAtMs = null),
+            )
+        }
+    }
+
+    @Test fun onlyIdleStopsTheClock() {
+        everyState().forEach { state ->
+            assertEquals(state !is OutgoingJoinRequestState.Idle, outgoingJoinRequestNeedsTicks(state), "$state")
+        }
+    }
+
+    /**
+     * Why stopping the clock in a state is safe: the store's tick only feeds `Tick` into the reducer
+     * and asks [decideJoinRequestPoll] whether to read the status. A state that ignores every `Tick`
+     * and never polls - however late, however invalidated - loses nothing when nobody ticks it.
+     */
+    @Test fun aStateWithoutTicksIgnoresEveryTickAndNeverPolls() {
+        val quiet = everyState().filterNot(::outgoingJoinRequestNeedsTicks)
+        assertTrue(quiet.isNotEmpty())
+        quiet.forEach { state ->
+            listOf(0L, 1_000L, 10_000_000L, Long.MAX_VALUE / 2).forEach { now ->
+                assertEquals(OutgoingJoinTransition(state), reduceOutgoingJoinRequest(state, OutgoingJoinEvent.Tick(now)), "$state at $now")
+                listOf(true, false).forEach { invalidated ->
+                    assertEquals(
+                        JoinRequestPollDecision.Stop,
+                        decideJoinRequestPoll(state, now, lastReadAtMs = null, invalidated = invalidated),
+                    )
+                }
+            }
+        }
+    }
 }
 
 class WatchingNowJoinAffordanceTest {

@@ -642,6 +642,15 @@ sealed interface JoinRequestPollDecision {
 }
 
 /**
+ * Whether the store's clock has to run. The clock only feeds [OutgoingJoinEvent.Tick] into the
+ * reducer and asks [decideJoinRequestPoll] whether to read the status; in
+ * [OutgoingJoinRequestState.Idle] every tick reduces to nothing and the poll says Stop, so an idle
+ * store - the state it spends almost all its life in - need not wake at all.
+ */
+fun outgoingJoinRequestNeedsTicks(state: OutgoingJoinRequestState): Boolean =
+    state !is OutgoingJoinRequestState.Idle
+
+/**
  * When the store should next read the request's status.
  *
  * Only a request that is waiting on the host is polled. A realtime invalidation reads at once; without
