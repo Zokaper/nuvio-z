@@ -27,6 +27,7 @@ class AuthSessionCoordinatorTest {
         var refreshHook: suspend (OwnedAuthSession) -> OwnedAuthSession = { it }
         var importHook: suspend (OwnedAuthSession) -> Unit = {}
         var loadStoredHook: suspend () -> OwnedAuthSession? = { null }
+        var clearHook: suspend () -> Unit = {}
         override fun currentSession() = session
         override suspend fun loadStoredSession() = loadStoredHook()
         override fun loadAnonymousId() = anonymous
@@ -38,7 +39,7 @@ class AuthSessionCoordinatorTest {
             return if (noCredentialSession) null else session
         }
         override suspend fun signOut() { signOutHook() }
-        override suspend fun clearSession() { clears++; session = null }
+        override suspend fun clearSession() { clears++; session = null; clearHook() }
         override suspend fun deleteAccount() {}
         override suspend fun validate(session: OwnedAuthSession) = validateHook(session)
         override suspend fun refresh(session: OwnedAuthSession): OwnedAuthSession { refreshes++; return refreshHook(session) }
@@ -324,6 +325,20 @@ class AuthSessionCoordinatorTest {
                 assertEquals("B", port.session!!.userId)
                 assertEquals("B", (auth.state.value as AuthState.Authenticated).userId)
             }
+        }
+    }
+
+    @Test fun definitiveClearCannotBeReenteredByItsEmptySdkStatus() = runTest {
+        for (refreshFailureStatus in listOf(false, true)) {
+            val port = Port().also { it.session = OwnedAuthSession("A", "A@example.test", "access-A", "refresh-A", expiresAtEpochMilliseconds = 0) }
+            val auth = AuthSessionCoordinator(port).also { it.initialize(); it.authenticated(port.session!!) }
+            port.refreshHook = { throw Rejected() }
+            port.clearHook = { if (refreshFailureStatus) auth.refreshFailure() else auth.notAuthenticated(false) }
+            auth.refreshDue(0)
+            assertEquals(AuthState.Unauthenticated, auth.state.value)
+            assertNull(port.session)
+            assertEquals(1, port.clears)
+            assertEquals(1, port.wipes)
         }
     }
 }
