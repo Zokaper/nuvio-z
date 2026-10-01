@@ -1,3 +1,31 @@
+## Corrected Gemini auth review — integration rejected (2026-10-01)
+
+Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads
+`ce987581e0a8cced00af82f6d7b7ea67dcd21555` / `16577dba5bf8941d2986e1e98e9692948cd99ede`
+were independently reviewed and are NOT approved/merged. `Docs/AUTH-CORRECTED-REVIEW.md`
+records all ten acceptance items and required corrections. Exact production-source harness
+reproduces validation publishing A after completed sign-out, delayed sign-out wiping B,
+delayed RefreshFailure clearing B, stale login error after successful newer attempt,
+unsanitized exception diagnostics and stale validation refreshing current SDK session B.
+AppGate now consumes the reducer but selects captured profiles before identity cache reload;
+its authenticated path can use the previous identity's profile list. Both auth blobs match.
+
+Actual head reducer suite: 23/23 passed. Six adverse production-source assertions reproduced
+with controlled SDK/storage/resource/logger neighbours and real coroutines/atomicfu; not a
+real server/device/full Gradle pass. Evidence: `../.rc-investigation/auth-corrected-audit/`.
+No production fixes, auth merge, performance merge, counter bump, CI dispatch or publication.
+The conditional merged-head matrix and next regular debug pair remain pending a clean review.
+Existing debug 74/80 and main's SideStore feeds remain unchanged. Case-insensitive primary
+email comparison matches normal Supabase password lookup, but proves account identity only,
+not the originating request/session; same-email old session provenance remains untested.
+
+Older desktop auth CI 36829662346 re-read: Windows MSI succeeds; Linux native frame-copy
+construction fails before Kotlin tests. Runtime factory availability is the leading hypothesis,
+not proven; diagnose playbin/appsink and rerun without skipping. No new native regression claim.
+All five iPhone Home/return/lock/unlock/quiet-foreground WT acceptance checks and desktop+iOS
+(Android where practical) wrong→correct password/logout→login/restart/anonymous→email/browser
+or code auth smoke remain open. RC is not accepted; no stable publication.
+
 # Nuvio Z Status
 
 Last updated: 2026-10-01
