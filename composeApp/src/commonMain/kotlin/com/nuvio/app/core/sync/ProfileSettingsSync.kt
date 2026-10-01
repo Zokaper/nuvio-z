@@ -42,6 +42,8 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlin.concurrent.Volatile
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -86,13 +88,21 @@ object ProfileSettingsSync {
     @Volatile
     private var skipNextPushSignature: String? = null
 
+    @Volatile
     private var observeJob: Job? = null
+
+    private val startLock = SynchronizedObject()
 
     private val profileSettingsPlatform: String
         get() = if (isDesktop) DESKTOP_SYNC_PLATFORM else MOBILE_SYNC_PLATFORM
 
-    fun startObserving() {
-        if (observeJob?.isActive == true) return
+    /**
+     * Idempotent, and safe from any thread. Both callers - `AppGate` and
+     * `warmProfileBoundRepositories` - run on `Dispatchers.Default`, so the check and the start
+     * happen under one lock; two observers would push every change twice.
+     */
+    fun startObserving() = synchronized(startLock) {
+        if (observeJob?.isActive == true) return@synchronized
         ensureRepositoriesLoaded()
         ProviderCredentialSync.startObserving()
         observeLocalChangesAndPush()

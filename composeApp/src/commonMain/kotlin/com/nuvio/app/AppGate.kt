@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
@@ -236,8 +237,19 @@ internal fun AppGate(
     // completed revision, so the remote never learned it and the next startup pull re-gated
     // the app with the old one. Settings written while the wizard is up are settings.
     // `startObserving` is idempotent, so this and any other call site are safe together.
+    //
+    // Started off the UI thread and after the first frame (Performance Phase 1): it loads 17+
+    // repositories from disk and builds MDBList's Ktor client, which ran inside the first
+    // composition and was 0.5-0.75 s of the cold-start freeze. Run beside the first frame instead,
+    // it competed with it for CPU and class loading and made that frame slower, so it waits for
+    // one. A start a few hundred ms later still precedes anything the wizard can write - the wizard
+    // is only reached through the profile gate - and the observer baselines on whatever it first
+    // sees, as it always has.
     if (ownsAppRuntime) {
-        remember { ProfileSettingsSync.startObserving() }
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            withContext(Dispatchers.Default) { ProfileSettingsSync.startObserving() }
+        }
     }
 
     // Gates the first-launch playback-mode selector. Read here rather than as a new
