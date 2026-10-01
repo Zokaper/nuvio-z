@@ -70,6 +70,35 @@ internal class AuthSessionCoordinator(
 
     fun clearError() = synchronized(lock) { mutableError.value = null }
 
+    private fun ownsAccess(epoch: Long, session: OwnedAuthSession) =
+        owns(epoch) && machine.inFlightIntent == null &&
+            (machine.authState as? AuthState.Authenticated)?.let { !it.isAnonymous && it.userId == session.userId } == true &&
+            session.sameSession(port.currentSession())
+
+    /** Social must not import an old official refresh over a newer login or sign-out. */
+    suspend fun accessToken(session: OwnedAuthSession, refresh: Boolean): String? {
+        val epoch = synchronized(lock) {
+            machine.currentEpoch.takeIf { ownsAccess(it, session) }
+        } ?: return null
+        if (!refresh) return synchronized(lock) { session.accessToken.takeIf { ownsAccess(epoch, session) } }
+        return mutations.withLock {
+            if (!synchronized(lock) { ownsAccess(epoch, session) }) return@withLock null
+            val refreshed = try { port.refresh(session) } catch (error: Throwable) {
+                if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) throw error
+                return@withLock null // Validation, not a token consumer's unowned failure, settles rejection.
+            }
+            if (refreshed.userId != session.userId || !synchronized(lock) { ownsAccess(epoch, session) }) return@withLock null
+            port.importSession(refreshed)
+            synchronized(lock) {
+                if (!owns(epoch) || machine.inFlightIntent != null || !refreshed.sameSession(port.currentSession())) return@withLock null
+                acceptedSession = refreshed
+                pendingSession = null
+                publish(AuthStateMachine.onExplicitSignInSucceeded(machine, epoch, refreshed.userId, refreshed.email))
+                refreshed.accessToken
+            }
+        }
+    }
+
     private fun begin(intent: (Long) -> InFlightAuthIntent): Long = synchronized(lock) {
         val epoch = machine.currentEpoch + 1
         machine = AuthStateMachine.onExplicitSignInStarted(machine, intent(epoch))

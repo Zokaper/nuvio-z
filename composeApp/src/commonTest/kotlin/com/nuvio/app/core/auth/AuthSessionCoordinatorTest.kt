@@ -216,4 +216,38 @@ class AuthSessionCoordinatorTest {
         assertNull(port.session)
         assertEquals(0, port.imports)
     }
+
+    @Test fun lateTokenConsumerRefreshCannotImportOverNewLogin() = runTest {
+        val port = Port().also { it.session = session("A") }
+        val auth = AuthSessionCoordinator(port).also { it.initialize(); it.authenticated(port.session!!) }
+        val captured = port.session!!
+        val finish = CompletableDeferred<Unit>()
+        port.refreshHook = { finish.await(); session("A", token = "new-A") }
+        var token: String? = "not-completed"
+        val refresh = launch { token = auth.accessToken(captured, refresh = true) }
+        runCurrent()
+        val login = launch { auth.login("B@example.test", "secret", false, "failure") }
+        runCurrent()
+        finish.complete(Unit); refresh.join(); login.join()
+        assertNull(token)
+        assertEquals("B", port.session!!.userId)
+        assertEquals("B", (auth.state.value as AuthState.Authenticated).userId)
+        assertEquals(1, port.imports, "Only the new credential response is imported")
+        assertNull(auth.accessToken(captured, refresh = false))
+    }
+
+    @Test fun tokenConsumerRefreshUsesCapturedSessionAndNeverClearsOnFailure() = runTest {
+        val port = Port().also { it.session = session("A") }
+        val auth = AuthSessionCoordinator(port).also { it.initialize(); it.authenticated(port.session!!) }
+        val original = port.session!!
+        assertEquals(original.accessToken, auth.accessToken(original, refresh = false))
+        port.refreshHook = { assertTrue(it === original); session("A", token = "new-A") }
+        assertEquals("access-new-A", auth.accessToken(original, refresh = true))
+        assertEquals("access-new-A", port.session!!.accessToken)
+        port.refreshHook = { throw Rejected() }
+        assertNull(auth.accessToken(port.session!!, refresh = true))
+        assertTrue(auth.state.value is AuthState.Authenticated)
+        assertEquals(0, port.clears)
+        assertEquals(0, port.wipes)
+    }
 }

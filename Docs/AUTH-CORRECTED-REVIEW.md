@@ -194,3 +194,17 @@ OAuth/device-code flows do not use the email check. References:
 
 These are production-boundary tests with controlled transport/storage, not physical SDK/server
 or iPhone acceptance. Full matrix and physical blockers from the audit still apply. No stable.
+Further correction: OfficialSessionAccess's Social token-consumer refresh must also use
+coordinator authority. Its old refreshCurrentSession call could import A after a newer login.
+The replacement captures the consumer session, serializes refresh/import, checks epoch and
+current SDK identity before/after suspension, and returns no token on supersession/failure.
+It never clears an account from the token consumer's failure. Two production-boundary tests
+cover old refresh completion behind B and current captured refresh/failure retention.
+
+First integrated desktop full-suite run also exposed a test-only simulated-process-death
+race: reset cancelled discovery jobs but resumed before they stopped. The cancelled jobs
+could publish empty candidates into the restarted simulation. Reset now returns cancelled
+jobs; restart fixtures await them before resuming, matching actual process death. Assertions
+and production download behavior are unchanged. Promo rendering reached the existing task's
+20-minute cap; retain that failure, then rerun every rest test with an external 90-minute
+allowance, without exclusions. New corrections invalidate affected prior-head validation.

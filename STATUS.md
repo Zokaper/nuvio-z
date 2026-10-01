@@ -16,6 +16,17 @@ are untouched. The mistaken performance prompt created only empty branch/worktre
 now removed; no performance edits, commits or builds occurred. Both RC worktrees were checked
 clean before these legitimate auth edits began. No feed/counter/stable changes.
 
+Further review found OfficialSessionAccess still importing a stale refresh through the SDK's
+refreshCurrentSession. That path now uses the same captured-token/mutation/authority seam,
+with a production-coordinator late-refresh regression. The desktop process-death fixture
+also allowed cancelled old discoveries to write into its restarted simulation; the test-only
+reset exposes cancelled jobs so restart tests can await termination. No production download
+behavior change. These follow-ups require fresh affected/full validation; earlier first-head
+3430 host tests (0 failures/errors, 6 baseline Play Store skips), focused 61/764/185/53 and
+Android debug/unsigned-release successes are historical, not final-head approval. Desktop
+first-head build-only Windows/macOS arm64/x86_64 packages pass; full suite hits the promo
+20-minute timeout and one restart fixture race. No debug pair has been cut.
+
 Full merged-head suites, Android debug/release builds, Windows packaging and iOS/macOS CI
 remain pending. Next combined regular debug pair is gated on those results. Physical iPhone
 Home/Away/return/lock/unlock/quiet-foreground WT acceptance and desktop+iOS auth smoke

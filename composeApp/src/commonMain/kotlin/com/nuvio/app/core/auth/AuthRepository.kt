@@ -92,6 +92,9 @@ object AuthRepository {
         return coordinator.importExternalSession(owned, getString(Res.string.auth_sign_in_failed))
     }
 
+    internal suspend fun officialAccessToken(session: UserSession, refresh: Boolean): String? =
+        session.owned()?.let { coordinator.accessToken(it, refresh) }
+
     suspend fun deleteAccount() = coordinator.deleteAccount(getString(Res.string.auth_account_deletion_failed))
     fun clearError() = coordinator.clearError()
 }

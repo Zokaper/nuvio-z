@@ -166,15 +166,18 @@ internal object AssistedDiscovery {
             .forEach { start(it, refresh = true) }
     }
 
-    internal fun resetForTests(dispatcher: CoroutineDispatcher) {
-        synchronized(lock) {
-            jobs.values.forEach { it.cancel() }
+    internal fun resetForTests(dispatcher: CoroutineDispatcher): List<Job> {
+        val cancelled = synchronized(lock) {
+            val previous = jobs.values.toList()
+            previous.forEach { it.cancel() }
             jobs.clear()
             found.clear()
             _running.value = emptySet()
             _refreshing.value = emptySet()
+            previous
         }
         scope = CoroutineScope(SupervisorJob() + dispatcher)
+        return cancelled
     }
 }
 

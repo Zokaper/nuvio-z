@@ -1,11 +1,9 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.core.auth.AuthRepository
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -49,22 +47,11 @@ internal object OfficialSessionAccess {
 
         val session = settled.session
         if (!forceRefresh && !officialTokenNeedsRefresh(session.expiresAt, Clock.System.now())) {
-            return OfficialAccessToken.Ready(session.accessToken)
+            return AuthRepository.officialAccessToken(session, refresh = false)
+                ?.let(OfficialAccessToken::Ready) ?: OfficialAccessToken.Unavailable
         }
 
-        // A concurrent refresh by the official client's own timer is harmless: GoTrue accepts the same
-        // refresh token twice inside its reuse interval and hands both callers the same new pair.
-        val refreshed = runCatching { withTimeout(OfficialSessionRefreshTimeout) { auth.refreshCurrentSession() } }
-        currentCoroutineContext().ensureActive()
-        if (refreshed.isFailure) {
-            return if (auth.sessionStatus.value is SessionStatus.NotAuthenticated) {
-                OfficialAccessToken.SignedOut
-            } else {
-                OfficialAccessToken.Unavailable
-            }
-        }
-        return auth.currentAccessTokenOrNull()
-            ?.takeIf(String::isNotBlank)
+        return AuthRepository.officialAccessToken(session, refresh = true)
             ?.let(OfficialAccessToken::Ready)
             ?: OfficialAccessToken.Unavailable
     }
@@ -90,4 +77,3 @@ internal fun officialTokenNeedsRefresh(
  * again when the official session comes back (`SocialRepository.recoverIfStale`).
  */
 private val OfficialSessionSettleTimeout: Duration = 5.seconds
-private val OfficialSessionRefreshTimeout: Duration = 10.seconds
