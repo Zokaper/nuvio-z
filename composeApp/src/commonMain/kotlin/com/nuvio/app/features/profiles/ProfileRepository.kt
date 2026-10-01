@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
+import com.nuvio.app.core.auth.maskId
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.sync.ProfileSettingsSync
@@ -132,6 +133,7 @@ object ProfileRepository {
             }
             return
         }
+        log.i { "Starting pullProfiles for user=${maskId(loadedCacheForUserId)}" }
         try {
             val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profiles")
             val profiles = result.decodeList<NuvioProfile>()
@@ -145,9 +147,10 @@ object ProfileRepository {
                 activeProfileIndex = _state.value.activeProfile!!.profileIndex
             }
             persist()
+            log.i { "pullProfiles succeeded: count=${profiles.size}, active=${_state.value.activeProfile?.name}" }
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile pull")) return
-            log.e(e) { "Failed to pull profiles" }
+            log.e(e) { "Failed to pull profiles: ${e.message}" }
             if (!_state.value.isLoaded) {
                 _state.value = _state.value.copy(isLoaded = true)
             }

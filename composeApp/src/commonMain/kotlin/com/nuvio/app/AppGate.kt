@@ -28,6 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.DeviceSessionRegistration
+import co.touchlab.kermit.Logger
+import com.nuvio.app.core.auth.maskId
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.whats_new_bug_fixes
 import nuvio.composeapp.generated.resources.whats_new_improvements
@@ -117,6 +119,8 @@ internal suspend fun warmProfileBoundRepositories() {
         ProfileSettingsSync.startObserving()
     }
 }
+
+private val log = Logger.withTag("AppGate")
 
 private enum class AppGateScreen {
     Loading,
@@ -545,8 +549,14 @@ internal fun AppGate(
         }
     }
 
+    LaunchedEffect(gateScreen) {
+        log.i { "[AppGate] gateScreen transitioned to: $gateScreen" }
+    }
+
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
         val cachedProfiles = profileState.profiles
+        val userStr = (authState as? AuthState.Authenticated)?.userId?.let(::maskId) ?: "<none>"
+        log.i { "[AppGate] Evaluating transition: authState=$authState (userId=$userStr), gateScreen=$gateScreen, cachedProfiles=${cachedProfiles.size}" }
         val hasCachedProfileAccess =
             cachedProfiles.isNotEmpty() &&
                 authState !is AuthState.Authenticated
@@ -579,6 +589,7 @@ internal fun AppGate(
                 val authenticatedState = authState as AuthState.Authenticated
                 ProfileRepository.ensureLoaded(authenticatedState.userId)
                 if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
+                    log.i { "[AppGate] Authenticated state transitioning gate away from $gateScreen to ProfileGate" }
                     enterProfileGate(ProfileRepository.state.value.profiles, syncOnEnter = true)
                 }
             }
