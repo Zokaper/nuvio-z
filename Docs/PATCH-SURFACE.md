@@ -373,4 +373,6 @@ session_not_found error parser using the existing configured HTTP stack; coordin
 near-expiry refresh preserves renewal; guarded storage read/import preserves authenticated
 restart without an unowned startup import. The commonTest-only Ktor MockEngine dependency
 tests the actual pinned SDK parser against the replacement request path.
+Coordinator status handlers also defer duplicate revalidation while rejection confirmation
+is active, so clearSession's own notification cannot supersede the current rejection.
 No performance, Watch Together, release feed or version changes.

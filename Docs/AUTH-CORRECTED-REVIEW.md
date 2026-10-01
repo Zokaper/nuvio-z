@@ -254,3 +254,16 @@ that same lock. The test helper now acquires that lock, reads the current item a
 completion, existence, exact size and exact bytes without a concurrent rename. Production
 downloads are unchanged. Five consecutive two-case probes passed with this coherent read;
 the complete final-head e2e partition remains required.
+
+Final callback reproduction: during coordinator-owned definitive rejection, SDK clearSession
+emits NotAuthenticated while the public state is still A and cleanup is settling. That status
+could start another captured validation, publish A again and supersede the rejection before
+its final authority check. A new test reproduced Authenticated public state with null SDK
+session against the unchanged implementation (one failing case, red evidence retained).
+RefreshFailure can enter the same competing-validation path. Both handlers now defer while
+an existing validation/confirmation owns the decision. The regression covers both callbacks,
+requiring Unauthenticated, null SDK session, and exactly one clear/wipe. This correction is
+shared by normal merges and requires another frozen merged-head matrix. Prior d21029e39
+mobile full host passed 3439, focused groups passed, Android debug passed; pending local
+runs were explicitly canceled at only their verified RC launcher trees. Shared daemons,
+Hot Reload and other worktrees were left untouched. No debug release has been cut.

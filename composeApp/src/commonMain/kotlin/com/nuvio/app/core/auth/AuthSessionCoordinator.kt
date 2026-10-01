@@ -307,7 +307,7 @@ internal class AuthSessionCoordinator(
         // SDK RefreshFailure has no originating session. Ignore its cause; ask about *our* captured
         // current session instead. An old error is never labelled with the new account's identity.
         val captured = synchronized(lock) {
-            if (machine.inFlightIntent != null) return
+            if (machine.inFlightIntent != null || machine.activeValidationRequest != null) return
             val session = acceptedSession ?: return
             if ((machine.authState as? AuthState.Authenticated)?.isAnonymous != false) return
             val current = port.currentSession()
@@ -346,7 +346,7 @@ internal class AuthSessionCoordinator(
 
     suspend fun notAuthenticated(hasSession: Boolean) {
         val recheck = synchronized(lock) {
-            if (machine.inFlightIntent != null) return
+            if (machine.inFlightIntent != null || machine.activeValidationRequest != null) return
             if (allowRestoration) return // Our guarded loader, not the SDK's initial empty status, settles startup.
             if (acceptedSession != null) !hasSession
             else {

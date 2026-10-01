@@ -53,6 +53,18 @@ E2E follow-up reproduced the failure in one of three unchanged two-case probes: 
 read a captured URI while completion's organizer renamed it under the store lock. The
 test-only content helper now reads current state and checks all file assertions under that
 lock; five subsequent probes passed. Complete final-head e2e validation is still required.
+
+Final callback follow-up: NotAuthenticated emitted by an owned clearSession could reenter
+current rejection confirmation and publish Authenticated before cleanup settled; a real
+production-coordinator async test reproduced that failure. RefreshFailure has the same
+competing-validation seam. Both handlers now defer while a validation/confirmation is
+active; the new regression covers both callback types and requires one clear/wipe and
+Unauthenticated with no SDK session. The d21029e39 full mobile host run passed 3439 tests,
+focused groups and Android debug, but the remaining local matrix was stopped because this
+new fix invalidates it. Only the two owned RC launcher trees were stopped; shared daemons,
+Hot Reload and other worktrees were untouched. The new committed heads must rerun the
+complete matrix. No combined debug pair/counter/feed/stable change yet; physical blockers
+above remain open.
 ## Corrected Gemini auth review — integration rejected (2026-10-01)
 
 Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads
