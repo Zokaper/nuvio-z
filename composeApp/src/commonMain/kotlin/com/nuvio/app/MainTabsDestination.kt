@@ -322,6 +322,7 @@ internal fun MainTabsDestination(
                             topChromePadding = topChromePadding,
                         ),
                         actions = tabActions,
+                        keepHomeBehindOtherTabs = !useNativeNavigation,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (requiresNavBarHaze) Modifier.hazeSource(state = navBarHazeState) else Modifier)

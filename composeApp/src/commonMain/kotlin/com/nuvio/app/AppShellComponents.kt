@@ -266,6 +266,11 @@ internal fun AppTabHost(
     state: AppTabState,
     actions: AppTabActions,
     modifier: Modifier = Modifier,
+    // False in an iOS native-tab host (Performance Phase 1): each native tab is its own Compose host,
+    // and choosing Home there switches to the Home host rather than showing Home in this one. Kept
+    // behind the other tabs anyway, every Search/Library/Social/Settings host carried its own hidden
+    // Home - collectors, catalog rows, images and the hero.
+    keepHomeBehindOtherTabs: Boolean = true,
 ) {
     val socialEnabled = rememberSocialEnabled()
     val tabStateHolder = rememberSaveableStateHolder()
@@ -274,7 +279,7 @@ internal fun AppTabHost(
     val isHomeSelected = selectedTab == AppScreenTab.Home
 
     Box(modifier = modifier.fillMaxSize()) {
-        tabStateHolder.SaveableStateProvider(AppScreenTab.Home.name) {
+        if (isHomeSelected || keepHomeBehindOtherTabs) tabStateHolder.SaveableStateProvider(AppScreenTab.Home.name) {
             // Composed behind every other tab, but only active while it is the one shown: no hero
             // paging, no lifecycle-bound collection (Performance Phase 1).
             TabPaneActivity(active = isHomeSelected) {
