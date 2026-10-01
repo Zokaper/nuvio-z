@@ -254,7 +254,10 @@ object WatchPartyRepository {
             }
             log.i { "away published party=${partyId.shortId()} away=$away" }
             WatchPartyDiagnostics.transport("durable-away-complete", partyId, realtime = "presence",
-                detail = "away=$away durationMs=${currentEpochMs() - startedAt}")
+                detail = "away=$away durationMs=${currentEpochMs() - startedAt} " +
+                    snapshot.members.firstOrNull { it.profileId == profileId }?.let {
+                        "connected=${it.connected} ready=${it.readyState} awaySince=${it.awaySince}"
+                    }.orEmpty())
         }.onFailure { error ->
             WatchPartyDiagnostics.transport("durable-away-failed", partyId, realtime = "presence",
                 detail = "away=$away durationMs=${currentEpochMs() - startedAt} type=${error::class.simpleName}")

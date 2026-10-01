@@ -18,6 +18,55 @@ class WatchPartyTransportRecoveryTest {
     private fun invoke(name: String) = adapter.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(adapter)
 
     @Test
+    fun foregroundAndReconnectCannotRepublishPreAwayReadiness() = runBlocking {
+        delay(100)
+        try {
+            set("authority", PartyAuthorityContext("party", "guest", "host", WatchPartyControlMode.host_only,
+                9, PartyGenerationKey("party", 1, 0, 0)))
+            set("selfAway", false)
+            adapter.publishPeerStatus(WatchPartyStatus.paused, false)
+            adapter.setLocalPresence(true)
+            adapter.setLocalPresence(false)
+            assertTrue(adapter.isLocallyReturning())
+            assertTrue(get("peerStarved") as Boolean)
+            invoke("stopChannelJobs")
+            // Clock/reconnect publication of the old paused/ready sample is still withdrawn.
+            adapter.publishPeerStatus(WatchPartyStatus.paused, false)
+            assertTrue(get("peerStarved") as Boolean)
+            adapter.completeLocalReturn()
+            adapter.publishPeerStatus(WatchPartyStatus.paused, false)
+            assertFalse(adapter.isLocallyReturning())
+            assertFalse(get("peerStarved") as Boolean)
+        } finally {
+            set("authority", null)
+            set("selfAway", false)
+            adapter.completeLocalReturn()
+            invoke("resetProtocolState")
+        }
+    }
+
+    @Test
+    fun secondAbsenceCannotBeCompletedByAnOlderCatchup() = runBlocking {
+        delay(100)
+        try {
+            set("authority", PartyAuthorityContext("party", "guest", "host", WatchPartyControlMode.host_only,
+                9, PartyGenerationKey("party", 1, 0, 0)))
+            set("selfAway", false)
+            adapter.setLocalPresence(true)
+            adapter.setLocalPresence(false)
+            adapter.setLocalPresence(true)
+            adapter.completeLocalReturn()
+            assertTrue(adapter.isLocallyAway())
+            assertFalse(adapter.isLocallyReturning())
+        } finally {
+            set("authority", null)
+            set("selfAway", false)
+            adapter.completeLocalReturn()
+            invoke("resetProtocolState")
+        }
+    }
+
+    @Test
     fun durableReturnClearsHeldAndDelayedPeerAwayButAcceptsANewAbsence() = runBlocking {
         delay(100)
         try {

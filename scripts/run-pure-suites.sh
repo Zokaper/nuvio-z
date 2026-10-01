@@ -317,12 +317,14 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$M/features/watchparty/WatchPartyPlaybackLifecycle.kt" \
   "$M/features/watchparty/WatchPartyClock.kt" \
   "$M/features/watchparty/WatchPartyTimeline.kt" \
+  "$M/features/watchparty/PartyAwayRecovery.kt" \
   "$M/features/watchparty/WatchPartyBarrier.kt" \
   "$M/features/watchparty/WatchPartySyncProtocol.kt" \
   "$M/features/watchparty/PartyPresence.kt" \
   "$M/features/watchparty/PartySourceActivity.kt" \
   "$M/features/watchparty/PartyPlaybackStatus.kt" \
   "$T/features/watchparty/WatchPartyModelsTest.kt" \
+  "$T/features/watchparty/PartyAwayRecoveryTest.kt" \
   "$T/features/watchparty/PartyPresenceTest.kt" \
   "$T/features/watchparty/PartyPlaybackStatusTest.kt" \
   "$T/features/watchparty/PartySourceDescriptorV2Test.kt" \
@@ -343,6 +345,7 @@ java -cp "$WORK/out-watchparty:$CP_RUN:$CP_JSON:$CP_COROUTINES" org.junit.runner
   com.nuvio.app.features.watchparty.WatchPartyBarrierTest \
   com.nuvio.app.features.watchparty.WatchPartyPendingSeekTest \
   com.nuvio.app.features.watchparty.WatchPartySyncProtocolTest \
+  com.nuvio.app.features.watchparty.PartyAwayRecoveryTest \
   com.nuvio.app.features.watchparty.PartyPresenceTest \
   com.nuvio.app.features.watchparty.PartyPlaybackStatusTest 2>&1 | grep -v "Picked up JAVA_TOOL"
 
@@ -361,6 +364,7 @@ kotlinc -nowarn -cp "$CP_BUILD:$CP_JSON:$CP_COROUTINES" -Xplugin="$WORK/serializ
   "$M/features/watchparty/WatchPartyPlaybackLifecycle.kt" \
   "$M/features/watchparty/WatchPartyClock.kt" \
   "$M/features/watchparty/WatchPartyTimeline.kt" \
+  "$M/features/watchparty/PartyAwayRecovery.kt" \
   "$M/features/watchparty/WatchPartyBarrier.kt" \
   "$M/features/watchparty/WatchPartySyncProtocol.kt" \
   "$M/features/watchparty/WatchPartyPresentation.kt" \

@@ -682,12 +682,8 @@ fun partyStartPlaybackRelease(
             // sender's own stamp, not the receipt: the receipt of a report that crossed with the
             // command would read as an answer to it.
             ?.takeIf { it.reportedAtPartyMs >= freshSincePartyMs }
-        val starved = telemetry?.starved == true
-        when (telemetry?.status) {
-            WatchPartyStatus.paused, WatchPartyStatus.playing -> starved
-            WatchPartyStatus.buffering -> true
-            else -> member.clientLocation == WatchPartyClientLocation.player
-        }
+        if (telemetry == null) member.clientLocation == WatchPartyClientLocation.player
+        else !partyPeerPlaybackReady(telemetry, partyNowMs, freshSincePartyMs)
     }.map { it.profileId }.sorted()
     if (waiting.isEmpty()) return PartyStartRelease(release = true, waitingOn = emptyList())
     val timedOut = partyNowMs - durablyReadyAtPartyMs >= WatchPartyStartPlaybackReadyMaxWaitMs

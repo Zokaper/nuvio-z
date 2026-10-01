@@ -157,6 +157,8 @@ internal object WatchPartySync : PartyRealtimeTransport {
      * host and back on the next tick before the roster would carry it.
      */
     private var selfAway: Boolean = false
+    // Survives socket recovery like Away. A foreground notification proves no player readiness.
+    private var selfReturning: Boolean = false
 
     /**
      * The host's published roster of away members, as the newest tick carried it. Guests only.
@@ -739,6 +741,7 @@ internal object WatchPartySync : PartyRealtimeTransport {
      */
     fun setLocalPresence(away: Boolean): Boolean {
         if (selfAway == away) return false
+        selfReturning = !away && authority?.let { it.selfProfileId != it.hostProfileId } == true
         selfAway = away
         val context = authority
         if (context != null && context.selfProfileId != context.hostProfileId) {
@@ -753,6 +756,13 @@ internal object WatchPartySync : PartyRealtimeTransport {
 
     /** Whether this client is away. Read back by the runtime that has to decide what to resume. */
     fun isLocallyAway(): Boolean = selfAway
+
+    /** Called only after the runtime has completed catch-up and sampled a ready engine. */
+    fun completeLocalReturn() {
+        if (!selfAway) selfReturning = false
+    }
+
+    fun isLocallyReturning(): Boolean = selfReturning
 
     /**
      * The away roster this host publishes: every guest that has reported being away, plus itself.
@@ -790,6 +800,10 @@ internal object WatchPartySync : PartyRealtimeTransport {
      * this function is reporting an *engine* fact and none of them knows about the app's window.
      */
     fun publishPeerStatus(status: WatchPartyStatus, starved: Boolean = false) {
+        publishEffectivePeerStatus(status, starved || selfReturning)
+    }
+
+    private fun publishEffectivePeerStatus(status: WatchPartyStatus, starved: Boolean) {
         val context = authority ?: return
         val generation = context.generation
         val profileId = context.selfProfileId
