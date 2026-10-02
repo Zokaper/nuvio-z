@@ -1,3 +1,30 @@
+## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
+
+Owner: Claude, in isolated worktrees; Codex's frozen RC untouched. Branch `claude/whatsnew-global` in
+both repos, cut from the frozen RC docs heads (mobile `85a29d374`, desktop `bc0434882`), so it merges
+into `claude/ios-watch-together-hardening` as new commits only. No performance, auth, playback, Social,
+Watch Together, Downloads or stable-release change. The planned desktop transition release was dropped
+by the maintainer: `z6` users hold only `last_seen_version`, which the new code migrates by itself.
+
+- `changelog.json` is a list of **release events** (global `seq`, optional `summary`, per-platform
+  `ships` with version / serial / date), byte-identical in both repos. Debug notes moved to a per-repo
+  `changelog-debug.json`. Rules (eligibility, seen state, migration, fresh install) live in
+  `WhatsNewSelection.kt` and are summarised in `Docs/Z-FEATURES.md` C21 and `AGENTS.md`.
+- Fresh installs no longer open on What's New: Settings -> What's New shows **New** until opened.
+- The next release is **seq 1**: desktop `0.1.26-alpha-z1` serial **132**, Android/iOS `0.5.4-z1`
+  serial **127**, all `unreleased`, with the curated notes. Five entries carry `qa` markers (iPhone
+  lock/Away, auth smoke, iOS downloads); `check-changelog.py check` refuses to release until they are
+  removed after the matching physical pass.
+- Tooling: `check-changelog.py validate | check | notes | compare`, same `--family/--serial` interface
+  as before; `scripts/test_check_changelog.py` (20 tests); CI job "Global changelog" compares with the
+  other repo's same-named branch; release workflows compare with the other trunk, ship dates aside, and
+  pass `--version`.
+- Verified: mobile full host **3,454 / 0 failures / 0 errors / 6 policy skips** on `1b86b6f76`; focused
+  What's New + store registry + settings hub 59/59.
+
+Remaining: physical preview on debug 76 (Android/iOS) and desktop 82; mirror each family's ship date
+into the other repo after its release; integrate by merging this branch into the RC in both repos.
+
 ## Frozen RC — READY FOR DEVICE QA (2026-10-02)
 
 Codex is the sole implementation owner. No new production changes were needed in this
