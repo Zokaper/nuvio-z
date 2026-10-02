@@ -4,66 +4,50 @@ import com.nuvio.app.core.build.AppVersionConfig
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * The shipped changelog parses, is well formed, and has notes for this build's release serial -
- * the same guard `scripts/check-changelog.py` applies in the release workflow, run on every CI push
- * so a bump without notes is red before anyone dispatches a release.
+ * The shipped global changelog parses whole, is structurally sound, and has an event for this build's
+ * release serial on both phones - the same guard `scripts/check-changelog.py` applies in the release
+ * workflow, run on every CI push so a bump without notes is red before anyone dispatches a release.
+ * (Open `qa` markers are the release workflow's to refuse, not this test's: a debug line carries them.)
  */
 class ChangelogFileTest {
-    private val releases = ChangelogCatalog.parse(File("src/commonMain/composeResources/files/changelog.json").readText())
+    private val text = File("src/commonMain/composeResources/files/changelog.json").readText()
+    private val events = ChangelogCatalog.parse(text)
 
     @Test
-    fun everyEntryParsesWithACategoryAndAPlatform() {
-        assertTrue(releases.isNotEmpty())
-        releases.forEach { release ->
-            assertTrue(release.entries.isNotEmpty(), "${release.family} ${release.serial} has no entries")
-            release.entries.forEach { entry ->
-                assertTrue(entry.platforms.isNotEmpty(), "${release.serial} '${entry.title}' names no platform")
-                assertTrue(entry.title.isNotBlank())
-            }
-        }
+    fun theFileIsSoundAndNothingInItIsDroppedByTheLenientParser() {
+        assertTrue(events.isNotEmpty())
+        assertEquals(emptyList(), validateChangelog(events))
+        // Leniency is for future files; the shipped one must parse whole.
+        val rawEntries = Regex("\"category\"\\s*:").findAll(text).count()
+        assertEquals(rawEntries, events.sumOf { it.entries.size })
+        assertEquals(Regex("\"seq\"\\s*:").findAll(text).count(), events.size)
     }
 
     @Test
-    fun serialsAreUniqueWithinALine() {
-        releases.groupBy { it.family }.forEach { (family, lines) ->
-            assertEquals(lines.size, lines.map { it.serial }.toSet().size, "duplicate serial in $family")
-        }
+    fun thisBuildsReleaseSerialShipsAnEventOnBothPhones() {
+        val android = changelogEventFor(events, ChangelogPlatform.ANDROID, AppVersionConfig.RELEASE_SERIAL)
+        val ios = changelogEventFor(events, ChangelogPlatform.IOS, AppVersionConfig.RELEASE_SERIAL)
+        assertNotNull(android, "changelog.json ships no Android event for RELEASE_SERIAL ${AppVersionConfig.RELEASE_SERIAL}")
+        assertEquals(android, ios)
     }
 
     @Test
-    fun thisBuildsReleaseSerialHasNotes() {
-        assertTrue(
-            changelogHasRelease(releases, "mobile", AppVersionConfig.RELEASE_SERIAL),
-            "changelog.json has no mobile notes for RELEASE_SERIAL ${AppVersionConfig.RELEASE_SERIAL}",
-        )
+    fun theDebugNotesAreThisFamilysOwn() {
+        val debug = File("src/commonMain/composeResources/files/changelog-debug.json").readText()
+        val notes = ChangelogCatalog.parseDebug(debug, "mobile")
+        assertTrue(notes.isNotEmpty())
+        assertEquals(notes.size, notes.map { it.build }.toSet().size)
     }
 
     @Test
-    fun anActionIsParsedLenientlyAndOptional() {
-        val parsed = ChangelogCatalog.parse(
-            """{"releases":[{"family":"mobile","version":"x","serial":1,"entries":[
-              {"category":"feature","platforms":["android"],"title":"A","action":"advanced_setup"},
-              {"category":"feature","platforms":["android"],"title":"B","action":"from_the_future"},
-              {"category":"feature","platforms":["android"],"title":"C"}]}]}""",
-        ).single().entries
-        assertEquals(listOf(ChangelogAction.ADVANCED_SETUP, null, null), parsed.map { it.action })
-    }
-
-    @Test
-    fun thisReleaseOffersAdvancedSetupOnEveryPlatform() {
-        // Plan section 8: existing users meet Advanced Setup through this release's What's New card.
-        listOf("mobile" to listOf(ChangelogPlatform.ANDROID, ChangelogPlatform.IOS), "desktop" to listOf(ChangelogPlatform.DESKTOP))
-            .forEach { (family, platforms) ->
-                val newest = releases.filter { it.family == family }.maxBy { it.serial }
-                platforms.forEach { platform ->
-                    assertTrue(
-                        newest.entries.any { it.action == ChangelogAction.ADVANCED_SETUP && platform in it.platforms },
-                        "$family ${newest.serial} has no Advanced Setup card for $platform",
-                    )
-                }
-            }
+    fun theNextReleaseOffersAdvancedSetupOnEveryPlatform() {
+        // Plan section 8: existing users meet Advanced Setup through the release's What's New card.
+        val event = assertNotNull(changelogEventFor(events, ChangelogPlatform.ANDROID, AppVersionConfig.RELEASE_SERIAL))
+        val card = event.entries.single { it.action == ChangelogAction.ADVANCED_SETUP }
+        assertEquals(setOf(ChangelogPlatform.ANDROID, ChangelogPlatform.IOS, ChangelogPlatform.DESKTOP), card.platforms)
     }
 }

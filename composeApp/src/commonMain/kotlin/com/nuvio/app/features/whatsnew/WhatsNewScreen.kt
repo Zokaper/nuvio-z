@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,7 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -38,29 +42,40 @@ import nuvio.composeapp.generated.resources.whats_new_debug_build
 import nuvio.composeapp.generated.resources.whats_new_improvements
 import nuvio.composeapp.generated.resources.whats_new_new_features
 import nuvio.composeapp.generated.resources.whats_new_no_notes
+import nuvio.composeapp.generated.resources.whats_new_other_devices
+import nuvio.composeapp.generated.resources.whats_new_platform_android
+import nuvio.composeapp.generated.resources.whats_new_platform_desktop
+import nuvio.composeapp.generated.resources.whats_new_platform_ios
 import nuvio.composeapp.generated.resources.whats_new_previous_versions
 import nuvio.composeapp.generated.resources.whats_new_previous_versions_loading
 import nuvio.composeapp.generated.resources.whats_new_previous_versions_unavailable
 import nuvio.composeapp.generated.resources.whats_new_title
+import nuvio.composeapp.generated.resources.whats_new_unreleased
 import nuvio.composeapp.generated.resources.whats_new_version
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * @param history earlier releases, newest first, fetched from the releases feed. Null while it
- *   is still loading and empty when it could not be fetched - the two render differently, and
- *   neither one blocks the curated [sections], which are always available offline.
- * @param dismissible true when the screen was opened from Settings rather than shown after an
- *   update. The post-update showing is modal on purpose: it is the one moment the user is
- *   guaranteed to see it, and it is dismissed by the button that records the version as seen.
+ * The global changelog, as release events: each one leads with its date (and optional one-line
+ * summary), then the versions it shipped in - only the platforms it really shipped on, this device's
+ * own emphasised - then this platform's entries, then anything for other devices, set apart.
+ *
+ * @param events newest first. After an update: the events this device has not acknowledged. From
+ *   Settings: every event released to this platform.
+ * @param history earlier GitHub releases the changelog does not cover, newest first. Null while
+ *   loading and empty when it could not be fetched - the two render differently, and neither one
+ *   blocks [events], which are always available offline.
+ * @param dismissible true when opened from Settings rather than shown after an update. The
+ *   post-update showing is modal on purpose: it is dismissed by the button that records it as seen.
  */
 @Composable
 fun WhatsNewScreen(
     versionName: String,
-    sections: List<WhatsNewSection>,
+    events: List<WhatsNewEventUi>,
     onContinue: () -> Unit,
+    debugSection: WhatsNewSection? = null,
     history: List<AppReleaseNotes>? = null,
     dismissible: Boolean = false,
-    /** False after an update: that screen is the missed releases' notes; history lives in Settings. */
+    /** False after an update: that screen is the missed events; history lives in Settings. */
     showHistory: Boolean = true,
     /**
      * An action card was pressed ("Try Advanced Setup"). The caller closes this screen - and, after
@@ -107,13 +122,25 @@ fun WhatsNewScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 520.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    items(sections) { section ->
-                        WhatsNewSectionContent(section, onAction)
+                    debugSection?.let { section ->
+                        item(key = "debug") { WhatsNewSectionContent(section, onAction = null) }
+                    }
+                    if (events.isEmpty() && debugSection == null) {
+                        item(key = "empty") {
+                            Text(
+                                text = stringResource(Res.string.whats_new_no_notes),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = tokens.colors.textMuted,
+                            )
+                        }
+                    }
+                    items(events, key = { "event-${it.seq}" }) { event ->
+                        WhatsNewEventContent(event, onAction)
                     }
                     if (showHistory) {
-                        item {
+                        item(key = "history") {
                             PreviousVersions(history = history)
                         }
                     }
@@ -133,7 +160,61 @@ fun WhatsNewScreen(
 }
 
 @Composable
-private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((ChangelogAction) -> Unit)? = null) {
+private fun platformLabel(platform: ChangelogPlatform): String = stringResource(
+    when (platform) {
+        ChangelogPlatform.DESKTOP -> Res.string.whats_new_platform_desktop
+        ChangelogPlatform.ANDROID -> Res.string.whats_new_platform_android
+        ChangelogPlatform.IOS -> Res.string.whats_new_platform_ios
+    },
+)
+
+@Composable
+private fun WhatsNewEventContent(event: WhatsNewEventUi, onAction: ((ChangelogAction) -> Unit)?) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HorizontalDivider(color = tokens.colors.borderSubtle)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = event.date ?: stringResource(Res.string.whats_new_unreleased),
+                style = MaterialTheme.typography.titleLarge,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+            if (event.versions.isNotEmpty()) {
+                val labels = event.versions.map { platformLabel(it.platform) }
+                Text(
+                    text = buildAnnotatedString {
+                        event.versions.forEachIndexed { index, version ->
+                            if (index > 0) append("  ·  ")
+                            val style = if (version.isViewer) {
+                                SpanStyle(color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                            } else {
+                                SpanStyle(color = tokens.colors.textMuted)
+                            }
+                            withStyle(style) { append("${labels[index]} ${version.version}") }
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            event.summary?.let { summary ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textSecondary,
+                )
+            }
+        }
+        event.sections.forEach { section -> WhatsNewSectionContent(section, onAction) }
+        if (event.otherDevices.isNotEmpty()) {
+            OtherDevices(event.otherDevices)
+        }
+    }
+}
+
+@Composable
+private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((ChangelogAction) -> Unit)?) {
     val tokens = MaterialTheme.nuvio
     val accent = when (section.category) {
         WhatsNewCategory.NewFeatures -> tokens.colors.accent
@@ -165,24 +246,12 @@ private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((Changel
         }
         section.items.forEach { item ->
             Column(modifier = Modifier.padding(start = 17.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.title,
-                        modifier = Modifier.weight(1f, fill = false),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = tokens.colors.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    // Which release it came from, when the screen merges several.
-                    item.version?.let { version ->
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = version,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.colors.textMuted,
-                        )
-                    }
-                }
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 if (item.description.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -213,7 +282,49 @@ private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((Changel
 }
 
 /**
- * Earlier releases, straight from the GitHub releases feed.
+ * Entries about other platforms. Smaller and muted, each tagged with the platforms it is about, and
+ * without action buttons - an action is something to do on this device.
+ */
+@Composable
+private fun OtherDevices(items: List<WhatsNewItem>) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = stringResource(Res.string.whats_new_other_devices),
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.textMuted,
+            fontWeight = FontWeight.SemiBold,
+        )
+        items.forEach { item ->
+            Column(modifier = Modifier.padding(start = 17.dp)) {
+                val tag = item.platforms.map { platformLabel(it) }.joinToString(" · ")
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = tokens.colors.textSecondary, fontWeight = FontWeight.SemiBold)) {
+                            append(item.title)
+                        }
+                        if (tag.isNotEmpty()) {
+                            withStyle(SpanStyle(color = tokens.colors.textMuted)) { append("  ·  $tag") }
+                        }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (item.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = item.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Earlier releases, straight from the GitHub releases feed - only those the changelog does not
+ * already cover.
  *
  * Rendered through [parseReleaseNotes] rather than a plain `Text`, because those bodies are
  * markdown - without it every heading shows as `## Fixes` and every bullet keeps its `- `.
@@ -222,6 +333,7 @@ private fun WhatsNewSectionContent(section: WhatsNewSection, onAction: ((Changel
 private fun PreviousVersions(history: List<AppReleaseNotes>?) {
     val tokens = MaterialTheme.nuvio
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HorizontalDivider(color = tokens.colors.borderSubtle)
         Text(
             text = stringResource(Res.string.whats_new_previous_versions),
             style = MaterialTheme.typography.labelLarge,

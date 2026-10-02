@@ -54,6 +54,7 @@ import com.nuvio.app.features.playback.playbackModeName
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.setup.AdvancedSetupBadge
+import com.nuvio.app.features.whatsnew.WhatsNewBadge
 import com.nuvio.app.features.setup.AdvancedSetupLauncher
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.isDesktop
@@ -299,6 +300,9 @@ internal fun LazyListScope.zSettingsRootContent(
     if (shows(ZSettingsSection.SetupAndAbout)) {
         item(key = "z-setup") {
             val opened by AdvancedSetupBadge.opened.collectAsStateWithLifecycle()
+            // An event released here has not been looked at yet (a fresh install, mostly). Opening
+            // What's New clears it - see `markWhatsNewViewed`.
+            val whatsNewPending by WhatsNewBadge.pending.collectAsStateWithLifecycle()
             val profileId = ProfileRepository.activeProfileId
             LaunchedEffect(profileId) { AdvancedSetupBadge.refresh(profileId) }
             ZSection(ZSettingsSection.SetupAndAbout, isTablet) {
@@ -327,6 +331,7 @@ internal fun LazyListScope.zSettingsRootContent(
                         description = stringResource(Res.string.whats_new_version, AppVersionPolicy.displayVersionName),
                         icon = Icons.Rounded.NewReleases,
                         isTablet = isTablet,
+                        trailingContent = if (whatsNewPending) { { ZNewBadge() } } else null,
                         onClick = onWhatsNewClick,
                     )
                 }

@@ -7,22 +7,20 @@ import com.nuvio.app.core.debug.isDebugBuild
 
 internal actual object WhatsNewStorage {
     private const val preferencesName = "nuvio_whats_new"
+
+    // Written by earlier builds; read for migration only, never rewritten.
     private const val lastSeenVersionKey = "last_seen_version"
     private const val ackSerialKey = "ack_serial"
+
+    private const val ackSeqKey = "ack_seq"
+    private const val ackSeenKey = "ack_seen"
+    private const val viewedSeqKey = "viewed_seq"
+    private const val viewedSeenKey = "viewed_seen"
     private const val ackDebugBuildKey = "ack_debug_build"
     private var preferences: SharedPreferences? = null
 
-    actual val isDesktop: Boolean = false
-
     fun initialize(context: Context) {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
-    }
-
-    actual fun loadLastSeenVersion(): String? =
-        preferences?.getString(lastSeenVersionKey, null)
-
-    actual fun saveLastSeenVersion(versionName: String) {
-        preferences?.edit()?.putString(lastSeenVersionKey, versionName)?.apply()
     }
 
     actual val releaseIdentity: WhatsNewReleaseIdentity
@@ -34,16 +32,27 @@ internal actual object WhatsNewStorage {
             platform = ChangelogPlatform.ANDROID,
         )
 
-    actual fun loadAck(): WhatsNewAck? {
-        val prefs = preferences ?: return null
-        if (!prefs.contains(ackSerialKey)) return null
-        return WhatsNewAck(prefs.getInt(ackSerialKey, 0), prefs.getInt(ackDebugBuildKey, 0))
+    actual fun load(): StoredWhatsNew {
+        val prefs = preferences ?: return StoredWhatsNew()
+        fun int(key: String): Int? = if (prefs.contains(key)) runCatching { prefs.getInt(key, 0) }.getOrNull() else null
+        fun seen(seqKey: String, seenKey: String): SeenEvents? =
+            int(seqKey)?.let { SeenEvents(it.coerceAtLeast(0), SeenEvents.decodeAbove(prefs.getString(seenKey, null))) }
+        return StoredWhatsNew(
+            acknowledged = seen(ackSeqKey, ackSeenKey),
+            viewed = seen(viewedSeqKey, viewedSeenKey),
+            debugBuild = int(ackDebugBuildKey),
+            legacySerial = int(ackSerialKey),
+            legacyLastSeenVersion = runCatching { prefs.getString(lastSeenVersionKey, null) }.getOrNull(),
+        )
     }
 
-    actual fun saveAck(ack: WhatsNewAck) {
+    actual fun save(state: WhatsNewState) {
         preferences?.edit()
-            ?.putInt(ackSerialKey, ack.serial)
-            ?.putInt(ackDebugBuildKey, ack.debugBuild)
+            ?.putInt(ackSeqKey, state.acknowledged.floor)
+            ?.putString(ackSeenKey, SeenEvents.encodeAbove(state.acknowledged.above))
+            ?.putInt(viewedSeqKey, state.viewed.floor)
+            ?.putString(viewedSeenKey, SeenEvents.encodeAbove(state.viewed.above))
+            ?.putInt(ackDebugBuildKey, state.debugBuild)
             ?.apply()
     }
 }

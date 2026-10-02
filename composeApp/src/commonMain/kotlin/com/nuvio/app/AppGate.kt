@@ -34,10 +34,6 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.maskId
 import com.nuvio.app.core.auth.safeAuthStateDescription
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.whats_new_bug_fixes
-import nuvio.composeapp.generated.resources.whats_new_improvements
-import nuvio.composeapp.generated.resources.whats_new_new_features
-import org.jetbrains.compose.resources.getString
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.sync.SyncManager
@@ -81,15 +77,18 @@ import com.nuvio.app.features.updater.AppReleaseNotes
 import com.nuvio.app.features.updater.fetchRecentReleaseNotes
 import com.nuvio.app.features.whatsnew.ChangelogAction
 import com.nuvio.app.features.whatsnew.ChangelogCatalog
-import com.nuvio.app.features.whatsnew.ChangelogCategory
-import com.nuvio.app.features.whatsnew.ChangelogRelease
-import com.nuvio.app.features.whatsnew.WhatsNewAck
-import com.nuvio.app.features.whatsnew.WhatsNewDecision
+import com.nuvio.app.features.whatsnew.WhatsNewBadge
+import com.nuvio.app.features.whatsnew.WhatsNewEventUi
 import com.nuvio.app.features.whatsnew.WhatsNewSection
-import com.nuvio.app.features.whatsnew.changelogHistory
-import com.nuvio.app.features.whatsnew.changelogHistoryNotes
+import com.nuvio.app.features.whatsnew.WhatsNewState
 import com.nuvio.app.features.whatsnew.decideWhatsNew
-import com.nuvio.app.features.whatsnew.toSections
+import com.nuvio.app.features.whatsnew.eligibleEvents
+import com.nuvio.app.features.whatsnew.isCoveredByChangelog
+import com.nuvio.app.features.whatsnew.markWhatsNewViewed
+import com.nuvio.app.features.whatsnew.resolveWhatsNewState
+import com.nuvio.app.features.whatsnew.whatsNewBadge
+import com.nuvio.app.features.whatsnew.whatsNewDebugSection
+import com.nuvio.app.features.whatsnew.whatsNewEventsUi
 import com.nuvio.app.features.whatsnew.WhatsNewScreen
 import com.nuvio.app.features.whatsnew.WhatsNewStorage
 import com.nuvio.app.features.trakt.TraktAuthRepository
@@ -259,15 +258,18 @@ internal fun AppGate(
     var pendingProfileSwitch by remember { mutableStateOf<PendingProfileSwitch?>(null) }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
-    // Phase 9: What's New comes from the shipped changelog and is keyed on the release serial,
-    // with a device-local acknowledgement - see `decideWhatsNew`.
+    // The global changelog (release events, see `WhatsNewSelection.kt`): after an update, a screen of
+    // the events this device has not acknowledged; in Settings, a "New" badge while any is unviewed.
+    // A fresh install never opens on it - the badge invites a look instead.
     val whatsNewIdentity = remember { WhatsNewStorage.releaseIdentity }
-    var changelog by remember { mutableStateOf<List<ChangelogRelease>?>(null) }
-    var whatsNewSections by remember { mutableStateOf<List<WhatsNewSection>>(emptyList()) }
-    var whatsNewAckToWrite by remember { mutableStateOf<WhatsNewAck?>(null) }
+    var changelog by remember { mutableStateOf<ChangelogCatalog.Loaded?>(null) }
+    var whatsNewEvents by remember { mutableStateOf<List<WhatsNewEventUi>>(emptyList()) }
+    var whatsNewDebug by remember { mutableStateOf<WhatsNewSection?>(null) }
+    var whatsNewState by remember { mutableStateOf<WhatsNewState?>(null) }
+    var whatsNewStateAfterContinue by remember { mutableStateOf<WhatsNewState?>(null) }
     var showWhatsNew by remember { mutableStateOf(false) }
-    // Opened from Settings rather than shown after an update: dismissible, and it must not
-    // record the version as seen or the post-update showing would be skipped.
+    // Opened from Settings rather than shown after an update: dismissible. Opening it views (and
+    // acknowledges) every released event, which is what clears the badge.
     var showWhatsNewOnDemand by remember { mutableStateOf(false) }
     // Settings -> "Run setup again". Hoisted here for the same reason the What's New flag
     // is: the gating showing lives in this function, and one flag for both is what keeps
@@ -286,57 +288,57 @@ internal fun AppGate(
     // wizard's Done page or What's New. A request made while something gates the app (the wizard,
     // the profile picker) waits for it: the hub opens only over the mounted app, see below.
     var advancedSetupRequested by remember { mutableStateOf(false) }
-    // null while loading, empty when it could not be fetched. Either way the curated
-    // sections still render - this screen has to work offline and on builds where the
-    // in-app updater is disabled.
+    // null while loading, empty when it could not be fetched. Either way the shipped events
+    // still render - this screen has to work offline and on builds where the in-app updater is
+    // disabled.
     var whatsNewHistory by remember { mutableStateOf<List<AppReleaseNotes>?>(null) }
 
     LaunchedEffect(ownsAppRuntime) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        val releases = ChangelogCatalog.load()
-        changelog = releases
-        val decision = decideWhatsNew(
-            releases = releases,
-            family = whatsNewIdentity.family,
-            platform = whatsNewIdentity.platform,
-            currentSerial = whatsNewIdentity.serial,
-            currentVersion = whatsNewIdentity.versionName,
-            currentDebugBuild = whatsNewIdentity.debugBuild,
-            ack = WhatsNewStorage.loadAck(),
-            legacyLastSeenVersion = WhatsNewStorage.loadLastSeenVersion(),
-        )
+        val loaded = ChangelogCatalog.load(whatsNewIdentity.family)
+        changelog = loaded
+        val decision = decideWhatsNew(loaded.events, loaded.debugNotes, whatsNewIdentity.viewer, WhatsNewStorage.load())
+        // Saved at once: a migration from the old keys happens exactly once, and a fresh install is
+        // recorded as one (acknowledged, not viewed) before anything else can run.
+        WhatsNewStorage.save(decision.state)
+        whatsNewState = decision.state
+        WhatsNewBadge.update(decision.badge)
         if (decision.shouldShow) {
-            whatsNewSections = decision.toSections()
-            whatsNewAckToWrite = decision.ackToWrite
+            whatsNewEvents = whatsNewEventsUi(decision.events, whatsNewIdentity.platform)
+            whatsNewDebug = whatsNewDebugSection(decision.debugNotes)
+            whatsNewStateAfterContinue = decision.stateAfterContinue
             showWhatsNew = true
-        } else {
-            // Nothing to show (a fresh install, or nothing new): acknowledge now, so a later
-            // update compares against this build.
-            WhatsNewStorage.saveAck(decision.ackToWrite)
         }
     }
 
-    // Settings -> What's new: this release's notes and the history before it, from the shipped
-    // changelog (offline), then whatever older releases the releases feed still has.
+    // Settings -> What's new: every event released to this platform, from the shipped changelog
+    // (offline), then whatever older releases the releases feed has that the changelog does not.
     LaunchedEffect(showWhatsNewOnDemand) {
         if (!showWhatsNewOnDemand) return@LaunchedEffect
-        val releases = changelog ?: ChangelogCatalog.load().also { changelog = it }
-        val history = changelogHistory(releases, whatsNewIdentity.family, whatsNewIdentity.platform, whatsNewIdentity.serial)
-        whatsNewSections = history.firstOrNull { it.first.serial == whatsNewIdentity.serial }
-            ?.let { (release, sections) -> WhatsNewDecision(sections, emptyList(), WhatsNewAck(release.serial, 0)).toSections() }
-            .orEmpty()
-        val headings = mapOf(
-            ChangelogCategory.FEATURE to getString(Res.string.whats_new_new_features),
-            ChangelogCategory.IMPROVEMENT to getString(Res.string.whats_new_improvements),
-            ChangelogCategory.FIX to getString(Res.string.whats_new_bug_fixes),
-        )
-        val shipped = history.filter { it.first.serial != whatsNewIdentity.serial }
-            .map { (release, sections) -> changelogHistoryNotes(release, sections, headings) }
-        val known = releases.map { it.version }.toSet() + whatsNewIdentity.versionName
-        whatsNewHistory = shipped + fetchRecentReleaseNotes()
+        val loaded = changelog ?: ChangelogCatalog.load(whatsNewIdentity.family).also { changelog = it }
+        val viewer = whatsNewIdentity.viewer
+        whatsNewEvents = whatsNewEventsUi(eligibleEvents(loaded.events, viewer), whatsNewIdentity.platform)
+        whatsNewDebug = null
+        val current = whatsNewState ?: resolveWhatsNewState(loaded.events, viewer, WhatsNewStorage.load()).first
+        val viewed = markWhatsNewViewed(current, loaded.events, viewer)
+        WhatsNewStorage.save(viewed)
+        whatsNewState = viewed
+        WhatsNewBadge.update(whatsNewBadge(viewed, loaded.events, viewer))
+        whatsNewHistory = null
+        whatsNewHistory = fetchRecentReleaseNotes()
             .getOrNull()
-            ?.filter { it.tag.trimStart('v', 'V').substringBefore('+') !in known }
+            ?.filter { !isCoveredByChangelog(it.tag, loaded.events, whatsNewIdentity.platform) }
             .orEmpty()
+    }
+    // Done on the post-update screen, or one of its action cards: everything released here is now
+    // acknowledged and viewed.
+    val acknowledgeWhatsNew: () -> Unit = {
+        whatsNewStateAfterContinue?.let { after ->
+            WhatsNewStorage.save(after)
+            whatsNewState = after
+            changelog?.let { WhatsNewBadge.update(whatsNewBadge(after, it.events, whatsNewIdentity.viewer)) }
+        }
+        showWhatsNew = false
     }
     var profileSelectionLoading by rememberSaveable { mutableStateOf(false) }
     var profileSelectionTransitionActive by rememberSaveable { mutableStateOf(false) }
@@ -890,20 +892,15 @@ internal fun AppGate(
         if (showWhatsNew && gateScreen == AppGateScreen.Main.name && gatingRun == SetupWizardRun.None) {
             WhatsNewScreen(
                 versionName = whatsNewIdentity.versionName,
-                sections = whatsNewSections,
-                // The post-update screen is this build's notes; history is for Settings.
+                events = whatsNewEvents,
+                debugSection = whatsNewDebug,
+                // The post-update screen is the missed events; history is for Settings.
                 history = emptyList(),
                 showHistory = false,
-                onContinue = {
-                    whatsNewAckToWrite?.let(WhatsNewStorage::saveAck)
-                    WhatsNewStorage.saveLastSeenVersion(whatsNewIdentity.versionName)
-                    showWhatsNew = false
-                },
+                onContinue = acknowledgeWhatsNew,
                 // "Try Advanced Setup": acknowledge exactly as Done would, close, open the hub.
                 onAction = { action ->
-                    whatsNewAckToWrite?.let(WhatsNewStorage::saveAck)
-                    WhatsNewStorage.saveLastSeenVersion(whatsNewIdentity.versionName)
-                    showWhatsNew = false
+                    acknowledgeWhatsNew()
                     when (action) {
                         ChangelogAction.ADVANCED_SETUP -> AdvancedSetupLauncher.open()
                     }
@@ -912,7 +909,7 @@ internal fun AppGate(
         } else if (showWhatsNewOnDemand) {
             WhatsNewScreen(
                 versionName = whatsNewIdentity.versionName,
-                sections = whatsNewSections,
+                events = whatsNewEvents,
                 history = whatsNewHistory,
                 dismissible = true,
                 onContinue = { showWhatsNewOnDemand = false },

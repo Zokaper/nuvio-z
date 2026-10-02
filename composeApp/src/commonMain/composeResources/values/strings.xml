@@ -3486,6 +3486,11 @@
     <string name="zsettings_run_initial_setup_description">Step through playback, downloads, sources, social and look from the start.</string>
     <string name="zsettings_about_description">Supporters, privacy, licenses and updates</string>
     <string name="whats_new_action_advanced_setup">Try Advanced Setup</string>
+    <string name="whats_new_other_devices">Also in this update, on other devices</string>
+    <string name="whats_new_platform_desktop">Desktop</string>
+    <string name="whats_new_platform_android">Android</string>
+    <string name="whats_new_platform_ios">iOS</string>
+    <string name="whats_new_unreleased">Not released yet</string>
     <string name="setup_device_navigation_title">Navigation on this device</string>
     <string name="setup_device_navigation_subtitle_android">Choose how the tab bar looks and behaves on this phone.</string>
     <string name="setup_device_navigation_subtitle_ios">Choose whether this iPhone uses the Liquid Glass tab bar.</string>

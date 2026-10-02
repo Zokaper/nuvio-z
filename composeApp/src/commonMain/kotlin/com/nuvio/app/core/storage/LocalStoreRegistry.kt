@@ -211,6 +211,10 @@ internal val IOS_ACCOUNT_PREFIXES: List<String> = listOf(
 internal val IOS_DEVICE_KEYS: Set<String> = setOf(
     "nuvio_device_setup_revision",
     "nuvio_whats_new_ack_serial",
+    "nuvio_whats_new_ack_seq",
+    "nuvio_whats_new_ack_seen",
+    "nuvio_whats_new_viewed_seq",
+    "nuvio_whats_new_viewed_seen",
     "nuvio_whats_new_ack_debug_build",
     "nuvio_whats_new_last_seen_version",
     "nuvio_network_quality_estimates_json",

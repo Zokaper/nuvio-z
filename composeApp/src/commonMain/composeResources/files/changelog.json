@@ -1,18 +1,37 @@
 {
   "_readme": [
-    "The one changelog for both repositories (Phase 9, plan 4.10). The app ships it and reads it offline;",
-    "the release tooling reads it for the release body. Release identity is `serial` (RELEASE_SERIAL),",
-    "never the version string. Add a release entry BEFORE the version bump - scripts/check-changelog.py",
-    "fails a release whose serial has no entries. category: feature | improvement | fix;",
-    "platforms: android | ios | desktop. `debug` lines are shown only by debug builds newer than the",
-    "last one the device saw. Unreleased lines carry date \"unreleased\" until the release is cut."
+    "The global Nuvio Z changelog: one history across Desktop, Android and iOS, byte-identical in nuvio-z and",
+    "nuviozdesktop (scripts/check-changelog.py compare). The app ships it and reads it offline; the release tooling",
+    "reads it for the release body. An event is identified and ordered by `seq` (global, monotonic, unique), never by",
+    "a version, a date or one family's serial. `ships` lists only the platforms the event actually ships on, each with",
+    "its own version, release serial and date (\"unreleased\" until that platform's release commit sets it). Android",
+    "and iOS ship one mobile version under one serial. Events are listed newest first. category: feature |",
+    "improvement | fix; platforms: android | ios | desktop, each one a platform the event ships on. Optional:",
+    "`summary` (one line, not a name), `action` (advanced_setup), `qa` (an open acceptance item: the app ignores it,",
+    "and check-changelog.py refuses to release an event that still has one). Debug-build notes are per repository,",
+    "in changelog-debug.json. Run `python3 scripts/check-changelog.py validate` after every edit."
   ],
-  "releases": [
+  "events": [
     {
-      "family": "mobile",
-      "version": "0.4.13-z1",
-      "serial": 127,
-      "date": "unreleased",
+      "seq": 1,
+      "summary": "The first proper Nuvio Z release on Android and iPhone, and a big update on desktop: downloads rebuilt from the ground up, Advanced Setup, and Watch Together parties that now include phones.",
+      "ships": {
+        "desktop": {
+          "version": "0.1.26-alpha-z1",
+          "serial": 132,
+          "date": "unreleased"
+        },
+        "android": {
+          "version": "0.5.4-z1",
+          "serial": 127,
+          "date": "unreleased"
+        },
+        "ios": {
+          "version": "0.5.4-z1",
+          "serial": 127,
+          "date": "unreleased"
+        }
+      },
       "entries": [
         {
           "category": "feature",
@@ -20,35 +39,128 @@
             "android",
             "ios"
           ],
+          "title": "Nuvio Z, on your phone",
+          "body": "This is the first proper Nuvio Z release for Android and iPhone, built from the same code as the desktop app. It has the three playback modes, the new Downloads, Social and Watch Together, all covered below. Android keeps itself up to date from inside the app; on iPhone, Nuvio Z installs and updates through SideStore."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Watch Together, on every screen",
+          "body": "Start a party from anything you're playing and watch in sync with friends, on any mix of desktop, Android and iPhone. Everyone plays the same release through their own sources, so nobody shares an account or a link. The host can keep control or share it, invite friends or hand out a code, and decide who can join: Direct, Ask or Off. When the host moves on to the next episode, the whole party comes along. On a phone, Watch Together is in the player's toolbar and in the ⋯ menu next to Play. On iPhone, the lock screen and headphone controls go through the party too.",
+          "qa": "Physical iPhone Watch Together acceptance (lock, Away, return) is still open on the RC."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Away, instead of \"buffering\"",
+          "body": "If someone switches apps or locks their phone mid-party, they now show as Away rather than looking like a stalled stream. The host can choose to wait for them with Pause for away users in the Watch Together panel, separate from Pause when someone buffers. When they come back, they catch up before the party carries on. Clicking into another window on desktop doesn't count as leaving.",
+          "qa": "Physical iPhone Watch Together acceptance (lock, Away, return) is still open on the RC."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Social",
+          "body": "Add friends by their handle, see what they're Watching Now and what they've Recently Watched on Home and in the Social tab, and ask to join with one tap. You choose whether friends see what you're watching, what you've finished, or neither. Social is optional: turn it off during setup or in Settings → Social, and the tab, the activity rows and Watch Together disappear. Nothing is deleted; switching it back on brings everything back."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Three ways to press play",
+          "body": "Classic shows every source and lets you choose. Streamlined asks one question, what quality you want, and picks the best release in it. Instant asks nothing: it checks your connection, picks what it can actually carry and tells you what it opened, with a Change button if you disagree. It asks once before using mobile data. Long-press any episode to get the full source list whatever your mode. Pick a mode in Settings → Playback."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A quality picker built from what's really there",
+          "body": "The picker is built from the releases a title actually has: one row per resolution, quality bands that mean the same thing on every title, and the connection speed each choice needs, measured from the source rather than guessed. One set of ranking rules sits behind it. CAM and TS copies, AI-upscaled \"8K\" and oversized season packs stop floating to the top, and a debrid source that isn't cached is never picked for you."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "A loading screen that says what it's doing",
+          "body": "From the moment you pick a source to the first frame, one screen shows what's happening (finding sources, checking the connection, resolving the link, starting playback) and five facts about the file: resolution, languages, HDR, audio and size. If a source dies, the next one is tried on the same screen (\"Attempt 2 of 3\"). If nothing works, you land back on the source list with the reason, and Choose source manually appears after a few seconds."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
           "title": "Downloads have their own mode",
-          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the quality and picks the best matching file, and Manual lets you pick the exact file yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
+          "body": "Download Mode is now separate from how playback works. Automatic picks the file for you under your rules and asks only when it has to. Assisted asks what quality you want and finds the best matching file. Manual lets you pick the exact file, and choosing one never starts playback by accident. Change it in Settings → Downloads. On desktop, setup asks you two quick questions about downloads the first time you open this version."
         },
         {
           "category": "feature",
           "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "A new Downloads screen",
-          "body": "Posters for everything, a whole season as one row you can open, pause or move, and one \"Needs you\" list that says what is wrong and offers the fix. It also shows how much space downloads use and suggests freeing up episodes you have finished."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Choose sources for a whole season",
-          "body": "In Manual, a season opens one list of its episodes: pick a source for each, or let Nuvio auto-pick the rest."
-        },
-        {
-          "category": "feature",
-          "platforms": [
+            "desktop",
             "android",
             "ios"
           ],
           "title": "Download preferences",
-          "body": "Preferred resolution, a file size level (Small, Standard, Large, Huge or Any size, each shown in GB per hour at 1080p and 4K), what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
+          "body": "Pick a preferred resolution, a file size level and what to do when that resolution isn't available. Levels run Small, Standard, Large, Huge and Any size, each showing its GB per hour at 1080p and 4K, so you know what a season will cost your disk before it starts. They replace download presets; on desktop, your last preset carries over."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "A new Downloads screen",
+          "body": "Everything in one place, with artwork. A season is one row you can expand, pause or move in the queue. A single Needs you list says what's wrong and offers the fix: Allow, Use nearest, Check again, Free up space or Choose sources. It also shows how much space downloads take and offers to clear episodes you've already watched. On phones it lives under Library. On desktop it's back as its own destination in the sidebar and top bar, with the queue and your library side by side while things download."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Your downloads, as a library that works offline",
+          "body": "Downloaded titles show up as cards with their artwork and a play button for what's next. A downloaded show gets its own page, with seasons as tabs and every episode ready to play. If Nuvio says a title is downloaded, it plays with no connection at all: offline playback never reaches for the internet, autoplay moves through the episodes you have, and Home tells you when you're offline. Getting on a plane should be slightly less stressful now.",
+          "qa": "iOS current-head download acceptance (transfer, lock/relaunch, offline playback) is still open on the RC."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Whole seasons, without the busywork",
+          "body": "Download a season from a title's page, either everything or only what you haven't watched. In Assisted, its sources are found in the background: leave the screen, and Downloads tells you when it's ready for you to pick a quality, or choose now from size estimates. In Manual, one list covers the whole season: pick a source for each episode, or let Nuvio auto-pick the rest."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Advanced Setup",
+          "body": "An optional guided tour of everything Initial Setup doesn't ask: the player, skipping, subtitles, posters, Home, the detail page, the source list, Social and more. Every panel has a live preview drawn from the real app, and every change applies straight away and stays in Settings. Open it any time from Settings → Setup & about.",
+          "action": "advanced_setup"
         },
         {
           "category": "feature",
@@ -56,8 +168,46 @@
             "android",
             "ios"
           ],
-          "title": "Your downloads as a library",
-          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page, with what is on this device, seasons as tabs and every episode ready to play offline."
+          "title": "Setup that shows you what it changes",
+          "body": "The first launch walks you through what matters before what Nuvio looks like: playback mode, downloads, language, sources and Social. Each question shows the part of the app it changes, right above the controls. If you haven't added any sources yet, it can set up a recommended AIOStreams + TorBox source for you. Run it again any time from Settings → Setup & about."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Your preferences come with you",
+          "body": "Sign in on a different kind of device, a phone after a computer or the other way round, and Nuvio brings your profile's preferences over. It shows a short Welcome back summary and asks only what belongs to that device, like its navigation style and player controls."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Picture-in-Picture",
+          "body": "Pop the player out into a small window that stays on top while you do something else, then put it back. It's the same playback, not a second copy, and Watch Together keeps working. Windows and macOS."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Choose your navigation",
+          "body": "Phones get the new floating navigation bar: adaptive, always expanded, always compact, or the classic bar, with an optional glow on Android 13 and later and the Liquid Glass tab bar on iOS 26. Desktop gets the new top bar or can keep the sidebar, and both now include Downloads and Social. Find it in Settings → Navigation."
+        },
+        {
+          "category": "feature",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "MDBList tracking and library",
+          "body": "Connect MDBList to keep your watched history and progress in sync, use it as your library, and see Rotten Tomatoes scores next to the other ratings. Settings → Integrations → MDBList Ratings."
         },
         {
           "category": "feature",
@@ -65,236 +215,28 @@
             "android",
             "ios"
           ],
-          "title": "Seasons find their sources in the background",
-          "body": "In Assisted, a season's sources are found in the background: you can leave, and Downloads shows the progress and says when the season is ready for you to choose a quality. Or choose now, from size estimates."
+          "title": "Shuffle",
+          "body": "Play a series in random order, from unwatched or all episodes. It's off by default: turn it on in Settings → Appearance → Detail Page, then press Shuffle on a show's page."
         },
         {
           "category": "feature",
           "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Downloads and mobile data",
-          "body": "Downloads wait for Wi-Fi by default. Choose Ask or Always in Settings → Downloads, or tap \"Download now anyway\" on a waiting episode."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Downloads work offline",
-          "body": "A downloaded title opens its downloads when you are offline, autoplay moves on to the next downloaded episode, and Home tells you when you are offline."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "One download queue across profiles",
-          "body": "Downloads keep going when you switch profile, and each profile still sees only its own."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "ios"
-          ],
-          "title": "Long queues keep going on a locked iPhone",
-          "body": "Nuvio hands up to 30 downloads to iOS while it is open, so a whole season keeps downloading with the screen locked. Queue more than that and Nuvio tells you the rest start when you next open it."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android"
-          ],
-          "title": "Choose how many downloads run at once",
-          "body": "From one to four, in Settings → Downloads."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android"
-          ],
-          "title": "Download progress notification",
-          "body": "Downloads now ask for notification permission, so progress shows in one notification with a separate one when a title or season finishes."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Deleting a download asks first"
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Instant is back",
-          "body": "Tap an episode and it plays. Nuvio measures your connection, picks the quality it can actually carry and the best release in it, and tells you what it opened - with a Change button if you disagree. It keeps the same quality across a show for the rest of the sitting, steps past a source that will not start, and asks once before spending mobile data. Choose it in Settings → Playback → Playback mode. If you picked Instant before it was withdrawn, you are back on it."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "A setup wizard, with a live preview",
-          "body": "First launch now walks you through how Nuvio picks sources and how it looks. Each question shows the part of the app it changes, right above the controls, and it updates as you answer - so you are choosing from what you can see rather than from a list of names. Run it again any time from Settings."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "ios"
-          ],
-          "title": "Downloads now continue with the screen off",
-          "body": "On iPhone, locking the screen used to stop the transfer and turn normal backgrounding into a retry. Downloads now use the system background transfer service, reconnect after a relaunch, and keep user pause separate from screen lock."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Whole-show downloads and progress are honest",
-          "body": "Downloading a title from its menu now queues its released episodes, and Library has a clear Downloads view. iPhone progress no longer invents a percentage before the file size is known or leaves a finished Live Activity behind."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "A failing source no longer loops",
-          "body": "A debrid link that died shortly after starting was retried endlessly - the player reopened on the loading screen, played a second, and went round again with no way out. It now retries once, then names the source and moves to the next one."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Coming back from the player works",
-          "body": "In Streamlined and Instant, backing out of the player with the system Back gesture could land on a blank screen you could not read and could not leave. It now returns you to the source list or to the show."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "No more spinner that never ends",
-          "body": "Several ways of ending up with no source - declining the torrent prompt, a chain of dead sources running out, an add-on that never answers - left \"Starting playback\" on screen for a playback that had already been called off. Every one of them now hands you back the source list and says why."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "A source that dies mid-episode retries properly",
-          "body": "When a source failed after playback had already started, the next one was lined up and then immediately thrown away, so nothing happened. The retry now actually runs."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Best available stops picking season packs",
-          "body": "The top card in the quality picker was ranked by different rules from every other card, so an entire season advertised as one file would head it - and quietly show no size or speed figure at all. It now follows the same rules as the rest, and prefers sources known to be ready."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Downloads that go quiet give up",
-          "body": "On Android, a source that stopped sending without disconnecting held its place in the queue and sat on its last percentage. It is now detected and retried, as it already was on desktop."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "ios"
-          ],
-          "title": "Lock screen controls follow Watch Together",
-          "body": "In a Watch Together party, pausing, playing or seeking from the lock screen, Control Center or headphones used to move only your own player. It now goes through the party like the buttons in the player, and unlocking the phone no longer starts a film you had paused."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Your codec and HDR preferences apply to playback",
-          "body": "Preferred codec and preferred dynamic range are now settings for watching, not only for downloading, and your audio language preference is taken into account when a source is picked for you. Find them under Settings → Playback. Leave them on Automatic and nothing changes."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Social reconnects by itself",
-          "body": "After waking from sleep or losing the connection, Social used to say to sign in, or show \"JWT expired\", until the app was restarted. It now reconnects on its own - when your account session comes back, when the network does, or when you open the Social tab."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "An expired sign-in no longer signs you out",
-          "body": "A sign-in that had only expired - most often in the first seconds after waking the device - was treated as a deleted account, and the app signed you out. It is now refreshed instead; you are signed out only if your account really is gone."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Choose how the navigation bar looks",
-          "body": "The bar is now the one from the latest Nuvio: floating with a jelly slide between tabs, labels that tuck away as you scroll, or always expanded, always compact, or the classic bar. Settings → Layout → Navigation Bar shows a live preview, and on Android 13 and later can add a soft glass glow. Social and your other Nuvio Z tabs are all still there."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "A smoother Home banner",
-          "body": "The featured banner now cycles from the last title back to the first without flashing through all the others, settles properly when you come back to Home, and takes less room when you have nothing in Continue Watching."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Your subtitle choice carries to the next episode",
-          "body": "Pick a subtitle and the next episode picks the same one again - from the same provider and in the same language - instead of falling back to your default language. Turning subtitles off stays off. Nuvio never reuses the previous episode's subtitle file on a different episode."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Shuffle episodes (optional)",
-          "body": "Play a series in random order, choosing from unwatched or all episodes. It is off by default; turn it on in Settings → Layout → Detail Page, then use Shuffle from a show's page."
-        },
-        {
-          "category": "feature",
-          "platforms": [
+            "desktop",
             "android",
             "ios"
           ],
           "title": "Custom poster images (advanced)",
-          "body": "Point Nuvio at a poster service with a URL pattern and choose which screens use it - Home, Continue Watching, Collections, Library, Search and title pages. Titles the service does not cover keep their normal poster."
+          "body": "Point Nuvio at a poster service with a URL pattern and pick which screens use it. Titles the service doesn't cover keep their normal poster. Settings → Appearance → Poster Card Style, with Show advanced settings turned on."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "A reorganised Settings",
+          "body": "Settings is grouped by what you're doing: Watching, Look & feel, Content & services, Profile & social, and Setup & about. Navigation and About have their own pages, and Trakt and Simkl sit with the other integrations."
         },
         {
           "category": "improvement",
@@ -302,8 +244,18 @@
             "android",
             "ios"
           ],
-          "title": "Recent searches",
-          "body": "Search remembers what you looked for and offers it again when you tap the search bar. Turn it off in Settings → Content & Discovery."
+          "title": "Your codec, HDR and language choices shape playback",
+          "body": "Preferred codec, dynamic range and audio language decide what Streamlined and Instant pick, not just what gets downloaded, and your language choice means the same thing to the source picker and the player. Prefer built-in subtitles favours releases that carry subtitles inside the file. Leave them on Automatic and nothing changes."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Watch Together keeps better time",
+          "body": "A host whose link refreshes, or who lands on the same release again, no longer drags the party anywhere; only a genuinely different release moves everyone. After a seek, the party waits until everyone has actually landed and is ready, then resumes together. Keeping a guest in sync no longer shows up as a changed playback speed."
         },
         {
           "category": "improvement",
@@ -311,8 +263,8 @@
             "android",
             "ios"
           ],
-          "title": "Richer title details from TMDB, on by default",
-          "body": "Cast photos, artwork, episode details, collections and more now come from TMDB out of the box, using Nuvio's built-in key - you no longer need your own. A personal key still works, and each part can be switched off. If you had already turned TMDB on or off, your choice is kept."
+          "title": "Smoother next episode",
+          "body": "When an episode ends, the next one is found in the background behind a countdown you can cancel, and the screen stays covered until it's actually playing. Pressing Next twice won't start it twice."
         },
         {
           "category": "improvement",
@@ -321,247 +273,139 @@
             "ios"
           ],
           "title": "New player controls",
-          "body": "The player has the newer control layout from Nuvio, with Watch Together still in its toolbar. Prefer the old one? Settings → Playback → Legacy layout brings it back."
+          "body": "The newer Nuvio control layout, with Watch Together in the toolbar. Prefer the old one? Settings → Playback → Legacy layout."
         },
         {
           "category": "improvement",
           "platforms": [
+            "desktop",
             "android",
             "ios"
           ],
-          "title": "Skip movie credits",
-          "body": "Movies can now skip their end credits, and jump straight to a post-credits scene when there is one."
+          "title": "Skip the credits",
+          "body": "Movies can now skip their end credits, or jump straight to a post-credits scene when there is one. On Android and iPhone, intros and recaps are skippable too, where they're known."
         },
         {
           "category": "improvement",
           "platforms": [
+            "desktop",
             "android",
             "ios"
           ],
-          "title": "Refreshed pop-ups and menus",
-          "body": "Dialogs, bottom sheets and drop-down menus have the cleaner current Nuvio look, and the source list shows a gentle shimmer while add-ons are still answering."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Advanced Setup",
-          "body": "An optional guided tour of everything Initial Setup does not ask - the player, skipping, subtitles, posters, Home, the detail page, sources, social and more - each with a live preview. Open it any time from Settings → Setup & about.",
-          "action": "advanced_setup"
+          "title": "Your subtitle choice carries to the next episode",
+          "body": "Pick a subtitle and the next episode picks the same one again, from the same provider and in the same language, instead of falling back to your default. Subtitles off stays off."
         },
         {
           "category": "improvement",
           "platforms": [
+            "desktop",
             "android",
             "ios"
           ],
-          "title": "A reorganised Settings",
-          "body": "Settings is grouped by what you are doing: Watching, Look & feel, Content & services, Profile & social, and Setup & about. The navigation bar has its own page, Trakt and Simkl sit with the other integrations, and About has its own page."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Your preferences come with you",
-          "body": "Signing in to a profile you set up on your computer brings its preferences over and asks only what belongs to this device."
-        },
-        {
-          "category": "fix",
-          "platforms": [
-            "android",
-            "ios"
-          ],
-          "title": "Settings that stay put",
-          "body": "More of your settings now reach your other devices, and signing out no longer leaves one account's settings behind for the next - while this device's own preferences stay."
-        }
-      ],
-      "debug": [
-        {
-          "build": 49,
-          "text": "Download diagnostics, the notification permission, and offline playback groundwork."
-        },
-        {
-          "build": 50,
-          "text": "The download engine rebuilt: one queue for the device, profile views, device settings."
-        },
-        {
-          "build": 51,
-          "text": "Automatic / Assisted / Manual download flows and the new Downloads screen. Logs file sizes for calibration."
-        },
-        {
-          "build": 52,
-          "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
-        },
-        {
-          "build": 53,
-          "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
-        },
-        {
-          "build": 54,
-          "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
-        },
-        {
-          "build": 55,
-          "text": "iPhone no longer stays on the loading screen after choosing a profile; paused downloads keep their Android notification with a Resume button."
-        },
-        {
-          "build": 56,
-          "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
-        },
-        {
-          "build": 57,
-          "text": "After Choose now the season stays on the Downloads screen and in the Live Activity while its sources are checked; the Library and Downloads tabs no longer shift. iPhone transfers are the same as 56 (baseline for the comparison builds)."
-        },
-        {
-          "build": 60,
-          "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K. iPhone hands up to 30 downloads to the system instead of 12, so a long season keeps going while locked; past 30, a note explains that the rest start when Nuvio is next opened."
-        },
-        {
-          "build": 61,
-          "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. On a short phone the picture at the top shrinks so the choices fit. \"Choose now\" now says it uses size estimates."
-        },
-        {
-          "build": 62,
-          "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
-        },
-        {
-          "build": 63,
-          "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
-        },
-        {
-          "build": 64,
-          "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
-        },
-        {
-          "build": 65,
-          "text": "Watch Together on iPhone: the lock screen, Control Center and headset buttons now go through the party, so a pause or seek there reaches everyone (or is refused if the host controls playback) instead of only moving your own player. Unlocking no longer restarts a film you had paused, and a guest coming back waits to be put back in sync rather than playing from where it stopped. iPhone now tells the party when its player is actually buffering."
-        },
-        {
-          "build": 66,
-          "text": "Setup + settings pass: Advanced Setup (Settings → Setup & about, the Done page, the What's New card), a reorganised Settings with Navigation and About pages, Welcome back / Device Setup when a profile arrives from desktop, and sync and sign-out fixes."
-        },
-        {
-          "build": 67,
-          "text": "Rebuild of 66 whose notes left out that this is the first debug build on the upstream sync (vanilla 0.5.4-beta plus the UX convergence): upstream's floating navigation bar (adaptive, expanded, compact or classic, with glow on Android 13+) carrying Social and Z's tabs, new player controls with the legacy layout still an option, refreshed pop-ups and menus, skip movie credits, your subtitle choice carried to the next episode, a smoother Home banner, shimmering source-list labels, TMDB details on by default, and an expired sign-in no longer signing you out. Everything in 66 is here too."
-        },
-        {
-          "build": 68,
-          "text": "Advanced Setup polish from the device pass: the Player, Touch, Home, Detail page, Enhanced metadata and Source list previews now show the app's real screens and fit a small phone; Touch and Navigation previews can be tried; subtitles preview the way this device's player draws them; Set up in Settings opens the page over Advanced Setup and Back returns to where you were; Social switches respond at once; a clearer Take the full tour; the tour no longer slides the whole screen. Welcome back on a phone now also sets up this phone's navigation and player."
-        },
-        {
-          "build": 69,
-          "text": "TMDB details work again: builds now carry Nuvio's built-in TMDB key, so cast, artwork, episode details and More like this come from TMDB with no key of your own (68 shipped without one). Advanced Setup's player previews now show a real episode frame instead of the show's artwork, and never switch to it after a slow load."
-        },
-        {
-          "build": 72,
-          "text": "iOS: fixes the confirmed app freeze caused by download progress and Live Activity updates, and makes player exit safe during subtitle loading. Failed or opening playback no longer starts an unrelated next-episode source picker; manual source errors remain actionable. Retest Classic playback while downloads run, repeated exit/reopen, subtitle switching, and the Live Activity's background message when locking the phone."
-        },
-        {
-          "build": 73,
-          "text": "Classic playback: removes the incorrect 'No safe automatic source' toast while your manually chosen source opens. The source list now stops its automatic-selection watchdog after handing playback to the player. Debug 72's download freeze and lock-screen Live Activity fixes remain included."
-        },
-        {
-          "build": 74,
-          "text": "Watch Together: returning from Away now catches up and proves player readiness before the host resumes, using the existing short recovery settle. Keeps the iOS socket recovery fixes and adds host hold diagnostics for the remaining lock retest."
-        }
-      ]
-    },
-    {
-      "family": "desktop",
-      "version": "0.1.23-alpha-z7",
-      "serial": 132,
-      "date": "unreleased",
-      "entries": [
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Downloads have their own mode",
-          "body": "Automatic picks the file for you under your rules, Assisted lets you choose the quality and picks the best matching file, and Manual lets you pick the exact file yourself - separately from how playback works. Choose it during setup or in Settings → Downloads."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "A new Downloads screen",
-          "body": "Posters for everything, a whole season as one row you can open, pause or move, and one \"Needs you\" list that says what is wrong and offers the fix. It also shows how much space downloads use and suggests freeing up episodes you have finished."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Choose sources for a whole season",
-          "body": "In Manual, a season opens one list of its episodes: pick a source for each, or let Nuvio auto-pick the rest."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Download preferences",
-          "body": "Preferred resolution, a file size level (Small, Standard, Large, Huge or Any size, each shown in GB per hour at 1080p and 4K), what to do when a resolution is missing, and HDR - in Settings → Downloads. They replace download presets; your last preset carries over."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Your downloads as a library",
-          "body": "Downloaded titles are cards with their artwork and a play button for what is next. A downloaded show opens its own page, with what is on this device, seasons as tabs and every episode ready to play offline."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Seasons find their sources in the background",
-          "body": "In Assisted, a season's sources are found in the background: you can leave, and Downloads shows the progress and says when the season is ready for you to choose a quality. Or choose now, from size estimates."
+          "title": "Richer title details, out of the box",
+          "body": "Cast photos, artwork, episode details and collections come from TMDB by default, using Nuvio's built-in key. A personal key still works, each part can be switched off, and if you'd already made a choice it's kept."
         },
         {
           "category": "improvement",
           "platforms": [
-            "desktop"
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Downloads keep going when you switch profile",
+          "body": "One queue for the device; each profile still only sees its own downloads."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
           ],
           "title": "Downloads are sorted into folders",
-          "body": "Each title has its own folder, with one per season, and episodes are named like \"S01E01 - Pilot\". Existing downloads move there the next time Nuvio starts."
+          "body": "Each title gets its own folder with one per season, and episodes are named like \"S01E01 - Pilot\". On desktop, existing downloads move there the next time Nuvio starts."
         },
         {
           "category": "improvement",
           "platforms": [
-            "desktop"
+            "android",
+            "ios"
           ],
-          "title": "Downloads work offline",
-          "body": "A downloaded title opens its downloads when you are offline, autoplay moves on to the next downloaded episode, and Home tells you when you are offline."
+          "title": "Downloads and mobile data",
+          "body": "Downloads wait for Wi-Fi by default. Choose Ask or Always in Settings → Downloads, or tap Download now anyway on a waiting episode."
         },
         {
           "category": "improvement",
           "platforms": [
-            "desktop"
+            "ios"
           ],
-          "title": "One download queue across profiles",
-          "body": "Downloads keep going when you switch profile, and each profile still sees only its own."
+          "title": "Downloads keep going on a locked iPhone",
+          "body": "Nuvio hands up to 30 downloads to iOS while it's open, so a whole season keeps downloading with the screen locked, with progress in a Live Activity. Queue more than that and the rest start the next time you open Nuvio.",
+          "qa": "iOS current-head download acceptance (transfer, lock/relaunch, offline playback) is still open on the RC."
         },
         {
           "category": "improvement",
           "platforms": [
+            "android"
+          ],
+          "title": "Download notifications",
+          "body": "One notification for progress, with Pause all and Resume, and a separate one when a title or season finishes. Assisted seasons tell you when they're ready for you to pick a quality."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
             "desktop"
           ],
           "title": "Choose how many downloads run at once",
           "body": "From one to four, in Settings → Downloads."
         },
         {
-          "category": "fix",
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Settings that stay put",
+          "body": "More of your settings reach your other devices. Signing out removes the account's data but keeps this device's own preferences."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "What's New is one changelog now",
+          "body": "Updates are listed by date and show which versions shipped on which device, so notes from your other devices turn up here too, set apart at the end. Skip a few updates and this screen catches you up on everything you missed."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop",
+            "android",
+            "ios"
+          ],
+          "title": "Polish",
+          "body": "A smoother Home banner that no longer flashes through every title on its way back to the first. Refreshed dialogs, sheets and menus. A gentle shimmer in the source list while add-ons are still answering."
+        },
+        {
+          "category": "improvement",
           "platforms": [
             "desktop"
           ],
-          "title": "Deleting a download asks first"
+          "title": "Smaller desktop additions",
+          "body": "Fullscreen trailers, controls for which ratings are shown, and a full-window title bar on macOS."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Also from Nuvio",
+          "body": "Recent searches (switch them off in Settings → Sources & addons), fullscreen trailers, controls for which ratings are shown, signing in with a link or code, stripping sound descriptions from subtitles, and gradient custom themes."
         },
         {
           "category": "fix",
@@ -569,7 +413,7 @@
             "desktop"
           ],
           "title": "Downloads no longer restart every minute",
-          "body": "A download from a debrid service was cut and resumed about once a minute, showing \"Retrying shortly\" each time. It now runs through."
+          "body": "Downloads from a debrid service were cut and resumed about once a minute, showing \"Retrying shortly\" each time. They now run straight through."
         },
         {
           "category": "fix",
@@ -577,7 +421,7 @@
             "desktop"
           ],
           "title": "Social reconnects by itself",
-          "body": "After waking from sleep or losing the connection, Social used to say to sign in, or show \"JWT expired\", until the app was restarted. It now reconnects on its own - when your account session comes back, when the network does, or when you open the Social tab."
+          "body": "After sleep or a dropped connection, Social could say to sign in, or show \"JWT expired\", until you restarted. It now recovers on its own."
         },
         {
           "category": "fix",
@@ -585,7 +429,7 @@
             "desktop"
           ],
           "title": "An expired sign-in no longer signs you out",
-          "body": "A sign-in that had only expired - most often in the first seconds after waking the device - was treated as a deleted account, and the app signed you out. It is now refreshed instead; you are signed out only if your account really is gone."
+          "body": "A sign-in that had only expired, usually in the first seconds after waking the computer, was treated as a deleted account. It's now refreshed instead."
         },
         {
           "category": "fix",
@@ -593,170 +437,48 @@
             "desktop"
           ],
           "title": "Nuvio Z keeps its own sign-in",
-          "body": "Nuvio Z, Nuvio Z Debug and Nuvio shared one saved sign-in on Windows, so running two of them could sign all of them out. Each now keeps its own. After this update the first of them you open stays signed in; any other may ask you to sign in once."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Your subtitle choice carries to the next episode",
-          "body": "Pick a subtitle and the next episode picks the same one again - from the same provider and in the same language - instead of falling back to your default language. Turning subtitles off stays off. Nuvio never reuses the previous episode's subtitle file on a different episode."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Custom poster images (advanced)",
-          "body": "Point Nuvio at a poster service with a URL pattern and choose which screens use it - Home, Continue Watching, Collections, Library, Search and title pages. Titles the service does not cover keep their normal poster."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Recent searches",
-          "body": "Search remembers what you looked for and offers it again when you tap the search bar. Turn it off in Settings → Content & Discovery."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Richer title details from TMDB, on by default",
-          "body": "Cast photos, artwork, episode details, collections and more now come from TMDB out of the box, using Nuvio's built-in key - you no longer need your own. A personal key still works, and each part can be switched off. If you had already turned TMDB on or off, your choice is kept."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Skip movie credits",
-          "body": "Movies can now skip their end credits, and jump straight to a post-credits scene when there is one."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Refreshed pop-ups and menus",
-          "body": "Dialogs, bottom sheets and drop-down menus have the cleaner current Nuvio look, and the source list shows a gentle shimmer while add-ons are still answering."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Picture-in-Picture",
-          "body": "Pop the player out into a small window that stays on top while you do other things, then restore it to the main window - the same playback, not a second copy, and Watch Together keeps working. Available on Windows and macOS."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "A new top bar",
-          "body": "The top bar is the new one from Nuvio, with the same jelly slide between tabs. Choose it or the sidebar in Settings → Layout → Desktop Navigation; both now include Downloads and Social. A narrow window uses the top bar too."
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "A smoother Home banner",
-          "body": "The featured banner now cycles from the last title back to the first without flashing through all the others, settles properly when you come back to Home, and takes less room when you have nothing in Continue Watching."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Advanced Setup",
-          "body": "An optional guided tour of everything Initial Setup does not ask - the player, skipping, subtitles, posters, Home, the detail page, sources, social and more - each with a live preview. Open it any time from Settings → Setup & about.",
-          "action": "advanced_setup"
-        },
-        {
-          "category": "improvement",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "A reorganised Settings",
-          "body": "Settings is grouped by what you are doing: Watching, Look & feel, Content & services, Profile & social, and Setup & about. The sidebar or top bar has its own page, Trakt and Simkl sit with the other integrations, and About has its own page."
-        },
-        {
-          "category": "feature",
-          "platforms": [
-            "desktop"
-          ],
-          "title": "Your preferences come with you",
-          "body": "Signing in to a profile you set up on your phone brings its preferences over and asks only what belongs to this device."
+          "body": "Nuvio Z, Nuvio Z Debug and Nuvio shared one saved sign-in on Windows, so using two of them could sign all of them out. Each now keeps its own. After this update the first one you open stays signed in; any other may ask you to sign in once."
         },
         {
           "category": "fix",
           "platforms": [
             "desktop"
           ],
-          "title": "Settings that stay put",
-          "body": "More of your settings now reach your other devices, and signing out no longer leaves one account's settings behind for the next - while this device's own preferences stay."
-        }
-      ],
-      "debug": [
-        {
-          "build": 62,
-          "text": "Download diagnostics and offline playback groundwork."
+          "title": "More dependable sign-in and sign-out",
+          "body": "Signing in, signing out and switching accounts were reworked so a slow or failed attempt can't override a newer one.",
+          "qa": "Auth smoke on desktop and iOS (Android where practical) is still open on the RC."
         },
         {
-          "build": 63,
-          "text": "Automatic / Assisted / Manual download flows and the new Downloads screen. Logs file sizes for calibration."
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Watch Together fixes",
+          "body": "A guest following a buffering pause no longer ends it early for everyone. A party waiting to start can no longer keep a dead source alive. Starting a party on a release with lots of audio languages works, and a refused source shows a readable message instead of server text. Background party connections stay signed in for longer."
         },
         {
-          "build": 64,
-          "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "The Download button is back on wide windows",
+          "body": "A title's page lost its Download button on windows 1000 dp and wider."
         },
         {
-          "build": 65,
-          "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Settings only shows what applies",
+          "body": "Desktop no longer lists the Android-only player engine options."
         },
         {
-          "build": 66,
-          "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
-        },
-        {
-          "build": 67,
-          "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
-        },
-        {
-          "build": 68,
-          "text": "Downloads is back in the sidebar as its own page, laid out in two panes on wide windows; after Choose now the season stays visible while its sources are checked."
-        },
-        {
-          "build": 69,
-          "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K."
-        },
-        {
-          "build": 70,
-          "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. A title's Download button is back on wide windows. \"Choose now\" now says it uses size estimates."
-        },
-        {
-          "build": 71,
-          "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
-        },
-        {
-          "build": 72,
-          "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
-        },
-        {
-          "build": 73,
-          "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: downloads no longer wait forever on a connection Windows marks as metered; a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
-        },
-        {
-          "build": 79,
-          "text": "Playback: removes an incorrect 'No safe automatic source' toast after a chosen source has been handed to the player. The source-selection watchdog now respects manual startup and player ownership; genuine automatic-selection failures still return to the source list."
-        },
-        {
-          "build": 80,
-          "text": "Watch Together: Away and buffering holds now retain independent ownership, and a skipped Away pause is retried. Returning guests must report fresh playback readiness before the normal short recovery settle. Includes durable Away support and logs for the Home/lock acceptance retest."
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Smaller fixes from Nuvio Desktop",
+          "body": "Recent searches no longer disappear when clicked, the pause overlay setting is respected, animated collection images play, volume changes are immediate on macOS, the poster right-click menu is back, and Discord keeps showing what you're watching."
         }
       ]
     }

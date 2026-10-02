@@ -5,18 +5,15 @@ import com.nuvio.app.core.debug.isDebugBuild
 import platform.Foundation.NSUserDefaults
 
 internal actual object WhatsNewStorage {
+    // Written by earlier builds; read for migration only, never rewritten.
     private const val lastSeenVersionKey = "nuvio_whats_new_last_seen_version"
     private const val ackSerialKey = "nuvio_whats_new_ack_serial"
+
+    private const val ackSeqKey = "nuvio_whats_new_ack_seq"
+    private const val ackSeenKey = "nuvio_whats_new_ack_seen"
+    private const val viewedSeqKey = "nuvio_whats_new_viewed_seq"
+    private const val viewedSeenKey = "nuvio_whats_new_viewed_seen"
     private const val ackDebugBuildKey = "nuvio_whats_new_ack_debug_build"
-
-    actual val isDesktop: Boolean = false
-
-    actual fun loadLastSeenVersion(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(lastSeenVersionKey)
-
-    actual fun saveLastSeenVersion(versionName: String) {
-        NSUserDefaults.standardUserDefaults.setObject(versionName, forKey = lastSeenVersionKey)
-    }
 
     /**
      * ⚠ `debugBuild` rides on `Platform.isDebugBinary`. If the debug IPA is ever compiled as a
@@ -31,18 +28,26 @@ internal actual object WhatsNewStorage {
             platform = ChangelogPlatform.IOS,
         )
 
-    actual fun loadAck(): WhatsNewAck? {
+    actual fun load(): StoredWhatsNew {
         val defaults = NSUserDefaults.standardUserDefaults
-        if (defaults.objectForKey(ackSerialKey) == null) return null
-        return WhatsNewAck(
-            serial = defaults.integerForKey(ackSerialKey).toInt(),
-            debugBuild = defaults.integerForKey(ackDebugBuildKey).toInt(),
+        fun int(key: String): Int? = if (defaults.objectForKey(key) == null) null else defaults.integerForKey(key).toInt()
+        fun seen(seqKey: String, seenKey: String): SeenEvents? =
+            int(seqKey)?.let { SeenEvents(it.coerceAtLeast(0), SeenEvents.decodeAbove(defaults.stringForKey(seenKey))) }
+        return StoredWhatsNew(
+            acknowledged = seen(ackSeqKey, ackSeenKey),
+            viewed = seen(viewedSeqKey, viewedSeenKey),
+            debugBuild = int(ackDebugBuildKey),
+            legacySerial = int(ackSerialKey),
+            legacyLastSeenVersion = defaults.stringForKey(lastSeenVersionKey),
         )
     }
 
-    actual fun saveAck(ack: WhatsNewAck) {
+    actual fun save(state: WhatsNewState) {
         val defaults = NSUserDefaults.standardUserDefaults
-        defaults.setInteger(ack.serial.toLong(), forKey = ackSerialKey)
-        defaults.setInteger(ack.debugBuild.toLong(), forKey = ackDebugBuildKey)
+        defaults.setInteger(state.acknowledged.floor.toLong(), forKey = ackSeqKey)
+        defaults.setObject(SeenEvents.encodeAbove(state.acknowledged.above), forKey = ackSeenKey)
+        defaults.setInteger(state.viewed.floor.toLong(), forKey = viewedSeqKey)
+        defaults.setObject(SeenEvents.encodeAbove(state.viewed.above), forKey = viewedSeenKey)
+        defaults.setInteger(state.debugBuild.toLong(), forKey = ackDebugBuildKey)
     }
 }

@@ -1,0 +1,98 @@
+{
+  "_readme": [
+    "Debug-build notes for this repository's release family. Not shared: a debug build's number belongs to one",
+    "family, so these stay out of the global changelog.json. Shown only by debug builds, newest first, for builds",
+    "newer than the last one the device saw. Add a line before publishing a debug build."
+  ],
+  "family": "mobile",
+  "notes": [
+    {
+      "build": 49,
+      "text": "Download diagnostics, the notification permission, and offline playback groundwork."
+    },
+    {
+      "build": 50,
+      "text": "The download engine rebuilt: one queue for the device, profile views, device settings."
+    },
+    {
+      "build": 51,
+      "text": "Automatic / Assisted / Manual download flows and the new Downloads screen. Logs file sizes for calibration."
+    },
+    {
+      "build": 52,
+      "text": "Setup asks about downloads; Settings → Downloads rebuilt; this screen now comes from the changelog."
+    },
+    {
+      "build": 53,
+      "text": "Downloads no longer hang on a dead connection or throw away a partial file; season progress counts the whole season."
+    },
+    {
+      "build": 54,
+      "text": "Seasons in Assisted find their sources in the background and tell you when to choose a quality; a long pause keeps the partial file when its link expires."
+    },
+    {
+      "build": 55,
+      "text": "iPhone no longer stays on the loading screen after choosing a profile; paused downloads keep their Android notification with a Resume button."
+    },
+    {
+      "build": 56,
+      "text": "Assisted seasons can be given a quality with Choose now while sources are still being found, from clearly labelled size estimates."
+    },
+    {
+      "build": 57,
+      "text": "After Choose now the season stays on the Downloads screen and in the Live Activity while its sources are checked; the Library and Downloads tabs no longer shift. iPhone transfers are the same as 56 (baseline for the comparison builds)."
+    },
+    {
+      "build": 60,
+      "text": "Download sizes are recalibrated from real files: Small, Standard (recommended), Large, Huge and Any, each showing its GB per hour at 1080p and 4K. iPhone hands up to 30 downloads to the system instead of 12, so a long season keeps going while locked; past 30, a note explains that the rest start when Nuvio is next opened."
+    },
+    {
+      "build": 61,
+      "text": "The setup wizard is simpler to read: sizes are a list with GB per hour at 1080p and 4K (Standard recommended), playback quality limits have names, Assisted is the recommended Download Mode, and the Sources step says what is already set up. On a short phone the picture at the top shrinks so the choices fit. \"Choose now\" now says it uses size estimates."
+    },
+    {
+      "build": 62,
+      "text": "Downloads has a new library: titles on this device are backdrop cards with their logo, what's next and a play button. A show's page has the title's details, Resume, seasons as tabs and compact episode rows with stills, descriptions and watched marks; a season's watched episodes can be deleted in one go. Title details are saved for offline use."
+    },
+    {
+      "build": 63,
+      "text": "A downloaded show's page now says it is the copy on this device, with a Downloaded badge and an On this device summary. Desktop: with nothing downloading, Downloads shows your library as a grid; while downloads run, the library sits beside them as banners. Desktop downloads no longer stop and retry every 60 seconds on debrid sources."
+    },
+    {
+      "build": 64,
+      "text": "Finished downloads are sorted into Title / Season folders, and existing ones move there on first launch; the Downloaded chip on a show's page is gone. Fixes from the final review: a profile switch during a background season no longer touches another profile's downloads or loses an early Choose now; offline autoplay stops at the end of what is downloaded; a file that vanished just before playing no longer falls back to online sources."
+    },
+    {
+      "build": 65,
+      "text": "Watch Together on iPhone: the lock screen, Control Center and headset buttons now go through the party, so a pause or seek there reaches everyone (or is refused if the host controls playback) instead of only moving your own player. Unlocking no longer restarts a film you had paused, and a guest coming back waits to be put back in sync rather than playing from where it stopped. iPhone now tells the party when its player is actually buffering."
+    },
+    {
+      "build": 66,
+      "text": "Setup + settings pass: Advanced Setup (Settings → Setup & about, the Done page, the What's New card), a reorganised Settings with Navigation and About pages, Welcome back / Device Setup when a profile arrives from desktop, and sync and sign-out fixes."
+    },
+    {
+      "build": 67,
+      "text": "Rebuild of 66 whose notes left out that this is the first debug build on the upstream sync (vanilla 0.5.4-beta plus the UX convergence): upstream's floating navigation bar (adaptive, expanded, compact or classic, with glow on Android 13+) carrying Social and Z's tabs, new player controls with the legacy layout still an option, refreshed pop-ups and menus, skip movie credits, your subtitle choice carried to the next episode, a smoother Home banner, shimmering source-list labels, TMDB details on by default, and an expired sign-in no longer signing you out. Everything in 66 is here too."
+    },
+    {
+      "build": 68,
+      "text": "Advanced Setup polish from the device pass: the Player, Touch, Home, Detail page, Enhanced metadata and Source list previews now show the app's real screens and fit a small phone; Touch and Navigation previews can be tried; subtitles preview the way this device's player draws them; Set up in Settings opens the page over Advanced Setup and Back returns to where you were; Social switches respond at once; a clearer Take the full tour; the tour no longer slides the whole screen. Welcome back on a phone now also sets up this phone's navigation and player."
+    },
+    {
+      "build": 69,
+      "text": "TMDB details work again: builds now carry Nuvio's built-in TMDB key, so cast, artwork, episode details and More like this come from TMDB with no key of your own (68 shipped without one). Advanced Setup's player previews now show a real episode frame instead of the show's artwork, and never switch to it after a slow load."
+    },
+    {
+      "build": 72,
+      "text": "iOS: fixes the confirmed app freeze caused by download progress and Live Activity updates, and makes player exit safe during subtitle loading. Failed or opening playback no longer starts an unrelated next-episode source picker; manual source errors remain actionable. Retest Classic playback while downloads run, repeated exit/reopen, subtitle switching, and the Live Activity's background message when locking the phone."
+    },
+    {
+      "build": 73,
+      "text": "Classic playback: removes the incorrect 'No safe automatic source' toast while your manually chosen source opens. The source list now stops its automatic-selection watchdog after handing playback to the player. Debug 72's download freeze and lock-screen Live Activity fixes remain included."
+    },
+    {
+      "build": 74,
+      "text": "Watch Together: returning from Away now catches up and proves player readiness before the host resumes, using the existing short recovery settle. Keeps the iOS socket recovery fixes and adds host hold diagnostics for the remaining lock retest."
+    }
+  ]
+}

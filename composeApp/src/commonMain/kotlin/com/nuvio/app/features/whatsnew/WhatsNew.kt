@@ -1,6 +1,9 @@
 package com.nuvio.app.features.whatsnew
 
-import com.nuvio.app.features.updater.AppReleaseNotes
+import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 enum class WhatsNewCategory {
     NewFeatures,
@@ -14,10 +17,10 @@ enum class WhatsNewCategory {
 data class WhatsNewItem(
     val title: String,
     val description: String,
-    /** The release an entry came from, shown only when one screen merges several releases. */
-    val version: String? = null,
     /** An action card: the entry offers to do something now ("Try Advanced Setup"). */
     val action: ChangelogAction? = null,
+    /** Set for "on other devices" entries only: the platforms the entry is about. */
+    val platforms: List<ChangelogPlatform> = emptyList(),
 )
 
 data class WhatsNewSection(
@@ -25,10 +28,28 @@ data class WhatsNewSection(
     val items: List<WhatsNewItem>,
 )
 
+/** One version an event shipped in. [isViewer] marks this device's own platform. */
+data class WhatsNewVersion(val platform: ChangelogPlatform, val version: String, val isViewer: Boolean)
+
 /**
- * Which release this build is, for the changelog (Phase 9): its release line, serial, version, and
+ * One release event as the screen draws it: the date and optional summary are its identity, the
+ * versions are secondary, and only the platforms it really shipped on are listed.
+ */
+data class WhatsNewEventUi(
+    val seq: Int,
+    /** Formatted for display; null for an event not released yet (a debug build's preview). */
+    val date: String?,
+    val summary: String?,
+    val versions: List<WhatsNewVersion>,
+    val sections: List<WhatsNewSection>,
+    /** "Also in this update, on other devices" - kept, set apart, never hidden. */
+    val otherDevices: List<WhatsNewItem>,
+)
+
+/**
+ * This build, for the changelog: its platform and family, its release serial and version, and its
  * debug build number when it is a debug build. Per platform because each repository generates its
- * own `AppVersionConfig` - desktop's `VERSION_NAME` is a stale mobile value, so desktop must read
+ * own `AppVersionConfig` - desktop's `VERSION_NAME` is a stale mobile value, so desktop reads
  * `DESKTOP_VERSION_NAME` and its own `RELEASE_SERIAL`.
  */
 data class WhatsNewReleaseIdentity(
@@ -37,40 +58,31 @@ data class WhatsNewReleaseIdentity(
     val versionName: String,
     val debugBuild: Int?,
     val platform: ChangelogPlatform,
-)
+) {
+    val viewer: ChangelogViewer get() = ChangelogViewer(platform, serial, debugBuild)
+}
 
 internal expect object WhatsNewStorage {
-    val isDesktop: Boolean
-
-    /** The pre-Phase-9 key: only read, to recognise an upgrade (see `decideWhatsNew`). */
-    fun loadLastSeenVersion(): String?
-    fun saveLastSeenVersion(versionName: String)
-
     val releaseIdentity: WhatsNewReleaseIdentity
 
-    /** Device-local, in its own key: what this device has been shown. Null when never written. */
-    fun loadAck(): WhatsNewAck?
-    fun saveAck(ack: WhatsNewAck)
+    /** Everything stored, including the keys earlier builds wrote (read only, never rewritten). */
+    fun load(): StoredWhatsNew
+
+    /** Device-local, in its own keys: what this device has acknowledged and viewed. */
+    fun save(state: WhatsNewState)
 }
 
 /**
- * The screen's sections for a decision. Entries carry their version only when the screen merges
- * more than one release - "0.4.14-z1" on every line of a single release is noise.
+ * Settings -> What's New's "New" badge. Process-wide because on iOS the Settings row is drawn by a
+ * different `AppGate` from the one that owns the runtime and decides the badge (`bypassAppGate`).
  */
-fun WhatsNewDecision.toSections(): List<WhatsNewSection> {
-    val tagVersions = sections.flatMap { section -> section.entries.map { it.version } }.distinct().size > 1
-    val released = sections.map { section ->
-        WhatsNewSection(
-            category = section.category.toWhatsNewCategory(),
-            items = section.entries.map {
-                WhatsNewItem(it.entry.title, it.entry.body.orEmpty(), it.version.takeIf { tagVersions }, it.entry.action)
-            },
-        )
+object WhatsNewBadge {
+    private val _pending = MutableStateFlow(false)
+    val pending: StateFlow<Boolean> = _pending.asStateFlow()
+
+    internal fun update(value: Boolean) {
+        _pending.value = value
     }
-    val debug = debugNotes.takeIf { it.isNotEmpty() }?.let { notes ->
-        WhatsNewSection(WhatsNewCategory.DebugBuild, notes.map { WhatsNewItem("#${it.build}", it.text) })
-    }
-    return listOfNotNull(debug) + released
 }
 
 private fun ChangelogCategory.toWhatsNewCategory(): WhatsNewCategory = when (this) {
@@ -79,19 +91,40 @@ private fun ChangelogCategory.toWhatsNewCategory(): WhatsNewCategory = when (thi
     ChangelogCategory.FIX -> WhatsNewCategory.BugFixes
 }
 
-/**
- * One shipped release as a history entry for Settings -> What's new, in the markdown the history
- * list already renders. From the shipped changelog, so the history works offline.
- */
-fun changelogHistoryNotes(
-    release: ChangelogRelease,
-    sections: List<WhatsNewCategorySection>,
-    headings: Map<ChangelogCategory, String>,
-): AppReleaseNotes = AppReleaseNotes(
-    tag = release.version,
-    title = release.version,
-    notes = sections.joinToString("\n\n") { section ->
-        "## ${headings[section.category].orEmpty()}\n" +
-            section.entries.joinToString("\n") { "- ${it.entry.title}" + (it.entry.body?.let { body -> ": $body" } ?: "") }
-    },
+private fun ChangelogEntry.toItem(withPlatforms: Boolean) = WhatsNewItem(
+    title = title,
+    description = body.orEmpty(),
+    action = action,
+    platforms = if (withPlatforms) ChangelogPlatformOrder.filter { it in platforms } else emptyList(),
 )
+
+/** [events] for [platform], newest first, in the screen's shape. */
+fun whatsNewEventsUi(events: List<ChangelogEvent>, platform: ChangelogPlatform): List<WhatsNewEventUi> =
+    events.sortedByDescending { it.seq }.map { event ->
+        val view = event.viewFor(platform)
+        WhatsNewEventUi(
+            seq = event.seq,
+            date = view.date?.let(::formatReleaseDateForDisplay),
+            summary = event.summary,
+            versions = view.versions.map { (p, ship) -> WhatsNewVersion(p, ship.version, p == platform) },
+            sections = view.own.map { (category, entries) ->
+                WhatsNewSection(category.toWhatsNewCategory(), entries.map { it.toItem(withPlatforms = false) })
+            },
+            otherDevices = view.otherDevices.map { it.toItem(withPlatforms = true) },
+        )
+    }
+
+/** The "This debug build" section, or null when there is nothing to say. */
+fun whatsNewDebugSection(notes: List<ChangelogDebugNote>): WhatsNewSection? =
+    notes.takeIf { it.isNotEmpty() }?.let { list ->
+        WhatsNewSection(WhatsNewCategory.DebugBuild, list.map { WhatsNewItem("#${it.build}", it.text) })
+    }
+
+/**
+ * Whether a GitHub release of this app is already covered by the shipped changelog - the history
+ * list's "Previous versions" shows only what the changelog does not.
+ */
+fun isCoveredByChangelog(tag: String, events: List<ChangelogEvent>, platform: ChangelogPlatform): Boolean {
+    val version = tag.trim().trimStart('v', 'V').substringBefore('+')
+    return events.any { it.ships[platform]?.version == version }
+}
