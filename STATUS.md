@@ -1,3 +1,143 @@
+## Frozen RC — READY FOR DEVICE QA (2026-10-02)
+
+Codex is the sole implementation owner. No new production changes were needed in this
+continuation: final auth/session-authority corrections were already committed and fully
+validated by the previous session. This pass inspected clean RC trees, retained all history,
+reran the full suites and built fresh DEBUG packages. Performance refs/worktrees untouched;
+no reset, stash, clean, rebase, stable version bump, stable release or stable feed change.
+
+| Repository | Candidate build branch | Frozen source SHA | Immutable debug tag |
+| --- | --- | --- | --- |
+| Mobile | claude/ios-watch-together-hardening | f172bfb6d0cc6a31f33a675de96dc81d480b3945 | debug-v0.4.13-z1.75 |
+| Desktop | claude/ios-watch-together-hardening | 0707ccc20e73d8298ddc0b271c56d8366b9c39ad | debug-v0.1.23-alpha-z6.81 |
+
+The tags resolve to these exact commits. Later working-branch handoff commits are docs only;
+use these tagged sources for acceptance. Frozen heads differ from previous fully tested
+product heads only in docs and debug counters. No performance integration or new optimization.
+
+Fresh mobile: full host **3440**, 0 failures/errors, 6 policy skips; the 6 service cases pass
+separately under full distribution (no skips). Auth **71**, WT/player **764** (same six skips),
+profile/setup **185**, updater **53** pass. Android DEBUG and unsigned release/R8 pass;
+source CI 36992987000 passes. Swift lifecycle regression job passes. Explicit iOS device +
+simulator frameworks and unsigned Xcode validation **36993697720** all pass on the frozen SHA.
+Fresh desktop: complete disjoint rest/playback/downloads/e2e **1814/1062/457/49 = 3382**,
+0 failures/errors/skips/duplicates. Focused WT/player **709**, profile/setup **233**, updater
+**75** pass; Windows compile/package passes. No assertion was weakened and no load-flake
+rerun was needed. Initial sandbox-cache-denied launch is retained but is not test evidence.
+
+DEBUG package workflows **36992999303** (mobile) / **36993003442** (desktop) both succeed.
+All four downloaded packages independently match published GitHub size/SHA-256; APK/IPA
+also match checksum manifest. Android: **0.4.13-z1.75 / versionCode 125075**; iOS:
+**0.4.13-z1.75 / build 75**, unsigned SideStore IPA. Both identify as com.nuvio.app.z.debug /
+Nuvio Z Debug. Windows: **1.45.81**, Nuvio Z Debug MSI; macOS arm64 Debug DMG also verified.
+IPA CRC/plist/Files export checks pass. Canonical debug SideStore feed matches build 75,
+size 92978864 and SHA-256 4eb43d6acd46179b666beb01b957cd59e2522539c504e996fcc5478563254b69.
+Stable source.json blob is independently unchanged. Artifacts and the exact QA matrix:
+mobile branch **Docs/RC-DEVICE-QA.md**. Local proof: ../.rc-investigation/release-mode-20261002/.
+
+Remaining risk: Linux CI **36992999077** fails native frame_copy_test.c:36 (player != NULL)
+before Kotlin tests, reproducing the retained failure. Native/CI paths unchanged; runtime
+factory availability is still an unproven hypothesis. Do not count that job as Kotlin success.
+Windows full matrix and Windows/macOS package gates above are separate successful evidence.
+
+Maintainer confirmed **no additional recent physical testing** on 2026-10-02. Recent missed
+acceptance: iPhone quiet foreground; Home/Away and lock/Away pause; catch-up/return readiness;
+overlapping holds; auth/email/session replacement and profile gate; active Downloads + Classic
+entry/exit/subtitles/lock/relaunch/offline playback. These block stable release until accepted.
+No newer diagnostic export beyond ios-reconn-logs/3; diagnostics retained without speculative
+transport edits. Fixed recovery defects already covered: heartbeat carryover and competing
+SDK/adapter rejoin. Native receive code 53 alone does not establish the initiating root cause.
+
+CURRENT iOS Downloads is implemented with background URLSession, a 30-item submission window,
+task adoption/integrity and device-wide library storage. Prior device evidence includes ~42
+valid completed episodes while locked; later notification/store deadlock is fixed in this RC.
+Current-head hardware acceptance remains mandatory. No nonfunctional exposed stub is known;
+a reproduced current failure blocks release instead of being silently shipped.
+Known iOS limitation: free-space preflight returns unknown (-1); mobile-data policy is
+enforced per native request. Low-space failure/integrity needs device QA; no new feature work.
+
+Classification: **READY FOR DEVICE QA**. Physical acceptance
+is not claimed. Stable publishing still requires explicit acceptance and release instruction.
+
+## Release-mode preparation (historical) — 2026-10-02
+
+Owner: Codex, sole RC implementation owner. Active branch in both repositories:
+`claude/ios-watch-together-hardening`. Performance work is deferred and untouched.
+Previous session ended with clean trees and one local documentation commit each.
+Auth correctness is complete on product heads mobile 439835c8e / desktop dea699978;
+no new production defect has been established in this continuation.
+Coordinated build-only mobile run 36897072101 has now succeeded, including unsigned IPA;
+publication, TestFlight and stable source update were skipped.
+
+Preparing regular DEBUG 75 mobile and DEBUG 81 desktop from combined candidate heads.
+Only debug counters change; stable version files and feeds remain untouched.
+Full relevant suites will be rerun on these candidate heads; inherited exact-product matrix
+is retained below. Candidate build source SHAs and verified artifacts will be recorded after
+completion. Do not use the older 74/80 pair to accept the corrected auth candidate.
+
+Current iOS Downloads is implemented, not a known nonfunctional exposed stub: retained
+background URLSession, 30-item submission window, task adoption, response integrity and
+device-wide library storage. Prior physical evidence: ~42 episodes completed while locked (Phase 9).
+The later diagnosed main/store notification deadlock is fixed in this RC, with Swift regression
+coverage. Current-head hardware transfer, pause/resume, lock/relaunch and offline playback
+remain mandatory acceptance; a current reproducible failure blocks release.
+
+No new diagnostic export exists beyond ios-reconn-logs/3. Recovery defects already reproduced
+and fixed: outstanding heartbeat carryover and SDK/adapter competing rejoin. Latest physical
+capture retains one channel and recovered successfully. Lock/Away pause and return-readiness
+acceptance remain release-blocking pending logged current-head hardware retest. Spontaneous
+quiet-foreground reconnect still needs acceptance; native numeric socket code 53 alone does
+not establish a network root cause. Diagnostics stay enabled; no speculative reconnect edit.
+
+Classification is pending debug package gates, then READY FOR DEVICE QA only. No stable
+release is authorized; physical acceptance and the known Linux native fixture failure remain
+explicitly tracked. See Docs/RC-DEVICE-QA.md for the execution matrix.
+
+## RC auth correction validation — 2026-10-01
+
+Owner: Codex; both active branches: `claude/ios-watch-together-hardening`.
+Frozen product heads: mobile `439835c8ec4913e654cceafdfa6aaa56e2c679fb`,
+desktop `dea69997826a2a57b805b65cb85ed7a18f623aec`.
+
+Mobile: full host 3440, zero failures/errors, six Play Store policy skips; auth 71,
+WT/player 764 (same six skips), profile/setup 185, updater 53. All six service cases pass
+under full distribution. Android debug and unsigned release/R8 pass. Explicit iOS device
+and simulator frameworks, Swift lifecycle regressions and Xcode app pass (36897067682).
+Coordinated build-only Android ABI artifacts pass with independently matched hashes;
+unsigned release IPA remains running (36897072101), TestFlight skipped.
+
+Desktop: complete disjoint rest/playback/downloads/e2e matrix 1814/1062/457/49 = 3382,
+zero failures/errors/skips and zero duplicates. First rest run had one unchanged scraper
+concurrency 60s timeout; four isolated unchanged probes and the entire rest rerun pass.
+No scraper source, deadline or assertions changed. Focused auth 76, WT/player 709,
+profile/setup 233, updater 75 pass. Local Windows compile/MSI and build-only Windows plus
+macOS arm64/x86_64 family pass (36897075909); all three installer hashes independently
+match its manifest. Linux CI 36897043064 remains red at native frame_copy_test.c:36,
+player construction, before Kotlin tests; unchanged native/CI paths. Missing playbin/appsink
+runtime factories are a hypothesis, not proven. Never count that job as Kotlin success.
+
+Unmodified Gemini heads were rejected. Codex corrected the six reproduced production races
+and the AppGate/profile, token-consumer, SDK error-parser, automatic refresh/storage and
+clear-status reentry boundaries directly on the RC. Production review now passes the ten-item
+checklist through actual coordinator and pinned-SDK/MockEngine regressions. Credential-response
+provenance precedes import; case-insensitive primary-email matching is an additional check.
+Remote validation uses raw captured-token HTTP without SDK Auth error-parser side effects.
+Storage restore, refresh, import, clearing and publication check current authority.
+
+Gemini refs and Claude performance work remain untouched. The mistaken prompt caused no
+performance edits, commits or builds: only empty refs/worktree were created and removed.
+Both RC worktrees were verified clean of accidental performance modifications. No stable,
+feed or debug-counter change. Exact integration history and defects: canonical
+`Docs/AUTH-CORRECTED-REVIEW.md` (desktop: `../nuvio-z/Docs/AUTH-CORRECTED-REVIEW.md`).
+
+Physical iPhone WT acceptance remains OPEN: Home/Away pause; return waits for guest readiness
+and resumes smoothly; lock/Away pause; unlock/return recovery; quiet foreground without
+spontaneous reconnect. Auth smoke remains OPEN on desktop+iOS, Android where practical:
+wrong then correct password; logout then email login; authenticated restart; anonymous to
+email; browser/code login. RC is NOT accepted. Next regular debug pair waits for all build
+gates; publish only existing prerelease/debug channels, never stable. Preserve main's newer
+SideStore/feed state on eventual promotion. Historical entries below are not current status.
+
 ## Corrected Gemini auth review — integration rejected (2026-10-01)
 
 Active mobile/desktop RC remains `claude/ios-watch-together-hardening`. Exact Gemini heads
