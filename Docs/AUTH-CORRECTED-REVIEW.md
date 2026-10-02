@@ -2,9 +2,9 @@
 
 Current verdict: **corrected production implementation passes review**. Exact unmodified
 Gemini tips failed review; the findings below are historical red evidence. They were integrated
-through normal history with Codex-owned corrections. The final test matrix passes; coordinated
-unsigned release IPA remains running. No debug/stable publication yet, and physical RC
-acceptance remains open.
+through normal history with Codex-owned corrections. The final product-head and fresh Debug 75/81 test matrices pass. Coordinated release
+build-only IPA and regular debug APK/IPA/MSI/DMG all pass; no stable publication. Physical RC
+acceptance remains open. See RC-DEVICE-QA.md for the frozen sources and recent missed checks.
 
 Reviewed exact heads:
 

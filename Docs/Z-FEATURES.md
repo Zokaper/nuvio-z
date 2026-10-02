@@ -1,5 +1,14 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-02 release-mode freeze:** current device-QA pair is mobile Debug **75** and desktop
+Debug **81**, with final owned auth/session corrections. Both full Kotlin matrices pass;
+installable debug artifacts are built and independently hash-verified. No additional recent
+hardware acceptance was reported by the maintainer. iOS Social/WT cells remain `defer`;
+Downloads retains its implemented device-wide background architecture and prior device
+success, with current-head lifecycle/offline acceptance still required. Performance is
+post-release. Exact frozen SHAs/artifacts/recent missed checks: `Docs/RC-DEVICE-QA.md`.
+
+
 **2026-10-01 physical retest:** the new diagnostic IPA and durable-Away desktop host pass
 foreground reconnect recovery per the maintainer. Home pauses; lock remains an acceptance blocker
 despite visible Away. Return readiness now uses fresh player evidence and the existing short recovery settle.

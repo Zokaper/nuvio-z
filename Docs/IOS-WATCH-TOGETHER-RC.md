@@ -1,5 +1,21 @@
 # Final iOS Watch Together RC investigation — 2026-09-30
 
+## Release-mode device-QA freeze — 2026-10-02
+
+Regular mobile Debug 75 (f172bfb6d) and desktop Debug 81 (0707ccc20) are built and
+published only on debug prerelease channels; all four downloaded package digests match.
+Frozen source/artifacts and exact current hardware matrix: [RC-DEVICE-QA.md](RC-DEVICE-QA.md).
+Maintainer confirms no additional recent physical testing; newest trace remains export 3.
+No new reconnect production change or initiating socket diagnosis was made in this continuation.
+Recovered background socket loss alone is not a demonstrated release regression. The repaired
+heartbeat carryover/rejoin competition already has real pinned-SDK regression coverage.
+Quiet foreground, lock/Away pause, Home/return readiness and overlapping holds still require
+acceptance on this pair and block stable release until accepted. Keep existing diagnostics.
+Numeric native receive code 53 alone does not establish the initiating network root cause.
+Full fresh mobile host 3440 (six policy skips, all six separately pass in full distribution)
+and desktop 3382 (no skips/duplicates) pass. Stable publication remains unauthorized.
+
+
 ## Home/lock Away acceptance and return readiness (2026-10-01)
 
 Active mobile/desktop branch: `claude/ios-watch-together-hardening`. Maintainer's diagnostic IPA
