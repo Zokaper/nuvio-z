@@ -93,6 +93,14 @@
     {
       "build": 74,
       "text": "Watch Together: returning from Away now catches up and proves player readiness before the host resumes, using the existing short recovery settle. Keeps the iOS socket recovery fixes and adds host hold diagnostics for the remaining lock retest."
+    },
+    {
+      "build": 75,
+      "text": "Sign-in, sign-out and account switching reworked so an old or failed attempt can't override a newer one; profile selection after sign-in fixed. Keeps the iOS Watch Together recovery and the Downloads deadlock fix."
+    },
+    {
+      "build": 76,
+      "text": "What's New is now one changelog across Desktop, Android and iPhone. This build previews the next release's notes: they open once after this update, and stay in Settings → What's New, which shows a New badge while something is unseen. Entries for other devices sit at the end of each update. Everything in 75 is here too."
     }
   ]
 }
