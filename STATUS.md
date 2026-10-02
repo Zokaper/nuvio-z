@@ -1,3 +1,37 @@
+## Release-mode candidate preparation — 2026-10-02
+
+Owner: Codex, sole RC implementation owner. Active branch in both repositories:
+`claude/ios-watch-together-hardening`. Performance work is deferred and untouched.
+Previous session ended with clean trees and one local documentation commit each.
+Auth correctness is complete on product heads mobile 439835c8e / desktop dea699978;
+no new production defect has been established in this continuation.
+Coordinated build-only mobile run 36897072101 has now succeeded, including unsigned IPA;
+publication, TestFlight and stable source update were skipped.
+
+Preparing regular DEBUG 75 mobile and DEBUG 81 desktop from combined candidate heads.
+Only debug counters change; stable version files and feeds remain untouched.
+Full relevant suites will be rerun on these candidate heads; inherited exact-product matrix
+is retained below. Candidate build source SHAs and verified artifacts will be recorded after
+completion. Do not use the older 74/80 pair to accept the corrected auth candidate.
+
+Current iOS Downloads is implemented, not a known nonfunctional exposed stub: retained
+background URLSession, 30-item submission window, task adoption, response integrity and
+profile storage. Prior physical evidence: ~42 episodes completed while locked (Phase 9).
+The later diagnosed main/store notification deadlock is fixed in this RC, with Swift regression
+coverage. Current-head hardware transfer, pause/resume, lock/relaunch and offline playback
+remain mandatory acceptance; a current reproducible failure blocks release.
+
+No new diagnostic export exists beyond ios-reconn-logs/3. Recovery defects already reproduced
+and fixed: outstanding heartbeat carryover and SDK/adapter competing rejoin. Latest physical
+capture retains one channel and recovered successfully. Lock/Away pause and return-readiness
+acceptance remain release-blocking pending logged current-head hardware retest. Spontaneous
+quiet-foreground reconnect still needs acceptance; native numeric socket code 53 alone does
+not establish a network root cause. Diagnostics stay enabled; no speculative reconnect edit.
+
+Classification is pending debug package gates, then READY FOR DEVICE QA only. No stable
+release is authorized; physical acceptance and the known Linux native fixture failure remain
+explicitly tracked. See Docs/RC-DEVICE-QA.md for the execution matrix.
+
 ## RC auth correction validation — 2026-10-01
 
 Owner: Codex; both active branches: `claude/ios-watch-together-hardening`.
