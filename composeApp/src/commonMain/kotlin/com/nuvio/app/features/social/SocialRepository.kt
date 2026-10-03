@@ -607,8 +607,8 @@ object SocialRepository {
     private suspend fun <T> socialCall(
         callProfileId: String? = activeProfileId,
         block: suspend () -> T,
-    ): Result<T> = runCatching {
-        owned {
+    ): Result<T> = try {
+        Result.success(owned {
             val profileId = callProfileId
             if (profileId == null) return@owned block()
             check(profileId == operation().profileId || operation().profileId == null) { "Social profile changed" }
@@ -620,7 +620,11 @@ object SocialRepository {
             }
             if (!reexchange(profileId)) return@owned first.getOrThrow()
             block()
-        }
+        })
+    } catch (error: Throwable) {
+        // A superseded operation has no user-facing error to deliver to the next screen/profile.
+        if (error is CancellationException) throw error
+        Result.failure(error)
     }
 
 }

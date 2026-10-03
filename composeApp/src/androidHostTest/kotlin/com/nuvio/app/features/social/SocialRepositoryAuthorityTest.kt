@@ -179,7 +179,7 @@ class SocialRepositoryAuthorityTest {
     }
     @Test fun stalePrivacyMutationCannotChangeNewIdentity() = fixture {
         val hold = hold("social_set_privacy")
-        val old = async(Dispatchers.Default) { SocialRepository.setPrivacy(false, false) }
+        val old = async(Dispatchers.Default) { runCatching { SocialRepository.setPrivacy(false, false) } }
         hold.entered.await(); activate(b)
         hold.release.complete(Unit)
         assertTrue(old.await().isFailure)
@@ -187,7 +187,7 @@ class SocialRepositoryAuthorityTest {
     }
     @Test fun staleMutationCannotStartNewGenerationRefresh() = fixture {
         val hold = Gate("social_send_friend_request").also { gate = it }
-        val old = async(Dispatchers.Default) { SocialRepository.sendFriendRequest("synthetic-friend") }
+        val old = async(Dispatchers.Default) { runCatching { SocialRepository.sendFriendRequest("synthetic-friend") } }
         hold.entered.await(); activate(b)
         val expected = SocialRepository.uiState.value; val before = requests.get()
         hold.release.complete(Unit); assertTrue(old.await().isFailure)
