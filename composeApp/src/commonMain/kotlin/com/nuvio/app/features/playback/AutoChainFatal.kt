@@ -1,6 +1,9 @@
 package com.nuvio.app.features.playback
 
+import co.touchlab.kermit.Logger
 import com.nuvio.app.features.streams.StreamsRepository
+
+private val log = Logger.withTag("PlaybackStartup")
 
 /** What the player must do after reporting a fatal failure on an automatic (Instant/Streamlined) chain. */
 internal enum class AutoChainFatalOutcome {
@@ -30,6 +33,7 @@ internal const val CHAIN_EXHAUSTED_SOURCE_LIST_PATH = "chain_exhausted_from_play
  */
 internal fun resolveAutoChainFatal(): AutoChainFatalOutcome {
     val failed = StreamsRepository.uiState.value.autoPlayStream
+    log.w { "auto chain fatal: armed=${failed != null} candidates=${StreamsRepository.uiState.value.autoPlayCandidates.size}" }
     // A null `autoPlayStream` does not mean the chain is spent - it means playback started and
     // `onPlaybackStarted` consumed it. That is the common failure: a source that opens, plays a
     // second, and dies.
@@ -42,10 +46,12 @@ internal fun resolveAutoChainFatal(): AutoChainFatalOutcome {
         // Say so, rather than leaving the stream route to guess from state a back press
         // produces just as well.
         StreamsRepository.signalFailoverRetry()
+        log.i { "auto chain fatal: retry next candidate" }
         return AutoChainFatalOutcome.Retry
     }
     StreamsRepository.consumeAutoPlay()
     PlaybackLoadingController.closeAfterHandOff(reason = "chain_exhausted")
     StreamsRepository.signalManualSourceRequest(CHAIN_EXHAUSTED_SOURCE_LIST_PATH)
+    log.w { "auto chain fatal: exhausted - session closed, source list requested" }
     return AutoChainFatalOutcome.Exhausted
 }

@@ -301,6 +301,15 @@ internal fun StreamDestination(
      * supposed to bite. A required parameter turns that into a compile error instead.
      */
     fun giveUpToSourceList(reason: String? = null, path: String) {
+        // ⚠ **Every way into the source list says which one it was, in the log, with the party it
+        // belongs to.** Device QA 2026-10-03: an iPhone guest landed on the source list after an
+        // accepted join into a playing party, and the export held no line that could say why.
+        streamLog.w {
+            "give up to source list: path=$path reason=${reason ?: "default"} " +
+                "party=${partyRealizationKey?.partyId?.take(8) ?: "none"} " +
+                "realization=${PartySourceRealizer.state.value::class.simpleName} " +
+                "attempt=$autoPickAttempt handedOff=$playbackHandedOff"
+        }
         manualPlaybackStarting = false
         manualCandidateFacts = null
         loadingToken?.let { PlaybackLoadingController.close(it, reason = "give_up_to_source_list:$path") }
