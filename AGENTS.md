@@ -337,13 +337,18 @@ Full reasoning in `Docs/UPSTREAM.md`; the live list is `Docs/PATCH-SURFACE.md`.
 - A settings row hidden by `LocalShowAdvancedSettings` is still indexed by
   `SettingsSearch` and is revealed on the page the search lands on. Hiding a setting
   the user searched for by name is worse than showing it.
-- What's New comes from **one changelog for both repos**,
-  `composeApp/src/commonMain/composeResources/files/changelog.json` (Phase 9): releases by family
-  and `RELEASE_SERIAL`, entries tagged feature/improvement/fix and android/ios/desktop, plus
-  `debug` lines for debug builds. The app reads it offline; `decideWhatsNew` picks what to show
-  against a device-local ack. **Add the release's entries before the version bump** -
-  `scripts/check-changelog.py ... check` fails the release workflow, and `ChangelogFileTest`
-  fails CI, for a serial with no notes. Never gate the screen on the in-app updater.
+- What's New is **one global changelog**, byte-identical in both repos:
+  `composeApp/src/commonMain/composeResources/files/changelog.json`. It lists **release events**
+  (global `seq`, optional `summary`, and per platform the `version` / `serial` / `date` it shipped
+  in), never releases keyed by one family's version. Entries are feature/improvement/fix and
+  android/ios/desktop (only platforms the event ships on). Debug-build notes are per repo, in
+  `changelog-debug.json`. The app reads both offline; `decideWhatsNew` / `isEligibleFor` decide
+  what shows against a device-local seen state. **Add the release's event before the version
+  bump, copy the file to the other repo in the same change, and run
+  `python3 scripts/check-changelog.py validate`.** `check-changelog.py ... check` fails the release
+  workflow for a serial with no event or with open `qa` markers; `ChangelogFileTest` fails CI for
+  a malformed file. After a release, mirror its ship `date` into the other repo. Never gate the
+  screen on the in-app updater.
 - **The setup wizard writes every choice immediately, through the real repository setter**
   (`features/setup/`). That is what lets `SetupPreviewStage` render the shipped
   `HomeHeroSection` / `HomeContinueWatchingSection` / `HomeCatalogRowSection` / `DetailHero`

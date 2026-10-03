@@ -1,3 +1,62 @@
+## Final RC P1 correction in progress — 2026-10-03
+
+| Repository | Active correction branch | Exact combined QA base |
+| --- | --- | --- |
+| Mobile | `codex/rc-p1-final-qa` | `9aea28b5c1de7fad288e9de2ef7d601bedb68cdf` (Debug 76) |
+| Desktop | `codex/rc-p1-desktop-final` | `53e67e6027c2d2a69b556734a4796f3a19033537` (Debug 82) |
+
+Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and
+`.codex-worktrees/rc-p1-desktop-verified` in the workspace parent. No performance work.
+Maintainer confirms no additional physical QA; one combined device pass follows the new builds.
+All five changelog QA flags and all planned ship dates remain untouched; mobile serial 127 is reserved.
+Stable publication is prohibited. Debug counters remain 76/82 until all validation gates pass.
+
+Social uses an activation identity in coroutine context, retained across nested refresh/mutation/retry
+calls. Activation and publication share a lock. RPC/session suspensions are fenced on both sides;
+stale completion cannot publish state, save a payload, register presence or begin a retry.
+Boundary cleanup remains ordered, without cancelling independent useful refreshes.
+First focused real-repository run: 13 tests, zero failures/errors/skips, including 20 overlapping
+A→B→A rounds. HTTP is a synthetic MockEngine; session access is the controlled neighbour.
+
+SideStore routing accepts `0.5.4-z1+127`, routes Debug only to the Debug feed, and rejects helpers
+and unrelated tags before download/mutation. Synthetic-IPA dry tests verify the opposite feed stays
+byte-identical. Narrow changelog validation rejects an undated shipping platform; interspersed CLI
+options work on Python 3.12.3. Combined Python suite: 29 tests pass.
+
+Desktop original scraper reproduction failed after six passing rounds, at the unchanged 60s timeout.
+Native output reports an unavailable cached JVM. Pinned quickjs-kt 1.0.15 source has unsynchronized
+process-global JNI instance accounting. Only native create/close will be serialized; evaluations and
+host work remain concurrent. Full matrices, repeated independent JVM stress and packaging are pending.
+No fresh candidate is published yet. Current classification: BLOCKED pending validation.
+Local evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
+
+## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
+
+Owner: Claude, in isolated worktrees; Codex's frozen RC untouched. Branch `claude/whatsnew-global` in
+both repos, cut from the frozen RC docs heads (mobile `85a29d374`, desktop `bc0434882`), so it merges
+into `claude/ios-watch-together-hardening` as new commits only. No performance, auth, playback, Social,
+Watch Together, Downloads or stable-release change. The planned desktop transition release was dropped
+by the maintainer: `z6` users hold only `last_seen_version`, which the new code migrates by itself.
+
+- `changelog.json` is a list of **release events** (global `seq`, optional `summary`, per-platform
+  `ships` with version / serial / date), byte-identical in both repos. Debug notes moved to a per-repo
+  `changelog-debug.json`. Rules (eligibility, seen state, migration, fresh install) live in
+  `WhatsNewSelection.kt` and are summarised in `Docs/Z-FEATURES.md` C21 and `AGENTS.md`.
+- Fresh installs no longer open on What's New: Settings -> What's New shows **New** until opened.
+- The next release is **seq 1**: desktop `0.1.26-alpha-z1` serial **132**, Android/iOS `0.5.4-z1`
+  serial **127**, all `unreleased`, with the curated notes. Five entries carry `qa` markers (iPhone
+  lock/Away, auth smoke, iOS downloads); `check-changelog.py check` refuses to release until they are
+  removed after the matching physical pass.
+- Tooling: `check-changelog.py validate | check | notes | compare`, same `--family/--serial` interface
+  as before; `scripts/test_check_changelog.py` (20 tests); CI job "Global changelog" compares with the
+  other repo's same-named branch; release workflows compare with the other trunk, ship dates aside, and
+  pass `--version`.
+- Verified: mobile full host **3,454 / 0 failures / 0 errors / 6 policy skips** on `1b86b6f76`; focused
+  What's New + store registry + settings hub 59/59.
+
+Remaining: physical preview on debug 76 (Android/iOS) and desktop 82; mirror each family's ship date
+into the other repo after its release; integrate by merging this branch into the RC in both repos.
+
 ## Frozen RC — READY FOR DEVICE QA (2026-10-02)
 
 Codex is the sole implementation owner. No new production changes were needed in this
