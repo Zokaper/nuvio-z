@@ -19,6 +19,8 @@ internal object WatchPartyProbeLog {
     private var path: String? = null
 
     fun enable() {
+        // The Kotlin half of every Debug export - see `KotlinLogProbe`. Idempotent.
+        KotlinLogProbe.enable()
         if (!isDebugBuild || WatchPartyDiagnostics.sink != null) return
         dispatch_async(queue) {
             val directory = "${NSHomeDirectory()}/Documents/nuvio_diagnostics"
