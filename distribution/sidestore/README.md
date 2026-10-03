@@ -45,7 +45,7 @@ Normally, the computer is only needed for initial setup. If SideStore's pairing 
 
 | Requirement | Details |
 |---|---|
-| **iOS Device** | iPhone, iPad, or iPod touch running **iOS 15.0 or higher** (iOS 16+ requires Developer Mode). |
+| **iOS Device** | iPhone or iPad running **iOS 16.1 or higher** (Nuvio Z's minimum; SideStore itself runs on iOS 15+). Developer Mode must be turned on. |
 | **Passcode** | A passcode must be configured on your iOS device. |
 | **Computer** | Windows 10/11 (64-bit) or macOS (Intel or Apple Silicon) for the initial setup. |
 | **USB Cable** | Lightning or USB-C cable to connect your iPhone to your computer for setup. |
