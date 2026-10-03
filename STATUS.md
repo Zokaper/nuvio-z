@@ -33,6 +33,13 @@ Shared code: both families.
 errors/skips, 0 duplicates. Mobile `1c2893ae748280b03045f21240de61273aa4fdf3`: host **3511**, 0 failures/errors, 6 policy skips; `:androidApp:compileFullDebugKotlin`
 passes. Later commits are docs and the debug counters only.
 
+**Published (prereleases, stable untouched).** Mobile `debug-v0.4.13-z1.79` -> `12806ec9f70bf26684950d2cc7e642899489638c`, run 37139629933: Android `androidApp-full-debug.apk`
+(`com.nuvio.app.z.debug`, `0.4.13-z1.79`, versionCode 125079, sha256 `695eaf81...cf0`... verified `695eaf81f9d2d0580887c7bbbde2aed3511fdfb6428c6d73d25182403c6de0bb`); iOS
+`Nuvio-Z-iOS-0.4.13-z1-79-debug-unsigned.ipa` (CFBundleVersion 79, CRC ok, 93097969 bytes, sha256 `e4c562793fd1705253693390d7b1ffaf10bb9fb96149854b2529aa3d9d361cf0`, matches
+`SHA256SUMS-Debug.txt` and the debug feed; the new return-effect strings are in the binary). Desktop `debug-v0.1.23-alpha-z6.85` -> `fa1e9c718921df7ead431445415d28a2cf7acbee`, run
+37139632181: `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.85.msi` (ProductName `Nuvio Z Debug`, ProductVersion `1.45.85`, sha256
+`6762fd9ad8161bf2116f6c20b2275054326210dc288649463fc5b983b82bb41f`, re-hashed locally) and the macOS arm64 DMG (sha256 `fa0f3e5f3cdfb82bd3ae22918d47b620ce35dc98bc9d05bc817002f1fd72536a`).
+
 **Retest on Debug 85 / 79:** leave -> Ask to join -> accept with the party **playing**, on iPhone, several times, and once with the host paused. Success is the
 iPhone landing in the player and catching up. If it still fails, the new `kotlin-*.log` will now show `return effect deferred` / `return inferred` and
 `leave to details: reason=...` with the route stack.
