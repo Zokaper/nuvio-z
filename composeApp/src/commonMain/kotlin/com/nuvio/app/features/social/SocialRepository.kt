@@ -98,7 +98,9 @@ object SocialRepository {
     private suspend fun <T> owned(block: suspend () -> T): T {
         val owner = operation()
         checkAuthority(owner)
-        return withContext(owner) { block().also { checkAuthority(owner) } }
+        return withContext(owner) {
+            try { block() } finally { checkAuthority(owner) }
+        }
     }
 
     /** The check and publication share activate's lock; switching cannot interleave them. */

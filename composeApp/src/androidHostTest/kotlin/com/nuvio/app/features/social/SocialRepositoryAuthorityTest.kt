@@ -53,7 +53,11 @@ class SocialRepositoryAuthorityTest {
         var sessionGate: Gate? = null
         val access = object : SocialSessionAccess {
             override suspend fun ensure(profileId: String): Boolean {
-                sessionGate?.also { sessionGate = null }?.let { it.entered.complete(Unit); it.release.await(); return false }
+                sessionGate?.also { sessionGate = null }?.let {
+                    it.entered.complete(Unit); it.release.await()
+                    if (it.failure) error("synthetic delayed session failure")
+                    return false
+                }
                 return true
             }
             override suspend fun reexchange(profileId: String): Boolean { retries.incrementAndGet(); return true }
@@ -184,6 +188,16 @@ class SocialRepositoryAuthorityTest {
         hold.release.complete(Unit)
         assertTrue(old.await().isFailure)
         assertTrue(SocialRepository.uiState.value.me!!.shareWatchingNow)
+    }
+    @Test fun staleThrownSessionFailureCannotReachNewScreen() = fixture {
+        val hold = Gate("session", failure = true).also { sessionGate = it }
+        val old = async(Dispatchers.Default) { runCatching { SocialRepository.setPrivacy(false, false) } }
+        hold.entered.await(); activate(b)
+        val expected = SocialRepository.uiState.value
+        hold.release.complete(Unit)
+        val result = old.await()
+        assertTrue(result.exceptionOrNull() is kotlin.coroutines.cancellation.CancellationException)
+        assertEquals(expected, SocialRepository.uiState.value)
     }
     @Test fun staleMutationCannotStartNewGenerationRefresh() = fixture {
         val hold = Gate("social_send_friend_request").also { gate = it }
