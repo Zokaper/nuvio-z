@@ -1,3 +1,44 @@
+## P1 fix pass on Debug 83 / 77 -> Debug 84 (desktop) / 78 (mobile) (2026-10-03)
+
+Found in physical QA on the Debug 83 / 77 pair. Branch `claude/rc-p1-hero-loading-fix` in both repositories, cut from
+`codex/rc-p1-desktop-final` (7a7444e64) and `codex/rc-p1-final-qa` (7c547280c). Only the items below changed; frozen release
+notes, README prose, QA flags, stable metadata, ship dates and performance work are untouched.
+
+**Fixed**
+
+| # | Defect | Fix |
+| --- | --- | --- |
+| 1 | Home hero backdrop jumped ~0.3 x hero height (180-200 px on phones) on the first scroll: `heroScrollOffsetPx` read `firstVisibleItemIndex > 0` as "hero gone", but since Phase 9 item 0 is the zero-height offline banner. | Offset now read from the `home_hero` item in `layoutInfo.visibleItemsInfo` (`HOME_HERO_ITEM_KEY`). Parallax constants unchanged. 6 tests. Shared, so both families. |
+| 2 | An exhausted Instant chain (one-candidate chain + `NeverStarted`) left a loading session up 25.8 s and routed as a user Back. | `resolveAutoChainFatal` closes the handed-off session and signals the stream route's source-list exit (path `chain_exhausted_from_player`); the player's own overlay opener is held off while the request is pending. Every `PlaybackLoadingController` open/close logs token and reason. 4 tests. |
+| 3 | Watch Together split-brain: approving an Ask-to-join against a host already in a lobby-created party built a second party and evicted the host (host role went to the next member). | Backend migration `202610030001` (DEPLOYED to `pzbpghmmordvzcfbayoh`): `party_promote_presence_internal` returns the host's own live party; stale membership still retired; live guest -> `party_membership_conflict`; full party refused; an active member's readiness is not rewound. Approval path gets the guest guard. pgTAP `join_existing_party.sql` (38) fails 30/38 without it. |
+| 4 | Social on/off was two preferences (one per platform family blob): a profile OFF on a phone stayed ON on the desktop, still showing Social, Watch Together controls and publishing presence. | One canonical value per profile in the Z backend (`profile_preferences`, migration `202610030002`, DEPLOYED), read/written by every platform; family blobs no longer export/import/observe it. One-time set-if-absent migration: one answer is used, agreeing answers stand, **disagreeing answers become ON**. Offline changes stay pending and outrank the backend. `publishPresence` refuses when off. See Z-FEATURES W8. |
+
+**Diagnostics added (not a fix)** - the iOS source-list report below. `giveUpToSourceList` and `resolveAutoChainFatal` log path, party and
+realization state. iOS Debug builds now write every Kotlin log line to `Documents/nuvio_diagnostics/kotlin-<epoch>.log`
+(`KotlinLogProbe`, iosMain only: **first compiled by the Debug 78 iOS CI build**, not by any local suite).
+
+**Source SHAs.** Desktop `4774df864d655f3b11b986d42531fbc5babea345`, mobile `6c2594032668ab86e0687a7d2deb637557454c42`; later commits are
+docs and the debug counters only. Backend repo `nuvio-z-backend` branch `claude/ios-watch-together-hardening`: `90b8230` and `8a4dbe7`.
+
+**Validation on those heads.** Desktop split `rest/playback/downloads/e2e` = 1878/1072/457/49 = **3456**, 0 failures/errors/skips, 0
+duplicates. Mobile host **3501**, 0 failures/errors, 6 policy skips; `:androidApp:compileFullDebugKotlin` passes. Backend `supabase db
+reset` + `supabase test db`: **18 files / 403** pass. The desktop `rest` part took 1129 s of the fixed 1200 s task timeout (an earlier run timed out
+while Docker/pgTAP shared the machine - not a test failure; its XML was unusable and the part was re-run clean).
+
+**OPEN - P1 until a log explains it: iPhone rejoin into an actively PLAYING party.** After an accepted Ask-to-join the iPhone is dropped on the normal
+source list; into a PAUSED party it joins correctly. Evidence (desktop host log + backend, 2026-10-03 17:11-17:15): realization completed in
+~8 s every time and the iPhone published player `resolving` but never `ready` in the two playing joins (source match empty -> media never loaded);
+Android joined the playing party fine; the only code branching on host status at start is `shouldStartParkedForParty` (guest opens playing vs parked);
+before the first join the iPhone still held an ended party (37ba2080). `JoinIntoPlayingPartyOrderingTest` (6) pins that no transport event can re-arm
+the launch, drop a held realization or produce a fallback answer - so the cause is on the player/route side. **Next step:** reproduce on Debug 78 and read
+`kotlin-*.log` from the Files export.
+
+**Post-release follow-ups (P2, not changed here):** Instant fallback does not cross resolution rows (a spent 4K row ends the attempt although other
+rows exist); a pending seek target is persisted as watch progress (a stalled scrub resumed at a position never reached); a guest whose player exits after
+`Ready` leaves its readiness stuck at `resolving` (`PartySourceRealizer.abandoned` is inert once Ready); iOS can hold an ended party across a
+background (dead socket, nativeCode 53); composition-level hiding for Social off is covered through its pure decisions only (no UI test), and
+`SocialOffGateTest` runs on the desktop host (the Android host has no preference storage).
+
 ## Final RC P1 corrections — READY FOR FINAL DEVICE QA (2026-10-03)
 
 | Repository | Active correction branch | Exact combined QA base |
