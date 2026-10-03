@@ -21,7 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.playback.AutoChainFatalOutcome
 import com.nuvio.app.features.playback.PlaybackLoadingController
+import com.nuvio.app.features.playback.resolveAutoChainFatal
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.PartySourceRealizer
@@ -239,21 +241,12 @@ internal fun PlayerDestination(
             {
                 if (!instantFailureHandled) {
                     instantFailureHandled = true
-                    val failed = StreamsRepository.uiState.value.autoPlayStream
-                    // A null `autoPlayStream` here does not mean the chain is spent - it means
-                    // playback started and `onPlaybackStarted` consumed it. That is the common
-                    // failure: a source that opens, plays a second, and dies.
-                    val hasNext = if (failed != null) {
-                        StreamsRepository.skipAutoPlayStream(failed)
-                    } else {
-                        StreamsRepository.failOverAfterPlaybackStarted()
-                    }
-                    // Say so, rather than leaving the stream route to guess from state a back
-                    // press produces just as well.
-                    if (hasNext) StreamsRepository.signalFailoverRetry()
-                    if (!hasNext) {
-                        StreamsRepository.consumeAutoPlay()
-                        NuvioToastController.show(noAutomaticSourceText)
+                    // Steps the chain and *says* which exit this is: a retry, or an exhausted
+                    // chain that has already closed the loading session and asked the stream
+                    // route for the source list. See `resolveAutoChainFatal`.
+                    when (resolveAutoChainFatal()) {
+                        AutoChainFatalOutcome.Retry -> Unit
+                        AutoChainFatalOutcome.Exhausted -> NuvioToastController.show(noAutomaticSourceText)
                     }
                     // Back to `StreamRoute`, which the automatic modes deliberately leave on
                     // the back stack because it hosts the chain, the retry counter and the

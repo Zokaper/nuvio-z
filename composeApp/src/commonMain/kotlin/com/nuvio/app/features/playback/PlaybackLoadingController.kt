@@ -3,6 +3,7 @@ package com.nuvio.app.features.playback
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import co.touchlab.kermit.Logger
 import com.nuvio.app.features.downloads.SourceFacts
 
 /**
@@ -32,6 +33,11 @@ object PlaybackLoadingController {
 
     private var nextToken: Long = 1L
 
+    // ⚠ **Every open and close says who asked.** Debug 83: a loading surface (token 4) opened
+    // 3 ms after token 3 closed and stayed up 25.8 s after the chain was spent, and the log held
+    // two candidate openers and no way to tell them apart. [reason] is the call site, in words.
+    private val log = Logger.withTag("PlaybackStartup")
+
     /**
      * A new play begins. Returns the token every later call must quote.
      *
@@ -47,8 +53,13 @@ object PlaybackLoadingController {
         facts: SourceFacts? = null,
         contentLanguage: String? = null,
         preferredAudioLanguage: String? = null,
+        reason: String = "unspecified",
     ): Long {
         val token = nextToken++
+        log.i {
+            "loading session open token=$token reason=$reason step=$step attempt=$attempt " +
+                "replacing=${session?.token}"
+        }
         session = PlaybackLoadingSessions.open(
             token = token,
             step = step,
@@ -90,8 +101,12 @@ object PlaybackLoadingController {
      * Token-guarded like the rest. A stale close from a route that has already handed off would
      * otherwise blank the screen at exactly the hand-off it is meant to cover.
      */
-    fun close(token: Long) {
-        if (session?.token != token) return
+    fun close(token: Long, reason: String = "unspecified") {
+        if (session?.token != token) {
+            log.i { "loading session close ignored token=$token reason=$reason active=${session?.token}" }
+            return
+        }
+        log.i { "loading session close token=$token reason=$reason" }
         session = null
         actions = null
     }
@@ -107,10 +122,14 @@ object PlaybackLoadingController {
      * it and hands it over, which is the entire point. The gate still stops a player that is
      * being torn down from closing a session a *newer* play has just opened.
      */
-    fun closeAfterHandOff() {
-        if (session?.handedOff == true) {
+    fun closeAfterHandOff(reason: String = "unspecified") {
+        val running = session ?: return
+        if (running.handedOff) {
+            log.i { "loading session close token=${running.token} reason=$reason (handed off)" }
             session = null
             actions = null
+        } else {
+            log.i { "loading session close ignored token=${running.token} reason=$reason (not handed off)" }
         }
     }
 

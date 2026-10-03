@@ -557,7 +557,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     // episode, and a resumed download.
     LaunchedEffect(openingOverlayWanted, args.sourceUrl) {
         if (openingOverlayWanted) {
-            if (PlaybackLoadingController.activeToken == null) {
+            // ⚠ **Not while the chain is being handed back as exhausted.** The player is still
+            // composed for a moment after `resolveAutoChainFatal` closed the session, and this is
+            // the one opener that sees `activeToken == null` and would put the surface back.
+            if (PlaybackLoadingController.activeToken == null && !StreamsRepository.isManualSourceRequestPending) {
                 val token = PlaybackLoadingController.open(
                     step = PlaybackProgressStep.StartingPlayback,
                     artwork = openingPresentation.artwork,
@@ -566,6 +569,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     attempt = args.playbackAttempt,
                     facts = args.sourceFacts,
                     contentLanguage = args.contentLanguage,
+                    reason = "player_opening_overlay",
                 )
                 PlaybackLoadingController.handOff(token)
                 PlaybackLoadingController.registerActions(
@@ -574,7 +578,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 )
             }
         } else {
-            PlaybackLoadingController.closeAfterHandOff()
+            PlaybackLoadingController.closeAfterHandOff(reason = "player_opening_overlay_done")
         }
     }
     // ⚠ **The escape hatch on the loading surface belongs to whoever is on top, and that is this
@@ -1316,7 +1320,7 @@ private fun PlayerScreenRuntime.requestBack() {
     // Deliberately here rather than in an `onDispose`: this screen is also disposed by a *failover*,
     // which pops the player and re-enters the stream route, and the surface must survive that
     // untouched. An explicit back is the one teardown that is unambiguously the user leaving.
-    PlaybackLoadingController.closeAfterHandOff()
+    PlaybackLoadingController.closeAfterHandOff(reason = "player_user_back")
     flushWatchProgress()
     val exitingController = playerLifecycleController
     args.onBack { afterRelease, releaseFailed ->

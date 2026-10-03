@@ -681,10 +681,17 @@ object StreamsRepository {
      */
     private var manualSourceRequestPending = false
 
+    /** Which exit asked for the list, for the route's `uncoverPath` and the log. */
+    private var manualSourceRequestPath: String = MANUAL_ESCAPE_FROM_PLAYER_PATH
+
     val isManualSourceRequestPending: Boolean
         get() = manualSourceRequestPending
 
-    fun signalManualSourceRequest() {
+    val pendingManualSourceRequestPath: String
+        get() = manualSourceRequestPath
+
+    fun signalManualSourceRequest(path: String = MANUAL_ESCAPE_FROM_PLAYER_PATH) {
+        manualSourceRequestPath = path
         manualSourceRequestPending = true
     }
 
@@ -692,6 +699,7 @@ object StreamsRepository {
     fun consumeManualSourceRequest(): Boolean {
         val pending = manualSourceRequestPending
         manualSourceRequestPending = false
+        manualSourceRequestPath = MANUAL_ESCAPE_FROM_PLAYER_PATH
         return pending
     }
 
@@ -889,6 +897,8 @@ object StreamsRepository {
         _uiState.update { it.copy(showDirectAutoPlayOverlay = visible, overlayMessage = message) }
     }
 }
+
+internal const val MANUAL_ESCAPE_FROM_PLAYER_PATH = "manual_escape_from_player"
 
 /**
  * The failure chain a reload is allowed to keep, or null.

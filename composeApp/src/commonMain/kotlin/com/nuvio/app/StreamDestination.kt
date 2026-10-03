@@ -303,7 +303,7 @@ internal fun StreamDestination(
     fun giveUpToSourceList(reason: String? = null, path: String) {
         manualPlaybackStarting = false
         manualCandidateFacts = null
-        loadingToken?.let(PlaybackLoadingController::close)
+        loadingToken?.let { PlaybackLoadingController.close(it, reason = "give_up_to_source_list:$path") }
         loadingToken = null
         qualitySheetDismissed = true
         manualSourceListRequested = true
@@ -388,7 +388,7 @@ internal fun StreamDestination(
             partyRealizationKey?.let { PartySourceRealizer.abandoned(it, "party_ended") }
             StreamsRepository.abandonAutoPlay()
             StreamsRepository.cancelLoading()
-            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken?.let { PlaybackLoadingController.close(it, reason = "party_ended") }
             loadingToken = null
             onBack()
         }
@@ -408,7 +408,7 @@ internal fun StreamDestination(
     fun leaveToDetails() {
         manualPlaybackStarting = false
         manualCandidateFacts = null
-        loadingToken?.let(PlaybackLoadingController::close)
+        loadingToken?.let { PlaybackLoadingController.close(it, reason = "leave_to_details") }
         loadingToken = null
         // ⚠ **The automatic play ends here, not at the pop.** "Escape takes you back and stops
         // whatever is running" is one action, and splitting it left the stopping half unwritten:
@@ -1038,12 +1038,16 @@ internal fun StreamDestination(
     // underneath it, which is the same rule `abandonAutoPlay` exists for.
     LaunchedEffect(navController.currentRoute) {
         if (navController.currentRoute != route) return@LaunchedEffect
+        // Read before it is consumed. "Choose source manually" and an exhausted chain share this
+        // exit and differ only in the path they leave in the log.
+        val manualSourcePath = StreamsRepository.pendingManualSourceRequestPath
         if (!StreamsRepository.consumeManualSourceRequest()) return@LaunchedEffect
         playbackHandedOff = false
         lastHandedOffFacts = null
         StreamsRepository.abandonAutoPlay()
-        // Blank, because the user pressed the button: they already know why they are here.
-        giveUpToSourceList(reason = "", path = "manual_escape_from_player")
+        // Blank, because the user pressed the button - or the player already toasted why the chain
+        // ended: either way the reason has been said.
+        giveUpToSourceList(reason = "", path = manualSourcePath)
     }
 
     // Coming back from the player with a candidate still armed. Two very
@@ -1441,6 +1445,7 @@ internal fun StreamDestination(
                     title = launch.title,
                     attempt = autoPickAttempt,
                     facts = streamFacts,
+                    reason = "manual_pick",
                 )
             }
         }
@@ -1466,7 +1471,7 @@ internal fun StreamDestination(
                     else -> {
                         manualPlaybackStarting = false
                         manualCandidateFacts = null
-                        loadingToken?.let(PlaybackLoadingController::close)
+                        loadingToken?.let { PlaybackLoadingController.close(it, reason = "manual_pick_unplayable") }
                         loadingToken = null
                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
                         if (resolved == DirectDebridPlayableResult.Stale) {
@@ -1498,7 +1503,7 @@ internal fun StreamDestination(
         if (stream.shouldOpenExternally) {
             manualPlaybackStarting = false
             manualCandidateFacts = null
-            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken?.let { PlaybackLoadingController.close(it, reason = "manual_pick_external_url") }
             loadingToken = null
             val opened = stream.externalOpenUrl?.let { url -> openExternalStreamUrl(url) } == true
             if (opened) {
@@ -1545,7 +1550,7 @@ internal fun StreamDestination(
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {
             manualPlaybackStarting = false
             manualCandidateFacts = null
-            loadingToken?.let(PlaybackLoadingController::close)
+            loadingToken?.let { PlaybackLoadingController.close(it, reason = "manual_pick_external_player") }
             loadingToken = null
             streamRouteScope.launch {
                 lastHandedOffFacts = playerLaunch.sourceFacts
@@ -2432,10 +2437,11 @@ internal fun StreamDestination(
                         facts = loadingFacts,
                         contentLanguage = requestedContentLanguage,
                         preferredAudioLanguage = preferredAudioLanguageTarget,
+                        reason = "stream_route_surface_on",
                     )
                 }
             } else {
-                loadingToken?.let(PlaybackLoadingController::close)
+                loadingToken?.let { PlaybackLoadingController.close(it, reason = "stream_route_surface_off") }
                 loadingToken = null
                 manualPlaybackStarting = false
                 manualCandidateFacts = null
@@ -2465,7 +2471,7 @@ internal fun StreamDestination(
                 // this route owns; this covers the ones it does not, which is why the abandon
                 // is here as well as there rather than only at the call sites.
                 if (PlaybackLoadingController.session?.handedOff == true) return@onDispose
-                loadingToken?.let { token -> PlaybackLoadingController.close(token) }
+                loadingToken?.let { token -> PlaybackLoadingController.close(token, reason = "stream_route_disposed") }
                 StreamsRepository.abandonAutoPlay()
                 StreamsRepository.cancelLoading()
             }
