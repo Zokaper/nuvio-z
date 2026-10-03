@@ -1,3 +1,8 @@
+> The package section below is historical (75/81), superseded by combined 76/82 and
+> now the P1 correction candidates. Use [RC-P1-FINAL-QA.md](RC-P1-FINAL-QA.md) for the
+> current pair and additional fix-specific tests. Every physical procedure below remains
+> mandatory; no physical acceptance has passed since 76/82.
+
 # Frozen RC physical acceptance — 2026-10-02
 
 Use the combined **mobile Debug 75 / desktop Debug 81** candidate. Record installed version,

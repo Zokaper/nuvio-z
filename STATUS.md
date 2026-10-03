@@ -1,34 +1,74 @@
-## Final RC P1 correction in progress — 2026-10-03
+## Final RC P1 corrections — READY FOR FINAL DEVICE QA (2026-10-03)
 
 | Repository | Active correction branch | Exact combined QA base |
 | --- | --- | --- |
 | Mobile | `codex/rc-p1-final-qa` | `9aea28b5c1de7fad288e9de2ef7d601bedb68cdf` (Debug 76) |
 | Desktop | `codex/rc-p1-desktop-final` | `53e67e6027c2d2a69b556734a4796f3a19033537` (Debug 82) |
 
-Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and
-`.codex-worktrees/rc-p1-desktop-verified` in the workspace parent. No performance work.
-Maintainer confirms no additional physical QA; one combined device pass follows the new builds.
-All five changelog QA flags and all planned ship dates remain untouched; mobile serial 127 is reserved.
-Stable publication is prohibited. Debug counters remain 76/82 until all validation gates pass.
+Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and `.codex-worktrees/rc-p1-desktop-verified`.
+Validated product heads: mobile `427c3e0e78e6f8f5e250bf40375083bf30b9f3a6`, desktop
+`23b908ca9caab5a6311a8e885f952e5cbcf8d965`. Subsequent changes are docs and Debug counters only.
+All three P1 corrections and both narrow P2 tooling fixes are implemented. Mobile
+host: **3470**, zero failures/errors, six policy skips; exactly those six pass separately
+under full distribution. Desktop: **1849 + 1062 + 457 + 49 = 3417**, zero failures,
+errors, skips or duplicate cases. Social: **16 real-repository regressions x 5 repetitions
+per repository**, all pass, including ordinary and A -> B -> A switches, stale errors,
+thrown session failure and twenty overlapping switching rounds per repetition.
+What's New/storage: mobile **47**, desktop **48**, all pass. Changelog CLI **23** and
+SideStore **6** Python tests pass; CLI also passes with the exact CPython 3.12.3 parser.
+Android full Debug and unsigned full release/R8 packaging pass; Mobile CI 37118806274 passes.
 
-Social uses an activation identity in coroutine context, retained across nested refresh/mutation/retry
-calls. Activation and publication share a lock. RPC/session suspensions are fenced on both sides;
-stale completion cannot publish state, save a payload, register presence or begin a retry.
-Boundary cleanup remains ordered, without cancelling independent useful refreshes.
-First focused real-repository run: 13 tests, zero failures/errors/skips, including 20 overlapping
-A→B→A rounds. HTTP is a synthetic MockEngine; session access is the controlled neighbour.
+Scraper stress: **11 independent JVMs, 11000 rounds, 352000 executions**, zero failures,
+timeouts or missing-VM diagnostics (one Gradle JVM plus ten standalone JVMs). Only
+native create/close is serialized. The ten-runtime host barrier proves evaluation
+and async host work remains concurrent. The exact native lost-update interleaving
+is inferred; the unsynchronized JNI lifecycle source and cached-VM failure are proved.
+Desktop hosted CI 37119440403 retains the pre-existing Linux frame_copy_test.c:36 failure
+before Kotlin; Windows MSI and global changelog jobs pass. No unrelated native fix is taken.
 
-SideStore routing accepts `0.5.4-z1+127`, routes Debug only to the Debug feed, and rejects helpers
-and unrelated tags before download/mutation. Synthetic-IPA dry tests verify the opposite feed stays
-byte-identical. Narrow changelog validation rejects an undated shipping platform; interspersed CLI
-options work on Python 3.12.3. Combined Python suite: 29 tests pass.
+Global catalogs are byte-identical between repositories and unchanged from 76/82;
+global event #1, mobile serial 127, all five physical-QA flags and all unreleased ship
+dates remain intact. Maintainer confirms no physical QA has passed. Performance work,
+stable versions, stable publication and stable feeds are untouched.
+Evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
 
-Desktop original scraper reproduction failed after six passing rounds, at the unchanged 60s timeout.
-Native output reports an unavailable cached JVM. Pinned quickjs-kt 1.0.15 source has unsynchronized
-process-global JNI instance accounting. Only native create/close will be serialized; evaluations and
-host work remain concurrent. Full matrices, repeated independent JVM stress and packaging are pending.
-No fresh candidate is published yet. Current classification: BLOCKED pending validation.
-Local evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
+
+## Published final QA candidates
+
+| Platform | Branch | Immutable tagged build SHA | Version / build | Workflow |
+| --- | --- | --- | --- | --- |
+| Mobile | `codex/rc-p1-final-qa` | `2f168c9b0010cd9c0e5bd98cf0981629962241c6` | `0.4.13-z1.77`; Android `125077`, iOS `77` | [37120475431](https://github.com/Zokaper/nuvio-z/actions/runs/37120475431) |
+| Desktop | `codex/rc-p1-desktop-final` | `3031513b2f71c524f2c9dfb6162b7f1bd9a8fc73` | `0.1.23-alpha-z6.83`; Debug `83`, MSI `1.45.83` (base code `45`) | [37120482755](https://github.com/Zokaper/NuvioZDesktop/actions/runs/37120482755) |
+
+Tags: `debug-v0.4.13-z1.77` and `debug-v0.1.23-alpha-z6.83`. Both workflows passed.
+Tag SHAs are exact; subsequent branch handoff commits change documentation only.
+
+- [androidApp-full-debug.apk](https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.77/androidApp-full-debug.apk) — 156262833 bytes; SHA-256 `bf141ad3969d9810ccd1965ced942ebd60563514de61a4046b9b13235c8bb90f`.
+- [Nuvio-Z-iOS-0.4.13-z1-77-debug-unsigned.ipa](https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.77/Nuvio-Z-iOS-0.4.13-z1-77-debug-unsigned.ipa) — 93055666 bytes; SHA-256 `7946592695022306745ed7e3f4f97ea5ad6d763a7b5803d0e3e312f88948678e`.
+- [Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.83.dmg](https://github.com/Zokaper/NuvioZDesktop/releases/download/debug-v0.1.23-alpha-z6.83/Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.83.dmg) — 251873009 bytes; SHA-256 `01a6c15aa0ad450708b3a6c1a1ed656d92cd5b4932f067c5d2291469b863a8bd`.
+- [Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.83.msi](https://github.com/Zokaper/NuvioZDesktop/releases/download/debug-v0.1.23-alpha-z6.83/Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.83.msi) — 256631000 bytes; SHA-256 `a11ec4ceaf01017d9a128b416d5317dbc3b1d44a6dd8646aa51dc592d685ebef`.
+
+All four downloaded packages match GitHub asset size/digest. Mobile hashes also match
+SHA256SUMS-Debug.txt. APK identity/code/version and existing Debug signing certificate pass.
+IPA CRC, unsigned app, bundle `com.nuvio.app.z.debug`, version/build `0.4.13-z1.77`/`77`,
+minimum iOS 16.1 and Files sharing/open-in-place settings pass. MSI identity is
+`Nuvio Z Debug` / `1.45.83`. macOS arm64 DMG mounting, Debug bundle, architecture and
+pinned native runtime checks pass in its workflow.
+
+Official Debug SideStore feed points to the new IPA, size **93055666**, SHA-256
+`7946592695022306745ed7e3f4f97ea5ad6d763a7b5803d0e3e312f88948678e`.
+Stable source blob remains `e1025b0386bbd8a16ade476fbc271a681c2ff542`, identical to Debug 76
+and the pre-build snapshot. Stable and helper feeds were not modified.
+
+Separate [iOS gate 37120559532](https://github.com/Zokaper/nuvio-z/actions/runs/37120559532)
+passes Swift lifecycle regressions, device and simulator frameworks and unsigned Xcode on
+the exact Debug 77 build SHA. Earlier gate 37118806451 was canceled by the counter push's
+branch concurrency policy; this final full gate supersedes it.
+
+Classification: **READY FOR FINAL DEVICE QA**. No physical acceptance has passed;
+all five QA flags, mobile serial 127 and unreleased ship dates remain unchanged.
+No stable publication or performance integration. Use the additional P1 tests and
+the complete unchanged broader matrix in mobile `Docs/RC-P1-FINAL-QA.md`.
 
 ## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
 
