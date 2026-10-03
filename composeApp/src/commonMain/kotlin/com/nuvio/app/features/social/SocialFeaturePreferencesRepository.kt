@@ -28,6 +28,8 @@ import kotlinx.serialization.json.Json
 @Serializable
 private data class StoredSocialFeaturePreferences(
     @SerialName("social_features_enabled") val socialFeaturesEnabled: Boolean? = null,
+    /** A choice made on this device that the shared backend copy has not heard yet. */
+    @SerialName("social_features_pending") val pending: Boolean? = null,
 )
 
 data class SocialFeaturePreferencesUiState(
@@ -75,6 +77,9 @@ object SocialFeaturePreferencesRepository {
 
     private var hasLoaded = false
 
+    /** See [StoredSocialFeaturePreferences.pending]. Per active profile, loaded with it. */
+    private var pending: Boolean? = null
+
     /** The profile the probe last ran for, so a switch re-probes and a recomposition does not. */
     private var probedProfileId: String? = null
 
@@ -90,6 +95,7 @@ object SocialFeaturePreferencesRepository {
 
     fun clearLocalState() {
         hasLoaded = false
+        pending = null
         probedProfileId = null
         _uiState.value = SocialFeaturePreferencesUiState()
     }
@@ -114,40 +120,40 @@ object SocialFeaturePreferencesRepository {
      */
     fun setEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (_uiState.value.storedPreference == enabled) return
+        if (_uiState.value.storedPreference == enabled && pending == null) return
         _uiState.value = _uiState.value.copy(storedPreference = enabled, enabled = enabled)
+        // ⚠ **Written here first, shared second.** The switch answers at once from this device and the
+        // backend copy - the one every platform reads - is told right behind it. A change made offline
+        // stays pending across restarts and outranks the backend's value when it can next be heard.
+        pending = enabled
         persist()
+        SharedSocialPreference.requestReconcile(force = true)
+    }
+
+    /** The change this device owes the shared copy, if any. */
+    internal fun pendingPreference(): Boolean? {
+        ensureLoaded()
+        return pending
     }
 
     /**
-     * Apply a value that arrived from another device.
-     *
-     * ⚠ **A null remote must not clear a local answer.** The blob is authoritative for what it
-     * knows and never for what it has not caught up with - the rule `syncKeysToClear` encodes,
-     * and the reason a pull once wiped every playback setting written after the remote blob was
-     * last saved. A remote written by a build that predates this preference carries null for it.
-     *
-     * Note what is deliberately absent: this does **not** take the larger of the two values the
-     * way the setup revision does. `mergeMonotonicSyncInt` is right for a number that may only
-     * rise; a preference the user may legitimately switch off has to be able to fall, so an
-     * explicit remote false overwrites a local true.
+     * The canonical, shared value arrived (or the migration wrote it). It replaces what this device
+     * held and settles anything pending - the shared copy is the only authority.
      */
-    internal fun applyFromSync(socialFeaturesEnabled: Boolean?) {
+    internal fun adoptShared(value: Boolean) {
         ensureLoaded()
-        if (socialFeaturesEnabled == null) return
-        if (_uiState.value.storedPreference == socialFeaturesEnabled) return
-        _uiState.value = _uiState.value.copy(
-            storedPreference = socialFeaturesEnabled,
-            enabled = socialFeaturesEnabled,
-        )
+        if (_uiState.value.storedPreference == value && pending == null) return
+        pending = null
+        _uiState.value = _uiState.value.copy(storedPreference = value, enabled = value)
         persist()
     }
 
-    /** What the sync blob should carry. Null when this profile has never answered. */
-    internal fun exportStoredPreference(): Boolean? {
-        ensureLoaded()
-        return _uiState.value.storedPreference
-    }
+    /** The answer for non-suspending callers, read straight from the repository rather than the gate's relay. */
+    internal val isEnabledNow: Boolean
+        get() {
+            ensureLoaded()
+            return _uiState.value.enabled
+        }
 
     /**
      * Records that this profile now has a social identity because the user just saved a handle.
@@ -195,9 +201,10 @@ object SocialFeaturePreferencesRepository {
 
     private fun loadFromDisk() {
         hasLoaded = true
-        val stored = SocialFeaturePreferencesStorage.loadPayload()
+        val payload = SocialFeaturePreferencesStorage.loadPayload()
             ?.let { runCatching { json.decodeFromString<StoredSocialFeaturePreferences>(it) }.getOrNull() }
-            ?.socialFeaturesEnabled
+        val stored = payload?.socialFeaturesEnabled
+        pending = payload?.pending
         val cached = hasCachedSocialIdentity()
         _uiState.value = SocialFeaturePreferencesUiState(
             storedPreference = stored,
@@ -230,6 +237,7 @@ object SocialFeaturePreferencesRepository {
             json.encodeToString(
                 StoredSocialFeaturePreferences(
                     socialFeaturesEnabled = _uiState.value.storedPreference,
+                    pending = pending,
                 ),
             ),
         )

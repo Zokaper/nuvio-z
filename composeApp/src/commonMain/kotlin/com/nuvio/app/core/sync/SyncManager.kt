@@ -3,6 +3,7 @@ package com.nuvio.app.core.sync
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.features.social.SharedSocialPreference
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.time.EpisodeReleaseDatePlatform
 import com.nuvio.app.features.addons.AddonRepository
@@ -354,6 +355,11 @@ object SyncManager {
         val authState = AuthRepository.state.value
         if (authState !is AuthState.Authenticated || authState.isAnonymous) return
 
+        // The shared Social switch is how another platform's change reaches this one. Throttled on its
+        // own, and deliberately outside the ordered steps: an unreachable Z backend must never make a
+        // profile pull look failed and be retried.
+        SharedSocialPreference.requestReconcile()
+
         if (!force && hasRecentActivityPull(profileId)) {
             return
         }
@@ -467,6 +473,7 @@ object SyncManager {
                     "failedSteps=${syncResult.failedSteps}"
             }
         }
+        SharedSocialPreference.requestReconcile(force = true)
         log.i { "Full profile sync completed profile=$profileId reason=$reason" }
     }
 

@@ -16,6 +16,7 @@ import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
+import com.nuvio.app.features.social.socialValueInFamilyCopy
 import com.nuvio.app.features.downloads.DownloadPolicyRepository
 import com.nuvio.app.features.downloads.DownloadPolicySyncPayload
 import com.nuvio.app.features.player.PlayerSettingsStorage
@@ -192,6 +193,18 @@ object ProfileSettingsSync {
     /** This install's platform family - `"mobile"` or `"desktop"`. */
     internal val ownFamilyPlatform: String get() = profileSettingsPlatform
 
+    /** The other family, whose copy the Social migration reads once. */
+    internal val otherFamilyPlatform: String
+        get() = if (isDesktop) MOBILE_SYNC_PLATFORM else DESKTOP_SYNC_PLATFORM
+
+    /**
+     * What [family]'s settings copy says about Social: `success(null)` when that family has no copy or
+     * never answered, a failure when it could not be read. Read only by the one-time migration to the
+     * shared value.
+     */
+    internal suspend fun fetchFamilySocialValue(profileId: Int, family: String): Result<Boolean?> =
+        fetchSettingsBlobJson(profileId, family).map(::socialValueInFamilyCopy)
+
     /**
      * One family's blob for [profileId], read-only: its JSON, null when that family has none, or a
      * failure when it could not be read. "None" and "could not ask" must stay distinct - only the
@@ -306,9 +319,9 @@ object ProfileSettingsSync {
                 notificationsSettings = NotificationsSettingsPayload(
                     episodeReleaseAlertsEnabled = EpisodeReleaseNotificationsRepository.uiState.value.isEnabled,
                 ),
-                socialFeatures = SocialFeaturesPayload(
-                    socialFeaturesEnabled = SocialFeaturePreferencesRepository.exportStoredPreference(),
-                ),
+                // Social on/off is no longer a family setting: one canonical copy lives in the Z backend
+                // (`SharedSocialPreference`). The field stays on the wire, always null from this build.
+                socialFeatures = SocialFeaturesPayload(),
                 downloadPolicy = DownloadPolicyRepository.exportForSync(),
                 zFeatures = buildJsonObject {
                     zProfileSyncContributors.forEach { contributor ->
@@ -397,7 +410,7 @@ object ProfileSettingsSync {
         TraktCommentsSettings.onProfileChanged()
 
         EpisodeReleaseNotificationsRepository.applyFromSyncEnabled(blob.features.notificationsSettings.episodeReleaseAlertsEnabled)
-        SocialFeaturePreferencesRepository.applyFromSync(blob.features.socialFeatures.socialFeaturesEnabled)
+        // `blob.features.socialFeatures` is deliberately not applied: see `SharedSocialPreference`.
         DownloadPolicyRepository.applyFromSync(blob.features.downloadPolicy)
         zProfileSyncContributors.forEach { contributor ->
             contributor.applyFromSync(blob.features.zFeatures[contributor.key])
@@ -425,8 +438,13 @@ object ProfileSettingsSync {
         zProfileSyncContributors.forEach { it.ensureLoaded() }
     }
 
+    // The Social field is not part of what a family's copy means any more, so a stale value an older
+    // build left on the server must not make every pull look like a difference.
     private fun buildSignature(blob: MobileProfileSettingsBlob): String =
-        json.encodeToString(MobileProfileSettingsBlob.serializer(), blob)
+        json.encodeToString(
+            MobileProfileSettingsBlob.serializer(),
+            blob.copy(features = blob.features.copy(socialFeatures = SocialFeaturesPayload())),
+        )
 
     /**
      * Every state the push observer watches, **with** the projection of it that the signature reads.
@@ -461,7 +479,6 @@ object ProfileSettingsSync {
         ObservedSyncState("trakt_settings", TrackingSettingsRepository.uiState),
         ObservedSyncState("trakt_comments", TraktCommentsSettings.enabled),
         ObservedSyncState("episode_release_alerts", EpisodeReleaseNotificationsRepository.uiState) { it.isEnabled },
-        ObservedSyncState("social_features", SocialFeaturePreferencesRepository.uiState) { it.storedPreference },
         ObservedSyncState("download_policy", DownloadPolicyRepository.policy),
     ) + zProfileSyncContributors.map { contributor ->
         ObservedSyncState<Any?>("z:${contributor.key}", contributor.observed) { contributor.export() }

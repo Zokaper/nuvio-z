@@ -404,6 +404,22 @@ object SocialRepository {
         )
     }
 
+    /** The shared Social preference for [profileId]: null when the profile never answered. */
+    internal suspend fun sharedSocialPreference(profileId: String): Result<Boolean?> = socialCall(callProfileId = profileId) {
+        socialRpc("profile_preferences_get", buildJsonObject {
+            put("p_profile_id", profileId); put("p_contract_version", 1)
+        }).decodeAs<SharedSocialPreferenceDto>().socialFeaturesEnabled
+    }
+
+    /** Returns the value now in force, so a writer that lost an `ifAbsent` race adopts the winner. */
+    internal suspend fun setSharedSocialPreference(profileId: String, enabled: Boolean, ifAbsent: Boolean): Result<Boolean> =
+        socialCall(callProfileId = profileId) {
+            socialRpc("profile_preferences_set_social", buildJsonObject {
+                put("p_profile_id", profileId); put("p_enabled", enabled)
+                put("p_if_absent", ifAbsent); put("p_contract_version", 1)
+            }).decodeAs<SharedSocialPreferenceDto>().socialFeaturesEnabled ?: enabled
+        }
+
     suspend fun setPrivacy(shareWatchingNow: Boolean, shareRecentlyWatched: Boolean): Result<Unit> = socialCall {
         val profileId = requireActiveProfile()
         socialRpc("social_set_privacy", buildJsonObject {
@@ -492,6 +508,10 @@ object SocialRepository {
     }
 
     suspend fun publishPresence(deviceId: String, entry: SocialPresencePublish): Result<Unit> = socialCall {
+        // ⚠ **Social OFF means nothing is published, whoever asks.** The composable that calls this is
+        // already gated; this makes the rule independent of every caller. It reads the repository, not
+        // the gate's relayed copy, so the answer is current the instant the switch moves.
+        check(SocialFeaturePreferencesRepository.isEnabledNow) { "Social is off" }
         socialRpc("social_publish_presence", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_device_id", deviceId); put("p_entry", json.encodeToJsonElement(entry))
         })
@@ -630,6 +650,11 @@ object SocialRepository {
     }
 
 }
+
+@Serializable
+internal data class SharedSocialPreferenceDto(
+    @SerialName("social_features_enabled") val socialFeaturesEnabled: Boolean? = null,
+)
 
 @Serializable
 data class SocialActionResult(
