@@ -54,6 +54,7 @@ import com.nuvio.app.features.details.seriesPrimaryAction
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeContinueWatchingSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
+import com.nuvio.app.features.home.components.HOME_HERO_ITEM_KEY
 import com.nuvio.app.features.home.components.HomeHeroReservedSpace
 import com.nuvio.app.features.home.components.HomeHeroSection
 import com.nuvio.app.features.home.components.HomeSkeletonHero
@@ -1009,7 +1010,7 @@ fun HomeScreen(
                 OfflineDownloadsBanner(modifier = Modifier.padding(top = if (showHeroSlot) topChromePadding ?: 0.dp else 0.dp))
             }
             if (showHeroSlot) {
-                item(key = "home_hero", contentType = "hero") {
+                item(key = HOME_HERO_ITEM_KEY, contentType = "hero") {
                     Crossfade(
                         targetState = showHeroSkeleton,
                         animationSpec = tween(320),

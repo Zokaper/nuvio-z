@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -1193,13 +1194,39 @@ private fun HeroMetaDot() {
     )
 }
 
+/** The `LazyColumn` key of the hero item in `HomeScreen`; [heroScrollOffsetPx] finds the hero by it. */
+internal const val HOME_HERO_ITEM_KEY = "home_hero"
+
 private fun heroScrollOffsetPx(
     listState: LazyListState?,
     heroHeightPx: Float,
-): Float = when {
-    listState == null -> 0f
-    listState.firstVisibleItemIndex > 0 -> heroHeightPx
-    else -> listState.firstVisibleItemScrollOffset.toFloat()
+): Float = if (listState == null) {
+    0f
+} else {
+    heroScrollOffsetPx(listState.layoutInfo.visibleItemsInfo, heroHeightPx)
+}
+
+/**
+ * How far the list has scrolled the hero off the top, in pixels, read from the hero item itself.
+ *
+ * ⚠ **This used to read `firstVisibleItemIndex > 0` as "the hero is gone".** That held while the
+ * hero was item 0. Since Phase 9 item 0 is the zero-height `offline_downloads_banner`, so the hero
+ * is item 1 and became the first *visible* item after about one list gap of scroll - at which
+ * point this returned the full [heroHeightPx] for a hero still on screen. The backdrop's parallax
+ * translation (0.3 x on mobile) jumped from 0 to roughly 180-200 px in one frame while the
+ * foreground content, which has no parallax, stayed put: a black band over the backdrop. Debug 83.
+ *
+ * Nothing about the hero's *position in the list* is assumed now. An absent hero in a non-empty
+ * list is scrolled past; the offset is never negative, because the gap above the hero at rest is
+ * not scroll.
+ */
+internal fun heroScrollOffsetPx(
+    visibleItems: List<LazyListItemInfo>,
+    heroHeightPx: Float,
+): Float {
+    if (visibleItems.isEmpty()) return 0f
+    val hero = visibleItems.firstOrNull { it.key == HOME_HERO_ITEM_KEY } ?: return heroHeightPx
+    return (-hero.offset).toFloat().coerceIn(0f, heroHeightPx)
 }
 
 private fun heroBackgroundScrollScale(scrollOffsetPx: Float): Float {

@@ -1,10 +1,65 @@
 package com.nuvio.app.features.home.components
 
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class HomeHeroSectionTest {
+
+    private class Item(
+        override val index: Int,
+        override val key: Any,
+        override val offset: Int,
+        override val size: Int,
+    ) : LazyListItemInfo {
+        override val contentType: Any? = null
+    }
+
+    // The Home list is [offline banner (zero height), hero, rows...]. `heroHeightPx` is 1000.
+    private fun home(bannerOffset: Int, heroOffset: Int): List<LazyListItemInfo> = listOf(
+        Item(0, "offline_downloads_banner", bannerOffset, 0),
+        Item(1, HOME_HERO_ITEM_KEY, heroOffset, 1000),
+        Item(2, "row", heroOffset + 1000, 300),
+    )
+
+    @Test
+    fun `hero at rest below the banner gap has not scrolled`() {
+        assertEquals(0f, heroScrollOffsetPx(home(bannerOffset = 0, heroOffset = 24), heroHeightPx = 1000f))
+    }
+
+    @Test
+    fun `hero at index 1 reports its real partial offset and not the full hero height`() {
+        // Debug 83: banner scrolled out, hero is the first visible item (index 1) and 60 px up.
+        // The old `firstVisibleItemIndex > 0` rule answered 1000 here, shoving the backdrop ~190 px.
+        val visible = listOf(
+            Item(1, HOME_HERO_ITEM_KEY, -60, 1000),
+            Item(2, "row", 940, 300),
+        )
+        assertEquals(60f, heroScrollOffsetPx(visible, heroHeightPx = 1000f))
+    }
+
+    @Test
+    fun `hero scrolled partway tracks the scroll while banner is still the first visible item`() {
+        assertEquals(10f, heroScrollOffsetPx(home(bannerOffset = -14, heroOffset = -10), heroHeightPx = 1000f))
+    }
+
+    @Test
+    fun `hero past the top of the list reports the full hero height`() {
+        val visible = listOf(Item(2, "row", -200, 300), Item(3, "row2", 116, 300))
+        assertEquals(1000f, heroScrollOffsetPx(visible, heroHeightPx = 1000f))
+    }
+
+    @Test
+    fun `hero offset never exceeds the hero height`() {
+        val visible = listOf(Item(1, HOME_HERO_ITEM_KEY, -1100, 1000), Item(2, "row", -100, 300))
+        assertEquals(1000f, heroScrollOffsetPx(visible, heroHeightPx = 1000f))
+    }
+
+    @Test
+    fun `an empty layout has not scrolled`() {
+        assertEquals(0f, heroScrollOffsetPx(emptyList(), heroHeightPx = 1000f))
+    }
 
     @Test
     fun `first and last indicators select adjacent pages across the loop`() {
