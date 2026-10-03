@@ -40,6 +40,15 @@ passes. Later commits are docs and the debug counters only.
 37139632181: `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.85.msi` (ProductName `Nuvio Z Debug`, ProductVersion `1.45.85`, sha256
 `6762fd9ad8161bf2116f6c20b2275054326210dc288649463fc5b983b82bb41f`, re-hashed locally) and the macOS arm64 DMG (sha256 `fa0f3e5f3cdfb82bd3ae22918d47b620ce35dc98bc9d05bc817002f1fd72536a`).
 
+**Post-release follow-up (P2, found 2026-10-03, deliberately NOT in this release): stale Watching Now and unreaped parties.** A friend's Watching Now entry (Main Debug,
+Lioness, paused) stayed on screen after its device stopped heartbeating; a manual refresh cleared it. The server already hides presence older than 90 s
+(`social_get_state_v2`), but a stale presence is the *absence* of a write, so no realtime invalidation fires and the client list never expires - each item carries
+`heartbeat_at` and the client never checks it. Separately, `party_reap_stale()` is deployed but **nothing runs it**: pg_cron is not installed on `pzbpghmmordvzcfbayoh`
+(migration `202609030002` only schedules it when the extension exists) and no deployed function calls it, so party cleanup is lazy (a member's `party_get_active`),
+and Watching Now's `party_member_count` counts open member rows without checking freshness. Proposed: (1) client drops Watching Now items older than 90 s and
+re-polls periodically while Social/Home is visible; (2) call a throttled `party_reap_stale` from `social_get_state_v2`, and count only fresh members in the party
+grouping. Not implemented; the data was clean at the time (0 stale member rows, 0 open rows in ended parties).
+
 **Retest on Debug 85 / 79:** leave -> Ask to join -> accept with the party **playing**, on iPhone, several times, and once with the host paused. Success is the
 iPhone landing in the player and catching up. If it still fails, the new `kotlin-*.log` will now show `return effect deferred` / `return inferred` and
 `leave to details: reason=...` with the route stack.
