@@ -776,6 +776,10 @@ object StreamsRepository {
      * chain it belongs to is how a back press starts reading as a retry in the first place.
      */
     fun abandonAutoPlay() {
+        // The user is leaving, so whatever launch was outstanding no longer decides anything.
+        outstandingLaunchId = null
+        outstandingEntered = false
+        _playerLaunchRevision.update { it + 1 }
         activeRequestKey = null
         failoverRetryPending = false
         manualSourceRequestPending = false
@@ -861,6 +865,64 @@ object StreamsRepository {
         return hasNext
     }
 
+    // ---------------------------------------------------------------- an outstanding player launch
+    //
+    // ⚠ **"The stream route is current again" is not evidence the user came back from the player.**
+    // Device QA 2026-10-03 (iPhone, Debug 78): 256 ms after a party guest's launch was handed to the
+    // player - realization `Ready`, no media loaded, no touch on the screen - the route concluded the user
+    // had walked out, ran `leaveToDetails` and uncovered the source list. On iOS the navigator hands
+    // `navigate` to the native stack (`NuvioNavigator.onExternalNavigate`) and does not add the route to
+    // its own back stack, so for the length of the native push `currentRoute` still names the stream route
+    // while the player is already composed and running. The only guard was `currentRoute != route`.
+    //
+    // So the player's *existence* is said, not deduced: the route records the launch it handed off, and
+    // the player ends it when - and only when - it is disposed. Until then a wake-up of the return effect
+    // is the push in flight, whatever `currentRoute` says.
+    private var outstandingLaunchId: Long? = null
+    private var outstandingBeganAtMs: Long = 0L
+    private var outstandingEntered = false
+    private val _playerLaunchRevision = MutableStateFlow(0)
+
+    /** Bumps whenever an outstanding launch begins or ends, so the return effect re-evaluates on disposal. */
+    val playerLaunchRevision: StateFlow<Int> = _playerLaunchRevision.asStateFlow()
+
+    /** Called by the stream route immediately before it navigates to the player for [launchId]. */
+    fun beginPlayerLaunch(launchId: Long, nowMs: Long = currentLaunchClockMs()) {
+        outstandingLaunchId = launchId
+        outstandingBeganAtMs = nowMs
+        outstandingEntered = false
+        _playerLaunchRevision.update { it + 1 }
+    }
+
+    /** Called by the player when it composes: from here the launch cannot go stale. */
+    fun notePlayerEntered(launchId: Long) {
+        if (outstandingLaunchId == launchId) outstandingEntered = true
+    }
+
+    /** Called by the player when it is disposed, however it was left. A superseded launch's end is ignored. */
+    fun endPlayerLaunch(launchId: Long) {
+        if (outstandingLaunchId != launchId) return
+        outstandingLaunchId = null
+        outstandingEntered = false
+        _playerLaunchRevision.update { it + 1 }
+    }
+
+    /**
+     * Whether a handed-off player is, as far as anyone has said, still on its way up or on screen.
+     *
+     * A launch whose player never composed within [PLAYER_LAUNCH_GRACE_MS] is not outstanding - a navigation
+     * that failed must not leave the route unable to recognise a real return, which is the hang this whole
+     * mechanism exists next to. One that has composed stays outstanding until it is disposed.
+     */
+    fun hasOutstandingPlayerLaunch(nowMs: Long = currentLaunchClockMs()): Boolean {
+        val id = outstandingLaunchId ?: return false
+        if (!outstandingEntered && nowMs - outstandingBeganAtMs > PLAYER_LAUNCH_GRACE_MS) {
+            endPlayerLaunch(id)
+            return false
+        }
+        return true
+    }
+
     fun cancelLoading() {
         PluginRepository.setLocalPluginSearchPaused(true)
         activeJob?.cancel()
@@ -899,6 +961,11 @@ object StreamsRepository {
 }
 
 internal const val MANUAL_ESCAPE_FROM_PLAYER_PATH = "manual_escape_from_player"
+
+/** How long a handed-off player may take to compose before the launch is considered never to have started. */
+internal const val PLAYER_LAUNCH_GRACE_MS = 10_000L
+
+private fun currentLaunchClockMs(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 /**
  * The failure chain a reload is allowed to keep, or null.

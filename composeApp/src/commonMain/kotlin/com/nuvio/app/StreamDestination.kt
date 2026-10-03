@@ -413,7 +413,11 @@ internal fun StreamDestination(
      * quality sheet and backing out of the player both needed this guard and both
      * grew their own copy; this is the one copy.
      */
-    fun leaveToDetails() {
+    fun leaveToDetails(reason: String) {
+        streamLog.w {
+            "leave to details: reason=$reason party=${partyRealizationKey?.partyId?.take(8) ?: "none"} " +
+                "realization=${PartySourceRealizer.state.value::class.simpleName}"
+        }
         manualPlaybackStarting = false
         manualCandidateFacts = null
         loadingToken?.let { PlaybackLoadingController.close(it, reason = "leave_to_details") }
@@ -684,6 +688,7 @@ internal fun StreamDestination(
             autoPickFailure = null
         }
         playbackHandedOff = true
+        StreamsRepository.beginPlayerLaunch(launchId)
         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
             if (replaceStreamRoute && !hasFailureChain) {
                 popUpTo<StreamRoute> { inclusive = true }
@@ -1076,9 +1081,23 @@ internal fun StreamDestination(
     // `autoPlayStream` set while the player is open - without that check this
     // would fire the moment playback was handed off and uncover the overlay
     // underneath the player.
-    LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute) {
+    // Re-evaluated when an outstanding player launch ends: the player's disposal is what turns a deferred
+    // wake-up below into a real return.
+    val playerLaunchRevision by StreamsRepository.playerLaunchRevision.collectAsStateWithLifecycle()
+    LaunchedEffect(streamsUiState.autoPlayStream, navController.currentRoute, playerLaunchRevision) {
         if (navController.currentRoute != route) return@LaunchedEffect
         if (!playbackHandedOff) return@LaunchedEffect
+        // ⚠ **A player that is on its way up, or on screen, has not been left.** `currentRoute` is the
+        // navigator's own back stack, and on iOS it lags the native push by a few hundred milliseconds;
+        // reading "this route is current" as "the user came back" sent an iPhone guest to the source list
+        // 256 ms after its player launched (Debug 78 QA). The launch outstanding is said by the player.
+        if (StreamsRepository.hasOutstandingPlayerLaunch()) {
+            streamLog.i {
+                "return effect deferred: player launch outstanding currentRoute=${navController.currentRoute?.let { it::class.simpleName }} " +
+                    "party=${partyRealizationKey?.partyId?.take(8) ?: "none"}"
+            }
+            return@LaunchedEffect
+        }
         // ⚠ **`autoPlayStream` gates the *retry*, never the *user leaving*, and conflating the two
         // was the escape hatch's whole fault.**
         //
@@ -1120,7 +1139,11 @@ internal fun StreamDestination(
             // backing out of the quality sheet already does - and through the
             // same exit, so the no-op guard exists once.
             userAbandonedPlayback = true
-            leaveToDetails()
+            streamLog.i {
+                "return inferred: user left the player routes=${navController.routes.map { it::class.simpleName }} " +
+                    "party=${partyRealizationKey?.partyId?.take(8) ?: "none"}"
+            }
+            leaveToDetails("user_left_player")
             return@LaunchedEffect
         }
         // A retry has nothing to relaunch without an armed stream. Only reachable when the player
@@ -1407,6 +1430,7 @@ internal fun StreamDestination(
         // A mode with a chain keeps StreamRoute on the back stack: that route
         // owns the auto-play effect, the attempt counter and the overlay, so
         // popping it is popping the thing that does the retrying.
+        StreamsRepository.beginPlayerLaunch(launchId)
         navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
             if (!hasFailureChain) popUpTo<StreamRoute> { inclusive = true }
         }
@@ -1582,6 +1606,7 @@ internal fun StreamDestination(
         lastHandedOffFacts = playerLaunch.sourceFacts
         playbackHandedOff = true
         loadingToken?.let(PlaybackLoadingController::handOff)
+        StreamsRepository.beginPlayerLaunch(launchId)
         navController.navigate(
             PlayerRoute(launchId = launchId, title = playerLaunch.title)
         )
@@ -2244,7 +2269,7 @@ internal fun StreamDestination(
                     streamlinedSelectionPending = false
                     pendingStreamlinedOptionId = null
                     qualitySheetDismissed = true
-                    leaveToDetails()
+                    leaveToDetails("quality_sheet_dismissed")
                 },
                 preferencesDialog = if (showPlaybackPreferences) {
                     {
@@ -2511,7 +2536,7 @@ internal fun StreamDestination(
                         if (manualPlaybackStarting) {
                             giveUpToSourceList(reason = "", path = "manual_escape")
                         } else {
-                            leaveToDetails()
+                            leaveToDetails("loading_screen_back")
                         }
                     },
                     // The blank reason is the point: `giveUpToSourceList` toasts whatever it is

@@ -3,6 +3,7 @@ package com.nuvio.app
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -51,6 +52,11 @@ internal fun PlayerDestination(
         route = route,
         beforePop = ResumePromptRepository::markPlayerExitedNormally,
     )
+    // Said, not deduced: see `StreamsRepository.beginPlayerLaunch`. Registered before anything can return.
+    DisposableEffect(route.launchId) {
+        StreamsRepository.notePlayerEntered(route.launchId)
+        onDispose { StreamsRepository.endPlayerLaunch(route.launchId) }
+    }
     val launch = remember(route.launchId) { PlayerLaunchStore.get(route.launchId) }
     if (launch == null) {
         LaunchedEffect(route.launchId) {
