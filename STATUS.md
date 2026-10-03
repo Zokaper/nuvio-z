@@ -1,3 +1,35 @@
+## Final RC P1 correction in progress — 2026-10-03
+
+| Repository | Active correction branch | Exact combined QA base |
+| --- | --- | --- |
+| Mobile | `codex/rc-p1-final-qa` | `9aea28b5c1de7fad288e9de2ef7d601bedb68cdf` (Debug 76) |
+| Desktop | `codex/rc-p1-desktop-final` | `53e67e6027c2d2a69b556734a4796f3a19033537` (Debug 82) |
+
+Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and
+`.codex-worktrees/rc-p1-desktop-verified` in the workspace parent. No performance work.
+Maintainer confirms no additional physical QA; one combined device pass follows the new builds.
+All five changelog QA flags and all planned ship dates remain untouched; mobile serial 127 is reserved.
+Stable publication is prohibited. Debug counters remain 76/82 until all validation gates pass.
+
+Social uses an activation identity in coroutine context, retained across nested refresh/mutation/retry
+calls. Activation and publication share a lock. RPC/session suspensions are fenced on both sides;
+stale completion cannot publish state, save a payload, register presence or begin a retry.
+Boundary cleanup remains ordered, without cancelling independent useful refreshes.
+First focused real-repository run: 13 tests, zero failures/errors/skips, including 20 overlapping
+A→B→A rounds. HTTP is a synthetic MockEngine; session access is the controlled neighbour.
+
+SideStore routing accepts `0.5.4-z1+127`, routes Debug only to the Debug feed, and rejects helpers
+and unrelated tags before download/mutation. Synthetic-IPA dry tests verify the opposite feed stays
+byte-identical. Narrow changelog validation rejects an undated shipping platform; interspersed CLI
+options work on Python 3.12.3. Combined Python suite: 29 tests pass.
+
+Desktop original scraper reproduction failed after six passing rounds, at the unchanged 60s timeout.
+Native output reports an unavailable cached JVM. Pinned quickjs-kt 1.0.15 source has unsynchronized
+process-global JNI instance accounting. Only native create/close will be serialized; evaluations and
+host work remain concurrent. Full matrices, repeated independent JVM stress and packaging are pending.
+No fresh candidate is published yet. Current classification: BLOCKED pending validation.
+Local evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
+
 ## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
 
 Owner: Claude, in isolated worktrees; Codex's frozen RC untouched. Branch `claude/whatsnew-global` in

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. debug-v0.4.13-z1.41 or v0.4.13-z1)"
+        description: "App release tag (e.g. 0.5.4-z1+127 or debug-v0.4.13-z1.77)"
         required: true
         type: string
       version:
@@ -33,9 +33,6 @@ concurrency:
 jobs:
   update:
     name: Update store.json
-    # Installer-only prereleases (for example ios-setup-v*) carry no IPA and must
-    # never be mistaken for the SideStore developer channel.
-    if: startsWith(inputs.tag || github.event.release.tag_name, 'v') || startsWith(inputs.tag || github.event.release.tag_name, 'debug-v')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -49,6 +46,18 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+
+      # Use the released tooling, while preserving the canonical feeds on main.
+      - name: Check out released source tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          path: release-tooling
+          sparse-checkout: scripts
+
+      - name: Validate app tag and isolate source channel
+        run: |
+          python3 release-tooling/scripts/sidestore-release-channel.py "${RELEASE_TAG}" >> "${GITHUB_ENV}"
 
       - name: Download and verify published IPA
         run: |
@@ -102,17 +111,10 @@ jobs:
             exit 1
           fi
 
-          if [[ "${is_prerelease}" == "true" || "${RELEASE_TAG}" == debug-v* ]]; then
-            echo "Processing DEBUG prerelease ${RELEASE_TAG} -> updating source-debug.json"
-            target_source="distribution/sidestore/source-debug.json"
-            expected_bundle_id="com.nuvio.app.z.debug"
-          else
-            echo "Processing STABLE release ${RELEASE_TAG} -> updating source.json"
-            target_source="distribution/sidestore/source.json"
-            expected_bundle_id="com.nuvio.app.z"
+          if [[ "${TARGET_SOURCE}" == "distribution/sidestore/source.json" && "${is_prerelease}" != "false" ]]; then
+            echo "Stable app tag ${RELEASE_TAG} must not be a prerelease." >&2
+            exit 1
           fi
-          echo "TARGET_SOURCE=${target_source}" >> "${GITHUB_ENV}"
-          echo "EXPECTED_BUNDLE_ID=${expected_bundle_id}" >> "${GITHUB_ENV}"
 
           jq -rj '.body // ""' "${release_json}" > "${release_notes}"
           version="${RELEASE_VERSION}"
@@ -125,11 +127,12 @@ jobs:
               version="${RELEASE_TAG}"
             fi
           fi
+          version="${version%%+*}"
 
-          python3 scripts/update-store-source.py \
-            --source "${target_source}" \
+          python3 release-tooling/scripts/update-store-source.py \
+            --source "${TARGET_SOURCE}" \
             --ipa "source-assets/${ipa_name}" \
-            --expected-bundle-id "${expected_bundle_id}" \
+            --expected-bundle-id "${EXPECTED_BUNDLE_ID}" \
             --release-notes "${release_notes}" \
             --release-version "${version}" \
             --release-date "${release_date}" \

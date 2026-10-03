@@ -154,6 +154,14 @@ Everything else in the pass is in Z files (`features/setup/`, `features/settings
 
 ## The shape of it
 
+**2026-10-03 RC P1:** Desktop's upstream-owned
+`fullCommonMain/.../plugins/runtime/js/JsRuntime.kt` replaces its inline `quickJs` lifetime
+with `createPluginQuickJs` / `closePluginQuickJs` calls. The Desktop implementation
+serializes only native lifecycle access to quickjs-kt 1.0.15's global JNI counter/cache;
+evaluate/host work remains concurrent. Android/iOS delegates preserve their prior behavior
+in the desktop repository's retained source sets. Social authority and account-wipe fencing
+are Z-owned. No What's New product file or changelog catalog changes.
+
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
 (Nuvio **0.4.13**), `NuvioZDesktop` `5aca4f3f` (**0.1.22-alpha**), `NuvioZWeb` `f9a546a`.
 
