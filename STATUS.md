@@ -1,3 +1,22 @@
+## Final release gate - Stage 1 HALTED at the Sign-in Reliability QA gate (2026-10-03)
+
+Release candidate (frozen product code; later commits are docs, counters and the What's New reorder only):
+mobile Debug 79 = `12806ec9f70bf26684950d2cc7e642899489638c` (product `1c2893ae7`), desktop Debug 85 =
+`fa1e9c718921df7ead431445415d28a2cf7acbee` (product `6a93fb605`). Working branch `claude/rc-p1-hero-loading-fix` in both
+repositories; **it is not yet merged into `main` / `Dev`** (604 / 576 commits ahead; `main` holds only docs pointers and
+debug-feed commits, `Dev` one docs commit). Stable releases and stable `source.json` (blob `e1025b03...`) untouched; no
+`0.5.4-z1+127` / `0.1.26-alpha-z1+132` tag exists. Backend: all 36 local migrations are applied on `pzbpghmmordvzcfbayoh`,
+including `202610030001` (join existing party) and `202610030002` (profile_preferences).
+
+Done: What's New entries reordered by user impact inside Features / Improvements / Bug Fixes (no wording, platform, category or
+QA-marker change; both `changelog.json` byte-identical; `check-changelog.py validate` and the 23 Python tests pass).
+
+Gate state, maintainer-reported physical QA of 2026-10-03 on Debug 85 / 79: Watch Together leave -> Ask to join -> accept
+(Android + iOS), join into a playing party (iOS), sync / Away / Back, shared Social on/off, Home hero scroll, iOS Downloads,
+Classic playback and general Downloads all PASSED. **No auth smoke (wrong then correct password, logout/login, restart,
+anonymous -> email) has been run or recorded**, so the `More dependable sign-in and sign-out` marker is NOT cleared.
+No version bump, ship date, marker removal or README change has been made.
+
 ## Debug 85 (desktop) / 79 (mobile): the iPhone source-list rejoin, root cause found and fixed (2026-10-03)
 
 **Supersedes the "OPEN - P1 until a log explains it" paragraph of the Debug 84 / 78 entry below.** The Debug 78 iOS export carried the first Kotlin
