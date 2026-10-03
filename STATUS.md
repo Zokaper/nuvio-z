@@ -1,3 +1,42 @@
+## Debug 85 (desktop) / 79 (mobile): the iPhone source-list rejoin, root cause found and fixed (2026-10-03)
+
+**Supersedes the "OPEN - P1 until a log explains it" paragraph of the Debug 84 / 78 entry below.** The Debug 78 iOS export carried the first Kotlin
+log (`kotlin-*.log`, `KotlinLogProbe`) and it named the path. Awaiting a device retest; see the fix status at the end.
+
+**Evidence (iPhone, party `a0eb0c4e` hosted by Android, host playing, 19:08):**
+
+    19:08:53.202 handoff: attempt=1 candidate=[TB] ComeTorz 2160p          route navigates to the player
+    19:08:53.389 realization Resolving->Ready by=player-launch              player composed, mediaLoaded=false
+    19:08:53.458 loading session close reason=leave_to_details              256 ms after the hand-off
+    19:08:53.673 give up to source list: path=back_from_quality_sheet ... realization=Ready
+    19:08:53.698 peer status buffering engine=libmpv/NoSource               the player was still alive
+
+The Swift session log has **no touch** between the Ask to join (19:08:42.979) and 19:09:03.647, so the leave was automatic. Realization was healthy
+(`party source matched ... tier=ExactRelease`, Matching -> Resolving -> Ready in ~3 s). The earlier Desktop-host reading (iPhone stuck at `resolving`,
+never `ready`) is this: the player was launched and the stream route then walked away from it. `SharedSocialPreference reconcile ... outcome=Migrated`
+is also in this log (the shared Social migration ran on-device).
+
+**Cause.** The stream route's return effect (`StreamDestination`, keyed on `autoPlayStream` and `navController.currentRoute`) read "this route is
+current again and playback was handed off, with no failover signalled" as "the user came back" and ran `leaveToDetails()`. On iOS `NuvioNavigator`
+hands `navigate` to the native stack (`onExternalNavigate`) and does **not** add the route to its own back stack, so for the length of the native
+push `currentRoute` still names the stream route while the player is already composed and running. The only guard was `currentRoute != route`. Why a
+playing host widens the window (constant party-state updates during the push) is a hypothesis; the paused-host joins did not reproduce.
+
+**Fix.** The player's existence is said, not deduced: `StreamsRepository.beginPlayerLaunch(launchId)` at each of the three hand-off sites,
+`notePlayerEntered` / `endPlayerLaunch` from a `DisposableEffect` at the top of `PlayerDestination` (ends only on disposal, however the player is left),
+and the return effect defers while `hasOutstandingPlayerLaunch()` and is re-keyed on `playerLaunchRevision` so the player's disposal re-runs it. A launch
+whose player never composed stops counting after 10 s (`PLAYER_LAUNCH_GRACE_MS`) so a failed navigation cannot hide a real return. A failover signal is
+not consumed while the player is outstanding. `leaveToDetails(reason)` and the return effect log their reason. `PlayerLaunchOutstandingTest` (10).
+Shared code: both families.
+
+**Validation on the heads.** Desktop `6a93fb605163e8e19df61a766307179260763554`: split rest/playback/downloads/e2e = 1888/1072/457/49 = **3466**, 0 failures/
+errors/skips, 0 duplicates. Mobile `1c2893ae748280b03045f21240de61273aa4fdf3`: host **3511**, 0 failures/errors, 6 policy skips; `:androidApp:compileFullDebugKotlin`
+passes. Later commits are docs and the debug counters only.
+
+**Retest on Debug 85 / 79:** leave -> Ask to join -> accept with the party **playing**, on iPhone, several times, and once with the host paused. Success is the
+iPhone landing in the player and catching up. If it still fails, the new `kotlin-*.log` will now show `return effect deferred` / `return inferred` and
+`leave to details: reason=...` with the route stack.
+
 ## P1 fix pass on Debug 83 / 77 -> Debug 84 (desktop) / 78 (mobile) (2026-10-03)
 
 Found in physical QA on the Debug 83 / 77 pair. Branch `claude/rc-p1-hero-loading-fix` in both repositories, cut from
