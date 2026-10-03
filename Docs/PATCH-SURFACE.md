@@ -161,6 +161,10 @@ serializes only native lifecycle access to quickjs-kt 1.0.15's global JNI counte
 evaluate/host work remains concurrent. Android/iOS delegates preserve their prior behavior
 in the desktop repository's retained source sets. Social authority and account-wipe fencing
 are Z-owned. No What's New product file or changelog catalog changes.
+**drop-at-next-sync:** recheck the pinned QuickJS JNI lifecycle accounting/cache before
+removing this seam; rerun the multi-JVM scraper regression. The reviewed upstream
+Desktop commit `b1e00724c55e65f8f325d4d9d52eb6827872a7c2` still uses the unfenced
+`quickJs(dispatcher)` lifetime with quickjs-kt 1.0.15. See `VANILLA-BUGS.md` V6.
 
 Regenerated 2026-09-04, after the mobile `0.4.13` and desktop `0.1.22-alpha` syncs. Bases: `nuvio-z` `42a9febf`
 (Nuvio **0.4.13**), `NuvioZDesktop` `5aca4f3f` (**0.1.22-alpha**), `NuvioZWeb` `f9a546a`.

@@ -22,6 +22,21 @@ it, unless it breaks something of ours. Read the rule before adding a fix rather
   patch - with a `Docs/PATCH-SURFACE.md` entry and a `drop-at-next-sync` tag. Note in the row that
   it was promoted, and where.
 
+## 2026-10-03 dependency lifecycle correction
+
+**V6 — Desktop concurrent scrapers can time out without provider/network work.**
+The pinned quickjs-kt 1.0.15 source has unsynchronized process-global JNI VM/cache
+instance accounting. The real Z repository's 32-execution Promise/literal test
+timed out in round seven after six passes, logging an unavailable cached JVM.
+Dependency source is confirmed; the exact lost-update interleaving is inferred,
+and an unmodified vanilla application was not run. Reviewed upstream Desktop
+`b1e00724c55e65f8f325d4d9d52eb6827872a7c2` uses the same unfenced QuickJS lifetime
+and dependency version. Promoted to a narrow patch for the RC exit gate: only native
+create/close is serialized, with eleven independent JVMs / 352000 executions passing
+and a ten-runtime parallel-host barrier. **drop-at-next-sync:** see the existing
+`JsRuntime.kt` seam in `PATCH-SURFACE.md`; recheck native lifecycle accounting and
+rerun multi-JVM stress before removing it. No third-party/native source was edited.
+
 ## The register
 
 | # | Bug | Where | Confidence | Notes |

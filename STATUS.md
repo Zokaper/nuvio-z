@@ -1,4 +1,4 @@
-## Final RC P1 corrections — validated; Debug 77/83 packaging next (2026-10-03)
+## Final RC P1 corrections — READY FOR FINAL DEVICE QA (2026-10-03)
 
 | Repository | Active correction branch | Exact combined QA base |
 | --- | --- | --- |
@@ -32,10 +32,43 @@ dates remain intact. Maintainer confirms no physical QA has passed. Performance 
 stable versions, stable publication and stable feeds are untouched.
 Evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
 
-Expected new tags: `debug-v0.4.13-z1.77` and `debug-v0.1.23-alpha-z6.83`; both confirmed unused.
-Separate iOS device/simulator/Xcode gate: 37118806451 (device + Swift passed; remaining work running).
-Classification remains **BLOCKED pending fresh packaging verification**. The complete reacceptance
-addendum is [Docs/RC-P1-FINAL-QA.md](Docs/RC-P1-FINAL-QA.md); preserve its broader RC matrix too.
+
+## Published final QA candidates
+
+| Platform | Branch | Immutable tagged build SHA | Version / build | Workflow |
+| --- | --- | --- | --- | --- |
+| Mobile | `codex/rc-p1-final-qa` | `2f168c9b0010cd9c0e5bd98cf0981629962241c6` | `0.4.13-z1.77`; Android `125077`, iOS `77` | [37120475431](https://github.com/Zokaper/nuvio-z/actions/runs/37120475431) |
+| Desktop | `codex/rc-p1-desktop-final` | `3031513b2f71c524f2c9dfb6162b7f1bd9a8fc73` | `0.1.23-alpha-z6.83`; Debug `83`, MSI `1.45.83` (base code `45`) | [37120482755](https://github.com/Zokaper/NuvioZDesktop/actions/runs/37120482755) |
+
+Tags: `debug-v0.4.13-z1.77` and `debug-v0.1.23-alpha-z6.83`. Both workflows passed.
+Tag SHAs are exact; subsequent branch handoff commits change documentation only.
+
+- [androidApp-full-debug.apk](https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.77/androidApp-full-debug.apk) — 156262833 bytes; SHA-256 `bf141ad3969d9810ccd1965ced942ebd60563514de61a4046b9b13235c8bb90f`.
+- [Nuvio-Z-iOS-0.4.13-z1-77-debug-unsigned.ipa](https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.4.13-z1.77/Nuvio-Z-iOS-0.4.13-z1-77-debug-unsigned.ipa) — 93055666 bytes; SHA-256 `7946592695022306745ed7e3f4f97ea5ad6d763a7b5803d0e3e312f88948678e`.
+- [Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.83.dmg](https://github.com/Zokaper/NuvioZDesktop/releases/download/debug-v0.1.23-alpha-z6.83/Nuvio-Z-Debug-macOS-arm64-0.1.23-alpha-z6.83.dmg) — 251873009 bytes; SHA-256 `01a6c15aa0ad450708b3a6c1a1ed656d92cd5b4932f067c5d2291469b863a8bd`.
+- [Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.83.msi](https://github.com/Zokaper/NuvioZDesktop/releases/download/debug-v0.1.23-alpha-z6.83/Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.83.msi) — 256631000 bytes; SHA-256 `a11ec4ceaf01017d9a128b416d5317dbc3b1d44a6dd8646aa51dc592d685ebef`.
+
+All four downloaded packages match GitHub asset size/digest. Mobile hashes also match
+SHA256SUMS-Debug.txt. APK identity/code/version and existing Debug signing certificate pass.
+IPA CRC, unsigned app, bundle `com.nuvio.app.z.debug`, version/build `0.4.13-z1.77`/`77`,
+minimum iOS 16.1 and Files sharing/open-in-place settings pass. MSI identity is
+`Nuvio Z Debug` / `1.45.83`. macOS arm64 DMG mounting, Debug bundle, architecture and
+pinned native runtime checks pass in its workflow.
+
+Official Debug SideStore feed points to the new IPA, size **93055666**, SHA-256
+`7946592695022306745ed7e3f4f97ea5ad6d763a7b5803d0e3e312f88948678e`.
+Stable source blob remains `e1025b0386bbd8a16ade476fbc271a681c2ff542`, identical to Debug 76
+and the pre-build snapshot. Stable and helper feeds were not modified.
+
+Separate [iOS gate 37120559532](https://github.com/Zokaper/nuvio-z/actions/runs/37120559532)
+passes Swift lifecycle regressions, device and simulator frameworks and unsigned Xcode on
+the exact Debug 77 build SHA. Earlier gate 37118806451 was canceled by the counter push's
+branch concurrency policy; this final full gate supersedes it.
+
+Classification: **READY FOR FINAL DEVICE QA**. No physical acceptance has passed;
+all five QA flags, mobile serial 127 and unreleased ship dates remain unchanged.
+No stable publication or performance integration. Use the additional P1 tests and
+the complete unchanged broader matrix in mobile `Docs/RC-P1-FINAL-QA.md`.
 
 ## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
 
