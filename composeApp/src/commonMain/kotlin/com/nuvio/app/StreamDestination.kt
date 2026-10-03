@@ -307,8 +307,7 @@ internal fun StreamDestination(
         streamLog.w {
             "give up to source list: path=$path reason=${reason ?: "default"} " +
                 "party=${partyRealizationKey?.partyId?.take(8) ?: "none"} " +
-                "realization=${PartySourceRealizer.state.value::class.simpleName} " +
-                "attempt=$autoPickAttempt handedOff=$playbackHandedOff"
+                "realization=${PartySourceRealizer.state.value::class.simpleName}"
         }
         manualPlaybackStarting = false
         manualCandidateFacts = null
