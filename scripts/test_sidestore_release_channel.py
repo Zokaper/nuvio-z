@@ -32,7 +32,7 @@ class ReleaseChannelTest(unittest.TestCase):
 
     def test_dry_publication_only_mutates_the_selected_feed(self):
         root = pathlib.Path(__file__).resolve().parent.parent
-        for tag, version, build in (("0.5.4-z1+127", "0.5.4-z1", "126"), ("debug-v0.4.13-z1.77", "0.4.13-z1.77", "77")):
+        for tag, version, build in (("0.5.4-z1+127", "0.5.4-z1", "126"), ("debug-v0.4.13-z1.9999", "0.4.13-z1.9999", "9999")):
             with self.subTest(tag=tag), tempfile.TemporaryDirectory() as temp:
                 work = pathlib.Path(temp)
                 feeds = ("distribution/sidestore/source.json", "distribution/sidestore/source-debug.json")
