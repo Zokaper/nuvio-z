@@ -42,7 +42,7 @@ class JoinIntoPlayingPartyOrderingTest {
     )
 
     /** A promoted party: source generation 0, exactly what a request-join into a playing host lands in. */
-    private fun party(status: WatchPartyStatus, positionMs: Long, sequence: Int) = WatchPartyState(
+    private fun party(status: WatchPartyStatus, positionMs: Long, sequence: Long) = WatchPartyState(
         id = "party",
         hostProfileId = "host",
         status = status,
@@ -112,7 +112,7 @@ class JoinIntoPlayingPartyOrderingTest {
         var position = 46_000L
         transport.forEachIndexed { index, status ->
             position += 5_200
-            deliver(party(status, position, sequence = index + 1))
+            deliver(party(status, position, sequence = (index + 1).toLong()))
             claims += PartySourceRealizer.claimAutomaticLaunch(key)
             realization += PartySourceRealizer.state.value::class.simpleName.orEmpty()
             readiness += partyReadinessReport(PartySourceRealizer.state.value)?.first
@@ -131,7 +131,7 @@ class JoinIntoPlayingPartyOrderingTest {
         // The party keeps moving after the player is up - a barrier pause, then a resume.
         listOf(WatchPartyStatus.paused, WatchPartyStatus.playing).forEachIndexed { index, status ->
             position += 5_200
-            deliver(party(status, position, sequence = transport.size + index + 1))
+            deliver(party(status, position, sequence = (transport.size + index + 1).toLong()))
             claims += PartySourceRealizer.claimAutomaticLaunch(key)
             realization += PartySourceRealizer.state.value::class.simpleName.orEmpty()
         }
@@ -213,7 +213,7 @@ class JoinIntoPlayingPartyOrderingTest {
         assertTrue(PartySourceRealizer.claimAutomaticLaunch(key))
         PartySourceRealizer.matching(key)
         repeat(20) { n ->
-            PartySourceRealizer.updateAuthority(party(WatchPartyStatus.playing, 46_000L + n * 1_000, n).partySourceKey())
+            PartySourceRealizer.updateAuthority(party(WatchPartyStatus.playing, 46_000L + n * 1_000, n.toLong()).partySourceKey())
             assertFalse(PartySourceRealizer.claimAutomaticLaunch(key))
             assertEquals(PartySourceRealizationState.Matching(key), PartySourceRealizer.state.value)
         }
