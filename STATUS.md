@@ -1,34 +1,41 @@
-## Final RC P1 correction in progress — 2026-10-03
+## Final RC P1 corrections — validated; Debug 77/83 packaging next (2026-10-03)
 
 | Repository | Active correction branch | Exact combined QA base |
 | --- | --- | --- |
 | Mobile | `codex/rc-p1-final-qa` | `9aea28b5c1de7fad288e9de2ef7d601bedb68cdf` (Debug 76) |
 | Desktop | `codex/rc-p1-desktop-final` | `53e67e6027c2d2a69b556734a4796f3a19033537` (Debug 82) |
 
-Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and
-`.codex-worktrees/rc-p1-desktop-verified` in the workspace parent. No performance work.
-Maintainer confirms no additional physical QA; one combined device pass follows the new builds.
-All five changelog QA flags and all planned ship dates remain untouched; mobile serial 127 is reserved.
-Stable publication is prohibited. Debug counters remain 76/82 until all validation gates pass.
+Isolated worktrees: `.codex-worktrees/rc-p1-mobile` and `.codex-worktrees/rc-p1-desktop-verified`.
+Validated product heads: mobile `427c3e0e78e6f8f5e250bf40375083bf30b9f3a6`, desktop
+`23b908ca9caab5a6311a8e885f952e5cbcf8d965`. Subsequent changes are docs and Debug counters only.
+All three P1 corrections and both narrow P2 tooling fixes are implemented. Mobile
+host: **3470**, zero failures/errors, six policy skips; exactly those six pass separately
+under full distribution. Desktop: **1849 + 1062 + 457 + 49 = 3417**, zero failures,
+errors, skips or duplicate cases. Social: **16 real-repository regressions x 5 repetitions
+per repository**, all pass, including ordinary and A -> B -> A switches, stale errors,
+thrown session failure and twenty overlapping switching rounds per repetition.
+What's New/storage: mobile **47**, desktop **48**, all pass. Changelog CLI **23** and
+SideStore **6** Python tests pass; CLI also passes with the exact CPython 3.12.3 parser.
+Android full Debug and unsigned full release/R8 packaging pass; Mobile CI 37118806274 passes.
 
-Social uses an activation identity in coroutine context, retained across nested refresh/mutation/retry
-calls. Activation and publication share a lock. RPC/session suspensions are fenced on both sides;
-stale completion cannot publish state, save a payload, register presence or begin a retry.
-Boundary cleanup remains ordered, without cancelling independent useful refreshes.
-First focused real-repository run: 13 tests, zero failures/errors/skips, including 20 overlapping
-A→B→A rounds. HTTP is a synthetic MockEngine; session access is the controlled neighbour.
+Scraper stress: **11 independent JVMs, 11000 rounds, 352000 executions**, zero failures,
+timeouts or missing-VM diagnostics (one Gradle JVM plus ten standalone JVMs). Only
+native create/close is serialized. The ten-runtime host barrier proves evaluation
+and async host work remains concurrent. The exact native lost-update interleaving
+is inferred; the unsynchronized JNI lifecycle source and cached-VM failure are proved.
+Desktop hosted CI 37119440403 retains the pre-existing Linux frame_copy_test.c:36 failure
+before Kotlin; Windows MSI and global changelog jobs pass. No unrelated native fix is taken.
 
-SideStore routing accepts `0.5.4-z1+127`, routes Debug only to the Debug feed, and rejects helpers
-and unrelated tags before download/mutation. Synthetic-IPA dry tests verify the opposite feed stays
-byte-identical. Narrow changelog validation rejects an undated shipping platform; interspersed CLI
-options work on Python 3.12.3. Combined Python suite: 29 tests pass.
+Global catalogs are byte-identical between repositories and unchanged from 76/82;
+global event #1, mobile serial 127, all five physical-QA flags and all unreleased ship
+dates remain intact. Maintainer confirms no physical QA has passed. Performance work,
+stable versions, stable publication and stable feeds are untouched.
+Evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
 
-Desktop original scraper reproduction failed after six passing rounds, at the unchanged 60s timeout.
-Native output reports an unavailable cached JVM. Pinned quickjs-kt 1.0.15 source has unsynchronized
-process-global JNI instance accounting. Only native create/close will be serialized; evaluations and
-host work remain concurrent. Full matrices, repeated independent JVM stress and packaging are pending.
-No fresh candidate is published yet. Current classification: BLOCKED pending validation.
-Local evidence: `.rc-investigation/rc-p1-20261003` in the workspace parent.
+Expected new tags: `debug-v0.4.13-z1.77` and `debug-v0.1.23-alpha-z6.83`; both confirmed unused.
+Separate iOS device/simulator/Xcode gate: 37118806451 (device + Swift passed; remaining work running).
+Classification remains **BLOCKED pending fresh packaging verification**. The complete reacceptance
+addendum is [Docs/RC-P1-FINAL-QA.md](Docs/RC-P1-FINAL-QA.md); preserve its broader RC matrix too.
 
 ## Global What's New - release-event changelog (2026-10-02, branch `claude/whatsnew-global`)
 
