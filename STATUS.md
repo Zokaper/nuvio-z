@@ -20,6 +20,13 @@ realization state. iOS Debug builds now write every Kotlin log line to `Document
 **Source SHAs.** Desktop `4774df864d655f3b11b986d42531fbc5babea345`, mobile `6c2594032668ab86e0687a7d2deb637557454c42`; later commits are
 docs and the debug counters only. Backend repo `nuvio-z-backend` branch `claude/ios-watch-together-hardening`: `90b8230` and `8a4dbe7`.
 
+**Published (prereleases, stable untouched).** Mobile `debug-v0.4.13-z1.78` -> `00d1b84e4856afaae3415941931914feca2a93ee`, run 37133566992 (all four jobs
+pass, including the first compile of `KotlinLogProbe` in the iOS build - its queue label is in the IPA binary): Android `androidApp-full-debug.apk` (`com.nuvio.app.z.debug`,
+versionName `0.4.13-z1.78`, versionCode 125078, sha256 `e383091d...138e`); iOS `Nuvio-Z-iOS-0.4.13-z1-78-debug-unsigned.ipa` (CFBundleVersion 78, bundle id `com.nuvio.app.z.debug`,
+CRC ok, 93088692 bytes, sha256 `1e1cadddf131de7415d29c49646aebe99df85cd61b6832777a9c7f053ce29b2c`, matches `SHA256SUMS-Debug.txt` and the debug feed entry). Desktop
+`debug-v0.1.23-alpha-z6.84` -> `a5574471fb0a1bec414ee1a61398b8428063c3ab`, run 37133569390: `Nuvio-Z-Debug-Windows-x64-0.1.23-alpha-z6.84.msi` (ProductName `Nuvio Z Debug`, ProductVersion
+`1.45.84`, 256676056 bytes, sha256 `4728038d...f31b`, re-hashed locally) and the macOS arm64 DMG (sha256 `0e954eea...b656`). Stable `source.json` is unchanged from the Debug 77 base.
+
 **Validation on those heads.** Desktop split `rest/playback/downloads/e2e` = 1878/1072/457/49 = **3456**, 0 failures/errors/skips, 0
 duplicates. Mobile host **3501**, 0 failures/errors, 6 policy skips; `:androidApp:compileFullDebugKotlin` passes. Backend `supabase db
 reset` + `supabase test db`: **18 files / 403** pass. The desktop `rest` part took 1129 s of the fixed 1200 s task timeout (an earlier run timed out
