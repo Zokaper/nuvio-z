@@ -50,8 +50,7 @@
             "ios"
           ],
           "title": "Watch Together, on every screen",
-          "body": "Start a party from anything you're playing and watch in sync with friends, on any mix of desktop, Android and iPhone. Everyone plays the same release through their own sources, so nobody shares an account or a link. The host can keep control or share it, invite friends or hand out a code, and decide who can join: Direct, Ask or Off. When the host moves on to the next episode, the whole party comes along. On a phone, Watch Together is in the player's toolbar and in the ⋯ menu next to Play. On iPhone, the lock screen and headphone controls go through the party too.",
-          "qa": "Physical iPhone Watch Together acceptance (lock, Away, return) is still open on the RC."
+          "body": "Start a party from anything you're playing and watch in sync with friends, on any mix of desktop, Android and iPhone. Everyone plays the same release through their own sources, so nobody shares an account or a link. The host can keep control or share it, invite friends or hand out a code, and decide who can join: Direct, Ask or Off. When the host moves on to the next episode, the whole party comes along. On a phone, Watch Together is in the player's toolbar and in the ⋯ menu next to Play. On iPhone, the lock screen and headphone controls go through the party too."
         },
         {
           "category": "feature",
@@ -70,8 +69,7 @@
             "ios"
           ],
           "title": "Away, instead of \"buffering\"",
-          "body": "If someone switches apps or locks their phone mid-party, they now show as Away rather than looking like a stalled stream. The host can choose to wait for them with Pause for away users in the Watch Together panel, separate from Pause when someone buffers. When they come back, they catch up before the party carries on. Clicking into another window on desktop doesn't count as leaving.",
-          "qa": "Physical iPhone Watch Together acceptance (lock, Away, return) is still open on the RC."
+          "body": "If someone switches apps or locks their phone mid-party, they now show as Away rather than looking like a stalled stream. The host can choose to wait for them with Pause for away users in the Watch Together panel, separate from Pause when someone buffers. When they come back, they catch up before the party carries on. Clicking into another window on desktop doesn't count as leaving."
         },
         {
           "category": "feature",
@@ -118,8 +116,7 @@
             "ios"
           ],
           "title": "Your downloads, as a library that works offline",
-          "body": "Downloaded titles show up as cards with their artwork and a play button for what's next. A downloaded show gets its own page, with seasons as tabs and every episode ready to play. If Nuvio says a title is downloaded, it plays with no connection at all: offline playback never reaches for the internet, autoplay moves through the episodes you have, and Home tells you when you're offline. Getting on a plane should be slightly less stressful now.",
-          "qa": "iOS current-head download acceptance (transfer, lock/relaunch, offline playback) is still open on the RC."
+          "body": "Downloaded titles show up as cards with their artwork and a play button for what's next. A downloaded show gets its own page, with seasons as tabs and every episode ready to play. If Nuvio says a title is downloaded, it plays with no connection at all: offline playback never reaches for the internet, autoplay moves through the episodes you have, and Home tells you when you're offline. Getting on a plane should be slightly less stressful now."
         },
         {
           "category": "feature",
@@ -244,8 +241,7 @@
             "ios"
           ],
           "title": "Downloads keep going on a locked iPhone",
-          "body": "Nuvio hands up to 30 downloads to iOS while it's open, so a whole season keeps downloading with the screen locked, with progress in a Live Activity. Queue more than that and the rest start the next time you open Nuvio.",
-          "qa": "iOS current-head download acceptance (transfer, lock/relaunch, offline playback) is still open on the RC."
+          "body": "Nuvio hands up to 30 downloads to iOS while it's open, so a whole season keeps downloading with the screen locked, with progress in a Live Activity. Queue more than that and the rest start the next time you open Nuvio."
         },
         {
           "category": "improvement",
@@ -421,8 +417,7 @@
             "desktop"
           ],
           "title": "More dependable sign-in and sign-out",
-          "body": "Signing in, signing out and switching accounts were reworked so a slow or failed attempt can't override a newer one.",
-          "qa": "Auth smoke on desktop and iOS (Android where practical) is still open on the RC."
+          "body": "Signing in, signing out and switching accounts were reworked so a slow or failed attempt can't override a newer one."
         },
         {
           "category": "fix",

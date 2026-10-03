@@ -1,21 +1,41 @@
-## Final release gate - Stage 1 HALTED at the Sign-in Reliability QA gate (2026-10-03)
+## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
-Release candidate (frozen product code; later commits are docs, counters and the What's New reorder only):
-mobile Debug 79 = `12806ec9f70bf26684950d2cc7e642899489638c` (product `1c2893ae7`), desktop Debug 85 =
-`fa1e9c718921df7ead431445415d28a2cf7acbee` (product `6a93fb605`). Working branch `claude/rc-p1-hero-loading-fix` in both
-repositories; **it is not yet merged into `main` / `Dev`** (604 / 576 commits ahead; `main` holds only docs pointers and
-debug-feed commits, `Dev` one docs commit). Stable releases and stable `source.json` (blob `e1025b03...`) untouched; no
-`0.5.4-z1+127` / `0.1.26-alpha-z1+132` tag exists. Backend: all 36 local migrations are applied on `pzbpghmmordvzcfbayoh`,
-including `202610030001` (join existing party) and `202610030002` (profile_preferences).
+**Release candidate** (frozen product code; every later commit is docs, debug counters, the What's New reorder, the QA-marker removal and
+the release bump): mobile Debug 79 = `12806ec9f70bf26684950d2cc7e642899489638c` (product `1c2893ae7`), desktop Debug 85 =
+`fa1e9c718921df7ead431445415d28a2cf7acbee` (product `6a93fb605`). Stable releases and the stable `source.json` (blob `e1025b03...`) were
+untouched until this entry; backend `pzbpghmmordvzcfbayoh` has all 36 migrations applied, including `202610030001` (join an existing
+party) and `202610030002` (`profile_preferences`).
 
-Done: What's New entries reordered by user impact inside Features / Improvements / Bug Fixes (no wording, platform, category or
-QA-marker change; both `changelog.json` byte-identical; `check-changelog.py validate` and the 23 Python tests pass).
+**Final physical QA (maintainer, 2026-10-03, Debug 85 / 79)** - PASSED: Watch Together leave -> Ask to join -> accept on Android and iPhone;
+join into a *playing* party on iPhone (after the navigation fix); no second party after the server fix; sync / Away / Back; **screen lock
+during an active party raises Away and unlock/return recovers with sync restored (iPhone)**; shared Social on/off across platform families;
+Home hero scroll/backdrop; iOS Downloads; Classic playback; general Downloads and playback. **Auth smoke on iPhone Debug 79 and Windows
+Debug 85**: wrong-password rejection, correct sign-in, sign-out, account/profile switching and restart persistence all correct. Android auth
+smoke was not run. Earlier recorded evidence still valid: automated auth suites (71 mobile / 76 desktop, real-coordinator and MockEngine
+regressions), the Phase 9 downloads QA, and the 2026-09-28 Android Downloads pass.
 
-Gate state, maintainer-reported physical QA of 2026-10-03 on Debug 85 / 79: Watch Together leave -> Ask to join -> accept
-(Android + iOS), join into a playing party (iOS), sync / Away / Back, shared Social on/off, Home hero scroll, iOS Downloads,
-Classic playback and general Downloads all PASSED. **No auth smoke (wrong then correct password, logout/login, restart,
-anonymous -> email) has been run or recorded**, so the `More dependable sign-in and sign-out` marker is NOT cleared.
-No version bump, ship date, marker removal or README change has been made.
+**QA gates cleared (five `qa` markers removed from `changelog.json`, both repos):** Watch Together (lock, Away, return); Away instead of
+"buffering"; Downloads library offline (Downloads Overhaul); Downloads on a locked iPhone; Sign-in Reliability.
+
+**P1s resolved this pass:** Home hero backdrop jump; exhausted Instant chain leaving a loading session up (covered by regression tests only -
+no deterministic physical repro, none claimed); Watch Together split-brain (migration `202610030001`); Social on/off split per platform family
+(migration `202610030002`, W8); iPhone dropped onto the source list when joining a playing party (Debug 85 / 79 fix).
+
+**Remaining non-blocking debt (post-release, none touched by the release):**
+- Instant fallback does not cross resolution rows (a spent 4K row ends the attempt although other rows exist).
+- A pending seek target is persisted as watch progress (a stalled scrub resumes at a position never reached).
+- A guest whose player exits after `Ready` leaves its readiness stuck at `resolving` (`PartySourceRealizer.abandoned` is inert once Ready).
+- iOS can hold an ended party across a background (dead socket, nativeCode 53).
+- iOS Watch Together can take a few seconds to converge initially, then settles without intervention.
+- Stale Watching Now entries and unreaped parties (`party_reap_stale` is deployed but nothing runs it; pg_cron absent) - see the Debug 85 / 79 entry.
+- Composition-level hiding for Social off is covered through pure decisions only; `SocialOffGateTest` runs on the desktop host.
+- iOS has no free-space preflight (-1); the iOS downloads folder migration was waived, not tested.
+- Linux CI native `frame_copy_test.c:36` failure (before Kotlin, pre-existing); load-flaky desktop tests listed in memory.
+- Performance work (`claude/perf-phase-1`, `-2`) is unmerged and deferred.
+
+**Stable metadata to be applied by the release bump commit:** desktop `0.1.26-alpha-z1`, code 46, serial 132, tag `0.1.26-alpha-z1+132`
+(MSI ProductVersion `2.0.132`); mobile `0.5.4-z1`, build 126, serial 127 (already reserved - not incremented), tag `0.5.4-z1+127`. Desktop
+ships three installers: Windows x64 MSI, macOS arm64 DMG and macOS Intel DMG. The iOS Setup wizard is a separate release line.
 
 ## Debug 85 (desktop) / 79 (mobile): the iPhone source-list rejoin, root cause found and fixed (2026-10-03)
 
