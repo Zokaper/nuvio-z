@@ -1,5 +1,10 @@
 package com.nuvio.app.features.social
 
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+import io.github.jan.supabase.postgrest.result.PostgrestResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlin.coroutines.cancellation.CancellationException
 import com.nuvio.app.core.auth.AuthRepository
@@ -76,7 +81,49 @@ object SocialRepository {
 
     private var realtimeChannel: RealtimeChannel? = null
     private var realtimeCollector: Job? = null
-    private var activeProfileId: String? = null
+    private val authorityLock = SynchronizedObject()
+    private var authority = SocialOperation(null)
+    private var sessionAccess: SocialSessionAccess = LiveSocialSessionAccess
+    private val activeProfileId: String? get() = synchronized(authorityLock) { authority.profileId }
+
+    private suspend fun operation(): SocialOperation =
+        currentCoroutineContext()[SocialOperation] ?: synchronized(authorityLock) { authority }
+
+    private fun checkAuthority(owner: SocialOperation) = synchronized(authorityLock) {
+        if (authority !== owner) throw CancellationException("Social activation superseded")
+    }
+
+    private suspend fun checkAuthority() = checkAuthority(operation())
+
+    private suspend fun <T> owned(block: suspend () -> T): T {
+        val owner = operation()
+        checkAuthority(owner)
+        return withContext(owner) { block().also { checkAuthority(owner) } }
+    }
+
+    /** The check and publication share activate's lock; switching cannot interleave them. */
+    private suspend fun publish(transform: (SocialUiState) -> SocialUiState) {
+        val owner = operation()
+        synchronized(authorityLock) {
+            checkAuthority(owner)
+            _uiState.value = transform(_uiState.value)
+        }
+    }
+
+    private suspend fun socialRpc(name: String, params: JsonObject = buildJsonObject {}): PostgrestResult {
+        checkAuthority()
+        return ZSupabaseProvider.client.postgrest.rpc(name, params).also { checkAuthority() }
+    }
+
+    private suspend fun ensureSession(profileId: String): Boolean {
+        checkAuthority()
+        return sessionAccess.ensure(profileId).also { checkAuthority() }
+    }
+
+    private suspend fun reexchange(profileId: String): Boolean {
+        checkAuthority()
+        return sessionAccess.reexchange(profileId).also { checkAuthority() }
+    }
     private val publishedPresenceDeviceIds = mutableSetOf<String>()
 
     private var identityBoundary: Job? = null
@@ -100,48 +147,56 @@ object SocialRepository {
         identityBoundary?.join()
     }
 
-    fun activate(profileId: String?) {
-        if (activeProfileId == profileId) return
-        val previousProfileId = activeProfileId
-        activeProfileId = profileId
+    fun activate(profileId: String?) = activate(profileId, forceBoundary = false)
+
+    /** Also fences setup-time work, for which the active profile can already be null. */
+    internal fun onAccountWipe() = activate(null, forceBoundary = true)
+
+    private fun activate(profileId: String?, forceBoundary: Boolean) = synchronized(authorityLock) {
+        if (!forceBoundary && authority.profileId == profileId) return@synchronized
+        val previousProfileId = authority.profileId
+        val owner = SocialOperation(profileId)
+        authority = owner
+        capabilitiesLoaded = false
+        _uiState.value = SocialUiState(activeProfileId = profileId, isLoading = profileId != null)
+        val previousBoundary = identityBoundary
+        val previousChannel = realtimeChannel
+        realtimeChannel = null
+        realtimeCollector?.cancel()
+        realtimeCollector = null
+        val previousDevices = publishedPresenceDeviceIds.toList()
+        publishedPresenceDeviceIds.clear()
         val boundary = CompletableDeferred<Unit>()
         identityBoundary = boundary
-        // A recovery still running is the previous profile's. It is stopped before the boundary is
-        // released, because it can call `ensureSession(previous)` and swap the Z session back under
-        // a party layer that has already moved on - the same hazard `awaitIdentityBoundary` guards.
         val staleRecovery = recovery?.also { it.cancel() }
         recovery = null
         if (profileId != null) startRecoveryTriggers()
-        activation = scope.launch {
-            staleRecovery?.join()
-            // ⚠ **First, before anything the request depends on is torn down.** An outgoing join
-            // request belongs to the previous profile: its cancel has to go out as that profile,
-            // over the token and channel that are still that profile's, and no answer to it may
-            // reach the next one. See `OutgoingJoinRequestStore.onIdentityBoundary`.
+        activation = scope.launch(owner) {
+            // Only boundary cleanup is ordered. Independent refresh requests may finish; their
+            // captured activation cannot publish or retry after authority changes.
             try {
+                previousBoundary?.join()
+                staleRecovery?.join()
                 OutgoingJoinRequestStore.onIdentityBoundary(previousProfileId, serverCleanup = true)
+                if (previousProfileId != null) {
+                    previousDevices.forEach { deviceId ->
+                        runCatching {
+                            ZSupabaseProvider.client.postgrest.rpc("social_clear_presence", buildJsonObject {
+                                put("p_profile_id", previousProfileId); put("p_device_id", deviceId)
+                            })
+                        }
+                    }
+                }
+                previousChannel?.let {
+                    runCatching { withTimeout(SocialChannelCloseTimeoutMs) { ZSupabaseProvider.client.realtime.removeChannel(it) } }
+                }
             } finally {
                 boundary.complete(Unit)
             }
-            if (previousProfileId != null) {
-                publishedPresenceDeviceIds.toList().forEach { deviceId ->
-                    runCatching {
-                        ZSupabaseProvider.client.postgrest.rpc("social_clear_presence", buildJsonObject {
-                            put("p_profile_id", previousProfileId); put("p_device_id", deviceId)
-                        })
-                    }
-                }
-                publishedPresenceDeviceIds.clear()
-            }
-            closeRealtime()
-            // The state below starts from default capabilities, so the flag starts over with it.
-            capabilitiesLoaded = false
-            if (profileId == null) {
-                _uiState.value = SocialUiState()
-                return@launch
-            }
+            checkAuthority(owner)
+            if (profileId == null) return@launch
             val cached = SocialStorage.loadPayload(profileId)?.let { runCatching { json.decodeFromString<SocialStatePayload>(it) }.getOrNull() }
-            _uiState.value = SocialUiState(
+            publish { SocialUiState(
                 activeProfileId = profileId,
                 me = cached?.me,
                 friends = cached?.friends.orEmpty(),
@@ -152,7 +207,7 @@ object SocialRepository {
                 activity = cached?.activity.orEmpty(),
                 isOfflineCache = cached != null,
                 isLoading = true,
-            )
+            ) }
             refreshCapabilities()
             refresh(forceLoading = false)
             flushOutbox()
@@ -167,20 +222,21 @@ object SocialRepository {
      * is opened. It does nothing unless [socialNeedsRecovery] says the surface is stale, and nothing
      * while an activation or another recovery is still running.
      */
-    fun recoverIfStale() {
-        val profileId = activeProfileId ?: return
-        if (activation?.isActive == true || recovery?.isActive == true) return
-        if (!socialNeedsRecovery(_uiState.value, capabilitiesLoaded, realtimeOpen = realtimeChannel != null)) return
-        recovery = scope.launch {
+    fun recoverIfStale() = synchronized(authorityLock) {
+        val owner = synchronized(authorityLock) { authority }
+        val profileId = owner.profileId ?: return@synchronized
+        if (activation?.isActive == true || recovery?.isActive == true) return@synchronized
+        if (!socialNeedsRecovery(_uiState.value, capabilitiesLoaded, realtimeOpen = realtimeChannel != null)) return@synchronized
+        recovery = scope.launch(owner) {
             // Two triggers can arrive together (the session and the network return at once); the
             // second finds the lock held and leaves the work to the first.
             if (!recoveryLock.tryLock()) return@launch
             try {
                 if (!capabilitiesLoaded) refreshCapabilities()
-                if (activeProfileId != profileId) return@launch
+                checkAuthority(owner)
                 refresh(forceLoading = false)
                 flushOutbox()
-                if (activeProfileId == profileId && realtimeChannel == null) openRealtime(profileId)
+                if (realtimeChannel == null) openRealtime(profileId)
             } finally {
                 recoveryLock.unlock()
             }
@@ -208,26 +264,30 @@ object SocialRepository {
         }
     }
 
-    suspend fun refresh(forceLoading: Boolean = true, append: Boolean = false) {
+    suspend fun refresh(forceLoading: Boolean = true, append: Boolean = false) = owned {
+        refreshOwned(forceLoading, append)
+    }
+
+    private suspend fun refreshOwned(forceLoading: Boolean, append: Boolean) {
         val profileId = activeProfileId ?: return
         val current = _uiState.value
         if (!current.capabilities.socialEnabled) {
-            _uiState.value = current.copy(isLoading = false, isLoadingMore = false)
+            publish { it.copy(isLoading = false, isLoadingMore = false) }
             return
         }
-        if (!ZSessionBridge.ensureSession(profileId)) {
+        if (!ensureSession(profileId)) {
             // Hiding the surface is right when the backend is simply not deployed, but a failed
             // exchange is a fault the user should see - not least because the commonest one is
             // "you are not signed in", which they can fix.
-            _uiState.value = current.copy(
+            publish { it.copy(
                 isLoading = false,
                 isLoadingMore = false,
                 errorMessage = ZSessionBridge.lastFailure,
-            )
+            ) }
             return
         }
         val cursor = if (append) current.nextCursor else null
-        if (forceLoading) _uiState.value = current.copy(isLoading = !append, isLoadingMore = append, errorMessage = null)
+        if (forceLoading) publish { it.copy(isLoading = !append, isLoadingMore = append, errorMessage = null) }
         runCatching {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
@@ -236,34 +296,38 @@ object SocialRepository {
                 current.selectedFriendId?.let { put("p_filter_profile_id", it) }
             }
             val rpcName=if (current.capabilities.partyContractVersion>=PartySourceContractVersion) "social_get_state_v2" else "social_get_state"
-            val fetch = suspend { ZSupabaseProvider.client.postgrest.rpc(rpcName, params).decodeAs<SocialStatePayload>() }
+            val fetch = suspend { socialRpc(rpcName, params).decodeAs<SocialStatePayload>() }
             // A refused Z token is normally an expired one. Every other social call re-exchanges and
             // asks once more through [socialCall]; the feed did not, and showed "JWT expired" instead.
             runCatching { fetch() }.getOrElse { error ->
                 if (error is CancellationException || !shouldReexchangeZSession(error)) throw error
-                if (!ZSessionBridge.reexchange(profileId)) throw error
+                if (!reexchange(profileId)) throw error
                 fetch()
             }
         }.onSuccess { payload ->
             val activity = if (append) (current.activity + payload.activity).distinctBy(RecentActivityRun::runId) else payload.activity
             val next = payload.activity.lastOrNull()?.let { SocialActivityCursor(it.lastEventTime, it.runId) }
-            _uiState.value = _uiState.value.copy(
+            publish { it.copy(
                 me = payload.me, friends = payload.friends, requests = payload.requests, partyInvites = payload.partyInvites,
                 notifications = payload.notifications,
                 watchingNow = payload.watchingNow.take(SocialHomeItemLimit), activity = activity,
                 nextCursor = next, isLoading = false, isLoadingMore = false, isOfflineCache = false, errorMessage = null,
-            )
-            SocialStorage.savePayload(profileId, json.encodeToString(payload.copy(activity = activity)))
+            ) }
+            val owner = operation()
+            synchronized(authorityLock) {
+                checkAuthority(owner)
+                SocialStorage.savePayload(profileId, json.encodeToString(payload.copy(activity = activity)))
+            }
         }.onFailure { error ->
             // A caller leaving (a screen, an effect relaunching) is not a fault to show the user.
             if (error is CancellationException) {
-                _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false)
+                publish { it.copy(isLoading = false, isLoadingMore = false) }
                 throw error
             }
             // When the token was refused and could not be replaced, the bridge knows why; the raw
             // PostgREST message ("JWT expired") does not help anyone.
             val message = if (shouldReexchangeZSession(error)) ZSessionBridge.lastFailure ?: error.message else error.message
-            _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false, errorMessage = message)
+            publish { it.copy(isLoading = false, isLoadingMore = false, errorMessage = message) }
         }
     }
 
@@ -278,7 +342,7 @@ object SocialRepository {
     ): Result<SocialProfileSummary> = socialCall(profileId) {
         require(isValidSocialHandle(handle)) { "Handle must be 3–24 lowercase letters, numbers, or underscores" }
         requireNotNull(profileId) { "No active social profile" }
-        val result = ZSupabaseProvider.client.postgrest.rpc("social_upsert_profile", buildJsonObject {
+        val result = socialRpc("social_upsert_profile", buildJsonObject {
             put("p_profile_id", profileId); put("p_handle", normalizeSocialHandle(handle))
         }).decodeAs<SocialProfileSummary>()
         refresh(false)
@@ -301,15 +365,17 @@ object SocialRepository {
      * not be confused: `Absent` is a fact about the account and `Indeterminate` is the absence of
      * one, and only the first may ever influence what gets written down.
      */
-    suspend fun probeExistingIdentity(profileId: String): SocialIdentityProbe {
+    suspend fun probeExistingIdentity(profileId: String): SocialIdentityProbe = owned { probeExistingIdentityOwned(profileId) }
+
+    private suspend fun probeExistingIdentityOwned(profileId: String): SocialIdentityProbe {
         val authState = AuthRepository.state.value
         if (authState !is AuthState.Authenticated || authState.isAnonymous) {
             return SocialIdentityProbe.Indeterminate
         }
-        if (!ZSessionBridge.ensureSession(profileId)) return SocialIdentityProbe.Indeterminate
+        if (!ensureSession(profileId)) return SocialIdentityProbe.Indeterminate
 
         val capabilities = runCatching {
-            ZSupabaseProvider.client.postgrest.rpc("get_social_capabilities").decodeAs<SocialCapabilities>()
+            socialRpc("get_social_capabilities").decodeAs<SocialCapabilities>()
         }.getOrElse { return SocialIdentityProbe.Indeterminate }
         // A backend with no social layer deployed cannot be holding an identity. That is a real
         // answer, not a failure to reach one.
@@ -321,7 +387,7 @@ object SocialRepository {
             "social_get_state"
         }
         return runCatching {
-            ZSupabaseProvider.client.postgrest.rpc(
+            socialRpc(
                 rpcName,
                 buildJsonObject {
                     put("p_profile_id", profileId)
@@ -338,19 +404,16 @@ object SocialRepository {
 
     suspend fun setPrivacy(shareWatchingNow: Boolean, shareRecentlyWatched: Boolean): Result<Unit> = socialCall {
         val profileId = requireActiveProfile()
-        ZSupabaseProvider.client.postgrest.rpc("social_set_privacy", buildJsonObject {
+        socialRpc("social_set_privacy", buildJsonObject {
             put("p_profile_id", profileId); put("p_share_watching_now", shareWatchingNow); put("p_share_recently_watched", shareRecentlyWatched)
         })
-        Unit
-    }.onSuccess {
         // The server has the new values; reflect them in `me` now rather than on the next refresh,
         // so a switch bound to `me` does not snap back to the old value in between (setup polish).
         val current = _uiState.value
         current.me?.let { me ->
-            _uiState.value = current.copy(
-                me = me.copy(shareWatchingNow = shareWatchingNow, shareRecentlyWatched = shareRecentlyWatched),
-            )
+            publish { it.copy(me = me.copy(shareWatchingNow = shareWatchingNow, shareRecentlyWatched = shareRecentlyWatched)) }
         }
+        Unit
     }
 
     suspend fun setDefaultJoinPolicy(policy: WatchJoinPolicy): Result<Unit> = socialMutation("social_set_default_join_policy") {
@@ -364,7 +427,7 @@ object SocialRepository {
 
     suspend fun joinWatching(item:WatchingNowItem): Result<SocialActionResult> = socialCall {
         require(_uiState.value.capabilities.partyContractVersion>=PartySourceContractVersion) { "Watch Together update required" }
-        ZSupabaseProvider.client.postgrest.rpc("social_join_watching",buildJsonObject {
+        socialRpc("social_join_watching",buildJsonObject {
             put("p_requester_profile_id",requireActiveProfile());put("p_receiver_profile_id",item.profile.profileId)
             put("p_presence_session_id",item.sessionId);put("p_contract_version",PartySourceContractVersion)
         }).decodeAs<SocialActionResult>().also { refresh(false) }
@@ -372,7 +435,7 @@ object SocialRepository {
 
     /** The requester's own view of a join request. Scoped server-side to the caller. */
     suspend fun joinRequestStatus(requestId: String): Result<JoinRequestStatusResult> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc("social_join_request_status", buildJsonObject {
+        socialRpc("social_join_request_status", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_request_id", requestId)
         }).decodeAs<JoinRequestStatusResult>()
     }
@@ -392,7 +455,7 @@ object SocialRepository {
     }
 
     suspend fun notificationAction(id:String,action:SocialNotificationAction): Result<SocialActionResult> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc("social_notification_action",buildJsonObject {
+        socialRpc("social_notification_action",buildJsonObject {
             put("p_profile_id",requireActiveProfile());put("p_notification_id",id);put("p_action",action.name.lowercase())
             put("p_contract_version",PartySourceContractVersion)
         }).decodeAs<SocialActionResult>().also { refresh(false) }
@@ -403,7 +466,7 @@ object SocialRepository {
     }
 
     suspend fun searchProfiles(query: String): Result<List<SocialProfileSummary>> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc("social_search_profiles", buildJsonObject {
+        socialRpc("social_search_profiles", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_query", query); put("p_limit", 20)
         }).decodeList()
     }
@@ -421,29 +484,33 @@ object SocialRepository {
         put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
     }
 
-    fun selectFriend(profileId: String?) {
+    fun selectFriend(profileId: String?) = synchronized(authorityLock) {
         _uiState.value = _uiState.value.copy(selectedFriendId = profileId, activity = emptyList(), nextCursor = null)
-        scope.launch { refresh(false) }
+        scope.launch(authority) { refresh(false) }
     }
 
     suspend fun publishPresence(deviceId: String, entry: SocialPresencePublish): Result<Unit> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc("social_publish_presence", buildJsonObject {
+        socialRpc("social_publish_presence", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_device_id", deviceId); put("p_entry", json.encodeToJsonElement(entry))
         })
-        publishedPresenceDeviceIds += deviceId
+        val owner = operation()
+        synchronized(authorityLock) { checkAuthority(owner); publishedPresenceDeviceIds += deviceId }
     }
 
     suspend fun clearPresence(deviceId: String): Result<Unit> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc("social_clear_presence", buildJsonObject {
+        socialRpc("social_clear_presence", buildJsonObject {
             put("p_profile_id", requireActiveProfile()); put("p_device_id", deviceId)
         })
-        publishedPresenceDeviceIds -= deviceId
+        val owner = operation()
+        synchronized(authorityLock) { checkAuthority(owner); publishedPresenceDeviceIds -= deviceId }
     }
 
     suspend fun publishWatched(event: SocialWatchedPublish) = enqueueOutbox(SocialOutboxEntry.Publish(event))
     suspend fun removeWatched(originKey: String) = enqueueOutbox(SocialOutboxEntry.Remove(originKey))
 
-    suspend fun flushOutbox() {
+    suspend fun flushOutbox() = owned { flushOutboxOwned() }
+
+    private suspend fun flushOutboxOwned() {
         val profileId = activeProfileId ?: return
         val pending = loadOutbox(profileId).toMutableList()
         if (pending.isEmpty()) return
@@ -451,62 +518,68 @@ object SocialRepository {
         pending.forEach { entry ->
             val result = runCatching {
                 when (entry) {
-                    is SocialOutboxEntry.Publish -> ZSupabaseProvider.client.postgrest.rpc("social_publish_watched", buildJsonObject {
+                    is SocialOutboxEntry.Publish -> socialRpc("social_publish_watched", buildJsonObject {
                         put("p_profile_id", profileId); put("p_event", json.encodeToJsonElement(entry.event))
                     })
-                    is SocialOutboxEntry.Remove -> ZSupabaseProvider.client.postgrest.rpc("social_remove_watched", buildJsonObject {
+                    is SocialOutboxEntry.Remove -> socialRpc("social_remove_watched", buildJsonObject {
                         put("p_profile_id", profileId); put("p_origin_key", entry.originKey)
                     })
                 }
             }
+            checkAuthority()
             if (result.isFailure) remaining += entry
         }
-        saveOutbox(profileId, remaining)
+        val owner = operation()
+        synchronized(authorityLock) { checkAuthority(owner); saveOutbox(profileId, remaining) }
         if (remaining.size != pending.size) refresh(false)
     }
 
     private suspend fun refreshCapabilities() {
-        runCatching { ZSupabaseProvider.client.postgrest.rpc("get_social_capabilities").decodeAs<SocialCapabilities>() }
-            .onSuccess { capabilitiesLoaded = true; _uiState.value = _uiState.value.copy(capabilities = it) }
-            .onFailure { capabilitiesLoaded = false; _uiState.value = _uiState.value.copy(capabilities = SocialCapabilities(), isLoading = false) }
+        runCatching { socialRpc("get_social_capabilities").decodeAs<SocialCapabilities>() }
+            .onSuccess { capabilities -> publish { capabilitiesLoaded = true; it.copy(capabilities = capabilities) } }
+            .onFailure { error ->
+                if (error is CancellationException) throw error
+                publish { capabilitiesLoaded = false; it.copy(capabilities = SocialCapabilities(), isLoading = false) }
+            }
     }
 
     private suspend fun openRealtime(profileId: String) {
         if (!_uiState.value.capabilities.socialEnabled) return
         // The social topic is a private channel authorized by RLS on realtime.messages, so the
         // socket has to carry the Z token rather than the publishable key.
-        if (!ZSessionBridge.ensureSession(profileId)) return
+        if (!ensureSession(profileId)) return
         runCatching {
             ZSupabaseProvider.client.realtime.setAuth()
-            val channel = ZSupabaseProvider.client.channel("social:$profileId") { isPrivate = true }
-            realtimeCollector = channel.broadcastFlow<JsonObject>("invalidate").onEach { payload ->
+            checkAuthority()
+            val owner = operation()
+            val channel = synchronized(authorityLock) {
+                checkAuthority(owner)
+                val created = ZSupabaseProvider.client.channel("social:$profileId") { isPrivate = true }
+                val collector = created.broadcastFlow<JsonObject>("invalidate").onEach { payload ->
+                checkAuthority(owner)
                 // A join request changed on either side: the requester reads its status now rather
                 // than on the next poll.
                 if (payload["reason"]?.jsonPrimitive?.contentOrNull == "join_request") {
                     OutgoingJoinRequestStore.onJoinRequestInvalidated()
                 }
                 refresh(false)
-            }.launchIn(scope)
-            realtimeChannel = channel
+            }.launchIn(CoroutineScope(scope.coroutineContext + owner))
+                realtimeCollector = collector
+                realtimeChannel = created
+                created
+            }
             // A topic the server refuses is retried in the background and never reports itself
             // subscribed, so an unbounded wait here is not a wait - it is a coroutine parked for the
             // life of the app, with the refresh below it never reached.
             withTimeout(SocialChannelSubscribeTimeoutMs) { channel.subscribe(blockUntilSubscribed = true) }
+            checkAuthority(owner)
             refresh(false)
         }
     }
 
-    private suspend fun closeRealtime() {
-        realtimeCollector?.cancel(); realtimeCollector = null
-        // Bounded for the same reason the subscription is: leaving a channel talks over the socket
-        // that may be the thing that failed, and this runs on the profile switch path.
-        realtimeChannel?.let {
-            runCatching { withTimeout(SocialChannelCloseTimeoutMs) { ZSupabaseProvider.client.realtime.removeChannel(it) } }
-        }
-        realtimeChannel = null
-    }
+    private suspend fun enqueueOutbox(entry: SocialOutboxEntry) = owned { enqueueOutboxOwned(entry) }
 
-    private suspend fun enqueueOutbox(entry: SocialOutboxEntry) {
+    private suspend fun enqueueOutboxOwned(entry: SocialOutboxEntry) {
         val profileId = activeProfileId ?: return
         val pending = loadOutbox(profileId).toMutableList()
         when (entry) {
@@ -519,7 +592,8 @@ object SocialRepository {
                 pending += entry
             }
         }
-        saveOutbox(profileId, pending)
+        val owner = operation()
+        synchronized(authorityLock) { checkAuthority(owner); saveOutbox(profileId, pending) }
         flushOutbox()
     }
 
@@ -528,26 +602,27 @@ object SocialRepository {
     private fun saveOutbox(profileId: String, entries: List<SocialOutboxEntry>) = SocialStorage.saveOutbox(profileId, json.encodeToString(entries))
     private fun requireActiveProfile(): String = requireNotNull(activeProfileId) { "No active social profile" }
     private suspend fun socialMutation(rpc: String, params: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit): Result<Unit> = socialCall {
-        ZSupabaseProvider.client.postgrest.rpc(rpc, buildJsonObject(params)); refresh(false)
+        socialRpc(rpc, buildJsonObject(params)); refresh(false)
     }
     private suspend fun <T> socialCall(
         callProfileId: String? = activeProfileId,
         block: suspend () -> T,
-    ): Result<T> {
-        val profileId = callProfileId ?: return runCatching { block() }
-        if (!ZSessionBridge.ensureSession(profileId)) {
-            return Result.failure(
-                IllegalStateException(ZSessionBridge.lastFailure ?: "Nuvio Z social is unavailable"),
-            )
+    ): Result<T> = runCatching {
+        owned {
+            val profileId = callProfileId
+            if (profileId == null) return@owned block()
+            check(profileId == operation().profileId || operation().profileId == null) { "Social profile changed" }
+            check(ensureSession(profileId)) { ZSessionBridge.lastFailure ?: "Nuvio Z social is unavailable" }
+            val first = runCatching { block() }
+            checkAuthority()
+            if (first.isSuccess || first.exceptionOrNull()?.let(::shouldReexchangeZSession) != true) {
+                return@owned first.getOrThrow()
+            }
+            if (!reexchange(profileId)) return@owned first.getOrThrow()
+            block()
         }
-        val first = runCatching { block() }
-        if (first.isSuccess || first.exceptionOrNull()?.let(::shouldReexchangeZSession) != true) return first
-        // A rejected Z token is the expected failure once one expires. The official session is the
-        // source of truth and is still live, so re-exchanging is the recovery; retried once so a
-        // genuine server error is still reported rather than looped on.
-        if (!ZSessionBridge.reexchange(profileId)) return first
-        return runCatching { block() }
     }
+
 }
 
 @Serializable

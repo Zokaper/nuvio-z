@@ -166,6 +166,7 @@ class CliTest(unittest.TestCase):
 
     def test_check_refuses_an_open_qa_marker(self):
         data = copy.deepcopy(BASE)
+        data["events"][1]["ships"]["desktop"]["date"] = "2026-10-10"
         data["events"][1]["entries"][0]["qa"] = "iPhone lock acceptance open"
         code, out = self.run_cli(data, "--platform", "desktop", "--serial", "132", "check")
         self.assertEqual(1, code)
@@ -205,6 +206,33 @@ class CliTest(unittest.TestCase):
         self.assertEqual(0, code)
         code, _ = self.run_cli(BASE, "compare", peer_text=json.dumps(dated))
         self.assertEqual(1, code)
+
+    def test_shipping_platforms_need_dates_even_when_qa_is_allowed(self):
+        for platform in ("desktop", "android", "ios"):
+            for date in (None, "", "unreleased"):
+                data = copy.deepcopy(BASE)
+                data["events"][1]["ships"][platform]["date"] = date
+                code, out = self.run_cli(data, "check", "--platform", platform, "--serial", "132" if platform == "desktop" else "127", "--allow-qa")
+                self.assertEqual(1, code, out)
+        data = copy.deepcopy(BASE)
+        data["events"][1]["ships"]["ios"]["date"] = "unreleased"
+        data["events"][0]["ships"]["ios"]["date"] = "unreleased"
+        code, out = self.run_cli(data, "check", "--family", "mobile", "--serial", "127")
+        self.assertEqual(1, code, out)
+        self.assertIn("ios needs its actual ship date", out)
+
+    def test_only_the_shipping_family_needs_dates(self):
+        data = copy.deepcopy(BASE)
+        data["events"][1]["ships"]["desktop"]["date"] = "2026-10-10"
+        data["events"][1]["ships"]["android"]["date"] = "unreleased"
+        data["events"][1]["ships"]["ios"]["date"] = "unreleased"
+        data["events"][0]["ships"]["ios"]["date"] = "unreleased"
+        code, out = self.run_cli(data, "check", "--family", "desktop", "--serial", "132")
+        self.assertEqual(0, code, out)
+
+    def test_compare_accepts_options_before_peer_on_python_312(self):
+        code, out = self.run_cli(BASE, "compare", "--ignore-dates", peer_text=json.dumps(BASE))
+        self.assertEqual(0, code, out)
 
 
 class ShippedFileTest(unittest.TestCase):

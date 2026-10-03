@@ -229,7 +229,7 @@ def main():
     parser.add_argument("--file", default=str(CHANGELOG))
     parser.add_argument("mode", choices=["validate", "check", "notes", "compare"])
     parser.add_argument("peer", nargs="?", help="compare: a path or http(s) URL of the other repository's changelog.json")
-    args = parser.parse_args()
+    args = parser.parse_intermixed_args()
 
     text = load_text(args.file)
     try:
@@ -279,6 +279,9 @@ def main():
                   "Add the release's event before the version bump.", file=sys.stderr)
             return 1
         failures = []
+        for p in platforms:
+            if not is_released(event["ships"][p]):
+                failures.append(f"seq {event['seq']} {p} needs its actual ship date before release")
         if args.version and any(event["ships"][p].get("version") != args.version for p in platforms):
             failures.append(f"seq {event['seq']} ships {[event['ships'][p].get('version') for p in platforms]}, "
                             f"but this release is {args.version}")
@@ -288,9 +291,6 @@ def main():
         if failures:
             print("\n".join(failures), file=sys.stderr)
             return 1
-        for p in platforms:
-            if not is_released(event["ships"][p]):
-                print(f"warning: seq {event['seq']} {p} is still dated '{event['ships'][p].get('date')}'.", file=sys.stderr)
         print(f"changelog: seq {event['seq']} ships {'/'.join(platforms)} serial {args.serial} "
               f"with {len(event.get('entries', []))} entries.")
         return 0
