@@ -19,17 +19,17 @@
         "desktop": {
           "version": "0.1.26-alpha-z1",
           "serial": 132,
-          "date": "unreleased"
+          "date": "2026-10-04"
         },
         "android": {
           "version": "0.5.4-z1",
           "serial": 127,
-          "date": "unreleased"
+          "date": "2026-10-04"
         },
         "ios": {
           "version": "0.5.4-z1",
           "serial": 127,
-          "date": "unreleased"
+          "date": "2026-10-04"
         }
       },
       "entries": [
