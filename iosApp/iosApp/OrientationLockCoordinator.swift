@@ -13,12 +13,23 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
 #if DEBUG
         FreezeDiagnostics.shared.start()
         DownloadsProbeLog_iosKt.enableDownloadsProbeLog()
+        ApnsSpike.run()
 #endif
         OrientationLockCoordinator.shared.start()
         DownloadsLiveActivityManager.shared.start()
         UNUserNotificationCenter.current().delegate = self
         return true
     }
+
+#if DEBUG
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        ApnsSpike.didRegister(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        ApnsSpike.didFail(error)
+    }
+#endif
 
     func application(
         _ application: UIApplication,
