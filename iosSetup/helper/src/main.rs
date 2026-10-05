@@ -15,6 +15,8 @@ use idevice::{
 use serde_json::{json, Value};
 use std::time::Duration;
 
+mod pairing;
+
 const PROTOCOL: u32 = 1;
 const IDEVICE_VERSION: &str = "0.1.68";
 const PAIRING_FILE: &str = "ALTPairingFile.mobiledevicepairing";
@@ -195,9 +197,37 @@ async fn write_probe() -> Value {
     }
 }
 
+/// `place-pairing [--scratch]`: build SideStore's pairing file and write it into its Documents.
+/// `--scratch` writes a throwaway file instead and leaves the real pairing file alone.
+async fn place_pairing(scratch: bool) -> Value {
+    let mut mux = match UsbmuxdConnection::default().await {
+        Ok(m) => m,
+        Err(e) => return json!({ "ok": false, "stage": "usbmuxd", "error": err(e) }),
+    };
+    let devices = mux.get_devices().await.unwrap_or_default();
+    let Some(device) = devices.iter().find(|d| matches!(d.connection_type, Connection::Usb)) else {
+        return json!({ "ok": false, "stage": "device", "error": "no USB device" });
+    };
+    let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-place-pairing");
+    let sidestore = match bounded(async {
+        let mut proxy = InstallationProxyClient::connect(&provider).await.map_err(err)?;
+        let apps = proxy.get_apps(Some("User"), None).await.map_err(err)?;
+        apps.keys().find(|b| classify(b) == Some("sidestore")).cloned().ok_or_else(|| "SideStore not installed".to_string())
+    }).await {
+        Ok(id) => id,
+        Err(e) => return json!({ "ok": false, "stage": "sidestore", "error": e }),
+    };
+    let udid = device.udid.clone();
+    match tokio::time::timeout(Duration::from_secs(90), pairing::place(&mut mux, &provider, &udid, sidestore, scratch)).await {
+        Ok(v) => v,
+        Err(_) => json!({ "ok": false, "stage": "timeout", "error": "timed out after 90s (is the phone unlocked?)" }),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     match std::env::args().nth(1).as_deref() {
+        Some("place-pairing") => println!("{}", place_pairing(std::env::args().any(|a| a == "--scratch")).await),
         Some("status") | None => println!("{}", status().await),
         Some("write-probe") => println!("{}", write_probe().await),
         Some("--version") => println!("nuvioz-device-helper {} (idevice {IDEVICE_VERSION}, protocol {PROTOCOL})", env!("CARGO_PKG_VERSION")),
