@@ -1,4 +1,4 @@
-## Social V2 - Stage 1 (shared UI) landed on branches, unmerged (2026-10-05)
+## Social V2 - Stages 1-3 landed on branches, unmerged, backend not deployed (2026-10-05)
 
 The Social redesign is planned and its decisions are recorded in `Nuvio Z/PLAN-social-v2.md` (workspace root). That file holds the
 decision ledger and the stage list. Stage 0 settled the look from rendered candidates the maintainer picked:
@@ -27,13 +27,31 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
 - Mobile `:composeApp:testAndroidHostTest` (Social and watchparty) passes, 563/563 on fresh results.
 - **Not yet:** physical device checks, iOS build.
 
-**Not in Stage 1 (needs Stage 2 backend; see the plan):**
-- the "Sent" requests list
-- per-friend hide and notify toggles
-- the watched-together stat
-- Recommend a title
-- the stored inbox history for accepted, declined and expired events
-- push
+**Stage 2 (backend) and Stage 3 (client), same day:**
+
+- **Backend:** `nuvio-z-backend` branch `claude/social-v2-backend`, base `claude/ios-watch-together-hardening`.
+  - Commit `d740ecf` adds `202610050001_social_v2.sql` with:
+    - per-friend hide / notify (`social_friend_prefs`)
+    - the stored inbox (`social_inbox_events`: friend accepted, friend started watching, recommendation)
+    - `social_recommend_title`, `social_mark_inbox_read`, `social_dismiss_inbox`, `social_get_together_stats`
+    - `social_get_state_v2`, which now filters hidden activity and adds `sent_requests`, `friend_prefs` and `inbox`
+  - `notifications` keeps only the three kinds the released clients' closed enum can decode.
+  - **Local pgTAP 446/446** (43 new). **NOT deployed.** Before deploying, re-read production `social_get_state_v2` with
+    `pg_get_functiondef`.
+  - Local runs need the ports moved: Windows reserved 54268-54367 (see the memory note).
+- **Client:**
+  - Desktop `ed255e113` and the mobile cherry-pick add:
+    - the Sent list with Cancel
+    - the profile together line, the Watched together strip, and the Hide / Notify switches
+    - stored events in the Inbox (Recommendation has Open and its note)
+    - the nav badge, which also counts unread stored events
+  - The new payload keys are nullable, so a client on today's backend hides these controls.
+  - Tests: desktop 567/567, mobile host 563/563, Android compiles.
+- **Still not built:**
+  - an entry point to *send* a recommendation, which needs the divergent per-repo `MetaDetailsScreen`
+  - Android push (Stage 4, needs a Firebase project)
+  - the iOS local fallback (Stage 5)
+  - the "Show friends on Home" toggle
 
 **Other open work:**
 - The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
