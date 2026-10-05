@@ -6,7 +6,7 @@ import java.time.Instant
 
 class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().resolveSibling("diagnostics.log")) {
     init {
-        log("Nuvio Z iOS Setup 1.0.3 started")
+        log("Nuvio Z iOS Setup 2.0.0 started")
         log("OS=${System.getProperty("os.name")} ${System.getProperty("os.version")}; arch=${System.getProperty("os.arch")}")
     }
 
@@ -17,11 +17,32 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
     fun computerCheck(value: ComputerCheck) = log("computer_check os=${value.supportedOs.state} internet=${value.internet.state} apple=${value.appleSupport.state} service=${value.appleService?.state ?: "n/a"}")
     fun appleProbes(registryOrDriver: Boolean, serviceInstalled: Boolean, serviceRunning: Boolean, wingetInstalled: Boolean) =
         log("apple_probes registry_or_driver=$registryOrDriver service_installed=$serviceInstalled service_running=$serviceRunning winget_installed=$wingetInstalled")
+    fun macDeviceProbes(usbmuxdUsbDevices: Int?, ioreg: Boolean?, systemProfiler: Boolean?) =
+        log("mac_device_probes usbmuxd_usb_devices=${usbmuxdUsbDevices ?: "unreachable"} ioreg=${ioreg ?: "skipped"} system_profiler=${systemProfiler ?: "skipped"}")
+    private var lastHelperStatus = ""
+    fun helperStatus(status: HelperStatus?, run: HelperRun) = logIfChanged(
+        "helper_status " + when {
+            status == null -> "unavailable exit=${run.exitCode ?: "none"} timedOut=${run.timedOut}"
+            else -> "usbmuxd=${status.usbmuxdReachable} usb=${status.usbDeviceCount} trust=${status.device?.trust ?: "n/a"} " +
+                "sidestore=${status.device?.sidestore != null} pairing=${status.device?.pairingFile ?: "n/a"} errors=${status.errors}"
+        },
+    )
+    fun pairingPlaced(result: PlacePairingResult) = log("pairing_placed ok=${result.ok} stage=${result.stage ?: "n/a"} detail=${result.detail}")
+    private fun logIfChanged(line: String) { if (line != lastHelperStatus) { lastHelperStatus = line; log(line) } }
+
+    private var lastRequirements = ""
+    /** Logs the requirement board only when it changes, so the 3-second loop does not flood the log. */
+    fun requirements(results: List<RequirementResult>) {
+        val line = results.joinToString(" ") { "${it.requirement.name}=${it.status.name}${if (it.confirmedByUser) "(user)" else ""}" }
+        if (line != lastRequirements) { lastRequirements = line; log("requirements $line") }
+    }
     fun operation(name: String, result: OperationResult) = log("operation=${name.substringAfterLast('/').substringAfterLast('\\')} success=${result.success} exit=${result.exitCode ?: "n/a"} message=${result.message}")
 
-    fun report(currentStep: SetupStep): String {
+    fun report(currentStep: SetupStep): String = report(currentStep.name)
+
+    fun report(current: String): String {
         val body = runCatching { Files.readString(path) }.getOrDefault("No diagnostic events recorded.")
-        return "Nuvio Z iOS Setup diagnostics\nCurrent step: ${currentStep.name}\nProgress file: ${path.parent.resolve("setup-state.json")}\n\n$body"
+        return "Nuvio Z iOS Setup diagnostics\nCurrent step: $current\nProgress file: ${path.parent.resolve("setup-state.json")}\n\n$body"
     }
 
     private fun log(raw: String) {

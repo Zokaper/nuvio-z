@@ -28,7 +28,7 @@ enum class SetupStep(val title: String, val manual: Boolean = false) {
     SIDESTORE_PRIME("Open and sign into SideStore", true),
     ADD_SOURCE("Add Nuvio Z source", true),
     INSTALL_NUVIO("Install Nuvio Z", true),
-    FINISH("Finish and verify"),
+    FINISH("You're all set"),
 }
 
 @Serializable
@@ -42,6 +42,7 @@ data class SetupState(
     val repairMode: Boolean = false,
     val advancedDeviceOverride: Boolean = false,
     val appleSupportConfirmed: Boolean = false,
+    val setupCompleted: Boolean = false,
 ) {
     val sourceUrl: String get() = channel.sourceUrl
     val sourceDeepLink: String get() = "sidestore://source?url=" +
@@ -59,7 +60,7 @@ data class ComputerCheck(
     val appleService: CheckResult?,
 ) {
     val canContinue: Boolean get() = supportedOs.state == CheckState.PASS &&
-        internet.state == CheckState.PASS && appleSupport.state == CheckState.PASS
+        internet.state != CheckState.FAIL && appleSupport.state == CheckState.PASS
 }
 
 data class OperationResult(
@@ -68,6 +69,9 @@ data class OperationResult(
     val exitCode: Int? = null,
     val details: String = "",
 )
+
+/** Matches an iOS device name in `ioreg -p IOUSB` or system_profiler USB output. */
+fun mentionsIosDevice(usbReport: String): Boolean = Regex("\\b(iPhone|iPad|iPod)\\b").containsMatchIn(usbReport)
 
 fun appleSupportDetected(registryOrDriver: Boolean, serviceInstalled: Boolean, wingetInstalled: Boolean): Boolean =
     registryOrDriver || serviceInstalled || wingetInstalled

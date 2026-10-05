@@ -1,3 +1,179 @@
+Last updated: 2026-10-05
+
+## iOS Setup v2 (released as a prerelease 2026-10-05; branch `claude/ios-setup-v2`)
+
+Branched from `ios-setup-v1.1.2-beta.1`. **Released 2026-10-05 as prerelease `ios-setup-v2.0.0-beta.1`** (commit `f9f87bb39`, CI run
+`37301527239`), not merged to `main`. 1.1.2 is retitled "(Superseded)".
+
+- **Release links.** Versioned: `https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-v2.0.0-beta.1`. Rolling (never changes; the one
+  to share): `https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-Windows-x64.zip` and
+  `.../Nuvio-Z-iOS-Setup-macOS.zip` (plus `SHA256SUMS.txt`). SHA-256: Windows `c06fae7e0de916a1a888ff5bd545fe331adfc44875aad3d985ad540731c9a1eb`,
+  macOS `dbc3bd7a3a42ebe53a153d0636ac5c043d5004c43a15c47157897337573661b4`.
+- **How to release next time.** Actions -> "Build iOS Setup GUI" -> Run workflow on the branch with `publish_tag` set (e.g.
+  `ios-setup-v2.0.1-beta.1`). It builds both ZIPs, verifies them (integrity + bundled device helper), writes `SHA256SUMS.txt`, creates the
+  versioned prerelease and re-uploads the same unversioned assets to `ios-setup-vlatest` (`--clobber`). Both are prereleases with
+  `ios-setup-v*` tags, so GitHub's repo-wide "latest" stays the app (checked: still `0.5.4-z1+127`) and `update-store-source.yml`
+  (only `v*` / `debug-v*`) ignores them. Retitle the previous versioned release "(Superseded)" by hand. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
+Decisions (maintainer): staged hybrid (Rust helper for USB probes and pairing; iloader kept for Apple sign-in and the
+SideStore install), Apple credentials never enter our app, portable ZIPs, **iloader is downloaded at a pinned version with
+a verified SHA-256 and never bundled**.
+
+**What it is now.** The 14-page wizard is replaced by a live checklist of 12 requirements beside one focus card
+(`Board.kt`). `Requirements.evaluate` derives progress from what the computer can see; `SetupSession.tick` (every ~3 s)
+checks the computer once, fetches iloader once, probes the phone, places a missing pairing file once, reveals the
+Developer Mode switch once, drops stale human answers, and completes. Without the helper (or in manual mode) every phone
+step falls back to the user's confirmation.
+
+- **Stage 0 gate (passed):** `iosSetup/SPIKE-RESULTS.md`. Real iPhone, iOS 26.5, Windows: USB, trust, Developer Mode,
+  LocalDevVPN, SideStore, Nuvio Z/Debug and pairing-file presence are all detectable. Not detectable (stay
+  confirmations): developer-profile trust (`trust_app_signer` deliberately not used: it is the user's decision),
+  SideStore notification permission, SideStore sign-in/first refresh, source added, LocalDevVPN connected. The notification step
+  exists because SideStore fails to refresh with "Repository could not save notification" when the permission was denied
+  (SideStore issue #1421, seen on a friend's iOS 27 phone; the maintainer's fix is to allow notifications).
+- **Helper** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring`, static CRT on Windows, 1.9 MB release). Commands:
+  `status` (one JSON line, protocol 1, no device name or full UDID), `place-pairing [--scratch]`, `reveal-developer-mode`,
+  `write-probe`, `--version`. `place-pairing` builds iloader 2.3.5's file (lockdown record + rppairing on iOS 17.4+ +
+  Wi-Fi debugging); on a real phone the scratch result had the **same 14 keys** as the file iloader placed and read back
+  identical. Real placement keeps the old file as `ALTPairingFile.mobiledevicepairing.previous`. It caches the rppairing
+  identity under `%LOCALAPPDATA%\Nuvio Z iOS Setup\pairing\` (a secret; per user).
+- **Bootstrap:** `Prereqs.kt` + `prereqs.json` (mirrored in `distribution/sidestore/ios-setup-prereqs.json`, test-enforced)
+  pin iloader v2.3.5 by SHA-256 (hosted override only if schema-valid and on a host allow-list). `Downloader.kt` is
+  resumable, retries, verifies size and hash and deletes bad bytes. `IloaderBootstrap.kt` installs the NSIS build silently into
+  `%LOCALAPPDATA%\NuvioZSetup\tools` (no admin, works with spaces in the path) or extracts the macOS `.app.tar.gz`, and
+  uninstalls only what it installed (also removes the Start Menu shortcut). Apple's driver installer is verified by Authenticode
+  publisher and size (its URL rotates). Live Windows round trip passed: 6,040,468 bytes, install, find, uninstall, no leftovers.
+  The v1 code path no longer uses the unpinned `releases/latest`.
+- **QR (main path for adding the source):** `sidestore://source?url=…`, verified on the physical iPhone (scan -> SideStore asks to
+  add the source). It is never an https/web link (that opens Safari showing raw JSON); `SourceLinkTest` forbids it. A collapsed
+  manual option (copy URL) is the fallback. A second QR (`sidestore://install?url=<newest IPA>`) is a shortcut that installs the
+  IPA directly **without** adding the source, so SideStore has no feed to offer updates from; the Nuvio Z step recommends
+  Browse -> Nuvio Z instead. The https landing page / Pages workflow was removed: it was unverified and unnecessary.
+- **Packaging/CI:** `-PwithHelper` (cargo build) or `-PhelperBinary=<path>` stages the helper as an app resource;
+  `ios-setup-build.yml` builds it (Windows; macOS universal via lipo, re-signed ad hoc) and fails if it is not in the app image.
+  JDK note: Android Studio's JBR has no `jpackage`; use Temurin 21 for `createDistributable`.
+- **Verification:** `:iosSetup:test` **104 / 104** (29 v1 + 75 new), clean `--rerun-tasks`. `BoardRenderHarness` writes 16 PNGs of
+  every state to `iosSetup/build/render/` (reviewed). The packaged app was launched against the real phone with an isolated
+  `LOCALAPPDATA`: it found the existing iloader (no download), and the log shows DEVICE, TRUST, LOOPBACK_APP, SIDESTORE, PAIRING and
+  DEVELOPER_MODE `SATISFIED` automatically with the focus on the first human-only step.
+- **Not yet verified:** a physical **Mac** (helper over `/var/run/usbmuxd`, macOS iloader extraction, Gatekeeper) and the CI macOS
+  universal build; an **untrusted/locked/no-pair-record** phone (failure shapes are mapped but unobserved; Debug phone only);
+  **real pairing placement then a SideStore refresh** (only the scratch path was exercised on the physical phone, deliberately
+  leaving the working pairing file alone); the **Apple driver installer** path end to end (needs a clean PC); a clean install
+  from the ZIP on a PC with no Rust/JDK.
+- **Debt:** v1's `SetupController`, `SetupStep`, `SetupState` and `StepGuidance` remain only because the migration and the reused
+  troubleshooting copy depend on them (and 29 tests pin them); remove once nothing needs the v1 shape. The repo README on `main`
+  still pins `ios-setup-v1.1.2-beta.1`; bump it when a v2 release ships.
+
+## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
+
+**The portable SideStore/iloader assistant now reads and behaves like a guided consumer setup flow,
+without changing its working setup operations or turning it into an MSI-style installer.**
+
+- Replaced the small manual-step checkbox with an explicit success statement and a full-width
+  **I've completed this step** action. The footer explains that confirmation is required, then
+  changes to **Continue** only after the named result is confirmed. Confirmations remain persisted.
+- Added a typed guidance model for all 14 steps: purpose, expected success, contextual failure cases
+  and recovery actions. `StepGuidanceTest` pins complete mapping, exact manual confirmations and the
+  required device/iloader/pairing/trust/Developer Mode/LocalDevVPN/source/install failure coverage.
+- The first live pass tried a permanent right-side reference panel, but it repeated the written
+  instructions and read like a poster. It was removed after maintainer review; the content now gets
+  the width and attention, while contextual help stays collapsed until requested.
+- Made manual source entry the first-class path with a prominent URL and copy button. The locally
+  generated deep-link QR remains available behind a small optional disclosure, with manual paste
+  called out as the reliable fallback.
+- Reworked the progress rail to distinguish completed, current, waiting-for-confirmation and future
+  steps, show `Step n of 14`, and remind the user that progress saves automatically. Resume copy now
+  explains that starting over clears wizard progress but does not undo phone changes.
+- Defined the complete dark color scheme explicitly (`onPrimary`, `onSurface`, variants and callout
+  text), and gave every status, callout, panel and button explicit high-contrast foregrounds. This
+  removes the inherited black-on-navy combinations in the prior UI.
+- Stable remains the default. Developer Channel and the USB-detection override remain under
+  **Advanced settings** with stronger warnings; Debug still requires deliberate confirmation and
+  explains separate data plus the three-slot impact.
+- Version advanced from 1.0.3 to 1.1.0. The output remains a self-contained portable app image.
+
+Verification on Windows: `:iosSetup:test` **23 / 23** and `:iosSetup:createDistributable` successful
+with Temurin JDK 21. The packaged `Nuvio Z iOS Setup.exe` launched and exposed a responsive native
+window. Automated screenshot inspection was attempted twice, but the computer-use connector returned
+an empty native-app inventory even while Windows reported the window responsive; visual capture is
+therefore still a manual/CI artifact review item. Physical end-to-end iPhone setup and macOS runtime
+remain acceptance-test work.
+
+Dedicated packaging run `35887695630` passed on Windows and macOS from commit `fb769eabc`.
+The verified prerelease payloads are:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,887,527 bytes — SHA-256
+  `B4CD369546FAC567957EC7CBDB5D29A585462205013C59267EA95A5ABD3373B2`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,927,536 bytes — SHA-256
+  `4420231AC647E02A354C3C7339BD1E87D10A3A0E57C6A092D1045494919BC230`
+
+Both ZIP central directories were read successfully after download. They contain self-contained app
+images, not MSI/PKG installers. The intended publication is installer-only prerelease
+`ios-setup-v1.1.0-beta.1`; the SideStore feed workflow excludes `ios-setup-v*` tags.
+
+### Live-test refinements for 1.1.1
+
+The first live 1.1 test found two usability problems before the release was accepted:
+
+1. **Computer check could sit for roughly a minute, then block on poor Wi-Fi.** Apple service,
+   registry, `winget` and network probes ran sequentially, and one five-second GitHub `HEAD` failure
+   was treated as proof that the computer was offline. The independent probes now run concurrently;
+   the optional `winget` fallback is capped at 12 seconds; two network endpoints are checked with
+   explicit four-second bounds; and an inconclusive result is a yellow warning that still permits
+   Continue. Actual downloads retain their bounded request and actionable retry error. Two tests
+   pin weak-connectivity continuation and the unsupported-OS block.
+2. **The first visual pass was too dense.** Fourteen sidebar rows, a status pill, a success card and
+   a visual-panel success treatment repeated the same state. The rail now shows five calm phases plus
+   one current-step label; the page uses a small step breadcrumb; and the duplicate success card and
+   poster-like right panel are gone. The instructions sit in one centered readable-width column.
+   Numbered actions, exact completion gates and collapsed contextual troubleshooting remain intact.
+3. **The old Finish action unexpectedly returned to Welcome.** The final instructions now explain
+   in plain language that a refresh renews Apple's seven-day permission while an update installs a
+   newer app without removing data. They provide separate exact flows for each, explain that routine
+   refreshes do not need the computer or USB, and reserve pairing repair for explicit pairing errors.
+   **Complete setup** now opens a dedicated persisted completion page; only the deliberate **Return
+   to start** action clears wizard progress. Three new controller tests pin completion, persistence,
+   early-finish rejection and reset behavior. The complete setup suite is **23 / 23**.
+
+The corrected portable package is version 1.1.1. Cross-platform packaging run `35905528893` passed
+on Windows and macOS from code commit `629261efa`. Both ZIP central directories were read
+successfully. The recommended prerelease is `ios-setup-v1.1.1-beta.1`; the earlier
+`ios-setup-v1.1.0-beta.1` is marked superseded. Final payloads:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,863,389 bytes — SHA-256
+  `335690A1F7535BF39270E7BC51FB732C1E34B82157114B0BA1F71F76170A61A8`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,903,211 bytes — SHA-256
+  `A6C114AEFF4F9F5500760D024220CF8010B0E7CA777108F56AA9E546F19D1746`
+
+### 1.1.2: macOS iPhone detection and refresh-as-recovery copy (2026-09-28)
+
+Branch `claude/ios-setup-1.1.2`, based on the `ios-setup-v1.1.1-beta.1` tag.
+
+1. **Macs never detected the iPhone**, even with Finder showing it. The only probe was
+   `system_profiler SPUSBDataType`, which is empty on Apple silicon under current macOS (USB moved to
+   `SPUSBHostDataType`), and the communication check was hardcoded to `true`. Detection now queries
+   macOS's own usbmuxd (`/var/run/usbmuxd`, plist `ListDevices`, USB entries only; `Usbmuxd.kt`),
+   the service iloader itself uses, then falls back to `ioreg -p IOUSB` and
+   `system_profiler SPUSBHostDataType SPUSBDataType`. Each probe is logged as `mac_device_probes`.
+   Mac transport readiness is now a real socket check. `run()` drains child output while it runs so
+   a large report cannot stall until timeout. Connect-page status rows wait for the first probe.
+2. **Mac users saw Windows-only troubleshooting.** `guidanceFor` takes `isMac`; Mac Connect help
+   covers cable/hub, the Apple-silicon "Allow accessory" prompt, Finder, reset-trust and restarting
+   the Mac, and Mac copy never mentions Windows, iTunes or Apple Mobile Device Service (pinned by
+   `macGuidanceNeverSendsUsersToWindowsTools`). The Mac Connect page offers **Open Finder**.
+3. **The Finish and completion pages read as a chore** ("Every 5–6 days: refresh your apps").
+   Maintainer direction: solution, not prevention. The pages now explain briefly why (signed with
+   your own Apple Account; Apple limits free-account signatures to 7 days), note that installing an
+   update re-signs the app, and give a fix-when-it-breaks path: Refresh All in SideStore (which also
+   renews SideStore), or reinstall SideStore with iloader if SideStore itself has lapsed. SideStore
+   has no pre-expiry notification (upstream #517/#829 closed without one), so the copy points at
+   the days-left counter in My Apps instead of promising a warning. The step is titled
+   **You're all set**.
+
+`:iosSetup:test` **29 / 29** (usbmuxd framing, parsing, a fake-socket round trip, USB-report
+matching, Mac guidance, refresh framing). Finish, completion and Mac Connect pages render-checked
+with a throwaway `ImageComposeScene` harness. Not yet run on a physical Mac.
+
 ## Stable release shipped - Mobile 0.5.4-z1+127 / Desktop 0.1.26-alpha-z1+132 (2026-10-04)
 
 The first stable Nuvio Z release is live on both repositories, published by the release workflows in `publish` mode (dispatched

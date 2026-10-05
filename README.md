@@ -120,23 +120,30 @@ Nuvio Z isn't on the App Store or TestFlight. On iPhone it installs through
 [SideStore](https://sidestore.io), which signs the app with your own Apple Account and refreshes it
 wirelessly. You'll need an iPhone on iOS 16.1 or later, a free Apple Account and a USB cable.
 
-**First time on an iPhone: use Nuvio Z iOS Setup.** It's a small wizard for Windows and macOS that
-walks you through the whole thing, one step at a time:
+**First time on an iPhone: use Nuvio Z iOS Setup.** It's a small app for Windows and macOS that sets
+everything up with you. It checks your computer, notices your iPhone, and ticks off each step by
+itself as it sees it happen:
 
-1. Download **Nuvio Z iOS Setup** for your computer from its
-   [release page](https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-v1.1.2-beta.1)
-   (`Nuvio-Z-iOS-Setup-Windows-x64.zip` or `Nuvio-Z-iOS-Setup-macOS.zip`). Extract it and run the
-   app. There's nothing to install. On a Mac that blocks it, use *System Settings → Privacy &
-   Security → Open Anyway*.
+1. Download **Nuvio Z iOS Setup** for your computer. These links always give you the newest version:
+   - [Windows (x64)](https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-Windows-x64.zip)
+   - [macOS](https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-macOS.zip)
+
+   Extract it and run the app. There's nothing to install. Windows may show a SmartScreen notice
+   (*More info → Run anyway*); on a Mac that blocks it, use *System Settings → Privacy & Security →
+   Open Anyway*. The macOS version hasn't been tested on real hardware yet. Checksums and older
+   versions are on the [setup release page](https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-vlatest).
 
    *Nuvio Z iOS Setup has its own version number and release line, separate from the Nuvio Z app.*
-   <!-- Keep this link on the newest ios-setup-v* release and bump it whenever a new one is
-        published. Do not use /releases/latest: that resolves to the Nuvio Z app release, and
-        setup releases are pre-releases. -->
-2. Follow the wizard. It checks your computer, helps you connect and trust your iPhone, and guides
-   you through installing LocalDevVPN, SideStore and Nuvio Z. Your Apple sign-in happens in
-   iloader and SideStore; the wizard never sees your password, and it remembers where you were if
-   you stop halfway.
+   <!-- These links use the rolling ios-setup-vlatest prerelease, which the "Build iOS Setup GUI"
+        workflow refreshes on every setup release (run it with publish_tag), so they never need
+        bumping. Do not use /releases/latest: that resolves to the Nuvio Z app release, and setup
+        releases are pre-releases. -->
+2. Follow the checklist. The app downloads what it needs (a verified copy of iloader and, on
+   Windows, Apple's iPhone drivers), then guides you through connecting and trusting your iPhone,
+   installing LocalDevVPN and SideStore, allowing SideStore's notifications, and adding the Nuvio Z
+   source by scanning a QR code with your iPhone camera. Your Apple sign-in happens in iloader and
+   SideStore; the app never sees your password, and it works out where you left off if you stop
+   halfway.
 
 **Already have SideStore set up?** Add the Nuvio Z source in SideStore and install Nuvio Z from
 it:
