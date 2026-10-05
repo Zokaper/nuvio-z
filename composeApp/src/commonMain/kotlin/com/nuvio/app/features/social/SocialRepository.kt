@@ -207,6 +207,10 @@ object SocialRepository {
                 notifications = cached?.notifications.orEmpty(),
                 watchingNow = cached?.watchingNow.orEmpty(),
                 activity = cached?.activity.orEmpty(),
+                sentRequests = cached?.sentRequests.orEmpty(),
+                friendPrefs = cached?.friendPrefs.orEmpty(),
+                inbox = cached?.inbox.orEmpty(),
+                socialV2Backend = cached?.inbox != null,
                 isOfflineCache = cached != null,
                 isLoading = true,
             ) }
@@ -313,6 +317,8 @@ object SocialRepository {
                 me = payload.me, friends = payload.friends, requests = payload.requests, partyInvites = payload.partyInvites,
                 notifications = payload.notifications,
                 watchingNow = payload.watchingNow.take(SocialHomeItemLimit), activity = activity,
+                sentRequests = payload.sentRequests.orEmpty(), friendPrefs = payload.friendPrefs.orEmpty(),
+                inbox = payload.inbox.orEmpty(), socialV2Backend = payload.inbox != null,
                 nextCursor = next, isLoading = false, isLoadingMore = false, isOfflineCache = false, errorMessage = null,
             ) }
             val owner = operation()
@@ -502,6 +508,38 @@ object SocialRepository {
         put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
     }
 
+    /** Social V2: this profile's switches for one friend. Null leaves a switch as it is. */
+    suspend fun setFriendPrefs(friendProfileId: String, hideActivity: Boolean? = null, notifyWhenWatching: Boolean? = null): Result<Unit> =
+        socialMutation("social_set_friend_prefs") {
+            put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
+            hideActivity?.let { put("p_hide_activity", it) }
+            notifyWhenWatching?.let { put("p_notify_when_watching", it) }
+        }
+
+    suspend fun markInboxRead(ids: Set<String>): Result<Unit> = socialMutation("social_mark_inbox_read") {
+        put("p_profile_id", requireActiveProfile()); put("p_ids", json.encodeToJsonElement(ids.toList()))
+    }
+
+    suspend fun dismissInbox(ids: Set<String>): Result<Unit> = socialMutation("social_dismiss_inbox") {
+        put("p_profile_id", requireActiveProfile()); put("p_ids", json.encodeToJsonElement(ids.toList()))
+    }
+
+    /** Returns how many of [friendProfileIds] it reached; anyone who is not a friend is skipped. */
+    suspend fun recommendTitle(friendProfileIds: Set<String>, content: SocialInboxPayload, note: String? = null): Result<Int> = socialCall {
+        socialRpc("social_recommend_title", buildJsonObject {
+            put("p_profile_id", requireActiveProfile())
+            put("p_friend_profile_ids", json.encodeToJsonElement(friendProfileIds.toList()))
+            put("p_content", json.encodeToJsonElement(content))
+            note?.takeIf(String::isNotBlank)?.let { put("p_note", it) }
+        }).decodeAs<SocialRecommendResult>().delivered
+    }
+
+    suspend fun togetherStats(friendProfileId: String): Result<SocialTogetherStats> = socialCall {
+        socialRpc("social_get_together_stats", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_friend_profile_id", friendProfileId)
+        }).decodeAs<SocialTogetherStats>()
+    }
+
     fun selectFriend(profileId: String?) = synchronized(authorityLock) {
         _uiState.value = _uiState.value.copy(selectedFriendId = profileId, activity = emptyList(), nextCursor = null)
         scope.launch(authority) { refresh(false) }
@@ -663,6 +701,9 @@ data class SocialActionResult(
     @SerialName("expires_at") val expiresAt:String?=null,
     val party:WatchPartyState?=null,
 )
+
+@Serializable
+internal data class SocialRecommendResult(val delivered: Int = 0)
 
 @Serializable
 data class JoinRequestStatusResult(

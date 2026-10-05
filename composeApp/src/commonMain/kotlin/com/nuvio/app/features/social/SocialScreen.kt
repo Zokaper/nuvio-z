@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +53,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -294,6 +297,12 @@ fun SocialScreen(
             onSelectFriend = SocialRepository::selectFriend,
             onMarkNotificationsRead = { ids -> scope.launch { SocialRepository.markNotificationsRead(ids) } },
             onOpenPrivacySettings = { ZSettingsNavigation.open(SettingsPage.Social) },
+            onCancelFriendRequest = { id -> scope.launch { SocialRepository.cancelFriendRequest(id) } },
+            onMarkInboxRead = { ids -> scope.launch { SocialRepository.markInboxRead(ids) } },
+            onSetFriendPrefs = { friend, hide, notify ->
+                scope.launch { SocialRepository.setFriendPrefs(friend, hideActivity = hide, notifyWhenWatching = notify) }
+            },
+            onLoadTogetherStats = { friend -> SocialRepository.togetherStats(friend).getOrNull() },
         ),
         listState = listState,
         topChromePadding = topChromePadding,
@@ -355,6 +364,11 @@ internal class SocialFeedActions(
     val onDefaultJoinPolicy: (WatchJoinPolicy) -> Unit = {},
     val onMarkNotificationsRead: (Set<String>) -> Unit = {},
     val onOpenPrivacySettings: () -> Unit = {},
+    val onCancelFriendRequest: (String) -> Unit = {},
+    val onMarkInboxRead: (Set<String>) -> Unit = {},
+    /** Social V2 per-friend switches; null leaves one as it is. */
+    val onSetFriendPrefs: (friendProfileId: String, hide: Boolean?, notify: Boolean?) -> Unit = { _, _, _ -> },
+    val onLoadTogetherStats: suspend (friendProfileId: String) -> SocialTogetherStats? = { null },
 )
 
 /**
@@ -528,6 +542,8 @@ internal fun SocialFeed(
                     onRespondLegacy = actions.onRespondRequest,
                     onJoinLegacyInvite = actions.onJoinInvitedParty,
                     onMarkRead = actions.onMarkNotificationsRead,
+                    onMarkInboxRead = actions.onMarkInboxRead,
+                    onOpenContent = actions.onOpenContent,
                 )
                 is SocialOverlay.Profile -> {
                     val friend = state.friends.firstOrNull { it.profileId == current.profileId }
@@ -540,8 +556,15 @@ internal fun SocialFeed(
                                 item.partyCompanions.any { it.profileId == friend.profileId }
                             }
                         SocialSheet(wide = wide, onDismiss = { overlay = null }) {
+                            var stats by remember(friend.profileId) { mutableStateOf<SocialTogetherStats?>(null) }
+                            if (state.socialV2Backend) {
+                                LaunchedEffect(friend.profileId) { stats = actions.onLoadTogetherStats(friend.profileId) }
+                            }
                             SocialProfileContent(
                                 friend = friend,
+                                prefs = state.prefsFor(friend.profileId).takeIf { state.socialV2Backend },
+                                stats = stats,
+                                onSetPrefs = { hide, notify -> actions.onSetFriendPrefs(friend.profileId, hide, notify) },
                                 watching = watching,
                                 affordance = watching?.let(model.joinAffordance) ?: WatchingNowJoinAffordance.None,
                                 groups = model.activityGroups.filter { group -> group.friends.any { it.profileId == friend.profileId } },
@@ -853,6 +876,17 @@ private fun SocialFriendsContent(
         }
     }
 
+    if (state.sentRequests.isNotEmpty()) {
+        SocialSectionLabel("Sent", state.sentRequests.size, modifier = Modifier.padding(top = 10.dp))
+        state.sentRequests.forEach { sent ->
+            SocialPersonLine(
+                person = sent.receiver,
+                subtitle = "@${sent.receiver.handle} · waiting for a reply",
+                trailing = { SocialPillButton("Cancel", { actions.onCancelFriendRequest(sent.id) }) },
+            )
+        }
+    }
+
     // Live first, then by name, so the roster answers the same question the feed does.
     val watchingByProfile = remember(state.watchingNow) {
         buildMap {
@@ -915,11 +949,22 @@ private fun SocialInboxPage(
     onRespondLegacy: (String, Boolean) -> Unit,
     onJoinLegacyInvite: (String) -> Unit,
     onMarkRead: (Set<String>) -> Unit,
+    onMarkInboxRead: (Set<String>) -> Unit,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
-    val unreadAtOpen = remember { state.notifications.filter { it.readAt == null }.map { it.id }.toSet() }
-    LaunchedEffect(Unit) { if (unreadAtOpen.isNotEmpty()) onMarkRead(unreadAtOpen) }
-    val (fresh, earlier) = state.notifications.partition { it.id in unreadAtOpen }
+    // Derived notifications and stored events, one timeline. A kind this build does not know is skipped.
+    val entries = state.notifications.map { SocialInboxEntry.Notice(it) } +
+        state.inbox.filter { it.kind in SocialInboxEvent.Known }.map { SocialInboxEntry.Event(it) }
+    val timeline = entries.sortedByDescending { parseSocialTimestampMs(it.createdAt) ?: Long.MIN_VALUE }
+    val unreadAtOpen = remember { timeline.filter { it.unread }.map { it.key }.toSet() }
+    LaunchedEffect(Unit) {
+        val notices = state.notifications.filter { it.readAt == null }.map { it.id }.toSet()
+        val events = state.inbox.filter { it.readAt == null }.map { it.id }.toSet()
+        if (notices.isNotEmpty()) onMarkRead(notices)
+        if (events.isNotEmpty()) onMarkInboxRead(events)
+    }
+    val (fresh, earlier) = timeline.partition { it.key in unreadAtOpen }
     val horizontal = if (wide) 28.dp else 16.dp
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().padding(top = topInset)) {
@@ -965,7 +1010,7 @@ private fun SocialInboxPage(
                         }
                     }
                 }
-                if (!legacy && state.notifications.isEmpty()) {
+                if (!legacy && timeline.isEmpty()) {
                     item(key = "empty") {
                         Text(
                             "Nothing here yet. Friend requests and Watch Together invites land here.",
@@ -977,14 +1022,14 @@ private fun SocialInboxPage(
                 }
                 if (fresh.isNotEmpty()) {
                     item(key = "new-label") { SocialSectionLabel("New", fresh.size) }
-                    fresh.forEach { notification ->
-                        item(key = "n:${notification.id}") { SocialNotificationCard(notification, nowMs, unread = true, onAction = onAction) }
+                    fresh.forEach { entry ->
+                        item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = true, onAction, onOpenContent) }
                     }
                 }
                 if (earlier.isNotEmpty()) {
                     item(key = "earlier-label") { SocialSectionLabel("Earlier", modifier = Modifier.padding(top = 8.dp)) }
-                    earlier.forEach { notification ->
-                        item(key = "n:${notification.id}") { SocialNotificationCard(notification, nowMs, unread = false, onAction = onAction) }
+                    earlier.forEach { entry ->
+                        item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = false, onAction, onOpenContent) }
                     }
                 }
             }
@@ -993,6 +1038,75 @@ private fun SocialInboxPage(
 }
 
 private val SocialLapsedStates = setOf("expired", "stale", "cancelled", "canceled")
+
+/** One line of the inbox: a derived notification or a stored event. */
+private sealed interface SocialInboxEntry {
+    val key: String
+    val createdAt: String
+    val unread: Boolean
+
+    data class Notice(val notification: SocialNotification) : SocialInboxEntry {
+        override val key get() = "n:${notification.id}"
+        override val createdAt get() = notification.createdAt
+        override val unread get() = notification.readAt == null
+    }
+
+    data class Event(val event: SocialInboxEvent) : SocialInboxEntry {
+        override val key get() = "e:${event.id}"
+        override val createdAt get() = event.createdAt
+        override val unread get() = event.readAt == null
+    }
+}
+
+@Composable
+private fun SocialInboxEntryCard(
+    entry: SocialInboxEntry,
+    nowMs: Long,
+    unread: Boolean,
+    onAction: (SocialNotification, SocialNotificationAction) -> Unit,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
+) {
+    when (entry) {
+        is SocialInboxEntry.Notice -> SocialNotificationCard(entry.notification, nowMs, unread, onAction)
+        is SocialInboxEntry.Event -> SocialInboxEventCard(entry.event, nowMs, unread, onOpenContent)
+    }
+}
+
+@Composable
+private fun SocialInboxEventCard(
+    event: SocialInboxEvent,
+    nowMs: Long,
+    unread: Boolean,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
+) {
+    val name = event.actor.displayName.ifBlank { "@${event.actor.handle}" }
+    val payload = event.payload
+    val title = payload.title
+    val open: (() -> Unit)? = if (payload.contentId != null && payload.contentType != null && title != null) {
+        { onOpenContent(payload.contentType, payload.contentId, title) }
+    } else {
+        null
+    }
+    val text = when (event.kind) {
+        SocialInboxEvent.FriendAccepted -> socialRich(name to true, " accepted your friend request" to false)
+        SocialInboxEvent.FriendWatching ->
+            if (title != null) socialRich(name to true, " started watching " to false, title to true)
+            else socialRich(name to true, " started watching" to false)
+        else ->
+            if (title != null) socialRich(name to true, " recommends " to false, title to true)
+            else socialRich(name to true, " sent you a recommendation" to false)
+    }
+    SocialInboxCard(
+        person = event.actor,
+        text = text,
+        note = payload.note?.let { "“$it”" },
+        time = relativeTimeLabel(parseSocialTimestampMs(event.createdAt), nowMs),
+        unread = unread,
+        art = title?.let { (payload.background ?: payload.poster) to it },
+        actions = if (event.kind == SocialInboxEvent.Recommendation && open != null) listOf(Triple("Open", true, open)) else emptyList(),
+        onClick = open,
+    )
+}
 
 @Composable
 private fun SocialNotificationCard(
@@ -1050,6 +1164,8 @@ private fun SocialInboxCard(
     dim: Boolean = false,
     art: Pair<String?, String>? = null,
     actions: List<Triple<String, Boolean, () -> Unit>> = emptyList(),
+    note: String? = null,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().alpha(if (dim) 0.55f else 1f)
@@ -1058,6 +1174,7 @@ private fun SocialInboxCard(
                 if (unread) MaterialTheme.colorScheme.surfaceVariant
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1074,6 +1191,9 @@ private fun SocialInboxCard(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(text, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                if (note != null) {
+                    Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
                 if (time.isNotBlank()) {
                     Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1206,6 +1326,10 @@ internal fun SocialJoinSheetContent(
 @Composable
 internal fun SocialProfileContent(
     friend: SocialProfileSummary,
+    /** Null on a backend without Social V2: the switches are not drawn rather than drawn dead. */
+    prefs: SocialFriendPrefs?,
+    stats: SocialTogetherStats?,
+    onSetPrefs: (hide: Boolean?, notify: Boolean?) -> Unit,
     watching: WatchingNowItem?,
     affordance: WatchingNowJoinAffordance,
     groups: List<FriendActivityGroup>,
@@ -1240,6 +1364,16 @@ internal fun SocialProfileContent(
                 height = 150.dp,
             )
         }
+        // Quiet on purpose: a fun fact, not a scoreboard.
+        stats?.takeIf { it.parties > 0 }?.let { together ->
+            Text(
+                "${socialTogetherDuration(together.seconds)} watched together · " +
+                    "${together.parties} ${if (together.parties == 1) "party" else "parties"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = muted,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
         Spacer(Modifier.height(16.dp))
         SocialSectionLabel("Recently watched")
         if (groups.isEmpty()) {
@@ -1259,6 +1393,41 @@ internal fun SocialProfileContent(
                 )
             }
         }
+        stats?.titles?.takeIf { it.isNotEmpty() }?.let { titles ->
+            SocialSectionLabel("Watched together", modifier = Modifier.padding(top = 12.dp))
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                titles.take(3).forEach { together ->
+                    Column(
+                        Modifier.weight(1f).then(
+                            if (together.contentId != null && together.contentType != null) {
+                                Modifier.clickable { onOpenContent(together.contentType, together.contentId, together.title) }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        SocialArtwork(
+                            listOf(together.poster),
+                            together.title,
+                            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+                        )
+                        Text(together.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "${together.parties} ${if (together.parties == 1) "party" else "parties"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = muted,
+                        )
+                    }
+                }
+                repeat(3 - titles.take(3).size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        if (prefs != null) {
+            SocialSectionLabel("Privacy", modifier = Modifier.padding(top = 12.dp))
+            SocialSwitchRow("Hide my activity from ${friend.displayName}", prefs.hideActivity) { onSetPrefs(it, null) }
+            SocialSwitchRow("Notify me when ${friend.displayName} starts watching", prefs.notifyWhenWatching) { onSetPrefs(null, it) }
+        }
         TextButton(onClick = { confirmRemove = true }, modifier = Modifier.padding(top = 8.dp)) {
             Text("Remove friend", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
         }
@@ -1277,6 +1446,21 @@ internal fun SocialProfileContent(
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
         )
     }
+}
+
+@Composable
+private fun SocialSwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** "14 h", "45 min", "under a minute". */
+internal fun socialTogetherDuration(seconds: Long): String = when {
+    seconds >= 3600 -> "${(seconds + 1800) / 3600} h"
+    seconds >= 60 -> "${seconds / 60} min"
+    else -> "under a minute"
 }
 
 @Composable

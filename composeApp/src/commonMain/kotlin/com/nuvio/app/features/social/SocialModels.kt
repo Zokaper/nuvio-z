@@ -110,6 +110,76 @@ data class RecentActivityRun(
     @SerialName("last_event_time") val lastEventTime: String,
 )
 
+/** A friend request this profile sent that is still waiting (Social V2, `sent_requests`). */
+@Serializable
+data class SentFriendRequest(
+    val id: String,
+    val receiver: SocialProfileSummary,
+    @SerialName("created_at") val createdAt: String,
+)
+
+/** This profile's own per-friend switches (Social V2, `friend_prefs`). Absent means both off. */
+@Serializable
+data class SocialFriendPrefs(
+    @SerialName("friend_profile_id") val friendProfileId: String,
+    @SerialName("hide_activity") val hideActivity: Boolean = false,
+    @SerialName("notify_when_watching") val notifyWhenWatching: Boolean = false,
+)
+
+/**
+ * A stored inbox event (Social V2, `inbox`): something the derived notifications cannot express.
+ *
+ * ⚠ [kind] is a plain string, never an enum. `SocialNotificationKind` is a closed enum, which is why a
+ * new notification kind would fail the whole payload for an older client; a kind this build does not
+ * know is simply not drawn.
+ */
+@Serializable
+data class SocialInboxEvent(
+    val id: String,
+    val kind: String,
+    val actor: SocialProfileSummary,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("read_at") val readAt: String? = null,
+    val payload: SocialInboxPayload = SocialInboxPayload(),
+) {
+    companion object {
+        const val FriendAccepted = "friend_accepted"
+        const val FriendWatching = "friend_watching"
+        const val Recommendation = "recommendation"
+        val Known = setOf(FriendAccepted, FriendWatching, Recommendation)
+    }
+}
+
+@Serializable
+data class SocialInboxPayload(
+    @SerialName("content_id") val contentId: String? = null,
+    @SerialName("content_type") val contentType: String? = null,
+    @SerialName("video_id") val videoId: String? = null,
+    val title: String? = null,
+    val poster: String? = null,
+    val background: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val note: String? = null,
+)
+
+/** Time and parties shared with one friend, from `social_get_together_stats`. Approximate. */
+@Serializable
+data class SocialTogetherStats(
+    val seconds: Long = 0,
+    val parties: Int = 0,
+    val titles: List<SocialTogetherTitle> = emptyList(),
+)
+
+@Serializable
+data class SocialTogetherTitle(
+    val title: String,
+    @SerialName("content_id") val contentId: String? = null,
+    @SerialName("content_type") val contentType: String? = null,
+    val poster: String? = null,
+    val parties: Int = 1,
+)
+
 @Serializable
 data class SocialStatePayload(
     val me: SocialProfileSummary? = null,
@@ -119,6 +189,11 @@ data class SocialStatePayload(
     val notifications: List<SocialNotification> = emptyList(),
     @SerialName("watching_now") val watchingNow: List<WatchingNowItem> = emptyList(),
     val activity: List<RecentActivityRun> = emptyList(),
+    // Social V2. Null means the backend predates them, which is how the client knows to hide the
+    // controls that need them rather than draw switches that cannot save.
+    @SerialName("sent_requests") val sentRequests: List<SentFriendRequest>? = null,
+    @SerialName("friend_prefs") val friendPrefs: List<SocialFriendPrefs>? = null,
+    val inbox: List<SocialInboxEvent>? = null,
 )
 
 data class SocialUiState(
@@ -137,10 +212,19 @@ data class SocialUiState(
     val isLoadingMore: Boolean = false,
     val isOfflineCache: Boolean = false,
     val errorMessage: String? = null,
+    val sentRequests: List<SentFriendRequest> = emptyList(),
+    val friendPrefs: List<SocialFriendPrefs> = emptyList(),
+    val inbox: List<SocialInboxEvent> = emptyList(),
+    /** The backend serves the Social V2 keys (per-friend switches, sent requests, the stored inbox). */
+    val socialV2Backend: Boolean = false,
 ) {
-    val unreadCount: Int get() = if (capabilities.partyContractVersion>=2) {
+    val unreadCount: Int get() = (if (capabilities.partyContractVersion>=2) {
         notifications.count { it.readAt==null && it.availableActions.isNotEmpty() }
-    } else requests.size + partyInvites.size
+    } else requests.size + partyInvites.size) +
+        inbox.count { it.readAt == null && it.kind in SocialInboxEvent.Known }
+
+    fun prefsFor(friendProfileId: String): SocialFriendPrefs =
+        friendPrefs.firstOrNull { it.friendProfileId == friendProfileId } ?: SocialFriendPrefs(friendProfileId)
     val needsHandleSetup: Boolean get() = capabilities.socialEnabled && activeProfileId != null && me == null
 }
 
