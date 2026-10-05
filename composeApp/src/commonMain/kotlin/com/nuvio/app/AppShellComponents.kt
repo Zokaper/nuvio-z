@@ -105,6 +105,8 @@ import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.features.settings.SettingsScreen
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.rememberSocialEnabled
+import com.nuvio.app.features.social.socialUnreadCount
+import com.nuvio.app.core.ui.navBadgeDot
 import com.nuvio.app.features.social.SocialScreen
 import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
@@ -721,7 +723,7 @@ internal fun TabletFloatingTopBar(
                                 Icon(
                                     imageVector = Icons.Filled.People,
                                     contentDescription = stringResource(Res.string.compose_nav_social),
-                                    modifier = Modifier.size(navIconSize),
+                                    modifier = Modifier.navBadgeDot(socialUnreadCount() > 0).size(navIconSize),
                                     tint = if (selectedTab == AppScreenTab.Social) {
                                         tokens.colors.textPrimary
                                     } else {
@@ -1043,7 +1045,7 @@ internal fun DesktopHoverSidebar(
                         Icon(
                             imageVector = Icons.Filled.People,
                             contentDescription = stringResource(Res.string.compose_nav_social),
-                            modifier = Modifier.size(DesktopSidebarIconSize),
+                            modifier = Modifier.navBadgeDot(socialUnreadCount() > 0).size(DesktopSidebarIconSize),
                             tint = color,
                         )
                     }

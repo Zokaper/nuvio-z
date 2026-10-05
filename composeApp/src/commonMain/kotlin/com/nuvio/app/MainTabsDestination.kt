@@ -44,6 +44,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.DesktopNavigationBar
 import com.nuvio.app.core.ui.FloatingNavigationBar
 import com.nuvio.app.core.ui.FloatingNavigationItem
+import com.nuvio.app.features.social.socialUnreadCount
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
@@ -92,6 +93,7 @@ internal fun MainTabsDestination(
     onAddProfileRequested: () -> Unit,
 ) {
     val socialEnabled = rememberSocialEnabled()
+    val socialUnread = socialUnreadCount()
     PlatformBackHandler(enabled = rootRouteActive, onBack = onBack)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -205,6 +207,7 @@ internal fun MainTabsDestination(
                         onClick = { onTabSelected(AppScreenTab.Social) },
                         icon = Icons.Filled.People,
                         label = stringResource(Res.string.compose_nav_social),
+                        badge = socialUnread > 0,
                     ),
                 )
             }
@@ -267,6 +270,7 @@ internal fun MainTabsDestination(
                                 onClick = { onTabSelected(AppScreenTab.Social) },
                                 icon = Icons.Filled.People,
                                 contentDescription = stringResource(Res.string.compose_nav_social),
+                                badge = socialUnread > 0,
                             )
                         }
                         NavItem(

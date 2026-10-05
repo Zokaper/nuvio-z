@@ -33,6 +33,7 @@ internal actual fun FloatingNavigationBar(
                     icon = item.icon,
                     contentDescription = item.label,
                     label = item.label,
+                    badge = item.badge,
                 )
                 item.drawable != null -> NavItem(
                     selected = item.selected,
