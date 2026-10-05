@@ -66,6 +66,17 @@ class DeviceHelper(
         return result
     }
 
+    /** Asks iOS to show the Developer Mode switch in Settings. Reuses the ok/stage result shape. */
+    fun revealDeveloperMode(timeoutSeconds: Long = 30): PlacePairingResult {
+        val exe = executable ?: return PlacePairingResult(false, "helper", "The device helper is not available.")
+        val run = runner(listOf(exe.toString(), "reveal-developer-mode"), timeoutSeconds)
+        return when {
+            run.timedOut -> PlacePairingResult(false, "timeout", "")
+            run.exitCode != 0 -> PlacePairingResult(false, "helper", "exit ${run.exitCode}")
+            else -> PlacePairingResult.parse(run.stdout)
+        }
+    }
+
     companion object {
         const val NAME = "nuvioz-device-helper"
 

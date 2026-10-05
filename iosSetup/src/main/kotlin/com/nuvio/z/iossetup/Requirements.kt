@@ -60,14 +60,18 @@ object Requirements {
             val vouched = status == RequirementStatus.UNKNOWN && requirement in confirmed
             results += RequirementResult(requirement, if (vouched) RequirementStatus.SATISFIED else status, vouched, detail)
         }
-        fun phoneStatus(known: Boolean?, whenNoPhone: RequirementStatus = RequirementStatus.BLOCKED): RequirementStatus = when {
+        // Without a helper (not bundled, crashed, or manual mode) nothing about the phone can be probed,
+        // so each phone requirement falls back to the user's own confirmation instead of blocking.
+        val noHelper = world.helper == null
+        val blocked = if (noHelper) RequirementStatus.UNKNOWN else RequirementStatus.BLOCKED
+        fun phoneStatus(known: Boolean?, whenNoPhone: RequirementStatus = blocked): RequirementStatus = when {
             device == null || !trusted -> whenNoPhone
             known == null -> RequirementStatus.UNKNOWN
             known -> RequirementStatus.SATISFIED
             else -> RequirementStatus.MISSING
         }
         fun app(app: InstalledApp?): RequirementStatus = when {
-            device == null || !trusted -> RequirementStatus.BLOCKED
+            device == null || !trusted -> blocked
             !device.appsKnown -> RequirementStatus.UNKNOWN
             app != null -> RequirementStatus.SATISFIED
             else -> RequirementStatus.MISSING
@@ -92,7 +96,7 @@ object Requirements {
         add(
             Requirement.TRUST,
             when {
-                device == null -> RequirementStatus.BLOCKED
+                device == null -> blocked
                 trusted -> RequirementStatus.SATISFIED
                 else -> RequirementStatus.MISSING
             },
@@ -102,7 +106,7 @@ object Requirements {
         add(
             Requirement.PAIRING,
             when {
-                device == null || !trusted -> RequirementStatus.BLOCKED
+                device == null || !trusted -> blocked
                 device.sidestore == null && device.appsKnown -> RequirementStatus.BLOCKED
                 else -> when (device.pairingFile) {
                     PairingFileState.PRESENT -> RequirementStatus.SATISFIED

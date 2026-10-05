@@ -224,9 +224,31 @@ async fn place_pairing(scratch: bool) -> Value {
     }
 }
 
+/// `reveal-developer-mode`: makes Settings → Privacy & Security → Developer Mode appear (iOS 16+
+/// hides it until asked). Only reveals the switch; the user still turns it on and confirms the restart.
+async fn reveal_developer_mode() -> Value {
+    let mut mux = match UsbmuxdConnection::default().await {
+        Ok(m) => m,
+        Err(e) => return json!({ "ok": false, "stage": "usbmuxd", "error": err(e) }),
+    };
+    let devices = mux.get_devices().await.unwrap_or_default();
+    let Some(device) = devices.iter().find(|d| matches!(d.connection_type, Connection::Usb)) else {
+        return json!({ "ok": false, "stage": "device", "error": "no USB device" });
+    };
+    let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-reveal-developer-mode");
+    match bounded(async {
+        let mut amfi = AmfiClient::connect(&provider).await.map_err(err)?;
+        amfi.reveal_developer_mode_option_in_ui().await.map_err(err)
+    }).await {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "stage": "amfi", "error": e }),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     match std::env::args().nth(1).as_deref() {
+        Some("reveal-developer-mode") => println!("{}", reveal_developer_mode().await),
         Some("place-pairing") => println!("{}", place_pairing(std::env::args().any(|a| a == "--scratch")).await),
         Some("status") | None => println!("{}", status().await),
         Some("write-probe") => println!("{}", write_probe().await),

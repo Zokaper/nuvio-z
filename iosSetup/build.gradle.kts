@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.nuvio.app.z.setup"
-version = "1.1.2"
+version = "2.0.0"
 
 dependencies {
     implementation(compose.desktop.currentOs)
@@ -65,7 +65,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Dmg)
             packageName = "Nuvio Z iOS Setup"
-            packageVersion = "1.1.2"
+            packageVersion = "2.0.0"
             description = "A guided setup utility for installing Nuvio Z on iPhone with SideStore"
             vendor = "Nuvio Z"
             appResourcesRootDir.set(helperResourcesDir)

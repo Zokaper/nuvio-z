@@ -19,6 +19,8 @@ data class SetupProgress(
     val confirmed: Set<Requirement> = emptySet(),
     val repairMode: Boolean = false,
     val advancedDeviceOverride: Boolean = false,
+    /** Ignore the device helper entirely and confirm every phone step by hand (troubleshooting path). */
+    val manualMode: Boolean = false,
     val setupCompleted: Boolean = false,
 ) {
     fun confirm(requirement: Requirement, value: Boolean = true): SetupProgress =

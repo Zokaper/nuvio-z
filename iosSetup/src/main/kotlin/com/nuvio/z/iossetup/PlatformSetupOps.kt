@@ -22,7 +22,7 @@ interface PlatformSetupOps {
     fun isDeviceTransportReady(): Boolean
     fun openAppleServiceManager(): OperationResult
     fun findIloader(): Path?
-    fun installIloader(): OperationResult
+    fun installIloader(onProgress: (Long, Long?) -> Unit = { _, _ -> }): OperationResult
     fun openIloader(): OperationResult
     /** The pinned, checksum-verified iloader installer; see [IloaderBootstrap]. */
     val iloaderBootstrap: IloaderBootstrap
@@ -196,7 +196,7 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
 
     override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun installIloader(): OperationResult = iloaderBootstrap.install()
+    override fun installIloader(onProgress: (Long, Long?) -> Unit): OperationResult = iloaderBootstrap.install(onProgress)
 
     override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }
@@ -246,7 +246,7 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
 
     override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun installIloader(): OperationResult = iloaderBootstrap.install()
+    override fun installIloader(onProgress: (Long, Long?) -> Unit): OperationResult = iloaderBootstrap.install(onProgress)
 
     override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }

@@ -6,7 +6,7 @@ import java.time.Instant
 
 class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().resolveSibling("diagnostics.log")) {
     init {
-        log("Nuvio Z iOS Setup 1.1.2 started")
+        log("Nuvio Z iOS Setup 2.0.0 started")
         log("OS=${System.getProperty("os.name")} ${System.getProperty("os.version")}; arch=${System.getProperty("os.arch")}")
     }
 
@@ -27,6 +27,12 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
         },
     )
     fun pairingPlaced(result: PlacePairingResult) = log("pairing_placed ok=${result.ok} stage=${result.stage ?: "n/a"} detail=${result.detail}")
+    private var lastRequirements = ""
+    /** Logs the requirement board only when it changes, so the 3-second loop does not flood the log. */
+    fun requirements(results: List<RequirementResult>) {
+        val line = results.joinToString(" ") { "${it.requirement.name}=${it.status.name}${if (it.confirmedByUser) "(user)" else ""}" }
+        if (line != lastRequirements) { lastRequirements = line; log("requirements $line") }
+    }
     fun operation(name: String, result: OperationResult) = log("operation=${name.substringAfterLast('/').substringAfterLast('\\')} success=${result.success} exit=${result.exitCode ?: "n/a"} message=${result.message}")
 
     fun report(currentStep: SetupStep): String {
