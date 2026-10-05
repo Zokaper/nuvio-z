@@ -2,9 +2,20 @@
 
 Last updated: 2026-10-05
 
-## iOS Setup v2 (implemented, unreleased; branch `claude/ios-setup-v2`, 2026-10-05)
+## iOS Setup v2 (released as a prerelease 2026-10-05; branch `claude/ios-setup-v2`)
 
-Branched from `ios-setup-v1.1.2-beta.1`. Not released, not merged. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
+Branched from `ios-setup-v1.1.2-beta.1`. **Released 2026-10-05 as prerelease `ios-setup-v2.0.0-beta.1`** (commit `f9f87bb39`, CI run
+`37301527239`), not merged to `main`. 1.1.2 is retitled "(Superseded)".
+
+- **Release links.** Versioned: `https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-v2.0.0-beta.1`. Rolling (never changes; the one
+  to share): `https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-Windows-x64.zip` and
+  `.../Nuvio-Z-iOS-Setup-macOS.zip` (plus `SHA256SUMS.txt`). SHA-256: Windows `c06fae7e0de916a1a888ff5bd545fe331adfc44875aad3d985ad540731c9a1eb`,
+  macOS `dbc3bd7a3a42ebe53a153d0636ac5c043d5004c43a15c47157897337573661b4`.
+- **How to release next time.** Actions -> "Build iOS Setup GUI" -> Run workflow on the branch with `publish_tag` set (e.g.
+  `ios-setup-v2.0.1-beta.1`). It builds both ZIPs, verifies them (integrity + bundled device helper), writes `SHA256SUMS.txt`, creates the
+  versioned prerelease and re-uploads the same unversioned assets to `ios-setup-vlatest` (`--clobber`). Both are prereleases with
+  `ios-setup-v*` tags, so GitHub's repo-wide "latest" stays the app (checked: still `0.5.4-z1+127`) and `update-store-source.yml`
+  (only `v*` / `debug-v*`) ignores them. Retitle the previous versioned release "(Superseded)" by hand. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
 Decisions (maintainer): staged hybrid (Rust helper for USB probes and pairing; iloader kept for Apple sign-in and the
 SideStore install), Apple credentials never enter our app, portable ZIPs, **iloader is downloaded at a pinned version with
 a verified SHA-256 and never bundled**.
