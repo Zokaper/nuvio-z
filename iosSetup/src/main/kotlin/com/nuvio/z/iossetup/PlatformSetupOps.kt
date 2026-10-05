@@ -24,6 +24,8 @@ interface PlatformSetupOps {
     fun findIloader(): Path?
     fun installIloader(): OperationResult
     fun openIloader(): OperationResult
+    /** The pinned, checksum-verified iloader installer; see [IloaderBootstrap]. */
+    val iloaderBootstrap: IloaderBootstrap
 }
 
 fun platformSetupOps(diagnostics: Diagnostics): PlatformSetupOps {
@@ -32,6 +34,15 @@ fun platformSetupOps(diagnostics: Diagnostics): PlatformSetupOps {
 }
 
 abstract class ProcessPlatformOps(protected val diagnostics: Diagnostics) : PlatformSetupOps {
+    protected val prereqs: Prereqs by lazy { Prereqs.load(::fetchHostedPrereqs) }
+    override val iloaderBootstrap: IloaderBootstrap by lazy { IloaderBootstrap(prereqs, isMac, diagnostics = diagnostics) }
+
+    private fun fetchHostedPrereqs(): String? = runCatching {
+        val request = HttpRequest.newBuilder(URI(Prereqs.REMOTE_URL)).timeout(Duration.ofSeconds(4)).GET().build()
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build()
+            .send(request, HttpResponse.BodyHandlers.ofString()).takeIf { it.statusCode() == 200 }?.body()
+    }.getOrNull()
+
     protected fun run(vararg args: String, timeoutSeconds: Long = 30, maxOutput: Int = 8_000): OperationResult = try {
         val process = ProcessBuilder(*args).redirectErrorStream(true).start()
         // Drain while the process runs: a full pipe would stall system_profiler/ioreg until the timeout.
@@ -141,16 +152,30 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
     }
 
     override fun installAppleDeviceSupport(): OperationResult {
+        val apple = prereqs.appleInstallerWindows
         val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iTunes64Setup.exe")
-        val downloaded = download(
-            "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
-            target,
+        val downloaded = Downloader().download(apple.url, target, minBytes = apple.minBytes)
+        if (downloaded is DownloadResult.Failed) return OperationResult(
+            false,
+            "Couldn’t download Apple’s installer. Check your internet connection and try again.",
+            details = "${downloaded.reason} ${downloaded.detail}",
         )
-        if (!downloaded.success) return downloaded
+        // Apple rotates this URL, so trust comes from Apple’s code signature rather than a pinned hash.
+        if (!signedBy(target, apple.publisher)) {
+            runCatching { Files.deleteIfExists(target) }
+            return OperationResult(false, "The downloaded installer was not signed by ${apple.publisher}, so it was not run.")
+        }
         val installed = run(target.toString(), timeoutSeconds = 900)
         return if (installed.success) OperationResult(true, "Apple's desktop iTunes installer finished. Checking device communication again.", installed.exitCode)
         else OperationResult(false, "Apple's installer did not complete successfully. Try it again or open the technical details below.", installed.exitCode, installed.details)
     }
+
+    private fun signedBy(file: Path, publisher: String): Boolean = run(
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        "${'$'}s = Get-AuthenticodeSignature -LiteralPath '${file.toString().replace("'", "''")}'; " +
+            "if (${'$'}s.Status -eq 'Valid' -and ${'$'}s.SignerCertificate.Subject -match 'O=${publisher.replace("'", "''")}') { exit 0 } else { exit 1 }",
+        timeoutSeconds = 60,
+    ).success
 
     override fun isDeviceConnected(): Boolean {
         val result = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if (Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.InstanceId -like 'USB\\VID_05AC*' -or ${'$'}_.FriendlyName -match 'iPhone|iPad|Apple Mobile Device' }) { exit 0 } else { exit 1 }")
@@ -169,38 +194,11 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
         OperationResult(false, "Could not open Windows Services.", details = error.message.orEmpty())
     }
 
-    override fun findIloader(): Path? {
-        val roots = listOfNotNull(
-            System.getenv("LOCALAPPDATA")?.let { Path.of(it, "Programs", "iloader", "iloader.exe") },
-            System.getenv("ProgramFiles")?.let { Path.of(it, "iloader", "iloader.exe") },
-            System.getenv("ProgramFiles(x86)")?.let { Path.of(it, "iloader", "iloader.exe") },
-        )
-        return roots.firstOrNull(Files::isRegularFile).also { path ->
-            val version = path?.let {
-                run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "(Get-Item -LiteralPath '${it.toString().replace("'", "''")}').VersionInfo.ProductVersion").details.trim()
-            }
-            diagnostics.iloader(path, version)
-        }
-    }
+    override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun installIloader(): OperationResult {
-        val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iloader-windows-x64.msi")
-        val downloaded = download("https://github.com/nab138/iloader/releases/latest/download/iloader-windows-x64.msi", target)
-        if (!downloaded.success) return downloaded
-        val result = run("msiexec.exe", "/i", target.toString(), timeoutSeconds = 900)
-        return if (result.success && findIloader() != null) OperationResult(true, "iloader is installed.", result.exitCode)
-        else OperationResult(false, "iloader's installer closed, but iloader was not found. Choose Check again after completing the installer.", result.exitCode, result.details)
-    }
+    override fun installIloader(): OperationResult = iloaderBootstrap.install()
 
-    override fun openIloader(): OperationResult {
-        val path = findIloader() ?: return OperationResult(false, "iloader is not installed yet.")
-        return try {
-            ProcessBuilder(path.toString()).start()
-            OperationResult(true, "iloader opened. Return here after completing the instructions on your iPhone.")
-        } catch (error: Exception) {
-            OperationResult(false, "Could not open iloader.", details = error.message.orEmpty())
-        }
-    }
+    override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }
 
 class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
@@ -246,24 +244,9 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
         OperationResult(false, "Could not open Finder.", details = error.message.orEmpty())
     }
 
-    override fun findIloader(): Path? = listOf(
-        Path.of("/Applications/iloader.app"), Path.of(System.getProperty("user.home"), "Applications", "iloader.app")
-    ).firstOrNull(Files::isDirectory).also { path ->
-        val version = path?.let { run("/usr/bin/defaults", "read", it.resolve("Contents/Info").toString(), "CFBundleShortVersionString").details.trim() }
-        diagnostics.iloader(path, version)
-    }
+    override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun installIloader(): OperationResult {
-        val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iloader.dmg")
-        val downloaded = download("https://github.com/nab138/iloader/releases/latest/download/iloader-darwin-universal.dmg", target)
-        if (!downloaded.success) return downloaded
-        val opened = run("/usr/bin/open", target.toString())
-        return if (opened.success) OperationResult(false, "The iloader disk image is open. Drag iloader to Applications, then choose Check again.") else opened
-    }
+    override fun installIloader(): OperationResult = iloaderBootstrap.install()
 
-    override fun openIloader(): OperationResult {
-        val path = findIloader() ?: return OperationResult(false, "iloader is not installed in Applications yet.")
-        val result = run("/usr/bin/open", path.toString())
-        return if (result.success) OperationResult(true, "iloader opened. Closing it will not advance this wizard.") else result
-    }
+    override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }
