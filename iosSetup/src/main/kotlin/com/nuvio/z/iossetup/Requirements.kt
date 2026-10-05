@@ -82,6 +82,9 @@ object Requirements {
             when {
                 world.computer == null -> RequirementStatus.UNKNOWN
                 world.computer.canContinue -> RequirementStatus.SATISFIED
+                // Only Apple's driver went undetected: the user may say it is installed, and the real
+                // USB check on the next requirement settles it.
+                world.computer.supportedOs.state == CheckState.PASS && world.computer.internet.state != CheckState.FAIL -> RequirementStatus.UNKNOWN
                 else -> RequirementStatus.MISSING
             },
         )

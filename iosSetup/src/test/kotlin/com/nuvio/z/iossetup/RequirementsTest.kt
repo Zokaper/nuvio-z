@@ -123,6 +123,15 @@ class RequirementsTest {
         assertEquals(RequirementStatus.UNKNOWN, results.status(Requirement.DEVICE))
     }
 
+    @Test fun missingAppleDriverIsConfirmableButAnUnsupportedOsIsNot() {
+        val noDriver = goodComputer.copy(appleSupport = CheckResult("apple", CheckState.ACTION))
+        assertEquals(RequirementStatus.UNKNOWN, evaluate(ready(), computer = noDriver).status(Requirement.COMPUTER))
+        val vouched = evaluate(ready(), computer = noDriver, confirmed = setOf(Requirement.COMPUTER))
+        assertEquals(RequirementStatus.SATISFIED, vouched.status(Requirement.COMPUTER))
+        val offline = goodComputer.copy(internet = CheckResult("net", CheckState.FAIL))
+        assertEquals(RequirementStatus.MISSING, evaluate(ready(), computer = offline, confirmed = setOf(Requirement.COMPUTER)).status(Requirement.COMPUTER))
+    }
+
     @Test fun unsupportedComputerIsTheFirstFocus() {
         val bad = goodComputer.copy(supportedOs = CheckResult("os", CheckState.FAIL))
         assertEquals(Requirement.COMPUTER, Requirements.focus(evaluate(ready(), computer = bad))?.requirement)

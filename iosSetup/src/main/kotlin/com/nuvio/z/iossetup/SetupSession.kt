@@ -58,7 +58,7 @@ class SetupSession(
     fun tick() {
         if (progress.setupCompleted && !progress.repairMode) return
         if (computer == null) checkComputer()
-        if (computer?.canContinue == true) ensureTools()
+        if (computer?.supportedOs?.state == CheckState.PASS) ensureTools()
         if (probing) probeDevice() else deviceProbed = true
         autoActions()
         reconcileAndComplete()
@@ -104,7 +104,7 @@ class SetupSession(
         val current = results
         val kept = Requirements.reconcile(progress.confirmed, current)
         var next = if (kept != progress.confirmed) progress.copy(confirmed = kept) else progress
-        if (current.all { it.done } && !next.setupCompleted) next = next.copy(setupCompleted = true, repairMode = false)
+        if (current.all { it.done } && !next.setupCompleted && !next.repairMode) next = next.copy(setupCompleted = true)
         if (next != progress) update { next }
         diagnostics.requirements(current)
     }
@@ -138,6 +138,7 @@ class SetupSession(
     /** Re-opens setup from the completion page to repair pairing or recheck the phone. */
     fun enterRepair() = update { it.copy(repairMode = true, setupCompleted = false) }
 
+    /** Ends repair; the next tick marks setup complete again if everything checks out. */
     fun leaveRepair() = update { it.copy(repairMode = false) }
 
     fun startOver() {

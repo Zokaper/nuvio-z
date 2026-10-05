@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Add Nuvio Z to SideStore</title>
+<style>
+  :root { --bg:#f5f7fb; --card:#fff; --text:#101828; --muted:#475467; --accent:#1e6fe0; --border:#d0d5dd; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0c1524; --card:#152238; --text:#f4f7fc; --muted:#b4c0d4; --accent:#6aa5ff; --border:#2b3b55; } }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width:30rem; margin:0 auto; padding:2rem 1rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.25rem; margin-top:1rem; }
+  h1 { font-size:1.4rem; margin:0 0 .25rem; }
+  p { color:var(--muted); margin:.5rem 0; }
+  a.button, button { display:block; width:100%; box-sizing:border-box; text-align:center; background:var(--accent); color:#fff; border:0; border-radius:12px; padding:.9rem 1rem; font:inherit; font-weight:600; text-decoration:none; margin-top:.75rem; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--border); }
+  code { display:block; word-break:break-all; background:rgba(127,127,127,.12); border-radius:8px; padding:.6rem .7rem; font-size:.8rem; margin-top:.5rem; }
+  ol { color:var(--muted); padding-left:1.2rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Add Nuvio Z to SideStore</h1>
+  <p>This opens SideStore and adds the Nuvio Z source. SideStore and LocalDevVPN must already be set up on this iPhone.</p>
+  <div class="card">
+    <a class="button" id="open" href="#">Open in SideStore</a>
+    <button class="secondary" id="copy" type="button">Copy source URL</button>
+    <code id="url"></code>
+  </div>
+  <div class="card">
+    <p><strong>If SideStore does not open</strong></p>
+    <ol>
+      <li>Tap <em>Copy source URL</em> above.</li>
+      <li>Open SideStore, go to <em>Sources</em>, tap <em>+</em>.</li>
+      <li>Paste the URL and tap <em>Add</em>.</li>
+    </ol>
+  </div>
+</main>
+<script>
+  // Keep these two in sync with SetupChannel in iosSetup (a test checks it).
+  var SOURCES = {
+    stable: "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json",
+    debug: "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source-debug.json"
+  };
+  var channel = new URLSearchParams(location.search).get("channel") === "debug" ? "debug" : "stable";
+  var source = SOURCES[channel];
+  var link = "sidestore://source?url=" + encodeURIComponent(source);
+  document.getElementById("open").href = link;
+  document.getElementById("url").textContent = source;
+  document.getElementById("title").textContent = channel === "debug" ? "Add Nuvio Z Debug to SideStore" : "Add Nuvio Z to SideStore";
+  document.getElementById("copy").addEventListener("click", function () {
+    var done = function () { document.getElementById("copy").textContent = "Copied"; };
+    if (navigator.clipboard) { navigator.clipboard.writeText(source).then(done, function () {}); }
+  });
+  setTimeout(function () { location.href = link; }, 400);
+</script>
+</body>
+</html>

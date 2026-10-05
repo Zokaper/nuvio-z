@@ -35,9 +35,11 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
     }
     fun operation(name: String, result: OperationResult) = log("operation=${name.substringAfterLast('/').substringAfterLast('\\')} success=${result.success} exit=${result.exitCode ?: "n/a"} message=${result.message}")
 
-    fun report(currentStep: SetupStep): String {
+    fun report(currentStep: SetupStep): String = report(currentStep.name)
+
+    fun report(current: String): String {
         val body = runCatching { Files.readString(path) }.getOrDefault("No diagnostic events recorded.")
-        return "Nuvio Z iOS Setup diagnostics\nCurrent step: ${currentStep.name}\nProgress file: ${path.parent.resolve("setup-state.json")}\n\n$body"
+        return "Nuvio Z iOS Setup diagnostics\nCurrent step: $current\nProgress file: ${path.parent.resolve("setup-state.json")}\n\n$body"
     }
 
     private fun log(raw: String) {
