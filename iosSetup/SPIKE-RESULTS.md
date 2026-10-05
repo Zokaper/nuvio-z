@@ -20,10 +20,12 @@ Whole `status` run: about 1.5 s.
 - **Untrusted / locked / no-pair-record states.** The rig was already trusted, so the failure shapes
   of `start_session` (no pair record, user tapped Don't Trust, phone locked) are unobserved. The UI must
   treat any `trust: invalid` as "waiting for Trust" and show the raw reason in diagnostics.
-- **Writing the pairing file** (needed to automate Pairing). Needs an AFC write into SideStore's
-  Documents. Not attempted: it modifies the phone.
-- **Developer profile trust.** AMFI exposes `trust_app_signer(profile uuid)`. Not called (it changes
-  state). Until proven, "Trust the profile" stays a confirmation step.
+- ~~**Writing the pairing file.**~~ **Proven (maintainer-authorised):** `write-probe` created a
+  scratch file in SideStore's Documents over house_arrest/AFC, read it back byte-identical and deleted
+  it; `ALTPairingFile.mobiledevicepairing` was untouched. Still to do in Stage 2: confirm the exact
+  contents SideStore expects (the host lockdown pair record, as iloader writes it) before placing a real one.
+- **Developer profile trust.** AMFI exposes `trust_app_signer(profile uuid)`. Deliberately not called:
+  trusting a developer profile is the user's own decision on the phone, so it stays a confirmation step.
 - **SideStore sign-in / first refresh / source added / LocalDevVPN connected.** No probe found.
   Remain confirmation steps. `anisette-servers.json` in Documents hints at some container state, but
   nothing reliable.

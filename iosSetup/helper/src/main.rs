@@ -3,7 +3,7 @@
 //! `status` prints exactly one JSON line (protocol 1). It never pairs, installs, writes or
 //! reveals anything, and it deliberately omits the device name and full UDID.
 use idevice::{
-    afc::AfcClient,
+    afc::{opcode::AfcFopenMode, AfcClient},
     amfi::AmfiClient,
     house_arrest::HouseArrestClient,
     installation_proxy::InstallationProxyClient,
@@ -145,10 +145,61 @@ async fn status() -> Value {
     out
 }
 
+/// Proves the pairing-file write path without touching the real file: create, read back and
+/// delete a scratch file in SideStore's Documents. Run only on request (`write-probe`).
+async fn write_probe() -> Value {
+    const SCRATCH: &str = "/Documents/nuvioz-write-probe.tmp";
+    const BODY: &[u8] = b"nuvioz write probe";
+    let mut mux = match UsbmuxdConnection::default().await {
+        Ok(m) => m,
+        Err(e) => return json!({ "ok": false, "stage": "usbmuxd", "error": err(e) }),
+    };
+    let devices = mux.get_devices().await.unwrap_or_default();
+    let Some(device) = devices.iter().find(|d| matches!(d.connection_type, Connection::Usb)) else {
+        return json!({ "ok": false, "stage": "device", "error": "no USB device" });
+    };
+    let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-write-probe");
+    let sidestore = match bounded(async {
+        let mut proxy = InstallationProxyClient::connect(&provider).await.map_err(err)?;
+        let apps = proxy.get_apps(Some("User"), None).await.map_err(err)?;
+        apps.keys().find(|b| classify(b) == Some("sidestore")).cloned().ok_or_else(|| "SideStore not installed".to_string())
+    }).await {
+        Ok(id) => id,
+        Err(e) => return json!({ "ok": false, "stage": "sidestore", "error": e }),
+    };
+    let mut stages = serde_json::Map::new();
+    let outcome = bounded(async {
+        let ha = HouseArrestClient::connect(&provider).await.map_err(err)?;
+        let mut afc: AfcClient = ha.vend_documents(sidestore).await.map_err(err)?;
+        {
+            let mut file = afc.open(SCRATCH, AfcFopenMode::WrOnly).await.map_err(|e| format!("open for write: {e:?}"))?;
+            file.write_entire(BODY).await.map_err(|e| format!("write: {e:?}"))?;
+            file.close().await.map_err(|e| format!("close after write: {e:?}"))?;
+        }
+        stages.insert("written".into(), json!(true));
+        let read_back = {
+            let mut file = afc.open(SCRATCH, AfcFopenMode::RdOnly).await.map_err(|e| format!("open for read: {e:?}"))?;
+            let bytes = file.read_entire().await.map_err(|e| format!("read: {e:?}"))?;
+            file.close().await.map_err(|e| format!("close after read: {e:?}"))?;
+            bytes
+        };
+        stages.insert("readBackMatches".into(), json!(read_back == BODY));
+        afc.remove(SCRATCH).await.map_err(|e| format!("remove: {e:?}"))?;
+        let left = afc.list_dir("/Documents").await.map_err(err)?;
+        stages.insert("removed".into(), json!(!left.iter().any(|e| e == "nuvioz-write-probe.tmp")));
+        Ok(())
+    }).await;
+    match outcome {
+        Ok(()) => json!({ "ok": true, "stages": stages }),
+        Err(e) => json!({ "ok": false, "error": e, "stages": stages }),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("status") | None => println!("{}", status().await),
+        Some("write-probe") => println!("{}", write_probe().await),
         Some("--version") => println!("nuvioz-device-helper {} (idevice {IDEVICE_VERSION}, protocol {PROTOCOL})", env!("CARGO_PKG_VERSION")),
         Some(other) => {
             eprintln!("unknown command: {other}");
