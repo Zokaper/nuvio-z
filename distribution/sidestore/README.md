@@ -2,10 +2,37 @@
 
 This directory contains the official SideStore distribution metadata and the advanced fallback scripts for installing **Nuvio Z** on iOS devices without requiring TestFlight or a paid Apple Developer account.
 
-The intended end-user path is the portable **Nuvio Z iOS Setup** desktop wizard in `iosSetup/`.
-Download the Windows or macOS ZIP from the dedicated **Build iOS Setup GUI** workflow, extract it,
-and open the bundled application. It separates every human-controlled SideStore step, persists
-non-sensitive progress, and never treats iloader closing as proof that SideStore or pairing was set up.
+The intended end-user path is the portable **Nuvio Z iOS Setup** desktop assistant in `iosSetup/`
+(version 2). Download the Windows or macOS ZIP from the **Build iOS Setup GUI** workflow or the latest
+`ios-setup-v*` release, extract it, and open the app. It is a live checklist beside the one thing to do
+next, and it advances by itself:
+
+- **Computer:** checks the OS and network; on Windows installs Apple's device support (Apple's own
+  installer, its code signature verified first). It then downloads **iloader** for you: a pinned
+  release, SHA-256 verified, never bundled, installed into the assistant's own folder, removable when
+  you are done. You never visit iloader's download page.
+- **iPhone:** a small bundled device checker (`nuvioz-device-helper`, Rust, built on the MIT `idevice`
+  crate, pinned) reads USB state read-only: connected, trusted, Developer Mode, LocalDevVPN, SideStore,
+  Nuvio Z and the pairing file. Pages tick over as soon as the phone reports the change.
+- **Pairing:** the assistant builds and places SideStore's pairing file itself (the same lockdown plus
+  remote-pairing record iloader writes), keeping the previous file as `.previous`. Repair re-places it.
+- **Still yours:** Apple sign-in and 2FA (inside iloader and Apple only, never this app), trusting the
+  developer profile, SideStore's first sign-in and refresh, and adding the source. These stay
+  confirmations because nothing on the computer can see them.
+- **Source QR:** an https landing page (`distribution/sidestore/add/`, published by
+  `sidestore-landing.yml`) so the iPhone camera opens SideStore; the assistant falls back to the raw
+  `sidestore://` link until that page is live.
+- **Resume and manual mode:** state is re-derived from the phone on every launch; only your confirmations
+  are saved. Advanced settings has a manual mode that ignores the device checker entirely.
+
+macOS: open `Nuvio Z iOS Setup.app`. If an unsigned build is blocked, use System Settings -> Privacy &
+Security -> **Open Anyway**. The assistant never removes quarantine attributes or bypasses Gatekeeper.
+Windows may show a SmartScreen notice for the unsigned ZIP, and asks for permission only when
+installing Apple's drivers. The app image includes its own Java runtime and the device checker.
+
+The pinned download descriptors are `iosSetup/src/main/resources/prereqs.json`, mirrored in
+`distribution/sidestore/ios-setup-prereqs.json` (a test keeps them identical; a hosted copy may refresh
+them only if it validates against a host allow-list and carries SHA-256 pins).
 
 ---
 

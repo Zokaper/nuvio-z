@@ -19,7 +19,8 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
         log("apple_probes registry_or_driver=$registryOrDriver service_installed=$serviceInstalled service_running=$serviceRunning winget_installed=$wingetInstalled")
     fun macDeviceProbes(usbmuxdUsbDevices: Int?, ioreg: Boolean?, systemProfiler: Boolean?) =
         log("mac_device_probes usbmuxd_usb_devices=${usbmuxdUsbDevices ?: "unreachable"} ioreg=${ioreg ?: "skipped"} system_profiler=${systemProfiler ?: "skipped"}")
-    fun helperStatus(status: HelperStatus?, run: HelperRun) = log(
+    private var lastHelperStatus = ""
+    fun helperStatus(status: HelperStatus?, run: HelperRun) = logIfChanged(
         "helper_status " + when {
             status == null -> "unavailable exit=${run.exitCode ?: "none"} timedOut=${run.timedOut}"
             else -> "usbmuxd=${status.usbmuxdReachable} usb=${status.usbDeviceCount} trust=${status.device?.trust ?: "n/a"} " +
@@ -27,6 +28,8 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
         },
     )
     fun pairingPlaced(result: PlacePairingResult) = log("pairing_placed ok=${result.ok} stage=${result.stage ?: "n/a"} detail=${result.detail}")
+    private fun logIfChanged(line: String) { if (line != lastHelperStatus) { lastHelperStatus = line; log(line) } }
+
     private var lastRequirements = ""
     /** Logs the requirement board only when it changes, so the 3-second loop does not flood the log. */
     fun requirements(results: List<RequirementResult>) {

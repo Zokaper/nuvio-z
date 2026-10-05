@@ -2,28 +2,53 @@
 
 Last updated: 2026-10-05
 
-## iOS Setup v2 (in progress, branch `claude/ios-setup-v2`, 2026-10-05)
+## iOS Setup v2 (implemented, unreleased; branch `claude/ios-setup-v2`, 2026-10-05)
 
 Branched from `ios-setup-v1.1.2-beta.1`. Not released, not merged. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
-Decisions: staged hybrid (Rust helper for USB probes, iloader kept for Apple sign-in), credentials never
-enter our app, portable ZIPs, **iloader is downloaded at a pinned version with a verified SHA-256 and
-never bundled**.
+Decisions (maintainer): staged hybrid (Rust helper for USB probes and pairing; iloader kept for Apple sign-in and the
+SideStore install), Apple credentials never enter our app, portable ZIPs, **iloader is downloaded at a pinned version with
+a verified SHA-256 and never bundled**.
 
-- **Stage 0 (feasibility gate): passed for detection.** `iosSetup/SPIKE-RESULTS.md` has the table.
-  On a real iPhone (iOS 26.5, Windows) the helper detects USB presence, trust, Developer Mode,
-  LocalDevVPN, SideStore, Nuvio Z/Debug and the pairing file, and AFC writes into SideStore's Documents work
-  (scratch file written, read back, deleted; the real pairing file untouched). Not detectable: developer
-  profile trust, SideStore sign-in/first refresh, source added, LocalDevVPN connected (stay confirmations).
-  Not yet observed: untrusted/locked failure shapes; anything on a Mac.
-- **Stage 1 (done): model only, v1 UI untouched.** `Requirements.kt` (11 requirements in journey order,
-  `evaluate`/`focus`/`reconcile`), `DeviceSnapshot.kt` (parses helper protocol 1), `SetupError.kt`
-  (typed, platform-aware recovery), `SetupProgress.kt` (schema 2 + v1 migration). `:iosSetup:test` 52/52
-  (29 existing + 23 new), clean `--rerun-tasks`.
-- **Helper:** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring` crypto). Commands: `status`
-  (one JSON line, no device name or full UDID), `write-probe`, `--version`. Needs a toolchain
-  (`rustup`; MSVC Build Tools on Windows). Not yet wired into Gradle/CI/the app.
-- **Next:** Stage 2 (Kotlin `DeviceHelper` runner, CI build + packaging, real pairing-file placement after
-  confirming the exact file format iloader writes), Stage 3 (pinned iloader bootstrap), Stage 4 (board UI).
+**What it is now.** The 14-page wizard is replaced by a live checklist of 11 requirements beside one focus card
+(`Board.kt`). `Requirements.evaluate` derives progress from what the computer can see; `SetupSession.tick` (every ~3 s)
+checks the computer once, fetches iloader once, probes the phone, places a missing pairing file once, reveals the
+Developer Mode switch once, drops stale human answers, and completes. Without the helper (or in manual mode) every phone
+step falls back to the user's confirmation.
+
+- **Stage 0 gate (passed):** `iosSetup/SPIKE-RESULTS.md`. Real iPhone, iOS 26.5, Windows: USB, trust, Developer Mode,
+  LocalDevVPN, SideStore, Nuvio Z/Debug and pairing-file presence are all detectable. Not detectable (stay
+  confirmations): developer-profile trust (`trust_app_signer` deliberately not used: it is the user's decision),
+  SideStore sign-in/first refresh, source added, LocalDevVPN connected.
+- **Helper** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring`, static CRT on Windows, 1.9 MB release). Commands:
+  `status` (one JSON line, protocol 1, no device name or full UDID), `place-pairing [--scratch]`, `reveal-developer-mode`,
+  `write-probe`, `--version`. `place-pairing` builds iloader 2.3.5's file (lockdown record + rppairing on iOS 17.4+ +
+  Wi-Fi debugging); on a real phone the scratch result had the **same 14 keys** as the file iloader placed and read back
+  identical. Real placement keeps the old file as `ALTPairingFile.mobiledevicepairing.previous`. It caches the rppairing
+  identity under `%LOCALAPPDATA%\Nuvio Z iOS Setup\pairing\` (a secret; per user).
+- **Bootstrap:** `Prereqs.kt` + `prereqs.json` (mirrored in `distribution/sidestore/ios-setup-prereqs.json`, test-enforced)
+  pin iloader v2.3.5 by SHA-256 (hosted override only if schema-valid and on a host allow-list). `Downloader.kt` is
+  resumable, retries, verifies size and hash and deletes bad bytes. `IloaderBootstrap.kt` installs the NSIS build silently into
+  `%LOCALAPPDATA%\NuvioZSetup\tools` (no admin, works with spaces in the path) or extracts the macOS `.app.tar.gz`, and
+  uninstalls only what it installed (also removes the Start Menu shortcut). Apple's driver installer is verified by Authenticode
+  publisher and size (its URL rotates). Live Windows round trip passed: 6,040,468 bytes, install, find, uninstall, no leftovers.
+  The v1 code path no longer uses the unpinned `releases/latest`.
+- **QR:** `distribution/sidestore/add/index.html` + `sidestore-landing.yml`. **One-time repo setting needed:** Settings -> Pages
+  -> Source "GitHub Actions". Until then the app detects the page is not live and QR-encodes the raw `sidestore://` link.
+- **Packaging/CI:** `-PwithHelper` (cargo build) or `-PhelperBinary=<path>` stages the helper as an app resource;
+  `ios-setup-build.yml` builds it (Windows; macOS universal via lipo, re-signed ad hoc) and fails if it is not in the app image.
+  JDK note: Android Studio's JBR has no `jpackage`; use Temurin 21 for `createDistributable`.
+- **Verification:** `:iosSetup:test` **104 / 104** (29 v1 + 75 new), clean `--rerun-tasks`. `BoardRenderHarness` writes 16 PNGs of
+  every state to `iosSetup/build/render/` (reviewed). The packaged app was launched against the real phone with an isolated
+  `LOCALAPPDATA`: it found the existing iloader (no download), and the log shows DEVICE, TRUST, LOOPBACK_APP, SIDESTORE, PAIRING and
+  DEVELOPER_MODE `SATISFIED` automatically with the focus on the first human-only step.
+- **Not yet verified:** a physical **Mac** (helper over `/var/run/usbmuxd`, macOS iloader extraction, Gatekeeper) and the CI macOS
+  universal build; an **untrusted/locked/no-pair-record** phone (failure shapes are mapped but unobserved; Debug phone only);
+  **real pairing placement then a SideStore refresh** (only the scratch path was exercised on the physical phone, deliberately
+  leaving the working pairing file alone); the **Apple driver installer** path end to end (needs a clean PC); a clean install
+  from the ZIP on a PC with no Rust/JDK.
+- **Debt:** v1's `SetupController`, `SetupStep`, `SetupState` and `StepGuidance` remain only because the migration and the reused
+  troubleshooting copy depend on them (and 29 tests pin them); remove once nothing needs the v1 shape. The repo README on `main`
+  still pins `ios-setup-v1.1.2-beta.1`; bump it when a v2 release ships.
 
 ## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
 
