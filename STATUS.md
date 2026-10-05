@@ -1,3 +1,22 @@
+## Stable release shipped - Mobile 0.5.4-z1+127 / Desktop 0.1.26-alpha-z1+132 (2026-10-04)
+
+The first stable Nuvio Z release is live on both repositories, published by the release workflows in `publish` mode (dispatched
+from `main` / `Dev`; the first dispatch on `ae94852e5` / `5fcac0bbf` was refused by the bump-last guard, so the 2026-10-04 ship date was
+folded into the bump commits and the branches were force-pushed with lease before the second dispatch).
+
+- **Mobile** `0.5.4-z1`, build 126, serial 127, tag `0.5.4-z1+127`, release commit `8ea9d8341b66d3c3598557097f76481b71b3c93d`. Four signed
+  Android APKs plus the unsigned iOS IPA for SideStore (TestFlight upload skipped; SideStore is the iOS path).
+- **Desktop** `0.1.26-alpha-z1`, code 46, serial 132, tag `0.1.26-alpha-z1+132`, release commit `88afd59a22b4f8e9201e859ab96380b2bec7fffe`.
+  Windows x64 MSI plus macOS arm64 and Intel DMGs (unsigned, not notarized). No Linux packages were shipped.
+- **Mobile `main` advanced after the release commit** through the workflow's automated stable `source.json` update, `55214a4e5`
+  (`chore(store): update source.json for 0.5.4-z1 [skip ci]`). It is not part of the release commit or the tag; do not rewrite it.
+  Desktop `Dev` carries no such follow-up.
+- **Post-release docs** (docs only; no product code, release metadata, tag, artifact or feed touched): the product READMEs, both
+  `Docs/DEVELOPMENT.md` guides, the README screenshots with `CREDITS.md`, desktop `AGENTS.md` pointers and the SideStore iOS-minimum
+  correction landed on top of the release. Every install, release and setup link was checked against the live endpoints. The iOS Setup
+  wizard stays on its own `ios-setup-v*` line (README pins `ios-setup-v1.1.2-beta.1`; bump it when a new setup release ships).
+- The non-blocking debt list in the entry below is unchanged by the release.
+
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
 **Release candidate** (frozen product code; every later commit is docs, debug counters, the What's New reorder, the QA-marker removal and
