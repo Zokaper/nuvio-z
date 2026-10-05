@@ -1,5 +1,7 @@
-//! Stage 0 feasibility spike. Read-only: it never pairs, installs, writes or reveals anything.
-//! Prints one JSON document describing what the computer can learn about an attached iPhone.
+//! nuvioz-device-helper: read-only USB probes for the Nuvio Z iOS Setup assistant.
+//!
+//! `status` prints exactly one JSON line (protocol 1). It never pairs, installs, writes or
+//! reveals anything, and it deliberately omits the device name and full UDID.
 use idevice::{
     afc::AfcClient,
     amfi::AmfiClient,
@@ -11,116 +13,146 @@ use idevice::{
     IdeviceService,
 };
 use serde_json::{json, Value};
+use std::time::Duration;
 
-fn plist_to_json(value: &plist::Value) -> Value {
-    match value {
-        plist::Value::String(s) => json!(s),
-        plist::Value::Boolean(b) => json!(b),
-        plist::Value::Integer(i) => json!(i.as_signed()),
-        _ => json!(format!("{:?}", value)),
+const PROTOCOL: u32 = 1;
+const IDEVICE_VERSION: &str = "0.1.68";
+const PAIRING_FILE: &str = "ALTPairingFile.mobiledevicepairing";
+
+async fn bounded<T>(fut: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    match tokio::time::timeout(Duration::from_secs(15), fut).await {
+        Ok(r) => r,
+        Err(_) => Err("timeout".into()),
     }
 }
 
-async fn probe(label: &str, out: &mut serde_json::Map<String, Value>, fut: impl std::future::Future<Output = Result<Value, String>>) {
-    let started = std::time::Instant::now();
-    let result = match tokio::time::timeout(std::time::Duration::from_secs(15), fut).await {
-        Ok(Ok(v)) => json!({ "ok": true, "value": v }),
-        Ok(Err(e)) => json!({ "ok": false, "error": e }),
-        Err(_) => json!({ "ok": false, "error": "timeout after 15s" }),
-    };
-    let mut result = result;
-    result["ms"] = json!(started.elapsed().as_millis() as u64);
-    out.insert(label.to_string(), result);
+fn err(e: impl std::fmt::Debug) -> String {
+    format!("{e:?}")
 }
 
-#[tokio::main]
-async fn main() {
-    let mut report = serde_json::Map::new();
-    let addr = UsbmuxdAddr::default();
+/// Which of our apps a sideloaded bundle id belongs to. SideStore appends the signing team id.
+fn classify(bundle: &str) -> Option<&'static str> {
+    let lower = bundle.to_lowercase();
+    if lower.starts_with("com.sidestore.sidestore") {
+        Some("sidestore")
+    } else if lower.starts_with("com.jkcoxson.localdevvpn") {
+        Some("localDevVpn")
+    } else if lower.starts_with("com.nuvio.app.z.debug") {
+        Some("nuvioDebug")
+    } else if lower == "com.nuvio.app.z" || lower.starts_with("com.nuvio.app.z.") {
+        Some("nuvioStable")
+    } else {
+        None
+    }
+}
+
+async fn status() -> Value {
+    let mut out = json!({
+        "protocol": PROTOCOL,
+        "helper": env!("CARGO_PKG_VERSION"),
+        "idevice": IDEVICE_VERSION,
+        "usbmuxd": { "reachable": false },
+        "device": null,
+        "errors": {},
+    });
+    let mut errors = serde_json::Map::new();
 
     let mut mux = match UsbmuxdConnection::default().await {
         Ok(m) => m,
         Err(e) => {
-            println!("{}", json!({ "usbmuxd": { "reachable": false, "error": format!("{e:?}") } }));
-            return;
+            errors.insert("usbmuxd".into(), json!(err(e)));
+            out["errors"] = Value::Object(errors);
+            return out;
         }
     };
+    out["usbmuxd"]["reachable"] = json!(true);
     let devices = mux.get_devices().await.unwrap_or_default();
-    report.insert("usbmuxd".into(), json!({ "reachable": true, "devices": devices.iter().map(|d| json!({
-        "udid_prefix": d.udid.chars().take(8).collect::<String>(),
-        "usb": matches!(d.connection_type, Connection::Usb),
-    })).collect::<Vec<_>>() }));
-
+    out["usbmuxd"]["usbDevices"] = json!(devices.iter().filter(|d| matches!(d.connection_type, Connection::Usb)).count());
     let Some(device) = devices.iter().find(|d| matches!(d.connection_type, Connection::Usb)) else {
-        report.insert("note".into(), json!("no USB iPhone attached; device probes skipped"));
-        println!("{}", Value::Object(report));
-        return;
+        out["errors"] = Value::Object(errors);
+        return out;
     };
-    let provider = device.to_provider(addr, "nuvioz-spike");
+    let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-setup");
 
-    // Lockdown without a session: what is visible before / without trust.
-    probe("lockdown_unpaired_values", &mut report, async {
-        let mut lockdown = LockdownClient::connect(&provider).await.map_err(|e| format!("{e:?}"))?;
-        let mut v = serde_json::Map::new();
-        for key in ["DeviceName", "ProductVersion", "ProductType", "PasswordProtected", "HostAttached"] {
-            if let Ok(value) = lockdown.get_value(Some(key), None).await {
-                v.insert(key.into(), plist_to_json(&value));
-            }
+    let mut dev = json!({ "udidPrefix": device.udid.chars().take(8).collect::<String>() });
+
+    // Trust: a pairing record for this host that lockdownd accepts.
+    let trust = bounded(async {
+        let pairing = provider.get_pairing_file().await.map_err(err)?;
+        let mut lockdown = LockdownClient::connect(&provider).await.map_err(err)?;
+        let version = lockdown.get_value(Some("ProductVersion"), None).await.ok()
+            .and_then(|v| v.as_string().map(str::to_string));
+        lockdown.start_session(&pairing).await.map_err(err)?;
+        Ok(version)
+    }).await;
+    match trust {
+        Ok(version) => {
+            dev["trust"] = json!("valid");
+            dev["iosVersion"] = json!(version);
         }
-        Ok(Value::Object(v))
-    }).await;
-
-    probe("pair_record_exists", &mut report, async {
-        provider.get_pairing_file().await.map(|_| json!(true)).map_err(|e| format!("{e:?}"))
-    }).await;
-
-    probe("lockdown_session", &mut report, async {
-        let pairing = provider.get_pairing_file().await.map_err(|e| format!("{e:?}"))?;
-        let mut lockdown = LockdownClient::connect(&provider).await.map_err(|e| format!("{e:?}"))?;
-        lockdown.start_session(&pairing).await.map_err(|e| format!("{e:?}"))?;
-        Ok(json!("session established (trust is valid)"))
-    }).await;
-
-    probe("developer_mode_status", &mut report, async {
-        let mut amfi = AmfiClient::connect(&provider).await.map_err(|e| format!("{e:?}"))?;
-        amfi.get_developer_mode_status().await.map(|b| json!(b)).map_err(|e| format!("{e:?}"))
-    }).await;
-
-    // installation_proxy: which of the interesting apps are present?
-    let mut sidestore_ids: Vec<String> = Vec::new();
-    probe("installed_apps", &mut report, async {
-        let mut proxy = InstallationProxyClient::connect(&provider).await.map_err(|e| format!("{e:?}"))?;
-        let apps = proxy.get_apps(Some("User"), None).await.map_err(|e| format!("{e:?}"))?;
-        let mut interesting = serde_json::Map::new();
-        for (bundle, info) in &apps {
-            let lower = bundle.to_lowercase();
-            if lower.contains("sidestore") || lower.contains("localdevvpn") || lower.starts_with("com.nuvio.app.z") {
-                let version = info.as_dictionary()
-                    .and_then(|d| d.get("CFBundleShortVersionString"))
-                    .and_then(|v| v.as_string()).unwrap_or("?");
-                interesting.insert(bundle.clone(), json!(version));
-            }
-        }
-        Ok(json!({ "user_app_count": apps.len(), "interesting": interesting }))
-    }).await;
-
-    // Re-run the lookup to collect SideStore's real bundle id (it carries the team id suffix).
-    if let Ok(mut proxy) = InstallationProxyClient::connect(&provider).await {
-        if let Ok(apps) = proxy.get_apps(Some("User"), None).await {
-            sidestore_ids = apps.keys().filter(|b| b.to_lowercase().contains("sidestore")).cloned().collect();
+        Err(e) => {
+            dev["trust"] = json!("invalid");
+            errors.insert("trust".into(), json!(e));
         }
     }
 
-    // house_arrest: can we see SideStore's Documents (where the pairing file lives)?
-    for id in sidestore_ids.iter().take(1) {
-        let id = id.clone();
-        probe("sidestore_documents", &mut report, async {
-            let ha = HouseArrestClient::connect(&provider).await.map_err(|e| format!("{e:?}"))?;
-            let mut afc: AfcClient = ha.vend_documents(id).await.map_err(|e| format!("{e:?}"))?;
-            let entries = afc.list_dir("/Documents").await.or(afc.list_dir("/").await).map_err(|e| format!("{e:?}"))?;
-            Ok(json!(entries))
-        }).await;
+    if dev["trust"] == "valid" {
+        match bounded(async {
+            let mut amfi = AmfiClient::connect(&provider).await.map_err(err)?;
+            amfi.get_developer_mode_status().await.map_err(err)
+        }).await {
+            Ok(on) => dev["developerMode"] = json!(on),
+            Err(e) => { dev["developerMode"] = Value::Null; errors.insert("developerMode".into(), json!(e)); }
+        }
+
+        let mut apps = json!({ "sidestore": null, "localDevVpn": null, "nuvioStable": null, "nuvioDebug": null });
+        let mut sidestore_id: Option<String> = None;
+        match bounded(async {
+            let mut proxy = InstallationProxyClient::connect(&provider).await.map_err(err)?;
+            proxy.get_apps(Some("User"), None).await.map_err(err)
+        }).await {
+            Ok(list) => {
+                for (bundle, info) in &list {
+                    if let Some(kind) = classify(bundle) {
+                        let version = info.as_dictionary()
+                            .and_then(|d| d.get("CFBundleShortVersionString"))
+                            .and_then(|v| v.as_string()).unwrap_or("");
+                        apps[kind] = json!({ "bundleId": bundle, "version": version });
+                        if kind == "sidestore" { sidestore_id = Some(bundle.clone()); }
+                    }
+                }
+            }
+            Err(e) => { apps = Value::Null; errors.insert("apps".into(), json!(e)); }
+        }
+        dev["apps"] = apps;
+
+        // SideStore keeps its pairing file in Documents; presence only, never its contents.
+        dev["pairingFile"] = match sidestore_id {
+            None => json!("sidestoreMissing"),
+            Some(id) => match bounded(async {
+                let ha = HouseArrestClient::connect(&provider).await.map_err(err)?;
+                let mut afc: AfcClient = ha.vend_documents(id).await.map_err(err)?;
+                afc.list_dir("/Documents").await.map_err(err)
+            }).await {
+                Ok(entries) => json!(if entries.iter().any(|e| e == PAIRING_FILE) { "present" } else { "absent" }),
+                Err(e) => { errors.insert("pairingFile".into(), json!(e)); json!("unknown") }
+            },
+        };
     }
 
-    println!("{}", serde_json::to_string_pretty(&Value::Object(report)).unwrap());
+    out["device"] = dev;
+    out["errors"] = Value::Object(errors);
+    out
+}
+
+#[tokio::main]
+async fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("status") | None => println!("{}", status().await),
+        Some("--version") => println!("nuvioz-device-helper {} (idevice {IDEVICE_VERSION}, protocol {PROTOCOL})", env!("CARGO_PKG_VERSION")),
+        Some(other) => {
+            eprintln!("unknown command: {other}");
+            std::process::exit(2);
+        }
+    }
 }
