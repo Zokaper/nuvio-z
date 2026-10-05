@@ -13,6 +13,7 @@
   .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.25rem; margin-top:1rem; }
   h1 { font-size:1.4rem; margin:0 0 .25rem; }
   p { color:var(--muted); margin:.5rem 0; }
+  a.button.secondary { background:transparent; color:var(--accent); border:1px solid var(--border); }
   a.button, button { display:block; width:100%; box-sizing:border-box; text-align:center; background:var(--accent); color:#fff; border:0; border-radius:12px; padding:.9rem 1rem; font:inherit; font-weight:600; text-decoration:none; margin-top:.75rem; }
   button.secondary { background:transparent; color:var(--accent); border:1px solid var(--border); }
   code { display:block; word-break:break-all; background:rgba(127,127,127,.12); border-radius:8px; padding:.6rem .7rem; font-size:.8rem; margin-top:.5rem; }
@@ -25,6 +26,7 @@
   <p>This opens SideStore and adds the Nuvio Z source. SideStore and LocalDevVPN must already be set up on this iPhone.</p>
   <div class="card">
     <a class="button" id="open" href="#">Open in SideStore</a>
+    <a class="button secondary" id="addsource" href="#" hidden>Also add the update source</a>
     <button class="secondary" id="copy" type="button">Copy source URL</button>
     <code id="url"></code>
   </div>
@@ -54,6 +56,10 @@
   if (install) {
     // Resolve the newest IPA from the feed at open time, so this one link never goes stale.
     document.getElementById("open").textContent = "Install " + name + " in SideStore";
+    // Installing an IPA directly does not add the feed, so SideStore would never offer updates.
+    var add = document.getElementById("addsource");
+    add.href = "sidestore://source?url=" + encodeURIComponent(source);
+    add.hidden = false;
     fetch(source).then(function (r) { return r.json(); }).then(function (feed) {
       var ipa = feed.apps[0].versions[0].downloadURL;
       link = "sidestore://install?url=" + encodeURIComponent(ipa);
