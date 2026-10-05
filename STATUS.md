@@ -1,6 +1,29 @@
 # Nuvio Z Status
 
-Last updated: 2026-09-28
+Last updated: 2026-10-05
+
+## iOS Setup v2 (in progress, branch `claude/ios-setup-v2`, 2026-10-05)
+
+Branched from `ios-setup-v1.1.2-beta.1`. Not released, not merged. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
+Decisions: staged hybrid (Rust helper for USB probes, iloader kept for Apple sign-in), credentials never
+enter our app, portable ZIPs, **iloader is downloaded at a pinned version with a verified SHA-256 and
+never bundled**.
+
+- **Stage 0 (feasibility gate): passed for detection.** `iosSetup/SPIKE-RESULTS.md` has the table.
+  On a real iPhone (iOS 26.5, Windows) the helper detects USB presence, trust, Developer Mode,
+  LocalDevVPN, SideStore, Nuvio Z/Debug and the pairing file, and AFC writes into SideStore's Documents work
+  (scratch file written, read back, deleted; the real pairing file untouched). Not detectable: developer
+  profile trust, SideStore sign-in/first refresh, source added, LocalDevVPN connected (stay confirmations).
+  Not yet observed: untrusted/locked failure shapes; anything on a Mac.
+- **Stage 1 (done): model only, v1 UI untouched.** `Requirements.kt` (11 requirements in journey order,
+  `evaluate`/`focus`/`reconcile`), `DeviceSnapshot.kt` (parses helper protocol 1), `SetupError.kt`
+  (typed, platform-aware recovery), `SetupProgress.kt` (schema 2 + v1 migration). `:iosSetup:test` 52/52
+  (29 existing + 23 new), clean `--rerun-tasks`.
+- **Helper:** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring` crypto). Commands: `status`
+  (one JSON line, no device name or full UDID), `write-probe`, `--version`. Needs a toolchain
+  (`rustup`; MSVC Build Tools on Windows). Not yet wired into Gradle/CI/the app.
+- **Next:** Stage 2 (Kotlin `DeviceHelper` runner, CI build + packaging, real pairing-file placement after
+  confirming the exact file format iloader writes), Stage 3 (pinned iloader bootstrap), Stage 4 (board UI).
 
 ## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
 
