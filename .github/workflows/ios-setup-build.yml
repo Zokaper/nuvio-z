@@ -39,8 +39,43 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: Test setup state machine
         run: ./gradlew :iosSetup:test --console=plain
-      - name: Build self-contained app image
-        run: ./gradlew :iosSetup:createDistributable --console=plain
+      - name: Build device helper (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: iosSetup/helper
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo build --release --locked
+          ./target/release/nuvioz-device-helper.exe --version
+      - name: Build device helper (macOS universal)
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: iosSetup/helper
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output nuvioz-device-helper \
+            target/aarch64-apple-darwin/release/nuvioz-device-helper \
+            target/x86_64-apple-darwin/release/nuvioz-device-helper
+          # lipo invalidates the linker's ad-hoc signature, and unsigned arm64 binaries are killed on launch.
+          codesign --force --sign - nuvioz-device-helper
+          ./nuvioz-device-helper --version
+      - name: Build self-contained app image (Windows)
+        if: runner.os == 'Windows'
+        run: ./gradlew :iosSetup:createDistributable -PwithHelper --console=plain
+      - name: Build self-contained app image (macOS)
+        if: runner.os == 'macOS'
+        run: ./gradlew :iosSetup:createDistributable -PwithHelper "-PhelperBinary=${{ github.workspace }}/iosSetup/helper/nuvioz-device-helper" --console=plain
+      - name: Verify the device helper is packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          found="$(find iosSetup/build/compose/binaries/main/app -name 'nuvioz-device-helper*' -type f | head -1)"
+          test -n "${found}" || { echo 'device helper missing from the app image'; exit 1; }
+          echo "packaged: ${found}"
       - name: Create Windows portable ZIP
         if: runner.os == 'Windows'
         shell: pwsh

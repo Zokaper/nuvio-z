@@ -10,3 +10,10 @@ idevice = { version = "=0.1.68", default-features = false, features = ["usbmuxd"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 serde_json = "1"
 plist = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -19,6 +19,14 @@ class Diagnostics(private val path: Path = ProgressStore.defaultProgressPath().r
         log("apple_probes registry_or_driver=$registryOrDriver service_installed=$serviceInstalled service_running=$serviceRunning winget_installed=$wingetInstalled")
     fun macDeviceProbes(usbmuxdUsbDevices: Int?, ioreg: Boolean?, systemProfiler: Boolean?) =
         log("mac_device_probes usbmuxd_usb_devices=${usbmuxdUsbDevices ?: "unreachable"} ioreg=${ioreg ?: "skipped"} system_profiler=${systemProfiler ?: "skipped"}")
+    fun helperStatus(status: HelperStatus?, run: HelperRun) = log(
+        "helper_status " + when {
+            status == null -> "unavailable exit=${run.exitCode ?: "none"} timedOut=${run.timedOut}"
+            else -> "usbmuxd=${status.usbmuxdReachable} usb=${status.usbDeviceCount} trust=${status.device?.trust ?: "n/a"} " +
+                "sidestore=${status.device?.sidestore != null} pairing=${status.device?.pairingFile ?: "n/a"} errors=${status.errors}"
+        },
+    )
+    fun pairingPlaced(result: PlacePairingResult) = log("pairing_placed ok=${result.ok} stage=${result.stage ?: "n/a"} detail=${result.detail}")
     fun operation(name: String, result: OperationResult) = log("operation=${name.substringAfterLast('/').substringAfterLast('\\')} success=${result.success} exit=${result.exitCode ?: "n/a"} message=${result.message}")
 
     fun report(currentStep: SetupStep): String {
