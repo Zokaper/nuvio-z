@@ -891,7 +891,8 @@ private fun SocialFriendsContent(
     val watchingByProfile = remember(state.watchingNow) {
         buildMap {
             groupWatchingNowByParty(state.watchingNow).forEach { item ->
-                item.socialPeople().forEach { person -> putIfAbsent(person.profileId, item) }
+                // `putIfAbsent` is JVM-only; this file also compiles for iOS.
+                item.socialPeople().forEach { person -> if (person.profileId !in this) put(person.profileId, item) }
             }
         }
     }
