@@ -1,3 +1,46 @@
+## Social V2 - Stage 1 (shared UI) landed on branches, unmerged (2026-10-05)
+
+The Social redesign is planned and its decisions are recorded in `Nuvio Z/PLAN-social-v2.md` (workspace root). That file holds the
+decision ledger and the stage list. Stage 0 settled the look from rendered candidates the maintainer picked:
+
+- Watching Now: backdrop cards. Tapping one opens a join sheet; long-press or the info dot opens details.
+- Recently watched: 16:9 still rows. No mini portrait posters.
+- Home: one "Friends" shelf.
+- Inbox: a page of cards.
+- Profile: a sheet.
+- Your avatar, name and @handle sit top-left.
+
+**Branches:**
+
+| Repo | Branch | Base | Contents |
+| --- | --- | --- | --- |
+| NuvioZDesktop | `claude/social-v2-design` | `docs/post-release-0.1.26-alpha-z1` | The Stage 0 design harness `SocialV2DesignHarness.kt` (test-only); Stage 1 `7f78f5069` (UI); `cf291d8ad` (nav badge). |
+| nuvio-z | `claude/social-v2` | `docs/post-release-0.5.4-z1` | `518601079`: the same two commits, carried by cherry-pick without the desktop-only harness. The shared files are identical (`diff --strip-trailing-cr`). |
+
+**Stage 1 uses existing RPCs only.** There is no backend change and no deploy.
+
+**Verified:**
+- Desktop `compileKotlinDesktop` passes.
+- Desktop Social and watchparty tests pass, 567/567 on fresh results.
+- `SocialRenderHarness` renders the V2 tab, Friends, Inbox, join sheet and profile at phone sizes, and the dashboard at desktop sizes.
+- Android `:androidApp:compileFullDebugKotlin` exits 0.
+- Mobile `:composeApp:testAndroidHostTest` (Social and watchparty) passes, 563/563 on fresh results.
+- **Not yet:** physical device checks, iOS build.
+
+**Not in Stage 1 (needs Stage 2 backend; see the plan):**
+- the "Sent" requests list
+- per-friend hide and notify toggles
+- the watched-together stat
+- Recommend a title
+- the stored inbox history for accepted, declined and expired events
+- push
+
+**Other open work:**
+- The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
+- The "Show friends on Home" toggle is planned for Stage 3.
+- Strings are still hardcoded English.
+- The old `SocialCards.kt` / `FriendActivityRow.kt` composables are now unused by the screens. `SocialFeedMetricsTest` still references their constants. Remove them together.
+
 ## Stable release shipped - Mobile 0.5.4-z1+127 / Desktop 0.1.26-alpha-z1+132 (2026-10-04)
 
 The first stable Nuvio Z release is live on both repositories, published by the release workflows in `publish` mode (dispatched
