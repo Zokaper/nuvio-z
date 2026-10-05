@@ -245,9 +245,32 @@ async fn reveal_developer_mode() -> Value {
     }
 }
 
+/// `restore-pairing`: undoes the last real `place-pairing` by putting `.previous` back.
+async fn restore_pairing() -> Value {
+    let mut mux = match UsbmuxdConnection::default().await {
+        Ok(m) => m,
+        Err(e) => return json!({ "ok": false, "stage": "usbmuxd", "error": err(e) }),
+    };
+    let devices = mux.get_devices().await.unwrap_or_default();
+    let Some(device) = devices.iter().find(|d| matches!(d.connection_type, Connection::Usb)) else {
+        return json!({ "ok": false, "stage": "device", "error": "no USB device" });
+    };
+    let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-restore-pairing");
+    let sidestore = match bounded(async {
+        let mut proxy = InstallationProxyClient::connect(&provider).await.map_err(err)?;
+        let apps = proxy.get_apps(Some("User"), None).await.map_err(err)?;
+        apps.keys().find(|b| classify(b) == Some("sidestore")).cloned().ok_or_else(|| "SideStore not installed".to_string())
+    }).await {
+        Ok(id) => id,
+        Err(e) => return json!({ "ok": false, "stage": "sidestore", "error": e }),
+    };
+    pairing::restore(&provider, sidestore).await
+}
+
 #[tokio::main]
 async fn main() {
     match std::env::args().nth(1).as_deref() {
+        Some("restore-pairing") => println!("{}", restore_pairing().await),
         Some("reveal-developer-mode") => println!("{}", reveal_developer_mode().await),
         Some("place-pairing") => println!("{}", place_pairing(std::env::args().any(|a| a == "--scratch")).await),
         Some("status") | None => println!("{}", status().await),

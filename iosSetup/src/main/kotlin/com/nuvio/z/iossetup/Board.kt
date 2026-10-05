@@ -337,8 +337,16 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult, 
             }
         }
         Requirement.NUVIO -> {
-            Instructions(listOf("Keep Wi-Fi on and LocalDevVPN connected.", "In SideStore open Browse and select $app, then tap Free or Install.", "If ‘App contains extensions’ appears, choose Keep app extensions (use main profile).", "Wait for the install to finish. This page continues by itself."))
+            Instructions(listOf("Keep Wi-Fi on and LocalDevVPN connected.", "Scan this code with the iPhone Camera and tap the link. SideStore opens and offers to install $app. (Or open SideStore → Browse → $app → Free.)", "If ‘App contains extensions’ appears, choose Keep app extensions (use main profile).", "Wait for the install to finish. This page continues by itself."))
             Spacer(Modifier.height(10.dp))
+            var ipaUrl by remember(channel) { mutableStateOf<String?>(null) }
+            LaunchedEffect(channel) { ipaUrl = withContext(Dispatchers.IO) { SourceLink.fetchLatestIpaUrl(channel) } }
+            val installPayload = when {
+                landingReachable -> SourceLink.installLandingUrl(channel)
+                ipaUrl != null -> SourceLink.installDeepLink(ipaUrl!!)
+                else -> null
+            }
+            if (installPayload != null) { QrBlock(installPayload, "One scan: opens SideStore to install $app."); Spacer(Modifier.height(10.dp)) }
             InfoCallout("Why keep app extensions?", "It preserves the Downloads widget without using another of your three free app slots.")
             Spacer(Modifier.height(12.dp))
             DeviceStatus(session, waitingText = "Waiting for $app to appear on the iPhone")

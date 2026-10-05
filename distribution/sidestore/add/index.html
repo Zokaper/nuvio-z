@@ -45,15 +45,27 @@
   };
   var channel = new URLSearchParams(location.search).get("channel") === "debug" ? "debug" : "stable";
   var source = SOURCES[channel];
+  var install = new URLSearchParams(location.search).get("action") === "install";
   var link = "sidestore://source?url=" + encodeURIComponent(source);
   document.getElementById("open").href = link;
   document.getElementById("url").textContent = source;
-  document.getElementById("title").textContent = channel === "debug" ? "Add Nuvio Z Debug to SideStore" : "Add Nuvio Z to SideStore";
+  var name = channel === "debug" ? "Nuvio Z Debug" : "Nuvio Z";
+  document.getElementById("title").textContent = (install ? "Install " : "Add ") + name + (install ? "" : " to SideStore");
+  if (install) {
+    // Resolve the newest IPA from the feed at open time, so this one link never goes stale.
+    document.getElementById("open").textContent = "Install " + name + " in SideStore";
+    fetch(source).then(function (r) { return r.json(); }).then(function (feed) {
+      var ipa = feed.apps[0].versions[0].downloadURL;
+      link = "sidestore://install?url=" + encodeURIComponent(ipa);
+      document.getElementById("open").href = link;
+      location.href = link;
+    }).catch(function () {});
+  }
   document.getElementById("copy").addEventListener("click", function () {
     var done = function () { document.getElementById("copy").textContent = "Copied"; };
     if (navigator.clipboard) { navigator.clipboard.writeText(source).then(done, function () {}); }
   });
-  setTimeout(function () { location.href = link; }, 400);
+  if (!install) setTimeout(function () { location.href = link; }, 400);
 </script>
 </body>
 </html>

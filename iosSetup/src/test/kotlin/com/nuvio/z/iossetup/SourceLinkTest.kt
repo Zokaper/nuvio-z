@@ -31,6 +31,19 @@ class SourceLinkTest {
         }
     }
 
+    @Test fun latestIpaIsTheFirstVersionOfTheFirstApp() {
+        val feed = """{"apps":[{"versions":[{"version":"2","downloadURL":"https://example.com/new.ipa"},{"version":"1","downloadURL":"https://example.com/old.ipa"}]}]}"""
+        assertEquals("https://example.com/new.ipa", SourceLink.latestIpaUrl(feed))
+        assertEquals(null, SourceLink.latestIpaUrl("""{"apps":[{"versions":[{"downloadURL":"http://insecure/x.ipa"}]}]}"""))
+        assertEquals(null, SourceLink.latestIpaUrl("{}"))
+        assertEquals(null, SourceLink.latestIpaUrl("nope"))
+    }
+
+    @Test fun installLinksCarryTheEncodedIpa() {
+        assertEquals("sidestore://install?url=https%3A%2F%2Fexample.com%2Fa%20b.ipa", SourceLink.installDeepLink("https://example.com/a b.ipa"))
+        assertTrue(SourceLink.installLandingUrl(SetupChannel.STABLE).endsWith("?channel=stable&action=install"))
+    }
+
     @Test fun unreachableHostIsReportedAsNotReachable() {
         assertFalse(SourceLink.isReachable("http://127.0.0.1:1/", timeoutMillis = 300))
     }

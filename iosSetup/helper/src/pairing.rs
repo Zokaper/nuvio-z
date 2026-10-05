@@ -154,3 +154,23 @@ pub async fn place(mux: &mut UsbmuxdConnection, provider: &dyn IdeviceProvider, 
     }
     out
 }
+
+/// Puts back the pairing file that was in place before the last real placement (`.previous`).
+pub async fn restore(provider: &dyn IdeviceProvider, sidestore_id: String) -> Value {
+    let mut afc = match open_documents(provider, sidestore_id).await {
+        Ok(a) => a,
+        Err(e) => return json!({ "ok": false, "stage": "container", "error": e }),
+    };
+    let real = format!("/Documents/{REAL_NAME}");
+    let previous = format!("{real}.previous");
+    match afc.list_dir("/Documents").await {
+        Ok(entries) if entries.iter().any(|e| e == &format!("{REAL_NAME}.previous")) => {}
+        Ok(_) => return json!({ "ok": false, "stage": "previous", "error": "no previous pairing file to restore" }),
+        Err(e) => return json!({ "ok": false, "stage": "list", "error": err(e) }),
+    }
+    let _ = afc.remove(real.clone()).await;
+    match afc.rename(previous, real).await {
+        Ok(()) => json!({ "ok": true }),
+        Err(e) => json!({ "ok": false, "stage": "rename", "error": err(e) }),
+    }
+}

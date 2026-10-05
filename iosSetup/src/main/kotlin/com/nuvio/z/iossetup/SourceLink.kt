@@ -1,5 +1,9 @@
 package com.nuvio.z.iossetup
 
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
@@ -23,6 +27,31 @@ object SourceLink {
      */
     fun qrPayload(channel: SetupChannel, landingReachable: Boolean): String =
         if (landingReachable) landingUrl(channel) else deepLink(channel)
+
+    /** `sidestore://install?url=<ipa>`: SideStore offers to sign and install the app from this IPA. */
+    fun installDeepLink(ipaUrl: String): String =
+        "sidestore://install?url=" + URLEncoder.encode(ipaUrl, StandardCharsets.UTF_8).replace("+", "%20")
+
+    fun installLandingUrl(channel: SetupChannel): String = landingUrl(channel) + "&action=install"
+
+    /** The newest IPA listed in a SideStore source document (versions are newest first), or null. */
+    fun latestIpaUrl(sourceJson: String): String? = runCatching {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(sourceJson).jsonObject
+        root["apps"]?.jsonArray?.firstOrNull()?.jsonObject?.get("versions")?.jsonArray?.firstOrNull()?.jsonObject
+            ?.get("downloadURL")?.jsonPrimitive?.contentOrNull?.takeIf { it.startsWith("https://") }
+    }.getOrNull()
+
+    /** Fetches the live feed for [channel] and returns its newest IPA URL. Null when offline or malformed. */
+    fun fetchLatestIpaUrl(channel: SetupChannel, timeoutMillis: Int = 5_000): String? = runCatching {
+        val connection = URI(channel.sourceUrl).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = timeoutMillis
+            connection.readTimeout = timeoutMillis
+            if (connection.responseCode != 200) null else latestIpaUrl(connection.inputStream.bufferedReader().readText())
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
 
     fun isReachable(url: String, timeoutMillis: Int = 3_000): Boolean = runCatching {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
