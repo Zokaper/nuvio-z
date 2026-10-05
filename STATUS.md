@@ -53,6 +53,18 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
   - the iOS local fallback (Stage 5)
   - the "Show friends on Home" toggle
 
+**Debug builds (dispatched 2026-10-05, pre-authorised debug channel):**
+
+- Mobile Debug 80 (`debug-v0.5.4-z1.80`) from `claude/social-v2`.
+  - The first run (37363488845) failed on iOS: `putIfAbsent` is JVM-only and the shared code compiles for Kotlin/Native.
+  - Fixed in desktop `fix(social): drop JVM-only putIfAbsent`, then carried by cherry-pick.
+  - Re-run 37365418202. Android passed; iOS was still building at hand-off.
+- Desktop debug 86 (`debug-v0.1.26-alpha-z1.86`) from `claude/social-v2-design` (run 37363492962).
+  - Windows passed; macOS was still building.
+  - Built before the putIfAbsent fix, which only affects iOS.
+- **Check both runs before assuming they published.**
+- The backend is not deployed, so the V2-only controls stay hidden in these builds.
+
 **Other open work:**
 - The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
 - The "Show friends on Home" toggle is planned for Stage 3.
