@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "nuvioz-device-helper"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "idevice",
  "plist",
