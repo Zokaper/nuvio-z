@@ -2,6 +2,12 @@ name: Build iOS Setup GUI
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Publish as a prerelease with this tag (for example ios-setup-v2.0.0-beta.1) and refresh the rolling ios-setup-vlatest release. Leave empty to only build.'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - codex/ios-setup-gui-v1
@@ -98,3 +104,70 @@ jobs:
           path: ${{ matrix.archive }}
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish prerelease
+    needs: package
+    if: ${{ inputs.publish_tag != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.publish_tag }}
+      # Fixed tag whose assets are replaced on every release, so a shared download link never changes.
+      # It must stay ios-setup-v*: update-store-source.yml only acts on v* and debug-v* tags, and this is
+      # a prerelease, so GitHub's repo-wide "latest" (the app) is never affected.
+      ALIAS: ios-setup-vlatest
+    steps:
+      - name: Download both ZIPs from this run
+        run: |
+          set -euo pipefail
+          gh run download "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --dir downloaded
+          mkdir -p assets
+          find downloaded -name '*.zip' -type f -exec cp {} assets/ \;
+          ls -la assets
+          test "$(ls assets/*.zip | wc -l)" -eq 2
+      - name: Verify the ZIPs and write checksums
+        run: |
+          set -euo pipefail
+          cd assets
+          for z in *.zip; do
+            unzip -tq "${z}"
+            unzip -l "${z}" | grep -q 'nuvioz-device-helper' || { echo "device helper missing from ${z}"; exit 1; }
+          done
+          sha256sum *.zip | tee SHA256SUMS.txt
+      - name: Publish the versioned prerelease
+        run: |
+          set -euo pipefail
+          version="${TAG#ios-setup-v}"
+          cat > notes.md <<NOTES
+          Nuvio Z iOS Setup ${version}. Installer-only prerelease: it carries no app IPA and does not touch either SideStore feed.
+
+          A live checklist replaces the old step-by-step wizard. The assistant detects the iPhone, trust, Developer Mode, LocalDevVPN, SideStore, Nuvio Z and the pairing file by itself, places SideStore's pairing file for you, downloads a pinned and checksum-verified iloader (never bundled), and shows a scan-to-add QR for the Nuvio Z source.
+
+          Still done by you: Apple sign-in in iloader, trusting the developer profile, allowing SideStore notifications, SideStore's first refresh, and adding the source.
+
+          Windows x64 and macOS ZIPs are unsigned. On Windows choose More info, then Run anyway. On macOS use System Settings, Privacy and Security, Open Anyway. Mac support is untested on real hardware.
+
+          Always-current download links: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${ALIAS}
+
+          SHA-256:
+          $(sed 's/^/    /' assets/SHA256SUMS.txt)
+          NOTES
+          gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --prerelease --latest=false --title "Nuvio Z iOS Setup ${version}" --notes-file notes.md \
+            assets/*.zip assets/SHA256SUMS.txt
+      - name: Refresh the rolling latest release
+        run: |
+          set -euo pipefail
+          version="${TAG#ios-setup-v}"
+          printf 'The newest Nuvio Z iOS Setup assistant (%s). These file names never change, so links to them stay valid after every release.\n\nVersioned releases are kept for history and rollback: https://github.com/%s/releases?q=ios-setup\n' "${version}" "${GITHUB_REPOSITORY}" > alias-notes.md
+          if gh release view "${ALIAS}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --prerelease --latest=false \
+              --title "Nuvio Z iOS Setup (latest: ${version})" --notes-file alias-notes.md
+          else
+            gh release create "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+              --prerelease --latest=false --title "Nuvio Z iOS Setup (latest: ${version})" --notes-file alias-notes.md
+          fi
+          gh release upload "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --clobber assets/*.zip assets/SHA256SUMS.txt
