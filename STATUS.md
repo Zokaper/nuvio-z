@@ -9,7 +9,7 @@ Decisions (maintainer): staged hybrid (Rust helper for USB probes and pairing; i
 SideStore install), Apple credentials never enter our app, portable ZIPs, **iloader is downloaded at a pinned version with
 a verified SHA-256 and never bundled**.
 
-**What it is now.** The 14-page wizard is replaced by a live checklist of 11 requirements beside one focus card
+**What it is now.** The 14-page wizard is replaced by a live checklist of 12 requirements beside one focus card
 (`Board.kt`). `Requirements.evaluate` derives progress from what the computer can see; `SetupSession.tick` (every ~3 s)
 checks the computer once, fetches iloader once, probes the phone, places a missing pairing file once, reveals the
 Developer Mode switch once, drops stale human answers, and completes. Without the helper (or in manual mode) every phone
@@ -18,7 +18,9 @@ step falls back to the user's confirmation.
 - **Stage 0 gate (passed):** `iosSetup/SPIKE-RESULTS.md`. Real iPhone, iOS 26.5, Windows: USB, trust, Developer Mode,
   LocalDevVPN, SideStore, Nuvio Z/Debug and pairing-file presence are all detectable. Not detectable (stay
   confirmations): developer-profile trust (`trust_app_signer` deliberately not used: it is the user's decision),
-  SideStore sign-in/first refresh, source added, LocalDevVPN connected.
+  SideStore notification permission, SideStore sign-in/first refresh, source added, LocalDevVPN connected. The notification step
+  exists because SideStore fails to refresh with "Repository could not save notification" when the permission was denied
+  (SideStore issue #1421, seen on a friend's iOS 27 phone; the maintainer's fix is to allow notifications).
 - **Helper** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring`, static CRT on Windows, 1.9 MB release). Commands:
   `status` (one JSON line, protocol 1, no device name or full UDID), `place-pairing [--scratch]`, `reveal-developer-mode`,
   `write-probe`, `--version`. `place-pairing` builds iloader 2.3.5's file (lockdown record + rppairing on iOS 17.4+ +

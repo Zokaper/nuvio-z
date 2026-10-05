@@ -160,6 +160,7 @@ private fun focusTitle(requirement: Requirement, channel: SetupChannel) = when (
     Requirement.PAIRING -> "Securing the connection"
     Requirement.DEVELOPER_MODE -> "Turn on Developer Mode"
     Requirement.PROFILE_TRUST -> "Trust the developer profile"
+    Requirement.NOTIFICATIONS -> "Allow SideStore notifications"
     Requirement.SIDESTORE_READY -> "Sign in to SideStore"
     Requirement.SOURCE_ADDED -> "Add ${channel.appName} to SideStore"
     Requirement.NUVIO -> "Install ${channel.appName}"
@@ -174,6 +175,7 @@ private fun focusPurpose(requirement: Requirement, channel: SetupChannel) = when
     Requirement.PAIRING -> "We’re giving SideStore the small pairing file it needs to refresh apps without a cable. This is automatic."
     Requirement.DEVELOPER_MODE -> "iOS needs Developer Mode on before it will run apps installed this way."
     Requirement.PROFILE_TRUST -> "Because SideStore was signed with your own Apple Account, iOS asks you to trust that account once."
+    Requirement.NOTIFICATIONS -> "SideStore can’t refresh itself or your apps unless iOS lets it send notifications. Skipping this causes ‘Repository could not save notification’."
     Requirement.SIDESTORE_READY -> "A first refresh proves SideStore, LocalDevVPN, your Apple sign-in and the pairing file all work together."
     Requirement.SOURCE_ADDED -> "A SideStore source is just a catalog address. Adding ours makes ${channel.appName} appear in SideStore."
     Requirement.NUVIO -> "SideStore can now download, sign and install ${channel.appName}. We’ll notice when it appears."
@@ -317,8 +319,17 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult) 
         Requirement.PROFILE_TRUST -> {
             Instructions(listOf("On the iPhone open Settings → General → VPN & Device Management.", "Under Developer App, select the profile named after your Apple Account.", "Tap Trust and confirm. If iOS says Allow & Restart, accept it."))
         }
+        Requirement.NOTIFICATIONS -> {
+            Instructions(listOf(
+                "On the iPhone open Settings → Notifications → SideStore.",
+                "Turn on Allow Notifications.",
+                "If SideStore isn’t in the list yet, open SideStore once and tap Allow when iOS asks, then check Settings again.",
+            ))
+            Spacer(Modifier.height(10.dp))
+            WarningCallout("Don’t skip this", "Without it SideStore fails to refresh with ‘Failed to refresh SideStore: Repository could not save notification’. It is a known SideStore requirement, seen on iOS 27.")
+        }
         Requirement.SIDESTORE_READY -> {
-            Instructions(listOf("Open LocalDevVPN, make sure Wi-Fi is on, and tap Connect.", "Open SideStore and sign in with the same Apple Account you used in the installer.", "Go to My Apps and tap the 7 DAYS counter beside SideStore.", "Accept any certificate prompts, then wait for the success message."))
+            Instructions(listOf("Open LocalDevVPN, make sure Wi-Fi is on, and tap Connect.", "Open SideStore and sign in with the same Apple Account you used in the installer. If iOS asks whether SideStore may send notifications, tap Allow: refreshing fails without it.", "Go to My Apps and tap the 7 DAYS counter beside SideStore.", "Accept any certificate prompts, then wait for the success message."))
         }
         Requirement.SOURCE_ADDED -> {
             Instructions(listOf(

@@ -122,6 +122,13 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState(), isMac: Boolea
             purpose = "The first refresh proves that SideStore, LocalDevVPN, your Apple sign-in, and the pairing record all work together.",
             success = "SideStore refreshes itself and returns without a pairing or Developer Portal error.",
             troubleshooting = listOf(
+                TroubleTip(
+                    "‘Failed to refresh SideStore: Repository could not save notification’ (or ‘Source is not authorized’)",
+                    listOf(
+                        "SideStore needs permission to send notifications. If it was denied earlier, turn it back on: iPhone Settings → Notifications → SideStore → Allow Notifications.",
+                        "Then reopen SideStore and refresh again. This is a known SideStore requirement, reported on iOS 27, and the permission fixes it.",
+                    ),
+                ),
                 TroubleTip("LocalDevVPN is not connected", listOf("Leave SideStore, connect LocalDevVPN, confirm Wi-Fi is on, then retry the refresh.")),
                 TroubleTip("SideStore asks to replace pairing or use iloader", listOf("Choose Repair SideStore pairing below.", "Reconnect USB and place a fresh pairing record with iloader.")),
                 TroubleTip("Refresh or signing fails", listOf("Confirm you used the same Apple Account in SideStore and iloader.", "Accept certificate prompts such as Revoke or Refresh Now.", "Wait a minute and retry with LocalDevVPN connected.")),

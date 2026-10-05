@@ -18,7 +18,7 @@ class BoardRenderHarness {
     private val ready = javaClass.getResource("/helper-status-ready.json")!!.readText().trim()
     private val noDevice = """{"protocol":1,"helper":"0.1.0","idevice":"0.1.68","usbmuxd":{"reachable":true,"usbDevices":0},"device":null,"errors":{}}"""
     private val out: Path = Path.of("build", "render").also { Files.createDirectories(it) }
-    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
 
     private fun helper(status: String, pairOk: Boolean = true) = DeviceHelper(Path.of("helper.exe"), runner = { args, _ ->
         when (args[1]) {
@@ -57,7 +57,8 @@ class BoardRenderHarness {
         session(helper(ready.replace("\"pairingFile\":\"present\"", "\"pairingFile\":\"absent\""), pairOk = false), debug).also { it.tick(); render("06-pairing-failed", it) }
         session(helper(ready.replace("\"developerMode\":true", "\"developerMode\":false")), debug).also { it.tick(); render("07-developer-mode", it) }
         session(helper(ready), debug).also { it.tick(); render("08-profile-trust", it); render("08-profile-trust", it, 1440, 900) }
-        session(helper(ready), debug).also { it.tick(); it.confirm(Requirement.PROFILE_TRUST); it.confirm(Requirement.SIDESTORE_READY); render("09-source-added", it); render("09-source-added", it, 1440, 900) }
+        session(helper(ready), debug).also { it.tick(); it.confirm(Requirement.PROFILE_TRUST); render("08b-notifications", it) }
+        session(helper(ready), debug).also { it.tick(); it.confirm(Requirement.PROFILE_TRUST); it.confirm(Requirement.NOTIFICATIONS); it.confirm(Requirement.SIDESTORE_READY); render("09-source-added", it); render("09-source-added", it, 1440, 900) }
         session(helper(ready), SetupProgress()).also { it.tick(); humanSteps.forEach { s -> it.confirm(s) }; render("10-install-nuvio", it) }
         session(helper(ready), debug).also { it.tick(); humanSteps.forEach { s -> it.confirm(s) }; it.tick(); render("11-complete", it); render("11-complete", it, 1440, 900) }
         session(null, SetupProgress(manualMode = true)).also { it.tick(); render("12-manual-mode", it) }

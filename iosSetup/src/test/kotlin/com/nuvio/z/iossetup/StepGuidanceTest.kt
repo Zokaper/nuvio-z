@@ -5,6 +5,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class StepGuidanceTest {
+    @Test fun firstRefreshHelpNamesTheNotificationPermissionFailure() {
+        val tips = guidanceFor(SetupStep.SIDESTORE_PRIME).troubleshooting
+        val tip = tips.first()
+        kotlin.test.assertTrue(tip.problem.contains("could not save notification"))
+        kotlin.test.assertTrue(tip.recovery.any { it.contains("Settings → Notifications → SideStore") })
+    }
+
     @Test fun everyStepHasPurposeSuccessVisualAndTroubleshootingWhereNeeded() {
         SetupStep.entries.forEach { step ->
             val guide = guidanceFor(step)

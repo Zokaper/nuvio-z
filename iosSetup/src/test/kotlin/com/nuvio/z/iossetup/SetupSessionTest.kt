@@ -12,7 +12,7 @@ class SetupSessionTest {
     private val ready = javaClass.getResource("/helper-status-ready.json")!!.readText().trim()
     /** The fixture phone has Nuvio Z Debug installed, so a finishing run uses the Developer channel. */
     private val debugRun = SetupProgress(channel = SetupChannel.DEVELOPER, developerWarningAccepted = true)
-    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
 
     /** A scripted helper: [status] is mutable so a test can move the phone through states. */
     private inner class Script(var status: String = ready, var pairOk: Boolean = true) {
@@ -135,7 +135,7 @@ class SetupSessionTest {
         val resumed = session(Script(), store = store, initial = store.loadProgress()!!)
         resumed.tick()
         assertEquals(RequirementStatus.SATISFIED, resumed.status(Requirement.PROFILE_TRUST))
-        assertEquals(Requirement.SIDESTORE_READY, resumed.focus?.requirement)
+        assertEquals(Requirement.NOTIFICATIONS, resumed.focus?.requirement)
     }
 
     @Test fun deletedSideStoreInvalidatesTheHumanAnswers() {

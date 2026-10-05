@@ -13,7 +13,7 @@ fun Requirement.legacyStep(): SetupStep = when (this) {
     Requirement.PAIRING -> SetupStep.PAIRING
     Requirement.DEVELOPER_MODE -> SetupStep.DEVELOPER_MODE
     Requirement.PROFILE_TRUST -> SetupStep.TRUST_PROFILE
-    Requirement.SIDESTORE_READY -> SetupStep.SIDESTORE_PRIME
+    Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY -> SetupStep.SIDESTORE_PRIME
     Requirement.SOURCE_ADDED -> SetupStep.ADD_SOURCE
     Requirement.NUVIO -> SetupStep.INSTALL_NUVIO
 }
@@ -36,6 +36,7 @@ fun confirmationTextFor(requirement: Requirement, channel: SetupChannel): String
     Requirement.PAIRING -> "iloader showed ‘Pairing file placed successfully!’"
     Requirement.DEVELOPER_MODE -> "Developer Mode is on after the restart"
     Requirement.PROFILE_TRUST -> "I trusted the developer profile"
+    Requirement.NOTIFICATIONS -> "I turned on Allow Notifications for SideStore"
     Requirement.SIDESTORE_READY -> "SideStore signed in and completed its first refresh"
     Requirement.SOURCE_ADDED -> "I see the ${channel.appName} source in SideStore"
     Requirement.NUVIO -> "I see ${channel.appName} on my Home Screen"

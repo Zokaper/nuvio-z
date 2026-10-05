@@ -11,7 +11,7 @@ class RequirementsTest {
     private val goodComputer = ComputerCheck(
         CheckResult("os", CheckState.PASS), CheckResult("net", CheckState.PASS), CheckResult("apple", CheckState.PASS), null,
     )
-    private val humanSteps = setOf(Requirement.PROFILE_TRUST, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = setOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
 
     /** A real `nuvioz-device-helper status` line from a fully set-up iPhone (team id masked). */
     private fun readyLine() = javaClass.getResource("/helper-status-ready.json")!!.readText()
@@ -39,7 +39,7 @@ class RequirementsTest {
         assertTrue(device.appsKnown)
     }
 
-    @Test fun fullySetUpPhoneNeedsOnlyTheThreeHumanAnswers() {
+    @Test fun fullySetUpPhoneNeedsOnlyTheHumanAnswers() {
         val results = evaluate(ready())
         assertEquals(humanSteps.toList(), results.filter { !it.done }.map { it.requirement })
         assertEquals(RequirementStatus.SATISFIED, results.status(Requirement.NUVIO))
@@ -141,7 +141,7 @@ class RequirementsTest {
         assertEquals(
             listOf(
                 "COMPUTER", "DEVICE", "TRUST", "LOOPBACK_APP", "SIDESTORE", "PAIRING",
-                "DEVELOPER_MODE", "PROFILE_TRUST", "SIDESTORE_READY", "SOURCE_ADDED", "NUVIO",
+                "DEVELOPER_MODE", "PROFILE_TRUST", "NOTIFICATIONS", "SIDESTORE_READY", "SOURCE_ADDED", "NUVIO",
             ),
             Requirement.entries.map { it.name },
         )

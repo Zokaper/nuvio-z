@@ -16,6 +16,8 @@ enum class Requirement(val title: String, val phase: SetupPhase, val manualOnly:
     PAIRING("Pairing file placed", SetupPhase.SET_UP_SIDESTORE),
     DEVELOPER_MODE("Developer Mode on", SetupPhase.SET_UP_SIDESTORE),
     PROFILE_TRUST("Developer profile trusted", SetupPhase.SET_UP_SIDESTORE, manualOnly = true),
+    /** SideStore cannot refresh without notification permission ("Repository could not save notification"). */
+    NOTIFICATIONS("SideStore notifications allowed", SetupPhase.SET_UP_SIDESTORE, manualOnly = true),
     SIDESTORE_READY("SideStore signed in and refreshed", SetupPhase.SET_UP_SIDESTORE, manualOnly = true),
     SOURCE_ADDED("Nuvio Z source added", SetupPhase.INSTALL_NUVIO, manualOnly = true),
     NUVIO("Nuvio Z installed", SetupPhase.INSTALL_NUVIO),
@@ -123,7 +125,7 @@ object Requirements {
 
         // Nothing here can be probed: the user's word is the only evidence, and only once SideStore exists.
         val sideStoreReady = results.first { it.requirement == Requirement.SIDESTORE }.done
-        for (manual in listOf(Requirement.PROFILE_TRUST, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)) {
+        for (manual in listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)) {
             add(manual, if (sideStoreReady) RequirementStatus.UNKNOWN else RequirementStatus.BLOCKED)
         }
 

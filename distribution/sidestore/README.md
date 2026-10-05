@@ -17,8 +17,9 @@ next, and it advances by itself:
 - **Pairing:** the assistant builds and places SideStore's pairing file itself (the same lockdown plus
   remote-pairing record iloader writes), keeping the previous file as `.previous`. Repair re-places it.
 - **Still yours:** Apple sign-in and 2FA (inside iloader and Apple only, never this app), trusting the
-  developer profile, SideStore's first sign-in and refresh, and adding the source. These stay
-  confirmations because nothing on the computer can see them.
+  developer profile, **allowing SideStore notifications** (without it SideStore fails with "Repository could
+  not save notification", seen on iOS 27), SideStore's first sign-in and refresh, and adding the source.
+  These stay confirmations because nothing on the computer can see them.
 - **Source QR (main path):** the assistant shows a QR that encodes `sidestore://source?url=…` directly, so
   the iPhone Camera hands it to SideStore, which asks to add the source. Verified on a physical iPhone
   (iOS 26.5). It is never an https link: a plain feed URL opens Safari showing raw JSON text, and tests
