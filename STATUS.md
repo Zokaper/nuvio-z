@@ -32,8 +32,11 @@ step falls back to the user's confirmation.
   uninstalls only what it installed (also removes the Start Menu shortcut). Apple's driver installer is verified by Authenticode
   publisher and size (its URL rotates). Live Windows round trip passed: 6,040,468 bytes, install, find, uninstall, no leftovers.
   The v1 code path no longer uses the unpinned `releases/latest`.
-- **QR:** `distribution/sidestore/add/index.html` + `sidestore-landing.yml`. **One-time repo setting needed:** Settings -> Pages
-  -> Source "GitHub Actions". Until then the app detects the page is not live and QR-encodes the raw `sidestore://` link.
+- **QR (main path for adding the source):** `sidestore://source?url=…`, verified on the physical iPhone (scan -> SideStore asks to
+  add the source). It is never an https/web link (that opens Safari showing raw JSON); `SourceLinkTest` forbids it. A collapsed
+  manual option (copy URL) is the fallback. A second QR (`sidestore://install?url=<newest IPA>`) is a shortcut that installs the
+  IPA directly **without** adding the source, so SideStore has no feed to offer updates from; the Nuvio Z step recommends
+  Browse -> Nuvio Z instead. The https landing page / Pages workflow was removed: it was unverified and unnecessary.
 - **Packaging/CI:** `-PwithHelper` (cargo build) or `-PhelperBinary=<path>` stages the helper as an app resource;
   `ios-setup-build.yml` builds it (Windows; macOS universal via lipo, re-signed ad hoc) and fails if it is not in the app image.
   JDK note: Android Studio's JBR has no `jpackage`; use Temurin 21 for `createDistributable`.

@@ -19,9 +19,12 @@ next, and it advances by itself:
 - **Still yours:** Apple sign-in and 2FA (inside iloader and Apple only, never this app), trusting the
   developer profile, SideStore's first sign-in and refresh, and adding the source. These stay
   confirmations because nothing on the computer can see them.
-- **Source QR:** an https landing page (`distribution/sidestore/add/`, published by
-  `sidestore-landing.yml`) so the iPhone camera opens SideStore; the assistant falls back to the raw
-  `sidestore://` link until that page is live.
+- **Source QR (main path):** the assistant shows a QR that encodes `sidestore://source?url=…` directly, so
+  the iPhone Camera hands it to SideStore, which asks to add the source. Verified on a physical iPhone
+  (iOS 26.5). It is never an https link: a plain feed URL opens Safari showing raw JSON text, and tests
+  forbid that. A collapsed manual option (copy URL, Sources -> +) covers a Camera that does not open it.
+  A second QR installs the newest IPA directly as a shortcut; it skips the source, so the recommended
+  install is Browse -> Nuvio Z after the source is added.
 - **Resume and manual mode:** state is re-derived from the phone on every launch; only your confirmations
   are saved. Advanced settings has a manual mode that ignores the device checker entirely.
 

@@ -33,9 +33,9 @@ class BoardRenderHarness {
 
     private val debug = SetupProgress(channel = SetupChannel.DEVELOPER, developerWarningAccepted = true)
 
-    private fun render(name: String, session: SetupSession, width: Int = 1120, height: Int = 720, landing: Boolean = true) {
+    private fun render(name: String, session: SetupSession, width: Int = 1120, height: Int = 720) {
         val scene = ImageComposeScene(width, height, Density(1f)) {
-            NuvioTheme { SetupLayout(session, landing, onDiagnostics = {}, onAdvanced = {}) }
+            NuvioTheme { SetupLayout(session, onDiagnostics = {}, onAdvanced = {}) }
         }
         try {
             scene.render(0)
@@ -57,7 +57,7 @@ class BoardRenderHarness {
         session(helper(ready.replace("\"pairingFile\":\"present\"", "\"pairingFile\":\"absent\""), pairOk = false), debug).also { it.tick(); render("06-pairing-failed", it) }
         session(helper(ready.replace("\"developerMode\":true", "\"developerMode\":false")), debug).also { it.tick(); render("07-developer-mode", it) }
         session(helper(ready), debug).also { it.tick(); render("08-profile-trust", it); render("08-profile-trust", it, 1440, 900) }
-        session(helper(ready), debug).also { it.tick(); it.confirm(Requirement.PROFILE_TRUST); it.confirm(Requirement.SIDESTORE_READY); render("09-source-added", it); render("09-source-added", it, landing = false, width = 1120, height = 720) }
+        session(helper(ready), debug).also { it.tick(); it.confirm(Requirement.PROFILE_TRUST); it.confirm(Requirement.SIDESTORE_READY); render("09-source-added", it); render("09-source-added", it, 1440, 900) }
         session(helper(ready), SetupProgress()).also { it.tick(); humanSteps.forEach { s -> it.confirm(s) }; render("10-install-nuvio", it) }
         session(helper(ready), debug).also { it.tick(); humanSteps.forEach { s -> it.confirm(s) }; it.tick(); render("11-complete", it); render("11-complete", it, 1440, 900) }
         session(null, SetupProgress(manualMode = true)).also { it.tick(); render("12-manual-mode", it) }

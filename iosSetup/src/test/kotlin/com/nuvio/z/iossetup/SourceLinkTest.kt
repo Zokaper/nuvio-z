@@ -4,8 +4,6 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource
 import com.google.zxing.common.HybridBinarizer
-import java.nio.file.Files
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,15 +15,28 @@ class SourceLinkTest {
         assertEquals(SetupState(channel = SetupChannel.DEVELOPER).sourceDeepLink, SourceLink.deepLink(SetupChannel.DEVELOPER))
     }
 
-    @Test fun qrUsesTheLandingPageOnlyWhenItIsLive() {
-        assertTrue(SourceLink.qrPayload(SetupChannel.STABLE, landingReachable = true).startsWith("https://"))
-        assertTrue(SourceLink.qrPayload(SetupChannel.STABLE, landingReachable = false).startsWith("sidestore://source?url="))
-        assertTrue(SourceLink.landingUrl(SetupChannel.DEVELOPER).endsWith("?channel=debug"))
-        assertTrue(SourceLink.landingUrl(SetupChannel.STABLE).endsWith("?channel=stable"))
+    @Test fun sourceQrIsAlwaysTheSideStoreDeepLinkNeverAWebAddress() {
+        for (channel in SetupChannel.entries) {
+            val payload = SourceLink.sourceQr(channel)
+            assertTrue(SourceLink.opensSideStore(payload), payload)
+            assertTrue(payload.startsWith("sidestore://source?url="))
+            // The bug this guards: a QR that is just the feed URL opens Safari showing raw JSON text.
+            assertFalse(payload.startsWith("http"), "must not be a web address")
+            assertTrue(payload != channel.sourceUrl)
+            assertFalse(payload.substringAfter("sidestore://").contains("://"), "the feed URL must stay percent-encoded")
+        }
+    }
+
+    @Test fun webAddressesAreNeverTreatedAsSideStorePayloads() {
+        assertFalse(SourceLink.opensSideStore(STABLE_SOURCE_URL))
+        assertFalse(SourceLink.opensSideStore(DEVELOPER_SOURCE_URL))
+        assertFalse(SourceLink.opensSideStore("https://example.com/sidestore://source?url=x"))
+        assertFalse(SourceLink.opensSideStore("sidestore://source?url=http://insecure"))
+        assertTrue(SourceLink.opensSideStore(SourceLink.installDeepLink("https://example.com/a.ipa")))
     }
 
     @Test fun qrDecodesToExactlyThePayload() {
-        for (payload in listOf(SourceLink.landingUrl(SetupChannel.STABLE), SourceLink.deepLink(SetupChannel.DEVELOPER))) {
+        for (payload in listOf(SourceLink.sourceQr(SetupChannel.STABLE), SourceLink.sourceQr(SetupChannel.DEVELOPER), SourceLink.installDeepLink("https://example.com/a.ipa"))) {
             val bitmap = BinaryBitmap(HybridBinarizer(BufferedImageLuminanceSource(QrCode.buffered(payload))))
             assertEquals(payload, MultiFormatReader().decode(bitmap).text)
         }
@@ -41,20 +52,5 @@ class SourceLinkTest {
 
     @Test fun installLinksCarryTheEncodedIpa() {
         assertEquals("sidestore://install?url=https%3A%2F%2Fexample.com%2Fa%20b.ipa", SourceLink.installDeepLink("https://example.com/a b.ipa"))
-        assertTrue(SourceLink.installLandingUrl(SetupChannel.STABLE).endsWith("?channel=stable&action=install"))
-    }
-
-    @Test fun unreachableHostIsReportedAsNotReachable() {
-        assertFalse(SourceLink.isReachable("http://127.0.0.1:1/", timeoutMillis = 300))
-    }
-
-    @Test fun landingPageCarriesTheSameSourceUrlsAsTheApp() {
-        val page = generateSequence(Path.of(System.getProperty("user.dir")).toAbsolutePath()) { it.parent }
-            .map { it.resolve("distribution/sidestore/add/index.html") }.firstOrNull(Files::isRegularFile) ?: return
-        val html = Files.readString(page)
-        assertTrue(html.contains(STABLE_SOURCE_URL), "landing page stable source drifted from SetupChannel")
-        assertTrue(html.contains(DEVELOPER_SOURCE_URL), "landing page debug source drifted from SetupChannel")
-        assertTrue(html.contains("sidestore://source?url="))
-        assertFalse(html.contains("http://"), "no insecure URLs")
     }
 }

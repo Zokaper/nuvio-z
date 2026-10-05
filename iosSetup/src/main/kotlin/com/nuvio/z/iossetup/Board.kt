@@ -26,10 +26,8 @@ internal fun SetupApp(session: SetupSession, developerFlag: Boolean) {
     val scope = rememberCoroutineScope()
     var showAdvanced by remember { mutableStateOf(developerFlag) }
     var showDiagnostics by remember { mutableStateOf(false) }
-    var landingReachable by remember { mutableStateOf(false) }
 
     LaunchedEffect(developerFlag) { if (developerFlag) session.setChannel(SetupChannel.DEVELOPER, warningAccepted = true) }
-    LaunchedEffect(Unit) { landingReachable = withContext(Dispatchers.IO) { SourceLink.isReachable(SourceLink.LANDING_BASE) } }
     LaunchedEffect(Unit) {
         while (isActive) {
             withContext(Dispatchers.IO) { runCatching { session.tick() } }
@@ -37,7 +35,7 @@ internal fun SetupApp(session: SetupSession, developerFlag: Boolean) {
         }
     }
 
-    SetupLayout(session, landingReachable, onDiagnostics = { showDiagnostics = true }, onAdvanced = { showAdvanced = true })
+    SetupLayout(session, onDiagnostics = { showDiagnostics = true }, onAdvanced = { showAdvanced = true })
 
     if (showAdvanced) AdvancedDialog(session, { showAdvanced = false }) { showAdvanced = false }
     if (showDiagnostics) DiagnosticsDialog(session.diagnostics.report(session.focus?.requirement?.name ?: "complete")) { showDiagnostics = false }
@@ -45,7 +43,7 @@ internal fun SetupApp(session: SetupSession, developerFlag: Boolean) {
 
 /** The whole window minus dialogs and the polling loop, so it can be rendered on its own. */
 @Composable
-internal fun SetupLayout(session: SetupSession, landingReachable: Boolean, onDiagnostics: () -> Unit, onAdvanced: () -> Unit) {
+internal fun SetupLayout(session: SetupSession, onDiagnostics: () -> Unit, onAdvanced: () -> Unit) {
     val progress = session.progress
     val completed = progress.setupCompleted && !progress.repairMode
     Row(Modifier.fillMaxSize().background(AppBackground)) {
@@ -56,7 +54,7 @@ internal fun SetupLayout(session: SetupSession, landingReachable: Boolean, onDia
                 TextButton(onClick = onAdvanced) { Text("Advanced settings") }
             }
             if (completed) CompletedPage(session, Modifier.weight(1f).fillMaxWidth())
-            else Board(session, landingReachable, Modifier.weight(1f).fillMaxWidth())
+            else Board(session, Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
@@ -96,11 +94,11 @@ private fun ProgressRail(session: SetupSession, modifier: Modifier) {
 // ---- board -----------------------------------------------------------------------------------------
 
 @Composable
-private fun Board(session: SetupSession, landingReachable: Boolean, modifier: Modifier) {
+private fun Board(session: SetupSession, modifier: Modifier) {
     Row(modifier) {
         Checklist(session, Modifier.width(290.dp).fillMaxHeight())
         Spacer(Modifier.width(28.dp))
-        FocusPane(session, landingReachable, Modifier.weight(1f).fillMaxHeight())
+        FocusPane(session, Modifier.weight(1f).fillMaxHeight())
     }
 }
 
@@ -182,7 +180,7 @@ private fun focusPurpose(requirement: Requirement, channel: SetupChannel) = when
 }
 
 @Composable
-private fun FocusPane(session: SetupSession, landingReachable: Boolean, modifier: Modifier) {
+private fun FocusPane(session: SetupSession, modifier: Modifier) {
     val progress = session.progress
     val focus = session.focus
     Box(modifier) {
@@ -204,7 +202,7 @@ private fun FocusPane(session: SetupSession, landingReachable: Boolean, modifier
                 Column(Modifier.padding(22.dp)) {
                     SectionLabel(if (requirement.manualOnly || !session.helper.available || progress.manualMode) "WHAT TO DO" else "WHAT TO DO · WE’LL DETECT IT")
                     Spacer(Modifier.height(12.dp))
-                    RequirementContent(session, focus, landingReachable)
+                    RequirementContent(session, focus)
                     session.busyLabel?.let { Spacer(Modifier.height(14.dp)); WorkingBanner(it) }
                     session.lastOperation?.takeIf { !it.success }?.let { Spacer(Modifier.height(12.dp)); ResultBanner(it) }
                     if (focus.status == RequirementStatus.UNKNOWN && !(requirement == Requirement.COMPUTER && session.computer == null)) {
@@ -222,7 +220,7 @@ private fun FocusPane(session: SetupSession, landingReachable: Boolean, modifier
 }
 
 @Composable
-private fun RequirementContent(session: SetupSession, focus: RequirementResult, landingReachable: Boolean) {
+private fun RequirementContent(session: SetupSession, focus: RequirementResult) {
     val scope = rememberCoroutineScope()
     val channel = session.progress.channel
     val app = channel.appName
@@ -323,29 +321,22 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult, 
             Instructions(listOf("Open LocalDevVPN, make sure Wi-Fi is on, and tap Connect.", "Open SideStore and sign in with the same Apple Account you used in the installer.", "Go to My Apps and tap the 7 DAYS counter beside SideStore.", "Accept any certificate prompts, then wait for the success message."))
         }
         Requirement.SOURCE_ADDED -> {
-            val payload = SourceLink.qrPayload(channel, landingReachable)
-            Instructions(listOf("On the iPhone, scan this code with the Camera and tap the link; SideStore opens and adds the source.", "If nothing happens, copy the URL below and in SideStore go to Sources → + → paste → Add."))
+            Instructions(listOf(
+                "On the iPhone, open the Camera and point it at this code.",
+                "Tap the banner that appears. SideStore opens and asks to add the $app source. Tap Add.",
+                "Check that $app appears under SideStore → Browse, then confirm below.",
+            ))
             Spacer(Modifier.height(10.dp))
-            QrBlock(payload, "Scan with the iPhone camera.")
-            Spacer(Modifier.height(10.dp))
-            Surface(color = Color(0xFF0C1626), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("SOURCE URL", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(channel.sourceUrl, color = Color.White, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(vertical = 7.dp))
-                    Button(onClick = { copyText(channel.sourceUrl) }) { Text("Copy source URL") }
-                }
-            }
+            QrBlock(SourceLink.sourceQr(channel), "Scan with the iPhone Camera. SideStore must already be installed.")
+            Spacer(Modifier.height(12.dp))
+            SourceFallback(channel)
         }
         Requirement.NUVIO -> {
             Instructions(listOf("Keep Wi-Fi on and LocalDevVPN connected.", "Recommended: in SideStore open Browse → $app → Free. This installs from the source you just added, which is how SideStore knows to offer updates later.", "Shortcut: scan the code below to install the same release directly. It does not add the source, so only use it once the source step above is done.", "If ‘App contains extensions’ appears, choose Keep app extensions (use main profile).", "Wait for the install to finish. This page continues by itself."))
             Spacer(Modifier.height(10.dp))
             var ipaUrl by remember(channel) { mutableStateOf<String?>(null) }
             LaunchedEffect(channel) { ipaUrl = withContext(Dispatchers.IO) { SourceLink.fetchLatestIpaUrl(channel) } }
-            val installPayload = when {
-                landingReachable -> SourceLink.installLandingUrl(channel)
-                ipaUrl != null -> SourceLink.installDeepLink(ipaUrl!!)
-                else -> null
-            }
+            val installPayload = ipaUrl?.let(SourceLink::installDeepLink)
             if (installPayload != null) { QrBlock(installPayload, "Shortcut: installs $app directly. Add the source first if you haven’t, so updates appear."); Spacer(Modifier.height(10.dp)) }
             InfoCallout("Why keep app extensions?", "It preserves the Downloads widget without using another of your three free app slots.")
             Spacer(Modifier.height(12.dp))
@@ -370,6 +361,24 @@ private fun DeviceStatus(session: SetupSession, waitingText: String = "Waiting f
         else -> { LiveStatusRow(true, "iPhone connected and trusted${device.iosVersion?.let { " (iOS $it)" }.orEmpty()}"); Spacer(Modifier.height(8.dp)); LiveStatusRow(false, waitingText) }
     }
     session.error?.takeIf { it.code == ErrorCode.PROBE_FAILED }?.let { Spacer(Modifier.height(8.dp)); InfoCallout(it.headline, "Keep the iPhone unlocked. Anything we can’t check will ask for your confirmation instead.") }
+}
+
+/** The manual route, tucked away: only needed when the Camera shows a web page or text instead of opening SideStore. */
+@Composable
+private fun SourceFallback(channel: SetupChannel) {
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = !open }) { Text(if (open) "Hide the manual option" else "The Camera shows a web page or text, or nothing happens?") }
+    if (open) {
+        Text("The code only works when SideStore is installed on this iPhone. Add the source by hand instead:", color = TextSecondary, fontSize = 13.sp)
+        Instructions(listOf("Copy the URL below.", "In SideStore open Sources, tap +, paste it, and tap Add."))
+        Surface(color = Color(0xFF0C1626), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Text("SOURCE URL", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(channel.sourceUrl, color = Color.White, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(vertical = 7.dp))
+                Button(onClick = { copyText(channel.sourceUrl) }) { Text("Copy source URL") }
+            }
+        }
+    }
 }
 
 @Composable
