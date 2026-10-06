@@ -64,6 +64,15 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
 - The backend is not deployed, so the V2-only controls stay hidden in these builds.
 - Desktop CI fails on `composeMediaPlayer:buildNativeLinux`. That failure predates this work; it is also red on `Dev` since 2026-10-03.
 
+**Physical QA follow-up (2026-10-06)** - see "Physical QA round" in `Nuvio Z/PLAN-social-v2.md`:
+- Fixes on both branches (desktop `a930efbe6`, mobile `16ca8567e`):
+  - Activity stills hydrate real backdrops locally (`SocialTitleArt`). Production activity carries no backdrop at all.
+  - Finished party invites and join requests read as history and leave the inbox after a day.
+  - The extra header gap under the desktop top bar is gone.
+- Desktop `babc110f1` adds `SocialActivityRedesignHarness`, which renders two directions: A, people shelves; B, an art
+  grid. The maintainer has not picked one yet. Nothing is built from either.
+- Not in any published debug build yet.
+
 **Other open work:**
 - The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
 - The "Show friends on Home" toggle is planned for Stage 3.
