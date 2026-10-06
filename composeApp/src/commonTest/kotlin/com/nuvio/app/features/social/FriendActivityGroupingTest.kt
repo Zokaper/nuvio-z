@@ -136,7 +136,9 @@ class FriendActivityGroupingTest {
         // UTC-10: now is 22:00 on the 14th locally, and 00:30Z is 14:30 the same local day.
         assertEquals(FriendActivityBucket.Today, friendActivityBucket(at("2026-09-15T00:30:00Z"), now, utcOffsetMs = -36_000_000L))
         assertEquals(FriendActivityBucket.ThisWeek, friendActivityBucket(at("2026-09-10T12:00:00Z"), now))
-        assertEquals(FriendActivityBucket.Earlier, friendActivityBucket(at("2026-09-08T12:00:00Z"), now))
+        assertEquals(FriendActivityBucket.LastWeek, friendActivityBucket(at("2026-09-08T12:00:00Z"), now))
+        assertEquals(FriendActivityBucket.LastWeek, friendActivityBucket(at("2026-09-02T12:00:00Z"), now))
+        assertEquals(FriendActivityBucket.Earlier, friendActivityBucket(at("2026-09-01T12:00:00Z"), now))
         assertEquals(FriendActivityBucket.Earlier, friendActivityBucket(null, now))
     }
 
@@ -152,5 +154,56 @@ class FriendActivityGroupingTest {
         val buckets = bucketFriendActivity(groups, now)
         assertEquals(listOf(FriendActivityBucket.Today, FriendActivityBucket.Earlier), buckets.map { it.first })
         assertEquals(listOf("x", "y"), buckets[0].second.map { it.contentId })
+    }
+
+    @Test fun aFriendsTitlesInOneBucketAreOneEntryNewestFirst() {
+        val now = parseSocialTimestampMs("2026-09-15T20:00:00Z")!!
+        val timeline = friendActivityTimeline(
+            listOf(
+                run("1", "faye", content = "a", title = "A", type = "movie", season = null, episode = null, last = "2026-09-13T21:00:00Z"),
+                run("2", "ben", content = "b", title = "B", type = "movie", season = null, episode = null, last = "2026-09-13T20:00:00Z"),
+                run("3", "faye", content = "c", title = "C", type = "movie", season = null, episode = null, last = "2026-09-12T20:00:00Z"),
+            ),
+            now,
+        )
+        assertEquals(listOf("faye", "ben"), timeline.map { it.people.single().profileId })
+        assertEquals(listOf("a", "c"), timeline[0].titles.map { it.contentId })
+        assertEquals("2 films", timeline[0].countLabel())
+        assertEquals(FriendActivityBucket.ThisWeek, timeline[0].bucket)
+    }
+
+    @Test fun aTitleTwoFriendsWatchedIsItsOwnEntryAndLeavesTheirCards() {
+        val now = parseSocialTimestampMs("2026-09-15T20:00:00Z")!!
+        val timeline = friendActivityTimeline(
+            listOf(
+                run("1", "faye", content = "shared", type = "movie", season = null, episode = null, last = "2026-09-15T19:00:00Z"),
+                run("2", "jules", content = "shared", type = "movie", season = null, episode = null, last = "2026-09-15T18:00:00Z"),
+                run("3", "faye", content = "own", type = "movie", season = null, episode = null, last = "2026-09-15T17:00:00Z"),
+            ),
+            now,
+        )
+        assertEquals(2, timeline.size)
+        assertEquals(listOf("faye", "jules"), timeline[0].people.map { it.profileId })
+        assertEquals("Faye & Jules", timeline[0].peopleLabel())
+        assertEquals(listOf("own"), timeline[1].titles.map { it.contentId })
+    }
+
+    @Test fun bucketsFollowTheCalendarAndKeysStayPerPersonPerBucket() {
+        val now = parseSocialTimestampMs("2026-09-15T20:00:00Z")!!
+        val timeline = friendActivityTimeline(
+            listOf(
+                run("1", "faye", content = "a", last = "2026-09-15T10:00:00Z"),
+                run("2", "faye", content = "b", last = "2026-09-14T10:00:00Z"),
+                run("3", "faye", content = "c", last = "2026-09-05T10:00:00Z"),
+                run("4", "faye", content = "d", last = "2026-08-01T10:00:00Z"),
+            ),
+            now,
+        )
+        assertEquals(
+            listOf(FriendActivityBucket.Today, FriendActivityBucket.Yesterday, FriendActivityBucket.LastWeek, FriendActivityBucket.Earlier),
+            timeline.map { it.bucket },
+        )
+        assertEquals(timeline.map { it.key }.distinct().size, timeline.size)
+        assertEquals("Today:person:faye", timeline[0].key)
     }
 }

@@ -224,8 +224,8 @@ fun SocialScreen(
     // Grouped over every page loaded so far, so a later page folds into rows already on screen.
     val activityGroups = remember(state.activity) { groupFriendActivity(state.activity) }
     val activityNowMs = remember(state.activity) { currentEpochMs() }
-    val activityBuckets = remember(activityGroups, activityNowMs) {
-        bucketFriendActivity(activityGroups, activityNowMs, socialUtcOffsetMs(activityNowMs))
+    val activityTimeline = remember(state.activity, activityNowMs) {
+        friendActivityTimeline(state.activity, activityNowMs, socialUtcOffsetMs(activityNowMs))
     }
 
     // The next page is asked for as the activity list nears its end. Not keyed on `isLoadingMore`:
@@ -260,7 +260,7 @@ fun SocialScreen(
             partyCode = partyCode,
             activePartyId = heldParty?.id,
             activityGroups = activityGroups,
-            activityBuckets = activityBuckets,
+            activityTimeline = activityTimeline,
             activityNowMs = activityNowMs,
             joinAffordance = { watching ->
                 if (state.capabilities.watchPartyEnabled) {
@@ -332,7 +332,8 @@ internal data class SocialFeedModel(
     val shareRecent: Boolean = true,
     val defaultJoinPolicy: WatchJoinPolicy = WatchJoinPolicy.approval,
     val activityGroups: List<FriendActivityGroup> = emptyList(),
-    val activityBuckets: List<Pair<FriendActivityBucket, List<FriendActivityGroup>>> = emptyList(),
+    /** Recently watched as the per-friend timeline the tab draws. */
+    val activityTimeline: List<FriendActivityEntry> = emptyList(),
     val activityNowMs: Long = 0L,
     val joinAffordance: (WatchingNowItem) -> WatchingNowJoinAffordance = { WatchingNowJoinAffordance.None },
     /** Where a fresh composition starts - the render harness uses these to draw each view. */
@@ -399,8 +400,8 @@ internal fun SocialFeed(
             modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
         ) {
             val wide = maxWidth >= SocialDashboardBreakpoint
-            // A tablet in portrait has room for two cards a row; a phone does not.
-            val narrowColumns = if (maxWidth >= 720.dp) 2 else 1
+            val screenWidth = maxWidth
+            val screenHeight = maxHeight
             val horizontal = if (wide) 28.dp else 16.dp
             var tab by rememberSaveable { mutableStateOf(model.initialTab) }
             var overlay by remember { mutableStateOf(model.initialOverlay) }
@@ -455,7 +456,8 @@ internal fun SocialFeed(
                     }
                     wide -> Row(Modifier.fillMaxSize().padding(start = horizontal, end = horizontal), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                            val columns = if (maxWidth >= 1100.dp) 3 else 2
+                            val feedWidth = maxWidth
+                            val feedHeight = maxHeight
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
@@ -465,11 +467,11 @@ internal fun SocialFeed(
                                 socialActivityItems(
                                     model = model,
                                     actions = actions,
-                                    watchingColumns = columns,
-                                    recentColumns = columns,
-                                    cardHeight = SocialWatchingCardHeightWide,
+                                    contentWidth = feedWidth,
+                                    viewportHeight = feedHeight,
                                     onOpenWatching = openWatching,
                                     onWatchingDetails = openDetails,
+                                    onOpenProfile = { overlay = SocialOverlay.Profile(it) },
                                 )
                             }
                         }
@@ -497,8 +499,8 @@ internal fun SocialFeed(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
-                                    start = horizontal,
-                                    end = horizontal,
+                                    start = horizontal + SocialActivityExtraGutter,
+                                    end = horizontal + SocialActivityExtraGutter,
                                     top = 6.dp,
                                     bottom = nuvioSafeBottomPadding(extra = 12.dp),
                                 ),
@@ -507,11 +509,11 @@ internal fun SocialFeed(
                                 socialActivityItems(
                                     model = model,
                                     actions = actions,
-                                    watchingColumns = narrowColumns,
-                                    recentColumns = narrowColumns,
-                                    cardHeight = SocialWatchingCardHeight,
+                                    contentWidth = screenWidth - (horizontal + SocialActivityExtraGutter) * 2,
+                                    viewportHeight = screenHeight,
                                     onOpenWatching = openWatching,
                                     onWatchingDetails = openDetails,
+                                    onOpenProfile = { overlay = SocialOverlay.Profile(it) },
                                 )
                             }
                             SocialTab.Friends -> Column(
@@ -694,16 +696,22 @@ private fun SocialMessageColumn(horizontal: Dp, content: @Composable () -> Unit)
 
 // --- activity --------------------------------------------------------------------------------
 
+/** Phones felt cramped at the header's 16dp; the activity grid gets a little more air on each side. */
+private val SocialActivityExtraGutter = 4.dp
+
 private fun LazyListScope.socialActivityItems(
     model: SocialFeedModel,
     actions: SocialFeedActions,
-    watchingColumns: Int,
-    recentColumns: Int,
-    cardHeight: Dp,
+    contentWidth: Dp,
+    viewportHeight: Dp,
     onOpenWatching: (WatchingNowItem) -> Unit,
     onWatchingDetails: (WatchingNowItem) -> Unit,
+    onOpenProfile: (profileId: String) -> Unit,
 ) {
     val state = model.state
+    val columns = socialPileColumns(contentWidth)
+    val gap = socialPileGap(columns)
+    val compact = columns <= 2
     model.activePartyId?.let { partyId ->
         item(key = "active-party-return") {
             Row(
@@ -732,19 +740,31 @@ private fun LazyListScope.socialActivityItems(
     }
     if (watching.isEmpty()) {
         item(key = "watching-empty") {
-            if (state.isLoading) SocialSkeleton(cardHeight) else WatchingNowEmptyLine()
+            if (state.isLoading) SocialSkeleton(SocialWatchingCardHeight) else WatchingNowEmptyLine()
         }
     } else {
-        // Per session, not per title: two friends on one episode are two cards.
-        socialGridItems(watching, watchingColumns, key = { "watching:${it.socialSessionKey()}" }) { item, cellModifier ->
-            SocialWatchingCard(
-                item = item,
-                affordance = model.joinAffordance(item),
-                onClick = { onOpenWatching(item) },
-                onDetails = { onWatchingDetails(item) },
-                modifier = cellModifier,
-                height = cardHeight,
-            )
+        // Per session, not per title: two friends on one episode are two cards. 16:9, the backdrop's
+        // own shape: full width on a phone; above the grid the line is split evenly, which is exactly
+        // two timeline cells at 4 and 6 columns (2026-10-06).
+        val perLine = if (compact) 1 else (columns + 1) / 2
+        // A landscape phone has the width but not the height: 16:9 at that width is taller than the
+        // screen. Never more than ~55% of the viewport tall.
+        val liveWidth = minOf((contentWidth - gap * (perLine - 1)) / perLine, viewportHeight * 0.55f * 16f / 9f)
+        watching.chunked(perLine).forEach { line ->
+            item(key = "watching:${line.first().socialSessionKey()}") {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    line.forEach { item ->
+                        SocialWatchingCard(
+                            item = item,
+                            affordance = model.joinAffordance(item),
+                            onClick = { onOpenWatching(item) },
+                            onDetails = { onWatchingDetails(item) },
+                            modifier = Modifier.width(liveWidth),
+                            height = null,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -762,15 +782,43 @@ private fun LazyListScope.socialActivityItems(
             }
         }
     } else {
-        model.activityBuckets.forEach { (bucket, groups) ->
-            item(key = "bucket:${bucket.name}") { SocialSectionLabel(bucket.label, modifier = Modifier.padding(top = 8.dp)) }
-            socialGridItems(groups, recentColumns, key = { "activity:${it.contentId}" }) { group, cellModifier ->
-                FriendActivityStillRow(
-                    group = group,
-                    nowMs = model.activityNowMs,
-                    onOpen = { actions.onOpenContent(group.contentType, group.contentId, group.title) },
-                    modifier = cellModifier,
-                )
+        // The timeline without holes: a bucket's label sits above its first card, inside the grid, so
+        // Today, Yesterday and This week share a line when they are short. A one-title card opens the
+        // title; a friend's several titles open their profile, which lists them.
+        val entries = model.activityTimeline
+        val cells = entries.mapIndexed { i, entry ->
+            (if (i == 0 || entries[i - 1].bucket != entry.bucket) entry.bucket.label else null) to entry
+        }
+        cells.chunked(columns).forEach { line ->
+            item(key = "timeline:${line.first().second.key}") {
+                val labelled = line.any { it.first != null }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = if (labelled) 10.dp else 0.dp, bottom = if (compact) 14.dp else 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    line.forEach { (label, entry) ->
+                        Column(Modifier.weight(1f)) {
+                            if (labelled) {
+                                Box(Modifier.height(30.dp)) { if (label != null) SocialSectionLabel(label) }
+                            }
+                            SocialActivityPileCard(
+                                entry = entry,
+                                nowMs = model.activityNowMs,
+                                compact = compact,
+                                onClick = {
+                                    val single = entry.titles.singleOrNull()
+                                    if (single != null) {
+                                        actions.onOpenContent(single.contentType, single.contentId, single.title)
+                                    } else {
+                                        onOpenProfile(entry.people.first().profileId)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                    repeat(columns - line.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }

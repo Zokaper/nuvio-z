@@ -8,10 +8,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,7 +68,6 @@ import com.nuvio.app.core.ui.NuvioAsyncImage
  */
 
 internal val SocialWatchingCardHeight = 164.dp
-internal val SocialWatchingCardHeightWide = 180.dp
 private val SocialCardShape = RoundedCornerShape(20.dp)
 private val SocialAwayColor = Color(0xFFE6B341)
 
@@ -391,12 +393,13 @@ internal fun SocialWatchingCard(
     onClick: () -> Unit,
     onDetails: () -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = SocialWatchingCardHeight,
+    /** Null: 16:9, the backdrop's own shape (the Social tab). A fixed height crops it to a strip. */
+    height: Dp? = SocialWatchingCardHeight,
 ) {
     val playing = item.state == SocialPlaybackState.playing
     val people = item.socialPeople()
     Box(
-        modifier.height(height).clip(SocialCardShape)
+        modifier.then(if (height != null) Modifier.height(height) else Modifier.aspectRatio(16f / 9f)).clip(SocialCardShape)
             .pointerHoverIcon(PointerIcon.Hand)
             .combinedClickable(onClick = onClick, onLongClick = onDetails, role = Role.Button),
     ) {
@@ -521,6 +524,109 @@ internal fun FriendActivityStillRow(
             val sub = listOf(group.contextLabel(), time).filter(String::isNotBlank).joinToString(" · ")
             if (sub.isNotBlank()) {
                 Text(sub, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+// --- Recently watched: the timeline of piles --------------------------------------------------
+
+/**
+ * Columns of the Recently watched grid for a content area [width] wide: two on a phone, then as many
+ * ~200dp cards as fit. Watching Now reads the same number, so a live card is exactly two cells wide.
+ */
+internal fun socialPileColumns(width: Dp): Int =
+    if (width < SocialPilePhoneBelow) 2 else ((width + SocialPileGap) / (SocialPileMinCell + SocialPileGap)).toInt().coerceIn(3, 6)
+
+internal fun socialPileGap(columns: Int): Dp = if (columns <= 2) SocialPileGapPhone else SocialPileGap
+
+internal val SocialPilePhoneBelow = 600.dp
+internal val SocialPileMinCell = 200.dp
+internal val SocialPileGap = 18.dp
+internal val SocialPileGapPhone = 16.dp
+private val SocialPileShift = 12.dp
+
+/**
+ * One timeline card (2026-10-06 redesign, chosen from rendered candidates A-F): the art is a deck of
+ * the entry's stills, the words sit under it. One friend's titles in a bucket are one card; a title
+ * several friends watched is its own. Replaces the per-title still rows, which put fourteen identical
+ * tiles and "faisal watched" eight times on one screen.
+ */
+@Composable
+internal fun SocialActivityPileCard(
+    entry: FriendActivityEntry,
+    nowMs: Long,
+    compact: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val strong = MaterialTheme.colorScheme.onBackground
+    val titles = entry.titles
+    Column(
+        // ⚠ No rounded clip on the card: its corner sliced the first letter off the last text line.
+        modifier.pointerHoverIcon(PointerIcon.Hand)
+            .clickable(role = Role.Button, onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        SocialPile(titles)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            SocialAvatarStack(entry.people.take(3), (entry.people.size - 3).coerceAtLeast(0), if (compact) 20.dp else 22.dp)
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = strong, fontWeight = FontWeight.SemiBold)) { append(entry.peopleLabel()) }
+                    val time = relativeTimeLabel(entry.lastEventMs, nowMs)
+                    if (time.isNotBlank()) withStyle(SpanStyle(color = muted)) { append(" · $time") }
+                },
+                style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        val single = titles.singleOrNull()
+        Text(
+            single?.title ?: entry.countLabel(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = strong,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val detail = single?.contextLabel() ?: titles.joinToString(", ") { it.title }
+        if (detail.isNotBlank()) {
+            Text(
+                detail,
+                style = MaterialTheme.typography.labelMedium,
+                color = muted,
+                maxLines = if (compact) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * Up to three stills fanned to the right: the newest in front at the left, each older one a step
+ * further right, shorter and darker, so its edge shows. Every pile has the same 16:9 footprint, so a
+ * line of cards lines up whatever the counts.
+ */
+@Composable
+internal fun SocialPile(titles: List<FriendActivityGroup>, modifier: Modifier = Modifier) {
+    val shown = titles.take(3)
+    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+        val cardWidth = maxWidth - SocialPileShift * (shown.size - 1).coerceAtLeast(0)
+        shown.indices.reversed().forEach { depth ->
+            val group = shown[depth]
+            key(group.contentId) {
+                Box(
+                    Modifier.padding(start = SocialPileShift * depth, top = (6 * depth).dp, bottom = (6 * depth).dp)
+                        .width(cardWidth)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp)),
+                ) {
+                    SocialArtwork(group.artwork(), group.title, Modifier.matchParentSize())
+                    if (depth > 0) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f + 0.2f * depth)))
+                }
             }
         }
     }
