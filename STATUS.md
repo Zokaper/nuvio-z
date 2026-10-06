@@ -69,9 +69,18 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
   - Activity stills hydrate real backdrops locally (`SocialTitleArt`). Production activity carries no backdrop at all.
   - Finished party invites and join requests read as history and leave the inbox after a day.
   - The extra header gap under the desktop top bar is gone.
-- Desktop `babc110f1` adds `SocialActivityRedesignHarness`, which renders two directions: A, people shelves; B, an art
-  grid. The maintainer has not picked one yet. Nothing is built from either.
-- Not in any published debug build yet.
+- **Recently watched redesign, built** (desktop `e7caa3a8d`, mobile `5290b48d5`). The maintainer picked direction F
+  after six rendered rounds (A to F) in `SocialActivityRedesignHarness`.
+  - Layout: a per-friend timeline, Today / Yesterday / This week / Last week / Earlier, one card per friend.
+  - Each card's art is a sideways-fanned deck of 16:9 stills.
+  - Bucket labels sit inside the grid, so short buckets share a line.
+  - Watching Now cards are 16:9.
+  - A one-title card opens the title; several titles open the friend's profile.
+  - Pure `friendActivityTimeline` has tests.
+- Tests: desktop Social + Watch Together 583/583; mobile host 575/575; Android compiles. iOS is checked by the debug build.
+- Debug builds 81 (mobile) and 87 (desktop) carry all of this.
+- Do not run `--tests "com.nuvio.app.promo.*"` alongside the Social tests. Those harnesses render video reels; the run
+  died after 20 minutes with no results.
 
 **Other open work:**
 - The iOS native SwiftUI tab bar has no unread badge yet; it needs a Swift bridge.
