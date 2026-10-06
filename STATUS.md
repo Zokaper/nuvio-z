@@ -84,6 +84,10 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
   - On desktop hover the deck spins out and draws above its neighbours.
   - "S2 E6 · 225 episodes" now reads "225 episodes · last S2 E6".
   - Tests: desktop 585/585; mobile host 576/576.
+- **QA of 88:** the hover spin-out was removed ("doesn't fit the app"). Desktop `d087101dc`, mobile `97e7a66d9`.
+  - The deck is now a centred stack: older stills sit centred above the front one, each 9dp higher and 8% narrower.
+  - It was picked from three rendered styles: diagonal, centred stack, centred tilted fan.
+  - Shipped in debug builds 83 (mobile) and 89 (desktop). Tests: desktop 586/586; mobile host 576/576.
 - Do not run `--tests "com.nuvio.app.promo.*"` alongside the Social tests. Those harnesses render video reels; the run
   died after 20 minutes with no results.
 
