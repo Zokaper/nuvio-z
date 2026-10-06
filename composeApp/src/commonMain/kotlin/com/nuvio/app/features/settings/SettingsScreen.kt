@@ -563,20 +563,25 @@ private fun MobileSettingsScreen(
                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
         }
-        val searchEntries = settingsSearchEntries(
-            isTablet = false,
-            pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
-            downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
-            notificationsEnabled = AppFeaturePolicy.notificationsEnabled,
-            externalPlayerSupported = AppFeaturePolicy.externalPlayerSupported,
-            supportersContributorsPageEnabled = AppFeaturePolicy.supportersContributorsPageEnabled,
-            accountDeletionEnabled = AppFeaturePolicy.accountDeletionEnabled,
-            personalMediaAddonCopyEnabled = AppFeaturePolicy.personalMediaAddonCopyEnabled,
-            liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
-            switchProfileAvailable = onSwitchProfile != null,
-            checkForUpdatesAvailable = onCheckForUpdatesClick != null,
-            runSetupAgainAvailable = onRunSetupAgainClick != null,
-        )
+        // Built only when a search query is typed: `settingsSearchRootContent` calls this lambda
+        // inside the results item. Building it here eagerly read a few hundred string resources on
+        // the UI thread every time Settings composed (990 ms on the first open, measured 2026-10-06).
+        val searchEntries: @Composable () -> List<SettingsSearchEntry> = {
+            settingsSearchEntries(
+                isTablet = false,
+                pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
+                downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
+                notificationsEnabled = AppFeaturePolicy.notificationsEnabled,
+                externalPlayerSupported = AppFeaturePolicy.externalPlayerSupported,
+                supportersContributorsPageEnabled = AppFeaturePolicy.supportersContributorsPageEnabled,
+                accountDeletionEnabled = AppFeaturePolicy.accountDeletionEnabled,
+                personalMediaAddonCopyEnabled = AppFeaturePolicy.personalMediaAddonCopyEnabled,
+                liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
+                switchProfileAvailable = onSwitchProfile != null,
+                checkForUpdatesAvailable = onCheckForUpdatesClick != null,
+                runSetupAgainAvailable = onRunSetupAgainClick != null,
+            )
+        }
 
         fun openSearchTarget(target: SettingsSearchTarget) {
             onSearchNavigation()
@@ -650,7 +655,7 @@ private fun MobileSettingsScreen(
                 SettingsPage.Root -> {
                     settingsSearchRootContent(
                         query = settingsSearchQuery,
-                        entries = { searchEntries },
+                        entries = searchEntries,
                         isTablet = false,
                         showSearchField = rootSearchVisible,
                         animateSearchField = rootSearchRevealAnimating,
@@ -1013,20 +1018,25 @@ private fun TabletSettingsScreen(
             var rootSearchRevealAnimating by rememberSaveable { mutableStateOf(false) }
             val hapticFeedback = LocalHapticFeedback.current
             val hapticScope = rememberCoroutineScope()
-            val searchEntries = settingsSearchEntries(
-                isTablet = true,
-                pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
-                downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
-                notificationsEnabled = AppFeaturePolicy.notificationsEnabled,
-                externalPlayerSupported = AppFeaturePolicy.externalPlayerSupported,
-                supportersContributorsPageEnabled = AppFeaturePolicy.supportersContributorsPageEnabled,
-                accountDeletionEnabled = AppFeaturePolicy.accountDeletionEnabled,
-                personalMediaAddonCopyEnabled = AppFeaturePolicy.personalMediaAddonCopyEnabled,
-                liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
-                switchProfileAvailable = onSwitchProfile != null,
-                checkForUpdatesAvailable = onCheckForUpdatesClick != null,
-                runSetupAgainAvailable = onRunSetupAgainClick != null,
-            )
+            // Built only when a search query is typed: `settingsSearchRootContent` calls this lambda
+            // inside the results item. Building it here eagerly read a few hundred string resources on
+            // the UI thread every time Settings composed (990 ms on the first open, measured 2026-10-06).
+            val searchEntries: @Composable () -> List<SettingsSearchEntry> = {
+                settingsSearchEntries(
+                    isTablet = true,
+                    pluginsEnabled = AppFeaturePolicy.pluginsEnabled,
+                    downloadsEnabled = AppFeaturePolicy.downloadsEnabled,
+                    notificationsEnabled = AppFeaturePolicy.notificationsEnabled,
+                    externalPlayerSupported = AppFeaturePolicy.externalPlayerSupported,
+                    supportersContributorsPageEnabled = AppFeaturePolicy.supportersContributorsPageEnabled,
+                    accountDeletionEnabled = AppFeaturePolicy.accountDeletionEnabled,
+                    personalMediaAddonCopyEnabled = AppFeaturePolicy.personalMediaAddonCopyEnabled,
+                    liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
+                    switchProfileAvailable = onSwitchProfile != null,
+                    checkForUpdatesAvailable = onCheckForUpdatesClick != null,
+                    runSetupAgainAvailable = onRunSetupAgainClick != null,
+                )
+            }
 
             fun openSearchTarget(target: SettingsSearchTarget) {
                 onSearchNavigation()
@@ -1123,7 +1133,7 @@ private fun TabletSettingsScreen(
                         SettingsPage.Root -> {
                             settingsSearchRootContent(
                                 query = settingsSearchQuery,
-                                entries = { searchEntries },
+                                entries = searchEntries,
                                 isTablet = true,
                                 showSearchField = rootSearchVisible,
                                 animateSearchField = rootSearchRevealAnimating,
