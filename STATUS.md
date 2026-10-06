@@ -79,6 +79,11 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
   - Pure `friendActivityTimeline` has tests.
 - Tests: desktop Social + Watch Together 583/583; mobile host 575/575; Android compiles. iOS is checked by the debug build.
 - Debug builds 81 (mobile) and 87 (desktop) carry all of this.
+- **QA of 87** led to two fixes (desktop `43be2bd59`, mobile `8d0a7052a`), shipped in debug builds 82 / 88:
+  - The deck was too subtle. Older stills now sit 22dp further right per step, tilted 4 degrees up.
+  - On desktop hover the deck spins out and draws above its neighbours.
+  - "S2 E6 · 225 episodes" now reads "225 episodes · last S2 E6".
+  - Tests: desktop 585/585; mobile host 576/576.
 - Do not run `--tests "com.nuvio.app.promo.*"` alongside the Social tests. Those harnesses render video reels; the run
   died after 20 minutes with no results.
 
