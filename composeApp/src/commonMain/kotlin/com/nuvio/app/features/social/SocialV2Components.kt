@@ -487,7 +487,7 @@ internal fun FriendActivityStillRow(
     ) {
         Box(Modifier.fillMaxWidth(0.38f).widthIn(max = 168.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) {
             SocialArtwork(
-                listOf(group.latestRun.episodeThumbnail, group.background, group.poster),
+                group.artwork(),
                 group.title,
                 Modifier.matchParentSize(),
             )
@@ -585,7 +585,7 @@ internal fun SocialHomeActivityTile(
 ) {
     val time = socialAgo(relativeTimeLabel(group.lastEventMs, nowMs))
     SocialTileFrame(
-        art = listOf(group.latestRun.episodeThumbnail, group.background, group.poster),
+        art = group.artwork(),
         seed = group.title,
         modifier = modifier.clickable(role = Role.Button, onClick = onClick),
         progress = null,

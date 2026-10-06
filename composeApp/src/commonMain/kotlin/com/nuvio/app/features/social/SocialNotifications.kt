@@ -65,3 +65,36 @@ fun reduceSocialNotifications(
         staleMessage="This request is no longer available.",
     )
 }
+
+/**
+ * How long a finished party invite or join request stays in the inbox.
+ *
+ * ⚠ These rows are *derived* from `watch_party_invites` / `watch_join_requests`, which nothing
+ * prunes, so an invite from a party that ended last week stayed in the inbox for good. The row
+ * carries no party end time, only `available_actions`, which the server empties the moment the
+ * party ends or the item is answered or lapses. So "nothing can be done with it and it is over a day
+ * old" is the retirement rule; a day keeps last night's party visible as history the next morning.
+ */
+const val SocialFinishedNoticeRetentionMs = 24L * 60L * 60L * 1000L
+
+/** A party invite or join request with nothing left to do: answered, lapsed, or its party is over. */
+val SocialNotification.isFinishedPartyNotice: Boolean
+    get() = kind != SocialNotificationKind.FriendRequest && availableActions.isEmpty()
+
+/** True when [isFinishedPartyNotice] and older than [SocialFinishedNoticeRetentionMs]; the inbox drops it. */
+fun SocialNotification.isRetired(nowMs: Long): Boolean {
+    if (!isFinishedPartyNotice) return false
+    val created = parseSocialTimestampMs(createdAt) ?: return false
+    return nowMs - created > SocialFinishedNoticeRetentionMs
+}
+
+/** What a party notice reads as once it is over. */
+enum class SocialPartyNoticeOutcome { Open, Accepted, Declined, Lapsed }
+
+fun SocialNotification.partyNoticeOutcome(): SocialPartyNoticeOutcome = when {
+    !isFinishedPartyNotice -> SocialPartyNoticeOutcome.Open
+    state.lowercase() in setOf("accepted", "consumed", "approved") -> SocialPartyNoticeOutcome.Accepted
+    state.lowercase() in setOf("declined", "rejected") -> SocialPartyNoticeOutcome.Declined
+    // Expired, cancelled, stale - and "pending" on a party that has since ended.
+    else -> SocialPartyNoticeOutcome.Lapsed
+}

@@ -430,6 +430,7 @@ internal fun SocialFeed(
                     friendCount = state.friends.size,
                     unread = state.unreadCount,
                     topInset = topInset,
+                    underTopChrome = topChromePadding != null,
                     horizontal = horizontal,
                     wide = wide,
                     showInvite = wide && ready && state.capabilities.watchPartyEnabled,
@@ -633,6 +634,7 @@ private fun SocialHeader(
     friendCount: Int,
     unread: Int,
     topInset: Dp,
+    underTopChrome: Boolean,
     horizontal: Dp,
     wide: Boolean,
     showInvite: Boolean,
@@ -643,7 +645,9 @@ private fun SocialHeader(
     Row(
         Modifier.fillMaxWidth()
             .padding(top = topInset)
-            .padding(start = horizontal, end = horizontal, top = if (wide) 22.dp else 12.dp, bottom = if (wide) 18.dp else 12.dp),
+            // The shell's top-bar reservation already holds the gap below the nav pill; adding more here
+            // left the identity row floating ~70dp under it on desktop (2026-10-06 QA). Same as Downloads.
+            .padding(start = horizontal, end = horizontal, top = if (underTopChrome) 0.dp else 12.dp, bottom = if (wide) 18.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -955,7 +959,8 @@ private fun SocialInboxPage(
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
     // Derived notifications and stored events, one timeline. A kind this build does not know is skipped.
-    val entries = state.notifications.map { SocialInboxEntry.Notice(it) } +
+    // A finished party notice leaves after a day: see [SocialFinishedNoticeRetentionMs].
+    val entries = state.notifications.filterNot { it.isRetired(nowMs) }.map { SocialInboxEntry.Notice(it) } +
         state.inbox.filter { it.kind in SocialInboxEvent.Known }.map { SocialInboxEntry.Event(it) }
     val timeline = entries.sortedByDescending { parseSocialTimestampMs(it.createdAt) ?: Long.MIN_VALUE }
     val unreadAtOpen = remember { timeline.filter { it.unread }.map { it.key }.toSet() }
@@ -1005,7 +1010,7 @@ private fun SocialInboxPage(
                                 text = socialRich(invite.sender.displayName to true, " invited you to watch " to false, invite.content.title to true),
                                 time = relativeTimeLabel(parseSocialTimestampMs(invite.createdAt), nowMs),
                                 unread = true,
-                                art = invite.content.poster to invite.content.title,
+                                art = invite.content.artRef(),
                                 actions = listOf(Triple("Join", true) { onJoinLegacyInvite(invite.partyId) }),
                             )
                         }
@@ -1037,8 +1042,6 @@ private fun SocialInboxPage(
         }
     }
 }
-
-private val SocialLapsedStates = setOf("expired", "stale", "cancelled", "canceled")
 
 /** One line of the inbox: a derived notification or a stored event. */
 private sealed interface SocialInboxEntry {
@@ -1103,7 +1106,9 @@ private fun SocialInboxEventCard(
         note = payload.note?.let { "“$it”" },
         time = relativeTimeLabel(parseSocialTimestampMs(event.createdAt), nowMs),
         unread = unread,
-        art = title?.let { (payload.background ?: payload.poster) to it },
+        art = title?.let {
+            SocialArtRef(it, payload.contentType, payload.contentId, payload.poster, listOf(payload.background), payload.videoId, payload.season, payload.episode)
+        },
         actions = if (event.kind == SocialInboxEvent.Recommendation && open != null) listOf(Triple("Open", true, open)) else emptyList(),
         onClick = open,
     )
@@ -1118,19 +1123,40 @@ private fun SocialNotificationCard(
 ) {
     val name = notification.actor.displayName.ifBlank { "@${notification.actor.handle}" }
     val title = notification.contentSummary?.title
-    val lapsed = notification.state.lowercase() in SocialLapsedStates
+    val outcome = notification.partyNoticeOutcome()
+    val lapsed = if (notification.kind == SocialNotificationKind.FriendRequest) {
+        notification.state.lowercase() in setOf("cancelled", "canceled", "expired")
+    } else {
+        outcome == SocialPartyNoticeOutcome.Lapsed
+    }
     val text = when (notification.kind) {
         SocialNotificationKind.FriendRequest -> when (notification.state.lowercase()) {
             "accepted", "consumed" -> socialRich("You and " to false, name to true, " are now friends" to false)
             "declined" -> socialRich("You declined " to false, name to true, "'s friend request" to false)
             else -> socialRich(name to true, " wants to be friends" to false)
         }
-        SocialNotificationKind.PartyInvitation ->
-            if (title != null) socialRich(name to true, " invited you to watch " to false, title to true)
-            else socialRich(name to true, " invited you to Watch Together" to false)
-        SocialNotificationKind.WatchingNowJoinRequest ->
-            if (title != null) socialRich(name to true, " asked to join your playback of " to false, title to true)
-            else socialRich(name to true, " asked to join your playback" to false)
+        SocialNotificationKind.PartyInvitation -> when (outcome) {
+            SocialPartyNoticeOutcome.Accepted ->
+                if (title != null) socialRich("You watched " to false, title to true, " with " to false, name to true)
+                else socialRich("You joined " to false, name to true, "'s Watch Together" to false)
+            SocialPartyNoticeOutcome.Declined ->
+                if (title != null) socialRich("You declined " to false, name to true, "'s invite to " to false, title to true)
+                else socialRich("You declined " to false, name to true, "'s invite" to false)
+            else ->
+                if (title != null) socialRich(name to true, " invited you to watch " to false, title to true)
+                else socialRich(name to true, " invited you to Watch Together" to false)
+        }
+        SocialNotificationKind.WatchingNowJoinRequest -> when (outcome) {
+            SocialPartyNoticeOutcome.Accepted ->
+                if (title != null) socialRich(name to true, " joined your playback of " to false, title to true)
+                else socialRich(name to true, " joined your playback" to false)
+            SocialPartyNoticeOutcome.Declined ->
+                if (title != null) socialRich("You declined " to false, name to true, "'s request to join " to false, title to true)
+                else socialRich("You declined " to false, name to true, "'s request to join" to false)
+            else ->
+                if (title != null) socialRich(name to true, " asked to join your playback of " to false, title to true)
+                else socialRich(name to true, " asked to join your playback" to false)
+        }
     }
     val time = relativeTimeLabel(parseSocialTimestampMs(notification.createdAt), nowMs)
     val actions = notification.availableActions
@@ -1151,7 +1177,7 @@ private fun SocialNotificationCard(
         time = if (lapsed) listOf(time, "expired").filter(String::isNotBlank).joinToString(" · ") else time,
         unread = unread && !lapsed,
         dim = lapsed,
-        art = title?.let { notification.contentSummary?.poster to it },
+        art = notification.contentSummary?.artRef(),
         actions = actions,
     )
 }
@@ -1163,7 +1189,7 @@ private fun SocialInboxCard(
     time: String,
     unread: Boolean,
     dim: Boolean = false,
-    art: Pair<String?, String>? = null,
+    art: SocialArtRef? = null,
     actions: List<Triple<String, Boolean, () -> Unit>> = emptyList(),
     note: String? = null,
     onClick: (() -> Unit)? = null,
@@ -1205,7 +1231,7 @@ private fun SocialInboxCard(
                 }
             }
         }
-        if (art != null) SocialStill(listOf(art.first), art.second, 72.dp)
+        if (art != null) SocialStill(art.artwork(), art.title, 72.dp)
     }
 }
 
@@ -1409,7 +1435,7 @@ internal fun SocialProfileContent(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         SocialArtwork(
-                            listOf(together.poster),
+                            SocialArtRef(together.title, together.contentType, together.contentId, together.poster).artwork(),
                             together.title,
                             Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
                         )
