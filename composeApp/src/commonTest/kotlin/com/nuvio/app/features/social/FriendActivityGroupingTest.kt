@@ -101,7 +101,13 @@ class FriendActivityGroupingTest {
         val cross = groupFriendActivity(
             listOf(run("1", "s", season = 2, episode = 1, last = "2026-09-15T00:00:00Z"), run("2", "s", season = 1, episode = 8, last = "2026-09-14T00:00:00Z")),
         ).single()
-        assertEquals("S2 E1 · 2 episodes", cross.contextLabel())
+        assertEquals("2 episodes · last S2 E1", cross.contextLabel())
+    }
+
+    @Test fun aLongRunAcrossSeasonsLeadsWithTheCountNotTheLastEpisode() {
+        // Production 2026-10-06: South Park, one run of 225 episodes over 29 seasons, last S2 E6.
+        val run = groupFriendActivity(listOf(run("1", "j", season = 2, episode = 6, events = 225))).single()
+        assertEquals("225 episodes · last S2 E6", run.contextLabel())
     }
 
     @Test fun parsesPostgrestTimestamps() {

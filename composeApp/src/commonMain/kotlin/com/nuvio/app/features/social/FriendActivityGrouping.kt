@@ -87,7 +87,7 @@ fun FriendActivityGroup.friendNamesLabel(): String {
 }
 
 /**
- * The third line: "Movie", "S1 E5", "S2 E4–E9 · 6 episodes".
+ * The third line: "Movie", "S1 E5", "S2 E4–E9 · 6 episodes", "225 episodes · last S2 E6".
  *
  * A run carries only its *latest* episode, so the span is drawn from what the loaded runs name and the
  * count from the events they add up to - whichever is larger, since both undercount in different ways.
@@ -101,16 +101,16 @@ fun FriendActivityGroup.contextLabel(): String {
     val count = maxOf(totalEvents, known.size)
     val latest = episodeCode(latestRun.season, latestRun.episode)
     val seasons = known.map { it.first }.distinct()
-    val lead = if (known.size > 1 && seasons.size == 1) {
+    if (known.size > 1 && seasons.size == 1) {
         val season = seasons.single()
         val first = known.minOf { it.second }
         val last = known.maxOf { it.second }
         val prefix = if (season > 0) "S$season " else ""
-        "${prefix}E$first–E$last"
-    } else {
-        latest
+        return "${prefix}E$first–E$last · $count episodes"
     }
-    return if (count > 1) "$lead · $count episodes" else lead
+    // ⚠ Not "S2 E6 · 225 episodes": that read as if S2 E6 were part of a 225-episode stretch, when it
+    // was only the last of 225 episodes watched across 29 seasons (production, 2026-10-06).
+    return if (count > 1) "$count episodes · last $latest" else latest
 }
 
 private fun episodeCode(season: Int?, episode: Int?): String = when {
