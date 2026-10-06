@@ -7,10 +7,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.ui.zIndex
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -801,10 +797,7 @@ private fun LazyListScope.socialActivityItems(
                     horizontalArrangement = Arrangement.spacedBy(gap),
                 ) {
                     line.forEach { (label, entry) ->
-                        // Hover spins the deck out past the cell, so the hovered card draws above its neighbours.
-                        val hover = remember { MutableInteractionSource() }
-                        val hovered by hover.collectIsHoveredAsState()
-                        Column(Modifier.weight(1f).zIndex(if (hovered) 1f else 0f).hoverable(hover)) {
+                        Column(Modifier.weight(1f)) {
                             if (labelled) {
                                 Box(Modifier.height(30.dp)) { if (label != null) SocialSectionLabel(label) }
                             }
@@ -821,7 +814,6 @@ private fun LazyListScope.socialActivityItems(
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                hovered = hovered,
                             )
                         }
                     }

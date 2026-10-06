@@ -1,7 +1,5 @@
 package com.nuvio.app.features.social
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
@@ -548,7 +546,7 @@ internal val SocialPilePhoneBelow = 600.dp
 internal val SocialPileMinCell = 200.dp
 internal val SocialPileGap = 18.dp
 internal val SocialPileGapPhone = 16.dp
-private val SocialPileShift = 22.dp
+private val SocialPilePeek = 9.dp
 
 /**
  * One timeline card (2026-10-06 redesign, chosen from rendered candidates A-F): the art is a deck of
@@ -563,19 +561,17 @@ internal fun SocialActivityPileCard(
     compact: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    hovered: Boolean = false,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val strong = MaterialTheme.colorScheme.onBackground
     val titles = entry.titles
-    val spread by animateFloatAsState(if (hovered) 1f else 0f, tween(220), label = "pile-spread")
     Column(
         // ⚠ No rounded clip on the card: its corner sliced the first letter off the last text line.
         modifier.pointerHoverIcon(PointerIcon.Hand)
             .clickable(role = Role.Button, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        SocialPile(titles, spread = spread)
+        SocialPile(titles)
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             SocialAvatarStack(entry.people.take(3), (entry.people.size - 3).coerceAtLeast(0), if (compact) 20.dp else 22.dp)
@@ -612,38 +608,30 @@ internal fun SocialActivityPileCard(
 }
 
 /**
- * Up to three stills as a fanned deck, like a hand of cards: the newest in front, older ones behind
- * and to the right, each a step smaller, tilted up and slightly darker, pivoting near the bottom-left.
- * [spread] 0 is rest; 1 (hover) spins them further out and lifts the front still. Every pile keeps
- * the same 16:9 footprint, so a line of cards lines up whatever the counts; the spin happens in the
- * draw layer and may overhang its cell, which is why the grid raises a hovered card.
+ * Up to three stills as a centred stack: the newest in front, older ones centred above it, each a
+ * step narrower and higher and slightly darker, so their top edges show as bands. Every pile keeps
+ * the same 16:9 footprint (the front still gives up a top inset to the bands), so a line of cards
+ * lines up whatever the counts.
  *
- * 2026-10-06: the first fan (12dp steps, no tilt) was "too subtle" on a real screen.
+ * 2026-10-06, from rendered candidates: the first sideways fan (12dp steps) was "too subtle"; a hover
+ * that spun the deck out "doesn't fit the app"; a diagonal fan and a centred tilted fan lost to this.
  */
 @Composable
-internal fun SocialPile(titles: List<FriendActivityGroup>, modifier: Modifier = Modifier, spread: Float = 0f) {
+internal fun SocialPile(titles: List<FriendActivityGroup>, modifier: Modifier = Modifier) {
     val shown = titles.take(3)
     val back = (shown.size - 1).coerceAtLeast(0)
     BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-        val cardWidth = maxWidth - SocialPileShift * back
+        val cardHeight = maxHeight - SocialPilePeek * back
         shown.indices.reversed().forEach { depth ->
             val group = shown[depth]
             key(group.contentId) {
                 Box(
-                    Modifier.width(cardWidth).fillMaxHeight()
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth().height(cardHeight)
                         .graphicsLayer {
-                            transformOrigin = TransformOrigin(0.3f, 1f)
-                            if (depth == 0) {
-                                val lift = 1f + 0.03f * spread
-                                scaleX = lift
-                                scaleY = lift
-                                rotationZ = 1.5f * spread
-                                translationY = -4.dp.toPx() * spread
-                            } else {
-                                translationX = (SocialPileShift.value + 22f * spread).dp.toPx() * depth
-                                translationY = -(4f + 4f * spread).dp.toPx() * depth
-                                rotationZ = -(4f + 5f * spread) * depth
-                                val scale = 1f - 0.06f * depth
+                            if (depth > 0) {
+                                transformOrigin = TransformOrigin(0.5f, 0f)
+                                translationY = -SocialPilePeek.toPx() * depth
+                                val scale = 1f - 0.08f * depth
                                 scaleX = scale
                                 scaleY = scale
                             }
@@ -653,9 +641,7 @@ internal fun SocialPile(titles: List<FriendActivityGroup>, modifier: Modifier = 
                         },
                 ) {
                     SocialArtwork(group.artwork(), group.title, Modifier.matchParentSize())
-                    if (depth > 0) {
-                        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = (0.12f + 0.1f * depth) * (1f - 0.6f * spread))))
-                    }
+                    if (depth > 0) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.12f + 0.1f * depth)))
                 }
             }
         }
