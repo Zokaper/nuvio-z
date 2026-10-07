@@ -29,6 +29,11 @@ Desktop `Docs/PERFORMANCE-STUTTER-2026-10.md` contains the data and limitations.
 split suite is running; consult desktop STATUS for the final result. Settings fix has not been
 carried to mobile. Nothing pushed, merged or published in this continuation.
 
+Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` carries only
+Phase 1's off-UI-thread settings-sync startup (`f50962f88`) on top of the measured two-fix
+branch. Its focused build/tests are running, with physical comparison still pending. Hidden
+Home and class warming remain separate later steps. See that worktree's STATUS for acceptance.
+
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
 **Release candidate** (frozen product code; every later commit is docs, debug counters, the What's New reorder, the QA-marker removal and

@@ -27,6 +27,14 @@ stutter remains. Detailed evidence and limits: desktop `Docs/PERFORMANCE-STUTTER
 Settings is commonMain, but its fix has **not** yet been merged to mobile. This note is docs only;
 neither fix is merged into a release branch. Regenerate the numeric surface table at integration.
 
+**Next isolated step, prepared but not yet measured (2026-10-07):** desktop
+`codex/perf-stutter-2` cherry-picks Phase 1 `f50962f88` as `c401e1bfc` on top of the two fixes.
+Existing seams: `commonMain/.../AppGate.kt` replaces eager startup with a `LaunchedEffect`, waits
+for the first frame, then invokes `startObserving` on `Dispatchers.Default`;
+`commonMain/.../core/sync/ProfileSettingsSync.kt` protects check-and-start with one lock and makes
+the job reference volatile. This prevents concurrent callers starting duplicate observers.
+No hidden-Home or class-warming change is included. This remains desktop branch-only.
+
 ### 2026-09-30 Classic iOS RC blocker
 
 Existing seams: `MPVPlayerBridge.swift` now sends all synchronous mpv work and destruction
