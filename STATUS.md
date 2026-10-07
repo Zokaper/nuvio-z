@@ -26,7 +26,7 @@ Same-runtime, signed-in before/after recordings on battery at 60 Hz completed: t
 scaling and eager Settings index work disappear. Maintainer confirms Settings opens like other
 tabs, Home slightly smoother but still very stuttery, and general tab switching still stutters.
 Desktop `Docs/PERFORMANCE-STUTTER-2026-10.md` contains the data and limitations. Full desktop
-split suite is running; consult desktop STATUS for the final result. Settings fix has not been
+split suite passes: 1,898/1,072/457/49 = 3,476, zero failures/errors/skips/duplicates. Settings fix has not been
 carried to mobile. Nothing pushed, merged or published in this continuation.
 
 Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` carries only
