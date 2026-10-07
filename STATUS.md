@@ -39,7 +39,10 @@ adds the activity/lifecycle gate alone. In the real-host seeded virtual-time har
 stays composed while Library subscriptions fall 21 -> 7 and hero changes/snapshot applies fall
 10/182 -> 0/0 per minute; visible control stays unchanged. Jar and 4 focused cases pass. Test copy
 `perf-observe-data/apps/after-3-hidden-home` is ready; physical comparison remains pending while
-the maintainer is away, with full cumulative regression next. Canonical seam recorded above.
+the maintainer is away. Full cumulative regression passes **3,481** (1,903/1,072/457/49), zero
+failures/errors/skips/duplicates, all parts and supervisor exit 0; desktop fresh evidence is
+`build/perf-home-split-20261007`, recorded product-equivalent HEAD `c5ff5b056`. Canonical seam is
+recorded in PATCH-SURFACE; observation tools and later-fix preparation are committed separately.
 Class warming and row changes remain separate. See desktop STATUS/report for evidence and limits.
 
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)

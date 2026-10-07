@@ -47,7 +47,9 @@ when syncing the root-tab host; the activity owner itself adds no upstream confl
 Real-host seeded virtual-time comparison: Library subscriptions 21 -> 7, hero changes 10 -> 0
 and snapshot applies 182 -> 0 per virtual minute, with retained semantics unchanged. Visible-Home
 control is unchanged; jar and all 4 focused cases pass, including pause/resume. Separate copied
-app is ready; signed-in physical comparison and cumulative full regression are still pending.
+app is ready; signed-in physical comparison is still pending. Cumulative full split passes
+3,481 cases (1,903/1,072/457/49), zero failures/errors/skips/duplicates; all parts and supervisor
+exit 0. Desktop `build/perf-home-split-20261007` records product-equivalent HEAD `c5ff5b056`.
 No class-warming/row change, mobile product change, release integration or publication.
 
 ### 2026-09-30 Classic iOS RC blocker
