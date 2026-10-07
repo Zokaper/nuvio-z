@@ -17,6 +17,18 @@ folded into the bump commits and the branches were force-pushed with lease befor
   wizard stays on its own `ios-setup-v*` line (README pins `ios-setup-v1.1.2-beta.1`; bump it when a new setup release ships).
 - The non-blocking debt list in the entry below is unchanged by the release.
 
+## 2026-10-07 — Desktop performance comparison, canonical seam notes only
+
+Mobile documentation branch `codex/perf-stutter-documentation` records the two desktop seams
+in `Docs/PATCH-SURFACE.md`, based on post-release docs `4ea7481cc`. No mobile code changed.
+Desktop work stays on `claude/perf-stutter-1` in workspace `.claude-worktrees/perf-stutter`.
+Same-runtime, signed-in before/after recordings on battery at 60 Hz completed: targeted poster
+scaling and eager Settings index work disappear. Maintainer confirms Settings opens like other
+tabs, Home slightly smoother but still very stuttery, and general tab switching still stutters.
+Desktop `Docs/PERFORMANCE-STUTTER-2026-10.md` contains the data and limitations. Full desktop
+split suite is running; consult desktop STATUS for the final result. Settings fix has not been
+carried to mobile. Nothing pushed, merged or published in this continuation.
+
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
 **Release candidate** (frozen product code; every later commit is docs, debug counters, the What's New reorder, the QA-marker removal and
