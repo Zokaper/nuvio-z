@@ -31,8 +31,11 @@ carried to mobile. Nothing pushed, merged or published in this continuation.
 
 Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` carries only
 Phase 1's off-UI-thread settings-sync startup (`f50962f88`) on top of the measured two-fix
-branch. Its focused build/tests are running, with physical comparison still pending. Hidden
-Home and class warming remain separate later steps. See that worktree's STATUS for acceptance.
+branch. Desktop jar builds and 108 focused sync/auth tests pass. Paired signed-in 60 Hz recordings
+both exit normally and observer/MDBList initialization leaves the UI thread. Maintainer did not
+notice a visible startup improvement. The next hidden-Home step will be prepared offline while
+the maintainer is unavailable to test for about an hour; its physical comparison remains pending.
+Class warming and row changes remain separate. See desktop STATUS/report for evidence and limits.
 
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
