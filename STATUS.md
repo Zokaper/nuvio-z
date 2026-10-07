@@ -33,8 +33,13 @@ Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` 
 Phase 1's off-UI-thread settings-sync startup (`f50962f88`) on top of the measured two-fix
 branch. Desktop jar builds and 108 focused sync/auth tests pass. Paired signed-in 60 Hz recordings
 both exit normally and observer/MDBList initialization leaves the UI thread. Maintainer did not
-notice a visible startup improvement. The next hidden-Home step will be prepared offline while
-the maintainer is unavailable to test for about an hour; its physical comparison remains pending.
+notice a visible startup improvement. Hidden-Home step `codex/perf-stutter-3` is now prepared in
+desktop `.claude-worktrees/perf-stutter-2` (startup branch frozen at `c7e7bfb10`): `6f27e2eec`
+adds the activity/lifecycle gate alone. In the real-host seeded virtual-time harness, hidden Home
+stays composed while Library subscriptions fall 21 -> 7 and hero changes/snapshot applies fall
+10/182 -> 0/0 per minute; visible control stays unchanged. Jar and 4 focused cases pass. Test copy
+`perf-observe-data/apps/after-3-hidden-home` is ready; physical comparison remains pending while
+the maintainer is away, with full cumulative regression next. Canonical seam recorded above.
 Class warming and row changes remain separate. See desktop STATUS/report for evidence and limits.
 
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)

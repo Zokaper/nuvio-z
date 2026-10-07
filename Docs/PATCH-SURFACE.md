@@ -38,6 +38,18 @@ pass. Signed-in 60 Hz comparison confirms observer/MDBList startup no longer app
 samples. Maintainer did not notice a visible launch improvement; remaining launch and browsing
 costs are documented in the desktop report. This remains desktop branch-only.
 
+**Following isolated step, prepared offline (2026-10-07):** desktop `codex/perf-stutter-3`
+continues the frozen startup branch `c7e7bfb10`, cherry-picking Phase 1 `4c68420cb` as `6f27e2eec`.
+Existing upstream-owned `commonMain/.../AppShellComponents.kt` adds one wrapper around retained
+Home. New Z-owned `core/ui/TabPaneActivity.kt` provides inactive screen activity and caps its
+lifecycle at CREATED behind another tab, preserving composition/scroll state. Keep this wrapper
+when syncing the root-tab host; the activity owner itself adds no upstream conflict surface.
+Real-host seeded virtual-time comparison: Library subscriptions 21 -> 7, hero changes 10 -> 0
+and snapshot applies 182 -> 0 per virtual minute, with retained semantics unchanged. Visible-Home
+control is unchanged; jar and all 4 focused cases pass, including pause/resume. Separate copied
+app is ready; signed-in physical comparison and cumulative full regression are still pending.
+No class-warming/row change, mobile product change, release integration or publication.
+
 ### 2026-09-30 Classic iOS RC blocker
 
 Existing seams: `MPVPlayerBridge.swift` now sends all synchronous mpv work and destruction
