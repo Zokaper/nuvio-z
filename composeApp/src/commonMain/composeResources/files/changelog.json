@@ -54,6 +54,14 @@
           ],
           "title": "Automatic playback no longer picks a source that isn't ready",
           "body": "When the first choice failed, Streamlined and Instant could fall back to a source your debrid service hadn't cached yet, and you'd get its two-minute \"being prepared\" video instead of the episode. A source marked as not cached is now never played automatically, whichever addon it comes from."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "What's new is back in Settings",
+          "body": "The What's new row had gone missing from Settings. It is back under Setup & about, so you can read these notes again whenever you like."
         }
       ]
     },

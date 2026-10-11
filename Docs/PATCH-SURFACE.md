@@ -34,6 +34,12 @@ desktop `STATUS.md`. Upstream-owned files this pass modifies, with what to prese
     original, and logs an `IOException` instead of throwing. `wipeExcept` only matches `*.properties`, so a
     leftover `.tmp` is never treated as a store.
 
+- **commonMain, What's New row restored (also missing on mobile until the shared merge):** the 0.4.13 split of
+  `App.kt` dropped the `onWhatsNewClick` hand-off, so Settings hid the row. `MainAppContent.kt` passes it to
+  `AppTabActions` (`AppShellComponents.kt`) and to `SettingsRootDestination` (`SettingsDestinations.kt`), one line
+  each beside `onRunSetupAgain`. Both parameters have no default on purpose: a sync that loses them must fail to
+  compile rather than hide the row again.
+
 New Z-owned files with no upstream conflict surface: `DesktopImageDownscaler.kt`, `DesktopPrefetchScheduler.kt`,
 `DesktopWheelSmoothing.kt`, `HomeListState.kt`. The hidden-Home pause (`AppShellComponents.kt` wrapper and
 `TabPaneActivity.kt`) measured as no difference and was reverted before release; neither file is touched.
