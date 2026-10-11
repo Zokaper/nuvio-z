@@ -1,4 +1,15 @@
-Last updated: 2026-10-05
+Last updated: 2026-10-11
+
+## Desktop 0.1.26-alpha-z2 - Home-scrolling perf pass (desktop only; mobile ships nothing)
+
+Desktop branch `claude/perf-home-smooth`; full handoff in `NuvioZDesktop/STATUS.md`. Smoother Home scrolling
+(frames on time 60% -> 87% on the maintainer's signed-in touchpad runs), a lazy Settings search index, a fix for a
+reported crash while rapidly resizing the window, and the Windows app bundling JetBrains Runtime 25. This branch
+(`claude/perf-home-smooth-docs`) carries the desktop seam notes into `Docs/PATCH-SURFACE.md` (merging the
+superseded `codex/perf-stutter-documentation`) and the desktop-only changelog event `seq 2`, byte-identical to
+desktop's, which the desktop release checks against `main`. The four shared commonMain files the pass touches
+(`SettingsScreen.kt`, `AppGate.kt`, `ProfileSettingsSync.kt`, `HomeScreen.kt` + new `HomeListState.kt`) are **not**
+merged here; bringing them to mobile is a separate merge with its own phone check.
 
 ## iOS Setup v2 (released as a prerelease 2026-10-05; branch `claude/ios-setup-v2`)
 
