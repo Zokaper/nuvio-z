@@ -206,6 +206,30 @@ class PlaybackSourceSelectorTest {
     }
 
     @Test
+    fun anHourglassLinkFromAnUnrecognisedAggregatorNeverEntersTheChain() {
+        // Lioness, 2026-10-11: an AIOStreams instance with a custom name and no streamData. Its
+        // links are plain https proxies, so nothing marks them as debrid - only the name says
+        // whether the file is cached. The chain was cached -> uncached -> uncached, and the
+        // second attempt played the provider's "being prepared" slate.
+        fun aio(name: String, url: String) = StreamItem(
+            name = name,
+            url = url,
+            addonName = "Nuvio Z Recommended",
+            addonId = "aiostreamsfortheweebsstable.midnightignite.me.984e9233-3ec",
+        ).let { PlaybackSourceCandidate(stream = it, facts = SourceFactsExtractor.extract(it)) }
+        val cached = aio("[TB⚡] MediaFusion 2160p", "https://aio.example/playback/cached")
+        val preparing = aio("[TB⏳] ComeTorz 2160p", "https://aio.example/playback/preparing")
+        val alsoPreparing = aio("[TB⏳] ComeTorz 2160p", "https://aio.example/playback/preparing-2")
+        assertEquals(false, preparing.facts.isDebridReady)
+        assertFalse(preparing.facts.isAioStreams)
+
+        val result = assertIs<PlaybackSelectionResult.Play>(select(cached, preparing, alsoPreparing))
+        assertEquals(cached.stream, result.stream)
+        assertEquals(emptyList(), result.fallbacks)
+        assertIs<PlaybackSelectionResult.AskUncached>(select(preparing, alsoPreparing))
+    }
+
+    @Test
     fun theHourglassMarkerIsReadAsNotCached() {
         assertEquals(false, SourceFactsExtractor.parseDebridCacheMarker("⏳ 1080p WEB-DL"))
         assertEquals(true, SourceFactsExtractor.parseDebridCacheMarker("⚡ 1080p WEB-DL"))
