@@ -15,10 +15,10 @@ were left out). The hidden-Home commit and its revert were skipped as a pair.
   `rememberHomeListState()` seam (mobile keeps the stock saveable `LazyListState` - no behaviour change on a
   phone). Not measured on a phone, so not claimed in the changelog.
 
-Changelog: mobile-only event `seq 3` (two fixes); debug note for build 80. Remaining shared-file differences from
+Changelog: mobile-only event `seq 3` (two fixes); debug note for build 84 (80-83 were taken by `claude/social-v2` debug builds on 2026-10-05/06). Remaining shared-file differences from
 desktop (`AppGate.kt` loading-indicator colour, `MainAppContent.kt`, `HomeScreen.kt`) predate this carry.
 
-**Release checklist:** Debug 80 on a phone (Lioness S1E1 auto-play in Streamlined/Instant goes to a cached source
+**Release checklist:** Debug 84 on a phone (Lioness S1E1 auto-play in Streamlined/Instant goes to a cached source
 or asks; What's New row opens; Settings and Home behave), then merge to `main`, bump `MARKETING_VERSION=0.5.4-z2`,
 `CURRENT_PROJECT_VERSION=127`, `RELEASE_SERIAL=128` with the seq-3 ship dates as the last commit, mirror
 `changelog.json` byte-for-byte to desktop `Dev`, dry-run (~100 min for iOS), then publish on the maintainer's word.
