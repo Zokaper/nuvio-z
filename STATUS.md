@@ -18,6 +18,7 @@ were left out). The hidden-Home commit and its revert were skipped as a pair.
 Changelog: mobile-only event `seq 3` (two fixes); debug note for build 84 (80-83 were taken by `claude/social-v2` debug builds on 2026-10-05/06). Remaining shared-file differences from
 desktop (`AppGate.kt` loading-indicator colour, `MainAppContent.kt`, `HomeScreen.kt`) predate this carry.
 
+**Debug 84 (`debug-v0.5.4-z1.84`, run `38153578053`) passed the maintainer's phone check on 2026-10-11.**
 **Release checklist:** Debug 84 on a phone (Lioness S1E1 auto-play in Streamlined/Instant goes to a cached source
 or asks; What's New row opens; Settings and Home behave), then merge to `main`, bump `MARKETING_VERSION=0.5.4-z2`,
 `CURRENT_PROJECT_VERSION=127`, `RELEASE_SERIAL=128` with the seq-3 ship dates as the last commit, mirror
