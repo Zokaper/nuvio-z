@@ -1,5 +1,14 @@
 Last updated: 2026-10-11
 
+## RELEASED 2026-10-11: Mobile 0.5.4-z2+128 and Desktop 0.1.26-alpha-z2+133
+
+- Mobile `0.5.4-z2+128` (build 127): publish run `38164776757` from `64fec8f48` (dry run `38158517197`). Four APKs,
+  unsigned IPA, SideStore `source.json` updated (`f044a7d45`). GitHub "latest".
+- Desktop `0.1.26-alpha-z2+133`: publish run `38152244590` from `5379ea27a` (dry run `38150926446`). MSI + arm64 and
+  x86_64 DMGs (macOS unsigned). Desktop `Dev` later gained `7a51a0e4e` (seq-3 changelog mirror for this release).
+- Both carry the uncached auto-pick fix and the restored What's New row. Social V2 debug users (80-83) were moved
+  to Debug 84 by the mobile candidate; Social's next debug build must use 85 or higher.
+
 ## Mobile 0.5.4-z2 (serial 128) - shared fixes from the desktop perf pass (branch `claude/mobile-z2-shared`)
 
 The maintainer asked for a mobile release alongside desktop 0.1.26-alpha-z2 (shipped 2026-10-11). Five desktop
