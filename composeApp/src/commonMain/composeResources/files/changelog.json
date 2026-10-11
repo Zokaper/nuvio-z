@@ -19,12 +19,12 @@
         "android": {
           "version": "0.5.4-z2",
           "serial": 128,
-          "date": "unreleased"
+          "date": "2026-10-11"
         },
         "ios": {
           "version": "0.5.4-z2",
           "serial": 128,
-          "date": "unreleased"
+          "date": "2026-10-11"
         }
       },
       "entries": [
