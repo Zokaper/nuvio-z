@@ -455,15 +455,21 @@ object PlaybackSourceSelector {
      * copy is the only safe default, because a debrid addon that advertises its cache state
      * only in the display name leaves [SourceFacts.isDebridReady] null rather than false.
      *
-     * Scoped to debrid-backed candidates on purpose. Plugin scrapers and plain direct links
-     * legitimately have no cache state at all, and treating their null as "not ready" would
-     * empty the candidate set and turn Instant into a mode that never plays anything.
+     * The *unknown* case is scoped to debrid-backed candidates on purpose. Plugin scrapers and
+     * plain direct links legitimately have no cache state at all, and treating their null as
+     * "not ready" would empty the candidate set and turn Instant into a mode that never plays
+     * anything.
+     *
+     * ⚠ **An explicit "not cached" is never scoped.** It used to need the same debrid evidence,
+     * and an AIOStreams instance that sends no `streamData` (Lioness, 2026-10-11) gave none: its
+     * `[TB⏳]` links are plain `https://` URLs, playback builds facts without the addon's
+     * manifest, so `isAioStreams` was false and the hourglass was waved through. Three
+     * uncached candidates sat in the failure chain, and the second one played Torbox's
+     * two-minute "being prepared" slate. A source that says it is not ready is not ready,
+     * whoever serves it.
      */
     private fun isUncachedDebrid(candidate: PlaybackSourceCandidate): Boolean {
-        if (candidate.facts.isDebridReady == false) {
-            return candidate.stream.isTorrentStream || candidate.stream.clientResolve != null ||
-                isDebridBacked(candidate)
-        }
+        if (candidate.facts.isDebridReady == false) return true
         return candidate.facts.isDebridReady == null && isDebridBacked(candidate)
     }
 

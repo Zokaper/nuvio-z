@@ -101,6 +101,10 @@
     {
       "build": 76,
       "text": "What's New is now one changelog across Desktop, Android and iPhone. This build previews the next release's notes: they open once after this update, and stay in Settings → What's New, which shows a New badge while something is unseen. Entries for other devices sit at the end of each update. Everything in 75 is here too."
+    },
+    {
+      "build": 84,
+      "text": "Release candidate for 0.5.4-z2. Automatic playback never falls back to a source your debrid service has not cached yet (test Lioness S1E1 in Streamlined or Instant), and What's new is back in Settings under Setup & about."
     }
   ]
 }

@@ -49,6 +49,8 @@ internal fun SettingsRootDestination(
     collectionsTitle: String,
     onCheckForUpdates: (() -> Unit)?,
     onTestUpdateBanner: (() -> Unit)?,
+    // Z: no default, so a sync that drops it fails to compile instead of hiding the row (it did once).
+    onWhatsNew: (() -> Unit)?,
     onRunSetupAgain: (() -> Unit)? = null,
 ) {
     SettingsScreen(
@@ -64,6 +66,7 @@ internal fun SettingsRootDestination(
         },
         onCheckForUpdatesClick = onCheckForUpdates,
         onTestUpdateBannerClick = onTestUpdateBanner,
+        onWhatsNewClick = onWhatsNew,
         onRunSetupAgainClick = onRunSetupAgain,
     )
 }

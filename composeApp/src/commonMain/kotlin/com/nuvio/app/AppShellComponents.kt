@@ -216,6 +216,8 @@ internal data class AppTabActions(
     val onSupportersContributorsSettingsClick: () -> Unit = {},
     val onLicensesAttributionsSettingsClick: () -> Unit = {},
     val onCheckForUpdatesClick: (() -> Unit)? = null,
+    // Z: no default, so a sync that drops it fails to compile instead of hiding the row (it did once).
+    val onWhatsNewClick: (() -> Unit)?,
     val onRunSetupAgainClick: (() -> Unit)? = null,
     val onTestUpdateBannerClick: (() -> Unit)? = null,
     val onCollectionsSettingsClick: () -> Unit = {},
@@ -431,6 +433,7 @@ internal fun AppTabHost(
                                 onSupportersContributorsClick = actions.onSupportersContributorsSettingsClick,
                                 onLicensesAttributionsClick = actions.onLicensesAttributionsSettingsClick,
                                 onCheckForUpdatesClick = actions.onCheckForUpdatesClick,
+                                onWhatsNewClick = actions.onWhatsNewClick,
                                 onRunSetupAgainClick = actions.onRunSetupAgainClick,
                                 onTestUpdateBannerClick = actions.onTestUpdateBannerClick,
                                 onCollectionsClick = actions.onCollectionsSettingsClick,

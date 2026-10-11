@@ -1,5 +1,29 @@
 Last updated: 2026-10-11
 
+## Mobile 0.5.4-z2 (serial 128) - shared fixes from the desktop perf pass (branch `claude/mobile-z2-shared`)
+
+The maintainer asked for a mobile release alongside desktop 0.1.26-alpha-z2 (shipped 2026-10-11). Five desktop
+commits were cherry-picked with `-x` (shared Kotlin only; their desktopMain/desktopTest parts do not exist here and
+were left out). The hidden-Home commit and its revert were skipped as a pair.
+
+- `PlaybackSourceSelector.kt` - a source whose facts say "not cached" (`isDebridReady == false`, e.g. an
+  `[TB⏳]` link from an aggregator the extractor does not recognise) is never auto-played. Mobile had this bug in
+  0.5.4-z1: Streamlined/Instant could fall back to a "being prepared" video (found on desktop Debug 90, Lioness S1E1).
+- What's New row restored under Settings > Setup & about (lost in the 0.4.13 `App.kt` split; the two hops are now
+  required parameters so a sync that drops them fails to compile).
+- Settings search index built only when a query is typed; settings-sync observer started off the UI thread;
+  `rememberHomeListState()` seam (mobile keeps the stock saveable `LazyListState` - no behaviour change on a
+  phone). Not measured on a phone, so not claimed in the changelog.
+
+Changelog: mobile-only event `seq 3` (two fixes); debug note for build 84 (80-83 were taken by `claude/social-v2` debug builds on 2026-10-05/06). Remaining shared-file differences from
+desktop (`AppGate.kt` loading-indicator colour, `MainAppContent.kt`, `HomeScreen.kt`) predate this carry.
+
+**Debug 84 (`debug-v0.5.4-z1.84`, run `38153578053`) passed the maintainer's phone check on 2026-10-11.**
+**Release checklist:** Debug 84 on a phone (Lioness S1E1 auto-play in Streamlined/Instant goes to a cached source
+or asks; What's New row opens; Settings and Home behave), then merge to `main`, bump `MARKETING_VERSION=0.5.4-z2`,
+`CURRENT_PROJECT_VERSION=127`, `RELEASE_SERIAL=128` with the seq-3 ship dates as the last commit, mirror
+`changelog.json` byte-for-byte to desktop `Dev`, dry-run (~100 min for iOS), then publish on the maintainer's word.
+
 ## Desktop 0.1.26-alpha-z2 - Home-scrolling perf pass (desktop only; mobile ships nothing)
 
 Desktop branch `claude/perf-home-smooth`; full handoff in `NuvioZDesktop/STATUS.md`. Smoother Home scrolling
