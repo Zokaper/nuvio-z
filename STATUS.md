@@ -193,6 +193,34 @@ folded into the bump commits and the branches were force-pushed with lease befor
   wizard stays on its own `ios-setup-v*` line (README pins `ios-setup-v1.1.2-beta.1`; bump it when a new setup release ships).
 - The non-blocking debt list in the entry below is unchanged by the release.
 
+## 2026-10-07 — Desktop performance comparison, canonical seam notes only
+
+Mobile documentation branch `codex/perf-stutter-documentation` records the two desktop seams
+in `Docs/PATCH-SURFACE.md`, based on post-release docs `4ea7481cc`. No mobile code changed.
+Desktop work stays on `claude/perf-stutter-1` in workspace `.claude-worktrees/perf-stutter`.
+Same-runtime, signed-in before/after recordings on battery at 60 Hz completed: targeted poster
+scaling and eager Settings index work disappear. Maintainer confirms Settings opens like other
+tabs, Home slightly smoother but still very stuttery, and general tab switching still stutters.
+Desktop `Docs/PERFORMANCE-STUTTER-2026-10.md` contains the data and limitations. Full desktop
+split suite passes: 1,898/1,072/457/49 = 3,476, zero failures/errors/skips/duplicates. Settings fix has not been
+carried to mobile. Nothing pushed, merged or published in this continuation.
+
+Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` carries only
+Phase 1's off-UI-thread settings-sync startup (`f50962f88`) on top of the measured two-fix
+branch. Desktop jar builds and 108 focused sync/auth tests pass. Paired signed-in 60 Hz recordings
+both exit normally and observer/MDBList initialization leaves the UI thread. Maintainer did not
+notice a visible startup improvement. Hidden-Home step `codex/perf-stutter-3` is now prepared in
+desktop `.claude-worktrees/perf-stutter-2` (startup branch frozen at `c7e7bfb10`): `6f27e2eec`
+adds the activity/lifecycle gate alone. In the real-host seeded virtual-time harness, hidden Home
+stays composed while Library subscriptions fall 21 -> 7 and hero changes/snapshot applies fall
+10/182 -> 0/0 per minute; visible control stays unchanged. Jar and 4 focused cases pass. Test copy
+`perf-observe-data/apps/after-3-hidden-home` is ready; physical comparison remains pending while
+the maintainer is away. Full cumulative regression passes **3,481** (1,903/1,072/457/49), zero
+failures/errors/skips/duplicates, all parts and supervisor exit 0; desktop fresh evidence is
+`build/perf-home-split-20261007`, recorded product-equivalent HEAD `c5ff5b056`. Canonical seam is
+recorded in PATCH-SURFACE; observation tools and later-fix preparation are committed separately.
+Class warming and row changes remain separate. See desktop STATUS/report for evidence and limits.
+
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 
 **Release candidate** (frozen product code; every later commit is docs, debug counters, the What's New reorder, the QA-marker removal and
