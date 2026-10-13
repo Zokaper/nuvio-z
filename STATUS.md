@@ -30,7 +30,14 @@ intent), runnable from a Shortcuts automation while LocalDevVPN is connected.
   renders 15-20 (build-it-yourself, QR, loading, completed page offering it, opened from Settings, confirmed) were
   reviewed. **Not verified:** the Settings dialog itself (dialogs are not in the harness), and the whole flow on a
   real iPhone.
-- **Release:** `ios-setup-v2.1.0-beta.1` (app version 2.1.0) through "Build iOS Setup GUI" with `publish_tag`.
+- **RELEASED 2026-10-13 as prerelease `ios-setup-v2.1.0-beta.1`** (commit `2ab9b4798`, run `38440381421`, all three jobs
+  green); `ios-setup-vlatest` now carries 2.1.0, so the README links serve it. SHA-256: Windows
+  `6c4ad25d57536b67e6dc2138f39860733203973a629a75476c245a375fcaf7ab` (67,806,849 bytes), macOS
+  `37ae27795b7c92fae229d82abfe3516c70355b6fdd928466e108070aa56677ea` (74,778,391 bytes). 2.0.0-beta.1 retitled
+  "(Superseded)". GitHub "latest" is still the app (`0.5.4-z2+128`); no SideStore feed was touched.
+- **Next:** the maintainer tests the step on their iPhone. If the overnight run works, build the shortcut as the step
+  describes, share it (Shortcuts → share → Copy iCloud Link) and put that link in
+  `distribution/sidestore/ios-setup-autorefresh.json` on `main`.
 
 ## RELEASED 2026-10-11: Mobile 0.5.4-z2+128 and Desktop 0.1.26-alpha-z2+133
 
