@@ -141,9 +141,14 @@ itself as it sees it happen:
 2. Follow the checklist. The app downloads what it needs (a verified copy of iloader and, on
    Windows, Apple's iPhone drivers), then guides you through connecting and trusting your iPhone,
    installing LocalDevVPN and SideStore, allowing SideStore's notifications, and adding the Nuvio Z
-   source by scanning a QR code with your iPhone camera. Your Apple sign-in happens in iloader and
-   SideStore; the app never sees your password, and it works out where you left off if you stop
-   halfway.
+   source by scanning a QR code with your iPhone camera. The last step sets up a nightly
+   auto-refresh in the Shortcuts app, so you never have to refresh by hand. Your Apple sign-in
+   happens in iloader and SideStore; the app never sees your password, and it works out where you
+   left off if you stop halfway.
+
+**Already set up, and tired of refreshing every 7 days?** Open Nuvio Z iOS Setup and choose
+**Settings → Set up daily auto-refresh**. It walks you through a Shortcuts automation that
+refreshes SideStore and Nuvio Z every night. No cable needed.
 
 **Already have SideStore set up?** Add the Nuvio Z source in SideStore and install Nuvio Z from
 it:
@@ -156,7 +161,7 @@ https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/so
 (`Nuvio-Z-iOS-…-unsigned.ipa`) that you can sideload with the tool of your choice.
 
 **Updates** arrive through SideStore, which shows an *Update* badge next to Nuvio Z. Keep
-SideStore and LocalDevVPN set up so it can refresh the app. Signing limits and troubleshooting are
+SideStore and LocalDevVPN set up so it can refresh the app (the nightly auto-refresh does this for you). Signing limits and troubleshooting are
 in [`distribution/sidestore/README.md`](./distribution/sidestore/README.md).
 
 ## Development

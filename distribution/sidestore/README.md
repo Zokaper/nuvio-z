@@ -26,8 +26,17 @@ next, and it advances by itself:
   forbid that. A collapsed manual option (copy URL, Sources -> +) covers a Camera that does not open it.
   A second QR installs the newest IPA directly as a shortcut; it skips the source, so the recommended
   install is Browse -> Nuvio Z after the source is added.
+- **Daily auto-refresh (2.1):** the last step walks the user through two Shortcuts automations: one
+  connects LocalDevVPN and runs SideStore's *Refresh All Apps* every night, the other disconnects
+  LocalDevVPN 15 minutes later (iOS runs one VPN at a time, and Shortcuts rarely runs anything after a
+  refresh). iOS lets nothing outside the phone create an automation, so this stays a confirmation. It
+  is also opened directly from Settings, with no cable, for phones set up before it existed. The
+  ready-made shortcut's iCloud link lives in `ios-setup-autorefresh.json` here (mirrored in
+  `iosSetup/src/main/resources/autorefresh.json`); the assistant prefers this hosted copy, so a link can
+  be published or replaced without a new release. Only `https://www.icloud.com/shortcuts/<32 hex>` is
+  accepted; with `null` the step shows how to build the shortcut by hand.
 - **Resume and manual mode:** state is re-derived from the phone on every launch; only your confirmations
-  are saved. Advanced settings has a manual mode that ignores the device checker entirely.
+  are saved. Settings has a manual mode that ignores the device checker entirely.
 
 macOS: open `Nuvio Z iOS Setup.app`. If an unsigned build is blocked, use System Settings -> Privacy &
 Security -> **Open Anyway**. The assistant never removes quarantine attributes or bypasses Gatekeeper.

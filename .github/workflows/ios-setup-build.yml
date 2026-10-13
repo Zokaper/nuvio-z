@@ -146,7 +146,9 @@ jobs:
 
           A live checklist replaces the old step-by-step wizard. The assistant detects the iPhone, trust, Developer Mode, LocalDevVPN, SideStore, Nuvio Z and the pairing file by itself, places SideStore's pairing file for you, downloads a pinned and checksum-verified iloader (never bundled), and shows a scan-to-add QR for the Nuvio Z source.
 
-          Still done by you: Apple sign-in in iloader, trusting the developer profile, allowing SideStore notifications, SideStore's first refresh, and adding the source.
+          Daily auto-refresh: the last step (also under Settings, no cable needed, for phones set up earlier) walks you through a Shortcuts automation that connects LocalDevVPN and refreshes SideStore and Nuvio Z every night, so the 7-day signature never runs out.
+
+          Still done by you: Apple sign-in in iloader, trusting the developer profile, allowing SideStore notifications, SideStore's first refresh, adding the source, and creating the two Shortcuts automations (iOS lets nothing outside the phone create them).
 
           Windows x64 and macOS ZIPs are unsigned. On Windows choose More info, then Run anyway. On macOS use System Settings, Privacy and Security, Open Anyway. Mac support is untested on real hardware.
 

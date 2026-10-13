@@ -18,7 +18,7 @@ class BoardRenderHarness {
     private val ready = javaClass.getResource("/helper-status-ready.json")!!.readText().trim()
     private val noDevice = """{"protocol":1,"helper":"0.1.0","idevice":"0.1.68","usbmuxd":{"reachable":true,"usbDevices":0},"device":null,"errors":{}}"""
     private val out: Path = Path.of("build", "render").also { Files.createDirectories(it) }
-    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED, Requirement.AUTO_REFRESH)
 
     private fun helper(status: String, pairOk: Boolean = true) = DeviceHelper(Path.of("helper.exe"), runner = { args, _ ->
         when (args[1]) {
@@ -32,6 +32,7 @@ class BoardRenderHarness {
         SetupSession(ops, helper ?: DeviceHelper(null), null, Diagnostics(Files.createTempFile("render", ".log")), progress)
 
     private val debug = SetupProgress(channel = SetupChannel.DEVELOPER, developerWarningAccepted = true)
+    private val sharedShortcut = """{"schema":1,"shortcutUrl":"https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef"}"""
 
     private fun render(name: String, session: SetupSession, width: Int = 1120, height: Int = 720) {
         val scene = ImageComposeScene(width, height, Density(1f)) {
@@ -64,5 +65,14 @@ class BoardRenderHarness {
         session(null, SetupProgress(manualMode = true)).also { it.tick(); render("12-manual-mode", it) }
         session(helper(ready), debug.copy(setupCompleted = true, confirmed = humanSteps.toSet())).also { it.enterRepair(); it.tick(); render("13-repair", it) }
         session(helper(ready), debug, FakeOps(installOk = false)).also { it.tick(); render("14-tools-failed", it) }
+        val beforeAutoRefresh = humanSteps - Requirement.AUTO_REFRESH
+        session(helper(ready), debug).also { it.tick(); beforeAutoRefresh.forEach { s -> it.confirm(s) }; it.loadAutoRefreshConfig { null }; it.tick(); render("15-auto-refresh-build-it", it); render("15-auto-refresh-build-it", it, 1440, 900); render("15-auto-refresh-build-it", it, 1440, 1900) }
+        session(helper(ready), debug).also { it.tick(); beforeAutoRefresh.forEach { s -> it.confirm(s) }; it.loadAutoRefreshConfig { sharedShortcut }; it.tick(); render("16-auto-refresh-qr", it) }
+        session(helper(ready), debug).also { it.tick(); beforeAutoRefresh.forEach { s -> it.confirm(s) }; it.tick(); render("17-auto-refresh-loading", it) }
+        // A setup finished before this step existed, then the same step opened from Settings without a phone.
+        val legacy = debug.copy(setupCompleted = true, confirmed = beforeAutoRefresh.toSet())
+        session(helper(noDevice), legacy).also { render("18-complete-offers-auto-refresh", it); render("18-complete-offers-auto-refresh", it, 1440, 900) }
+        session(helper(noDevice), legacy).also { it.loadAutoRefreshConfig { null }; it.openAutoRefresh(); render("19-auto-refresh-from-settings", it); render("19-auto-refresh-from-settings", it, 1440, 900) }
+        session(helper(noDevice), legacy).also { it.loadAutoRefreshConfig { null }; it.openAutoRefresh(); it.confirm(Requirement.AUTO_REFRESH); render("20-auto-refresh-confirmed", it) }
     }
 }

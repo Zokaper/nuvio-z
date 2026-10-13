@@ -21,6 +21,11 @@ enum class Requirement(val title: String, val phase: SetupPhase, val manualOnly:
     SIDESTORE_READY("SideStore signed in and refreshed", SetupPhase.SET_UP_SIDESTORE, manualOnly = true),
     SOURCE_ADDED("Nuvio Z source added", SetupPhase.INSTALL_NUVIO, manualOnly = true),
     NUVIO("Nuvio Z installed", SetupPhase.INSTALL_NUVIO),
+    /**
+     * A Shortcuts automation that refreshes every night. Lives only on the phone and needs no cable, so it
+     * is never blocked: someone who installed Nuvio Z long ago can open it straight from Settings.
+     */
+    AUTO_REFRESH("Daily auto-refresh set up", SetupPhase.AUTO_REFRESH, manualOnly = true),
 }
 
 enum class RequirementStatus {
@@ -131,6 +136,7 @@ object Requirements {
 
         val nuvio = if (channel == SetupChannel.STABLE) device?.nuvioStable else device?.nuvioDebug
         add(Requirement.NUVIO, app(nuvio), nuvio?.version.orEmpty())
+        add(Requirement.AUTO_REFRESH, RequirementStatus.UNKNOWN)
         return results
     }
 

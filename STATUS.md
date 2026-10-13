@@ -1,4 +1,36 @@
-Last updated: 2026-10-11
+Last updated: 2026-10-13
+
+## iOS Setup 2.1: daily auto-refresh (2026-10-13, branch `claude/ios-setup-auto-refresh`)
+
+The maintainer asked for a way to stop iOS users forgetting the 7-day SideStore refresh. Researched first: nothing
+legitimate removes the free-account 7-day limit (cert "signing services" are leaked enterprise certs or resold
+paid-dev UDID slots; AltStore PAL is EU/JP/BR-only and needs notarization). What works is automating the refresh:
+SideStore ships an App Intent **Refresh All Apps** (`RefreshAllAppsIntent`, iOS 17+; same title on the legacy SiriKit
+intent), runnable from a Shortcuts automation while LocalDevVPN is connected.
+
+- **New 13th requirement `AUTO_REFRESH`** (phase "Auto-refresh", manual-only). Four parts on the iPhone: the shortcut
+  (Set VPN → Connect LocalDevVPN, Wait 5 s, SideStore Refresh All Apps with Show When Run off), a daily Time of Day
+  automation (Run Immediately), a second automation 15 min later that disconnects LocalDevVPN (iOS allows one VPN at a
+  time and users report Shortcuts rarely runs anything after Refresh All Apps), and one test run. Never blocked by
+  the phone, so it can be confirmed with no cable; dropped like the other human answers if SideStore is deleted.
+- **Reachable from Settings.** The top-right "Advanced settings" text button is now a gear icon + "Settings"
+  (`material-icons-core:1.7.3`, the only new dependency); the dialog opens with a "Daily auto-refresh" card that jumps
+  straight to the step (`SetupSession.openAutoRefresh`, transient, over any setup state). A setup finished before 2.1
+  lands on the completed page, which now offers the same step first until it is confirmed.
+- **Shortcut link is hosted:** `distribution/sidestore/ios-setup-autorefresh.json` on `main` (shipped copy
+  `iosSetup/src/main/resources/autorefresh.json`). Only `https://www.icloud.com/shortcuts/<32 hex>` validates. It is
+  **`null` today**, so the step shows build-it-yourself steps; once the maintainer builds the shortcut on the iPhone
+  and shares it, put the iCloud link in the hosted file on `main` and every 2.1 install shows a QR instead, no release
+  needed. The page shows "Loading the shortcut…" until the lookup resolves, never one variant then the other.
+- **Caveat seen in SideStore's source:** the intent asks to continue in the foreground if a refresh passes ~27 s.
+  At 3 AM on a locked phone that may not finish; the troubleshooting copy says to open SideStore. Unverified on a
+  phone - this is the first thing the maintainer's test will show.
+- **Verification:** `:iosSetup:test` **117 / 117** locally (JDK 21; 104 before + 13 new: `AutoRefreshConfigTest`,
+  requirement/session cases; one v1 phase test narrowed because v1 has no auto-refresh page). `BoardRenderHarness`
+  renders 15-20 (build-it-yourself, QR, loading, completed page offering it, opened from Settings, confirmed) were
+  reviewed. **Not verified:** the Settings dialog itself (dialogs are not in the harness), and the whole flow on a
+  real iPhone.
+- **Release:** `ios-setup-v2.1.0-beta.1` (app version 2.1.0) through "Build iOS Setup GUI" with `publish_tag`.
 
 ## RELEASED 2026-10-11: Mobile 0.5.4-z2+128 and Desktop 0.1.26-alpha-z2+133
 

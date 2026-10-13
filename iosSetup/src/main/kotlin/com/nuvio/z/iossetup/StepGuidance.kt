@@ -5,6 +5,7 @@ enum class SetupPhase(val title: String) {
     CONNECT("Connect iPhone"),
     SET_UP_SIDESTORE("Set up SideStore"),
     INSTALL_NUVIO("Install Nuvio Z"),
+    AUTO_REFRESH("Auto-refresh"),
     FINISH("Finish"),
 }
 
@@ -156,7 +157,7 @@ fun guidanceFor(step: SetupStep, state: SetupState = SetupState(), isMac: Boolea
             purpose = "$app is installed. You won’t need this computer day to day; here’s the one thing worth knowing about apps from SideStore.",
             success = "You know what to do if $app ever stops opening.",
             troubleshooting = listOf(
-                TroubleTip("Refresh All fails", listOf("Connect LocalDevVPN and retry on Wi-Fi.", "If SideStore names a pairing problem, use Advanced settings → Repair SideStore pairing in this assistant.")),
+                TroubleTip("Refresh All fails", listOf("Connect LocalDevVPN and retry on Wi-Fi.", "If SideStore names a pairing problem, use Settings → Repair SideStore pairing in this assistant.")),
                 TroubleTip("SideStore itself will not open", listOf("Its 7 days ran out too, so it can’t refresh itself.", "Reconnect the iPhone to this computer, open iloader, and choose Install SideStore (Stable) again.", "Then open SideStore and tap Refresh All.")),
             ),
         )

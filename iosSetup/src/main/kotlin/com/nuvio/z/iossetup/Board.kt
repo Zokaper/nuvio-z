@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,10 +53,17 @@ internal fun SetupLayout(session: SetupSession, onDiagnostics: () -> Unit, onAdv
         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 32.dp, vertical = 22.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDiagnostics) { Text("Help & diagnostics") }
-                TextButton(onClick = onAdvanced) { Text("Advanced settings") }
+                TextButton(onClick = onAdvanced) {
+                    Icon(Icons.Outlined.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Settings")
+                }
             }
-            if (completed) CompletedPage(session, Modifier.weight(1f).fillMaxWidth())
-            else Board(session, Modifier.weight(1f).fillMaxWidth())
+            when {
+                session.autoRefreshOpen -> AutoRefreshPage(session, Modifier.weight(1f).fillMaxWidth())
+                completed -> CompletedPage(session, Modifier.weight(1f).fillMaxWidth())
+                else -> Board(session, Modifier.weight(1f).fillMaxWidth())
+            }
         }
     }
 }
@@ -65,8 +74,15 @@ internal fun SetupLayout(session: SetupSession, onDiagnostics: () -> Unit, onAdv
 private fun ProgressRail(session: SetupSession, modifier: Modifier) {
     val results = session.results
     val completed = session.progress.setupCompleted && !session.progress.repairMode
-    val currentPhase = if (completed) SetupPhase.FINISH else session.focus?.requirement?.phase ?: SetupPhase.FINISH
-    fun phaseDone(phase: SetupPhase) = completed || results.filter { it.requirement.phase == phase }.let { rs -> rs.isNotEmpty() && rs.all { it.done } }
+    val currentPhase = when {
+        session.autoRefreshOpen -> SetupPhase.AUTO_REFRESH
+        completed -> SetupPhase.FINISH
+        else -> session.focus?.requirement?.phase ?: SetupPhase.FINISH
+    }
+    // A setup finished before auto-refresh existed is still finished, but its auto-refresh is not done.
+    fun phaseDone(phase: SetupPhase) = results.filter { it.requirement.phase == phase }.let { rs ->
+        (completed && phase != SetupPhase.AUTO_REFRESH) || (rs.isNotEmpty() && rs.all { it.done })
+    }
 
     Column(modifier.background(RailColor).padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Nuvio Z", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -75,7 +91,7 @@ private fun ProgressRail(session: SetupSession, modifier: Modifier) {
         Column(Modifier.weight(1f)) {
             SetupPhase.entries.forEachIndexed { index, phase ->
                 val done = phaseDone(phase) && phase != SetupPhase.FINISH || (phase == SetupPhase.FINISH && completed)
-                val current = !completed && phase == currentPhase
+                val current = (!completed || session.autoRefreshOpen) && phase == currentPhase
                 Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(99.dp), color = when { done -> Color(0xFF25895B); current -> Color(0xFF245EAF); else -> Color(0xFF28384D) }) {
                         Box(Modifier.size(27.dp), contentAlignment = Alignment.Center) {
@@ -164,6 +180,7 @@ private fun focusTitle(requirement: Requirement, channel: SetupChannel) = when (
     Requirement.SIDESTORE_READY -> "Sign in to SideStore"
     Requirement.SOURCE_ADDED -> "Add ${channel.appName} to SideStore"
     Requirement.NUVIO -> "Install ${channel.appName}"
+    Requirement.AUTO_REFRESH -> "Set up daily auto-refresh"
 }
 
 private fun focusPurpose(requirement: Requirement, channel: SetupChannel) = when (requirement) {
@@ -179,6 +196,7 @@ private fun focusPurpose(requirement: Requirement, channel: SetupChannel) = when
     Requirement.SIDESTORE_READY -> "A first refresh proves SideStore, LocalDevVPN, your Apple sign-in and the pairing file all work together."
     Requirement.SOURCE_ADDED -> "A SideStore source is just a catalog address. Adding ours makes ${channel.appName} appear in SideStore."
     Requirement.NUVIO -> "SideStore can now download, sign and install ${channel.appName}. We’ll notice when it appears."
+    Requirement.AUTO_REFRESH -> "A free Apple Account signs apps for 7 days at a time. Two Shortcuts automations renew SideStore and ${channel.appName} every night, so you never have to remember. It all happens on the iPhone, with no cable."
 }
 
 @Composable
@@ -353,6 +371,99 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult) 
             Spacer(Modifier.height(12.dp))
             DeviceStatus(session, waitingText = "Waiting for $app to appear on the iPhone")
         }
+        Requirement.AUTO_REFRESH -> AutoRefreshContent(session)
+    }
+}
+
+/** The four parts of the nightly refresh. Everything here is done on the iPhone. */
+@Composable
+private fun AutoRefreshContent(session: SetupSession) {
+    val app = session.progress.channel.appName
+    val shortcut = AutoRefreshConfig.SHORTCUT_NAME
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { session.loadAutoRefreshConfig() } }
+    val config = session.autoRefreshConfig
+
+    PartHeading(1, "Add the refresh shortcut")
+    when {
+        config == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp); Spacer(Modifier.width(12.dp)); Text("Loading the shortcut…", color = TextSecondary)
+        }
+        config.shortcutUrl != null -> {
+            QrBlock(config.shortcutUrl, "Scan with the iPhone Camera, then tap Add Shortcut. It connects LocalDevVPN and asks SideStore to refresh all apps.")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { copyText(config.shortcutUrl) }) { Text("Copy shortcut link") }
+        }
+        else -> Instructions(listOf(
+            "On the iPhone open Shortcuts, tap + and name the new shortcut “$shortcut”.",
+            "Add the Set VPN action. Set it to Connect and choose LocalDevVPN.",
+            "Add the Wait action and set it to 5 seconds.",
+            "Search for SideStore and add Refresh All Apps. Tap its arrow and turn off Show When Run.",
+        ))
+    }
+
+    PartHeading(2, "Run it every night")
+    Instructions(listOf(
+        "In Shortcuts open the Automation tab and tap + to make a new automation.",
+        "Choose Time of Day. Pick a time the iPhone is usually at home on Wi-Fi, such as 3:00 AM, and set it to Daily.",
+        "Choose Run Immediately and leave Notify When Run off. On iOS 16, turn off Ask Before Running instead.",
+        "Tap Next and choose “$shortcut”.",
+    ))
+
+    PartHeading(3, "Switch LocalDevVPN off afterwards")
+    Text("iOS runs one VPN at a time, and Shortcuts can’t reliably do anything after a refresh, so a second automation turns it off.", color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(bottom = 4.dp))
+    Instructions(listOf(
+        "Make another Time of Day automation 15 minutes later, such as 3:15 AM. Daily, Run Immediately.",
+        "Choose New Blank Automation, add Set VPN, set it to Disconnect and choose LocalDevVPN.",
+    ))
+
+    PartHeading(4, "Test it once")
+    Instructions(listOf(
+        "In the Shortcuts tab, tap “$shortcut” and allow anything iOS asks. Only this first run needs you.",
+        "Open SideStore → My Apps. SideStore and $app should show 7 DAYS again.",
+    ))
+    Spacer(Modifier.height(14.dp))
+    InfoCallout("Your apps still expire, just never in practice", "The signature is still 7 days. The automation renews it every night while the iPhone is on Wi-Fi, so the counter shouldn’t get near zero.")
+}
+
+@Composable
+private fun PartHeading(part: Int, title: String) {
+    Row(Modifier.padding(top = if (part == 1) 0.dp else 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("PART $part", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(Modifier.width(10.dp))
+        Text(title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** The auto-refresh step on its own, opened from Settings. Needs no cable, whatever the setup state. */
+@Composable
+private fun AutoRefreshPage(session: SetupSession, modifier: Modifier) {
+    val channel = session.progress.channel
+    val confirmed = Requirement.AUTO_REFRESH in session.progress.confirmed
+    Box(modifier) {
+        Column(Modifier.widthIn(max = 800.dp).fillMaxHeight().align(Alignment.TopStart).verticalScroll(rememberScrollState())) {
+            TextButton(onClick = { session.closeAutoRefresh() }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("← Back") }
+            Spacer(Modifier.height(4.dp))
+            Text("AUTO-REFRESH  ·  NO CABLE NEEDED", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(Modifier.height(9.dp))
+            Text(focusTitle(Requirement.AUTO_REFRESH, channel), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(Modifier.height(8.dp))
+            Text(focusPurpose(Requirement.AUTO_REFRESH, channel), color = TextSecondary, fontSize = 15.sp, lineHeight = 22.sp)
+            Spacer(Modifier.height(20.dp))
+            ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = CardColor)) {
+                Column(Modifier.padding(22.dp)) {
+                    SectionLabel("WHAT TO DO ON THE IPHONE")
+                    Spacer(Modifier.height(12.dp))
+                    AutoRefreshContent(session)
+                    Spacer(Modifier.height(16.dp))
+                    ManualConfirmation(confirmationTextFor(Requirement.AUTO_REFRESH, channel), confirmed) { session.confirm(Requirement.AUTO_REFRESH, it) }
+                    Spacer(Modifier.height(14.dp))
+                    Troubleshooting(troubleshootingFor(Requirement.AUTO_REFRESH, channel, session.isMac))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            if (confirmed) Button(onClick = { session.closeAutoRefresh() }) { Text("Done") }
+            Spacer(Modifier.height(12.dp))
+        }
     }
 }
 
@@ -439,12 +550,28 @@ private fun CompletedPage(session: SetupSession, modifier: Modifier) {
             Text("You’re all set", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Text("$app${if (version.isNotBlank()) " $version" else ""} is installed on your iPhone.", color = TextSecondary, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
             Spacer(Modifier.height(24.dp))
+            val autoRefresh = Requirement.AUTO_REFRESH in session.progress.confirmed
+            if (!autoRefresh) {
+                // Setups finished before this step existed land here: offer it before anything else.
+                ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF152D50))) {
+                    Column(Modifier.padding(24.dp)) {
+                        SectionLabel("NEW · DAILY AUTO-REFRESH")
+                        Spacer(Modifier.height(8.dp))
+                        Text("Stop refreshing by hand", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("A Shortcuts automation can renew SideStore and $app every night. It takes a few minutes on the iPhone and needs no cable.", color = TextSecondary, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
+                        Spacer(Modifier.height(14.dp))
+                        Button(onClick = { session.openAutoRefresh() }) { Text("Set up auto-refresh") }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
             ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = CardColor)) {
                 Column(Modifier.padding(24.dp)) {
                     SectionLabel("FROM NOW ON")
                     Spacer(Modifier.height(12.dp))
-                    InfoRows(listOf(
+                    InfoRows(listOfNotNull(
                         "Apps from SideStore are signed with your own Apple Account, and Apple limits a free account’s signature to 7 days.",
+                        if (autoRefresh) "Your nightly automation renews that signature while the iPhone is on Wi-Fi, so you shouldn’t have to think about it." else null,
                         "If $app won’t open: connect Wi-Fi and LocalDevVPN, then in SideStore → My Apps tap Refresh All. You don’t need this computer or a cable.",
                         "Installing an update from SideStore also starts a fresh 7 days and keeps your data.",
                         "If SideStore says the pairing is invalid, come back here and choose Repair pairing.",
@@ -469,10 +596,21 @@ private fun AdvancedDialog(session: SetupSession, onDismiss: () -> Unit, onRepai
     val progress = session.progress
     val scope = rememberCoroutineScope()
     AlertDialog(
-        onDismissRequest = onDismiss, title = { Text("Advanced settings") },
+        onDismissRequest = onDismiss, title = { Text("Settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Most people can leave these unchanged.", color = TextSecondary); Spacer(Modifier.height(12.dp))
+                Surface(color = Color(0xFF152D50), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Daily auto-refresh", color = BlueText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Already have ${progress.channel.appName} on your iPhone? Set up the nightly refresh without going through setup again. No cable needed.", color = Color.White, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { session.openAutoRefresh(); onDismiss() }) {
+                            Text(if (Requirement.AUTO_REFRESH in progress.confirmed) "Open the auto-refresh steps" else "Set up daily auto-refresh")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Most people can leave the rest unchanged.", color = TextSecondary); Spacer(Modifier.height(12.dp))
                 Text("Install channel", fontWeight = FontWeight.Bold)
                 RadioRow("Nuvio Z Stable (recommended)", progress.channel == SetupChannel.STABLE) { session.setChannel(SetupChannel.STABLE) }
                 RadioRow("Developer Channel (experimental)", progress.channel == SetupChannel.DEVELOPER) { confirmDeveloper = true }

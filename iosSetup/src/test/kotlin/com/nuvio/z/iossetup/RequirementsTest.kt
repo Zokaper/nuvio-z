@@ -11,7 +11,7 @@ class RequirementsTest {
     private val goodComputer = ComputerCheck(
         CheckResult("os", CheckState.PASS), CheckResult("net", CheckState.PASS), CheckResult("apple", CheckState.PASS), null,
     )
-    private val humanSteps = setOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = setOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED, Requirement.AUTO_REFRESH)
 
     /** A real `nuvioz-device-helper status` line from a fully set-up iPhone (team id masked). */
     private fun readyLine() = javaClass.getResource("/helper-status-ready.json")!!.readText()
@@ -110,8 +110,20 @@ class RequirementsTest {
         assertEquals(RequirementStatus.BLOCKED, results.status(Requirement.PROFILE_TRUST))
     }
 
+    @Test fun autoRefreshIsConfirmableWithoutAPhoneSoSettingsCanOpenIt() {
+        val noPhone = evaluate(ready().copy(device = null, usbDeviceCount = 0), confirmed = setOf(Requirement.AUTO_REFRESH))
+        assertEquals(RequirementStatus.SATISFIED, noPhone.status(Requirement.AUTO_REFRESH))
+        assertEquals(RequirementStatus.UNKNOWN, evaluate(null, computer = null).status(Requirement.AUTO_REFRESH))
+    }
+
+    @Test fun autoRefreshComesLastAfterNuvioIsInstalled() {
+        val results = evaluate(ready(), confirmed = humanSteps - Requirement.AUTO_REFRESH)
+        assertEquals(Requirement.AUTO_REFRESH, Requirements.focus(results)?.requirement)
+        assertEquals(SetupPhase.AUTO_REFRESH, Requirement.AUTO_REFRESH.phase)
+    }
+
     @Test fun reconcileDropsHumanAnswersWhenSideStoreWasDeleted() {
-        val confirmed = setOf(Requirement.PROFILE_TRUST, Requirement.SOURCE_ADDED, Requirement.DEVELOPER_MODE)
+        val confirmed = setOf(Requirement.PROFILE_TRUST, Requirement.SOURCE_ADDED, Requirement.AUTO_REFRESH, Requirement.DEVELOPER_MODE)
         val gone = evaluate(device { it.copy(sidestore = null, pairingFile = PairingFileState.SIDESTORE_MISSING) }, confirmed = confirmed)
         assertEquals(setOf(Requirement.DEVELOPER_MODE), Requirements.reconcile(confirmed, gone))
         assertEquals(confirmed, Requirements.reconcile(confirmed, evaluate(ready(), confirmed = confirmed)))
@@ -141,7 +153,7 @@ class RequirementsTest {
         assertEquals(
             listOf(
                 "COMPUTER", "DEVICE", "TRUST", "LOOPBACK_APP", "SIDESTORE", "PAIRING",
-                "DEVELOPER_MODE", "PROFILE_TRUST", "NOTIFICATIONS", "SIDESTORE_READY", "SOURCE_ADDED", "NUVIO",
+                "DEVELOPER_MODE", "PROFILE_TRUST", "NOTIFICATIONS", "SIDESTORE_READY", "SOURCE_ADDED", "NUVIO", "AUTO_REFRESH",
             ),
             Requirement.entries.map { it.name },
         )

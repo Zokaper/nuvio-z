@@ -58,7 +58,8 @@ class StepGuidanceTest {
 
     @Test fun simplifiedProgressPhasesCoverTheWholeFlowInOrder() {
         val phases = SetupStep.entries.map(::phaseFor)
-        assertEquals(SetupPhase.entries, phases.distinct())
+        // Auto-refresh arrived with v2 and has no v1 page.
+        assertEquals(SetupPhase.entries - SetupPhase.AUTO_REFRESH, phases.distinct())
         assertEquals(SetupPhase.GET_READY, phaseFor(SetupStep.WELCOME))
         assertEquals(SetupPhase.CONNECT, phaseFor(SetupStep.CONNECT_IPHONE))
         assertEquals(SetupPhase.SET_UP_SIDESTORE, phaseFor(SetupStep.PAIRING))

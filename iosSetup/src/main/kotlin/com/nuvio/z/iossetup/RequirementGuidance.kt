@@ -16,10 +16,13 @@ fun Requirement.legacyStep(): SetupStep = when (this) {
     Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY -> SetupStep.SIDESTORE_PRIME
     Requirement.SOURCE_ADDED -> SetupStep.ADD_SOURCE
     Requirement.NUVIO -> SetupStep.INSTALL_NUVIO
+    // Has no v1 page; troubleshootingFor gives it its own tips.
+    Requirement.AUTO_REFRESH -> SetupStep.FINISH
 }
 
 /** Static tips for the requirement, with a state-driven [error] explanation (if any) placed first. */
 fun troubleshootingFor(requirement: Requirement, channel: SetupChannel, isMac: Boolean, error: SetupError? = null): List<TroubleTip> {
+    if (requirement == Requirement.AUTO_REFRESH) return autoRefreshTips(channel.appName)
     val fromError = error?.takeIf { requirement == Requirement.DEVICE || requirement == Requirement.TRUST }?.recovery(isMac).orEmpty()
     val static = guidanceFor(requirement.legacyStep(), SetupState(channel = channel), isMac).troubleshooting
     // The error already covers the connection basics, so drop the static tips that say the same thing.
@@ -40,4 +43,5 @@ fun confirmationTextFor(requirement: Requirement, channel: SetupChannel): String
     Requirement.SIDESTORE_READY -> "SideStore signed in and completed its first refresh"
     Requirement.SOURCE_ADDED -> "I see the ${channel.appName} source in SideStore"
     Requirement.NUVIO -> "I see ${channel.appName} on my Home Screen"
+    Requirement.AUTO_REFRESH -> "Both automations are set up and my test run refreshed SideStore"
 }

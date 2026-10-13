@@ -12,7 +12,7 @@ class SetupSessionTest {
     private val ready = javaClass.getResource("/helper-status-ready.json")!!.readText().trim()
     /** The fixture phone has Nuvio Z Debug installed, so a finishing run uses the Developer channel. */
     private val debugRun = SetupProgress(channel = SetupChannel.DEVELOPER, developerWarningAccepted = true)
-    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED)
+    private val humanSteps = listOf(Requirement.PROFILE_TRUST, Requirement.NOTIFICATIONS, Requirement.SIDESTORE_READY, Requirement.SOURCE_ADDED, Requirement.AUTO_REFRESH)
 
     /** A scripted helper: [status] is mutable so a test can move the phone through states. */
     private inner class Script(var status: String = ready, var pairOk: Boolean = true) {
@@ -208,6 +208,48 @@ class SetupSessionTest {
         s.leaveRepair(); s.tick()
         assertTrue(s.progress.setupCompleted); assertFalse(s.progress.repairMode)
     }
+
+    @Test fun settingsOpensAutoRefreshOverAFinishedSetupAndTheAnswerIsSaved() {
+        val dir = Files.createTempDirectory("autorefresh")
+        val store = ProgressStore(dir.resolve("setup-state.json"))
+        // Finished before the auto-refresh step existed: the answer is simply missing.
+        val s = session(Script(), store = store, initial = debugRun.copy(setupCompleted = true, confirmed = humanSteps.toSet() - Requirement.AUTO_REFRESH))
+        s.openAutoRefresh()
+        assertTrue(s.autoRefreshOpen)
+        s.confirm(Requirement.AUTO_REFRESH)
+        s.closeAutoRefresh()
+        assertFalse(s.autoRefreshOpen)
+        assertTrue(s.progress.setupCompleted, "opening auto-refresh never reopens setup")
+        assertTrue(Requirement.AUTO_REFRESH in assertNotNullProgress(store).confirmed)
+    }
+
+    @Test fun autoRefreshCanBeAnsweredWithNoPhoneAttached() {
+        val none = """{"protocol":1,"helper":"0.1.0","idevice":"0.1.68","usbmuxd":{"reachable":true,"usbDevices":0},"device":null,"errors":{}}"""
+        val s = session(Script(status = none))
+        s.tick(); s.openAutoRefresh(); s.confirm(Requirement.AUTO_REFRESH); s.tick()
+        assertEquals(RequirementStatus.SATISFIED, s.status(Requirement.AUTO_REFRESH))
+        assertEquals(Requirement.DEVICE, s.focus?.requirement, "the rest of setup is unaffected")
+    }
+
+    @Test fun setupIsNotCompleteUntilAutoRefreshIsConfirmed() {
+        val s = session(Script(), initial = debugRun)
+        s.tick(); (humanSteps - Requirement.AUTO_REFRESH).forEach { s.confirm(it) }; s.tick()
+        assertFalse(s.progress.setupCompleted)
+        assertEquals(Requirement.AUTO_REFRESH, s.focus?.requirement)
+        s.confirm(Requirement.AUTO_REFRESH); s.tick()
+        assertTrue(s.progress.setupCompleted)
+    }
+
+    @Test fun shortcutLinkLoadsOnceAndFallsBackToTheShippedCopy() {
+        val s = session(Script())
+        assertNull(s.autoRefreshConfig, "unknown until loaded, never a guess")
+        s.loadAutoRefreshConfig { error("offline") }
+        assertEquals(AutoRefreshConfig.embedded(), s.autoRefreshConfig)
+        s.loadAutoRefreshConfig { """{"schema":1,"shortcutUrl":"https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef"}""" }
+        assertEquals(AutoRefreshConfig.embedded(), s.autoRefreshConfig, "loaded once per run")
+    }
+
+    private fun assertNotNullProgress(store: ProgressStore): SetupProgress = kotlin.test.assertNotNull(store.loadProgress())
 
     @Test fun startOverClearsSavedProgressButKeepsTheChosenChannel() {
         val dir = Files.createTempDirectory("clear")

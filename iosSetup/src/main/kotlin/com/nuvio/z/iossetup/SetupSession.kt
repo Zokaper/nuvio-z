@@ -36,6 +36,10 @@ class SetupSession(
     var pairingResult by mutableStateOf<PlacePairingResult?>(null); private set
     var lastOperation by mutableStateOf<OperationResult?>(null); private set
     var busyLabel by mutableStateOf<String?>(null); private set
+    /** The auto-refresh page opened on its own from Settings, over whatever setup state there is. */
+    var autoRefreshOpen by mutableStateOf(false); private set
+    /** Null until [loadAutoRefreshConfig] finished, so the page says "loading" instead of guessing. */
+    var autoRefreshConfig by mutableStateOf<AutoRefreshConfig?>(null); private set
 
     private var pairingAutoTried = false
     private var revealAutoTried = false
@@ -140,6 +144,17 @@ class SetupSession(
 
     /** Ends repair; the next tick marks setup complete again if everything checks out. */
     fun leaveRepair() = update { it.copy(repairMode = false) }
+
+    /** Opens the nightly-refresh page directly, for a phone that already has SideStore and Nuvio Z. */
+    fun openAutoRefresh() { autoRefreshOpen = true }
+
+    fun closeAutoRefresh() { autoRefreshOpen = false }
+
+    /** Reads the shared shortcut link (hosted first, then the shipped copy). Blocking; call off the UI thread. */
+    fun loadAutoRefreshConfig(fetchRemote: (() -> String?)? = null) {
+        if (autoRefreshConfig != null) return
+        autoRefreshConfig = if (fetchRemote == null) AutoRefreshConfig.load() else AutoRefreshConfig.load(fetchRemote)
+    }
 
     fun startOver() {
         store?.clear()
