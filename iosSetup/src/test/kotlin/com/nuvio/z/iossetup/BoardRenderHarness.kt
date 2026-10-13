@@ -74,5 +74,9 @@ class BoardRenderHarness {
         session(helper(noDevice), legacy).also { render("18-complete-offers-auto-refresh", it); render("18-complete-offers-auto-refresh", it, 1440, 900) }
         session(helper(noDevice), legacy).also { it.loadAutoRefreshConfig { null }; it.openAutoRefresh(); render("19-auto-refresh-from-settings", it); render("19-auto-refresh-from-settings", it, 1440, 900) }
         session(helper(noDevice), legacy).also { it.loadAutoRefreshConfig { null }; it.openAutoRefresh(); it.confirm(Requirement.AUTO_REFRESH); render("20-auto-refresh-confirmed", it) }
+        val finished = debug.copy(setupCompleted = true, confirmed = humanSteps.toSet())
+        session(helper(ready), finished).also { it.openResign(); it.tick(); render("21-resign-ready", it); render("21-resign-ready", it, 1440, 1900) }
+        session(helper(noDevice), legacy).also { it.openResign(); it.tick(); render("22-resign-no-phone", it) }
+        session(helper(ready), finished, FakeOps(installOk = false)).also { it.openResign(); it.tick(); render("23-resign-tools-failed", it) }
     }
 }

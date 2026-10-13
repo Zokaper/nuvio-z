@@ -1,5 +1,24 @@
 Last updated: 2026-10-13
 
+## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
+
+The maintainer noticed the assistant had no way back for a SideStore that has itself expired (it can't open, so it
+can't refresh anything, and auto-refresh can't rescue it). Only "Repair SideStore pairing" existed, which replaces the
+pairing file and nothing else.
+
+- **New "Re-sign SideStore" page** (`SetupSession.openResign`, transient; Settings and the finished page's primary
+  button). The assistant still never signs anything: Apple sign-in stays in iloader, which has no separate re-sign,
+  so the page reinstalls SideStore through iloader **over the expired copy with the same Apple Account** (SideStore's
+  bundle id carries the team id, so another account installs a second copy; the copy says so). Four parts: live
+  phone status, iloader (downloaded if missing; the launcher block is now shared with the setup step), the pairing
+  file (live status, auto-placed if absent, a Replace button), then trust/Refresh All on the phone. Offers auto-refresh
+  if not yet set up. Own troubleshooting (`resignTips`).
+- `tick()` now keeps polling a finished setup while the re-sign page is open, so the phone and iloader are live there.
+- **Not verified:** whether reinstalling over the old copy keeps SideStore's sign-in, sources and app list. It
+  normally does for a same-bundle-id install; the tips cover an empty SideStore. The maintainer's phone test settles it.
+- `:iosSetup:test` **119 / 119** locally (2 new session tests). Renders 21-23 (phone ready, no phone, iloader download
+  failed) and the finished page with the new button were reviewed. iosSetup 2.1.1.
+
 ## iOS Setup 2.1: daily auto-refresh (2026-10-13, branch `claude/ios-setup-auto-refresh`)
 
 The maintainer asked for a way to stop iOS users forgetting the 7-day SideStore refresh. Researched first: nothing

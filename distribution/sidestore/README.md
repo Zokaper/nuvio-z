@@ -35,6 +35,10 @@ next, and it advances by itself:
   `iosSetup/src/main/resources/autorefresh.json`); the assistant prefers this hosted copy, so a link can
   be published or replaced without a new release. Only `https://www.icloud.com/shortcuts/<32 hex>` is
   accepted; with `null` the step shows how to build the shortcut by hand.
+- **Re-sign SideStore (2.1.1):** for a SideStore that has itself expired and so can't refresh anything.
+  The assistant never signs: it opens iloader (downloading it if needed) to install SideStore again over
+  the expired copy with the same Apple Account, shows the phone and pairing file live, places a pairing
+  file if one is missing, and ends with Refresh All on the phone. In Settings and on the finished page.
 - **Resume and manual mode:** state is re-derived from the phone on every launch; only your confirmations
   are saved. Settings has a manual mode that ignores the device checker entirely.
 

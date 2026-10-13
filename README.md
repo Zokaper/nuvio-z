@@ -146,6 +146,9 @@ itself as it sees it happen:
    happens in iloader and SideStore; the app never sees your password, and it works out where you
    left off if you stop halfway.
 
+**SideStore itself won't open?** Its 7 days ran out, and an expired SideStore can't refresh itself.
+Connect the iPhone, open Nuvio Z iOS Setup and choose **Settings → Re-sign SideStore**.
+
 **Already set up, and tired of refreshing every 7 days?** Open Nuvio Z iOS Setup and choose
 **Settings → Set up daily auto-refresh**. It walks you through a Shortcuts automation that
 refreshes SideStore and Nuvio Z every night. No cable needed.

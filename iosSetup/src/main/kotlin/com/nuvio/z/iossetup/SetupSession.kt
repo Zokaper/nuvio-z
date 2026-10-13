@@ -38,6 +38,8 @@ class SetupSession(
     var busyLabel by mutableStateOf<String?>(null); private set
     /** The auto-refresh page opened on its own from Settings, over whatever setup state there is. */
     var autoRefreshOpen by mutableStateOf(false); private set
+    /** The re-sign page, for a SideStore that expired and can no longer refresh itself. Needs the phone. */
+    var resignOpen by mutableStateOf(false); private set
     /** Null until [loadAutoRefreshConfig] finished, so the page says "loading" instead of guessing. */
     var autoRefreshConfig by mutableStateOf<AutoRefreshConfig?>(null); private set
 
@@ -60,7 +62,8 @@ class SetupSession(
     // ---- background loop ----------------------------------------------------------------------------
 
     fun tick() {
-        if (progress.setupCompleted && !progress.repairMode) return
+        // A finished setup stops polling the phone, unless the user came back to re-sign SideStore.
+        if (progress.setupCompleted && !progress.repairMode && !resignOpen) return
         if (computer == null) checkComputer()
         if (computer?.supportedOs?.state == CheckState.PASS) ensureTools()
         if (probing) probeDevice() else deviceProbed = true
@@ -146,9 +149,17 @@ class SetupSession(
     fun leaveRepair() = update { it.copy(repairMode = false) }
 
     /** Opens the nightly-refresh page directly, for a phone that already has SideStore and Nuvio Z. */
-    fun openAutoRefresh() { autoRefreshOpen = true }
+    fun openAutoRefresh() { resignOpen = false; autoRefreshOpen = true }
 
     fun closeAutoRefresh() { autoRefreshOpen = false }
+
+    /**
+     * Opens the re-sign page. Signing needs the user's Apple Account, which only ever goes into iloader, so
+     * this page reinstalls SideStore through iloader over the expired copy rather than signing anything itself.
+     */
+    fun openResign() { autoRefreshOpen = false; resignOpen = true }
+
+    fun closeResign() { resignOpen = false }
 
     /** Reads the shared shortcut link (hosted first, then the shipped copy). Blocking; call off the UI thread. */
     fun loadAutoRefreshConfig(fetchRemote: (() -> String?)? = null) {

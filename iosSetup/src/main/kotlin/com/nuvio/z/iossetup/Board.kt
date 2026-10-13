@@ -60,6 +60,7 @@ internal fun SetupLayout(session: SetupSession, onDiagnostics: () -> Unit, onAdv
                 }
             }
             when {
+                session.resignOpen -> ResignPage(session, Modifier.weight(1f).fillMaxWidth())
                 session.autoRefreshOpen -> AutoRefreshPage(session, Modifier.weight(1f).fillMaxWidth())
                 completed -> CompletedPage(session, Modifier.weight(1f).fillMaxWidth())
                 else -> Board(session, Modifier.weight(1f).fillMaxWidth())
@@ -289,26 +290,7 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult) 
             DeviceStatus(session, waitingText = "Waiting for LocalDevVPN to appear on the iPhone")
         }
         Requirement.SIDESTORE -> {
-            when (val tools = session.tools) {
-                ToolsState.Idle -> Text("Preparing the SideStore installer…", color = TextSecondary)
-                is ToolsState.Working -> {
-                    val fraction = tools.total?.takeIf { it > 0 }?.let { (tools.downloaded.toFloat() / it).coerceIn(0f, 1f) }
-                    Text("Downloading the SideStore installer (iloader)…", color = TextSecondary)
-                    Spacer(Modifier.height(8.dp))
-                    if (fraction != null) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
-                is ToolsState.Failed -> {
-                    WarningCallout("The installer couldn’t be downloaded", tools.result.message)
-                    Spacer(Modifier.height(10.dp))
-                    Button(onClick = { session.retryTools() }) { Text("Try again") }
-                    Text("You can also install iloader yourself from iloader.app, then use it as described below.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-                }
-                ToolsState.Ready -> {
-                    Instructions(listOf("Click the button below. The SideStore installer opens.", "Select your iPhone and sign in with your Apple Account. Complete Apple’s verification if asked.", "Choose Install SideStore (Stable). Wait until it finishes.", "Come back here: this page continues by itself."))
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { scope.launch(Dispatchers.IO) { session.openIloader() } }) { Text("Open the SideStore installer") }
-                }
-            }
+            SideStoreInstaller(session, listOf("Click the button below. The SideStore installer opens.", "Select your iPhone and sign in with your Apple Account. Complete Apple’s verification if asked.", "Choose Install SideStore (Stable). Wait until it finishes.", "Come back here: this page continues by itself."))
             Spacer(Modifier.height(12.dp))
             DeviceStatus(session, waitingText = "Waiting for SideStore to appear on the iPhone")
             Spacer(Modifier.height(12.dp))
@@ -372,6 +354,32 @@ private fun RequirementContent(session: SetupSession, focus: RequirementResult) 
             DeviceStatus(session, waitingText = "Waiting for $app to appear on the iPhone")
         }
         Requirement.AUTO_REFRESH -> AutoRefreshContent(session)
+    }
+}
+
+/** iloader's download progress, then [instructions] and the button that opens it. Shared by setup and re-sign. */
+@Composable
+private fun SideStoreInstaller(session: SetupSession, instructions: List<String>) {
+    val scope = rememberCoroutineScope()
+    when (val tools = session.tools) {
+        ToolsState.Idle -> Text("Preparing the SideStore installer…", color = TextSecondary)
+        is ToolsState.Working -> {
+            val fraction = tools.total?.takeIf { it > 0 }?.let { (tools.downloaded.toFloat() / it).coerceIn(0f, 1f) }
+            Text("Downloading the SideStore installer (iloader)…", color = TextSecondary)
+            Spacer(Modifier.height(8.dp))
+            if (fraction != null) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        is ToolsState.Failed -> {
+            WarningCallout("The installer couldn’t be downloaded", tools.result.message)
+            Spacer(Modifier.height(10.dp))
+            Button(onClick = { session.retryTools() }) { Text("Try again") }
+            Text("You can also install iloader yourself from iloader.app, then use it as described below.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        }
+        ToolsState.Ready -> {
+            Instructions(instructions)
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { scope.launch(Dispatchers.IO) { session.openIloader() } }) { Text("Open the SideStore installer") }
+        }
     }
 }
 
@@ -513,6 +521,109 @@ private fun QrBlock(payload: String, caption: String) {
     }
 }
 
+/**
+ * SideStore past its 7 days can't open, so it can't refresh itself or anything else. Installing it again
+ * through iloader, over the expired copy and with the same Apple Account, renews its signature.
+ */
+@Composable
+private fun ResignPage(session: SetupSession, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    val channel = session.progress.channel
+    val app = channel.appName
+    Box(modifier) {
+        Column(Modifier.widthIn(max = 800.dp).fillMaxHeight().align(Alignment.TopStart).verticalScroll(rememberScrollState())) {
+            TextButton(onClick = { session.closeResign() }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("← Back") }
+            Spacer(Modifier.height(4.dp))
+            Text("RE-SIGN SIDESTORE  ·  USB CABLE NEEDED", color = BlueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(Modifier.height(9.dp))
+            Text("Re-sign SideStore", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(Modifier.height(8.dp))
+            Text("Use this when SideStore itself won’t open because its 7 days ran out. An expired SideStore can’t refresh itself, so it has to be installed again from this computer. Installing it over the old copy renews it.", color = TextSecondary, fontSize = 15.sp, lineHeight = 22.sp)
+            Spacer(Modifier.height(20.dp))
+            ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = CardColor)) {
+                Column(Modifier.padding(22.dp)) {
+                    SectionLabel("WHAT TO DO")
+                    Spacer(Modifier.height(12.dp))
+
+                    PartHeading(1, "Connect your iPhone")
+                    Instructions(listOf("Connect the iPhone with a data cable, unlock it and keep the screen on."))
+                    Spacer(Modifier.height(8.dp))
+                    ResignDeviceStatus(session)
+
+                    PartHeading(2, "Install SideStore again")
+                    SideStoreInstaller(session, listOf(
+                        "Click the button below. The SideStore installer opens.",
+                        "Select your iPhone and sign in with the same Apple Account SideStore uses now. A different account installs a second SideStore instead of renewing this one.",
+                        "Choose Install SideStore (Stable). It installs over the expired copy.",
+                        "Wait until it says it’s finished.",
+                    ))
+
+                    PartHeading(3, "Pairing file")
+                    ResignPairingStatus(session)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(enabled = !session.pairingRunning, onClick = { scope.launch(Dispatchers.IO) { session.placePairing() } }) {
+                        Text(if (session.pairingRunning) "Working…" else "Replace the pairing file")
+                    }
+                    Text("Only needed if SideStore says the pairing file is invalid. iloader normally places a fresh one itself.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+
+                    PartHeading(4, "Finish on the iPhone")
+                    Instructions(listOf(
+                        "Open SideStore. If iOS says Untrusted Developer, go to Settings → General → VPN & Device Management and trust your Apple Account again.",
+                        "Connect LocalDevVPN, then in SideStore → My Apps tap Refresh All. This renews $app too.",
+                        "Check that SideStore and $app show 7 DAYS.",
+                    ))
+                    if (Requirement.AUTO_REFRESH !in session.progress.confirmed) {
+                        Spacer(Modifier.height(14.dp))
+                        Surface(color = Color(0xFF152D50), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Avoid this next time", color = BlueText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("A nightly Shortcuts automation keeps SideStore from expiring in the first place.", color = Color.White, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+                                TextButton(onClick = { session.openAutoRefresh() }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Set up daily auto-refresh") }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Troubleshooting(resignTips(channel))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { session.closeResign() }) { Text("Done") }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/** Whether iloader can reach the phone right now. iloader needs it connected, trusted and unlocked. */
+@Composable
+private fun ResignDeviceStatus(session: SetupSession) {
+    val device = session.helperStatus?.device
+    when {
+        !session.helper.available || session.progress.manualMode -> InfoCallout("Manual mode", "The automatic device checker isn’t running. iloader shows the iPhone once it’s connected and trusted.")
+        !session.deviceProbed -> Text("Looking for your iPhone…", color = TextSecondary, fontWeight = FontWeight.SemiBold)
+        session.error?.code == ErrorCode.TRANSPORT_DOWN -> LiveStatusRow(false, "Apple device communication is not ready")
+        device == null -> LiveStatusRow(false, session.error?.headline ?: "Waiting for an unlocked iPhone")
+        device.trust != TrustState.VALID -> LiveStatusRow(false, "Tap Trust on the iPhone and enter your passcode")
+        device.appsKnown && device.sidestore == null -> LiveStatusRow(false, "SideStore isn’t on this iPhone. Install it with the installer below.")
+        else -> LiveStatusRow(true, "iPhone connected and trusted${device.iosVersion?.let { " (iOS $it)" }.orEmpty()}")
+    }
+}
+
+@Composable
+private fun ResignPairingStatus(session: SetupSession) {
+    val pairing = session.helperStatus?.device?.takeIf { it.trust == TrustState.VALID }?.pairingFile
+    when {
+        session.pairingRunning -> LiveStatusRow(false, "Placing a fresh pairing file… keep the iPhone unlocked.")
+        session.pairingResult?.ok == false -> {
+            WarningCallout("We couldn’t place the pairing file", session.pairingResult!!.userMessage)
+            Spacer(Modifier.height(8.dp))
+            Text("You can also do it in iloader: Manage Pairing File, then Place beside SideStore.", color = TextSecondary, fontSize = 13.sp)
+        }
+        pairing == PairingFileState.PRESENT -> LiveStatusRow(true, "SideStore has a pairing file")
+        pairing == PairingFileState.ABSENT -> LiveStatusRow(false, "SideStore has no pairing file yet. We’ll place one automatically.")
+        else -> Text("We’ll check this once the iPhone is connected.", color = TextSecondary)
+    }
+}
+
 // ---- repair and completion -------------------------------------------------------------------------
 
 @Composable
@@ -575,13 +686,14 @@ private fun CompletedPage(session: SetupSession, modifier: Modifier) {
                         "If $app won’t open: connect Wi-Fi and LocalDevVPN, then in SideStore → My Apps tap Refresh All. You don’t need this computer or a cable.",
                         "Installing an update from SideStore also starts a fresh 7 days and keeps your data.",
                         "If SideStore says the pairing is invalid, come back here and choose Repair pairing.",
-                        "If SideStore itself won’t open, reconnect the iPhone here, use Repair, then reinstall SideStore with the installer.",
+                        "If SideStore itself won’t open, its 7 days ran out: reconnect the iPhone here and choose Re-sign SideStore.",
                     ))
                 }
             }
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { session.enterRepair() }) { Text("Repair pairing") }
+                Button(onClick = { session.openResign() }) { Text("Re-sign SideStore") }
+                OutlinedButton(onClick = { session.enterRepair() }) { Text("Repair pairing") }
                 if (removable) OutlinedButton(onClick = { scope.launch(Dispatchers.IO) { val r = session.removeInstalledTools(); removable = !r.success } }) { Text("Remove the install tool from this computer") }
                 OutlinedButton(onClick = { session.startOver() }) { Text("Start over") }
             }
@@ -615,6 +727,8 @@ private fun AdvancedDialog(session: SetupSession, onDismiss: () -> Unit, onRepai
                 RadioRow("Nuvio Z Stable (recommended)", progress.channel == SetupChannel.STABLE) { session.setChannel(SetupChannel.STABLE) }
                 RadioRow("Developer Channel (experimental)", progress.channel == SetupChannel.DEVELOPER) { confirmDeveloper = true }
                 Spacer(Modifier.height(10.dp)); HorizontalDivider(); Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = { session.openResign(); onDismiss() }) { Text("Re-sign SideStore") }
+                Text("When SideStore itself won’t open because its 7 days ran out. Needs the iPhone connected.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
                 OutlinedButton(onClick = { session.enterRepair(); onRepair() }) { Text("Repair SideStore pairing") }
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

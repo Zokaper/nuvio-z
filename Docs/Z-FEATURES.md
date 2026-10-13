@@ -1,5 +1,9 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-13 iOS setup 2.1.1: Re-sign SideStore (C20):** Settings and the finished page gain a page for a SideStore
+that has itself expired: it reinstalls SideStore through iloader over the expired copy (same Apple Account), with the
+phone and pairing file shown live. The assistant still never signs anything or sees Apple credentials.
+
 **2026-10-13 iOS setup 2.1: daily auto-refresh (C20):** a 13th checklist step walks the user through a Shortcuts
 automation that connects LocalDevVPN and runs SideStore's Refresh All Apps every night, plus a second one that
 disconnects LocalDevVPN, so a free account's 7-day signature is renewed without anyone remembering. It is also

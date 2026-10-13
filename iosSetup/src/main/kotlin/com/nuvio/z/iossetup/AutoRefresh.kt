@@ -50,6 +50,28 @@ data class AutoRefreshConfig(val schema: Int, val shortcutUrl: String? = null) {
     }
 }
 
+/** What can go wrong when SideStore is installed again over an expired copy. */
+fun resignTips(channel: SetupChannel): List<TroubleTip> = listOf(
+    TroubleTip("iOS says Untrusted Developer when SideStore opens", listOf(
+        "On the iPhone open Settings → General → VPN & Device Management, select your Apple Account and tap Trust.",
+    )),
+    TroubleTip("There are now two SideStores", listOf(
+        "iloader was signed in with a different Apple Account, so it installed a second copy instead of renewing the old one.",
+        "Delete the copy that won’t open. In the one that’s left, sign in and add the ${channel.appName} source again if it’s missing.",
+    )),
+    TroubleTip("SideStore opens empty or asks to sign in", listOf(
+        "Sign in again with the same Apple Account.",
+        "If the ${channel.appName} source is missing, in SideStore open Sources, tap + and paste ${channel.sourceUrl}",
+    )),
+    TroubleTip("SideStore says the pairing file is invalid", listOf(
+        "Keep the iPhone connected and unlocked, then use Replace the pairing file on this page.",
+    )),
+    TroubleTip("${channel.appName} still won’t open", listOf(
+        "In SideStore → My Apps, tap the days counter next to ${channel.appName} to refresh just that app.",
+        "If it isn’t listed, install it again from SideStore → Browse → ${channel.appName}.",
+    )),
+)
+
 /** What can go wrong with the nightly refresh, and what to do about it. */
 fun autoRefreshTips(appName: String): List<TroubleTip> = listOf(
     TroubleTip("LocalDevVPN isn’t listed in Set VPN", listOf(

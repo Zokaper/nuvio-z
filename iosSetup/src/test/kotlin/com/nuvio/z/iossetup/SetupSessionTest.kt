@@ -249,6 +249,29 @@ class SetupSessionTest {
         assertEquals(AutoRefreshConfig.embedded(), s.autoRefreshConfig, "loaded once per run")
     }
 
+    @Test fun resignWakesAFinishedSetupSoItCanSeeThePhoneAndFetchTheInstaller() {
+        val ops = FakeOps(); val script = Script()
+        val s = session(script, ops, initial = debugRun.copy(setupCompleted = true, confirmed = humanSteps.toSet()))
+        s.tick()
+        assertEquals(0, script.calls.size, "a finished setup stays quiet")
+        s.openResign(); s.tick()
+        assertEquals(1, script.count("status"))
+        assertEquals(ToolsState.Ready, s.tools, "iloader is fetched for the reinstall")
+        assertTrue(s.progress.setupCompleted, "re-signing never reopens setup")
+        s.closeResign()
+        val before = script.calls.size
+        s.tick()
+        assertEquals(before, script.calls.size, "closing the page stops polling again")
+    }
+
+    @Test fun resignAndAutoRefreshPagesNeverOverlap() {
+        val s = session(Script())
+        s.openAutoRefresh(); s.openResign()
+        assertTrue(s.resignOpen); assertFalse(s.autoRefreshOpen)
+        s.openAutoRefresh()
+        assertTrue(s.autoRefreshOpen); assertFalse(s.resignOpen)
+    }
+
     private fun assertNotNullProgress(store: ProgressStore): SetupProgress = kotlin.test.assertNotNull(store.loadProgress())
 
     @Test fun startOverClearsSavedProgressButKeepsTheChosenChannel() {
