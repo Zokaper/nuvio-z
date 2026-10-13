@@ -18,6 +18,10 @@ pairing file and nothing else.
   normally does for a same-bundle-id install; the tips cover an empty SideStore. The maintainer's phone test settles it.
 - `:iosSetup:test` **119 / 119** locally (2 new session tests). Renders 21-23 (phone ready, no phone, iloader download
   failed) and the finished page with the new button were reviewed. iosSetup 2.1.1.
+- **RELEASED 2026-10-13 as prerelease `ios-setup-v2.1.1-beta.1`** (commit `873094c88`, run `38451253392`, all jobs
+  green); `ios-setup-vlatest` carries it. SHA-256: Windows `edcc1e9ca97c6b0e6f5b5067a88f8f4bd54b481b0d43b9e0930f608ad27f9acb`
+  (67,819,092 bytes), macOS `5b74d1f48dadf5242af612418d17abe01ef9cd5951b7c8d9f8660c718dbfcd46` (74,790,660 bytes).
+  2.1.0-beta.1 retitled "(Superseded)"; GitHub "latest" is still the app (`0.5.4-z2+128`).
 
 ## iOS Setup 2.1: daily auto-refresh (2026-10-13, branch `claude/ios-setup-auto-refresh`)
 
