@@ -107,6 +107,7 @@ internal fun zSettingsSectionFor(page: SettingsPage): ZSettingsSection = when (p
     SettingsPage.Root,
     SettingsPage.Playback,
     SettingsPage.Subtitles,
+    SettingsPage.Downloads,
     -> ZSettingsSection.Watching
     SettingsPage.Appearance,
     SettingsPage.HoverPreview,

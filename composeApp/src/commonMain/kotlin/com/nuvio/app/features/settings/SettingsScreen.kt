@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.downloads.downloadsSettingsPageContent
 import com.nuvio.app.AppScreenTab
 import com.nuvio.app.core.build.AppFeaturePolicy
 
@@ -120,6 +121,7 @@ private val SettingsTabletMinimumGutter = 40.dp
 private fun SettingsPage.isEnabledByPolicy(): Boolean =
     when (this) {
         SettingsPage.Notifications -> AppFeaturePolicy.notificationsEnabled
+        SettingsPage.Downloads -> AppFeaturePolicy.downloadsEnabled
         SettingsPage.Plugins -> AppFeaturePolicy.pluginsEnabled
         SettingsPage.SupportersContributors -> AppFeaturePolicy.supportersContributorsPageEnabled
         else -> true
@@ -607,7 +609,7 @@ private fun MobileSettingsScreen(
                 }
                 SettingsSearchTarget.Downloads -> {
                     if (AppFeaturePolicy.downloadsEnabled) {
-                        onDownloadsClick()
+                        onPageChange(SettingsPage.Downloads)
                     }
                 }
                 SettingsSearchTarget.Collections -> onCollectionsClick()
@@ -674,7 +676,7 @@ private fun MobileSettingsScreen(
                                     else -> onPageChange(target)
                                 }
                             },
-                            onDownloadsClick = onDownloadsClick,
+                            onDownloadsClick = { onPageChange(SettingsPage.Downloads) },
                             onSwitchProfileClick = onSwitchProfile,
                             onWhatsNewClick = onWhatsNewClick,
                             onRunSetupAgainClick = onRunSetupAgainClick,
@@ -687,6 +689,9 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                 )
                 SettingsPage.Social -> socialSettingsContent(isTablet = false)
+                SettingsPage.Downloads -> if (AppFeaturePolicy.downloadsEnabled) {
+                    downloadsSettingsPageContent(isTablet = false)
+                }
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                         supportersContributorsContent(isTablet = false)
@@ -1048,7 +1053,7 @@ private fun TabletSettingsScreen(
                     }
                     SettingsSearchTarget.Downloads -> {
                         if (AppFeaturePolicy.downloadsEnabled) {
-                            onDownloadsClick()
+                            openInlinePage(SettingsPage.Downloads)
                         }
                     }
                     SettingsSearchTarget.Collections -> onCollectionsClick()
@@ -1146,7 +1151,7 @@ private fun TabletSettingsScreen(
                                     isTablet = true,
                                     section = activeCategory,
                                     onPageChange = ::openInlinePage,
-                                    onDownloadsClick = onDownloadsClick,
+                                    onDownloadsClick = { openInlinePage(SettingsPage.Downloads) },
                                     onSwitchProfileClick = onSwitchProfile,
                                     onWhatsNewClick = onWhatsNewClick,
                                     onRunSetupAgainClick = onRunSetupAgainClick,
@@ -1159,6 +1164,9 @@ private fun TabletSettingsScreen(
                             isTablet = true,
                         )
                         SettingsPage.Social -> socialSettingsContent(isTablet = true)
+                        SettingsPage.Downloads -> if (AppFeaturePolicy.downloadsEnabled) {
+                            downloadsSettingsPageContent(isTablet = true)
+                        }
                         SettingsPage.SupportersContributors -> {
                             if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                                 supportersContributorsContent(isTablet = true)

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_category_about
+import nuvio.composeapp.generated.resources.downloads_settings_title
 import nuvio.composeapp.generated.resources.compose_settings_category_general
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_addons
@@ -197,6 +198,12 @@ internal enum class SettingsPage(
     About(
         titleRes = Res.string.compose_settings_category_about,
         category = SettingsCategory.About,
+        parentPage = Root,
+    ),
+    // Settings -> Downloads as an ordinary page (2026-10-16); it used to be a route of its own.
+    Downloads(
+        titleRes = Res.string.downloads_settings_title,
+        category = SettingsCategory.General,
         parentPage = Root,
     ),
 }
