@@ -44,10 +44,16 @@ class ChangelogFileTest {
     }
 
     @Test
-    fun theNextReleaseOffersAdvancedSetupOnEveryPlatform() {
+    fun theReleaseThatIntroducedAdvancedSetupOffersItOnEveryPlatform() {
         // Plan section 8: existing users meet Advanced Setup through the release's What's New card.
-        val event = assertNotNull(changelogEventFor(events, ChangelogPlatform.ANDROID, AppVersionConfig.RELEASE_SERIAL))
+        // Pinned to 0.5.4-z1 (serial 127), the release that shipped it: keyed on RELEASE_SERIAL this went
+        // red the moment 0.5.4-z2 moved the serial on, though the card was never meant to repeat.
+        val event = assertNotNull(changelogEventFor(events, ChangelogPlatform.ANDROID, ADVANCED_SETUP_RELEASE_SERIAL))
         val card = event.entries.single { it.action == ChangelogAction.ADVANCED_SETUP }
         assertEquals(setOf(ChangelogPlatform.ANDROID, ChangelogPlatform.IOS, ChangelogPlatform.DESKTOP), card.platforms)
+    }
+
+    private companion object {
+        const val ADVANCED_SETUP_RELEASE_SERIAL = 127
     }
 }
