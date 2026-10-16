@@ -116,9 +116,9 @@ class ZSettingsHubTest {
     @Test
     fun theZPagesAreAppendedNeverInserted() {
         // Saved navigation state and `SettingsPageRoute` match pages by name, and upstream's order
-        // must survive a sync: the two Z pages come last.
-        val tail = SettingsPage.entries.takeLast(2)
-        assertEquals(listOf(SettingsPage.Navigation, SettingsPage.About), tail)
+        // must survive a sync: the Z pages come last, in the order they were added.
+        val tail = SettingsPage.entries.takeLast(3)
+        assertEquals(listOf(SettingsPage.Navigation, SettingsPage.About, SettingsPage.Downloads), tail)
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.nuvio.app
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.features.profiles.ProfileRepository
+import kotlin.concurrent.Volatile
 
 /**
  * Lets a re-created app window open straight on the app instead of re-running the gate.
