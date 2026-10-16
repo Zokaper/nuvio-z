@@ -1,5 +1,35 @@
 Last updated: 2026-10-16
 
+## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16, unpublished)
+
+Maintainer's report after Debug 87/99, four items. Shared commit `dc0ec4774` (desktop) cherry-picked as
+`aca7376c4` (mobile); per-repo player commits on top.
+
+- **Activity showed episode names and stills.** Production proof: Outer Banks S5 E7 stored with title
+  "Bal des Sauvages" - `toEpisodeWatchedItem` puts the episode name and still in `WatchedItem`, and
+  `SocialWatchedActivity` published them as-is. Fixed at both ends: rows display `displayTitle()` (the show's
+  name from `SocialTitleArtStore` metadata, blank while pending) and `artwork()` uses the show backdrop only;
+  new events publish the show name/poster from `MetaDetailsRepository.peek` with the episode name as
+  `episode_title`. Existing rows are not backfilled (the display fix covers them). "N episodes · last SxEy"
+  is now "Latest SxEy · N watched".
+- **Join pill on phones** was a bare 44dp avatar (text appeared on hover only): `WatchTogetherDock` is always
+  the full pill now (maintainer's pick), width capped by the window.
+- **A declined join request said nothing while watching**: the dock is hidden over the player and the
+  player mirrored only pending/accepted. The panel now shows declined/expired/stopped/failed with Ask again
+  and ✕ (desktop `controls.*`, mobile `MobileWatchTogetherPanel`), and the status pill says it
+  (`PartyStatusOutgoingOutcome`, rule 14).
+- **"Invited ✓" forever** -> Sent with ✕ to cancel; an ignored invite stays Sent; Declined blocks re-invite for
+  **5 minutes** (maintainer's pick), enforced by the server. Pure rule `partyInviteButton` in
+  `WatchTogetherBridge.kt`. Backend `nuvio-z-backend` `da52135` (`202610160001_party_invite_outcomes.sql`:
+  `party_invite_cooldown()`, cooldown in `party_invite_friend` - rebuilt from production's definition,
+  `party_cancel_invite`, `sent_party_invites` in `social_get_state_v2`). pgTAP 467/467 locally.
+  **NOT deployed.** On today's backend the client falls back to a local "Sent" with no ✕.
+- **Verified:** desktop social + watch together + controls + status + tray 234/234 (JBR 25); mobile host
+  204/204; Android compiles. Not seen on a device yet.
+- **Android push (Stage 4) unblocked:** Firebase project `nuvio-z` exists; `FCM_SERVICE_ACCOUNT` is set as a
+  Supabase secret on `pzbpghmmordvzcfbayoh`. The maintainer's `google-services.json` (both
+  `com.nuvio.app.z` and `.debug`) is not committed - the repo is public; CI should get it from a secret.
+
 ## Social V2 backend DEPLOYED; single-instance desktop; shelf time chip (2026-10-16, Debug mobile 87 / desktop 99)
 
 - **Backend deployed to `pzbpghmmordvzcfbayoh`** on the maintainer's go-ahead: `202610050001_social_v2.sql` from

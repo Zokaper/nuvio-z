@@ -87,7 +87,10 @@ internal fun mobilePartyStateActions(state: WatchTogetherBridgeState): List<Mobi
         else -> emptyList()
     }
 
-/** The viewer's own request to join someone else: waiting, or answered and ready to go. */
+/**
+ * The viewer's own request to join someone else: waiting, answered and ready to go, or - for the few
+ * seconds the store keeps it - refused, unanswered or overtaken, which used to vanish without a word.
+ */
 internal fun mobileOutgoingRequestActions(state: WatchTogetherBridgeState): List<MobilePartyAction> {
     if (!state.outgoingVisible) return emptyList()
     return when (state.outgoingPhase) {
@@ -95,13 +98,31 @@ internal fun mobileOutgoingRequestActions(state: WatchTogetherBridgeState): List
             MobilePartyAction("Join now", "wtJoinAccepted", emphasis = MobilePartyActionEmphasis.Primary),
             MobilePartyAction("Not now", "wtDismissAccepted"),
         )
+        "declined", "expired", "failed" -> listOf(
+            MobilePartyAction("Ask again", "wtAskAgainOutgoing", emphasis = MobilePartyActionEmphasis.Primary),
+            MobilePartyAction("Dismiss", "wtDismissOutgoing"),
+        )
+        "stopped" -> listOf(MobilePartyAction("Dismiss", "wtDismissOutgoing"))
         else -> listOf(MobilePartyAction("Cancel request", "wtCancelOutgoing"))
     }
 }
 
 internal fun mobileOutgoingRequestTitle(state: WatchTogetherBridgeState): String = when (state.outgoingPhase) {
     "accepted", "joining" -> "${state.outgoingName} let you in"
+    "declined" -> "${state.outgoingName} can't have company right now"
+    "expired" -> "No answer from ${state.outgoingName}"
+    "stopped" -> "${state.outgoingName} stopped watching"
+    "failed" -> "Couldn't join ${state.outgoingName}"
     else -> "Asking ${state.outgoingName} to join"
+}
+
+/** The Invite button's words for [PartyInviteButton.wire]. */
+internal fun mobileInviteLabel(state: String): String = when (state) {
+    PartyInviteButton.Sending.wire -> "Sending…"
+    PartyInviteButton.Sent.wire -> "Sent"
+    PartyInviteButton.Cancelling.wire -> "Cancelling…"
+    PartyInviteButton.Declined.wire -> "Declined"
+    else -> "Invite"
 }
 
 /**
@@ -313,11 +334,18 @@ private fun ActiveParty(state: WatchTogetherBridgeState, onEvent: (String, Doubl
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
+                        // Sent with a ✕ to withdraw it while it waits; Declined for the re-invite cooldown.
                         PlayerDialogButton(
-                            label = if (target.invited) "Invited" else "Invite",
-                            enabled = !target.invited,
+                            label = mobileInviteLabel(target.state),
+                            enabled = target.state == PartyInviteButton.Invite.wire,
                             onClick = { onEvent("wtInviteFriend", target.index.toDouble()) },
                         )
+                        if (target.state == PartyInviteButton.Sent.wire) {
+                            PlayerDialogButton(
+                                label = "✕",
+                                onClick = { onEvent("wtCancelInvite", target.index.toDouble()) },
+                            )
+                        }
                     }
                 }
             }

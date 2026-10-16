@@ -77,6 +77,18 @@ class MobileWatchTogetherPanelTest {
             )
             assertEquals("Sam let you in", mobileOutgoingRequestTitle(answered))
         }
+        val declined = pending.copy(outgoingPhase = "declined")
+        assertEquals("Sam can't have company right now", mobileOutgoingRequestTitle(declined))
+        assertEquals(listOf("wtAskAgainOutgoing" to 0.0, "wtDismissOutgoing" to 0.0), events(mobileOutgoingRequestActions(declined)))
+        assertEquals("No answer from Sam", mobileOutgoingRequestTitle(pending.copy(outgoingPhase = "expired")))
+        assertEquals(listOf("wtDismissOutgoing" to 0.0), events(mobileOutgoingRequestActions(pending.copy(outgoingPhase = "stopped"))))
+    }
+
+    @Test fun theInviteButtonSaysWhereTheInviteIs() {
+        assertEquals("Invite", mobileInviteLabel("invite"))
+        assertEquals("Sent", mobileInviteLabel("sent"))
+        assertEquals("Declined", mobileInviteLabel("declined"))
+        assertEquals("Cancelling…", mobileInviteLabel("cancelling"))
     }
 
     @Test fun theHeaderButtonStaysReachableWhileThePartyHasSomethingToSay() {

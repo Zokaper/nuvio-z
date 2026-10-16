@@ -118,6 +118,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.watch_party_cannot_share_source
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.features.social.OutgoingJoinOutcome
 
 private val playerControlsLog = Logger.withTag("PlayerControls")
 
@@ -187,8 +188,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     LaunchedEffect(activeParty?.id) {
         if (activeParty != null) partyPromotion = PartyPromotionProgress.Idle
         partyEndConfirm = false
-        // "Invited" is about one party; a friend invited to the last one can be invited to this one.
+        // "Sent" is about one party; a friend invited to the last one can be invited to this one.
         partyInvitedProfileIds = emptySet()
+        partyCancellingInviteIds = emptySet()
     }
     LaunchedEffect(partySessionState.guestPostEndChoice) {
         if (partySessionState.guestPostEndChoice) {
@@ -227,15 +229,17 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 avatarColorHex = actor.avatarColorHex,
             )
         },
-        // Lowest priority, and only while still waiting: an accepted request asks Join / Not now in
-        // the panel, never from a pill.
+        // Lowest priority: waiting, or how it ended for the few seconds that is on screen. An accepted
+        // request asks Join / Not now in the panel, never from a pill.
         outgoingTarget = when (val request = outgoingJoinRequest) {
             is OutgoingJoinRequestState.Pending -> request.target
             is OutgoingJoinRequestState.Sending -> request.target
+            is OutgoingJoinRequestState.Outcome -> request.target.takeIf { request.kind.statusOutcome() != null }
             else -> null
         }?.let { target ->
             PartyStatusPerson(target.profileId, target.displayName, target.avatarUrl, target.avatarColorHex)
         },
+        outgoingOutcome = (outgoingJoinRequest as? OutgoingJoinRequestState.Outcome)?.kind?.statusOutcome(),
         panelOpen = partyRoomOpen,
     )
     // When realtime entered its current state, for the connection chip's grace periods.
@@ -298,6 +302,28 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             releaseName = activeStreamTitle.takeIf { it.isNotBlank() },
         ),
     )
+    // Invite buttons: a pressed invite reads Sending until the server lists it for this party, a
+    // withdrawn one Cancelling until the server drops it, and a Declined turns back into Invite when
+    // its cooldown ends - so this clock only ticks while one is running.
+    LaunchedEffect(socialUiState.sentPartyInvites, activeParty?.id) {
+        val listed = socialUiState.sentPartyInvites ?: return@LaunchedEffect
+        val partyId = activeParty?.id
+        partyInvitedProfileIds = partyInvitedProfileIds.filterTo(mutableSetOf()) { id ->
+            listed.none { it.receiverProfileId == id && (it.partyId == partyId || it.status == "declined") }
+        }
+        partyCancellingInviteIds = partyCancellingInviteIds.filterTo(mutableSetOf()) { id -> listed.any { it.id == id } }
+    }
+    val inviteNowMs by produceState(currentEpochMs(), socialUiState.sentPartyInvites, socialUiState.sentPartyInvitesAtMs) {
+        while (true) {
+            value = currentEpochMs()
+            val next = nextPartyInviteCooldownEndMs(
+                socialUiState.sentPartyInvites,
+                socialUiState.sentPartyInvitesAtMs,
+                value,
+            ) ?: break
+            kotlinx.coroutines.delay((next - value).coerceAtLeast(0L) + 50L)
+        }
+    }
     val watchTogetherBridge = watchTogetherBridgeState(
         panel = watchTogetherPanel,
         open = partyRoomOpen && !playerControlsLocked,
@@ -308,7 +334,15 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     index = index,
                     name = friend.displayName,
                     avatarUrl = friend.avatarUrl.orEmpty(),
-                    invited = friend.profileId in partyInvitedProfileIds,
+                    state = partyInviteButton(
+                        friendProfileId = friend.profileId,
+                        partyId = activeParty?.id,
+                        sent = socialUiState.sentPartyInvites,
+                        sentAtMs = socialUiState.sentPartyInvitesAtMs,
+                        pressed = partyInvitedProfileIds,
+                        cancelling = partyCancellingInviteIds,
+                        nowMs = inviteNowMs,
+                    ).button.wire,
                 )
             },
         inviteCode = watchPartyUiState.inviteCode.orEmpty(),
@@ -318,6 +352,14 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 is OutgoingJoinRequestState.Pending, is OutgoingJoinRequestState.Cancelling -> "pending"
                 is OutgoingJoinRequestState.Accepted -> "accepted"
                 is OutgoingJoinRequestState.Joining -> "joining"
+                // The answer, while the store shows it: the dock is hidden over the player.
+                is OutgoingJoinRequestState.Outcome -> when (request.kind) {
+                    OutgoingJoinOutcome.Declined -> "declined"
+                    OutgoingJoinOutcome.Expired -> "expired"
+                    OutgoingJoinOutcome.TargetStopped -> "stopped"
+                    OutgoingJoinOutcome.Failed -> "failed"
+                    OutgoingJoinOutcome.Cancelled -> null
+                }
                 else -> null
             } ?: return@let null
             WatchTogetherOutgoingMirror(
@@ -1601,12 +1643,40 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             val targets = SocialRepository.uiState.value.friends
                 .filter { friend -> party.members.none { it.profileId == friend.profileId } }
             val target = targets.getOrNull(value.toInt()) ?: return true
-            if (target.profileId in partyInvitedProfileIds) return true
+            val social = SocialRepository.uiState.value
+            val button = partyInviteButton(
+                target.profileId, party.id, social.sentPartyInvites, social.sentPartyInvitesAtMs,
+                partyInvitedProfileIds, partyCancellingInviteIds, currentEpochMs(),
+            ).button
+            if (button != PartyInviteButton.Invite) return true
             partyInvitedProfileIds = partyInvitedProfileIds + target.profileId
             scope.launch {
                 WatchPartyRepository.invite(target.profileId).onFailure { failure ->
                     partyInvitedProfileIds = partyInvitedProfileIds - target.profileId
-                    partyPanelError = failure.message ?: "Couldn't invite ${target.displayName}"
+                    partyPanelError = if (failure.message.orEmpty().contains("invite_cooldown")) {
+                        "${target.displayName} declined a moment ago. Try again in a few minutes."
+                    } else {
+                        failure.message ?: "Couldn't invite ${target.displayName}"
+                    }
+                }
+            }
+        }
+        "wtCancelInvite" -> {
+            val party = WatchPartyRepository.uiState.value.party ?: return true
+            val target = SocialRepository.uiState.value.friends
+                .filter { friend -> party.members.none { it.profileId == friend.profileId } }
+                .getOrNull(value.toInt()) ?: return true
+            val social = SocialRepository.uiState.value
+            val state = partyInviteButton(
+                target.profileId, party.id, social.sentPartyInvites, social.sentPartyInvitesAtMs,
+                partyInvitedProfileIds, partyCancellingInviteIds, currentEpochMs(),
+            )
+            val inviteId = state.inviteId?.takeIf { state.button == PartyInviteButton.Sent } ?: return true
+            partyCancellingInviteIds = partyCancellingInviteIds + inviteId
+            scope.launch {
+                SocialRepository.cancelPartyInvite(inviteId).onFailure {
+                    partyCancellingInviteIds = partyCancellingInviteIds - inviteId
+                    partyPanelError = "Couldn't cancel the invite to ${target.displayName}"
                 }
             }
         }
@@ -1623,6 +1693,8 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             )
         }
         "wtCancelOutgoing" -> OutgoingJoinRequestStore.cancel()
+        "wtAskAgainOutgoing" -> OutgoingJoinRequestStore.askAgain()
+        "wtDismissOutgoing" -> OutgoingJoinRequestStore.dismiss()
         "wtJoinAccepted" -> OutgoingJoinRequestStore.joinNow()
         "wtDismissAccepted" -> OutgoingJoinRequestStore.notNow()
         "wtDismissError" -> {
