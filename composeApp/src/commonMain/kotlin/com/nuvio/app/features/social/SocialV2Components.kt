@@ -716,7 +716,10 @@ internal fun SocialHomeActivityTile(
         topStart = {},
         topEnd = {
             if (time.isNotBlank()) {
-                Text(time, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                // The same chip as the live tile's status, so the label reads on a bright still.
+                SocialGlassChip {
+                    Text(time, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
             }
         },
         people = group.friends,

@@ -1,5 +1,26 @@
 Last updated: 2026-10-16
 
+## Social V2 backend DEPLOYED; single-instance desktop; shelf time chip (2026-10-16, Debug mobile 87 / desktop 99)
+
+- **Backend deployed to `pzbpghmmordvzcfbayoh`** on the maintainer's go-ahead: `202610050001_social_v2.sql` from
+  `nuvio-z-backend` `claude/social-v2-backend` (`d740ecf`, still unmerged there). Pre-push checks: it was the only pending
+  migration; production `social_get_state_v2` was identical to the repo's last definition (`202609170001`), the only
+  pre-existing function it replaces; every column and helper the new triggers use exists. Post-push: both tables, all
+  four triggers, the five RPCs, the `authenticated` grant and the migration row are live. The V2-only client controls
+  (Sent, stored inbox, recommendations, per-friend Hide / Notify) now appear on existing builds.
+- **Why Debug 98 never popped "friend started watching":** the inbox event is written by the `watch_presence` trigger
+  in that migration, which was not deployed. It also only fires for friends the viewer has switched **Notify** on for
+  (default off). Not yet re-tested end to end.
+- **Desktop single instance** (`features/tray/DesktopSingleInstance.kt`, called first thing in `main`): an installed
+  build (`jpackage.app-path` set) takes an OS file lock `instance.lock` in its channel's data folder and listens on a
+  loopback port written to `instance.port` with a random token. A later launch grants it the foreground
+  (`AllowSetForegroundWindow`, new in `WindowsForeign`), hands over its `nuvio://` / `stremio://` args, and exits; the
+  running copy shows and raises its window (from the tray too). Dev runs and the player smoke run are exempt; release,
+  Debug and vanilla stay independent. If the holder never answers within 10 s the new launch exits; if the lock frees
+  meanwhile it takes over. Found from two Debug 98 processes in the maintainer's logs. Tests: `DesktopSingleInstanceTest`
+  (6) and `WindowsForeignTest` (3), tray + social 177/177 on JBR 25. Not yet tried on the installed MSI.
+- **Home friends shelf:** the activity tile's "3h ago" now sits on `SocialGlassChip` (both repos, shared file).
+
 ## Social V2: settings page, desktop tray + pop-ups, Downloads settings (2026-10-16, Debug mobile 86 / desktop 98)
 
 All on the Social V2 branches (mobile `claude/social-v2`, desktop `claude/social-v2-design`), unmerged. Shared commits
