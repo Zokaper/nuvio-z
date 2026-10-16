@@ -105,6 +105,10 @@
     {
       "build": 84,
       "text": "Release candidate for 0.5.4-z2. Automatic playback never falls back to a source your debrid service has not cached yet (test Lioness S1E1 in Streamlined or Instant), and What's new is back in Settings under Setup & about."
+    },
+    {
+      "build": 85,
+      "text": "Social V2 on top of 0.5.4-z2: Watching Now as backdrop cards with a join sheet, Recently watched as a per-friend timeline of stacked stills, Friends / Inbox / profile sheet, sent requests you can cancel, and an unread dot on Social."
     }
   ]
 }
