@@ -109,6 +109,10 @@
     {
       "build": 85,
       "text": "Social V2 on top of 0.5.4-z2: Watching Now as backdrop cards with a join sheet, Recently watched as a per-friend timeline of stacked stills, Friends / Inbox / profile sheet, and an unread dot on Social. Sent requests, per-friend switches and the stored inbox stay hidden until the Social V2 backend is deployed."
+    },
+    {
+      "build": 86,
+      "text": "Social settings now open from a gear in the Social tab (privacy, who can join you as quick choices, and a new Show friends on Home switch that syncs per profile); on big tablets in landscape Inbox and settings open as a side panel. Settings -> Downloads now looks and works like the other Settings pages. Everything in 85 is here too."
     }
   ]
 }
