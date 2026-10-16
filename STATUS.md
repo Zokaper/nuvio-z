@@ -1,5 +1,41 @@
 Last updated: 2026-10-16
 
+## Social V2: settings page, desktop tray + pop-ups, Downloads settings (2026-10-16, Debug mobile 86 / desktop 98)
+
+All on the Social V2 branches (mobile `claude/social-v2`, desktop `claude/social-v2-design`), unmerged. Shared commits
+were made on one branch and cherry-picked to the other; the per-repo `ZProfileSyncContributors.kt` was resolved by hand.
+Decisions and renders: `Nuvio Z/PLAN-social-v2.md`, "Scope added 2026-10-16" (picks: gear beside Inbox, desktop side
+panel, pop-up B with no buttons, close prompt B).
+
+- **Social settings page** (`SocialSettingsSections`, shared): one page for Settings -> Social and a new gear in the
+  Social tab. You / Privacy (join policy as chips, who you hide from) / platform sections / Home / Turn off Social.
+  Platform sections are a registration (`SocialSettingsExtensions`), not an `expect`. The rail's "Privacy and
+  sharing" link is gone.
+- **Show friends on Home:** stored with the social feature preferences, synced per profile via the Z contributor
+  `z_features.social_home` (`SocialHomeSync`); Home empties its social state when off.
+- **Inbox and Social settings** share `SocialPageShell`: right-hand panel at >= 1040dp (desktop, big tablets in
+  landscape), full page below.
+- **`SocialNavigation`** (shared): a held request for a place in the Social tab; desktop pop-ups use it, Android push
+  can reuse it.
+- **`AppGateResume`** (shared, off unless enabled): desktop enables it so a window re-created from the tray resumes
+  Main instead of re-running the gate.
+- **Desktop tray** (`features/tray/`): first close asks once (Hide default) and becomes the "Closing the window"
+  setting; hiding removes the window and its composition, keeps the process, session and Social alive; image cache
+  cleared, heap collected, working set trimmed via `java.lang.foreign` (K32EmptyWorkingSet), re-trimmed every 10 min.
+  New JVM flags: `G1PeriodicGCInterval=60000`, `Min/MaxHeapFreeRatio=10/30`, `--enable-native-access=ALL-UNNAMED`.
+- **Desktop pop-ups:** friend requests, party invites, join requests, friend started watching (per-friend Notify,
+  needs the backend). Backdrop card, click opens the place. Own always-on-top non-focusable window bottom-right, or
+  drawn inside Nuvio when it is focused; suppressed over fullscreen apps unless allowed (`SHQueryUserNotificationState`).
+  Each event pops once (seen keys per profile in `nuvio_social_popups`).
+- **Settings -> Downloads** rebuilt from the shared Settings rows and made an inline `SettingsPage.Downloads`
+  (it was a separate route that dropped the desktop sidebar).
+- **Verified:** desktop Social + party + gate tests 611/611, settings tests 22/22; mobile host 598/598; Android
+  compiles; render harness `SocialSettingsTrayHarness` (`build/social-settings-tray/`) and the Downloads harness.
+- **Not verified / not built:** the tray and pop-ups have not been exercised on a real desktop yet (Debug 98 is the
+  first chance); the hidden-memory figure with these flags is projected (~220 MB after use), not measured on the MSI.
+  Start with Windows is not built (it ships only if its measured cost is minimal). In-player pop-up placement is the
+  in-app top-right card, not player-specific. Backend still not deployed.
+
 ## Social V2 is the next release; branches caught up with the z2 trunks (2026-10-16)
 
 The maintainer set the scope: **the next release is Social V2, and none of Reaction Mode.** Reaction Mode stays on desktop
