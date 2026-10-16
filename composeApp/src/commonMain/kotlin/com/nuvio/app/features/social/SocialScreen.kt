@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +44,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +75,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -91,8 +97,7 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.profiles.parseHexColor
-import com.nuvio.app.features.settings.SettingsPage
-import com.nuvio.app.features.settings.ZSettingsNavigation
+import com.nuvio.app.features.settings.SocialSettingsSections
 import com.nuvio.app.features.watchparty.WatchPartyRepository
 import com.nuvio.app.features.watchparty.WatchPartyStatus
 import com.nuvio.app.features.watchparty.currentEpochMs
@@ -117,6 +122,7 @@ internal data class SocialFeedback(val message: String, val tone: SocialFeedback
 /** What sits over the tab: the inbox page, a friend's profile, or the join sheet for one session. */
 internal sealed interface SocialOverlay {
     data object Inbox : SocialOverlay
+    data object Settings : SocialOverlay
     data class Profile(val profileId: String) : SocialOverlay
     data class Join(val sessionKey: String) : SocialOverlay
 }
@@ -296,7 +302,6 @@ fun SocialScreen(
             onRemoveFriend = { id -> scope.launch { SocialRepository.removeFriend(id) } },
             onSelectFriend = SocialRepository::selectFriend,
             onMarkNotificationsRead = { ids -> scope.launch { SocialRepository.markNotificationsRead(ids) } },
-            onOpenPrivacySettings = { ZSettingsNavigation.open(SettingsPage.Social) },
             onCancelFriendRequest = { id -> scope.launch { SocialRepository.cancelFriendRequest(id) } },
             onMarkInboxRead = { ids -> scope.launch { SocialRepository.markInboxRead(ids) } },
             onSetFriendPrefs = { friend, hide, notify ->
@@ -364,7 +369,6 @@ internal class SocialFeedActions(
     val onShareRecent: (Boolean) -> Unit = {},
     val onDefaultJoinPolicy: (WatchJoinPolicy) -> Unit = {},
     val onMarkNotificationsRead: (Set<String>) -> Unit = {},
-    val onOpenPrivacySettings: () -> Unit = {},
     val onCancelFriendRequest: (String) -> Unit = {},
     val onMarkInboxRead: (Set<String>) -> Unit = {},
     /** Social V2 per-friend switches; null leaves one as it is. */
@@ -438,6 +442,7 @@ internal fun SocialFeed(
                     showInbox = ready,
                     onInvite = { inviteOpen = true },
                     onInbox = { overlay = SocialOverlay.Inbox },
+                    onSettings = { overlay = SocialOverlay.Settings },
                 )
                 when {
                     !state.capabilities.socialEnabled -> SocialMessageColumn(horizontal) {
@@ -535,6 +540,7 @@ internal fun SocialFeed(
             }
 
             when (val current = overlay) {
+                SocialOverlay.Settings -> SocialSettingsOverlay(wide = wide, topInset = topInset, onDismiss = { overlay = null })
                 SocialOverlay.Inbox -> SocialInboxPage(
                     state = state,
                     nowMs = model.activityNowMs.takeIf { it > 0 } ?: currentEpochMs(),
@@ -643,6 +649,7 @@ private fun SocialHeader(
     showInbox: Boolean,
     onInvite: () -> Unit,
     onInbox: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth()
@@ -683,8 +690,88 @@ private fun SocialHeader(
         }
         if (showInvite) SocialPillButton("Invite code", onInvite)
         if (showInbox) SocialInboxButton(unread, onInbox)
+        // Social settings live here, not only in the Settings tab (2026-10-16). Shown whenever the
+        // tab itself is: the handle step and the off notice both still have privacy to set.
+        SocialSettingsButton(onSettings)
     }
 }
+
+@Composable
+private fun SocialSettingsButton(onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Social settings" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+// --- settings --------------------------------------------------------------------------------
+
+/**
+ * The gear's page: [SocialSettingsSections], the same body Settings -> Social draws. A right-hand
+ * panel over the dashboard on wide layouts (the feed stays in view), a full page on phones.
+ */
+@Composable
+private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> Unit) {
+    PlatformBackHandler(enabled = true, onBack = onDismiss)
+    if (wide) {
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
+            )
+            Surface(
+                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(SocialSettingsPanelWidth)
+                    .padding(top = topInset + 12.dp, bottom = 12.dp, end = 12.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                    Column(Modifier.fillMaxSize()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Social settings", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close") }
+                        }
+                        Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
+                        ) {
+                            SocialSettingsSections(isTablet = false, inSocialTab = true)
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize().padding(top = topInset)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    Text("Social settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                        .padding(bottom = nuvioSafeBottomPadding(extra = 16.dp)),
+                ) {
+                    SocialSettingsSections(isTablet = false, inSocialTab = true)
+                }
+            }
+        }
+    }
+}
+
+private val SocialSettingsPanelWidth = 460.dp
 
 @Composable
 private fun SocialMessageColumn(horizontal: Dp, content: @Composable () -> Unit) {
@@ -978,9 +1065,6 @@ private fun SocialFriendsContent(
                 onClick = { onOpenProfile(friend.profileId) },
             )
         }
-    }
-    TextButton(onClick = actions.onOpenPrivacySettings, modifier = Modifier.padding(top = 6.dp)) {
-        Text("Privacy and sharing  ›", style = MaterialTheme.typography.labelLarge, color = muted)
     }
 }
 

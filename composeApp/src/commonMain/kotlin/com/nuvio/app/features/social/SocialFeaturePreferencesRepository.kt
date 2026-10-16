@@ -30,6 +30,8 @@ private data class StoredSocialFeaturePreferences(
     @SerialName("social_features_enabled") val socialFeaturesEnabled: Boolean? = null,
     /** A choice made on this device that the shared backend copy has not heard yet. */
     @SerialName("social_features_pending") val pending: Boolean? = null,
+    /** Null until the user moves the switch: the shelf is on by default. Synced by [SocialHomeSync]. */
+    @SerialName("show_friends_on_home") val showFriendsOnHome: Boolean? = null,
 )
 
 data class SocialFeaturePreferencesUiState(
@@ -49,6 +51,9 @@ data class SocialFeaturePreferencesUiState(
 
     /** What a backend probe was able to say, if one has run. */
     val identityProbe: SocialIdentityProbe = SocialIdentityProbe.NotRun,
+
+    /** Whether Home shows the Friends shelf. Meaningless while [enabled] is false. */
+    val showFriendsOnHome: Boolean = true,
 )
 
 /**
@@ -80,6 +85,9 @@ object SocialFeaturePreferencesRepository {
     /** See [StoredSocialFeaturePreferences.pending]. Per active profile, loaded with it. */
     private var pending: Boolean? = null
 
+    /** See [StoredSocialFeaturePreferences.showFriendsOnHome]; kept nullable so "never set" survives a round trip. */
+    private var showFriendsOnHomeStored: Boolean? = null
+
     /** The profile the probe last ran for, so a switch re-probes and a recomposition does not. */
     private var probedProfileId: String? = null
 
@@ -96,6 +104,7 @@ object SocialFeaturePreferencesRepository {
     fun clearLocalState() {
         hasLoaded = false
         pending = null
+        showFriendsOnHomeStored = null
         probedProfileId = null
         _uiState.value = SocialFeaturePreferencesUiState()
     }
@@ -128,6 +137,24 @@ object SocialFeaturePreferencesRepository {
         pending = enabled
         persist()
         SharedSocialPreference.requestReconcile(force = true)
+    }
+
+    /**
+     * The Home shelf switch (Social settings -> Home). Unlike [setEnabled] it has no lifecycle
+     * consequence: Home simply stops reading the feed. Synced per profile through [SocialHomeSync].
+     */
+    fun setShowFriendsOnHome(show: Boolean) {
+        ensureLoaded()
+        if (showFriendsOnHomeStored == show) return
+        showFriendsOnHomeStored = show
+        _uiState.value = _uiState.value.copy(showFriendsOnHome = show)
+        persist()
+    }
+
+    /** What [SocialHomeSync] exports: null while the user has never moved the switch. */
+    internal fun storedShowFriendsOnHome(): Boolean? {
+        ensureLoaded()
+        return showFriendsOnHomeStored
     }
 
     /** The change this device owes the shared copy, if any. */
@@ -205,6 +232,7 @@ object SocialFeaturePreferencesRepository {
             ?.let { runCatching { json.decodeFromString<StoredSocialFeaturePreferences>(it) }.getOrNull() }
         val stored = payload?.socialFeaturesEnabled
         pending = payload?.pending
+        showFriendsOnHomeStored = payload?.showFriendsOnHome
         val cached = hasCachedSocialIdentity()
         _uiState.value = SocialFeaturePreferencesUiState(
             storedPreference = stored,
@@ -215,6 +243,7 @@ object SocialFeaturePreferencesRepository {
             ),
             hasKnownIdentity = cached,
             identityProbe = SocialIdentityProbe.NotRun,
+            showFriendsOnHome = showFriendsOnHomeStored ?: true,
         )
     }
 
@@ -238,6 +267,7 @@ object SocialFeaturePreferencesRepository {
                 StoredSocialFeaturePreferences(
                     socialFeaturesEnabled = _uiState.value.storedPreference,
                     pending = pending,
+                    showFriendsOnHome = showFriendsOnHomeStored,
                 ),
             ),
         )

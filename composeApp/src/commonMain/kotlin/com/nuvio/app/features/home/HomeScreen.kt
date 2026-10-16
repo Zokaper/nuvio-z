@@ -99,6 +99,7 @@ import com.nuvio.app.features.watching.domain.isReleasedBy
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
+import com.nuvio.app.features.social.SocialFeaturePreferencesRepository
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.social.homeSocialSections
 import kotlinx.coroutines.Dispatchers
@@ -184,7 +185,12 @@ fun HomeScreen(
     // friend's activity back on the home screen for one frame.
     val socialEnabled = rememberSocialEnabled()
     val liveSocialUiState by SocialRepository.uiState.collectAsStateWithLifecycle()
-    val socialUiState = if (socialEnabled) liveSocialUiState else EmptySocialUiState
+    // Social settings -> Home: the same emptying, so the shelf and the empty-state test agree.
+    val socialPreferences by remember {
+        SocialFeaturePreferencesRepository.ensureLoaded()
+        SocialFeaturePreferencesRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val socialUiState = if (socialEnabled && socialPreferences.showFriendsOnHome) liveSocialUiState else EmptySocialUiState
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     val trackingSettingsUiState by remember {
         TrackingSettingsRepository.ensureLoaded()
