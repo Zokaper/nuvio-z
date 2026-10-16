@@ -757,6 +757,15 @@ internal fun MainAppContent(
         }
     }
 
+    // Social notifications (desktop pop-ups) open the Social tab; `SocialFeed` then opens the exact
+    // place and consumes the request. See `SocialNavigation`.
+    LaunchedEffect(socialEnabled) {
+        if (!socialEnabled) return@LaunchedEffect
+        com.nuvio.app.features.social.SocialNavigation.pending.collect { target ->
+            if (target != null) activateTab(AppScreenTab.Social)
+        }
+    }
+
     // Nuvio Z: "Set up in Settings" from Advanced Setup, which is drawn by AppGate over this
     // content. Navigates the way "connect cloud" above does; see `ZSettingsNavigation`.
     LaunchedEffect(Unit) {

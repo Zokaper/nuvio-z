@@ -254,9 +254,11 @@ fun SocialScreen(
         scrollToTopRequests.collect { listState.animateScrollToItem(0) }
     }
 
+    val navigation by SocialNavigation.pending.collectAsStateWithLifecycle()
     SocialFeed(
         model = SocialFeedModel(
             state = state,
+            navigation = navigation,
             handle = handle,
             handleMessage = handleMessage,
             search = search,
@@ -303,6 +305,7 @@ fun SocialScreen(
             onSelectFriend = SocialRepository::selectFriend,
             onMarkNotificationsRead = { ids -> scope.launch { SocialRepository.markNotificationsRead(ids) } },
             onCancelFriendRequest = { id -> scope.launch { SocialRepository.cancelFriendRequest(id) } },
+            onNavigationConsumed = SocialNavigation::consume,
             onMarkInboxRead = { ids -> scope.launch { SocialRepository.markInboxRead(ids) } },
             onSetFriendPrefs = { friend, hide, notify ->
                 scope.launch { SocialRepository.setFriendPrefs(friend, hideActivity = hide, notifyWhenWatching = notify) }
@@ -344,6 +347,8 @@ internal data class SocialFeedModel(
     /** Where a fresh composition starts - the render harness uses these to draw each view. */
     val initialTab: SocialTab = SocialTab.Activity,
     val initialOverlay: SocialOverlay? = null,
+    /** A place a Social notification asked for; opened once, then reported through [SocialFeedActions.onNavigationConsumed]. */
+    val navigation: SocialNavigationTarget? = null,
 )
 
 /** The Social tab's callbacks, exactly as [SocialScreen] defines them. */
@@ -370,6 +375,7 @@ internal class SocialFeedActions(
     val onDefaultJoinPolicy: (WatchJoinPolicy) -> Unit = {},
     val onMarkNotificationsRead: (Set<String>) -> Unit = {},
     val onCancelFriendRequest: (String) -> Unit = {},
+    val onNavigationConsumed: (SocialNavigationTarget) -> Unit = {},
     val onMarkInboxRead: (Set<String>) -> Unit = {},
     /** Social V2 per-friend switches; null leaves one as it is. */
     val onSetFriendPrefs: (friendProfileId: String, hide: Boolean?, notify: Boolean?) -> Unit = { _, _, _ -> },
@@ -409,6 +415,20 @@ internal fun SocialFeed(
             val horizontal = if (wide) 28.dp else 16.dp
             var tab by rememberSaveable { mutableStateOf(model.initialTab) }
             var overlay by remember { mutableStateOf(model.initialOverlay) }
+            // A Social notification asked for a place in this tab (see `SocialNavigation`).
+            val navigation = model.navigation
+            LaunchedEffect(navigation) {
+                when (navigation) {
+                    null -> return@LaunchedEffect
+                    SocialNavigationTarget.FriendRequests -> {
+                        overlay = null
+                        tab = SocialTab.Friends
+                    }
+                    SocialNavigationTarget.Inbox -> overlay = SocialOverlay.Inbox
+                    is SocialNavigationTarget.WatchingSession -> overlay = SocialOverlay.Join(navigation.sessionKey)
+                }
+                actions.onNavigationConsumed(navigation)
+            }
             var inviteOpen by rememberSaveable { mutableStateOf(false) }
             val topInset = topChromePadding
                 ?: WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
@@ -717,6 +737,29 @@ private fun SocialSettingsButton(onClick: () -> Unit) {
  */
 @Composable
 private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> Unit) {
+    SocialPageShell(title = "Social settings", wide = wide, topInset = topInset, onDismiss = onDismiss) { horizontal, bottom ->
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(start = horizontal, end = horizontal, top = 8.dp, bottom = bottom),
+        ) {
+            SocialSettingsSections(isTablet = false, inSocialTab = true)
+        }
+    }
+}
+
+/**
+ * The frame the Social tab's secondary pages share (Inbox, Social settings): a right-hand panel over the
+ * dashboard on wide layouts, so the feed stays in view, and a full page with a back arrow on phones.
+ * [content] gets the horizontal padding and the bottom padding it should use.
+ */
+@Composable
+private fun SocialPageShell(
+    title: String,
+    wide: Boolean,
+    topInset: Dp,
+    onDismiss: () -> Unit,
+    content: @Composable (horizontal: Dp, bottom: Dp) -> Unit,
+) {
     PlatformBackHandler(enabled = true, onBack = onDismiss)
     if (wide) {
         Box(Modifier.fillMaxSize()) {
@@ -725,7 +768,7 @@ private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> 
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             )
             Surface(
-                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(SocialSettingsPanelWidth)
+                Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(SocialSidePanelWidth)
                     .padding(top = topInset + 12.dp, bottom = 12.dp, end = 12.dp),
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -736,15 +779,10 @@ private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> 
                             Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Social settings", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close") }
                         }
-                        Column(
-                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
-                        ) {
-                            SocialSettingsSections(isTablet = false, inSocialTab = true)
-                        }
+                        content(20.dp, 20.dp)
                     }
                 }
             }
@@ -757,21 +795,15 @@ private fun SocialSettingsOverlay(wide: Boolean, topInset: Dp, onDismiss: () -> 
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                    Text("Social settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        .padding(start = 16.dp, end = 16.dp, top = 8.dp)
-                        .padding(bottom = nuvioSafeBottomPadding(extra = 16.dp)),
-                ) {
-                    SocialSettingsSections(isTablet = false, inSocialTab = true)
-                }
+                content(16.dp, nuvioSafeBottomPadding(extra = 16.dp))
             }
         }
     }
 }
 
-private val SocialSettingsPanelWidth = 460.dp
+private val SocialSidePanelWidth = 460.dp
 
 @Composable
 private fun SocialMessageColumn(horizontal: Dp, content: @Composable () -> Unit) {
@@ -1089,7 +1121,6 @@ private fun SocialInboxPage(
     onMarkInboxRead: (Set<String>) -> Unit,
     onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
 ) {
-    PlatformBackHandler(enabled = true, onBack = onBack)
     // Derived notifications and stored events, one timeline. A kind this build does not know is skipped.
     // A finished party notice leaves after a day: see [SocialFinishedNoticeRetentionMs].
     val entries = state.notifications.filterNot { it.isRetired(nowMs) }.map { SocialInboxEntry.Notice(it) } +
@@ -1103,72 +1134,63 @@ private fun SocialInboxPage(
         if (events.isNotEmpty()) onMarkInboxRead(events)
     }
     val (fresh, earlier) = timeline.partition { it.key in unreadAtOpen }
-    val horizontal = if (wide) 28.dp else 16.dp
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().padding(top = topInset)) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 4.dp, end = horizontal, top = 8.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                Text("Inbox", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
-            LazyColumn(
-                Modifier.fillMaxSize().widthIn(max = 760.dp),
-                contentPadding = PaddingValues(start = horizontal, end = horizontal, bottom = nuvioSafeBottomPadding(extra = 16.dp)),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val legacy = state.capabilities.partyContractVersion < 2
-                if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
-                    item(key = "legacy-label") { SocialSectionLabel("New", state.requests.size + state.partyInvites.size) }
-                    state.requests.forEach { request ->
-                        item(key = "legacy-request:${request.id}") {
-                            SocialInboxCard(
-                                person = request.sender,
-                                text = socialRich(request.sender.displayName to true, " wants to be friends" to false),
-                                time = relativeTimeLabel(parseSocialTimestampMs(request.createdAt), nowMs),
-                                unread = true,
-                                actions = listOf(
-                                    Triple("Accept", true) { onRespondLegacy(request.id, true) },
-                                    Triple("Decline", false) { onRespondLegacy(request.id, false) },
-                                ),
-                            )
-                        }
-                    }
-                    state.partyInvites.forEach { invite ->
-                        item(key = "legacy-invite:${invite.id}") {
-                            SocialInboxCard(
-                                person = invite.sender,
-                                text = socialRich(invite.sender.displayName to true, " invited you to watch " to false, invite.content.title to true),
-                                time = relativeTimeLabel(parseSocialTimestampMs(invite.createdAt), nowMs),
-                                unread = true,
-                                art = invite.content.artRef(),
-                                actions = listOf(Triple("Join", true) { onJoinLegacyInvite(invite.partyId) }),
-                            )
-                        }
-                    }
-                }
-                if (!legacy && timeline.isEmpty()) {
-                    item(key = "empty") {
-                        Text(
-                            "Nothing here yet. Friend requests and Watch Together invites land here.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 12.dp),
+    // A right-hand panel over the dashboard on wide layouts (2026-10-16), a full page on phones.
+    SocialPageShell(title = "Inbox", wide = wide, topInset = topInset, onDismiss = onBack) { horizontal, bottom ->
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = horizontal, end = horizontal, bottom = bottom),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val legacy = state.capabilities.partyContractVersion < 2
+            if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
+                item(key = "legacy-label") { SocialSectionLabel("New", state.requests.size + state.partyInvites.size) }
+                state.requests.forEach { request ->
+                    item(key = "legacy-request:${request.id}") {
+                        SocialInboxCard(
+                            person = request.sender,
+                            text = socialRich(request.sender.displayName to true, " wants to be friends" to false),
+                            time = relativeTimeLabel(parseSocialTimestampMs(request.createdAt), nowMs),
+                            unread = true,
+                            actions = listOf(
+                                Triple("Accept", true) { onRespondLegacy(request.id, true) },
+                                Triple("Decline", false) { onRespondLegacy(request.id, false) },
+                            ),
                         )
                     }
                 }
-                if (fresh.isNotEmpty()) {
-                    item(key = "new-label") { SocialSectionLabel("New", fresh.size) }
-                    fresh.forEach { entry ->
-                        item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = true, onAction, onOpenContent) }
+                state.partyInvites.forEach { invite ->
+                    item(key = "legacy-invite:${invite.id}") {
+                        SocialInboxCard(
+                            person = invite.sender,
+                            text = socialRich(invite.sender.displayName to true, " invited you to watch " to false, invite.content.title to true),
+                            time = relativeTimeLabel(parseSocialTimestampMs(invite.createdAt), nowMs),
+                            unread = true,
+                            art = invite.content.artRef(),
+                            actions = listOf(Triple("Join", true) { onJoinLegacyInvite(invite.partyId) }),
+                        )
                     }
                 }
-                if (earlier.isNotEmpty()) {
-                    item(key = "earlier-label") { SocialSectionLabel("Earlier", modifier = Modifier.padding(top = 8.dp)) }
-                    earlier.forEach { entry ->
-                        item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = false, onAction, onOpenContent) }
-                    }
+            }
+            if (!legacy && timeline.isEmpty()) {
+                item(key = "empty") {
+                    Text(
+                        "Nothing here yet. Friend requests and Watch Together invites land here.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+            }
+            if (fresh.isNotEmpty()) {
+                item(key = "new-label") { SocialSectionLabel("New", fresh.size) }
+                fresh.forEach { entry ->
+                    item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = true, onAction, onOpenContent) }
+                }
+            }
+            if (earlier.isNotEmpty()) {
+                item(key = "earlier-label") { SocialSectionLabel("Earlier", modifier = Modifier.padding(top = 8.dp)) }
+                earlier.forEach { entry ->
+                    item(key = entry.key) { SocialInboxEntryCard(entry, nowMs, unread = false, onAction, onOpenContent) }
                 }
             }
         }

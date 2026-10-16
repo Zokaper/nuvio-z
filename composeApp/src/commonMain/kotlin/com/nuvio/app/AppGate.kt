@@ -125,7 +125,7 @@ internal suspend fun warmProfileBoundRepositories() {
 
 private val log = Logger.withTag("AppGate")
 
-private enum class AppGateScreen {
+internal enum class AppGateScreen {
     Loading,
     Auth,
     ProfileSelection,
@@ -266,7 +266,10 @@ internal fun AppGate(
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
 
-    var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
+    // A window re-created by desktop tray mode resumes the app it left; see [AppGateResume].
+    var gateScreen by rememberSaveable {
+        mutableStateOf(if (AppGateResume.canResumeMain()) AppGateScreen.Main.name else AppGateScreen.Loading.name)
+    }
     var pendingProfileSwitch by remember { mutableStateOf<PendingProfileSwitch?>(null) }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
@@ -568,6 +571,7 @@ internal fun AppGate(
 
     LaunchedEffect(gateScreen) {
         log.i { "[AppGate] gateScreen transitioned to: $gateScreen" }
+        AppGateResume.onGateScreen(gateScreen)
     }
 
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {

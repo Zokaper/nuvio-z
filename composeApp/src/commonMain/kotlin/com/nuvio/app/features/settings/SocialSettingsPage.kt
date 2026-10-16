@@ -158,8 +158,9 @@ internal fun SocialSettingsSections(isTablet: Boolean, inSocialTab: Boolean = fa
             }
         }
 
-        // Everything below is about *how* the layer behaves, so it is meaningless while it is off.
-        if (preferences.enabled) {
+        // Everything below is about *how* the layer behaves, so it is meaningless while it is off. The Social
+        // tab's copy only exists while it is on.
+        if (preferences.enabled || inSocialTab) {
             if (me != null) {
                 SettingsSection(title = "You", isTablet = isTablet) {
                     SettingsGroup(isTablet = isTablet) {
