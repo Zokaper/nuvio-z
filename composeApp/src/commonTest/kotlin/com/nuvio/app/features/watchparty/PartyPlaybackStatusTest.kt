@@ -75,6 +75,21 @@ class PartyPlaybackStatusTest {
         }
     }
 
+    @Test fun anAnsweredOutgoingRequestIsSaidWithNothingToPress() {
+        val asked = PartyPlaybackStatusInputs(inParty = false, isHost = false, outgoingRequestTarget = seraph)
+        mapOf(
+            PartyStatusOutgoingOutcome.Declined to "Seraph can't have company right now",
+            PartyStatusOutgoingOutcome.NoAnswer to "No answer from Seraph",
+            PartyStatusOutgoingOutcome.Stopped to "Seraph stopped watching",
+        ).forEach { (outcome, text) ->
+            projectPartyPlaybackStatus(asked.copy(outgoingRequestOutcome = outcome))!!.let {
+                assertEquals(text, it.text)
+                assertNull(it.action)
+                assertEquals(PartyStatusTone.Warning, it.tone)
+            }
+        }
+    }
+
     @Test fun belowThresholdConditionsAndDurableFallbackShowNothing() {
         assertNull(projectPartyPlaybackStatus(guest.copy(barrierHoldMs = 1_500)))
         assertNull(projectPartyPlaybackStatus(guest.copy(realtimeUnhealthyMs = 3_000)))

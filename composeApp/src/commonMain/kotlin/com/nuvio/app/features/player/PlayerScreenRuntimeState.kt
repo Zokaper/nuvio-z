@@ -162,8 +162,10 @@ internal class PlayerScreenRuntime(
     var partyEndConfirm by mutableStateOf(false)
     /** One inline, dismissible error row under the panel header, replacing party toasts. */
     var partyPanelError by mutableStateOf<String?>(null)
-    /** Friends invited from this panel, so a second press says Invited instead of sending again. */
+    /** Friends invited from this panel that the server has not listed yet; they read Sending. */
     var partyInvitedProfileIds by mutableStateOf<Set<String>>(emptySet())
+    /** Invite ids withdrawn from this panel that the server still lists; they read Cancelling. */
+    var partyCancellingInviteIds by mutableStateOf<Set<String>>(emptySet())
     var activeSourceUrl by mutableStateOf(sourceUrl)
     var activeSourceAudioUrl by mutableStateOf(sourceAudioUrl)
     var activeSourceHeaders by mutableStateOf(sanitizePlaybackHeaders(sourceHeaders))

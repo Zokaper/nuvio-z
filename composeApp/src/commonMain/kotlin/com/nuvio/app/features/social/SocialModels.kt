@@ -110,6 +110,21 @@ data class RecentActivityRun(
     @SerialName("last_event_time") val lastEventTime: String,
 )
 
+/**
+ * A party invite this profile sent (2026-10-16, `sent_party_invites`): pending while its party is live,
+ * or declined while the re-invite cooldown runs. [cooldownSeconds] is what remained when the server
+ * answered, so client clocks cannot skew it.
+ */
+@Serializable
+data class SentPartyInvite(
+    val id: String,
+    @SerialName("party_id") val partyId: String,
+    @SerialName("receiver_profile_id") val receiverProfileId: String,
+    val status: String,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("cooldown_seconds") val cooldownSeconds: Int? = null,
+)
+
 /** A friend request this profile sent that is still waiting (Social V2, `sent_requests`). */
 @Serializable
 data class SentFriendRequest(
@@ -194,6 +209,7 @@ data class SocialStatePayload(
     @SerialName("sent_requests") val sentRequests: List<SentFriendRequest>? = null,
     @SerialName("friend_prefs") val friendPrefs: List<SocialFriendPrefs>? = null,
     val inbox: List<SocialInboxEvent>? = null,
+    @SerialName("sent_party_invites") val sentPartyInvites: List<SentPartyInvite>? = null,
 )
 
 data class SocialUiState(
@@ -217,6 +233,10 @@ data class SocialUiState(
     val inbox: List<SocialInboxEvent> = emptyList(),
     /** The backend serves the Social V2 keys (per-friend switches, sent requests, the stored inbox). */
     val socialV2Backend: Boolean = false,
+    /** Null when the backend predates `sent_party_invites`: the player then keeps a local "Sent". */
+    val sentPartyInvites: List<SentPartyInvite>? = null,
+    /** When [sentPartyInvites] arrived, the base for their `cooldownSeconds`. */
+    val sentPartyInvitesAtMs: Long = 0L,
 ) {
     val unreadCount: Int get() = (if (capabilities.partyContractVersion>=2) {
         notifications.count { it.readAt==null && it.availableActions.isNotEmpty() }

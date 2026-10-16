@@ -48,6 +48,7 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import com.nuvio.app.features.watchparty.PartySourceContractVersion
 import com.nuvio.app.features.watchparty.WatchPartyState
+import com.nuvio.app.features.watchparty.currentEpochMs
 import com.nuvio.app.features.setup.SocialIdentityProbe
 
 /** How long to wait for the social channel to report itself subscribed before giving up on it. */
@@ -319,6 +320,10 @@ object SocialRepository {
                 watchingNow = payload.watchingNow.take(SocialHomeItemLimit), activity = activity,
                 sentRequests = payload.sentRequests.orEmpty(), friendPrefs = payload.friendPrefs.orEmpty(),
                 inbox = payload.inbox.orEmpty(), socialV2Backend = payload.inbox != null,
+                // Fresh only, never from the offline cache: a stale "Sent" could not be cancelled. The
+                // time is only the base for a running cooldown, so it is stamped only when one runs.
+                sentPartyInvites = payload.sentPartyInvites,
+                sentPartyInvitesAtMs = if (payload.sentPartyInvites.orEmpty().any { it.cooldownSeconds != null }) currentEpochMs() else 0L,
                 nextCursor = next, isLoading = false, isLoadingMore = false, isOfflineCache = false, errorMessage = null,
             ) }
             val owner = operation()
@@ -500,6 +505,10 @@ object SocialRepository {
     }
     suspend fun cancelFriendRequest(requestId: String): Result<Unit> = socialMutation("social_cancel_friend_request") {
         put("p_profile_id", requireActiveProfile()); put("p_request_id", requestId)
+    }
+    /** Withdraws a pending party invite; an invite answered first is left as it is (`stale`). */
+    suspend fun cancelPartyInvite(inviteId: String): Result<Unit> = socialMutation("party_cancel_invite") {
+        put("p_profile_id", requireActiveProfile()); put("p_invite_id", inviteId)
     }
     suspend fun respondFriendRequest(requestId: String, accept: Boolean): Result<Unit> = socialMutation("social_respond_friend_request") {
         put("p_profile_id", requireActiveProfile()); put("p_request_id", requestId); put("p_accept", accept)

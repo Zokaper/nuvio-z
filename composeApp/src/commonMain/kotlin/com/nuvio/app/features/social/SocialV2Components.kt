@@ -516,7 +516,7 @@ internal fun FriendActivityStillRow(
                 )
             }
             Text(
-                group.title,
+                group.displayTitle(),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -587,14 +587,15 @@ internal fun SocialActivityPileCard(
             )
         }
         val single = titles.singleOrNull()
+        val names = titles.map { it.displayTitle() }
         Text(
-            single?.title ?: entry.countLabel(),
+            if (single != null) names.single() else entry.countLabel(),
             style = MaterialTheme.typography.bodyMedium,
             color = strong,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        val detail = single?.contextLabel() ?: titles.joinToString(", ") { it.title }
+        val detail = single?.contextLabel() ?: names.filter(String::isNotBlank).joinToString(", ")
         if (detail.isNotBlank()) {
             Text(
                 detail,
@@ -724,7 +725,7 @@ internal fun SocialHomeActivityTile(
         },
         people = group.friends,
         liveRing = false,
-        title = group.title,
+        title = group.displayTitle(),
         subtitle = listOf(group.friendNamesLabel(), group.contextLabel()).filter(String::isNotBlank).joinToString(" · "),
     )
 }

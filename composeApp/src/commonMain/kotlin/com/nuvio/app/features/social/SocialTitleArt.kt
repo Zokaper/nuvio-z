@@ -39,6 +39,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * anybody's personal data, so it has no identity boundary to keep.
  */
 data class SocialTitleArt(
+    /** The title's own name. For a series this is the show, which activity rows do not always carry. */
+    val name: String? = null,
     val background: String? = null,
     /** Episode stills by video id, and by `season:episode` for addons that number differently. */
     val thumbnailsByVideoId: Map<String, String> = emptyMap(),
@@ -58,6 +60,7 @@ fun socialTitleArt(meta: MetaDetails?): SocialTitleArt {
     if (meta == null) return SocialTitleArt.None
     val withStills = meta.videos.filter { !it.thumbnail.isNullOrBlank() }
     return SocialTitleArt(
+        name = meta.name.takeIf(String::isNotBlank),
         background = meta.background?.takeIf(String::isNotBlank),
         thumbnailsByVideoId = withStills.associate { it.id to it.thumbnail!! },
         thumbnailsBySeasonEpisode = withStills
@@ -138,12 +141,18 @@ internal fun rememberSocialTitleArtwork(
 ): List<String?> {
     val known = landscape.filterNot { it.isNullOrBlank() }
     if (known.isNotEmpty() || contentId.isBlank()) return known + poster
+    val art = rememberSocialTitleArt(contentType, contentId) ?: return emptyList()
+    return listOf(art.episodeThumbnail(videoId, season, episode), art.background, poster)
+}
+
+/** The looked-up art for a title, or null while the lookup is pending. */
+@Composable
+internal fun rememberSocialTitleArt(contentType: String, contentId: String): SocialTitleArt? {
     val source = LocalSocialTitleArtSource.current
     val key = remember(contentType, contentId) { socialTitleArtKey(contentType, contentId) }
     LaunchedEffect(source, key) { source.request(contentType, contentId) }
     val all by source.art.collectAsState()
-    val art = all[key] ?: return emptyList()
-    return listOf(art.episodeThumbnail(videoId, season, episode), art.background, poster)
+    return all[key]
 }
 
 /** A title to draw, by identity, with whatever art its row already carried. */
@@ -166,16 +175,33 @@ internal fun SocialArtRef.artwork(): List<String?> =
         rememberSocialTitleArtwork(contentType, contentId, videoId, season, episode, landscape, poster)
     }
 
+/**
+ * The title's own landscape still - for a series the show's backdrop, never one episode's still: the
+ * row is about the show, and an episode frame read as if it were the title (maintainer, 2026-10-16).
+ */
 @Composable
 internal fun FriendActivityGroup.artwork(): List<String?> = rememberSocialTitleArtwork(
     contentType = contentType,
     contentId = contentId,
-    videoId = latestRun.videoId,
-    season = latestRun.season,
-    episode = latestRun.episode,
-    landscape = listOf(latestRun.episodeThumbnail, background),
+    videoId = null,
+    season = null,
+    episode = null,
+    landscape = listOf(background),
     poster = poster,
 )
+
+/**
+ * The name to show for this row. For a series it is the show's name from metadata: a mark-as-watched
+ * stored the *episode's* name as the title ("Bal des Sauvages" for Outer Banks S5 E7, production
+ * 2026-10-14). Blank while the lookup is pending, like the art, so the name never changes under the
+ * viewer; the stored title only when the lookup failed.
+ */
+@Composable
+internal fun FriendActivityGroup.displayTitle(): String {
+    if (!isEpisodic) return title
+    val art = rememberSocialTitleArt(contentType, contentId) ?: return ""
+    return art.name ?: title
+}
 
 internal fun com.nuvio.app.features.watchparty.PartyContent.artRef() =
     SocialArtRef(title, contentType, contentId, poster, videoId = videoId, season = season, episode = episode)

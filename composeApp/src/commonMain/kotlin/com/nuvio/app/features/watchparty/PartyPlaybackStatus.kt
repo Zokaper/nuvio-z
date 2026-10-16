@@ -147,7 +147,12 @@ data class PartyPlaybackStatusInputs(
     /** The actor of the last accepted `pause` still in force, when it was not this viewer. */
     val pausedBy: PartyStatusPerson? = null,
     val outgoingRequestTarget: PartyStatusPerson? = null,
+    /** How the viewer's request to [outgoingRequestTarget] ended, while that is still on screen. */
+    val outgoingRequestOutcome: PartyStatusOutgoingOutcome? = null,
 )
+
+/** An outgoing join request's answer, for the few seconds the player says so (2026-10-16). */
+enum class PartyStatusOutgoingOutcome { Declined, NoAnswer, Stopped }
 
 /** First match wins. See the table in `PLAN-social-watch-together-ux-pass.md` §5. */
 fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLine? = with(inputs) {
@@ -302,7 +307,20 @@ fun projectPartyPlaybackStatus(inputs: PartyPlaybackStatusInputs): PartyStatusLi
     if (inParty && pausedBy != null) {
         return PartyStatusLine(PartyStatusKind.PausedBy, "Paused by ${pausedBy.name}", listOf(pausedBy))
     }
-    // 14.
+    // 14. A refusal used to vanish without a word while watching: the dock is hidden over the player.
+    if (outgoingRequestTarget != null && outgoingRequestOutcome != null) {
+        val name = outgoingRequestTarget.name
+        return PartyStatusLine(
+            PartyStatusKind.OutgoingJoinRequest,
+            when (outgoingRequestOutcome) {
+                PartyStatusOutgoingOutcome.Declined -> "$name can't have company right now"
+                PartyStatusOutgoingOutcome.NoAnswer -> "No answer from $name"
+                PartyStatusOutgoingOutcome.Stopped -> "$name stopped watching"
+            },
+            listOf(outgoingRequestTarget),
+            tone = PartyStatusTone.Warning,
+        )
+    }
     if (outgoingRequestTarget != null) {
         return PartyStatusLine(
             PartyStatusKind.OutgoingJoinRequest,

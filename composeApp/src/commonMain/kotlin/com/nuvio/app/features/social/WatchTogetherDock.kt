@@ -6,9 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,12 +67,15 @@ fun WatchTogetherDock(
         enter = fadeIn() + slideInVertically { it / 2 },
         exit = fadeOut() + slideOutVertically { it / 2 },
     ) {
-        shown?.let { DockContent(it, narrow = windowWidth < 720.dp) }
+        // ⚠ Always the full pill. Narrow windows used to collapse it to the avatar until hovered, which on
+        // a phone (no hover) left a bare avatar nobody noticed - and a decline drew nothing at all
+        // (maintainer, 2026-10-16). The window only caps its width now.
+        shown?.let { DockContent(it, maxWidth = minOf(340.dp, windowWidth - 32.dp)) }
     }
 }
 
 @Composable
-private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) {
+private fun DockContent(state: OutgoingJoinRequestState.Bound, maxWidth: Dp) {
     var nowMs by remember { mutableLongStateOf(currentEpochMs()) }
     LaunchedEffect(state::class) {
         while (true) {
@@ -83,14 +83,10 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
             delay(250)
         }
     }
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
     val presentation = dockPresentation(state, nowMs)
     val accent = state is OutgoingJoinRequestState.Accepted
     Surface(
-        modifier = Modifier.hoverable(interaction).then(
-            if (narrow && !hovered) Modifier else Modifier.widthIn(max = 340.dp),
-        ),
+        modifier = Modifier.widthIn(max = maxWidth),
         shape = RoundedCornerShape(28.dp),
         color = if (accent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         contentColor = if (accent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
@@ -98,7 +94,7 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
         shadowElevation = 8.dp,
     ) {
         Row(
-            Modifier.padding(start = 6.dp, end = if (narrow && !hovered) 6.dp else 8.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -116,35 +112,33 @@ private fun DockContent(state: OutgoingJoinRequestState.Bound, narrow: Boolean) 
                 }
                 SocialAvatar(state.target.displayName, state.target.avatarUrl, state.target.avatarColorHex, 34.dp)
             }
-            if (!narrow || hovered) {
-                Column(Modifier.weight(1f, fill = false).widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        presentation.headline,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val muted = if (accent) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                    presentation.subline?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
-                    }
-                    presentation.detail?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = muted)
-                    }
+            Column(Modifier.weight(1f, fill = false).widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    presentation.headline,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val muted = if (accent) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                else MaterialTheme.colorScheme.onSurfaceVariant
+                presentation.subline?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
                 }
-                presentation.actions.forEach { action ->
-                    TextButton(
-                        onClick = action.onClick,
-                        enabled = action.enabled,
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) { Text(action.label, maxLines = 1, softWrap = false) }
+                presentation.detail?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = muted)
                 }
-                presentation.onDismiss?.let { dismiss ->
-                    IconButton(onClick = dismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
-                    }
+            }
+            presentation.actions.forEach { action ->
+                TextButton(
+                    onClick = action.onClick,
+                    enabled = action.enabled,
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                ) { Text(action.label, maxLines = 1, softWrap = false) }
+            }
+            presentation.onDismiss?.let { dismiss ->
+                IconButton(onClick = dismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
                 }
             }
         }

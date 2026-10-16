@@ -8,6 +8,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.watchparty.PartyStatusOutgoingOutcome
 import com.nuvio.app.features.watchparty.PartyPlaybackStatusInputs
 import com.nuvio.app.features.watchparty.PartySourceActivityInputs
 import com.nuvio.app.features.watchparty.PartySourceHandoff
@@ -56,6 +57,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
     incomingRequester: PartyStatusPerson?,
     outgoingTarget: PartyStatusPerson?,
     panelOpen: Boolean,
+    outgoingOutcome: PartyStatusOutgoingOutcome? = null,
 ): PartyStatusLine? {
     val partyUi by WatchPartyRepository.uiState.collectAsStateWithLifecycle()
     val syncState by WatchPartySync.state.collectAsStateWithLifecycle()
@@ -118,6 +120,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 incomingRequester = incomingRequester,
                 panelOpen = panelOpen,
                 outgoingRequestTarget = outgoingTarget,
+                outgoingRequestOutcome = outgoingOutcome,
             ),
         )
     } else {
@@ -209,6 +212,7 @@ internal fun PlayerScreenRuntime.rememberPartyStatusLine(
                 capability = partyUi.health.capability(),
                 pausedBy = pausedBy,
                 outgoingRequestTarget = outgoingTarget,
+                outgoingRequestOutcome = outgoingOutcome,
             ),
         )
     }
@@ -232,3 +236,12 @@ private fun WatchPartyParticipant.toStatusPerson() = PartyStatusPerson(
     avatarUrl = profile?.avatarUrl,
     avatarColorHex = profile?.avatarColorHex ?: "#1E88E5",
 )
+
+/** The status pill's wording for how an outgoing join request ended; null for the ones it does not voice. */
+internal fun com.nuvio.app.features.social.OutgoingJoinOutcome.statusOutcome(): PartyStatusOutgoingOutcome? = when (this) {
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Declined -> PartyStatusOutgoingOutcome.Declined
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Expired -> PartyStatusOutgoingOutcome.NoAnswer
+    com.nuvio.app.features.social.OutgoingJoinOutcome.TargetStopped -> PartyStatusOutgoingOutcome.Stopped
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Cancelled,
+    com.nuvio.app.features.social.OutgoingJoinOutcome.Failed -> null
+}
