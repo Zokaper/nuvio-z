@@ -11,6 +11,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
 
 interface PlatformSetupOps {
     val platformName: String
@@ -21,8 +22,10 @@ interface PlatformSetupOps {
     fun isDeviceTransportReady(): Boolean
     fun openAppleServiceManager(): OperationResult
     fun findIloader(): Path?
-    fun installIloader(): OperationResult
+    fun installIloader(onProgress: (Long, Long?) -> Unit = { _, _ -> }): OperationResult
     fun openIloader(): OperationResult
+    /** The pinned, checksum-verified iloader installer; see [IloaderBootstrap]. */
+    val iloaderBootstrap: IloaderBootstrap
 }
 
 fun platformSetupOps(diagnostics: Diagnostics): PlatformSetupOps {
@@ -31,14 +34,25 @@ fun platformSetupOps(diagnostics: Diagnostics): PlatformSetupOps {
 }
 
 abstract class ProcessPlatformOps(protected val diagnostics: Diagnostics) : PlatformSetupOps {
-    protected fun run(vararg args: String, timeoutSeconds: Long = 30): OperationResult = try {
+    protected val prereqs: Prereqs by lazy { Prereqs.load(::fetchHostedPrereqs) }
+    override val iloaderBootstrap: IloaderBootstrap by lazy { IloaderBootstrap(prereqs, isMac, diagnostics = diagnostics) }
+
+    private fun fetchHostedPrereqs(): String? = runCatching {
+        val request = HttpRequest.newBuilder(URI(Prereqs.REMOTE_URL)).timeout(Duration.ofSeconds(4)).GET().build()
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build()
+            .send(request, HttpResponse.BodyHandlers.ofString()).takeIf { it.statusCode() == 200 }?.body()
+    }.getOrNull()
+
+    protected fun run(vararg args: String, timeoutSeconds: Long = 30, maxOutput: Int = 8_000): OperationResult = try {
         val process = ProcessBuilder(*args).redirectErrorStream(true).start()
+        // Drain while the process runs: a full pipe would stall system_profiler/ioreg until the timeout.
+        val reader = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().readText() }
         val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
             OperationResult(false, "The operation timed out.", details = args.first())
         } else {
-            val output = process.inputStream.bufferedReader().readText().take(8_000)
+            val output = runCatching { reader.get(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault("").take(maxOutput)
             val result = OperationResult(process.exitValue() == 0, if (process.exitValue() == 0) "Operation completed." else "The operation did not complete.", process.exitValue(), output)
             diagnostics.operation(args.first(), result)
             result
@@ -49,13 +63,35 @@ abstract class ProcessPlatformOps(protected val diagnostics: Diagnostics) : Plat
         result
     }
 
-    protected fun hasInternet(): Boolean = runCatching {
-        val connection = URI("https://github.com").toURL().openConnection() as HttpURLConnection
-        connection.requestMethod = "HEAD"
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 5_000
-        connection.responseCode in 200..399
-    }.getOrDefault(false)
+    protected fun internetCheck(): CheckResult {
+        val reachable = listOf("https://github.com", STABLE_SOURCE_URL)
+            .map { url ->
+                CompletableFuture.supplyAsync {
+                    runCatching {
+                        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+                        try {
+                            connection.requestMethod = "HEAD"
+                            connection.connectTimeout = 4_000
+                            connection.readTimeout = 4_000
+                            connection.setRequestProperty("User-Agent", "Nuvio-Z-iOS-Setup")
+                            connection.responseCode in 200..399
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }.getOrDefault(false)
+                }
+            }
+            .any { it.join() }
+        return if (reachable) {
+            CheckResult("Internet connection", CheckState.PASS, "Online")
+        } else {
+            CheckResult(
+                "Internet connection",
+                CheckState.ACTION,
+                "Couldn’t verify the connection right now. You can continue, but downloads will need internet.",
+            )
+        }
+    }
 
     protected fun download(url: String, destination: Path): OperationResult = try {
         Files.createDirectories(destination.parent)
@@ -75,16 +111,27 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
 
     override fun checkComputer(): ComputerCheck {
         val is64 = System.getenv("PROCESSOR_ARCHITEW6432") != null || System.getProperty("os.arch").contains("64")
-        val service = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Service -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'Apple.*Mobile|MobileDevice' -or ${'$'}_.DisplayName -match 'Apple Mobile Device' } | Select-Object -First 1 -ExpandProperty Status")
-        val registry = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if ((Test-Path 'HKLM:\\SOFTWARE\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path (Join-Path ${'$'}env:ProgramFiles 'Common Files\\Apple\\Mobile Device Support')) -or (Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'AppleInc\\.(iTunes|AppleDevices)' })) { exit 0 } else { exit 1 }")
-        val winget = run("winget", "list", "--id", "Apple.iTunes", "-e", "--source", "winget", "--accept-source-agreements", timeoutSeconds = 60)
+        val serviceFuture = CompletableFuture.supplyAsync {
+            run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Service -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'Apple.*Mobile|MobileDevice' -or ${'$'}_.DisplayName -match 'Apple Mobile Device' } | Select-Object -First 1 -ExpandProperty Status")
+        }
+        val registryFuture = CompletableFuture.supplyAsync {
+            run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if ((Test-Path 'HKLM:\\SOFTWARE\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Apple Inc.\\Apple Mobile Device Support') -or (Test-Path (Join-Path ${'$'}env:ProgramFiles 'Common Files\\Apple\\Mobile Device Support')) -or (Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.Name -match 'AppleInc\\.(iTunes|AppleDevices)' })) { exit 0 } else { exit 1 }")
+        }
+        val wingetFuture = CompletableFuture.supplyAsync {
+            run("winget", "list", "--id", "Apple.iTunes", "-e", "--source", "winget", "--accept-source-agreements", timeoutSeconds = 12)
+        }
+        val internetFuture = CompletableFuture.supplyAsync(::internetCheck)
+        val service = serviceFuture.join()
+        val registry = registryFuture.join()
+        val winget = wingetFuture.join()
+        val internet = internetFuture.join()
         val serviceInstalled = service.exitCode == 0 && service.details.isNotBlank()
         val serviceRunning = service.details.contains("Running", true)
         val installed = appleSupportDetected(registry.success, serviceInstalled, winget.success)
         diagnostics.appleProbes(registry.success, serviceInstalled, serviceRunning, winget.success)
         return ComputerCheck(
             CheckResult("64-bit Windows", if (is64) CheckState.PASS else CheckState.FAIL, if (is64) "Supported" else "A 64-bit Windows computer is required."),
-            CheckResult("Internet connection", if (hasInternet()) CheckState.PASS else CheckState.FAIL, "Needed to download iloader and the Nuvio Z source."),
+            internet,
             CheckResult("Apple device support", if (installed) CheckState.PASS else CheckState.ACTION, if (installed) "Installed" else "Install Apple's iPhone drivers."),
             CheckResult(
                 "Apple Mobile Device Service",
@@ -105,16 +152,30 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
     }
 
     override fun installAppleDeviceSupport(): OperationResult {
+        val apple = prereqs.appleInstallerWindows
         val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iTunes64Setup.exe")
-        val downloaded = download(
-            "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
-            target,
+        val downloaded = Downloader().download(apple.url, target, minBytes = apple.minBytes)
+        if (downloaded is DownloadResult.Failed) return OperationResult(
+            false,
+            "Couldn’t download Apple’s installer. Check your internet connection and try again.",
+            details = "${downloaded.reason} ${downloaded.detail}",
         )
-        if (!downloaded.success) return downloaded
+        // Apple rotates this URL, so trust comes from Apple’s code signature rather than a pinned hash.
+        if (!signedBy(target, apple.publisher)) {
+            runCatching { Files.deleteIfExists(target) }
+            return OperationResult(false, "The downloaded installer was not signed by ${apple.publisher}, so it was not run.")
+        }
         val installed = run(target.toString(), timeoutSeconds = 900)
         return if (installed.success) OperationResult(true, "Apple's desktop iTunes installer finished. Checking device communication again.", installed.exitCode)
         else OperationResult(false, "Apple's installer did not complete successfully. Try it again or open the technical details below.", installed.exitCode, installed.details)
     }
+
+    private fun signedBy(file: Path, publisher: String): Boolean = run(
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        "${'$'}s = Get-AuthenticodeSignature -LiteralPath '${file.toString().replace("'", "''")}'; " +
+            "if (${'$'}s.Status -eq 'Valid' -and ${'$'}s.SignerCertificate.Subject -match 'O=${publisher.replace("'", "''")}') { exit 0 } else { exit 1 }",
+        timeoutSeconds = 60,
+    ).success
 
     override fun isDeviceConnected(): Boolean {
         val result = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "if (Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.InstanceId -like 'USB\\VID_05AC*' -or ${'$'}_.FriendlyName -match 'iPhone|iPad|Apple Mobile Device' }) { exit 0 } else { exit 1 }")
@@ -133,38 +194,11 @@ class WindowsSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics
         OperationResult(false, "Could not open Windows Services.", details = error.message.orEmpty())
     }
 
-    override fun findIloader(): Path? {
-        val roots = listOfNotNull(
-            System.getenv("LOCALAPPDATA")?.let { Path.of(it, "Programs", "iloader", "iloader.exe") },
-            System.getenv("ProgramFiles")?.let { Path.of(it, "iloader", "iloader.exe") },
-            System.getenv("ProgramFiles(x86)")?.let { Path.of(it, "iloader", "iloader.exe") },
-        )
-        return roots.firstOrNull(Files::isRegularFile).also { path ->
-            val version = path?.let {
-                run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "(Get-Item -LiteralPath '${it.toString().replace("'", "''")}').VersionInfo.ProductVersion").details.trim()
-            }
-            diagnostics.iloader(path, version)
-        }
-    }
+    override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun installIloader(): OperationResult {
-        val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iloader-windows-x64.msi")
-        val downloaded = download("https://github.com/nab138/iloader/releases/latest/download/iloader-windows-x64.msi", target)
-        if (!downloaded.success) return downloaded
-        val result = run("msiexec.exe", "/i", target.toString(), timeoutSeconds = 900)
-        return if (result.success && findIloader() != null) OperationResult(true, "iloader is installed.", result.exitCode)
-        else OperationResult(false, "iloader's installer closed, but iloader was not found. Choose Check again after completing the installer.", result.exitCode, result.details)
-    }
+    override fun installIloader(onProgress: (Long, Long?) -> Unit): OperationResult = iloaderBootstrap.install(onProgress)
 
-    override fun openIloader(): OperationResult {
-        val path = findIloader() ?: return OperationResult(false, "iloader is not installed yet.")
-        return try {
-            ProcessBuilder(path.toString()).start()
-            OperationResult(true, "iloader opened. Return here after completing the instructions on your iPhone.")
-        } catch (error: Exception) {
-            OperationResult(false, "Could not open iloader.", details = error.message.orEmpty())
-        }
-    }
+    override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }
 
 class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
@@ -175,7 +209,7 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
         val supported = System.getProperty("os.name").lowercase().contains("mac")
         return ComputerCheck(
             CheckResult("macOS", if (supported) CheckState.PASS else CheckState.FAIL, "Apple device support is built in."),
-            CheckResult("Internet connection", if (hasInternet()) CheckState.PASS else CheckState.FAIL),
+            internetCheck(),
             CheckResult("Apple device support", CheckState.PASS, "Built into macOS"),
             null,
         ).also { diagnostics.computerCheck(it) }
@@ -184,32 +218,35 @@ class MacSetupOps(diagnostics: Diagnostics) : ProcessPlatformOps(diagnostics) {
     override fun installAppleDeviceSupport() = OperationResult(true, "Apple device support is built into macOS.")
 
     override fun isDeviceConnected(): Boolean {
-        val usb = run("/usr/sbin/system_profiler", "SPUSBDataType", "-detailLevel", "mini", timeoutSeconds = 20)
-        return (usb.success && (usb.details.contains("iPhone", true) || usb.details.contains("iPad", true))).also { diagnostics.deviceDetected(it) }
+        val usbmuxd = Usbmuxd.usbDeviceCount()
+        if (usbmuxd != null && usbmuxd > 0) {
+            diagnostics.macDeviceProbes(usbmuxd, ioreg = null, systemProfiler = null)
+            return true.also { diagnostics.deviceDetected(it) }
+        }
+        // Fallbacks for a usbmuxd that is unreachable or has not enumerated the phone yet.
+        // `ioreg -p IOUSB` lists device names on Intel and Apple silicon alike; system_profiler
+        // moved USB to SPUSBHostDataType on Apple silicon and SPUSBDataType is empty there.
+        val ioreg = run("/usr/sbin/ioreg", "-p", "IOUSB", "-w0", timeoutSeconds = 10, maxOutput = 200_000)
+        val ioregFound = ioreg.success && mentionsIosDevice(ioreg.details)
+        val profilerFound = !ioregFound && run(
+            "/usr/sbin/system_profiler", "SPUSBHostDataType", "SPUSBDataType", timeoutSeconds = 20, maxOutput = 500_000,
+        ).let { it.success && mentionsIosDevice(it.details) }
+        diagnostics.macDeviceProbes(usbmuxd, ioregFound, if (ioregFound) null else profilerFound)
+        return (ioregFound || profilerFound).also { diagnostics.deviceDetected(it) }
     }
 
-    override fun isDeviceTransportReady(): Boolean = true.also { diagnostics.deviceTransportReady(it) }
+    override fun isDeviceTransportReady(): Boolean = Usbmuxd.isReachable().also { diagnostics.deviceTransportReady(it) }
 
-    override fun openAppleServiceManager(): OperationResult = OperationResult(true, "Apple device communication is built into macOS.")
-
-    override fun findIloader(): Path? = listOf(
-        Path.of("/Applications/iloader.app"), Path.of(System.getProperty("user.home"), "Applications", "iloader.app")
-    ).firstOrNull(Files::isDirectory).also { path ->
-        val version = path?.let { run("/usr/bin/defaults", "read", it.resolve("Contents/Info").toString(), "CFBundleShortVersionString").details.trim() }
-        diagnostics.iloader(path, version)
+    override fun openAppleServiceManager(): OperationResult = try {
+        ProcessBuilder("/usr/bin/open", "-a", "Finder").start()
+        OperationResult(true, "Finder opened. Your iPhone should appear in the sidebar under Locations once it is trusted.")
+    } catch (error: Exception) {
+        OperationResult(false, "Could not open Finder.", details = error.message.orEmpty())
     }
 
-    override fun installIloader(): OperationResult {
-        val target = Path.of(System.getProperty("java.io.tmpdir"), "nuvio-z-ios-setup", "iloader.dmg")
-        val downloaded = download("https://github.com/nab138/iloader/releases/latest/download/iloader-darwin-universal.dmg", target)
-        if (!downloaded.success) return downloaded
-        val opened = run("/usr/bin/open", target.toString())
-        return if (opened.success) OperationResult(false, "The iloader disk image is open. Drag iloader to Applications, then choose Check again.") else opened
-    }
+    override fun findIloader(): Path? = iloaderBootstrap.find()
 
-    override fun openIloader(): OperationResult {
-        val path = findIloader() ?: return OperationResult(false, "iloader is not installed in Applications yet.")
-        val result = run("/usr/bin/open", path.toString())
-        return if (result.success) OperationResult(true, "iloader opened. Closing it will not advance this wizard.") else result
-    }
+    override fun installIloader(onProgress: (Long, Long?) -> Unit): OperationResult = iloaderBootstrap.install(onProgress)
+
+    override fun openIloader(): OperationResult = iloaderBootstrap.launch()
 }

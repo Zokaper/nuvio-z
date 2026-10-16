@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "iloader": {
+    "version": "v2.3.5",
+    "windows": {
+      "url": "https://github.com/nab138/iloader/releases/download/v2.3.5/iloader-windows-x64.exe",
+      "sha256": "8897db2d36dabd94595c436abbb8de3cb9077e83d50093cca88f8ebffbb55c96",
+      "bytes": 6040468,
+      "kind": "nsis"
+    },
+    "macos": {
+      "url": "https://github.com/nab138/iloader/releases/download/v2.3.5/iloader-darwin-universal.app.tar.gz",
+      "sha256": "bd8a8aaeaec68394ac17e2a66373598e388c5ba6cbc826cb8b7f7dfe28ecbe0d",
+      "bytes": 19110008,
+      "kind": "app-tar-gz"
+    }
+  },
+  "appleInstallerWindows": {
+    "url": "https://secure-appldnld.apple.com/itunes12/140-75773-20260908-6e5e0165-99cb-4b30-b541-1b615fccfc1a/iTunes64Setup.exe",
+    "minBytes": 150000000,
+    "publisher": "Apple Inc."
+  }
+}

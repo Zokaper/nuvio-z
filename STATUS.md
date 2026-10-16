@@ -1,3 +1,27 @@
+Last updated: 2026-10-16
+
+## Social V2 is the next release; branches caught up with the z2 trunks (2026-10-16)
+
+The maintainer set the scope: **the next release is Social V2, and none of Reaction Mode.** Reaction Mode stays on desktop
+`claude/reaction-mode` (Debug 92-96 came from there, published from the desktop PC). It is experimental and not for a
+public release. Do not merge it into a Social V2 branch or a trunk, and do not work on it unless asked.
+
+- **Trunks merged into the Social V2 branches** (merge commits, no rebase):
+  - mobile `claude/social-v2` <- `origin/main`, which brings 0.5.4-z2 and iOS Setup 2.1.1. Only docs conflicted:
+    `STATUS.md` and `Docs/PATCH-SURFACE.md`. Both sides were kept.
+  - desktop `claude/social-v2-design` <- `origin/Dev`, which brings 0.1.26-alpha-z2 and the perf pass. It merged cleanly.
+  - Both trunks were checked first and carry no Reaction Mode commit.
+- **Debug counters:** both files keep the trunk value: mobile `DEBUG_BUILD=84`, desktop `91`. The next published
+  Social V2 debug builds are **mobile 85** and **desktop 97**, because desktop 92-96 are Reaction Mode tags. Check
+  `gh release list` before bumping (see the debug-counter note).
+- **Backend:** `nuvio-z-backend` `claude/social-v2-backend` (`d740ecf`) is now pushed to origin. Until today it was
+  local-only. It is still **not deployed**: production has no `social_friend_prefs` or `social_inbox_events`
+  (checked 2026-10-16).
+- **Verified on the merges:** desktop Social + watchparty tests 586/586 and mobile host tests 576/576, both on fresh
+  results; Android `:androidApp:compileFullDebugKotlin` passes. iOS will be checked by the next debug build.
+- **Next for Social V2:** see "Still not built" and "Other open work" in the entry below, plus the plan's stage list
+  in `Nuvio Z/PLAN-social-v2.md`.
+
 ## Social V2 - Stages 1-3 landed on branches, unmerged, backend not deployed (2026-10-05)
 
 The Social redesign is planned and its decisions are recorded in `Nuvio Z/PLAN-social-v2.md` (workspace root). That file holds the
@@ -97,6 +121,286 @@ decision ledger and the stage list. Stage 0 settled the look from rendered candi
 - Strings are still hardcoded English.
 - The old `SocialCards.kt` / `FriendActivityRow.kt` composables are now unused by the screens. `SocialFeedMetricsTest` still references their constants. Remove them together.
 
+## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
+
+The maintainer noticed the assistant had no way back for a SideStore that has itself expired (it can't open, so it
+can't refresh anything, and auto-refresh can't rescue it). Only "Repair SideStore pairing" existed, which replaces the
+pairing file and nothing else.
+
+- **New "Re-sign SideStore" page** (`SetupSession.openResign`, transient; Settings and the finished page's primary
+  button). The assistant still never signs anything: Apple sign-in stays in iloader, which has no separate re-sign,
+  so the page reinstalls SideStore through iloader **over the expired copy with the same Apple Account** (SideStore's
+  bundle id carries the team id, so another account installs a second copy; the copy says so). Four parts: live
+  phone status, iloader (downloaded if missing; the launcher block is now shared with the setup step), the pairing
+  file (live status, auto-placed if absent, a Replace button), then trust/Refresh All on the phone. Offers auto-refresh
+  if not yet set up. Own troubleshooting (`resignTips`).
+- `tick()` now keeps polling a finished setup while the re-sign page is open, so the phone and iloader are live there.
+- **Not verified:** whether reinstalling over the old copy keeps SideStore's sign-in, sources and app list. It
+  normally does for a same-bundle-id install; the tips cover an empty SideStore. The maintainer's phone test settles it.
+- `:iosSetup:test` **119 / 119** locally (2 new session tests). Renders 21-23 (phone ready, no phone, iloader download
+  failed) and the finished page with the new button were reviewed. iosSetup 2.1.1.
+- **RELEASED 2026-10-13 as prerelease `ios-setup-v2.1.1-beta.1`** (commit `873094c88`, run `38451253392`, all jobs
+  green); `ios-setup-vlatest` carries it. SHA-256: Windows `edcc1e9ca97c6b0e6f5b5067a88f8f4bd54b481b0d43b9e0930f608ad27f9acb`
+  (67,819,092 bytes), macOS `5b74d1f48dadf5242af612418d17abe01ef9cd5951b7c8d9f8660c718dbfcd46` (74,790,660 bytes).
+  2.1.0-beta.1 retitled "(Superseded)"; GitHub "latest" is still the app (`0.5.4-z2+128`).
+
+## iOS Setup 2.1: daily auto-refresh (2026-10-13, branch `claude/ios-setup-auto-refresh`)
+
+The maintainer asked for a way to stop iOS users forgetting the 7-day SideStore refresh. Researched first: nothing
+legitimate removes the free-account 7-day limit (cert "signing services" are leaked enterprise certs or resold
+paid-dev UDID slots; AltStore PAL is EU/JP/BR-only and needs notarization). What works is automating the refresh:
+SideStore ships an App Intent **Refresh All Apps** (`RefreshAllAppsIntent`, iOS 17+; same title on the legacy SiriKit
+intent), runnable from a Shortcuts automation while LocalDevVPN is connected.
+
+- **New 13th requirement `AUTO_REFRESH`** (phase "Auto-refresh", manual-only). Four parts on the iPhone: the shortcut
+  (Set VPN → Connect LocalDevVPN, Wait 5 s, SideStore Refresh All Apps with Show When Run off), a daily Time of Day
+  automation (Run Immediately), a second automation 15 min later that disconnects LocalDevVPN (iOS allows one VPN at a
+  time and users report Shortcuts rarely runs anything after Refresh All Apps), and one test run. Never blocked by
+  the phone, so it can be confirmed with no cable; dropped like the other human answers if SideStore is deleted.
+- **Reachable from Settings.** The top-right "Advanced settings" text button is now a gear icon + "Settings"
+  (`material-icons-core:1.7.3`, the only new dependency); the dialog opens with a "Daily auto-refresh" card that jumps
+  straight to the step (`SetupSession.openAutoRefresh`, transient, over any setup state). A setup finished before 2.1
+  lands on the completed page, which now offers the same step first until it is confirmed.
+- **Shortcut link is hosted:** `distribution/sidestore/ios-setup-autorefresh.json` on `main` (shipped copy
+  `iosSetup/src/main/resources/autorefresh.json`). Only `https://www.icloud.com/shortcuts/<32 hex>` validates. It is
+  **`null` today**, so the step shows build-it-yourself steps; once the maintainer builds the shortcut on the iPhone
+  and shares it, put the iCloud link in the hosted file on `main` and every 2.1 install shows a QR instead, no release
+  needed. The page shows "Loading the shortcut…" until the lookup resolves, never one variant then the other.
+- **Caveat seen in SideStore's source:** the intent asks to continue in the foreground if a refresh passes ~27 s.
+  At 3 AM on a locked phone that may not finish; the troubleshooting copy says to open SideStore. Unverified on a
+  phone - this is the first thing the maintainer's test will show.
+- **Verification:** `:iosSetup:test` **117 / 117** locally (JDK 21; 104 before + 13 new: `AutoRefreshConfigTest`,
+  requirement/session cases; one v1 phase test narrowed because v1 has no auto-refresh page). `BoardRenderHarness`
+  renders 15-20 (build-it-yourself, QR, loading, completed page offering it, opened from Settings, confirmed) were
+  reviewed. **Not verified:** the Settings dialog itself (dialogs are not in the harness), and the whole flow on a
+  real iPhone.
+- **RELEASED 2026-10-13 as prerelease `ios-setup-v2.1.0-beta.1`** (commit `2ab9b4798`, run `38440381421`, all three jobs
+  green); `ios-setup-vlatest` now carries 2.1.0, so the README links serve it. SHA-256: Windows
+  `6c4ad25d57536b67e6dc2138f39860733203973a629a75476c245a375fcaf7ab` (67,806,849 bytes), macOS
+  `37ae27795b7c92fae229d82abfe3516c70355b6fdd928466e108070aa56677ea` (74,778,391 bytes). 2.0.0-beta.1 retitled
+  "(Superseded)". GitHub "latest" is still the app (`0.5.4-z2+128`); no SideStore feed was touched.
+- **Next:** the maintainer tests the step on their iPhone. If the overnight run works, build the shortcut as the step
+  describes, share it (Shortcuts → share → Copy iCloud Link) and put that link in
+  `distribution/sidestore/ios-setup-autorefresh.json` on `main`.
+
+## RELEASED 2026-10-11: Mobile 0.5.4-z2+128 and Desktop 0.1.26-alpha-z2+133
+
+- Mobile `0.5.4-z2+128` (build 127): publish run `38164776757` from `64fec8f48` (dry run `38158517197`). Four APKs,
+  unsigned IPA, SideStore `source.json` updated (`f044a7d45`). GitHub "latest".
+- Desktop `0.1.26-alpha-z2+133`: publish run `38152244590` from `5379ea27a` (dry run `38150926446`). MSI + arm64 and
+  x86_64 DMGs (macOS unsigned). Desktop `Dev` later gained `7a51a0e4e` (seq-3 changelog mirror for this release).
+- Both carry the uncached auto-pick fix and the restored What's New row. Social V2 debug users (80-83) were moved
+  to Debug 84 by the mobile candidate; Social's next debug build must use 85 or higher.
+
+## Mobile 0.5.4-z2 (serial 128) - shared fixes from the desktop perf pass (branch `claude/mobile-z2-shared`)
+
+The maintainer asked for a mobile release alongside desktop 0.1.26-alpha-z2 (shipped 2026-10-11). Five desktop
+commits were cherry-picked with `-x` (shared Kotlin only; their desktopMain/desktopTest parts do not exist here and
+were left out). The hidden-Home commit and its revert were skipped as a pair.
+
+- `PlaybackSourceSelector.kt` - a source whose facts say "not cached" (`isDebridReady == false`, e.g. an
+  `[TB⏳]` link from an aggregator the extractor does not recognise) is never auto-played. Mobile had this bug in
+  0.5.4-z1: Streamlined/Instant could fall back to a "being prepared" video (found on desktop Debug 90, Lioness S1E1).
+- What's New row restored under Settings > Setup & about (lost in the 0.4.13 `App.kt` split; the two hops are now
+  required parameters so a sync that drops them fails to compile).
+- Settings search index built only when a query is typed; settings-sync observer started off the UI thread;
+  `rememberHomeListState()` seam (mobile keeps the stock saveable `LazyListState` - no behaviour change on a
+  phone). Not measured on a phone, so not claimed in the changelog.
+
+Changelog: mobile-only event `seq 3` (two fixes); debug note for build 84 (80-83 were taken by `claude/social-v2` debug builds on 2026-10-05/06). Remaining shared-file differences from
+desktop (`AppGate.kt` loading-indicator colour, `MainAppContent.kt`, `HomeScreen.kt`) predate this carry.
+
+**Debug 84 (`debug-v0.5.4-z1.84`, run `38153578053`) passed the maintainer's phone check on 2026-10-11.**
+**Release checklist:** Debug 84 on a phone (Lioness S1E1 auto-play in Streamlined/Instant goes to a cached source
+or asks; What's New row opens; Settings and Home behave), then merge to `main`, bump `MARKETING_VERSION=0.5.4-z2`,
+`CURRENT_PROJECT_VERSION=127`, `RELEASE_SERIAL=128` with the seq-3 ship dates as the last commit, mirror
+`changelog.json` byte-for-byte to desktop `Dev`, dry-run (~100 min for iOS), then publish on the maintainer's word.
+
+## Desktop 0.1.26-alpha-z2 - Home-scrolling perf pass (desktop only; mobile ships nothing)
+
+Desktop branch `claude/perf-home-smooth`; full handoff in `NuvioZDesktop/STATUS.md`. Smoother Home scrolling
+(frames on time 60% -> 87% on the maintainer's signed-in touchpad runs), a lazy Settings search index, a fix for a
+reported crash while rapidly resizing the window, and the Windows app bundling JetBrains Runtime 25. This branch
+(`claude/perf-home-smooth-docs`) carries the desktop seam notes into `Docs/PATCH-SURFACE.md` (merging the
+superseded `codex/perf-stutter-documentation`) and the desktop-only changelog event `seq 2`, byte-identical to
+desktop's, which the desktop release checks against `main`. The four shared commonMain files the pass touches
+(`SettingsScreen.kt`, `AppGate.kt`, `ProfileSettingsSync.kt`, `HomeScreen.kt` + new `HomeListState.kt`) are **not**
+merged here; bringing them to mobile is a separate merge with its own phone check.
+
+## iOS Setup v2 (released as a prerelease 2026-10-05; branch `claude/ios-setup-v2`)
+
+Branched from `ios-setup-v1.1.2-beta.1`. **Released 2026-10-05 as prerelease `ios-setup-v2.0.0-beta.1`** (commit `f9f87bb39`, CI run
+`37301527239`), not merged to `main`. 1.1.2 is retitled "(Superseded)".
+
+- **Release links.** Versioned: `https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-v2.0.0-beta.1`. Rolling (never changes; the one
+  to share): `https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-Windows-x64.zip` and
+  `.../Nuvio-Z-iOS-Setup-macOS.zip` (plus `SHA256SUMS.txt`). SHA-256: Windows `c06fae7e0de916a1a888ff5bd545fe331adfc44875aad3d985ad540731c9a1eb`,
+  macOS `dbc3bd7a3a42ebe53a153d0636ac5c043d5004c43a15c47157897337573661b4`.
+- **How to release next time.** Actions -> "Build iOS Setup GUI" -> Run workflow on the branch with `publish_tag` set (e.g.
+  `ios-setup-v2.0.1-beta.1`). It builds both ZIPs, verifies them (integrity + bundled device helper), writes `SHA256SUMS.txt`, creates the
+  versioned prerelease and re-uploads the same unversioned assets to `ios-setup-vlatest` (`--clobber`). Both are prereleases with
+  `ios-setup-v*` tags, so GitHub's repo-wide "latest" stays the app (checked: still `0.5.4-z1+127`) and `update-store-source.yml`
+  (only `v*` / `debug-v*`) ignores them. Retitle the previous versioned release "(Superseded)" by hand. Plan: `~/.claude/plans/pasted-content-id-0401-nuvio-z-playful-wall.md`.
+Decisions (maintainer): staged hybrid (Rust helper for USB probes and pairing; iloader kept for Apple sign-in and the
+SideStore install), Apple credentials never enter our app, portable ZIPs, **iloader is downloaded at a pinned version with
+a verified SHA-256 and never bundled**.
+
+**What it is now.** The 14-page wizard is replaced by a live checklist of 12 requirements beside one focus card
+(`Board.kt`). `Requirements.evaluate` derives progress from what the computer can see; `SetupSession.tick` (every ~3 s)
+checks the computer once, fetches iloader once, probes the phone, places a missing pairing file once, reveals the
+Developer Mode switch once, drops stale human answers, and completes. Without the helper (or in manual mode) every phone
+step falls back to the user's confirmation.
+
+- **Stage 0 gate (passed):** `iosSetup/SPIKE-RESULTS.md`. Real iPhone, iOS 26.5, Windows: USB, trust, Developer Mode,
+  LocalDevVPN, SideStore, Nuvio Z/Debug and pairing-file presence are all detectable. Not detectable (stay
+  confirmations): developer-profile trust (`trust_app_signer` deliberately not used: it is the user's decision),
+  SideStore notification permission, SideStore sign-in/first refresh, source added, LocalDevVPN connected. The notification step
+  exists because SideStore fails to refresh with "Repository could not save notification" when the permission was denied
+  (SideStore issue #1421, seen on a friend's iOS 27 phone; the maintainer's fix is to allow notifications).
+- **Helper** `iosSetup/helper` (Rust, `idevice =0.1.68` exact pin, `ring`, static CRT on Windows, 1.9 MB release). Commands:
+  `status` (one JSON line, protocol 1, no device name or full UDID), `place-pairing [--scratch]`, `reveal-developer-mode`,
+  `write-probe`, `--version`. `place-pairing` builds iloader 2.3.5's file (lockdown record + rppairing on iOS 17.4+ +
+  Wi-Fi debugging); on a real phone the scratch result had the **same 14 keys** as the file iloader placed and read back
+  identical. Real placement keeps the old file as `ALTPairingFile.mobiledevicepairing.previous`. It caches the rppairing
+  identity under `%LOCALAPPDATA%\Nuvio Z iOS Setup\pairing\` (a secret; per user).
+- **Bootstrap:** `Prereqs.kt` + `prereqs.json` (mirrored in `distribution/sidestore/ios-setup-prereqs.json`, test-enforced)
+  pin iloader v2.3.5 by SHA-256 (hosted override only if schema-valid and on a host allow-list). `Downloader.kt` is
+  resumable, retries, verifies size and hash and deletes bad bytes. `IloaderBootstrap.kt` installs the NSIS build silently into
+  `%LOCALAPPDATA%\NuvioZSetup\tools` (no admin, works with spaces in the path) or extracts the macOS `.app.tar.gz`, and
+  uninstalls only what it installed (also removes the Start Menu shortcut). Apple's driver installer is verified by Authenticode
+  publisher and size (its URL rotates). Live Windows round trip passed: 6,040,468 bytes, install, find, uninstall, no leftovers.
+  The v1 code path no longer uses the unpinned `releases/latest`.
+- **QR (main path for adding the source):** `sidestore://source?url=…`, verified on the physical iPhone (scan -> SideStore asks to
+  add the source). It is never an https/web link (that opens Safari showing raw JSON); `SourceLinkTest` forbids it. A collapsed
+  manual option (copy URL) is the fallback. A second QR (`sidestore://install?url=<newest IPA>`) is a shortcut that installs the
+  IPA directly **without** adding the source, so SideStore has no feed to offer updates from; the Nuvio Z step recommends
+  Browse -> Nuvio Z instead. The https landing page / Pages workflow was removed: it was unverified and unnecessary.
+- **Packaging/CI:** `-PwithHelper` (cargo build) or `-PhelperBinary=<path>` stages the helper as an app resource;
+  `ios-setup-build.yml` builds it (Windows; macOS universal via lipo, re-signed ad hoc) and fails if it is not in the app image.
+  JDK note: Android Studio's JBR has no `jpackage`; use Temurin 21 for `createDistributable`.
+- **Verification:** `:iosSetup:test` **104 / 104** (29 v1 + 75 new), clean `--rerun-tasks`. `BoardRenderHarness` writes 16 PNGs of
+  every state to `iosSetup/build/render/` (reviewed). The packaged app was launched against the real phone with an isolated
+  `LOCALAPPDATA`: it found the existing iloader (no download), and the log shows DEVICE, TRUST, LOOPBACK_APP, SIDESTORE, PAIRING and
+  DEVELOPER_MODE `SATISFIED` automatically with the focus on the first human-only step.
+- **Not yet verified:** a physical **Mac** (helper over `/var/run/usbmuxd`, macOS iloader extraction, Gatekeeper) and the CI macOS
+  universal build; an **untrusted/locked/no-pair-record** phone (failure shapes are mapped but unobserved; Debug phone only);
+  **real pairing placement then a SideStore refresh** (only the scratch path was exercised on the physical phone, deliberately
+  leaving the working pairing file alone); the **Apple driver installer** path end to end (needs a clean PC); a clean install
+  from the ZIP on a PC with no Rust/JDK.
+- **Debt:** v1's `SetupController`, `SetupStep`, `SetupState` and `StepGuidance` remain only because the migration and the reused
+  troubleshooting copy depend on them (and 29 tests pin them); remove once nothing needs the v1 shape. The repo README on `main`
+  still pins `ios-setup-v1.1.2-beta.1`; bump it when a v2 release ships.
+
+## Nuvio Z iOS Setup GUI 1.1 UX refinement (2026-09-23)
+
+**The portable SideStore/iloader assistant now reads and behaves like a guided consumer setup flow,
+without changing its working setup operations or turning it into an MSI-style installer.**
+
+- Replaced the small manual-step checkbox with an explicit success statement and a full-width
+  **I've completed this step** action. The footer explains that confirmation is required, then
+  changes to **Continue** only after the named result is confirmed. Confirmations remain persisted.
+- Added a typed guidance model for all 14 steps: purpose, expected success, contextual failure cases
+  and recovery actions. `StepGuidanceTest` pins complete mapping, exact manual confirmations and the
+  required device/iloader/pairing/trust/Developer Mode/LocalDevVPN/source/install failure coverage.
+- The first live pass tried a permanent right-side reference panel, but it repeated the written
+  instructions and read like a poster. It was removed after maintainer review; the content now gets
+  the width and attention, while contextual help stays collapsed until requested.
+- Made manual source entry the first-class path with a prominent URL and copy button. The locally
+  generated deep-link QR remains available behind a small optional disclosure, with manual paste
+  called out as the reliable fallback.
+- Reworked the progress rail to distinguish completed, current, waiting-for-confirmation and future
+  steps, show `Step n of 14`, and remind the user that progress saves automatically. Resume copy now
+  explains that starting over clears wizard progress but does not undo phone changes.
+- Defined the complete dark color scheme explicitly (`onPrimary`, `onSurface`, variants and callout
+  text), and gave every status, callout, panel and button explicit high-contrast foregrounds. This
+  removes the inherited black-on-navy combinations in the prior UI.
+- Stable remains the default. Developer Channel and the USB-detection override remain under
+  **Advanced settings** with stronger warnings; Debug still requires deliberate confirmation and
+  explains separate data plus the three-slot impact.
+- Version advanced from 1.0.3 to 1.1.0. The output remains a self-contained portable app image.
+
+Verification on Windows: `:iosSetup:test` **23 / 23** and `:iosSetup:createDistributable` successful
+with Temurin JDK 21. The packaged `Nuvio Z iOS Setup.exe` launched and exposed a responsive native
+window. Automated screenshot inspection was attempted twice, but the computer-use connector returned
+an empty native-app inventory even while Windows reported the window responsive; visual capture is
+therefore still a manual/CI artifact review item. Physical end-to-end iPhone setup and macOS runtime
+remain acceptance-test work.
+
+Dedicated packaging run `35887695630` passed on Windows and macOS from commit `fb769eabc`.
+The verified prerelease payloads are:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,887,527 bytes — SHA-256
+  `B4CD369546FAC567957EC7CBDB5D29A585462205013C59267EA95A5ABD3373B2`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,927,536 bytes — SHA-256
+  `4420231AC647E02A354C3C7339BD1E87D10A3A0E57C6A092D1045494919BC230`
+
+Both ZIP central directories were read successfully after download. They contain self-contained app
+images, not MSI/PKG installers. The intended publication is installer-only prerelease
+`ios-setup-v1.1.0-beta.1`; the SideStore feed workflow excludes `ios-setup-v*` tags.
+
+### Live-test refinements for 1.1.1
+
+The first live 1.1 test found two usability problems before the release was accepted:
+
+1. **Computer check could sit for roughly a minute, then block on poor Wi-Fi.** Apple service,
+   registry, `winget` and network probes ran sequentially, and one five-second GitHub `HEAD` failure
+   was treated as proof that the computer was offline. The independent probes now run concurrently;
+   the optional `winget` fallback is capped at 12 seconds; two network endpoints are checked with
+   explicit four-second bounds; and an inconclusive result is a yellow warning that still permits
+   Continue. Actual downloads retain their bounded request and actionable retry error. Two tests
+   pin weak-connectivity continuation and the unsupported-OS block.
+2. **The first visual pass was too dense.** Fourteen sidebar rows, a status pill, a success card and
+   a visual-panel success treatment repeated the same state. The rail now shows five calm phases plus
+   one current-step label; the page uses a small step breadcrumb; and the duplicate success card and
+   poster-like right panel are gone. The instructions sit in one centered readable-width column.
+   Numbered actions, exact completion gates and collapsed contextual troubleshooting remain intact.
+3. **The old Finish action unexpectedly returned to Welcome.** The final instructions now explain
+   in plain language that a refresh renews Apple's seven-day permission while an update installs a
+   newer app without removing data. They provide separate exact flows for each, explain that routine
+   refreshes do not need the computer or USB, and reserve pairing repair for explicit pairing errors.
+   **Complete setup** now opens a dedicated persisted completion page; only the deliberate **Return
+   to start** action clears wizard progress. Three new controller tests pin completion, persistence,
+   early-finish rejection and reset behavior. The complete setup suite is **23 / 23**.
+
+The corrected portable package is version 1.1.1. Cross-platform packaging run `35905528893` passed
+on Windows and macOS from code commit `629261efa`. Both ZIP central directories were read
+successfully. The recommended prerelease is `ios-setup-v1.1.1-beta.1`; the earlier
+`ios-setup-v1.1.0-beta.1` is marked superseded. Final payloads:
+
+- `Nuvio-Z-iOS-Setup-Windows-x64.zip` — 64,863,389 bytes — SHA-256
+  `335690A1F7535BF39270E7BC51FB732C1E34B82157114B0BA1F71F76170A61A8`
+- `Nuvio-Z-iOS-Setup-macOS.zip` — 70,903,211 bytes — SHA-256
+  `A6C114AEFF4F9F5500760D024220CF8010B0E7CA777108F56AA9E546F19D1746`
+
+### 1.1.2: macOS iPhone detection and refresh-as-recovery copy (2026-09-28)
+
+Branch `claude/ios-setup-1.1.2`, based on the `ios-setup-v1.1.1-beta.1` tag.
+
+1. **Macs never detected the iPhone**, even with Finder showing it. The only probe was
+   `system_profiler SPUSBDataType`, which is empty on Apple silicon under current macOS (USB moved to
+   `SPUSBHostDataType`), and the communication check was hardcoded to `true`. Detection now queries
+   macOS's own usbmuxd (`/var/run/usbmuxd`, plist `ListDevices`, USB entries only; `Usbmuxd.kt`),
+   the service iloader itself uses, then falls back to `ioreg -p IOUSB` and
+   `system_profiler SPUSBHostDataType SPUSBDataType`. Each probe is logged as `mac_device_probes`.
+   Mac transport readiness is now a real socket check. `run()` drains child output while it runs so
+   a large report cannot stall until timeout. Connect-page status rows wait for the first probe.
+2. **Mac users saw Windows-only troubleshooting.** `guidanceFor` takes `isMac`; Mac Connect help
+   covers cable/hub, the Apple-silicon "Allow accessory" prompt, Finder, reset-trust and restarting
+   the Mac, and Mac copy never mentions Windows, iTunes or Apple Mobile Device Service (pinned by
+   `macGuidanceNeverSendsUsersToWindowsTools`). The Mac Connect page offers **Open Finder**.
+3. **The Finish and completion pages read as a chore** ("Every 5–6 days: refresh your apps").
+   Maintainer direction: solution, not prevention. The pages now explain briefly why (signed with
+   your own Apple Account; Apple limits free-account signatures to 7 days), note that installing an
+   update re-signs the app, and give a fix-when-it-breaks path: Refresh All in SideStore (which also
+   renews SideStore), or reinstall SideStore with iloader if SideStore itself has lapsed. SideStore
+   has no pre-expiry notification (upstream #517/#829 closed without one), so the copy points at
+   the days-left counter in My Apps instead of promising a warning. The step is titled
+   **You're all set**.
+
+`:iosSetup:test` **29 / 29** (usbmuxd framing, parsing, a fake-socket round trip, USB-report
+matching, Mac guidance, refresh framing). Finish, completion and Mac Connect pages render-checked
+with a throwaway `ImageComposeScene` harness. Not yet run on a physical Mac.
+
 ## Stable release shipped - Mobile 0.5.4-z1+127 / Desktop 0.1.26-alpha-z1+132 (2026-10-04)
 
 The first stable Nuvio Z release is live on both repositories, published by the release workflows in `publish` mode (dispatched
@@ -115,6 +419,34 @@ folded into the bump commits and the branches were force-pushed with lease befor
   correction landed on top of the release. Every install, release and setup link was checked against the live endpoints. The iOS Setup
   wizard stays on its own `ios-setup-v*` line (README pins `ios-setup-v1.1.2-beta.1`; bump it when a new setup release ships).
 - The non-blocking debt list in the entry below is unchanged by the release.
+
+## 2026-10-07 — Desktop performance comparison, canonical seam notes only
+
+Mobile documentation branch `codex/perf-stutter-documentation` records the two desktop seams
+in `Docs/PATCH-SURFACE.md`, based on post-release docs `4ea7481cc`. No mobile code changed.
+Desktop work stays on `claude/perf-stutter-1` in workspace `.claude-worktrees/perf-stutter`.
+Same-runtime, signed-in before/after recordings on battery at 60 Hz completed: targeted poster
+scaling and eager Settings index work disappear. Maintainer confirms Settings opens like other
+tabs, Home slightly smoother but still very stuttery, and general tab switching still stutters.
+Desktop `Docs/PERFORMANCE-STUTTER-2026-10.md` contains the data and limitations. Full desktop
+split suite passes: 1,898/1,072/457/49 = 3,476, zero failures/errors/skips/duplicates. Settings fix has not been
+carried to mobile. Nothing pushed, merged or published in this continuation.
+
+Next desktop step is prepared separately on `codex/perf-stutter-2`: `c401e1bfc` carries only
+Phase 1's off-UI-thread settings-sync startup (`f50962f88`) on top of the measured two-fix
+branch. Desktop jar builds and 108 focused sync/auth tests pass. Paired signed-in 60 Hz recordings
+both exit normally and observer/MDBList initialization leaves the UI thread. Maintainer did not
+notice a visible startup improvement. Hidden-Home step `codex/perf-stutter-3` is now prepared in
+desktop `.claude-worktrees/perf-stutter-2` (startup branch frozen at `c7e7bfb10`): `6f27e2eec`
+adds the activity/lifecycle gate alone. In the real-host seeded virtual-time harness, hidden Home
+stays composed while Library subscriptions fall 21 -> 7 and hero changes/snapshot applies fall
+10/182 -> 0/0 per minute; visible control stays unchanged. Jar and 4 focused cases pass. Test copy
+`perf-observe-data/apps/after-3-hidden-home` is ready; physical comparison remains pending while
+the maintainer is away. Full cumulative regression passes **3,481** (1,903/1,072/457/49), zero
+failures/errors/skips/duplicates, all parts and supervisor exit 0; desktop fresh evidence is
+`build/perf-home-split-20261007`, recorded product-equivalent HEAD `c5ff5b056`. Canonical seam is
+recorded in PATCH-SURFACE; observation tools and later-fix preparation are committed separately.
+Class warming and row changes remain separate. See desktop STATUS/report for evidence and limits.
 
 ## Final release gate - Stage 1 prepared, QA gates cleared (2026-10-03)
 

@@ -27,6 +27,20 @@ class ProgressStore(
         }.getOrThrow()
     }
 
+    /** Reads either schema; a v1 file is migrated on the fly (see [SetupProgress.migrate]). */
+    fun loadProgress(): SetupProgress? = runCatching { SetupProgress.decode(Files.readString(path)) }.getOrNull()
+
+    fun saveProgress(progress: SetupProgress) {
+        Files.createDirectories(path.parent)
+        val temporary = path.resolveSibling("${path.fileName}.tmp")
+        Files.writeString(temporary, SetupProgress.encode(progress))
+        runCatching {
+            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        }.recoverCatching {
+            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
+        }.getOrThrow()
+    }
+
     fun clear() {
         Files.deleteIfExists(path)
     }

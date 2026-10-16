@@ -13,6 +13,95 @@
   ],
   "events": [
     {
+      "seq": 3,
+      "summary": "Two fixes for Android and iPhone: automatic playback never picks a source that isn't ready, and What's new is back in Settings.",
+      "ships": {
+        "android": {
+          "version": "0.5.4-z2",
+          "serial": 128,
+          "date": "2026-10-11"
+        },
+        "ios": {
+          "version": "0.5.4-z2",
+          "serial": 128,
+          "date": "2026-10-11"
+        }
+      },
+      "entries": [
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "Automatic playback no longer picks a source that isn't ready",
+          "body": "When the first choice failed, Streamlined and Instant could fall back to a source your debrid service hadn't cached yet, and you'd get its two-minute \"being prepared\" video instead of the episode. A source marked as not cached is now never played automatically, whichever addon it comes from."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "android",
+            "ios"
+          ],
+          "title": "What's new is back in Settings",
+          "body": "The What's new row had gone missing from Settings. It is back under Setup & about, so you can read these notes again whenever you like."
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "summary": "A smoother desktop app: Home scrolls more evenly, Settings opens straight away, and resizing the window no longer risks closing the app.",
+      "ships": {
+        "desktop": {
+          "version": "0.1.26-alpha-z2",
+          "serial": 133,
+          "date": "2026-10-11"
+        }
+      },
+      "entries": [
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Smoother scrolling on Home",
+          "body": "Scrolling Home is much smoother. Rows coming up are prepared in the gaps between frames, and rows you have scrolled past stay ready for when you scroll back. On Windows, posters are resized in the background instead of mid-scroll, wheel and touchpad scrolling glide instead of jumping, and the app runs on a newer Java runtime that keeps up better."
+        },
+        {
+          "category": "improvement",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Settings opens straight away",
+          "body": "The first visit to Settings could freeze the app for about a second while it prepared search. Search is now prepared only when you start typing, so Settings opens like any other tab."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Resizing the window no longer closes the app",
+          "body": "Quickly resizing or dragging the window could close Nuvio Z. The window's size and position are now saved once you stop, and a save that fails is retried instead of taking the app down."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "Automatic playback no longer picks a source that isn't ready",
+          "body": "When the first choice failed, Streamlined and Instant could fall back to a source your debrid service hadn't cached yet, and you'd get its two-minute \"being prepared\" video instead of the episode. A source marked as not cached is now never played automatically, whichever addon it comes from."
+        },
+        {
+          "category": "fix",
+          "platforms": [
+            "desktop"
+          ],
+          "title": "What's new is back in Settings",
+          "body": "The What's new row had gone missing from Settings. It is back under Setup & about, so you can read these notes again whenever you like."
+        }
+      ]
+    },
+    {
       "seq": 1,
       "summary": "The first proper Nuvio Z release on Android and iPhone, and a big update on desktop: downloads rebuilt from the ground up, Advanced Setup, and Watch Together parties that now include phones.",
       "ships": {
