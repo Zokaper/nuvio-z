@@ -113,6 +113,10 @@
     {
       "build": 86,
       "text": "Social settings now open from a gear in the Social tab (privacy, who can join you as quick choices, and a new Show friends on Home switch that syncs per profile); on big tablets in landscape Inbox and settings open as a side panel. Settings -> Downloads now looks and works like the other Settings pages. Everything in 85 is here too."
+    },
+    {
+      "build": 87,
+      "text": "The Social server update is live, so sent requests, the stored inbox, recommendations and the per-friend Hide / Notify switches now appear. On the Home friends shelf, the \"3h ago\" label sits on a small dark chip so it reads on bright pictures. Everything in 86 is here too."
     }
   ]
 }
