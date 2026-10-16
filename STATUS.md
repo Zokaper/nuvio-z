@@ -1,6 +1,6 @@
 Last updated: 2026-10-16
 
-## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16, unpublished)
+## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16/17, Debug mobile 88 / desktop 100)
 
 Maintainer's report after Debug 87/99, four items. Shared commit `dc0ec4774` (desktop) cherry-picked as
 `aca7376c4` (mobile); per-repo player commits on top.
@@ -23,7 +23,9 @@ Maintainer's report after Debug 87/99, four items. Shared commit `dc0ec4774` (de
   `WatchTogetherBridge.kt`. Backend `nuvio-z-backend` `da52135` (`202610160001_party_invite_outcomes.sql`:
   `party_invite_cooldown()`, cooldown in `party_invite_friend` - rebuilt from production's definition,
   `party_cancel_invite`, `sent_party_invites` in `social_get_state_v2`). pgTAP 467/467 locally.
-  **NOT deployed.** On today's backend the client falls back to a local "Sent" with no ✕.
+  **DEPLOYED 2026-10-17** on the maintainer's approval (production `party_invite_friend` re-checked identical by
+  md5 first; post-push: functions, grants, cooldown and state key verified). Published as Desktop debug 100 /
+  mobile Debug 88. An older backend makes the client fall back to a local "Sent" with no ✕.
 - **Verified:** desktop social + watch together + controls + status + tray 234/234 (JBR 25); mobile host
   204/204; Android compiles. Not seen on a device yet.
 - **Android push (Stage 4) unblocked:** Firebase project `nuvio-z` exists; `FCM_SERVICE_ACCOUNT` is set as a
