@@ -39,7 +39,19 @@ jobs:
         run: |
           cat > /tmp/probe.c <<'EOF'
           #include "nuvioz_signer.h"
-          int main(void) { nzs_string_free(nzs_probe("/tmp", 0)); return 0; }
+          int main(void) {
+            nzs_string_free(nzs_probe("/tmp", 0));
+            nzs_string_free(nzs_refresh("/tmp", "/tmp", "a", "b", 0, false));
+            nzs_string_free(nzs_install_update("/tmp", "/tmp", "/tmp/x.ipa", 0, "a", "b", 0));
+            nzs_string_free(nzs_update_progress());
+            nzs_string_free(nzs_pending_certificates());
+            nzs_answer_certificates(0);
+            nzs_string_free(nzs_import_signing_key("/tmp"));
+            nzs_string_free(nzs_signing_state(0));
+            nzs_string_free(nzs_reset_sign_in());
+            nzs_string_free(nzs_version());
+            return 0;
+          }
           EOF
           xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.1 -Iffi/include /tmp/probe.c \
             target/aarch64-apple-ios/release/libnuvioz_signer.a \
