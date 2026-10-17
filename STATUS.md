@@ -19,6 +19,18 @@ now use the pop-up window anchored to the top-right of Nuvio's window, and a cli
 unfocused. Each pop now logs `(SocialPopups) popped <kinds> over the player | in the window | on the
 desktop`, or `held` when another app is fullscreen. Not yet seen on screen.
 
+**Desktop 103 supersedes that: pop-ups are always the corner window, like Steam** (maintainer's call). The
+in-app copy and the over-the-player anchor are gone; a friend-started-watching card at 16:02:50 had popped
+"in the window" and gone unnoticed. Nuvio in front now only decides that its own fullscreen never holds a
+pop-up back; a click while a video is on screen still only dismisses. Log line: `(SocialPopups) popped
+<kinds> (nuvio in front=…, video on screen=…)`.
+
+**Mobile 90: friend-started-watching in the player.** Mobile had no surface for it but the Inbox. The
+in-player social card (`MobilePartyOverlays`) now also says "Friend is watching Andor · S1 E2" for 7s,
+buttonless, for unread events from friends with Notify on created since the player opened (less 60s
+skew), each once, and only when no actionable card is showing (`inPlayerFriendWatchingEvent`, mobile
+`PlayerScreenRuntimeUi` only). Still no pop-ups anywhere on mobile outside the player.
+
 Desktop CI's "Desktop tests" job has been red on every push since 2026-10-16 at
 `:composeMediaPlayer:buildNativeLinux` (`frame_copy_test`), before any Kotlin test runs; the MSI job and
 the debug releases are green. Not investigated.

@@ -125,6 +125,10 @@
     {
       "build": 89,
       "text": "Check for updates always picks the newest debug build, whatever order GitHub lists them in."
+    },
+    {
+      "build": 90,
+      "text": "When a friend you get notified about starts watching, the player tells you for a few seconds."
     }
   ]
 }
