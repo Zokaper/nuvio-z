@@ -45,8 +45,13 @@ diagnostic Debug release run `39068786094`).
   (`iosApp/iosApp/SelfSigning.swift`, compiled only with the Swift condition `NUVIO_SELF_SIGNING` that
   `scripts/build-ios-ipa.sh` sets, which also adds the task identifier + `fetch` mode to the staged Info.plist and fails
   the build without App Intent metadata); "Keep Nuvio Z working" (Settings › Advanced › Diagnostics) with days left,
-  Renew now, the daily-refresh guide (drawn steps; one tap once `distribution/self-signing/refresh-shortcut.json` has
-  an iCloud link), certificate chooser, update test and **Copy test report**.
+  Renew now, the daily-refresh guide (drawn steps), certificate chooser, update test and **Copy test report**.
+- **Daily refresh is one automation, drawn in the installer (2026-10-18, maintainer's call):** Time of Day › Daily ›
+  Run Immediately › New Blank Automation with Set VPN (LocalDevVPN, Connect), Refresh Nuvio Z, Set VPN (Disconnect).
+  No separate shortcut and no iCloud link: a shared shortcut names the App Intent by the sharer's bundle id, which on
+  a sideloaded copy ends with their own team id, so one link can't serve everyone (believed, not yet verified with a
+  real link). The steps are the installer's last two screens, because the person is in the Shortcuts app while
+  doing them; Nuvio Z's launch screen points at the computer and keeps the drawn steps as a fold-out.
 - **Reverted**: this branch's `UIFileSharingEnabled` in `iosApp/iosApp/Info.plist`. Debug gets it from
   build-ios-ipa.sh, and the script fails every Release IPA that has it. Consequence: the *stable* direct path can't
   place its pairing file until that policy is decided (Release would need file sharing on).

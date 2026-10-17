@@ -84,7 +84,13 @@ internal fun SelfSigningSetupScreen(platform: SelfSigningPlatform, onClose: () -
             }
 
             StepHeading(2, "The daily refresh", done = false)
-            DailyRefreshSteps(platform)
+            Text(
+                "One Shortcuts automation renews Nuvio Z every day. Make it in the Shortcuts app while you follow the " +
+                    "installer on your computer: its last screens show every tap. Then come back and tap Done.",
+            )
+            var showHere by remember { mutableStateOf(false) }
+            if (showHere) DailyRefreshSteps()
+            else TextButton(onClick = { showHere = true }) { Text("No computer nearby? Show the steps here") }
 
             Button(
                 enabled = saved != null,
@@ -237,40 +243,31 @@ private fun CertificateChooser(list: List<JsonObject>, onAnswer: (List<String>?)
 }
 
 /**
- * The daily refresh, as pictures of the screens to tap: iOS lets only the person create an automation. With a hosted
- * shortcut the first four steps become one tap.
+ * The daily refresh, as pictures of the screens to tap: iOS lets only the person create an automation. It is one
+ * automation holding the three actions itself, not a shortcut it runs: a shortcut shared as an iCloud link would name
+ * the action by this copy's bundle id, which ends with each person's own team id, so it would break for everyone else.
  */
 @Composable
-internal fun DailyRefreshSteps(platform: SelfSigningPlatform) {
+internal fun DailyRefreshSteps() {
     val uriHandler = LocalUriHandler.current
-    var shortcutUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { shortcutUrl = platform.refreshShortcutUrl() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("A Shortcuts automation connects LocalDevVPN and runs “Refresh Nuvio Z” every day, so Nuvio Z never runs out.")
-        val url = shortcutUrl
-        if (url != null) {
-            Button(onClick = { uriHandler.openUri(url) }, modifier = Modifier.fillMaxWidth()) { Text("Get the Nuvio Z Refresh shortcut") }
-            Text("Tap Add Shortcut, then make the automation:", fontWeight = FontWeight.SemiBold)
-        } else {
-            Text("First, the shortcut", fontWeight = FontWeight.SemiBold)
-            GuideStep(1, "Open Shortcuts and tap +", MockScreen("All Shortcuts", listOf(MockRow("+", highlight = true, trailing = true))))
-            GuideStep(2, "Search “Set VPN” and add it. Tap VPN and pick LocalDevVPN; leave it on Connect", MockScreen("New Shortcut", listOf(MockRow("Set LocalDevVPN to Connect", highlight = true))))
-            GuideStep(3, "Search “Refresh Nuvio Z” and add it", MockScreen("New Shortcut", listOf(MockRow("Set LocalDevVPN to Connect"), MockRow("Refresh Nuvio Z", highlight = true))))
-            GuideStep(
-                4, "Add Set VPN once more, set it to Disconnect, and name the shortcut “Nuvio Z Refresh”",
-                MockScreen("Nuvio Z Refresh", listOf(MockRow("Set LocalDevVPN to Connect"), MockRow("Refresh Nuvio Z"), MockRow("Set LocalDevVPN to Disconnect", highlight = true))),
-            )
-            Text("Then the automation", fontWeight = FontWeight.SemiBold)
-        }
-        val base = if (url != null) 0 else 4
-        GuideStep(base + 1, "Tap Automation at the bottom, then + (New Automation), then Time of Day", MockScreen("New Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
+        Text("One Shortcuts automation connects LocalDevVPN, runs “Refresh Nuvio Z” and disconnects, every day, so Nuvio Z never runs out.")
+        OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
+        GuideStep(1, "Tap Automation at the bottom, then + (New Automation), then Time of Day", MockScreen("New Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
         GuideStep(
-            base + 2, "Pick a time the iPhone is usually on Wi-Fi, keep Daily, choose Run Immediately, then Next",
+            2, "Pick a time the iPhone is usually on Wi-Fi, keep Daily, choose Run Immediately, then Next",
             MockScreen("When", listOf(MockRow("4:00 AM"), MockRow("Daily"), MockRow("Run Immediately", highlight = true, trailing = true))),
         )
-        GuideStep(base + 3, "Pick “Nuvio Z Refresh”. Done", MockScreen("My Shortcuts", listOf(MockRow("Nuvio Z Refresh", highlight = true))))
-        OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
-        Text("To check it: in Shortcuts, run Nuvio Z Refresh once by hand. It should say “Nuvio Z renewed.”", fontSize = 13.sp)
+        GuideStep(3, "Tap New Blank Automation", MockScreen("Automation", listOf(MockRow("New Blank Automation", highlight = true))))
+        GuideStep(
+            4, "Add Action: search “Set VPN”, add it, tap VPN and pick LocalDevVPN (it stays on Connect). Then search “Refresh Nuvio Z” and add it",
+            MockScreen("Do", listOf(MockRow("Set LocalDevVPN to Connect", highlight = true), MockRow("Refresh Nuvio Z", highlight = true))),
+        )
+        GuideStep(
+            5, "Add Set VPN once more, tap Connect and change it to Disconnect. Tap Done",
+            MockScreen("Do", listOf(MockRow("Set LocalDevVPN to Connect"), MockRow("Refresh Nuvio Z"), MockRow("Set LocalDevVPN to Disconnect", highlight = true))),
+        )
+        Text("It runs by itself from tomorrow. Nuvio Z notices it once it has renewed on two different days.", fontSize = 13.sp)
     }
 }
 
@@ -336,7 +333,8 @@ internal fun describeRenew(json: String): String = runCatching {
         val error = root["error"]?.jsonObject
         val code = error?.signingField("code")?.let { " $it" } ?: ""
         return@runCatching when (error?.signingField("kind")) {
-            "tryAgain" -> "Apple couldn’t finish the sign-in$code. Reset sign-in data (Keep Nuvio Z working › For the tester), then renew again."
+            "tryAgain" -> "Apple couldn’t finish the sign-in$code. Wait a minute, then renew again."
+            "serverUnavailable" -> "Apple’s sign-in service is busy. Try again in a minute."
             "codeNeeded" -> "Apple asked for a code. Renew once here by hand."
             "refused" -> "Apple refused the sign-in (-80045). Wait an hour, then try again."
             "wrongPassword" -> "Apple says the email or password is wrong."

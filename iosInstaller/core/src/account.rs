@@ -25,13 +25,14 @@ use crate::storage::SecretStorage;
 /// we may revoke ourselves (see `only_ours`).
 pub const MACHINE_NAME: &str = "Nuvio Z Installer";
 
-/// iloader 2.3.9's anisette servers, in its order. They come and go (mac-ani answered 502 for a while on
-/// 2026-10-17), so sign-in moves down the list when one is not answering.
+/// iloader 2.3.9's anisette servers. They come and go, so sign-in moves down the list when one is not answering
+/// (see `sign_in`). mac-ani, iloader's default, is last: on 2026-10-17/18 it answered 502 most of the time and,
+/// worse, sometimes answered the first request and then 502 in the middle of a sign-in.
 pub const ANISETTE_SERVERS: &[&str] = &[
-    "https://mac-ani.jkcoxson.com",
     "https://ani.jkcoxson.com",
     "https://ani3.stikstore.app",
     "https://ani2.stikstore.app",
+    "https://mac-ani.jkcoxson.com",
 ];
 
 pub type Signer = Sideloader<MaxCertsCallbackBox>;

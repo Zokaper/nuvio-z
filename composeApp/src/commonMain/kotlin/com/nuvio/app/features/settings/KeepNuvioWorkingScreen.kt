@@ -200,7 +200,7 @@ internal fun KeepNuvioWorkingScreen(platform: SelfSigningPlatform, onDismiss: ()
                         Text("Set up daily refresh", fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { showGuide = false }) { Text("Close") }
                     }
-                    DailyRefreshSteps(platform)
+                    DailyRefreshSteps()
                     Button(onClick = { platform.markAutomationSetUp(true); automation = true; showGuide = false }, modifier = Modifier.fillMaxWidth()) {
                         Text("Done, it’s set up")
                     }

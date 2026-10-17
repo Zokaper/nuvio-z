@@ -17,10 +17,6 @@ import com.nuvio.app.selfsigning.native.nzs_string_free
 import com.nuvio.app.selfsigning.native.nzs_update_progress
 import com.nuvio.app.selfsigning.native.nzs_version
 import com.nuvio.app.selfsigning.native.nzs_vpn_reachable
-import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -31,7 +27,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -92,9 +87,6 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
         /** Opening the app checks at most this often (seconds). */
         private const val OPEN_CHECK_INTERVAL = 6 * 3600.0
         private const val UPDATE_TEST_FILE = "NuvioZ-Update-test.ipa"
-        private const val SHORTCUT_CONFIG =
-            "https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/self-signing/refresh-shortcut.json"
-        private val icloudShortcut = Regex("^https://www\\.icloud\\.com/shortcuts/[0-9a-f]{32}$")
     }
 
     private val documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true).firstOrNull() as? String
@@ -207,21 +199,6 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
     override fun automationSetUp(): Boolean = defaults.boolForKey("nzs.automation.done")
 
     override fun markAutomationSetUp(done: Boolean) = defaults.setBool(done, "nzs.automation.done")
-
-    override suspend fun refreshShortcutUrl(): String? = withContext(Dispatchers.Default) {
-        withTimeoutOrNull(5_000) {
-            runCatching {
-                val client = HttpClient()
-                try {
-                    val response = client.get(SHORTCUT_CONFIG)
-                    if (!response.status.isSuccess()) return@runCatching null
-                    obj(response.bodyAsText())?.str("shortcutUrl")?.takeIf { icloudShortcut.matches(it) }
-                } finally {
-                    client.close()
-                }
-            }.getOrNull()
-        }
-    }
 
     // ---- What is remembered ----
 
