@@ -114,17 +114,15 @@ function buildSteps(ctx) {
     // A remembered account signs in with one click; otherwise the form.
     center: ctx.savedEmail && !ctx.useOtherAccount
       ? `<div class="saved-account"><div class="avatar">${ctx.savedEmail[0].toUpperCase()}</div><b>${ctx.savedEmail}</b><small>Remembered on this computer</small></div>`
-      : `<form class="form">
-        <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${ctx.live ? ctx.typedEmail || "" : EMAIL}"></label>
-        <label>Password<input id="password" type="password" autocomplete="current-password" value="${ctx.live ? "" : "password12"}"></label>
-        <label class="check"><input id="remember" type="checkbox" checked> Remember me on this computer</label>
+      : `<form class="form${ctx.signingIn ? " busy" : ""}">
+        <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${esc(ctx.live ? ctx.typedEmail || "" : EMAIL)}"${ctx.signingIn ? " disabled" : ""}></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" value="${esc(ctx.live ? ctx.pendingPassword || "" : "password12")}"${ctx.signingIn ? " disabled" : ""}></label>
+        <label class="check"><input id="remember" type="checkbox"${ctx.remember === false ? "" : " checked"}${ctx.signingIn ? " disabled" : ""}> Remember me on this computer</label>
         <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> If you tick “Remember me”, it’s kept in this computer’s secure keychain, never sent to us.</span></div>
       </form>`,
     buttons: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Continue", action: "signInSaved" }] : [{ label: "Sign in", action: "signIn" }],
     links: [
       ...(ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : []),
-      // Apple's -22410 "try again" is a stale sign-in identity: offer the fix right where it happened.
-      ...(ctx.lastErrorKind === "tryAgain" ? [{ label: "Reset sign-in data", action: "resetSignIn" }] : []),
     ],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],

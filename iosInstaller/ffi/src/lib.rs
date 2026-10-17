@@ -62,7 +62,7 @@ fn other(summary: impl Into<String>) -> serde_json::Value {
 
 /// Apple's code prompt. Interactive: shown through `nzs_pending_two_factor`. Unattended (Shortcuts, background):
 /// nobody can answer, so give up at once and remember that it asked, which becomes `codeNeeded`.
-fn two_factor(interactive: bool, asked: Arc<AtomicBool>) -> impl Fn(TwoFactorPrompt) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<TwoFactorReply, Report>> + Send>> + Send + Sync {
+fn two_factor(interactive: bool, asked: Arc<AtomicBool>) -> impl Fn(TwoFactorPrompt) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<TwoFactorReply, Report>> + Send>> + Send + Sync + Clone {
     move |prompt: TwoFactorPrompt| {
         let asked = asked.clone();
         Box::pin(async move {

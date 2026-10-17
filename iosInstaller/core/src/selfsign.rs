@@ -124,7 +124,7 @@ async fn install_via_remote_pairing(pairing: &[u8], address: &str, profiles: &[V
 }
 
 /// Renews the app at `app_dir`: Apple sign-in, a fresh profile per bundle id, installed on this phone.
-pub async fn refresh<C: TwoFactorCallback>(
+pub async fn refresh<C: TwoFactorCallback + Clone>(
     app_dir: &Path,
     pairing: &[u8],
     address: &str,
@@ -318,7 +318,7 @@ fn work_dir() -> PathBuf {
 /// the remote-pairing tunnel second. iOS ends this app when it replaces it, so on success this may never return.
 /// `progress` gets a stage (download, sign, install) and a fraction.
 #[allow(clippy::too_many_arguments)]
-pub async fn install_update<C: TwoFactorCallback>(
+pub async fn install_update<C: TwoFactorCallback + Clone>(
     app_dir: &Path,
     source: &str,
     sha256: Option<&str>,

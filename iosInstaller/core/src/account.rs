@@ -193,11 +193,62 @@ async fn account_via(email: &str, servers: &[&str]) -> Result<AppleAccount, Sign
     Err(last.unwrap_or_else(|| classify("no anisette server configured")))
 }
 
-/// Signs in and returns a signer for the account's (only, or first) team.
-pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, servers: &[&str], two_factor: C, choose: Option<ChooseCertificates>) -> Result<Signer, SignInError> {
+/// What to do after a failed login through `server`.
+#[derive(Debug, PartialEq)]
+enum AfterFailure {
+    /// Same server again, once: a brand-new sign-in identity is often refused with -22421/-22410 on its first login,
+    /// at Apple's initial request (before the password is checked; a made-up account gets the same answer), and the
+    /// next login with that identity, now provisioned, goes through. Seen 2026-10-18.
+    RetrySame,
+    /// The sign-in server itself failed (5xx) before Apple saw anything: the next server.
+    NextServer,
+    GiveUp,
+}
+
+fn after_failure(e: &SignInError, server: &str, retried: bool) -> AfterFailure {
+    let host = server.trim_start_matches("https://");
+    match e.kind {
+        SignInErrorKind::TryAgain if !retried => AfterFailure::RetrySame,
+        SignInErrorKind::ServerUnavailable if e.detail.contains(host) => AfterFailure::NextServer,
+        _ => AfterFailure::GiveUp,
+    }
+}
+
+/// Signs in and returns a signer for the account's (only, or first) team. Moves down `servers` when one is not
+/// answering, and retries a first-login -22421/-22410 once (see `AfterFailure`).
+pub async fn sign_in<C: TwoFactorCallback + Clone>(email: &str, password: &str, servers: &[&str], two_factor: C, choose: Option<ChooseCertificates>) -> Result<Signer, SignInError> {
     let email = email.trim().to_lowercase();
-    let mut account = account_via(&email, servers).await?;
-    account.login(password, two_factor).await.map_err(|e| classify(&format!("{e}")))?;
+    let mut last = None;
+    let mut retried = false;
+    let mut index = 0;
+    let mut account = loop {
+        let Some(server) = servers.get(index) else {
+            return Err(last.unwrap_or_else(|| classify("no anisette server answered")));
+        };
+        let mut account = match account_via(&email, &[server]).await {
+            Ok(account) => account,
+            Err(e) => {
+                last = Some(e);
+                index += 1;
+                continue;
+            }
+        };
+        match account.login(password, two_factor.clone()).await {
+            Ok(()) => break account,
+            Err(e) => {
+                let e = classify(&format!("{e}"));
+                match after_failure(&e, server, retried) {
+                    AfterFailure::RetrySame => {
+                        retried = true;
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                    AfterFailure::NextServer => index += 1,
+                    AfterFailure::GiveUp => return Err(e),
+                }
+                last = Some(e);
+            }
+        }
+    };
     let session = DeveloperSession::from_account(&mut account).await.map_err(|e| classify(&format!("{e}")))?;
     Ok(SideloaderBuilder::new(session, email)
         .machine_name(MACHINE_NAME.to_string())
@@ -250,6 +301,19 @@ mod tests {
         let shown = choices(&certs);
         assert_eq!(shown.len(), 3);
         assert_eq!(shown[0].made_by.as_deref(), Some("SideStore"));
+    }
+
+    #[test]
+    fn retries_a_first_try_again_once_and_skips_a_broken_server() {
+        let try_again = classify("Auth error -22421: This action could not be completed. Try again.");
+        assert_eq!(after_failure(&try_again, "https://ani.jkcoxson.com", false), AfterFailure::RetrySame);
+        assert_eq!(after_failure(&try_again, "https://ani.jkcoxson.com", true), AfterFailure::GiveUp);
+        let busy = classify(" ● HTTP status server error (502 Bad Gateway) for url (https://mac-ani.jkcoxson.com/v3/client_info)");
+        assert_eq!(after_failure(&busy, "https://mac-ani.jkcoxson.com", false), AfterFailure::NextServer);
+        // Apple's own 503 (not the sign-in server's) is not retried elsewhere: Apple has seen the attempt.
+        assert_eq!(after_failure(&busy, "https://ani2.stikstore.app", false), AfterFailure::GiveUp);
+        let wrong = classify("Auth error -20101: Your Apple Account or password was incorrect.");
+        assert_eq!(after_failure(&wrong, "https://ani.jkcoxson.com", false), AfterFailure::GiveUp);
     }
 
     #[test]

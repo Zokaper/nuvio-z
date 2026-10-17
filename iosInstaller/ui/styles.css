@@ -255,7 +255,11 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .codebox span { width: 36px; height: 46px; border-radius: 10px; background: var(--surface-2); color: var(--fg); display: grid; place-items: center; font-size: 22px; font-weight: 600; }
 .codebox span.cur { box-shadow: 0 0 0 2px var(--accent); }
 .codebox .gap { width: 2px; height: 2px; background: var(--fg-3); }
-.form { width: min(400px, 90vw); display: grid; gap: 14px; }
+.form { width: min(400px, 90vw); display: grid; gap: 14px; justify-self: center; }
+.form input:disabled { opacity: .45; cursor: default; }
+.btn:disabled { opacity: .5; cursor: default; }
+.form.busy label, .form.busy .lock { opacity: .55; }
+.saved-account { justify-self: center; }
 .form label { font-size: 13px; font-weight: 600; color: var(--fg-2); display: grid; gap: 6px; }
 .form input { width: 100%; font: inherit; font-size: 17px; color: var(--fg); border: 1px solid var(--panel-line); border-radius: 12px; padding: 12px 14px; outline: none; background: var(--surface); }
 .form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }

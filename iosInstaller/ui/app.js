@@ -20,6 +20,8 @@ if (params.get("certs")) ctx.certificates = [
 if (params.get("help")) ctx.help = true;
 if (params.get("debugwarn")) ctx.debugWarning = true;
 if (params.get("sidestore")) ctx.target = "sidestore";
+// `?signingin=1` the sign-in form greyed out while Apple answers.
+if (params.get("signingin")) Object.assign(ctx, { signingIn: true });
 if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
@@ -45,7 +47,7 @@ const SIGN_IN_ERRORS = {
   wrongCode: "That code didn’t work. Send a new one and use the newest.",
   serverUnavailable: "Apple’s sign-in service is busy. Try again in a minute.",
   certificateLimit: "This Apple Account is out of signing certificates. Try again and pick one to revoke when the installer asks.",
-  tryAgain: "Apple couldn’t finish the sign-in (-22410). Click Reset sign-in data below, then sign in again.",
+  tryAgain: "Apple couldn’t finish the sign-in. Wait a minute, then click Sign in again.",
   network: "This computer can’t reach Apple. Check the internet connection.",
   cancelled: "Sign-in was cancelled.",
 };
@@ -150,7 +152,7 @@ function render() {
   const view = byId[current];
   const step = view.base ? { ...byId[view.base], ...view, id: view.base } : view;
   const index = walk.findIndex((s) => s.id === (step.like || step.id));
-  const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}" data-action="${b.action || (i === 0 ? "next" : "")}">${b.label}</button>`).join("");
+  const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}" data-action="${b.action || (i === 0 ? "next" : "")}"${ctx.signingIn && step.id === "signin" ? " disabled" : ""}>${b.label}</button>`).join("");
   const links = [...(step.links || []), ...(step.alternates ? [{ label: "I see something else", action: "alternates" }] : [])]
     .map((l) => `<button class="text-btn" data-action="${l.action}">${l.label}</button>`).join("");
   const progress = step.done ? 1 : index / total;
@@ -264,12 +266,16 @@ async function act(action, step, index) {
       const password = saved ? null : document.getElementById("password").value;
       const remember = saved || Boolean(document.getElementById("remember")?.checked);
       if (!email || (!saved && !password)) return fail("Enter your Apple Account email and password.");
+      // The form stays on screen, greyed out, until Apple answers.
+      Object.assign(ctx, { signingIn: true, typedEmail: email, pendingPassword: password, remember });
       busy("Signing in to Apple…");
       try {
         ctx.email = await invoke("sign_in", { email, password, remember });
+        Object.assign(ctx, { signingIn: false, pendingPassword: null });
         if (remember) ctx.savedEmail = ctx.email;
         return startInstall();
       } catch (e) {
+        Object.assign(ctx, { signingIn: false, pendingPassword: null });
         if (e?.kind === "refused") return goTo("signin-blocked");
         if (saved && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
         ctx.lastErrorKind = e?.kind;
