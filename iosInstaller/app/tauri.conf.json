@@ -13,8 +13,8 @@
         "title": "Nuvio Z iOS Installer",
         "width": 1040,
         "height": 720,
-        "minWidth": 860,
-        "minHeight": 620,
+        "minWidth": 940,
+        "minHeight": 640,
         "center": true
       }
     ],

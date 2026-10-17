@@ -22,8 +22,17 @@ be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched 
   iTunes Client Info override. iloader 2.3.8 also places **three** pairing files for SideStore
   (`ALTPairingFile.mobiledevicepairing`, `PairingFile_RemoteRP.plist`, `PairingFile_Lockdown.plist`); our helper
   places only the first, which explains a Nightly install asking for a pairing file.
-- **Next:** Stage 1, the screen design (iPhone mockups, one step per screen, "I see something else"), rendered for
-  maintainer review before any behaviour is wired.
+- **Stage 1 (screen design) built, awaiting maintainer review.** `iosInstaller/ui/`: `phone.js` draws iPhone screens
+  in HTML/CSS (Settings lists, alerts, lock/passcode, home, App Store, camera + QR banner) with the button to press
+  ringed and numbered to match the step text; `steps.js` holds 16 screens (12 steps + Windows-prompt-hidden,
+  Apple -80045 refusal, the "I see something else" drawer, done) with alternatives per step; `app.js` renders one
+  step (`?step=`/`?theme=` for previews; buttons and arrow keys walk the screens, nothing wired to the phone yet).
+  `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; 40 PNGs (dark + light at 1040x720, plus 940x640 and
+  860x620 checks) are in `Nuvio Z/render-review/ios-installer-stage1/`. Window minimum raised to 940x640 because three
+  phone mockups stop being readable below it. QR codes in the previews are decorative placeholders. The release exe
+  (5.1 MB) shows the new UI.
+- **Next:** maintainer review of the Stage 1 renders, then Stage 2 (core port: requirements engine, hosted config,
+  downloader, probes, three-file pairing placement).
 
 
 ## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
