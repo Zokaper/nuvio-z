@@ -12,5 +12,7 @@ actual object SocialStorage {
         if (payload == null) NSUserDefaults.standardUserDefaults.removeObjectForKey("social_abandoned_join_$profileId")
         else NSUserDefaults.standardUserDefaults.setObject(payload, forKey = "social_abandoned_join_$profileId")
     }
+    actual fun loadPopupSeen(profileId: String): String? = NSUserDefaults.standardUserDefaults.stringForKey("social_popup_seen_$profileId")
+    actual fun savePopupSeen(profileId: String, payload: String) { NSUserDefaults.standardUserDefaults.setObject(payload, forKey = "social_popup_seen_$profileId") }
 }
 
