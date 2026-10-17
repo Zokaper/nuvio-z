@@ -383,8 +383,11 @@ private fun SocialNotificationCard(state: PlayerControlsState, onEvent: (String,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                mobileSocialNotificationActions(state.socialNotificationActions).forEach { OverlayButton(it, onEvent) }
+            // A friend-started-watching card is news, not a question: no buttons, it goes by itself.
+            if (state.socialNotificationActions.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    mobileSocialNotificationActions(state.socialNotificationActions).forEach { OverlayButton(it, onEvent) }
+                }
             }
         }
     }

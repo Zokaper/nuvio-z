@@ -108,6 +108,7 @@ import com.nuvio.app.features.playback.PlaybackHandover
 import com.nuvio.app.features.playback.PlaybackLoadingActions
 import com.nuvio.app.features.updater.formatFileSize
 import com.nuvio.app.features.social.SocialNotification
+import com.nuvio.app.features.social.SocialInboxEvent
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
 import com.nuvio.app.features.social.SocialRepository
@@ -213,6 +214,31 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val activeSocialNotification = socialUiState.notifications
         .takeIf { socialEnabled }
         ?.let(::inPlayerSocialCardNotification)
+    // "Seraph is watching Andor", for friends the viewer asked to be told about: said once each, for a
+    // few seconds, and only when no card above needs an answer. Events from before this player opened
+    // (less a minute of clock skew) belong to the Inbox. Mobile has no pop-ups outside the player yet.
+    val friendWatchingSinceMs = remember { currentEpochMs() - FriendWatchingClockSkewMs }
+    var friendWatchingShownIds by remember { mutableStateOf(emptySet<String>()) }
+    var friendWatchingNotice by remember { mutableStateOf<SocialInboxEvent?>(null) }
+    val nextFriendWatching = if (socialEnabled) {
+        inPlayerFriendWatchingEvent(
+            inbox = socialUiState.inbox,
+            notifyFor = { socialUiState.prefsFor(it).notifyWhenWatching },
+            sinceMs = friendWatchingSinceMs,
+            shownIds = friendWatchingShownIds,
+        )
+    } else null
+    LaunchedEffect(nextFriendWatching?.id) {
+        val event = nextFriendWatching ?: return@LaunchedEffect
+        friendWatchingShownIds = friendWatchingShownIds + event.id
+        friendWatchingNotice = event
+    }
+    LaunchedEffect(friendWatchingNotice?.id) {
+        if (friendWatchingNotice == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(FriendWatchingVisibleMs)
+        friendWatchingNotice = null
+    }
+    val friendWatchingCard = friendWatchingNotice?.takeIf { activeSocialNotification == null && socialEnabled }
     val incomingJoinRequest = socialUiState.notifications.firstOrNull {
         socialEnabled && it.readAt == null && it.kind == SocialNotificationKind.WatchingNowJoinRequest &&
             SocialNotificationAction.Accept in it.availableActions
@@ -929,8 +955,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         partyHostName = activeParty?.let { party ->
             party.members.firstOrNull { it.profileId == party.hostProfileId }?.displayName(viewerProfileId = null)
         }.orEmpty(),
-        socialNotificationVisible = activeSocialNotification != null && !playerControlsLocked,
-        socialNotificationActor = activeSocialNotification?.actor?.displayName.orEmpty(),
+        socialNotificationVisible = (activeSocialNotification != null || friendWatchingCard != null) &&
+            !playerControlsLocked,
+        socialNotificationActor = activeSocialNotification?.actor?.displayName
+            ?: friendWatchingCard?.actor?.displayName.orEmpty(),
         socialNotificationMessage = when (activeSocialNotification?.kind) {
             SocialNotificationKind.FriendRequest -> "sent you a friend request"
             SocialNotificationKind.PartyInvitation -> {
@@ -939,7 +967,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 else "invited you to Watch Together"
             }
             SocialNotificationKind.WatchingNowJoinRequest -> "asked to join your playback"
-            null -> ""
+            null -> friendWatchingCard?.let(::friendWatchingLine).orEmpty()
         },
         socialNotificationActions = activeSocialNotification?.availableActions.orEmpty()
             .map { it.name.lowercase() }
@@ -1947,6 +1975,33 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         else -> return false
     }
     return true
+}
+
+private const val FriendWatchingClockSkewMs = 60_000L
+private const val FriendWatchingVisibleMs = 7_000L
+
+/**
+ * The newest "a friend started watching" event to say over the player: unread, from a friend the viewer
+ * asked to be told about, created at or after [sinceMs], and not said already in this player.
+ */
+internal fun inPlayerFriendWatchingEvent(
+    inbox: List<SocialInboxEvent>,
+    notifyFor: (String) -> Boolean,
+    sinceMs: Long,
+    shownIds: Set<String>,
+): SocialInboxEvent? = inbox
+    .filter { it.kind == SocialInboxEvent.FriendWatching && it.readAt == null && it.id !in shownIds }
+    .filter { notifyFor(it.actor.profileId) }
+    .mapNotNull { event -> parseSocialTimestampMs(event.createdAt)?.takeIf { it >= sinceMs }?.let { event to it } }
+    .maxByOrNull { it.second }
+    ?.first
+
+/** "is watching Andor · S1 E2", after the friend's name. */
+internal fun friendWatchingLine(event: SocialInboxEvent): String {
+    val title = event.payload.title?.takeIf { it.isNotBlank() } ?: return "started watching"
+    val season = event.payload.season
+    val episode = event.payload.episode
+    return if (season != null && episode != null) "is watching $title · S$season E$episode" else "is watching $title"
 }
 
 /**
