@@ -1,5 +1,26 @@
 Last updated: 2026-10-17
 
+## Self-signing: renew in-app (2026-10-17, branch `claude/self-signing`)
+
+- **First real phone result (a friend's iPhone, installer zip "c"):** the installer's test path (Ctrl+Shift+I)
+  signed in with 2FA, signed and installed Nuvio Z Debug straight from the PC (no SideStore) and placed its pairing
+  file. Earlier failures on that run were installer bugs, all fixed on `claude/ios-installer` and merged here:
+  no Tauri capability, so `event.listen` was refused and the 2FA prompt never reached the window (`92242268d`);
+  the certificate-limit copy wrongly sent free accounts to developer.apple.com (now an in-installer chooser,
+  `daebe168a`, `f7a353769`); remember-me via the system keychain (`4f1d676ae`).
+- **Refresh design, confirmed against SideStore's `RefreshAppOperation`:** no re-sign and no reinstall. Sign in,
+  download a fresh team provisioning profile per bundle id, install them through `misagent` over LocalDevVPN
+  (`selfsign::refresh`). Re-sign + reinstall is only for updates or a new certificate (not built).
+- **In the app:** Advanced settings › Diagnostics › "Self-signing: renew this app" (debug, signer-linked builds
+  only) shows the embedded profile's expiry, the newest installed profiles on the phone
+  (`nzs_installed_profiles`), and renews with an Apple Account, 2FA answered in the dialog by polling
+  `nzs_pending_two_factor`. After a renew the *embedded* date does not move; the installed one should.
+- **Not verified:** a renew on a phone; whether iOS keeps launching the app past the embedded profile's expiry on
+  the strength of the newer installed profile (needs the 7 days to pass, or a second check on day 8).
+- **Still to build:** Apple password in the iOS Keychain; Shortcuts App Intent + one-tap shortcut link; refresh on
+  open and BGTaskScheduler; updates (re-sign + reinstall); the certificate chooser on the phone; installer
+  installing Nuvio Z directly as the normal path.
+
 ## Self-signing spike, step 2 (2026-10-17, branch `claude/self-signing`, cut from `claude/ios-installer`)
 
 Phase 2 of the iOS installer: Nuvio Z signs, refreshes and updates itself without SideStore. Plan:
