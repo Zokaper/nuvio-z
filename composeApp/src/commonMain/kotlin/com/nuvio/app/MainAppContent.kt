@@ -181,6 +181,7 @@ import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.social.SocialRepository
 import com.nuvio.app.features.social.rememberSocialEnabled
 import com.nuvio.app.features.social.socialRuntimeProfileId
+import com.nuvio.app.features.social.SocialBannerHost
 import com.nuvio.app.features.social.SocialNotification
 import com.nuvio.app.features.social.SocialNotificationAction
 import com.nuvio.app.features.social.SocialNotificationKind
@@ -2600,6 +2601,15 @@ internal fun MainAppContent(
                         NuvioToastAction.ChangePlaybackSource -> Unit
                     }
                 },
+            )
+
+            // Social pop-ups as in-app banners: the desktop's corner cards, smaller. The player has its
+            // own social card, so they hold off there (see `SocialBanners`).
+            SocialBannerHost(
+                playerOpen = currentRoute is PlayerRoute,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(21f),
             )
 
             }
