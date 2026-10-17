@@ -93,10 +93,10 @@ const Art = {
     return panel("plain", `<div class="codebox">${boxes}</div>`);
   },
 
-  uac({ hl } = {}) {
+  uac({ hl, app = "Apple Mobile Device Support", publisher = "Apple Inc." } = {}) {
     return `<div class="uac"><div class="h">User Account Control</div>
       <div class="q">Do you want to allow this app to make changes to your device?</div>
-      <div class="who"><span class="ic">${WinIcons.shield}</span><div><b>Apple Mobile Device Support</b><small>Verified publisher: Apple Inc.</small></div></div>
+      <div class="who"><span class="ic">${WinIcons.shield}</span><div><b>${esc(app)}</b><small>Verified publisher: ${esc(publisher)}</small></div></div>
       <div class="acts"><span ${cls("yes", hl && "hl")}>Yes${badge(hl)}</span><span>No</span></div></div>`;
   },
 

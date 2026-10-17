@@ -77,17 +77,27 @@ function buildSteps(ctx) {
   },
   {
     id: "connect",
-    title: "Plug in your iPhone and unlock it",
-    layout: "plain",
-    cards: [
-      { art: Art.glyph("cable"), n: 1, cap: "Plug it straight into this computer", sub: "Not into a hub or a monitor" },
-      { art: Art.glyph("lockOpen"), n: 2, cap: "Unlock it and keep the screen on" },
-    ],
+    title: ctx.device?.iphoneNeedsDriver ? "Getting your iPhone’s driver" : "Plug in your iPhone and unlock it",
+    lead: ctx.device?.iphoneNeedsDriver ? "This PC sees your iPhone only as a camera so far. Apple’s iPhone driver comes from Windows Update; Windows asks for permission once." : undefined,
+    layout: ctx.device?.iphoneNeedsDriver ? "wide" : "plain",
+    // A never-used PC sees the phone only as a camera until Apple's USB driver is in (core/src/drivers.rs).
+    cards: ctx.device?.iphoneNeedsDriver
+      ? [{ art: Art.uac({ hl: 1, app: "Windows PowerShell", publisher: "Microsoft Windows" }), n: 1, cap: "When Windows asks, click Yes", sub: "It installs Apple’s iPhone driver from Windows Update" }]
+      : [
+        { art: Art.glyph("cable"), n: 1, cap: "Plug it straight into this computer", sub: "Not into a hub or a monitor" },
+        { art: Art.glyph("lockOpen"), n: 2, cap: "Unlock it and keep the screen on" },
+      ],
     status: { kind: "wait", text: "Looking for your iPhone…", sub: "continues by itself" },
+    liveStatus: (d) => !d.iphoneNeedsDriver ? null
+      : ctx.usbDriver === "failed" ? { kind: "warn", text: "The driver didn’t install.", sub: ctx.usbDriverError || "" }
+      : { kind: "work", text: "Installing Apple’s iPhone driver…", sub: "about half a minute after you click Yes" },
+    buttons: ctx.device?.iphoneNeedsDriver && ctx.usbDriver === "failed" ? [{ label: "Try again", action: "retryUsbDriver" }] : [],
     watch: (d) => d.usbDevices > 0,
     alternates: [
       ["Nothing happens", ["Try a different USB port on the computer.", "Try a different cable. Many cables only charge and carry no data.", "Make sure the iPhone is unlocked."]],
       ["The iPhone says “Allow accessory to connect?”", ["Tap <b>Allow</b>."]],
+      ["Windows didn’t ask me anything", ["Look for a flashing yellow-and-blue shield in the taskbar and click it.", "The question may be behind this window: press Alt+Tab."]],
+      ["The driver won’t install", ["Open Windows <span class=path>Settings › Windows Update › Advanced options › Optional updates › Driver updates</span>, tick the two Apple ones and click <b>Download & install</b>. This step continues by itself afterwards."]],
     ],
   },
   {

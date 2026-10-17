@@ -84,6 +84,16 @@ async fn ensure_apple_software(session: State<'_, Session>) -> Result<drivers::A
     result
 }
 
+/// "Plug in your iPhone" when Windows sees the phone only as a camera: Apple's USB driver from Windows Update.
+#[tauri::command]
+async fn install_usb_driver(session: State<'_, Session>) -> Result<(), String> {
+    let result = drivers::install_usb_driver().await;
+    if let Err(e) = &result {
+        session.errors.lock().unwrap().push(format!("iphone driver: {e}"));
+    }
+    result
+}
+
 /// The fallback when the silent install can't: the Store page, where the person clicks Get.
 #[tauri::command]
 fn open_apple_store_page() -> Result<(), String> {
@@ -291,6 +301,7 @@ fn main() {
             place_pairing,
             place_nuvio_pairing,
             ensure_apple_software,
+            install_usb_driver,
             open_apple_store_page,
             check_anisette,
             sign_in,

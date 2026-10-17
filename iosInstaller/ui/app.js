@@ -21,6 +21,8 @@ if (params.get("help")) ctx.help = true;
 if (params.get("debugwarn")) ctx.debugWarning = true;
 if (params.get("sidestore")) ctx.target = "sidestore";
 // `?signingin=1` the sign-in form greyed out while Apple answers.
+// `?needsdriver=1` "Plug in your iPhone" on a PC that sees the phone only as a camera.
+if (params.get("needsdriver")) ctx.device = { iphoneNeedsDriver: true };
 if (params.get("signingin")) Object.assign(ctx, { signingIn: true });
 if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
@@ -306,6 +308,9 @@ async function act(action, step, index) {
     case "retryDrivers":
       ctx.drivers = null;
       return render();
+    case "retryUsbDriver":
+      ctx.usbDriver = null;
+      return render();
     case "placeNuvioPairing":
       busy("Adding Nuvio Z’s connection file…");
       try {
@@ -369,6 +374,17 @@ if (ctx.live) {
     render();
   }
 
+  // "Plug in your iPhone" on a PC that sees the phone only as a camera: Apple's USB driver, once per visit.
+  async function ensureUsbDriver() {
+    ctx.usbDriver = "running";
+    render();
+    try {
+      await invoke("install_usb_driver");
+      ctx.usbDriver = "done";
+    } catch (e) { ctx.usbDriver = "failed"; ctx.usbDriverError = String(e); }
+    render();
+  }
+
   // Steps that wait on the phone finish by themselves.
   let probing = false;
   setInterval(async () => {
@@ -378,6 +394,7 @@ if (ctx.live) {
     try {
       ctx.device = await invoke("probe_device");
       if (step.id === "drivers" && ctx.device.usbmuxdReachable === false && !ctx.drivers) ensureAppleSoftware();
+      if (step.id === "connect" && ctx.device.iphoneNeedsDriver && !ctx.usbDriver) ensureUsbDriver();
       if (byId[current] === step && step.watch(ctx.device)) {
         const i = walk.findIndex((s) => s.id === step.id);
         goTo(walk[i + 1].id);

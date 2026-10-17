@@ -35,6 +35,8 @@ pub struct DeviceSnapshot {
     /// Whether the installed Nuvio Z (Debug first) holds its own pairing file; `None` when there is none or its
     /// Documents can't be opened.
     pub nuvio_pairing: Option<bool>,
+    /// An iPhone is plugged in but Windows has no Apple USB driver for it (see `drivers::iphone_needs_driver`).
+    pub iphone_needs_driver: bool,
     pub errors: Vec<String>,
 }
 
@@ -158,7 +160,10 @@ pub async fn probe() -> DeviceSnapshot {
     let devices = mux.get_devices().await.unwrap_or_default();
     let usb: Vec<_> = devices.iter().filter(|d| matches!(d.connection_type, Connection::Usb)).collect();
     snap.usb_devices = usb.len();
-    let Some(device) = usb.first() else { return snap };
+    let Some(device) = usb.first() else {
+        snap.iphone_needs_driver = crate::drivers::iphone_needs_driver().await;
+        return snap;
+    };
     snap.udid_prefix = Some(device.udid.chars().take(8).collect());
     let provider = device.to_provider(UsbmuxdAddr::default(), "nuvioz-installer");
 
