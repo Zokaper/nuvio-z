@@ -7,79 +7,77 @@ const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 
 const byId = Object.fromEntries(STEPS.map((s) => [s.id, s]));
-const walk = STEPS.filter((s) => !s.base && !["drivers-slow", "signin-blocked"].includes(s.id));
+const walk = STEPS.filter((s) => !s.base && !s.like);
+const total = walk.length - 1; // "done" is not a step
 let current = byId[params.get("step")] ? params.get("step") : "welcome";
 
-function phaseBar(phaseId, done) {
-  const at = PHASES.findIndex((p) => p.id === phaseId);
-  return PHASES.map((p, i) => {
-    const state = done || i < at ? "done" : i === at ? "current" : "";
-    const dot = state === "done" ? "✓" : i + 1;
-    const line = i ? `<span class="phase-line${state === "done" || state === "current" ? " done" : ""}"></span>` : "";
-    return `${line}<span class="phase ${state}"><span class="dot">${dot}</span><span class="lbl">${p.label}</span></span>`;
-  }).join("");
-}
+// An eight-spoke activity indicator, like the one iOS and macOS use.
+const ACTIVITY = `<svg class="activity" viewBox="0 0 24 24">${Array.from({ length: 8 }, (_, i) =>
+  `<rect x="11" y="2" width="2" height="6" rx="1" fill="currentColor" opacity="${(0.25 + i * 0.1).toFixed(2)}" transform="rotate(${i * 45} 12 12)"/>`).join("")}</svg>`;
 
-function statusChip(s) {
+function status(s) {
   if (!s) return "";
-  const lead = { wait: '<span class="spinner"></span>', work: '<span class="spinner"></span>', ok: '<span class="icon">✓</span>', warn: '<span class="icon">!</span>', bad: '<span class="icon">✕</span>' }[s.kind];
-  const cls = { ok: " ok", warn: " warn", bad: " bad" }[s.kind] || "";
-  return `<div class="status${cls}">${lead}<div>${s.text}${s.sub ? `<small>${s.sub}</small>` : ""}</div></div>`;
+  const lead = s.kind === "bad" ? "" : ACTIVITY;
+  return `<div class="status ${s.kind}">${lead}<span><b>${s.text}</b>${s.sub ? ` ${s.sub}` : ""}</span></div>`;
 }
 
-function drawer(step) {
-  const alts = (step.alternates || []).map(([problem, fixes], i) =>
+function cards(step) {
+  if (step.center) return `<div class="cards wide"><div class="card" style="grid-template-rows:auto">${step.center}</div></div>`;
+  const list = step.cards.map((c) => `<div class="card"><div class="art">${c.art}</div>${c.cap ? `<div class="cap${c.n ? "" : " centered"}">${c.n ? `<span class="n">${c.n}</span>` : ""}<span>${c.cap}${c.sub ? `<small>${c.sub}</small>` : ""}</span></div>` : ""}</div>`).join("");
+  return `<div class="cards ${step.layout || ""}">${list}</div>`;
+}
+
+function sheet(step) {
+  const alts = step.alternates.map(([problem, fixes], i) =>
     `<details class="alt"${i === 0 ? " open" : ""}><summary>${problem}</summary><ol>${fixes.map((f) => `<li>${f}</li>`).join("")}</ol></details>`).join("");
-  return `<div class="scrim"></div><aside class="drawer"><h2>What do you see instead?</h2><p>Pick the one that matches. If none do, click <b>Help</b> at the bottom: it copies a report you can send.</p>${alts}</aside>`;
+  return `<div class="scrim"></div><aside class="sheet"><h2>What do you see instead?</h2><p>Pick the one that matches. If none do, Help copies a report you can send.</p>${alts}<div class="close-row"><button class="btn secondary" id="close" style="min-width:0">Done</button></div></aside>`;
 }
 
 function render() {
   const view = byId[current];
   const step = view.base ? { ...byId[view.base], ...view, id: view.base } : view;
   const index = walk.findIndex((s) => s.id === (step.like || step.id));
-  const steps = step.steps ? `<ol class="steps">${step.steps.map((t, i) => `<li><span class="n">${i + 1}</span><span>${t}</span></li>`).join("")}</ol>` : "";
-  const note = step.note ? `<div class="note ${step.note.kind || ""}">${step.note.html}</div>` : "";
-  const alt = step.alternates ? '<button class="something-else" id="alt">I see something else</button>' : "";
-  const f = step.footer || {};
-  const eyebrow = step.done ? "All done" : `Step ${index + 1} of ${walk.length - 1} · ${PHASES.find((p) => p.id === step.phase).label}`;
+  const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}"${i === 0 ? ' id="next"' : ""}>${b.label}</button>`).join("");
+  const links = [...(step.links || []), ...(step.alternates ? ["I see something else"] : [])]
+    .map((l) => `<button class="text-btn"${l === "I see something else" ? ' id="alt"' : ""}>${l}</button>`).join("");
+  const progress = step.done ? 1 : index / total;
 
   document.getElementById("app").innerHTML = `
+    <div class="progress-line"><i style="width:${(progress * 100).toFixed(1)}%"></i></div>
     <header class="top">
-      <div class="brand"><img src="img/nuvio.png" alt="">Nuvio Z iOS Installer</div>
-      <nav class="phases">${phaseBar(step.phase, step.done)}</nav>
-    </header>
-    <section class="body">
-      <div class="text">
-        ${step.done ? '<div class="big-check" style="margin-bottom:14px">✓</div>' : `<div class="eyebrow">${eyebrow}</div>`}
-        <h1>${step.title}</h1>
-        ${step.lead ? `<p class="lead">${step.lead}</p>` : ""}
-        ${step.left && (!step.steps || step.leftFirst) ? step.left() : ""}
-        ${steps}
-        ${step.left && step.steps && !step.leftFirst ? step.left() : ""}
-        ${statusChip(step.status)}
-        ${note}
-        ${alt}
-      </div>
-      <div class="stage">${step.stage ? step.stage() : ""}${view.drawer ? drawer(step) : ""}</div>
-    </section>
-    <footer class="bottom">
-      ${f.secondary ? `<button class="btn${f.secondary === "Back" ? " ghost" : ""}" id="back">${f.secondary === "Back" ? "‹ Back" : f.secondary}</button>` : ""}
-      <button class="btn ghost" id="help">Help</button>
+      ${index > 0 && !step.done ? `<button class="text-btn" id="back">${Icons.chevronLeft}Back</button>` : ""}
       <span class="spacer"></span>
-      ${f.tertiary ? `<button class="btn">${f.tertiary}</button>` : ""}
-      ${f.primary ? `<button class="btn primary" id="next">${f.primary}</button>` : ""}
-    </footer>`;
+      <button class="text-btn quiet" id="help">Help</button>
+    </header>
+    <div class="head">
+      <div class="eyebrow">${step.done ? "All set" : index === 0 ? "Nuvio Z for iPhone" : `Step ${index} of ${total - 1}`}</div>
+      <h1>${step.title}</h1>${step.lead ? `<p class="lead">${step.lead}</p>` : ""}
+    </div>
+    ${cards(step)}
+    <footer class="foot">
+      ${step.below || ""}
+      ${status(step.status)}
+      ${buttons ? `<div class="actions">${buttons}</div>` : ""}
+      ${links ? `<div class="links">${links}</div>` : ""}
+    </footer>
+    ${view.sheet ? sheet(step) : ""}`;
 
-  const go = (delta) => { const i = Math.max(0, Math.min(walk.length - 1, index + delta)); current = walk[i].id; render(); };
+  const go = (delta) => { current = walk[Math.max(0, Math.min(walk.length - 1, index + delta))].id; render(); };
   document.getElementById("next")?.addEventListener("click", () => go(1));
-  if (f.secondary === "Back") document.getElementById("back")?.addEventListener("click", () => go(-1));
-  document.getElementById("alt")?.addEventListener("click", () => { current = view.drawer ? step.id : `${step.id}-help`; if (!byId[current]) { byId[current] = { id: current, base: step.id, drawer: true }; } render(); });
-  document.querySelector(".scrim")?.addEventListener("click", () => { current = step.id; render(); });
+  document.getElementById("back")?.addEventListener("click", () => go(-1));
+  document.getElementById("alt")?.addEventListener("click", () => {
+    current = `${step.id}-help`;
+    byId[current] ??= { id: current, base: step.id, sheet: true };
+    render();
+  });
+  const closeSheet = () => { current = step.id; render(); };
+  document.getElementById("close")?.addEventListener("click", closeSheet);
+  document.querySelector(".scrim")?.addEventListener("click", closeSheet);
 }
 
 // Design preview: arrow keys walk the screens.
 document.addEventListener("keydown", (e) => {
-  const i = walk.findIndex((s) => s.id === (byId[current].base || current));
+  const i = walk.findIndex((s) => s.id === (byId[current].base || byId[current].like || current));
   if (e.key === "ArrowRight" && i < walk.length - 1) { current = walk[i + 1].id; render(); }
   if (e.key === "ArrowLeft" && i > 0) { current = walk[i - 1].id; render(); }
 });

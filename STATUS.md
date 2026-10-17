@@ -22,15 +22,17 @@ be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched 
   iTunes Client Info override. iloader 2.3.8 also places **three** pairing files for SideStore
   (`ALTPairingFile.mobiledevicepairing`, `PairingFile_RemoteRP.plist`, `PairingFile_Lockdown.plist`); our helper
   places only the first, which explains a Nightly install asking for a pairing file.
-- **Stage 1 (screen design) built, awaiting maintainer review.** `iosInstaller/ui/`: `phone.js` draws iPhone screens
-  in HTML/CSS (Settings lists, alerts, lock/passcode, home, App Store, camera + QR banner) with the button to press
-  ringed and numbered to match the step text; `steps.js` holds 16 screens (12 steps + Windows-prompt-hidden,
-  Apple -80045 refusal, the "I see something else" drawer, done) with alternatives per step; `app.js` renders one
-  step (`?step=`/`?theme=` for previews; buttons and arrow keys walk the screens, nothing wired to the phone yet).
-  `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; 40 PNGs (dark + light at 1040x720, plus 940x640 and
-  860x620 checks) are in `Nuvio Z/render-review/ios-installer-stage1/`. Window minimum raised to 940x640 because three
-  phone mockups stop being readable below it. QR codes in the previews are decorative placeholders. The release exe
-  (5.1 MB) shows the new UI.
+- **Stage 1 (screen design), third draft, awaiting maintainer review.** Draft 1 (two-column wizard with whole-phone
+  drawings) read as "a Windows XP install wizard"; draft 2 followed the maintainer's sketch (centered title, three
+  numbered close-ups left to right, one big action) but on a bright gradient, which read as cheap. **Draft 3** keeps the
+  sketch's layout in an Apple-style treatment: near-black page with one violet accent glow (light variant on
+  `#f5f5f7`), Inter (`ui/fonts/`, OFL; SF Pro cannot be bundled on Windows), Lucide symbols (`ui/icons.js`, ISC,
+  inlined), and iOS drawn at Apple's point sizes in the system appearance (270 pt alerts, 44 pt rows, 29 pt icon
+  tiles), each close-up in its own rounded panel, scaled by `zoom` to fit. `ui/art.js` builds the panels, `ui/steps.js`
+  holds 16 screens (11 steps, welcome, done, Windows-prompt-hidden, Apple -80045, the "I see something else" sheet),
+  `ui/app.js` renders one (`?step=`/`?theme=`; buttons and arrow keys walk the screens, nothing wired to the phone).
+  `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; drafts are kept side by side in
+  `Nuvio Z/render-review/ios-installer-stage1{,-d2,-d3}/`. Window minimum 940x640. QR codes are placeholders.
 - **Next:** maintainer review of the Stage 1 renders, then Stage 2 (core port: requirements engine, hosted config,
   downloader, probes, three-file pairing placement).
 
