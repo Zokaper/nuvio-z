@@ -1,40 +1,19 @@
 Last updated: 2026-10-17
 
-## iOS Installer 3 (Tauri + isideload): Stage 0 done (2026-10-17, branch `claude/ios-installer`)
+## iOS Installer 3 + Nuvio Z self-signing (in progress, 2026-10-17; nothing merged or released)
 
-Plan: `Nuvio Z/PLAN-ios-setup-one-sitting.md` (maintainer-approved 2026-10-17). Goal: an iOS install nobody has to
-be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched until the new one reaches parity.
+This work lives on two branches, both kept off `claude/social-v2` on purpose (meant to ship before it):
 
-- **Decisions:** rewrite as **Tauri 2** in `iosInstaller/` (Rust workspace: `core` with no UI dependency, `app` the
-  shell; `ui/` plain HTML/CSS/ES modules, no npm, no bundler, builds with `cargo` alone). **iloader's job moves inside
-  via `isideload` (MIT)**, which supersedes the 2.0 rule "Apple credentials never enter our app": the password goes
-  only to Apple through the anisette server and is never stored or logged. Windows and macOS both.
-- **Stage 0 verified on Windows:** Tauri 2 + `isideload =0.4.6` + `idevice =0.1.68` build into one 4.8 MB release
-  exe (static CRT); the window appears 64-201 ms after launch (the Java assistant: up to ~15 s). The page calls Rust
-  over IPC (`probe_device` runs on load; PrintWindow capture shows the live result). `cargo run --release -p
-  nuvioz-installer-core --example probe`: usbmuxd reachable (no phone attached), and isideload reached
-  `mac-ani.jkcoxson.com` `/v3/client_info` (iloader 2.3.9's default anisette server).
-- **Not measured yet:** binary size with the sign-in + signing path reachable (only `init` and the anisette check are
-  linked now); macOS build.
-- **Upstream facts this rests on (2026-10-17):** Apple's -80045 sign-in rejection since ~2026-10-12 is fixed in iloader
-  2.3.8/2.3.9 (new anisette servers; SMS 2FA still broken) but **not** in SideStore stable 0.7.0-alpha; SideStore
-  issues #1652/#1658/#1665 are open with no maintainer reply, and the reported workaround is Nightly + a Windows
-  iTunes Client Info override. iloader 2.3.8 also places **three** pairing files for SideStore
-  (`ALTPairingFile.mobiledevicepairing`, `PairingFile_RemoteRP.plist`, `PairingFile_Lockdown.plist`); our helper
-  places only the first, which explains a Nightly install asking for a pairing file.
-- **Stage 1 (screen design) built, awaiting maintainer review.** `iosInstaller/ui/`: `phone.js` draws iPhone screens
-  in HTML/CSS (Settings lists, alerts, lock/passcode, home, App Store, camera + QR banner) with the button to press
-  ringed and numbered to match the step text; `steps.js` holds 16 screens (12 steps + Windows-prompt-hidden,
-  Apple -80045 refusal, the "I see something else" drawer, done) with alternatives per step; `app.js` renders one
-  step (`?step=`/`?theme=` for previews; buttons and arrow keys walk the screens, nothing wired to the phone yet).
-  `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; 40 PNGs (dark + light at 1040x720, plus 940x640 and
-  860x620 checks) are in `Nuvio Z/render-review/ios-installer-stage1/`. Window minimum raised to 940x640 because three
-  phone mockups stop being readable below it. QR codes in the previews are decorative placeholders. The release exe
-  (5.1 MB) shows the new UI.
-- **Next:** maintainer review of the Stage 1 renders, then Stage 2 (core port: requirements engine, hosted config,
-  downloader, probes, three-file pairing placement).
+- `claude/ios-installer` (worktree `.claude-worktrees/ios-installer`): the new Tauri 2 + isideload installer in
+  `iosInstaller/`. Sign-in with 2FA, SideStore install, pairing placement, remember-me, certificate chooser.
+- `claude/self-signing` (worktree `.claude-worktrees/self-signing`): cut from the installer branch; Nuvio Z signs and
+  refreshes itself on the phone over LocalDevVPN (`iosInstaller/core/src/ondevice.rs`, `selfsign.rs`, `ffi/`), behind
+  `NUVIO_IOS_SELF_SIGNING`. Cut from `main`, so it lacks Social V2: **never publish a normal Debug release from it**;
+  use Debug release's `diagnostic_ios_only` and hand the IPA out directly.
 
-
+Read the top sections of `STATUS.md` on those branches, then `Nuvio Z/HANDOFF-ios-installer-self-signing.md` and the
+plans `Nuvio Z/PLAN-ios-setup-one-sitting.md` and `Nuvio Z/PLAN-nuvio-z-self-signing.md`. The detail that used to sit
+here (Stage 0/1 notes) is superseded by those branches' STATUS.
 
 ## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
 
