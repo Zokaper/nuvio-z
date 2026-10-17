@@ -1,5 +1,59 @@
 Last updated: 2026-10-17
 
+## Self-signing: everything for the one-sitting test built (2026-10-17, branch `claude/self-signing`)
+
+Handoff: `Nuvio Z/HANDOFF-ios-installer-self-signing.md`. All twelve items are built. **Nothing is released**; the
+test is one zip + one checklist (`Nuvio Z/release-artifacts/Nuvio-Z-self-signing-test-2026-10-17e.zip`, IPA from
+diagnostic Debug release run `39067386106`).
+
+- **Stage 3, silent Apple software (`core/src/drivers.rs`), verified on this PC reset to pre-wizard** (with the
+  maintainer's OK: iTunes 12.13.11 uninstalled, Apple Devices removed, `appleusb.inf` + `netaapl64.inf` deleted,
+  `C:\ProgramData\Apple` moved to `C:\ProgramData\Apple-nuvioz-backup-2026-10-17`, installer/assistant state moved
+  to `%LOCALAPPDATA%\NuvioZ-reset-backup-2026-10-17`). Findings: usbmuxd on Windows now comes from the **Apple
+  Devices** Store app (`AppleMobileDeviceLauncher`, a package *startup task*), not iTunes. `winget install
+  9NP83LWLPZ9K --source msstore` installs it in ~30 s with no admin and no window; afterwards nothing listens on 27015
+  until the next sign-in, WindowsApps refuses a direct start, and `Invoke-CommandInDesktopPackage …
+  AppleMobileDeviceLauncher.exe` starts it with no window. The installer went from welcome to "Plug in your iPhone" by
+  itself in ~30 s. Fallback: the Store page + Try again. Not verified: the Apple USB driver arriving when an iPhone is
+  first plugged into such a PC (no phone here).
+
+- **Installer** (`iosInstaller/`): installing Nuvio Z itself is the normal path (`core/src/nuvio.rs`), SideStore a
+  fallback link on the welcome screen. An IPA next to the exe wins; otherwise the hosted
+  `distribution/ios-installer/nuvio.json` (Zokaper/nuvio-z release downloads only, pinned SHA-256; both entries null
+  for now). After installing it places the pairing file, **this computer's signing key** (`NuvioZSigningKey.plist`,
+  so the phone signs updates with the same certificate instead of making one that revokes it) and, for a local test
+  IPA, `NuvioZ-Update-test.ipa` for the on-phone update test. Ctrl+Shift+D = Debug build behind an "experimental"
+  warning (Ctrl+Shift+I is gone). Real QR codes (`ui/qr.js`, generated and decode-checked by
+  `core/tests/qr_codes.rs`). Help sheet: Copy report, Reset sign-in data. Apple -22410 "could not be completed. Try
+  again" is `TryAgain` (the friend's "-224211" was this). Anisette identity and private key live in the system
+  keychain (`core/src/storage.rs`), migrating the old `signing` folder on first read; files on the iPhone.
+- **Signer** (`ffi/`): `nzs_refresh(…, interactive)` (unattended runs end with `codeNeeded` instead of waiting),
+  `nzs_install_update` (unpack, strip an old `.TEAMID`, refuse an IPA that would install as another app, sign, install
+  over itself via lockdown then the tunnel), certificate chooser / progress / key import / signing state / reset /
+  `nzs_vpn_reachable` / version.
+- **Nuvio Z Debug** (`NUVIO_IOS_SELF_SIGNING`): Apple Account in the Keychain (this device only, after first unlock),
+  saved only with "Remember" ticked; renew on open when under 3 days are left (toast if LocalDevVPN is down or Apple
+  wants a code); "Refresh Nuvio Z" App Intent + `AppShortcutsProvider` and a BGTaskScheduler task
+  (`iosApp/iosApp/SelfSigning.swift`, compiled only with the Swift condition `NUVIO_SELF_SIGNING` that
+  `scripts/build-ios-ipa.sh` sets, which also adds the task identifier + `fetch` mode to the staged Info.plist and fails
+  the build without App Intent metadata); "Keep Nuvio Z working" (Settings › Advanced › Diagnostics) with days left,
+  Renew now, the daily-refresh guide (drawn steps; one tap once `distribution/self-signing/refresh-shortcut.json` has
+  an iCloud link), certificate chooser, update test and **Copy test report**.
+- **Reverted**: this branch's `UIFileSharingEnabled` in `iosApp/iosApp/Info.plist`. Debug gets it from
+  build-ios-ipa.sh, and the script fails every Release IPA that has it. Consequence: the *stable* direct path can't
+  place its pairing file until that policy is decided (Release would need file sharing on).
+- **Verified here:** core tests 21/21 (incl. QR decode and the Credential Manager migration); shared Kotlin compiles
+  (`:androidApp:compileFullDebugKotlin`); installer release exe built and driven live over WebView2 DevTools with an
+  isolated `LOCALAPPDATA`: the event self-test reached the window, the test IPA was detected as Debug, Copy report and
+  Reset sign-in data worked; installer screens rendered (`Nuvio Z/render-review/ios-installer-direct-d1/`).
+  CI: see the run list below. **Not verified:** anything on a phone.
+- **Merge debt:** `iosApp/iosApp/iOSApp.swift` (one `init()` line) and `SelfSigning.swift` belong in
+  `Docs/PATCH-SURFACE.md`; `commonMain` `SelfSigningSpike.kt` / `KeepNuvioWorkingScreen.kt` /
+  `AdvancedSettingsPage.kt` reach NuvioZDesktop by merge (inert there). `claude/ios-installer` is now behind: the
+  installer work of this round lives only on `claude/self-signing`, because the direct path needs the signer.
+- CI note: the "CI" workflow's Android host tests fail on `main` too (docs-only `eb028fd7a`), so that red is not from
+  this branch.
+
 ## Self-signing: renew in-app (2026-10-17, branch `claude/self-signing`)
 
 - **First real phone result (a friend's iPhone, installer zip "c"):** the installer's test path (Ctrl+Shift+I)
