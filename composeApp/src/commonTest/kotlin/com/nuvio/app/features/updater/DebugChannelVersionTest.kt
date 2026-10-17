@@ -1,7 +1,9 @@
 package com.nuvio.app.features.updater
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -77,6 +79,41 @@ class DebugChannelVersionTest {
             assertTrue(isChannelEligible(release, stable) == expected.first, "stable: $release")
             assertTrue(isChannelEligible(release, debug) == expected.second, "debug: $release")
         }
+    }
+
+    @Test
+    fun `the newest debug build is chosen whatever order GitHub lists them in`() {
+        // The order GitHub actually returned on 2026-10-17: 100 after 97.
+        val releases = listOf(
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.99", draft = false, prerelease = true),
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.98", draft = false, prerelease = true),
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.97", draft = false, prerelease = true),
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.100", draft = false, prerelease = true),
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.96", draft = false, prerelease = true),
+        )
+        assertEquals(3, newestChannelReleaseIndex(releases, channelSource(debug = true)))
+    }
+
+    @Test
+    fun `the newest release skips releases outside the channel`() {
+        val releases = listOf(
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.101", draft = true, prerelease = true),
+            ChannelReleaseFacts("v0.1.27-alpha-z1+140", draft = false, prerelease = false),
+            ChannelReleaseFacts("debug-v0.1.26-alpha-z2.100", draft = false, prerelease = true),
+            ChannelReleaseFacts("v0.1.26-alpha-z1+139", draft = false, prerelease = false),
+        )
+        assertEquals(2, newestChannelReleaseIndex(releases, channelSource(debug = true)))
+        assertEquals(1, newestChannelReleaseIndex(releases, channelSource(debug = false)))
+        assertNull(newestChannelReleaseIndex(releases.take(1), channelSource(debug = true)))
+    }
+
+    @Test
+    fun `stable releases order by serial`() {
+        val releases = listOf(
+            ChannelReleaseFacts("v0.4.14-z1+128", draft = false, prerelease = false),
+            ChannelReleaseFacts("v0.4.9-z1+131", draft = false, prerelease = false),
+        )
+        assertEquals(1, newestChannelReleaseIndex(releases, channelSource(debug = false)))
     }
 
     private fun channelSource(debug: Boolean) = AppUpdateReleaseSource(

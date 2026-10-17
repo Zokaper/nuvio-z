@@ -136,6 +136,24 @@ internal object VersionUtils {
      * @param localSerial AppVersionConfig.RELEASE_SERIAL, or null/0 for a build that
      *   has none. Defaulted so the existing string-only behaviour is still reachable.
      */
+    /**
+     * How two release tags order against each other: by serial when both carry one, by version
+     * otherwise, and 0 when neither can be read.
+     */
+    fun compareTags(a: String?, b: String?): Int {
+        val aSerial = parseReleaseSerial(a)
+        val bSerial = parseReleaseSerial(b)
+        if (aSerial != null && bSerial != null) return aSerial.compareTo(bSerial)
+        val aParts = parseVersionParts(a) ?: return 0
+        val bParts = parseVersionParts(b) ?: return 0
+        for (index in 0 until maxOf(aParts.size, bParts.size)) {
+            val aValue = aParts.getOrElse(index) { 0 }
+            val bValue = bParts.getOrElse(index) { 0 }
+            if (aValue != bValue) return aValue.compareTo(bValue)
+        }
+        return 0
+    }
+
     fun isRemoteNewer(remote: String?, local: String?, localSerial: Int? = null): Boolean {
         val remoteSerial = parseReleaseSerial(remote)
         // 0 is "no serial", not "serial zero": a build predating the serial generates
@@ -186,6 +204,20 @@ internal fun isChannelEligible(release: ChannelReleaseFacts, source: AppUpdateRe
     if (source.debugChannel) return release.prerelease && debugRelease
     return release.matchesBranch && !debugRelease && (source.includePrereleases || !release.prerelease)
 }
+
+/**
+ * The index of the newest release in [source]'s channel, or null when there is none.
+ *
+ * GitHub's list is not in version order: it returned debug 99, 98, 97 and only then 100, so
+ * taking the first eligible release offered 99 to a 99 install and the update was never found.
+ * Ties keep GitHub's order.
+ */
+internal fun newestChannelReleaseIndex(
+    releases: List<ChannelReleaseFacts>,
+    source: AppUpdateReleaseSource,
+): Int? = releases.indices
+    .filter { index -> isChannelEligible(releases[index], source) }
+    .maxWithOrNull { a, b -> VersionUtils.compareTags(releases[a].tag, releases[b].tag) }
 
 /** One published release, for the What's New screen's version history. */
 data class AppReleaseNotes(
@@ -249,17 +281,16 @@ private object AppUpdaterRepository {
             val source = AppUpdaterPlatform.releaseSource
             val releases = fetchReleases()
         // The two channels cannot see each other; see isChannelEligible.
-        val release = releases.firstOrNull { release ->
-            isChannelEligible(
-                ChannelReleaseFacts(
-                    tag = release.tagName,
-                    draft = release.draft,
-                    prerelease = release.prerelease,
-                    matchesBranch = release.matchesRequestedChannel(),
-                ),
-                source,
+        val facts = releases.map { release ->
+            ChannelReleaseFacts(
+                tag = release.tagName,
+                draft = release.draft,
+                prerelease = release.prerelease,
+                matchesBranch = release.matchesRequestedChannel(),
             )
-        } ?: throw NoChannelReleaseException()
+        }
+        val release = newestChannelReleaseIndex(facts, source)?.let(releases::get)
+            ?: throw NoChannelReleaseException()
 
         val tag = release.tagName?.takeIf { it.isNotBlank() }
             ?: release.name?.takeIf { it.isNotBlank() }
