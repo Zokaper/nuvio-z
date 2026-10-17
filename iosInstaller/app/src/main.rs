@@ -31,9 +31,14 @@ async fn reveal_developer_mode() -> Result<(), String> {
     device::reveal_developer_mode().await
 }
 
+/// Re-places the pairing files, for the SideStore this session's account installed when there is one.
 #[tauri::command]
-async fn place_pairing() -> Result<pairing::Placed, String> {
-    pairing::place_for_sidestore().await
+async fn place_pairing(session: State<'_, Session>) -> Result<pairing::Placed, String> {
+    let team = match session.signer.lock().await.as_mut() {
+        Some(signer) => signer.get_team().await.ok().map(|t| t.team_id),
+        None => None,
+    };
+    pairing::place_for_sidestore(team.as_deref()).await
 }
 
 #[tauri::command]

@@ -87,16 +87,32 @@ pub struct Placed {
     pub files: usize,
 }
 
+/// Which SideStore to pair when the phone has more than one (one per Apple Account that installed it):
+/// the one signed by `team`, whose bundle id ends with that team id; otherwise the only one.
+pub fn pick_sidestore(bundles: &[String], team: Option<&str>) -> Result<String, String> {
+    if let Some(team) = team {
+        if let Some(b) = bundles.iter().find(|b| b.to_lowercase().ends_with(&team.to_lowercase())) {
+            return Ok(b.clone());
+        }
+    }
+    match bundles {
+        [] => Err("SideStore is not installed".into()),
+        [only] => Ok(only.clone()),
+        _ => Err(format!("{} copies of SideStore are installed; delete the ones you don't use", bundles.len())),
+    }
+}
+
 /// Builds the pairing file and writes it under every name SideStore reads, each read back to check it.
 /// The previous main file is kept as `.previous` so a bad placement can be undone.
-pub async fn place_for_sidestore() -> Result<Placed, String> {
+pub async fn place_for_sidestore(team: Option<&str>) -> Result<Placed, String> {
     let mut phone = device::connect("nuvioz-place-pairing").await?;
-    let sidestore = bounded("sidestore", async {
-        device::installed(&phone.provider).await?.into_iter()
-            .find(|(kind, _)| *kind == AppKind::SideStore)
+    let copies: Vec<String> = bounded("sidestore", async {
+        Ok(device::installed(&phone.provider).await?.into_iter()
+            .filter(|(kind, _)| *kind == AppKind::SideStore)
             .map(|(_, info)| info.bundle_id)
-            .ok_or_else(|| "SideStore is not installed".to_string())
+            .collect())
     }).await?;
+    let sidestore = pick_sidestore(&copies, team)?;
     // The remote-pairing handshake can wait on the phone, so this gets longer than a probe.
     let (ios, bytes) = tokio::time::timeout(std::time::Duration::from_secs(90), build(&mut phone.mux, &phone.provider, &phone.udid))
         .await.map_err(|_| "building the pairing file timed out (is the iPhone unlocked?)".to_string())??;
@@ -132,5 +148,15 @@ mod tests {
         assert!(version_at_least("18.0", 17, 4));
         assert!(version_at_least("26.1", 17, 4));
         assert!(!version_at_least("", 17, 4));
+    }
+
+    #[test]
+    fn pairs_the_copy_this_account_installed() {
+        let copies = vec!["com.SideStore.SideStore.AAAA111111".to_string(), "com.SideStore.SideStore.BBBB222222".to_string()];
+        assert_eq!(pick_sidestore(&copies, Some("BBBB222222")).unwrap(), copies[1]);
+        assert!(pick_sidestore(&copies, None).is_err());
+        assert!(pick_sidestore(&copies, Some("CCCC333333")).is_err());
+        assert_eq!(pick_sidestore(&copies[..1], None).unwrap(), copies[0]);
+        assert!(pick_sidestore(&[], None).is_err());
     }
 }

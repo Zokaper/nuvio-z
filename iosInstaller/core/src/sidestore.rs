@@ -80,5 +80,6 @@ pub async fn install(signer: &mut Signer, channel: Channel, progress: impl Fn(St
     drop(phone);
 
     progress(Stage::Pairing, 0.0);
-    pairing::place_for_sidestore().await.map_err(|e| failed(Stage::Pairing, e))
+    let team = signer.get_team().await.map_err(|e| failed(Stage::Pairing, e))?.team_id;
+    pairing::place_for_sidestore(Some(&team)).await.map_err(|e| failed(Stage::Pairing, e))
 }
