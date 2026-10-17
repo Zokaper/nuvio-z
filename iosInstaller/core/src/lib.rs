@@ -2,8 +2,12 @@
 //!
 //! Kept free of Tauri so it can be unit-tested on its own and, later, built for iOS (the Phase 2
 //! spike in `PLAN-ios-setup-one-sitting.md`).
+pub mod account;
 pub mod anisette;
 pub mod device;
+pub mod pairing;
+pub mod paths;
+pub mod sidestore;
 
 /// Call once at start-up, before any network or device call.
 pub fn init() {

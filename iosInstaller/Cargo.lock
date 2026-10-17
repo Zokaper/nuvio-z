@@ -3013,6 +3013,9 @@ version = "3.0.0-alpha.0"
 dependencies = [
  "idevice",
  "isideload",
+ "plist",
+ "reqwest",
+ "rootcause",
  "rustls",
  "serde",
  "serde_json",
@@ -3024,6 +3027,7 @@ name = "nuvioz-ios-installer"
 version = "3.0.0-alpha.0"
 dependencies = [
  "nuvioz-installer-core",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

@@ -125,6 +125,14 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .status { display: flex; align-items: center; gap: 10px; color: var(--fg-2); font-size: 15px; min-height: 48px; }
 .status b { color: var(--fg); font-weight: 600; }
 .status.bad b { color: #ff6961; }
+.status.warn b { color: #ffd60a; }
+.status.ok b { color: #30d158; }
+.code-input {
+  width: 100%; max-width: 230px; text-align: center; font: 600 30px/1 var(--sans); letter-spacing: .32em; padding: 14px 0 14px .32em;
+  color: var(--fg); background: var(--surface-2); border: 0; border-radius: 14px; outline: none; font-variant-numeric: tabular-nums;
+}
+.code-input:focus { box-shadow: 0 0 0 2px var(--accent); }
+.code-input::placeholder { color: var(--fg-3); }
 .activity { width: 18px; height: 18px; flex: none; animation: spin 1s steps(8) infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .links { display: flex; gap: 26px; }

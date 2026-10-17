@@ -13,9 +13,13 @@ license = "GPL-3.0-only"
 idevice = { version = "=0.1.68", default-features = false, features = ["usbmuxd", "amfi", "core_device_proxy", "afc", "house_arrest", "installation_proxy", "misagent", "tcp", "remote_pairing", "xpc", "rustls", "ring"] }
 isideload = { version = "=0.4.6", default-features = false, features = ["install", "tokio-mt", "fs-storage"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+plist = "1"
+rootcause = "0.12"
+# Same features as isideload 0.4.6 so the two share one build.
+reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls-no-provider", "http2", "charset", "system-proxy"] }
 
 [profile.release]
 opt-level = "s"

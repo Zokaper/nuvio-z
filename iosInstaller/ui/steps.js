@@ -5,12 +5,25 @@
 //   center:  HTML used instead of cards (forms)
 //   status:  { kind: wait | work | warn | bad, text, sub }   shown instead of, or above, the buttons
 //   buttons: [{ label, glass }]       the first is the primary action
-//   links:   extra small text actions; "I see something else" is added when there are alternates
+//   links:   [{ label, action }] small text actions; "I see something else" is added when there are alternates
+//   watch:   (snapshot) => bool      in the real app, the step finishes by itself once the phone shows this
+//   action:  on a button or link, the name of a handler in app.js; a primary button without one goes next
+//
+// `ctx` is what the app knows right now: { live, email, install, twoFactor }. In previews (`?step=`) it is
+// empty and the screens show sample values.
 "use strict";
 
-const EMAIL = "you@icloud.com";
+function buildSteps(ctx) {
+  const EMAIL = ctx.email || "you@icloud.com";
+  const install = ctx.install || { stage: "sign", fraction: 0.62 };
+  const stages = ["download", "sign", "pairing"];
+  const chip = (stage, label) => {
+    const at = stages.indexOf(install.stage), me = stages.indexOf(stage);
+    return me < at ? `<span class="done"><i>✓</i>${label}</span>` : me === at ? `<span class="now"><i></i>${label}</span>` : `<span><i></i>${label}</span>`;
+  };
+  const installText = { download: "Downloading SideStore…", sign: `Signing and sending SideStore… ${Math.round(install.fraction * 100)}%`, pairing: "Adding SideStore’s connection files…" }[install.stage];
 
-const STEPS = [
+  return [
   {
     id: "welcome",
     title: "Let’s put Nuvio Z on your iPhone",
@@ -30,6 +43,11 @@ const STEPS = [
     layout: "wide",
     cards: [{ art: Art.uac({ hl: 1 }), n: 1, cap: "When Windows asks, click Yes" }],
     status: { kind: "work", text: "Installing Apple Mobile Device Support…", sub: "usually under a minute" },
+    watch: (d) => d.usbmuxdReachable,
+    // Installing the driver silently is Stage 3; until then the live app says what to install by hand.
+    liveStatus: (d) => d.usbmuxdReachable === false
+      ? { kind: "warn", text: "Apple’s iPhone software isn’t on this PC yet.", sub: "Install “Apple Devices” from the Microsoft Store, then come back." }
+      : { kind: "wait", text: "Checking this PC…" },
     alternates: [
       ["Windows didn’t ask me anything", ["Look for a flashing yellow-and-blue shield in the taskbar and click it.", "The question may be behind this window: press Alt+Tab."]],
       ["I clicked No", ["Click <b>Try again</b>. Windows asks once more."]],
@@ -56,6 +74,7 @@ const STEPS = [
       { art: Art.glyph("lockOpen"), n: 2, cap: "Unlock it and keep the screen on" },
     ],
     status: { kind: "wait", text: "Looking for your iPhone…", sub: "continues by itself" },
+    watch: (d) => d.usbDevices > 0,
     alternates: [
       ["Nothing happens", ["Try a different USB port on the computer.", "Try a different cable. Many cables only charge and carry no data.", "Make sure the iPhone is unlocked."]],
       ["The iPhone says “Allow accessory to connect?”", ["Tap <b>Allow</b>."]],
@@ -70,6 +89,7 @@ const STEPS = [
       { art: Art.passcode({ hl: 2 }), n: 2, cap: "Enter your iPhone passcode" },
     ],
     status: { kind: "wait", text: "Waiting for you to tap Trust…", sub: "continues by itself" },
+    watch: (d) => d.trusted,
     alternates: [
       ["No “Trust” message appeared", ["Unplug the iPhone, unlock it, and plug it back in.", "Keep the iPhone screen on and unlocked while you wait."]],
       ["I tapped “Don’t Trust”", ["Unplug the iPhone and plug it back in: it asks again.", "If it doesn’t, on the iPhone open <span class=path>Settings › General › Transfer or Reset iPhone › Reset › Reset Location & Privacy</span>, then plug in again."]],
@@ -82,11 +102,11 @@ const STEPS = [
     title: "Sign in with your Apple Account",
     lead: "SideStore gets signed with your own account, like an app you made yourself. A free account works.",
     center: `<form class="form">
-        <label>Apple Account email<input value="${EMAIL}"></label>
-        <label>Password<input type="password" value="password12"></label>
+        <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${ctx.live ? "" : EMAIL}"></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" value="${ctx.live ? "" : "password12"}"></label>
         <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> It isn’t saved on this computer and it never reaches us.</span></div>
       </form>`,
-    buttons: [{ label: "Sign in" }],
+    buttons: [{ label: "Sign in", action: "signIn" }],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
       ["Which email do I use?", ["The one you use for the App Store. It’s at the top of <span class=path>Settings › [your name]</span> on the iPhone."]],
@@ -98,9 +118,10 @@ const STEPS = [
     cards: [
       { art: Art.alert({ title: "Apple Account Sign-In Requested", message: "Your Apple Account is being used to sign in on a Windows computer near you.", buttons: [{ label: "Don’t Allow" }, { label: "Allow", bold: true, hl: 1 }] }), n: 1, cap: "Tap Allow on your iPhone" },
       { art: Art.alert({ title: "Apple Account Verification Code", code: "481 207", message: "Enter this code on your other device to sign in.", buttons: [{ label: "Done" }] }), n: 2, cap: "Note the 6-digit code" },
-      { art: Art.codeEntry("481"), n: 3, cap: "Type it here" },
+      { art: ctx.live ? '<div class="panel plain"><input id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000"></div>' : Art.codeEntry("481"), n: 3, cap: "Type it here" },
     ],
-    buttons: [{ label: "Continue" }],
+    buttons: [{ label: "Continue", action: "submitCode" }],
+    links: [{ label: "Send a new code", action: "resendCode" }],
     alternates: [
       ["No message appeared on any device", ["Click <b>Send a new code</b>.", "No other Apple device? Click <b>Text me a code</b>. (Text codes are unreliable with Apple right now; the device prompt works better.)"]],
       ["The code didn’t work", ["Codes expire after a few minutes. Send a new one and use the newest."]],
@@ -117,16 +138,16 @@ const STEPS = [
       { art: Art.glyph("userRound"), n: 2, cap: "Or use a different Apple Account", sub: "It doesn’t have to be the one on your iPhone" },
     ],
     status: { kind: "bad", text: "Apple said: “This action cannot be completed at this time.”", sub: "-80045" },
-    buttons: [{ label: "Try again" }, { label: "Use a different account", glass: true }],
+    buttons: [{ label: "Try again", action: "backToSignIn" }, { label: "Use a different account", glass: true, action: "backToSignIn" }],
   },
   {
     id: "installing",
     title: "Installing SideStore on your iPhone",
     lead: "Keep the iPhone plugged in and unlocked. A minute or two.",
     layout: "wide",
-    cards: [{ art: Art.progress("sidestore", 0.62) }],
-    status: { kind: "work", text: "Signing SideStore… 62%" },
-    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span><span class="done"><i>✓</i>Certificate ready</span><span class="now"><i></i>Signing SideStore</span><span><i></i>Sending to iPhone</span><span><i></i>Connection file</span></div>`,
+    cards: [{ art: Art.progress("sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
+    status: { kind: "work", text: installText },
+    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span>${chip("download", "Downloading SideStore")}${chip("sign", "Signing and sending it")}${chip("pairing", "Connection files")}</div>`,
   },
   {
     id: "devmode",
@@ -138,7 +159,8 @@ const STEPS = [
       { art: Art.alert({ title: "Turn On Developer Mode?", message: "Turning on Developer Mode requires restarting your iPhone.", buttons: [{ label: "Cancel" }, { label: "Restart", bold: true, hl: 3 }] }), n: 3, cap: "Turn it on and tap Restart", sub: "After the restart, unlock and tap Turn On" },
     ],
     status: { kind: "wait", text: "Waiting for Developer Mode…", sub: "continues by itself" },
-    links: ["It’s not in the list"],
+    watch: (d) => d.developerMode === true,
+    links: [{ label: "It’s not in the list", action: "revealDeveloperMode" }],
     alternates: [
       ["Developer Mode isn’t in the list", ["Click <b>It’s not in the list</b> below: this computer asks the iPhone to show it. Then look again.", "Close Settings completely and reopen it."]],
       ["The iPhone restarted but nothing asked me", ["Unlock it and wait a few seconds.", "If nothing appears, open <span class=path>Settings › Privacy & Security › Developer Mode</span> and check the switch is on."]],
@@ -169,6 +191,7 @@ const STEPS = [
       { art: Art.alert({ title: "“LocalDevVPN” Would Like to Add VPN Configurations", message: "All network activity on this iPhone may be filtered or monitored when using VPN.", buttons: [{ label: "Allow", bold: true, hl: 3 }, { label: "Don’t Allow" }] }), n: 3, cap: "Open it, tap Allow, then Connect" },
     ],
     status: { kind: "wait", text: "Waiting for LocalDevVPN…", sub: "continues by itself" },
+    watch: (d) => Boolean(d.apps && d.apps.localDevVpn),
   },
   {
     id: "sidestore",
@@ -180,6 +203,7 @@ const STEPS = [
       { art: Art.alert({ title: "Two-Factor Authentication", message: "Enter the 6-digit code shown on your devices.", buttons: [{ label: "Cancel" }, { label: "Verify", bold: true, hl: 3 }] }), n: 3, cap: "Enter Apple’s code" },
     ],
     buttons: [{ label: "I’m signed in" }],
+    links: [{ label: "Add pairing file again", action: "placePairing" }],
     alternates: [
       ["“This action cannot be completed at this time”", ["This is Apple’s -80045 block, not your password.", "In SideStore open <span class=path>Settings › Reset Anisette Data</span>, close SideStore fully, then sign in again.", "Still failing? Wait an hour before retrying, so Apple doesn’t lock the account."]],
       ["SideStore asks for a pairing file", ["Keep the iPhone plugged in and click <b>Add pairing file again</b> on this computer, then reopen SideStore."]],
@@ -195,6 +219,7 @@ const STEPS = [
       { art: Art.appRow({ name: "Nuvio Z", sub: "Movies and series, your way", button: "Install", hl: 3 }), n: 3, cap: "Tap Install" },
     ],
     status: { kind: "wait", text: "Waiting for Nuvio Z…", sub: "continues by itself" },
+    watch: (d) => Boolean(d.apps && (d.apps.nuvioStable || d.apps.nuvioDebug)),
     alternates: [
       ["The camera shows no banner", ["Hold the iPhone a bit further away so the whole code is in view.", "Open SideStore once first. The banner only appears after SideStore has been opened."]],
       ["“Maximum number of apps”", ["A free Apple Account can have 3 sideloaded apps at once. In SideStore’s <b>My Apps</b>, delete one you don’t use, then try again."]],
@@ -210,3 +235,4 @@ const STEPS = [
     buttons: [{ label: "Set up auto-refresh" }, { label: "Close", glass: true }],
   },
 ];
+}

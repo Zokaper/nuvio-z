@@ -13,6 +13,7 @@ nuvioz-installer-core = { path = "../core" }
 tauri = { version = "2", features = [] }
 tokio.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 
 [features]
 # Embeds ui/ into the binary. The Tauri CLI normally turns this on; it is on by default here so a
