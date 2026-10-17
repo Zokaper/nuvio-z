@@ -1,4 +1,14 @@
-Last updated: 2026-10-16
+Last updated: 2026-10-17
+
+## Updater picked the wrong debug build (2026-10-17, Debug mobile 89 / desktop 101)
+
+Maintainer on desktop Debug 99: Check for updates never found 100. GitHub's releases list is not in version
+order - it returned debug 99, 98, 97 and only then 100 - and `getLatestChannelUpdate` took the first
+eligible release, so 99 was offered to a 99 install and judged not newer. Both `AppUpdater.kt` copies now
+take `newestChannelReleaseIndex` (highest by `VersionUtils.compareTags`: serial when both tags carry one,
+version otherwise; ties keep GitHub's order). Tests in both `DebugChannelVersionTest`. **Installs on desktop
+99/100 and mobile 88 or earlier still have the old picker**: they may need one manual install from the
+release page before the updater is trustworthy again.
 
 ## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16/17, Debug mobile 88 / desktop 100)
 
