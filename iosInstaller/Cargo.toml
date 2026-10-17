@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["core", "app"]
+
+[workspace.package]
+version = "3.0.0-alpha.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+# Exact pins on purpose: this code talks to Apple and to the phone, so it must not drift with
+# upstream releases. Bumps are deliberate (and, later, proposed by the update job).
+idevice = { version = "=0.1.68", default-features = false, features = ["usbmuxd", "amfi", "core_device_proxy", "afc", "house_arrest", "installation_proxy", "misagent", "tcp", "remote_pairing", "xpc", "rustls", "ring"] }
+isideload = { version = "=0.4.6", default-features = false, features = ["install", "tokio-mt", "fs-storage"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

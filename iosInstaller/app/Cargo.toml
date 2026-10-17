@@ -1,0 +1,21 @@
+[package]
+name = "nuvioz-ios-installer"
+description = "Nuvio Z iOS Installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nuvioz-installer-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+tokio.workspace = true
+serde_json.workspace = true
+
+[features]
+# Embeds ui/ into the binary. The Tauri CLI normally turns this on; it is on by default here so a
+# plain `cargo build` produces the real app and no Node toolchain is needed.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

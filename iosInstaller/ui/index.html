@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nuvio Z iOS Installer</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f6f6f8; --fg: #16161a; --muted: #6b6b75; --card: #fff; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111114; --fg: #f1f1f4; --muted: #9a9aa5; --card: #1c1c21; } }
+    body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+    main { max-width: 720px; margin: 48px auto; padding: 0 24px; }
+    .card { background: var(--card); border-radius: 14px; padding: 20px 24px; margin-top: 16px; }
+    pre { white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 8px 0 0; }
+    button { font: inherit; padding: 8px 16px; border-radius: 10px; border: 0; background: #2f6fed; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Nuvio Z iOS Installer</h1>
+    <p>Stage 0 spike: the shell, device probes and the sign-in stack in one program.</p>
+    <div class="card"><b>Started in</b> <span id="startup">…</span></div>
+    <div class="card"><button id="probe">Check iPhone</button><pre id="device"></pre></div>
+    <div class="card"><button id="anisette">Check sign-in server</button><pre id="server"></pre></div>
+  </main>
+  <script type="module">
+    const { invoke } = window.__TAURI__.core;
+    document.getElementById("startup").textContent = `${Math.round(performance.now())} ms after the page began loading`;
+    const show = (id, value) => { document.getElementById(id).textContent = JSON.stringify(value, null, 2); };
+    document.getElementById("probe").onclick = async () => show("device", await invoke("probe_device"));
+    document.getElementById("anisette").onclick = async () => show("server", await invoke("check_anisette"));
+    // The real wizard probes on open too; doing it here proves the IPC path without a click.
+    show("device", await invoke("probe_device"));
+  </script>
+</body>
+</html>
