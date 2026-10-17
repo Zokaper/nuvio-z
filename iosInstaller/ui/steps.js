@@ -101,12 +101,17 @@ function buildSteps(ctx) {
     id: "signin",
     title: "Sign in with your Apple Account",
     lead: "SideStore gets signed with your own account, like an app you made yourself. A free account works.",
-    center: `<form class="form">
+    // A remembered account signs in with one click; otherwise the form.
+    center: ctx.savedEmail && !ctx.useOtherAccount
+      ? `<div class="saved-account"><div class="avatar">${ctx.savedEmail[0].toUpperCase()}</div><b>${ctx.savedEmail}</b><small>Remembered on this computer</small></div>`
+      : `<form class="form">
         <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${ctx.live ? ctx.typedEmail || "" : EMAIL}"></label>
         <label>Password<input id="password" type="password" autocomplete="current-password" value="${ctx.live ? "" : "password12"}"></label>
-        <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> It isn’t saved on this computer and it never reaches us.</span></div>
+        <label class="check"><input id="remember" type="checkbox" checked> Remember me on this computer</label>
+        <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> If you tick “Remember me”, it’s kept in this computer’s secure keychain, never sent to us.</span></div>
       </form>`,
-    buttons: [{ label: "Sign in", action: "signIn" }],
+    buttons: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Continue", action: "signInSaved" }] : [{ label: "Sign in", action: "signIn" }],
+    links: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : [],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
       ["Which email do I use?", ["The one you use for the App Store. It’s at the top of <span class=path>Settings › [your name]</span> on the iPhone."]],
@@ -223,6 +228,7 @@ function buildSteps(ctx) {
     alternates: [
       ["The camera shows no banner", ["Hold the iPhone a bit further away so the whole code is in view.", "Open SideStore once first. The banner only appears after SideStore has been opened."]],
       ["“Maximum number of apps”", ["A free Apple Account can have 3 sideloaded apps at once. In SideStore’s <b>My Apps</b>, delete one you don’t use, then try again."]],
+      ["“Maximum number of App IDs”", ["A free Apple Account can create only 10 new App IDs in any 7 days, and Nuvio Z uses 2 (the app and its widget). Wait until older ones are a week old, or use another Apple Account."]],
     ],
   },
   {

@@ -7,6 +7,13 @@ const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 const tauri = window.__TAURI__;
 const ctx = { live: Boolean(tauri) && !params.has("step"), channel: "stable" };
+// Previews only: `?saved=1` shows the sign-in screen for a remembered account.
+if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
+// Previews only: `?certs=1` shows the "out of certificates" chooser.
+if (params.get("certs")) ctx.certificates = [
+  { serial: "1A2B", madeBy: "SideStore", name: "iOS Development", expires: "2027-03-02T10:00:00Z" },
+  { serial: "3C4D", madeBy: "iloader", name: "iOS Development", expires: "2027-06-19T10:00:00Z" },
+];
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
@@ -30,7 +37,7 @@ const SIGN_IN_ERRORS = {
   locked: "Apple has locked this account for now. Unlock it at iforgot.apple.com, then try again.",
   wrongCode: "That code didn’t work. Send a new one and use the newest.",
   serverUnavailable: "Apple’s sign-in service is busy. Try again in a minute.",
-  certificateLimit: "This Apple Account already has the most signing certificates Apple allows, made by other tools. Revoke one at developer.apple.com, then try again.",
+  certificateLimit: "This Apple Account is out of signing certificates. Try again and pick one to revoke when the installer asks.",
   network: "This computer can’t reach Apple. Check the internet connection.",
   cancelled: "Sign-in was cancelled.",
 };
@@ -52,6 +59,21 @@ function sheet(step) {
   const alts = step.alternates.map(([problem, fixes], i) =>
     `<details class="alt"${i === 0 ? " open" : ""}><summary>${problem}</summary><ol>${fixes.map((f) => `<li>${f}</li>`).join("")}</ol></details>`).join("");
   return `<div class="scrim"></div><aside class="sheet"><h2>What do you see instead?</h2><p>Pick the one that matches. If none do, Help copies a report you can send.</p>${alts}<div class="close-row"><button class="btn secondary" id="close" style="min-width:0">Done</button></div></aside>`;
+}
+
+/** The account is out of certificates and none is ours: the person picks which to revoke. */
+function certificateSheet() {
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
+  const rows = ctx.certificates.map((c, i) => `<label class="cert"><input type="checkbox" value="${c.serial}"${ctx.certificates.length === 1 ? " checked" : ""}>
+      <span><b>${c.madeBy || c.name || "Unknown tool"}</b><small>${c.name || ""}${c.expires ? ` · expires ${when(c.expires)}` : ""}</small></span></label>`).join("");
+  // Apple says how many it allows; three when it does not.
+  const limit = ctx.certificates.map((c) => c.limit).find((n) => n > 0) || 3;
+  return `<div class="scrim"></div><aside class="sheet"><h2>This Apple Account is out of certificates</h2>
+    <p>Each sideloading tool makes its own signing certificate, and a free account can hold only ${limit === 1 ? "one" : limit === 2 ? "two" : limit === 3 ? "three" : limit}. Pick one to revoke so the installer can make its own.
+    Apps signed with a revoked certificate stop opening until the tool that made it signs them again.</p>
+    <div class="certs">${rows}</div>
+    <div class="close-row"><button class="btn secondary" data-action="cancelCertificates" style="min-width:0">Cancel</button>
+    <button class="btn" data-action="revokeCertificates" style="min-width:0;margin-left:10px">Revoke and continue</button></div></aside>`;
 }
 
 function goTo(id) {
@@ -89,7 +111,8 @@ function render() {
       ${buttons ? `<div class="actions">${buttons}</div>` : ""}
       ${links ? `<div class="links">${links}</div>` : ""}
     </footer>
-    ${view.sheet ? sheet(step) : ""}`;
+    ${view.sheet ? sheet(step) : ""}
+    ${ctx.certificates ? certificateSheet() : ""}`;
 
   document.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", () => act(el.dataset.action, step, index)));
   const closeSheet = () => goTo(step.id);
@@ -116,20 +139,44 @@ async function act(action, step, index) {
       byId[current] ??= { id: current, base: step.id, sheet: true };
       return render();
     case "backToSignIn": return goTo("signin");
+    case "revokeCertificates":
+    case "cancelCertificates": {
+      const serials = action === "revokeCertificates"
+        ? [...document.querySelectorAll(".cert input:checked")].map((i) => i.value)
+        : null;
+      if (serials && serials.length === 0) return;
+      ctx.certificates = null;
+      if (!ctx.live) return render();
+      if (serials) { flash = { kind: "work", text: "Revoking and continuing…" }; }
+      render();
+      return invoke("answer_certificates", { serials }).catch((e) => { flash = { kind: "bad", text: String(e) }; render(); });
+    }
   }
   if (!ctx.live) return go(1); // previews only walk the screens
 
   switch (action) {
+    case "useOtherAccount":
+      ctx.useOtherAccount = true;
+      return render();
+    case "forgetAccount":
+      await invoke("forget_account");
+      ctx.savedEmail = null;
+      return render();
+    case "signInSaved":
     case "signIn": {
-      const email = document.getElementById("email").value.trim();
-      const password = document.getElementById("password").value;
-      if (!email || !password) return fail("Enter your Apple Account email and password.");
+      const saved = action === "signInSaved";
+      const email = saved ? ctx.savedEmail : document.getElementById("email").value.trim();
+      const password = saved ? null : document.getElementById("password").value;
+      const remember = saved || Boolean(document.getElementById("remember")?.checked);
+      if (!email || (!saved && !password)) return fail("Enter your Apple Account email and password.");
       busy("Signing in to Apple…");
       try {
-        ctx.email = await invoke("sign_in", { email, password });
+        ctx.email = await invoke("sign_in", { email, password, remember });
+        if (remember) ctx.savedEmail = ctx.email;
         return startInstall();
       } catch (e) {
         if (e?.kind === "refused") return goTo("signin-blocked");
+        if (saved && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
         current = "signin";
         return fail(describe(e));
       }
@@ -174,12 +221,14 @@ async function startInstall() {
 }
 
 if (ctx.live) {
+  invoke("saved_account").then((email) => { ctx.savedEmail = email; if (byId[current]?.id === "signin") render(); });
   // Apple asks again after a wrong code (with lastError set) or after "Send a new code".
   tauri.event.listen("two-factor", (e) => {
     if (current !== "twofa") return goTo("twofa");
     flash = e.payload?.lastError ? { kind: "bad", text: SIGN_IN_ERRORS.wrongCode } : null;
     render();
   });
+  tauri.event.listen("certificates", (e) => { ctx.certificates = e.payload; render(); });
   let lastPaint = 0;
   tauri.event.listen("install-progress", (e) => {
     ctx.install = e.payload;

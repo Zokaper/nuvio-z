@@ -92,7 +92,7 @@ pub async fn refresh<C: TwoFactorCallback>(
 ) -> Result<RefreshReport, SignInError> {
     let fail = |e: String| classify(&e);
     let ids = bundle_ids(app_dir).map_err(fail)?;
-    let mut signer = account::sign_in(email, password, account::ANISETTE_SERVERS, two_factor).await?;
+    let mut signer = account::sign_in(email, password, account::ANISETTE_SERVERS, two_factor, None).await?;
     let team = signer.get_team().await.map_err(|e| classify(&format!("{e}")))?;
     let session = signer.get_dev_session();
     let registered = session.list_app_ids(&team, None).await.map_err(|e| classify(&format!("{e}")))?;

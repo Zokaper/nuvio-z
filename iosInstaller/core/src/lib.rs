@@ -4,6 +4,7 @@
 //! spike in `PLAN-ios-setup-one-sitting.md`).
 pub mod account;
 pub mod anisette;
+pub mod credentials;
 pub mod device;
 pub mod ondevice;
 pub mod pairing;

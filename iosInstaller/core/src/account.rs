@@ -14,6 +14,9 @@ use isideload::{
     },
 };
 use serde::Serialize;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 pub use isideload::auth::apple_account::{TwoFactorCallbackParams as TwoFactorPrompt, TwoFactorCallbackResponse as TwoFactorReply};
 pub use isideload::util::callbacks::TwoFactorCallback;
@@ -112,16 +115,53 @@ fn storage() -> Box<FsStorage> {
     Box::new(FsStorage::new(paths::signing()))
 }
 
-/// When the account is at its certificate limit, revoke only certificates this installer created. Revoking
-/// another tool's certificate (SideStore's own, iloader's) would stop every app it signed from opening.
-fn only_ours() -> MaxCertsCallbackBox {
-    Box::new(|certs: Vec<DevelopmentCertificate>| {
+/// One of the account's signing certificates, as the person is shown it when the account is full.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateChoice {
+    pub serial: String,
+    /// The tool that made it, as Apple records it ("SideStore", "iloader", "AltStore", ours…).
+    pub made_by: Option<String>,
+    pub name: Option<String>,
+    pub expires: Option<String>,
+    /// How many active certificates Apple allows this account, as Apple reports it.
+    pub limit: Option<i64>,
+}
+
+/// Asked when the account is out of certificates and none of them is ours: returns the serials to revoke,
+/// or `None` to give up. Free accounts cannot revoke on developer.apple.com, so this is the only place to.
+pub type ChooseCertificates = Arc<dyn Fn(Vec<CertificateChoice>) -> Pin<Box<dyn Future<Output = Option<Vec<String>>> + Send>> + Send + Sync>;
+
+/// Certificates this installer made; revoking these never breaks another tool's apps.
+pub fn ours(certs: &[DevelopmentCertificate]) -> Vec<String> {
+    certs.iter()
+        .filter(|c| c.machine_name.as_deref() == Some(MACHINE_NAME))
+        .filter_map(|c| c.serial_number.clone())
+        .collect()
+}
+
+pub fn choices(certs: &[DevelopmentCertificate]) -> Vec<CertificateChoice> {
+    certs.iter().filter_map(|c| Some(CertificateChoice {
+        serial: c.serial_number.clone()?,
+        made_by: c.machine_name.clone(),
+        name: c.name.clone(),
+        expires: c.expiration_date.as_ref().map(|d| d.to_xml_format()),
+        limit: c.certificate_type.as_ref().and_then(|t| t.max_active_certs),
+    })).collect()
+}
+
+/// At the certificate limit: revoke our own old certificates without asking; otherwise ask the person which
+/// of the other tools' certificates to revoke (that stops the apps it signed until that tool signs them again).
+fn when_full(choose: Option<ChooseCertificates>) -> MaxCertsCallbackBox {
+    Box::new(move |certs: Vec<DevelopmentCertificate>| {
+        let choose = choose.clone();
         Box::pin(async move {
-            let ours: Vec<String> = certs.iter()
-                .filter(|c| c.machine_name.as_deref() == Some(MACHINE_NAME))
-                .filter_map(|c| c.serial_number.clone())
-                .collect();
-            Ok(if ours.is_empty() { None } else { Some(ours) })
+            let mine = ours(&certs);
+            if !mine.is_empty() {
+                return Ok(Some(mine));
+            }
+            let Some(choose) = choose else { return Ok(None) };
+            Ok(choose(choices(&certs)).await.filter(|picked| !picked.is_empty()))
         })
     })
 }
@@ -146,7 +186,7 @@ async fn account_via(email: &str, servers: &[&str]) -> Result<AppleAccount, Sign
 }
 
 /// Signs in and returns a signer for the account's (only, or first) team.
-pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, servers: &[&str], two_factor: C) -> Result<Signer, SignInError> {
+pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, servers: &[&str], two_factor: C, choose: Option<ChooseCertificates>) -> Result<Signer, SignInError> {
     let email = email.trim().to_lowercase();
     let mut account = account_via(&email, servers).await?;
     account.login(password, two_factor).await.map_err(|e| classify(&format!("{e}")))?;
@@ -154,7 +194,7 @@ pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, servers:
     Ok(SideloaderBuilder::new(session, email)
         .machine_name(MACHINE_NAME.to_string())
         .storage(storage())
-        .max_certs_behavior(MaxCertsBehavior::Prompt(only_ours()))
+        .max_certs_behavior(MaxCertsBehavior::Prompt(when_full(choose)))
         .build())
 }
 
@@ -185,6 +225,20 @@ mod tests {
         let e = classify("Auth error -20209: This Apple Account has been locked for security reasons.");
         assert_eq!((e.kind, e.code), (SignInErrorKind::Locked, Some(-20209)));
         assert!(e.detail.contains("locked"));
+    }
+
+    fn cert(serial: &str, machine: &str) -> DevelopmentCertificate {
+        serde_json::from_value(serde_json::json!({ "serialNumber": serial, "machineName": machine, "name": "iOS Development" })).unwrap()
+    }
+
+    #[test]
+    fn only_our_own_certificates_are_revoked_without_asking() {
+        let certs = vec![cert("A1", "SideStore"), cert("B2", MACHINE_NAME), cert("C3", "iloader")];
+        assert_eq!(ours(&certs), vec!["B2".to_string()]);
+        assert!(ours(&certs[..1]).is_empty());
+        let shown = choices(&certs);
+        assert_eq!(shown.len(), 3);
+        assert_eq!(shown[0].made_by.as_deref(), Some("SideStore"));
     }
 
     #[test]

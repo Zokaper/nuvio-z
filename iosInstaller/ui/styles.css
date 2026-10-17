@@ -155,6 +155,11 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .alt ol { margin: 8px 0 0; padding-left: 20px; color: var(--fg-2); font-size: 14.5px; display: grid; gap: 5px; }
 .alt b, .alt .path { color: var(--fg); font-weight: 600; }
 .sheet .close-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+.certs { display: grid; gap: 8px; margin: 4px 0 16px; }
+.cert { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.cert input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.cert b { display: block; font-size: 15.5px; }
+.cert small { color: var(--fg-2); font-size: 13px; }
 
 /* ================= iOS, drawn to Apple's measurements ================= */
 .ios { font-family: var(--sans); color: var(--ios-fg); letter-spacing: -.01em; }
@@ -252,6 +257,12 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .form label { font-size: 13px; font-weight: 600; color: var(--fg-2); display: grid; gap: 6px; }
 .form input { width: 100%; font: inherit; font-size: 17px; color: var(--fg); border: 1px solid var(--panel-line); border-radius: 12px; padding: 12px 14px; outline: none; background: var(--surface); }
 .form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.form .check { display: flex; align-items: center; gap: 10px; font-size: 14.5px; font-weight: 500; color: var(--fg); }
+.form .check input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); }
+.saved-account { display: grid; justify-items: center; gap: 6px; padding: 22px 40px; border-radius: 22px; background: var(--surface); border: 1px solid var(--panel-line); }
+.saved-account .avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+.saved-account b { font-size: 18px; }
+.saved-account small { color: var(--fg-2); font-size: 13.5px; }
 .form .lock { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--fg-2); padding: 2px 2px 0; }
 .form .lock svg { width: 16px; height: 16px; flex: none; color: var(--fg-2); margin-top: 2px; }
 

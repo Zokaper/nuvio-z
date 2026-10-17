@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use nuvioz_installer_core::account::{self, SignInError, SignInErrorKind, Signer, TwoFactorPrompt, TwoFactorReply};
 use nuvioz_installer_core::sidestore::{self, Channel, InstallError, Stage};
-use nuvioz_installer_core::{anisette, device, pairing};
+use nuvioz_installer_core::{anisette, credentials, device, pairing};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Mutex};
 
 /// How long Apple's 2FA prompt waits for the person before giving up.
@@ -19,6 +19,28 @@ struct Session {
     signer: Mutex<Option<Signer>>,
     /// Replies to Apple's two-factor prompt while a sign-in is waiting for one.
     replies: std::sync::Mutex<Option<mpsc::UnboundedSender<TwoFactorReply>>>,
+    /// The person's pick while an install waits for them to choose certificates to revoke.
+    certificates: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Option<Vec<String>>>>>,
+}
+
+/// When the account is out of certificates and none is ours, ask the window which to revoke.
+fn ask_which_certificates(app: AppHandle) -> account::ChooseCertificates {
+    Arc::new(move |list| {
+        let app = app.clone();
+        Box::pin(async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            *app.state::<Session>().certificates.lock().unwrap() = Some(tx);
+            let _ = app.emit("certificates", &list);
+            tokio::time::timeout(CODE_TIMEOUT, rx).await.ok().and_then(Result::ok).flatten()
+        })
+    })
+}
+
+/// The person's answer to the `certificates` event: serials to revoke, or none to stop.
+#[tauri::command]
+fn answer_certificates(session: State<'_, Session>, serials: Option<Vec<String>>) -> Result<(), String> {
+    let tx = session.certificates.lock().unwrap().take().ok_or("nothing is waiting for certificates")?;
+    tx.send(serials).map_err(|_| "the install already ended".to_string())
 }
 
 #[tauri::command]
@@ -49,7 +71,14 @@ async fn check_anisette() -> anisette::AnisetteCheck {
 /// Signs in. When Apple asks for a code the window gets a `two-factor` event and answers with
 /// `answer_two_factor`. The password lives only for the length of this call.
 #[tauri::command]
-async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, password: String) -> Result<String, SignInError> {
+async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, password: Option<String>, remember: bool) -> Result<String, SignInError> {
+    // No password means "the one this computer remembered" (the window never sees it).
+    let saved = password.is_none();
+    let password = match password.or_else(|| credentials::saved_password(&email)) {
+        Some(p) => p,
+        None => return Err(SignInError { kind: SignInErrorKind::Other, code: None, summary: "no saved password for this account".into(), detail: String::new() }),
+    };
+    let app_for_certs = app.clone();
     let (tx, rx) = mpsc::unbounded_channel();
     *session.replies.lock().unwrap() = Some(tx);
     let rx = Arc::new(Mutex::new(rx));
@@ -64,12 +93,31 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
             })
         }
     };
-    let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask).await;
-    drop(password);
+    let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask, Some(ask_which_certificates(app_for_certs))).await;
     *session.replies.lock().unwrap() = None;
+    match &result {
+        Ok(_) if !saved && remember => {
+            let _ = credentials::remember(&email, &password);
+        }
+        Ok(_) if !saved => credentials::forget(),
+        Err(e) if saved && e.kind == SignInErrorKind::WrongPassword => credentials::forget(),
+        _ => {}
+    }
+    drop(password);
     let signer = result?;
     *session.signer.lock().await = Some(signer);
     Ok(email.trim().to_lowercase())
+}
+
+/// The Apple Account this computer remembers, if any. Only the email; the password stays in the keychain.
+#[tauri::command]
+fn saved_account() -> Option<String> {
+    credentials::saved_email()
+}
+
+#[tauri::command]
+fn forget_account() {
+    credentials::forget();
 }
 
 #[derive(serde::Deserialize)]
@@ -150,7 +198,10 @@ fn main() {
             place_pairing,
             check_anisette,
             sign_in,
+            saved_account,
+            forget_account,
             answer_two_factor,
+            answer_certificates,
             install_sidestore,
             install_nuvio_test
         ])
