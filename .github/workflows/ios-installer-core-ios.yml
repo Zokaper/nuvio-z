@@ -46,6 +46,7 @@ jobs:
             nzs_string_free(nzs_update_progress());
             nzs_string_free(nzs_pending_certificates());
             nzs_answer_certificates(0);
+            nzs_resend_two_factor();
             nzs_string_free(nzs_import_signing_key("/tmp"));
             nzs_string_free(nzs_signing_state(0));
             nzs_string_free(nzs_reset_sign_in());

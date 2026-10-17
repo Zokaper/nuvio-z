@@ -88,6 +88,8 @@ internal fun SelfSigningSetupScreen(platform: SelfSigningPlatform, onClose: () -
                 "One Shortcuts automation renews Nuvio Z every day. Make it in the Shortcuts app while you follow the " +
                     "installer on your computer: its last screens show every tap. Then come back and tap Done.",
             )
+            val uriHandler = LocalUriHandler.current
+            OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
             var showHere by remember { mutableStateOf(false) }
             if (showHere) DailyRefreshSteps()
             else TextButton(onClick = { showHere = true }) { Text("No computer nearby? Show the steps here") }
@@ -213,7 +215,10 @@ internal fun AppleQuestions(platform: SelfSigningPlatform) {
             label = { Text("6-digit code") }, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
         )
-        Button(enabled = code.length == 6, onClick = { platform.answerCode(code); code = "" }) { Text("Send code") }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(enabled = code.length == 6, onClick = { platform.answerCode(code); code = "" }) { Text("Send code") }
+            TextButton(onClick = { platform.resendCode(); code = "" }) { Text("Send a new code") }
+        }
     }
     certificates?.let { list -> CertificateChooser(list, onAnswer = { platform.answerCertificates(it); certificates = null }) }
 }
@@ -253,19 +258,20 @@ internal fun DailyRefreshSteps() {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("One Shortcuts automation connects LocalDevVPN, runs “Refresh Nuvio Z” and disconnects, every day, so Nuvio Z never runs out.")
         OutlinedButton(onClick = { uriHandler.openUri("shortcuts://") }, modifier = Modifier.fillMaxWidth()) { Text("Open Shortcuts") }
-        GuideStep(1, "Tap Automation at the bottom, then + (New Automation), then Time of Day", MockScreen("New Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
+        GuideStep(1, "In Shortcuts tap Automation at the bottom, then New Automation (or + at the top right)", MockScreen("Automation", listOf(MockRow("New Automation", highlight = true))))
+        GuideStep(2, "Tap Time of Day", MockScreen("Personal Automation", listOf(MockRow("Time of Day", highlight = true), MockRow("Alarm"), MockRow("Sleep"))))
         GuideStep(
-            2, "Pick a time the iPhone is usually on Wi-Fi, keep Daily, choose Run Immediately, then Next",
-            MockScreen("When", listOf(MockRow("4:00 AM"), MockRow("Daily"), MockRow("Run Immediately", highlight = true, trailing = true))),
+            3, "Pick a time, keep Daily, choose Run Immediately (not Run After Confirmation), then Next",
+            MockScreen("When", listOf(MockRow("4:00 AM"), MockRow("Daily"), MockRow("Run Immediately", highlight = true))),
         )
-        GuideStep(3, "Tap New Blank Automation", MockScreen("Automation", listOf(MockRow("New Blank Automation", highlight = true))))
+        GuideStep(4, "Tap Create New Shortcut", MockScreen("Get Started", listOf(MockRow("Create New Shortcut", highlight = true))))
         GuideStep(
-            4, "Add Action: search “Set VPN”, add it, tap VPN and pick LocalDevVPN (it stays on Connect). Then search “Refresh Nuvio Z” and add it",
-            MockScreen("Do", listOf(MockRow("Set LocalDevVPN to Connect", highlight = true), MockRow("Refresh Nuvio Z", highlight = true))),
+            5, "Search Actions: add “Set VPN” and tap VPN › LocalDevVPN; add “Refresh Nuvio Z” and turn off Show When Run",
+            MockScreen("New automation", listOf(MockRow("Connect to LocalDevVPN", highlight = true), MockRow("Refresh Nuvio Z", highlight = true))),
         )
         GuideStep(
-            5, "Add Set VPN once more, tap Connect and change it to Disconnect. Tap Done",
-            MockScreen("Do", listOf(MockRow("Set LocalDevVPN to Connect"), MockRow("Refresh Nuvio Z"), MockRow("Set LocalDevVPN to Disconnect", highlight = true))),
+            6, "Add Set VPN again: tap Connect › Disconnect, VPN › LocalDevVPN. Then the ✓ at the top right",
+            MockScreen("New automation", listOf(MockRow("Connect to LocalDevVPN"), MockRow("Refresh Nuvio Z"), MockRow("Disconnect from LocalDevVPN", highlight = true))),
         )
         Text("It runs by itself from tomorrow. Nuvio Z notices it once it has renewed on two different days.", fontSize = 13.sp)
     }
@@ -333,7 +339,7 @@ internal fun describeRenew(json: String): String = runCatching {
         val error = root["error"]?.jsonObject
         val code = error?.signingField("code")?.let { " $it" } ?: ""
         return@runCatching when (error?.signingField("kind")) {
-            "tryAgain" -> "Apple couldn’t finish the sign-in$code. Wait a minute, then renew again."
+            "tryAgain" -> "Apple couldn’t finish the sign-in$code. Check the email is spelled right, wait a minute, then renew again."
             "serverUnavailable" -> "Apple’s sign-in service is busy. Try again in a minute."
             "codeNeeded" -> "Apple asked for a code. Renew once here by hand."
             "refused" -> "Apple refused the sign-in (-80045). Wait an hour, then try again."

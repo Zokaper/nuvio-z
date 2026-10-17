@@ -246,33 +246,36 @@ function buildSteps(ctx) {
     id: "automation",
     title: "Set up the daily refresh",
     lead: "Do this on the iPhone while you look here. One Shortcuts automation renews Nuvio Z every day, so it keeps opening without this computer.",
-    // One automation holding the three actions itself, not a shared shortcut: a shared one would name the action by
-    // the sharer's bundle id, which ends with their own team id. Shown here, not in Nuvio Z: the person is in Shortcuts.
+    // One automation holding the actions itself, not a shared shortcut: a shared one would name the action by the
+    // sharer's bundle id, which ends with their own team id. Shown here, not in Nuvio Z: the person is in Shortcuts.
+    // Drawn from iOS 26.5 (the maintainer's screenshots, 2026-10-18).
     cards: [
-      { art: Art.list([{ header: "Shortcuts", rows: [{ label: "Automation", hl: 1 }, { label: "New Automation", link: true, chev: false }] }]), n: 1, cap: "Open Shortcuts › Automation", sub: "Tap + (New Automation) at the top" },
-      { art: Art.list([{ header: "New Automation", rows: [{ label: "Time of Day", hl: 2 }, { label: "Alarm" }, { label: "Sleep" }] }]), n: 2, cap: "Tap Time of Day" },
-      { art: Art.list([{ header: "When", rows: [{ label: "Time", value: "4:00 AM", chev: false }, { label: "Daily", chev: false }, { label: "Run Immediately", toggle: true, hl: 3 }] }]), n: 3, cap: "A time it’s usually on Wi-Fi, Daily, Run Immediately", sub: "Then Next" },
+      { art: Art.list([{ header: "Automation", rows: [{ label: "New Automation", link: true, chev: false, hl: 1 }] }]), n: 1, cap: "Open Shortcuts, tap Automation at the bottom, then New Automation", sub: "Or + at the top right if there’s one already" },
+      { art: Art.list([{ header: "Personal Automation", rows: [{ label: "Time of Day", hl: 2 }, { label: "Alarm" }, { label: "Sleep" }] }]), n: 2, cap: "Tap Time of Day" },
+      { art: Art.list([{ header: "When", rows: [{ label: "Time of Day", value: "4:00 AM", chev: false }, { label: "Daily", value: "✓", chev: false }, { label: "Run Immediately", value: "✓", chev: false, hl: 3 }] }]), n: 3, cap: "Pick a time, keep Daily, and choose Run Immediately", sub: "Not Run After Confirmation. Then Next" },
     ],
     buttons: [{ label: "Next" }],
     alternates: [
-      ["I don’t see Automation", ["It’s the middle tab at the bottom of the Shortcuts app.", "On an iPad or with a big text size it may be in the sidebar."]],
+      ["I don’t see Automation", ["It’s the middle tab at the bottom of the Shortcuts app.", "On an iPad it may be in the sidebar."]],
+      ["Run Immediately isn’t on the screen", ["Scroll down below Repeat: it’s the second of Run After Confirmation and Run Immediately."]],
       ["I want to do this later", ["Nuvio Z keeps asking when it opens until it’s done. The steps are also in Nuvio Z under Settings › Advanced › Diagnostics › Keep Nuvio Z working."]],
     ],
   },
   {
     id: "automation-actions",
     title: "Add the three actions",
-    lead: "Still in the new automation, on the iPhone.",
+    lead: "Still on the iPhone. Search for each action in the Search Actions box at the bottom.",
     cards: [
-      { art: Art.list([{ header: "Automation", rows: [{ label: "New Blank Automation", hl: 1 }] }]), n: 1, cap: "Tap New Blank Automation" },
-      { art: Art.list([{ header: "Do", rows: [{ label: "Set LocalDevVPN to Connect", chev: false }, { label: "Refresh Nuvio Z", chev: false, hl: 2 }] }]), n: 2, cap: "Add “Set VPN”, pick LocalDevVPN; then add “Refresh Nuvio Z”", sub: "Search for each with Add Action" },
-      { art: Art.list([{ header: "Do", rows: [{ label: "Set LocalDevVPN to Connect", chev: false }, { label: "Refresh Nuvio Z", chev: false }, { label: "Set LocalDevVPN to Disconnect", chev: false, hl: 3 }] }]), n: 3, cap: "Add Set VPN again, change Connect to Disconnect", sub: "Then Done. In Nuvio Z tap “Done, it’s set up”" },
+      { art: Art.list([{ header: "Get Started", rows: [{ label: "Create New Shortcut", link: true, chev: false, hl: 1 }] }]), n: 1, cap: "Tap Create New Shortcut" },
+      { art: Art.list([{ rows: [{ label: "Connect to LocalDevVPN", chev: false, hl: 2 }, { label: "Refresh Nuvio Z", chev: false }, { label: "Show When Run", toggle: false }] }]), n: 2, cap: "Add “Set VPN” and tap VPN › LocalDevVPN; add “Refresh Nuvio Z” and turn off Show When Run" },
+      { art: Art.list([{ rows: [{ label: "Connect to LocalDevVPN", chev: false }, { label: "Refresh Nuvio Z", chev: false }, { label: "Disconnect from LocalDevVPN", chev: false, hl: 3 }] }]), n: 3, cap: "Add Set VPN again: Connect › Disconnect, VPN › LocalDevVPN", sub: "Then the ✓ at the top right. In Nuvio Z tap “Done, it’s set up”" },
     ],
     buttons: [{ label: "Done" }],
     alternates: [
       ["“Refresh Nuvio Z” isn’t in the action list", ["Open Nuvio Z once, then search the actions again.", "Search for “Nuvio”: the action is listed under the app."]],
-      ["LocalDevVPN isn’t in Set VPN", ["Open LocalDevVPN and tap Connect once, so iOS knows about it. Then pick it in the Set VPN action again."]],
-      ["How do I know it works?", ["In Nuvio Z, Settings › Advanced › Diagnostics › Keep Nuvio Z working shows the last renewal. After tomorrow’s run it says “by shortcut”."]],
+      ["LocalDevVPN isn’t in the VPN list", ["Open LocalDevVPN and tap Connect once, so iOS knows about it. Then tap VPN in the action again."]],
+      ["Do I need a Wait action?", ["No. Refresh Nuvio Z waits for LocalDevVPN to connect, and Disconnect runs only after the renewal has finished."]],
+      ["How do I know it works?", ["In Nuvio Z, Settings › Advanced › Diagnostics › Keep Nuvio Z working shows the last renewal. After the first daily run it says “by shortcut”."]],
     ],
   }] : [{
     id: "sidestore",

@@ -10,6 +10,7 @@ import com.nuvio.app.selfsigning.native.nzs_pending_certificates
 import com.nuvio.app.selfsigning.native.nzs_pending_two_factor
 import com.nuvio.app.selfsigning.native.nzs_probe
 import com.nuvio.app.selfsigning.native.nzs_refresh
+import com.nuvio.app.selfsigning.native.nzs_resend_two_factor
 import com.nuvio.app.selfsigning.native.nzs_reset_sign_in
 import com.nuvio.app.selfsigning.native.nzs_signing_state
 import com.nuvio.app.selfsigning.native.nzs_status
@@ -139,6 +140,13 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
     override suspend fun refreshSaved(trigger: String): String {
         val account = SelfSigningKeychain.read()
+        // The daily automation connects LocalDevVPN one action earlier; give the tunnel up to 10 s to come up.
+        if (account != null && trigger == "shortcut") {
+            for (attempt in 1..10) {
+                if (vpnReachable()) break
+                delay(1_000)
+            }
+        }
         val result = if (account == null) {
             """{"ok":false,"error":{"kind":"other","summary":"no Apple Account saved on this iPhone; renew once with Remember ticked"}}"""
         } else {
@@ -152,6 +160,10 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
     override fun answerCode(code: String?) {
         nzs_answer_two_factor(code)
+    }
+
+    override fun resendCode() {
+        nzs_resend_two_factor()
     }
 
     override fun pendingCertificates(): String? = takeOrNull(nzs_pending_certificates())

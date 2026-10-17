@@ -40,6 +40,9 @@ internal interface SelfSigningPlatform {
     /** Answers that wait with a code, or null to give up. */
     fun answerCode(code: String?)
 
+    /** Asks Apple for a new code while a sign-in waits for one (the old one was dismissed unread). */
+    fun resendCode()
+
     /** While an update waits for the person to pick certificates to revoke: the list, otherwise null. */
     fun pendingCertificates(): String?
 

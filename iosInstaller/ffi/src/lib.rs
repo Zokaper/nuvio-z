@@ -32,6 +32,14 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 
 /// The prompt (as JSON) and where its answer goes, while a sign-in is waiting for a code.
 static PENDING: Mutex<Option<(String, oneshot::Sender<TwoFactorReply>)>> = Mutex::new(None);
+/// Asks Apple for a new code (the person dismissed the old one unread). The sign-in then waits for the new code the same
+/// way. False if nothing was waiting.
+#[no_mangle]
+pub extern "C" fn nzs_resend_two_factor() -> bool {
+    let Some((_, tx)) = PENDING.lock().unwrap().take() else { return false };
+    tx.send(TwoFactorReply::ResendCode).is_ok()
+}
+
 /// The certificates to choose from (as JSON) and where the pick goes, while an update waits for one.
 static CERTIFICATES: Mutex<Option<(String, oneshot::Sender<Option<Vec<String>>>)>> = Mutex::new(None);
 /// The running update's stage and fraction, as JSON.

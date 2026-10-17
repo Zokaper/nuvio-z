@@ -31,6 +31,9 @@ char *nzs_pending_two_factor(void);
 // Answers the waiting prompt with a code, or NULL to give up. False if nothing was waiting.
 bool nzs_answer_two_factor(const char *code);
 
+// Asks Apple for a new code while a sign-in waits for one. False if nothing was waiting.
+bool nzs_resend_two_factor(void);
+
 // While an update waits for the person to pick certificates to revoke: the list as JSON; otherwise NULL.
 char *nzs_pending_certificates(void);
 

@@ -49,7 +49,7 @@ const SIGN_IN_ERRORS = {
   wrongCode: "That code didn’t work. Send a new one and use the newest.",
   serverUnavailable: "Apple’s sign-in service is busy. Try again in a minute.",
   certificateLimit: "This Apple Account is out of signing certificates. Try again and pick one to revoke when the installer asks.",
-  tryAgain: "Apple couldn’t finish the sign-in. Wait a minute, then click Sign in again.",
+  tryAgain: "Apple couldn’t finish the sign-in. Check the email is spelled right, wait a minute, then click Sign in again.",
   network: "This computer can’t reach Apple. Check the internet connection.",
   cancelled: "Sign-in was cancelled.",
 };
@@ -163,7 +163,7 @@ function render() {
   document.getElementById("app").innerHTML = `
     <div class="progress-line"><i style="width:${(progress * 100).toFixed(1)}%"></i></div>
     <header class="top">
-      ${index > 0 && !step.done ? `<button class="text-btn" data-action="back">${Icons.chevronLeft}Back</button>` : ""}
+      ${index > 0 ? `<button class="text-btn" data-action="back">${Icons.chevronLeft}Back</button>` : ""}
       <span class="spacer"></span>
       <button class="text-btn quiet" data-action="help">Help</button>
     </header>
