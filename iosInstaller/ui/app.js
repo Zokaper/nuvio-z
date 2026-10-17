@@ -34,7 +34,7 @@ const SIGN_IN_ERRORS = {
   network: "This computer can’t reach Apple. Check the internet connection.",
   cancelled: "Sign-in was cancelled.",
 };
-const describe = (e) => SIGN_IN_ERRORS[e?.kind] || `Something went wrong${e?.code ? ` (Apple error ${e.code})` : ""}. ${(e?.detail || String(e)).split("\n")[0]}`;
+const describe = (e) => SIGN_IN_ERRORS[e?.kind] || `Something went wrong: ${e?.summary || String(e)}`;
 
 function status(s) {
   if (!s) return "";
@@ -95,11 +95,13 @@ function render() {
   const closeSheet = () => goTo(step.id);
   document.getElementById("close")?.addEventListener("click", closeSheet);
   document.querySelector(".scrim")?.addEventListener("click", closeSheet);
+  const email = document.getElementById("email");
+  email?.addEventListener("input", () => { ctx.typedEmail = email.value; });
   const password = document.getElementById("password");
   password?.addEventListener("keydown", (e) => e.key === "Enter" && act("signIn", step, index));
   const code = document.getElementById("code");
   code?.addEventListener("input", () => code.value.replace(/\D/g, "").length === 6 && act("submitCode", step, index));
-  (document.getElementById("email") && !document.getElementById("email").value ? document.getElementById("email") : code)?.focus();
+  (email && !email.value ? email : email ? password : code)?.focus();
 }
 
 async function act(action, step, index) {

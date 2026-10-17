@@ -64,7 +64,7 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
             })
         }
     };
-    let result = account::sign_in(&email, &password, anisette::DEFAULT_SERVER, ask).await;
+    let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask).await;
     drop(password);
     *session.replies.lock().unwrap() = None;
     let signer = result?;
@@ -106,7 +106,7 @@ async fn install_sidestore(app: AppHandle, session: State<'_, Session>, channel:
     let mut guard = session.signer.lock().await;
     let signer = guard.as_mut().ok_or_else(|| InstallError {
         stage: Stage::Sign,
-        error: SignInError { kind: SignInErrorKind::Other, code: None, detail: "not signed in".into() },
+        error: SignInError { kind: SignInErrorKind::Other, code: None, summary: "not signed in".into(), detail: "not signed in".into() },
     })?;
     sidestore::install(signer, channel, |stage, fraction| {
         let _ = app.emit("install-progress", Progress { stage, fraction });

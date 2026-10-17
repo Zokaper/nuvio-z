@@ -24,6 +24,15 @@ use crate::paths;
 /// we may revoke ourselves (see `only_ours`).
 pub const MACHINE_NAME: &str = "Nuvio Z Installer";
 
+/// iloader 2.3.9's anisette servers, in its order. They come and go (mac-ani answered 502 for a while on
+/// 2026-10-17), so sign-in moves down the list when one is not answering.
+pub const ANISETTE_SERVERS: &[&str] = &[
+    "https://mac-ani.jkcoxson.com",
+    "https://ani.jkcoxson.com",
+    "https://ani3.stikstore.app",
+    "https://ani2.stikstore.app",
+];
+
 pub type Signer = Sideloader<MaxCertsCallbackBox>;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -49,8 +58,17 @@ pub struct SignInError {
     pub kind: SignInErrorKind,
     /// Apple's own error code, when there is one.
     pub code: Option<i64>,
+    /// The innermost cause, one line, for the screen.
+    pub summary: String,
     /// The technical text, for Help's diagnostics. Never contains the password.
     pub detail: String,
+}
+
+/// isideload's reports put each cause on a line starting with "●"; the last one is where it really failed.
+fn innermost(text: &str) -> String {
+    text.lines().filter_map(|l| l.trim().strip_prefix('●')).map(str::trim).last()
+        .unwrap_or_else(|| text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""))
+        .to_string()
 }
 
 /// Apple's code from isideload's "Auth error <code>: <message>" or "Developer error <code>: <message>".
@@ -74,18 +92,19 @@ pub fn classify(text: &str) -> SignInError {
     let lower = text.to_lowercase();
     let kind = match code {
         Some(-80045) => SignInErrorKind::Refused,
-        Some(-20101) | Some(-22406) => SignInErrorKind::WrongPassword,
+        // -20970 "Your account information was entered incorrectly": seen from Apple on 2026-10-17 for an unknown account.
+        Some(-20101) | Some(-22406) | Some(-20970) => SignInErrorKind::WrongPassword,
         Some(-20209) => SignInErrorKind::Locked,
         Some(-21669) => SignInErrorKind::WrongCode,
         Some(7460) => SignInErrorKind::CertificateLimit,
         _ if lower.contains("cannot be completed at this time") => SignInErrorKind::Refused,
-        _ if lower.contains("503") || lower.contains("service temporarily unavailable") => SignInErrorKind::ServerUnavailable,
+        _ if ["502", "503", "504", "bad gateway", "service temporarily unavailable", "gateway timeout"].iter().any(|s| lower.contains(s)) => SignInErrorKind::ServerUnavailable,
         _ if lower.contains("maximum number of certificates") || lower.contains("already have a current") => SignInErrorKind::CertificateLimit,
         _ if lower.contains("abort") => SignInErrorKind::Cancelled,
-        _ if lower.contains("dns") || lower.contains("connect") || lower.contains("timed out") => SignInErrorKind::Network,
+        _ if ["dns error", "error sending request", "tcp connect error", "connection refused", "timed out"].iter().any(|s| lower.contains(s)) => SignInErrorKind::Network,
         _ => SignInErrorKind::Other,
     };
-    SignInError { kind, code, detail: text.to_string() }
+    SignInError { kind, code, summary: innermost(text), detail: text.to_string() }
 }
 
 fn storage() -> Box<FsStorage> {
@@ -106,19 +125,30 @@ fn only_ours() -> MaxCertsCallbackBox {
     })
 }
 
+/// Connects to the first anisette server in `servers` that answers. Nothing about the account has been
+/// sent at this point (only the server's client identity is fetched), so moving to the next server never
+/// becomes a second sign-in attempt at Apple.
+async fn account_via(email: &str, servers: &[&str]) -> Result<AppleAccount, SignInError> {
+    let mut last = None;
+    for server in servers {
+        let provider = RemoteV3AnisetteProvider::default()
+            .map_err(|e| classify(&format!("{e}")))?
+            .set_serial_number("0".to_string())
+            .set_storage(storage())
+            .set_url(server);
+        match AppleAccount::builder(email).anisette_provider(provider).build().await {
+            Ok(account) => return Ok(account),
+            Err(e) => last = Some(classify(&format!("{server}: {e}"))),
+        }
+    }
+    Err(last.unwrap_or_else(|| classify("no anisette server configured")))
+}
+
 /// Signs in and returns a signer for the account's (only, or first) team.
-pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, anisette_server: &str, two_factor: C) -> Result<Signer, SignInError> {
+pub async fn sign_in<C: TwoFactorCallback>(email: &str, password: &str, servers: &[&str], two_factor: C) -> Result<Signer, SignInError> {
     let email = email.trim().to_lowercase();
-    let provider = RemoteV3AnisetteProvider::default()
-        .map_err(|e| classify(&format!("{e}")))?
-        .set_serial_number("0".to_string())
-        .set_storage(storage())
-        .set_url(anisette_server);
-    let mut account = AppleAccount::builder(&email)
-        .anisette_provider(provider)
-        .login(password, two_factor)
-        .await
-        .map_err(|e| classify(&format!("{e}")))?;
+    let mut account = account_via(&email, servers).await?;
+    account.login(password, two_factor).await.map_err(|e| classify(&format!("{e}")))?;
     let session = DeveloperSession::from_account(&mut account).await.map_err(|e| classify(&format!("{e}")))?;
     Ok(SideloaderBuilder::new(session, email)
         .machine_name(MACHINE_NAME.to_string())
@@ -143,6 +173,7 @@ mod tests {
         assert_eq!(classify("Auth error -80045: This action cannot be completed at this time.").kind, SignInErrorKind::Refused);
         assert_eq!(classify("Auth error -20101: Your Apple Account or password was incorrect.").kind, SignInErrorKind::WrongPassword);
         assert_eq!(classify("Auth error -21669: Incorrect verification code.").kind, SignInErrorKind::WrongCode);
+        assert_eq!(classify("Auth error -20970: Your account information was entered incorrectly.").kind, SignInErrorKind::WrongPassword);
         assert_eq!(classify("anisette server returned an error: HTTP status server error (503 Service Temporarily Unavailable)").kind, SignInErrorKind::ServerUnavailable);
         assert_eq!(classify("Developer error 7460: You already have a current iOS Development certificate").kind, SignInErrorKind::CertificateLimit);
         assert_eq!(classify("something new").kind, SignInErrorKind::Other);
@@ -153,5 +184,18 @@ mod tests {
         let e = classify("Auth error -20209: This Apple Account has been locked for security reasons.");
         assert_eq!((e.kind, e.code), (SignInErrorKind::Locked, Some(-20209)));
         assert!(e.detail.contains("locked"));
+    }
+
+    #[test]
+    fn a_failing_sign_in_server_is_busy_not_offline() {
+        let report = " ● Failed to get anisette client info
+ ├ apple_account.rs:164
+ │
+ ● HTTP status server error (502 Bad Gateway) for url (https://mac-ani.jkcoxson.com/v3/client_info)
+ ╰ mod.rs:131";
+        let e = classify(report);
+        assert_eq!(e.kind, SignInErrorKind::ServerUnavailable);
+        assert_eq!(e.summary, "HTTP status server error (502 Bad Gateway) for url (https://mac-ani.jkcoxson.com/v3/client_info)");
+        assert_eq!(classify("Failed to connect to lockdown: device locked").kind, SignInErrorKind::Other);
     }
 }

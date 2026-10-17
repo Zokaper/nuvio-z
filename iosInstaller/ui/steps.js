@@ -102,7 +102,7 @@ function buildSteps(ctx) {
     title: "Sign in with your Apple Account",
     lead: "SideStore gets signed with your own account, like an app you made yourself. A free account works.",
     center: `<form class="form">
-        <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${ctx.live ? "" : EMAIL}"></label>
+        <label>Apple Account email<input id="email" type="email" autocomplete="username" spellcheck="false" value="${ctx.live ? ctx.typedEmail || "" : EMAIL}"></label>
         <label>Password<input id="password" type="password" autocomplete="current-password" value="${ctx.live ? "" : "password12"}"></label>
         <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> It isn’t saved on this computer and it never reaches us.</span></div>
       </form>`,
