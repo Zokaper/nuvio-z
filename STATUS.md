@@ -56,6 +56,14 @@ be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched 
   - Verified: `cargo test -p nuvioz-installer-core` 7/7 (error classification, pairing state, app classification,
     rppairing version gate); release exe 7.3 MB with the sign-in/signing path linked; previews still render; the live
     app starts. **Not verified:** sign-in, 2FA, signing, install, pairing on a real phone.
+- **Phase 2 investigation (Nuvio Z signs and updates itself, no SideStore): feasible on paper, plan in**
+  `Nuvio Z/PLAN-nuvio-z-self-signing.md`. SideStore does this on-device with idevice 0.1.68 (prebuilt iOS
+  XCFramework) over LocalDevVPN at `10.7.0.1`; Nuvio Z has one extension, no App Groups/push; the iOS app already
+  links a native XCFramework via cinterop. CI `ios-installer-core-ios.yml` run `39049995828`: the core (isideload +
+  idevice) **builds for aarch64-apple-ios and the simulator**. Next spike steps need the phone and a working account.
+- **First phone test (2026-10-17):** two sign-in failures were `mac-ani.jkcoxson.com` answering 502 (intermittent);
+  fixed by the anisette fallback (`f4208cc05`). The maintainer's Apple Account then had its own problems, so the
+  test moves to a friend with the zip in `Nuvio Z/release-artifacts/` (not yet run).
 - **Next:** the maintainer's phone test of the slice, then the rest of Stage 2 (hosted config with a pinned SideStore
   SHA-256, downloader, persistence, diagnostics) and Stage 3 (silent drivers).
 
