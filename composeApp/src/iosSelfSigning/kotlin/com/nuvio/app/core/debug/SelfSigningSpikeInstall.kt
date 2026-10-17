@@ -12,7 +12,7 @@ import platform.Foundation.NSUserDomainMask
 
 /** Points [SelfSigningSpike.probe] at the Rust library. The call blocks, so it runs off the main thread. */
 @OptIn(ExperimentalForeignApi::class)
-internal fun installSelfSigningSpike() {
+internal actual fun installSelfSigningSpike() {
     if (SelfSigningSpike.probe != null) return
     SelfSigningSpike.probe = {
         withContext(Dispatchers.Default) {
