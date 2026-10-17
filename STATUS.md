@@ -10,6 +10,19 @@ version otherwise; ties keep GitHub's order). Tests in both `DebugChannelVersion
 99/100 and mobile 88 or earlier still have the old picker**: they may need one manual install from the
 release page before the updater is trustworthy again.
 
+**Desktop 102: social pop-ups during playback.** A friend-started-watching event reached the maintainer's
+desktop profile at 13:24:39 while a video was playing (13:22:53-13:25:32 in the debug log) and never
+showed: with Nuvio in front, `DesktopSocialPopups` draws the card in-app, under the mpv surface and the
+WebView2 controls. While the native surface is promoted (`PlayerEngine.desktop.kt` reports it), the cards
+now use the pop-up window anchored to the top-right of Nuvio's window, and a click there only dismisses.
+"In front" also accepts `window.isActive`, since focus inside the player's native children may read as
+unfocused. Each pop now logs `(SocialPopups) popped <kinds> over the player | in the window | on the
+desktop`, or `held` when another app is fullscreen. Not yet seen on screen.
+
+Desktop CI's "Desktop tests" job has been red on every push since 2026-10-16 at
+`:composeMediaPlayer:buildNativeLinux` (`frame_copy_test`), before any Kotlin test runs; the MSI job and
+the debug releases are green. Not investigated.
+
 ## Social V2: invite outcomes, request outcomes, activity names, phone join pill (2026-10-16/17, Debug mobile 88 / desktop 100)
 
 Maintainer's report after Debug 87/99, four items. Shared commit `dc0ec4774` (desktop) cherry-picked as
