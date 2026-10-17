@@ -7,8 +7,10 @@ on:
   push:
     branches:
       - claude/ios-installer
+      - claude/self-signing
     paths:
       - 'iosInstaller/core/**'
+      - 'iosInstaller/ffi/**'
       - 'iosInstaller/Cargo.toml'
       - 'iosInstaller/Cargo.lock'
       - '.github/workflows/ios-installer-core-ios.yml'
@@ -22,10 +24,22 @@ jobs:
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
       - name: Build core for iPhone
         working-directory: iosInstaller
-        run: cargo build -p nuvioz-installer-core --release --target aarch64-apple-ios
+        run: cargo build -p nuvioz-installer-core -p nuvioz-signer --release --target aarch64-apple-ios
       - name: Build core for the iOS Simulator
         working-directory: iosInstaller
         run: cargo build -p nuvioz-installer-core --release --target aarch64-apple-ios-sim
       - name: Report
         working-directory: iosInstaller
         run: ls -la target/aarch64-apple-ios/release/ target/aarch64-apple-ios-sim/release/ | grep -i nuvioz
+      - name: Link check (the static library resolves against the iOS SDK)
+        working-directory: iosInstaller
+        run: |
+          cat > /tmp/probe.c <<'EOF'
+          #include "nuvioz_signer.h"
+          int main(void) { nzs_string_free(nzs_probe("/tmp", 0)); return 0; }
+          EOF
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 -Iffi/include /tmp/probe.c \
+            target/aarch64-apple-ios/release/libnuvioz_signer.a \
+            -framework Security -framework SystemConfiguration -framework CoreFoundation -lresolv -lc++ \
+            -o /tmp/probe
+          ls -la /tmp/probe

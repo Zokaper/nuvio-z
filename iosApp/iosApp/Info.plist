@@ -34,6 +34,8 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

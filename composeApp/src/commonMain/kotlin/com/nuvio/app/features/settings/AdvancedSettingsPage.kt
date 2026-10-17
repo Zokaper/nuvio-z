@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.debug.isDebugBuild
+import com.nuvio.app.core.debug.SelfSigningSpike
 import com.nuvio.app.core.debug.SelfTestHooks
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.NuvioTokens
@@ -74,6 +75,11 @@ import com.nuvio.app.isWindows
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.*
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.Res
@@ -169,7 +175,8 @@ internal fun LazyListScope.advancedSettingsContent(
     // section has to survive Sentry being unsupported on a platform - otherwise the button
     // disappears with it.
     val selfTestAvailable = isDebugBuild && SelfTestHooks.launch != null
-    if (SentrySettingsRepository.isSupported || selfTestAvailable) {
+    val selfSigningProbe = SelfSigningSpike.probe.takeIf { isDebugBuild }
+    if (SentrySettingsRepository.isSupported || selfTestAvailable || selfSigningProbe != null) {
         item {
             val sentryEnabledFlow: StateFlow<Boolean> = remember {
                 if (SentrySettingsRepository.isSupported) {
@@ -214,6 +221,23 @@ internal fun LazyListScope.advancedSettingsContent(
                                 "against real services, then writes a report and screenshots.",
                             isTablet = isTablet,
                             onClick = { SelfTestHooks.launch?.invoke() },
+                        )
+                    }
+                    if (selfSigningProbe != null) {
+                        if (SentrySettingsRepository.isSupported || selfTestAvailable) {
+                            SettingsGroupDivider(isTablet = isTablet)
+                        }
+                        val scope = rememberCoroutineScope()
+                        var report by remember { mutableStateOf<String?>(null) }
+                        SettingsNavigationRow(
+                            title = "Self-signing spike: reach this iPhone",
+                            description = report ?: "Connects to this iPhone through LocalDevVPN with the pairing " +
+                                "file the installer placed, by both routes, and lists its apps.",
+                            isTablet = isTablet,
+                            onClick = {
+                                report = "Connecting…"
+                                scope.launch { report = describeSelfSigningProbe(selfSigningProbe()) }
+                            },
                         )
                     }
                 }
@@ -1115,3 +1139,21 @@ private fun AdvancedPlaybackSections(isTablet: Boolean) {
     }
 
 }
+
+/** One line per route: whether it reached the phone, how many apps it saw, or the exact error. */
+private fun describeSelfSigningProbe(json: String): String = runCatching {
+    val root = Json.parseToJsonElement(json).jsonObject
+    root["error"]?.let { return@runCatching "Failed: ${it.jsonPrimitive.content}" }
+    val probe = root["probe"]?.jsonObject ?: return@runCatching json
+    probe["routes"]!!.jsonArray.joinToString("
+") { element ->
+        val route = element as JsonObject
+        val name = route["route"]!!.jsonPrimitive.content
+        val millis = route["millis"]?.jsonPrimitive?.content
+        if (route["ok"]!!.jsonPrimitive.content == "true") {
+            "$name: works, ${route["apps"]!!.jsonPrimitive.content} apps ($millis ms)"
+        } else {
+            "$name: ${route["error"]?.jsonPrimitive?.content} ($millis ms)"
+        }
+    }
+}.getOrElse { json }

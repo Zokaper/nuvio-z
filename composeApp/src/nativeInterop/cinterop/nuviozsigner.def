@@ -1,0 +1,3 @@
+headers = nuvioz_signer.h
+package = com.nuvio.app.selfsigning.native
+staticLibraries = libnuvioz_signer.a

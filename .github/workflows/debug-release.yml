@@ -240,6 +240,17 @@ jobs:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
 
+      # Phase 2 spike (claude/self-signing): link the installer's Rust core into the app. Branches without
+      # iosInstaller/ffi skip this, and without NUVIO_IOS_SELF_SIGNING Gradle leaves the library out.
+      - name: Build the self-signing library
+        if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
+        working-directory: iosInstaller
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
+          ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
+          echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
+
       - name: Configure and build iOS Debug unsigned IPA
         run: |
           if [[ -n "${RELEASE_PROPERTIES_BASE64}" ]]; then

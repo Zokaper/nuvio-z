@@ -113,16 +113,37 @@ pub async fn place_for_sidestore(team: Option<&str>) -> Result<Placed, String> {
             .collect())
     }).await?;
     let sidestore = pick_sidestore(&copies, team)?;
+    place_in(&mut phone, sidestore, SIDESTORE_FILES).await
+}
+
+/// Phase 2: Nuvio Z keeps its own pairing file, under a name of our own, and reads it from its Documents.
+pub const NUVIO_FILE: &str = "NuvioZPairing.plist";
+
+/// Places the pairing file into Nuvio Z (stable or Debug). Needs `UIFileSharingEnabled` in Nuvio Z's
+/// Info.plist, or the phone refuses access to its Documents.
+pub async fn place_for_nuvio(debug: bool) -> Result<Placed, String> {
+    let mut phone = device::connect("nuvioz-place-pairing").await?;
+    let want = if debug { AppKind::NuvioDebug } else { AppKind::NuvioStable };
+    let bundle = bounded("nuvio", async {
+        device::installed(&phone.provider).await?.into_iter()
+            .find(|(kind, _)| *kind == want)
+            .map(|(_, info)| info.bundle_id)
+            .ok_or_else(|| format!("Nuvio Z{} is not installed", if debug { " Debug" } else { "" }))
+    }).await?;
+    place_in(&mut phone, bundle, &[NUVIO_FILE]).await
+}
+
+async fn place_in(phone: &mut device::Connected, bundle_id: String, names: &[&str]) -> Result<Placed, String> {
     // The remote-pairing handshake can wait on the phone, so this gets longer than a probe.
     let (ios, bytes) = tokio::time::timeout(std::time::Duration::from_secs(90), build(&mut phone.mux, &phone.provider, &phone.udid))
         .await.map_err(|_| "building the pairing file timed out (is the iPhone unlocked?)".to_string())??;
 
-    let mut afc = device::documents(&phone.provider, sidestore).await?;
-    let main = format!("/Documents/{}", SIDESTORE_FILES[0]);
+    let mut afc = device::documents(&phone.provider, bundle_id).await?;
+    let main = format!("/Documents/{}", names[0]);
     let previous = format!("{main}.previous");
     let _ = afc.remove(previous.clone()).await;
     let _ = afc.rename(main, previous).await;
-    for name in SIDESTORE_FILES {
+    for name in names {
         let path = format!("/Documents/{name}");
         let mut f = afc.open(path.clone(), AfcFopenMode::Wr).await.map_err(|e| format!("open {name}: {e:?}"))?;
         f.write_entire(&bytes).await.map_err(|e| format!("write {name}: {e:?}"))?;
@@ -134,7 +155,7 @@ pub async fn place_for_sidestore(team: Option<&str>) -> Result<Placed, String> {
             return Err(format!("{name} did not read back the same"));
         }
     }
-    Ok(Placed { ios, files: SIDESTORE_FILES.len() })
+    Ok(Placed { ios, files: names.len() })
 }
 
 #[cfg(test)]

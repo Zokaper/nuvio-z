@@ -5,6 +5,7 @@
 pub mod account;
 pub mod anisette;
 pub mod device;
+pub mod ondevice;
 pub mod pairing;
 pub mod paths;
 pub mod sidestore;
