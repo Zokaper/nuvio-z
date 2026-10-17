@@ -8,7 +8,7 @@ use nuvioz_installer_core::account::{self, SignInError, SignInErrorKind, Signer,
 use nuvioz_installer_core::sidestore::{self, Channel, InstallError, Stage};
 use nuvioz_installer_core::{anisette, credentials, device, pairing};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Mutex};
 
 /// How long Apple's 2FA prompt waits for the person before giving up.
@@ -19,6 +19,28 @@ struct Session {
     signer: Mutex<Option<Signer>>,
     /// Replies to Apple's two-factor prompt while a sign-in is waiting for one.
     replies: std::sync::Mutex<Option<mpsc::UnboundedSender<TwoFactorReply>>>,
+    /// The person's pick while an install waits for them to choose certificates to revoke.
+    certificates: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Option<Vec<String>>>>>,
+}
+
+/// When the account is out of certificates and none is ours, ask the window which to revoke.
+fn ask_which_certificates(app: AppHandle) -> account::ChooseCertificates {
+    Arc::new(move |list| {
+        let app = app.clone();
+        Box::pin(async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            *app.state::<Session>().certificates.lock().unwrap() = Some(tx);
+            let _ = app.emit("certificates", &list);
+            tokio::time::timeout(CODE_TIMEOUT, rx).await.ok().and_then(Result::ok).flatten()
+        })
+    })
+}
+
+/// The person's answer to the `certificates` event: serials to revoke, or none to stop.
+#[tauri::command]
+fn answer_certificates(session: State<'_, Session>, serials: Option<Vec<String>>) -> Result<(), String> {
+    let tx = session.certificates.lock().unwrap().take().ok_or("nothing is waiting for certificates")?;
+    tx.send(serials).map_err(|_| "the install already ended".to_string())
 }
 
 #[tauri::command]
@@ -56,6 +78,7 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
         Some(p) => p,
         None => return Err(SignInError { kind: SignInErrorKind::Other, code: None, summary: "no saved password for this account".into(), detail: String::new() }),
     };
+    let app_for_certs = app.clone();
     let (tx, rx) = mpsc::unbounded_channel();
     *session.replies.lock().unwrap() = Some(tx);
     let rx = Arc::new(Mutex::new(rx));
@@ -70,7 +93,7 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
             })
         }
     };
-    let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask).await;
+    let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask, Some(ask_which_certificates(app_for_certs))).await;
     *session.replies.lock().unwrap() = None;
     match &result {
         Ok(_) if !saved && remember => {
@@ -164,6 +187,7 @@ fn main() {
             saved_account,
             forget_account,
             answer_two_factor,
+            answer_certificates,
             install_sidestore
         ])
         .run(tauri::generate_context!())

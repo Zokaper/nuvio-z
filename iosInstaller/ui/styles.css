@@ -155,6 +155,11 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .alt ol { margin: 8px 0 0; padding-left: 20px; color: var(--fg-2); font-size: 14.5px; display: grid; gap: 5px; }
 .alt b, .alt .path { color: var(--fg); font-weight: 600; }
 .sheet .close-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+.certs { display: grid; gap: 8px; margin: 4px 0 16px; }
+.cert { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.cert input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.cert b { display: block; font-size: 15.5px; }
+.cert small { color: var(--fg-2); font-size: 13px; }
 
 /* ================= iOS, drawn to Apple's measurements ================= */
 .ios { font-family: var(--sans); color: var(--ios-fg); letter-spacing: -.01em; }
