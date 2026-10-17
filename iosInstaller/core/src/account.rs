@@ -9,13 +9,14 @@ use isideload::{
     dev::{certificates::DevelopmentCertificate, developer_session::DeveloperSession},
     sideload::{builder::MaxCertsBehavior, sideloader::Sideloader, SideloaderBuilder},
     util::{
-        callbacks::{MaxCertsCallbackBox, TwoFactorCallback},
+        callbacks::MaxCertsCallbackBox,
         fs_storage::FsStorage,
     },
 };
 use serde::Serialize;
 
 pub use isideload::auth::apple_account::{TwoFactorCallbackParams as TwoFactorPrompt, TwoFactorCallbackResponse as TwoFactorReply};
+pub use isideload::util::callbacks::TwoFactorCallback;
 pub use rootcause::Report;
 
 use crate::paths;

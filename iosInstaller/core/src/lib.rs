@@ -8,6 +8,7 @@ pub mod device;
 pub mod ondevice;
 pub mod pairing;
 pub mod paths;
+pub mod selfsign;
 pub mod sidestore;
 
 /// Call once at start-up, before any network or device call.

@@ -14,6 +14,7 @@ use idevice::{
     provider::TcpProvider,
     remote_pairing::{connect_tls_psk_tunnel_native, RemotePairingClient, RpPairingFile, RpPairingSocket},
     rsd::RsdHandshake,
+    tcp::handle::AdapterHandle,
     IdeviceService, RsdService,
 };
 use serde::Serialize;
@@ -63,16 +64,17 @@ fn summarize(list: &plist::Dictionary) -> Vec<(String, String, String)> {
     apps
 }
 
-async fn via_lockdown(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dictionary, String> {
+/// A provider for the lockdown route: lockdown-based services over TCP to the phone's own address.
+pub fn lockdown_provider(pairing: &[u8], address: &str) -> Result<TcpProvider, String> {
+    let addr: IpAddr = address.parse().map_err(err)?;
     let pairing_file = PairingFile::from_bytes(pairing).map_err(|e| format!("lockdown pair record: {}", err(e)))?;
-    let provider = TcpProvider { addr, scope_id: None, pairing_file, label: "nuvioz-ondevice".into() };
-    let mut proxy = timed("installation_proxy", async { InstallationProxyClient::connect(&provider).await.map_err(err) }).await?;
-    let apps = timed("list apps", async { proxy.get_apps(Some("User"), None).await.map_err(err) }).await?;
-    Ok(apps.into_iter().collect())
+    Ok(TcpProvider { addr, scope_id: None, pairing_file, label: "nuvioz-ondevice".into() })
 }
 
-/// The remote-pairing tunnel, as idevice 0.1.68's `tunnel_create_rppairing` builds it.
-async fn via_remote_pairing(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dictionary, String> {
+/// The remote-pairing route (iOS 17.4+): verify, open the TLS-PSK tunnel, and return what RSD services are
+/// reached through. Built as idevice 0.1.68's `tunnel_create_rppairing` builds it.
+pub async fn tunnel(pairing: &[u8], address: &str) -> Result<(AdapterHandle, RsdHandshake), String> {
+    let addr: IpAddr = address.parse().map_err(err)?;
     let mut identity = RpPairingFile::from_bytes(pairing).map_err(|e| format!("rppairing identity: {}", err(e)))?;
     let connect_addr = SocketAddr::new(addr, RP_PORT);
     let stream = timed("connect", async { tokio::net::TcpStream::connect(connect_addr).await.map_err(err) }).await?;
@@ -91,7 +93,20 @@ async fn via_remote_pairing(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dicti
     adapter.set_mss(mtu.saturating_sub(60));
     let mut adapter = adapter.to_async_handle();
     let rsd_stream = timed("RSD", async { adapter.connect(rsd_port).await.map_err(err) }).await?;
-    let mut handshake = timed("RSD handshake", async { RsdHandshake::new(rsd_stream).await.map_err(err) }).await?;
+    let handshake = timed("RSD handshake", async { RsdHandshake::new(rsd_stream).await.map_err(err) }).await?;
+    Ok((adapter, handshake))
+}
+
+async fn via_lockdown(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dictionary, String> {
+    let provider = lockdown_provider(pairing, &addr.to_string())?;
+    let mut proxy = timed("installation_proxy", async { InstallationProxyClient::connect(&provider).await.map_err(err) }).await?;
+    let apps = timed("list apps", async { proxy.get_apps(Some("User"), None).await.map_err(err) }).await?;
+    Ok(apps.into_iter().collect())
+}
+
+/// The remote-pairing tunnel, as idevice 0.1.68's `tunnel_create_rppairing` builds it.
+async fn via_remote_pairing(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dictionary, String> {
+    let (mut adapter, mut handshake) = tunnel(pairing, &addr.to_string()).await?;
     let mut proxy = timed("installation_proxy", async { InstallationProxyClient::connect_rsd(&mut adapter, &mut handshake).await.map_err(err) }).await?;
     let apps = timed("list apps", async { proxy.get_apps(Some("User"), None).await.map_err(err) }).await?;
     Ok(apps.into_iter().collect())
