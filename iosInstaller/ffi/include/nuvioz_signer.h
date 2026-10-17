@@ -46,6 +46,9 @@ char *nzs_signing_state(const char *email);
 // Forgets the anisette identity. JSON.
 char *nzs_reset_sign_in(void);
 
+// Whether LocalDevVPN answers at address (may be NULL: 10.7.0.1). Quick; no pairing, no Apple.
+bool nzs_vpn_reachable(const char *address);
+
 // This library's version.
 char *nzs_version(void);
 

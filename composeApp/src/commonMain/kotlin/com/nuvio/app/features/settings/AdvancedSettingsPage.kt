@@ -175,8 +175,8 @@ internal fun LazyListScope.advancedSettingsContent(
     // section has to survive Sentry being unsupported on a platform - otherwise the button
     // disappears with it.
     val selfTestAvailable = isDebugBuild && SelfTestHooks.launch != null
-    val selfSigningProbe = SelfSigningSpike.probe.takeIf { isDebugBuild }
-    if (SentrySettingsRepository.isSupported || selfTestAvailable || selfSigningProbe != null) {
+    val selfSigning = SelfSigningSpike.platform.takeIf { isDebugBuild }
+    if (SentrySettingsRepository.isSupported || selfTestAvailable || selfSigning != null) {
         item {
             val sentryEnabledFlow: StateFlow<Boolean> = remember {
                 if (SentrySettingsRepository.isSupported) {
@@ -223,7 +223,7 @@ internal fun LazyListScope.advancedSettingsContent(
                             onClick = { SelfTestHooks.launch?.invoke() },
                         )
                     }
-                    if (selfSigningProbe != null) {
+                    if (selfSigning != null) {
                         if (SentrySettingsRepository.isSupported || selfTestAvailable) {
                             SettingsGroupDivider(isTablet = isTablet)
                         }
@@ -236,20 +236,20 @@ internal fun LazyListScope.advancedSettingsContent(
                             isTablet = isTablet,
                             onClick = {
                                 report = "Connecting…"
-                                scope.launch { report = describeSelfSigningProbe(selfSigningProbe()) }
+                                scope.launch { report = describeSelfSigningProbe(selfSigning.probe()) }
                             },
                         )
                         var showSelfSigning by remember { mutableStateOf(false) }
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsNavigationRow(
-                            title = "Self-signing: renew this app",
-                            description = "Shows when this copy stops opening and renews it on the phone, the " +
-                                "way SideStore’s Refresh does, without SideStore.",
+                            title = "Keep Nuvio Z working",
+                            description = "When this copy stops opening, renewing it without SideStore, the daily " +
+                                "refresh, the update test and the tester’s report.",
                             isTablet = isTablet,
                             onClick = { showSelfSigning = true },
                         )
                         if (showSelfSigning) {
-                            SelfSigningDialog(onDismiss = { showSelfSigning = false })
+                            KeepNuvioWorkingScreen(selfSigning, onDismiss = { showSelfSigning = false })
                         }
                     }
                 }

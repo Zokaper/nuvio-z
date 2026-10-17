@@ -49,6 +49,7 @@ jobs:
             nzs_string_free(nzs_import_signing_key("/tmp"));
             nzs_string_free(nzs_signing_state(0));
             nzs_string_free(nzs_reset_sign_in());
+            nzs_vpn_reachable(0);
             nzs_string_free(nzs_version());
             return 0;
           }

@@ -303,6 +303,13 @@ pub extern "C" fn nzs_reset_sign_in() -> *mut c_char {
     }
 }
 
+/// Whether LocalDevVPN answers at `address` (NULL: 10.7.0.1). Quick; no pairing, no Apple.
+#[no_mangle]
+pub extern "C" fn nzs_vpn_reachable(address: *const c_char) -> bool {
+    let address = arg(address).unwrap_or_else(|| ondevice::LOOPBACK.to_string());
+    runtime().block_on(ondevice::reachable(&address))
+}
+
 /// This library's version.
 #[no_mangle]
 pub extern "C" fn nzs_version() -> *mut c_char {

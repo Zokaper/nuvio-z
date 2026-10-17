@@ -112,6 +112,19 @@ async fn via_remote_pairing(addr: IpAddr, pairing: &[u8]) -> Result<plist::Dicti
     Ok(apps.into_iter().collect())
 }
 
+/// Whether LocalDevVPN is up: something answers at `address` on the lockdown or the remote-pairing port. Quick
+/// (no pairing, no Apple), so the app can say "connect LocalDevVPN" before it signs in for nothing.
+pub async fn reachable(address: &str) -> bool {
+    let Ok(addr) = address.parse::<IpAddr>() else { return false };
+    for port in [62078, RP_PORT] {
+        let attempt = tokio::time::timeout(Duration::from_millis(1500), tokio::net::TcpStream::connect(SocketAddr::new(addr, port))).await;
+        if matches!(attempt, Ok(Ok(_))) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Tries both routes to the phone's own services and lists user apps through whichever works.
 pub async fn probe(pairing: &[u8], address: &str) -> OnDeviceProbe {
     let mut out = OnDeviceProbe { address: address.to_string(), routes: Vec::new(), apps: Vec::new() };

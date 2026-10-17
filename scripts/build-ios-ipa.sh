@@ -46,6 +46,18 @@ fi
 if [[ -n "${NUVIO_KOTLIN_NATIVE_JVMARGS:-}" ]]; then
     build_environment+=("ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}")
 fi
+# Nuvio Z self-signing (Debug builds linked with iosInstaller's signer, see composeApp/build.gradle.kts): compile
+# SelfSigning.swift's App Intent and background task, which the Info.plist keys added below go with.
+self_signing=false
+extra_build_settings=()
+if [[ "$(echo "${NUVIO_IOS_SELF_SIGNING:-false}" | tr '[:upper:]' '[:lower:]')" == "true" ]]; then
+    if [[ "${configuration}" != "Debug" ]]; then
+        echo "NUVIO_IOS_SELF_SIGNING is for Debug builds only." >&2
+        exit 1
+    fi
+    self_signing=true
+    extra_build_settings+=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG NUVIO_SELF_SIGNING")
+fi
 "${build_environment[@]}" \
     xcodebuild \
     -project iosApp/iosApp.xcodeproj \
@@ -59,6 +71,7 @@ fi
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY= \
+    ${extra_build_settings[@]+"${extra_build_settings[@]}"} \
     build
 
 products_directory="${derived_data}/Build/Products/${configuration}-iphoneos"
@@ -163,6 +176,22 @@ for key in "${file_sharing_keys[@]}"; do
         exit 1
     fi
 done
+
+# Self-signing: the background refresh needs its task identifier listed and the fetch mode, or registering it
+# crashes the app; and the App Intent only shows in Shortcuts if Xcode extracted its metadata.
+if [[ "${self_signing}" == "true" ]]; then
+    /usr/libexec/PlistBuddy -c "Delete :BGTaskSchedulerPermittedIdentifiers" "${staged_plist}" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :BGTaskSchedulerPermittedIdentifiers array" "${staged_plist}"
+    /usr/libexec/PlistBuddy -c "Add :BGTaskSchedulerPermittedIdentifiers:0 string com.nuvio.app.selfsigning.refresh" "${staged_plist}"
+    if ! plutil -extract UIBackgroundModes xml1 -o - "${staged_plist}" | grep -q "<string>fetch</string>"; then
+        /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes: string fetch" "${staged_plist}"
+    fi
+    if [[ ! -d "${package_root}/Payload/Nuvio-Z.app/Metadata.appintents" ]]; then
+        echo "Self-signing build has no Metadata.appintents: the Refresh Nuvio Z action would not appear in Shortcuts." >&2
+        exit 1
+    fi
+    echo "Self-signing: background task keys added; App Intent metadata present."
+fi
 
 if [[ "${configuration}" == "Debug" ]]; then
     ipa_filename="${IOS_IPA_NAME:-Nuvio-Z-iOS-${version}-${build_number}-debug-unsigned.ipa}"
