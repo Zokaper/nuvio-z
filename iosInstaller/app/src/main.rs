@@ -114,6 +114,20 @@ async fn install_sidestore(app: AppHandle, session: State<'_, Session>, channel:
     .await
 }
 
+/// Phase 2 test path (Ctrl+Shift+I in the window): Nuvio Z Debug straight from this computer, no SideStore.
+#[tauri::command]
+async fn install_nuvio_test(app: AppHandle, session: State<'_, Session>) -> Result<pairing::Placed, InstallError> {
+    let mut guard = session.signer.lock().await;
+    let signer = guard.as_mut().ok_or_else(|| InstallError {
+        stage: Stage::Sign,
+        error: SignInError { kind: SignInErrorKind::Other, code: None, summary: "not signed in".into(), detail: "not signed in".into() },
+    })?;
+    sidestore::install_nuvio_debug(signer, nuvioz_installer_core::paths::nuvio_debug_test_ipa(), |stage, fraction| {
+        let _ = app.emit("install-progress", Progress { stage, fraction });
+    })
+    .await
+}
+
 fn main() {
     nuvioz_installer_core::init();
     tauri::Builder::default()
@@ -125,7 +139,8 @@ fn main() {
             check_anisette,
             sign_in,
             answer_two_factor,
-            install_sidestore
+            install_sidestore,
+            install_nuvio_test
         ])
         .run(tauri::generate_context!())
         .expect("failed to start the Nuvio Z iOS Installer");

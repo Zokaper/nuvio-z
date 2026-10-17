@@ -165,7 +165,7 @@ async function startInstall() {
   ctx.install = { stage: "download", fraction: 0 };
   goTo("installing");
   try {
-    await invoke("install_sidestore", { channel: ctx.channel });
+    await (ctx.channel === "nuvioTest" ? invoke("install_nuvio_test") : invoke("install_sidestore", { channel: ctx.channel }));
     goTo("devmode");
   } catch (e) {
     flash = { kind: "bad", text: e?.error?.kind === "refused" ? "Apple refused the request (-80045). Try again in an hour." : describe(e?.error || e) };
@@ -206,6 +206,12 @@ if (ctx.live) {
 // Arrow keys walk the screens in previews; Ctrl+Shift+N switches the SideStore build (testing only,
 // until the hosted config decides between stable and Nightly).
 document.addEventListener("keydown", (e) => {
+  // Ctrl+Shift+I: the Phase 2 test path installs Nuvio Z Debug from this PC instead of SideStore.
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "i") {
+    ctx.channel = ctx.channel === "nuvioTest" ? "stable" : "nuvioTest";
+    flash = { kind: "ok", text: ctx.channel === "nuvioTest" ? "Test: installs Nuvio Z Debug from this PC instead of SideStore" : "SideStore build: stable" };
+    return render();
+  }
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
     ctx.channel = ctx.channel === "stable" ? "nightly" : "stable";
     flash = { kind: "ok", text: `SideStore build: ${ctx.channel}` };

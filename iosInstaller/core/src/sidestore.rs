@@ -68,6 +68,14 @@ pub async fn install(signer: &mut Signer, channel: Channel, progress: impl Fn(St
     progress(Stage::Download, 0.0);
     let ipa = download(channel).await.map_err(|e| failed(Stage::Download, e))?;
 
+    sign_and_install(signer, ipa, &progress).await?;
+
+    progress(Stage::Pairing, 0.0);
+    let team = signer.get_team().await.map_err(|e| failed(Stage::Pairing, e))?.team_id;
+    pairing::place_for_sidestore(Some(&team)).await.map_err(|e| failed(Stage::Pairing, e))
+}
+
+async fn sign_and_install(signer: &mut Signer, ipa: PathBuf, progress: &(impl Fn(Stage, f32) + Send + Sync)) -> Result<(), InstallError> {
     progress(Stage::Sign, 0.0);
     let phone = device::connect("nuvioz-install").await.map_err(|e| failed(Stage::Sign, e))?;
     signer
@@ -77,9 +85,17 @@ pub async fn install(signer: &mut Signer, channel: Channel, progress: impl Fn(St
         }), None)
         .await
         .map_err(|e| failed(Stage::Sign, e))?;
-    drop(phone);
+    Ok(())
+}
 
+/// Phase 2 test path (`PLAN-nuvio-z-self-signing.md`): install a Nuvio Z Debug IPA from this computer instead
+/// of SideStore, then give it its own pairing file. This is how the installer will work once Nuvio Z refreshes
+/// itself.
+pub async fn install_nuvio_debug(signer: &mut Signer, ipa: PathBuf, progress: impl Fn(Stage, f32) + Send + Sync) -> Result<pairing::Placed, InstallError> {
+    if !ipa.is_file() {
+        return Err(failed(Stage::Download, format!("put the Nuvio Z Debug IPA at {}", ipa.display())));
+    }
+    sign_and_install(signer, ipa, &progress).await?;
     progress(Stage::Pairing, 0.0);
-    let team = signer.get_team().await.map_err(|e| failed(Stage::Pairing, e))?.team_id;
-    pairing::place_for_sidestore(Some(&team)).await.map_err(|e| failed(Stage::Pairing, e))
+    pairing::place_for_nuvio(true).await.map_err(|e| failed(Stage::Pairing, e))
 }

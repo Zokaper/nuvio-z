@@ -20,6 +20,11 @@ pub fn downloads() -> PathBuf {
     data_dir().join("downloads")
 }
 
+/// Where the Phase 2 test path looks for a Nuvio Z Debug IPA to install instead of SideStore.
+pub fn nuvio_debug_test_ipa() -> PathBuf {
+    downloads().join("NuvioZ-Debug-test.ipa")
+}
+
 /// The rppairing identity for one phone. Deliberately the iOS Setup 2.x location, so a phone set up with
 /// the old assistant keeps the same host identity instead of collecting a second one.
 pub fn rp_identity(udid: &str) -> Option<PathBuf> {
