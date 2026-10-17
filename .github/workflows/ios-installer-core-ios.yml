@@ -1,0 +1,31 @@
+name: iOS Installer core on iPhone (spike)
+
+# Phase 2 spike: can the installer's Rust core (isideload + idevice) be built for iPhone, so Nuvio Z could
+# sign and install itself? Builds only; nothing is published.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/ios-installer
+    paths:
+      - 'iosInstaller/core/**'
+      - 'iosInstaller/Cargo.toml'
+      - 'iosInstaller/Cargo.lock'
+      - '.github/workflows/ios-installer-core-ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust targets
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Build core for iPhone
+        working-directory: iosInstaller
+        run: cargo build -p nuvioz-installer-core --release --target aarch64-apple-ios
+      - name: Build core for the iOS Simulator
+        working-directory: iosInstaller
+        run: cargo build -p nuvioz-installer-core --release --target aarch64-apple-ios-sim
+      - name: Report
+        working-directory: iosInstaller
+        run: ls -la target/aarch64-apple-ios/release/ target/aarch64-apple-ios-sim/release/ | grep -i nuvioz
