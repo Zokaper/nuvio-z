@@ -18,6 +18,9 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    env:
+      # Nuvio Z's minimum iOS; without it the crypto C/assembly objects target the SDK's own version.
+      IPHONEOS_DEPLOYMENT_TARGET: "16.1"
     steps:
       - uses: actions/checkout@v4
       - name: Rust targets
@@ -38,7 +41,7 @@ jobs:
           #include "nuvioz_signer.h"
           int main(void) { nzs_string_free(nzs_probe("/tmp", 0)); return 0; }
           EOF
-          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 -Iffi/include /tmp/probe.c \
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.1 -Iffi/include /tmp/probe.c \
             target/aarch64-apple-ios/release/libnuvioz_signer.a \
             -framework Security -framework SystemConfiguration -framework CoreFoundation -lresolv -lc++ \
             -o /tmp/probe

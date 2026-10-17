@@ -245,6 +245,9 @@ jobs:
       - name: Build the self-signing library
         if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
         working-directory: iosInstaller
+        env:
+          # Nuvio Z's minimum iOS; without it the crypto C/assembly objects target the SDK's own version.
+          IPHONEOS_DEPLOYMENT_TARGET: "16.1"
         run: |
           rustup target add aarch64-apple-ios
           cargo build -p nuvioz-signer --release --target aarch64-apple-ios
