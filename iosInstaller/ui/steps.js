@@ -216,22 +216,38 @@ function buildSteps(ctx) {
   },
   ...(direct ? [{
     id: "open",
-    title: `Open ${nuvioName} and let it renew itself`,
+    title: `Open ${nuvioName} and renew it once`,
     lead: "Apps from a free Apple Account stop opening after 7 days unless they’re renewed. Nuvio Z does that itself; it needs your account once.",
     cards: [
       { art: Art.list([{ header: "LocalDevVPN", rows: [{ label: "Connect", link: true, chev: false, hl: 1 }] }]), n: 1, cap: "Open LocalDevVPN and tap Connect" },
       { art: Art.icon("nuvio", { hl: 2 }), n: 2, cap: `Open ${nuvioName}` },
-      { art: Art.path({ label: "Advanced", icon: "settings", tile: "gray" }, { label: "Keep Nuvio Z working", hl: 3 }), n: 3, cap: "Settings › Advanced › Keep Nuvio Z working", sub: "Tap Renew now, then Set up daily refresh" },
+      { art: Art.appForm({ title: "Keep Nuvio Z working", fields: [EMAIL, "••••••••••"], cta: "Renew now", hl: 3 }), n: 3, cap: "Sign in and tap Renew now", sub: "Nuvio Z shows this first, before anything else" },
     ],
     liveStatus: (d) => d.nuvioPairing === false
       ? { kind: "warn", text: `${nuvioName} is missing its connection file.`, sub: "Keep the iPhone plugged in and click Add it again below." }
       : null,
-    buttons: [{ label: "Done" }],
+    buttons: [{ label: "Next" }],
     links: [{ label: "Add it again", action: "placeNuvioPairing" }],
     alternates: [
       [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back one step and trust your Apple Account in Settings."]],
-      ["“Keep Nuvio Z working” isn’t there", ["In this test build it’s under Settings › Advanced › Diagnostics."]],
+      ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z under Settings › Advanced › Diagnostics."]],
       [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", "Keep the iPhone plugged in here and click <b>Add it again</b>."]],
+    ],
+  },
+  {
+    id: "automation",
+    title: "Set up the daily refresh",
+    lead: "The last step, on the iPhone. Nuvio Z shows it right after the renewal, with a picture for every tap. It’s what keeps Nuvio Z opening without this computer.",
+    cards: [
+      { art: Art.list([{ header: "Nuvio Z Refresh", rows: [{ label: "Set LocalDevVPN to Connect", chev: false }, { label: "Refresh Nuvio Z", chev: false, hl: 1 }, { label: "Set LocalDevVPN to Disconnect", chev: false }] }]), n: 1, cap: "Make the Nuvio Z Refresh shortcut", sub: "In Shortcuts, as Nuvio Z shows" },
+      { art: Art.list([{ header: "New Automation", rows: [{ label: "Time of Day", hl: 2 }, { label: "Alarm" }, { label: "Sleep" }] }]), n: 2, cap: "Automation › + › Time of Day" },
+      { art: Art.list([{ header: "When", rows: [{ label: "Daily", value: "4:00 AM", chev: false }, { label: "Run Immediately", toggle: true, hl: 3 }] }]), n: 3, cap: "Daily, Run Immediately", sub: "Then pick Nuvio Z Refresh and tap Done" },
+    ],
+    buttons: [{ label: "Done" }],
+    alternates: [
+      ["“Refresh Nuvio Z” isn’t in the Shortcuts list", ["Open Nuvio Z once, then search the actions again.", "Search for “Nuvio”: the action is listed under the app."]],
+      ["LocalDevVPN isn’t in Set VPN", ["Open LocalDevVPN and tap Connect once, so iOS knows about it. Then pick it in the Set VPN action again."]],
+      ["I want to do this later", ["Nuvio Z shows these steps every time it opens until they’re done. They’re also in Settings › Advanced › Diagnostics › Keep Nuvio Z working."]],
     ],
   }] : [{
     id: "sidestore",
@@ -271,7 +287,7 @@ function buildSteps(ctx) {
     done: true,
     title: `${direct ? nuvioName : "Nuvio Z"} is on your iPhone`,
     lead: direct
-      ? "You can unplug it now. Nuvio Z renews itself while LocalDevVPN is connected, and the daily refresh you set up in it means it never runs out."
+      ? "You can unplug it now. The daily refresh renews Nuvio Z every day, so it keeps opening without this computer."
       : "You can unplug it now. Apps from a free Apple Account need a refresh every 7 days; set up daily auto-refresh once and your iPhone handles it.",
     layout: "wide",
     cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],

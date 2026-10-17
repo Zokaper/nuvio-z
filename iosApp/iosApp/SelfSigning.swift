@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 #if NUVIO_SELF_SIGNING
 import AppIntents
 import BackgroundTasks
@@ -72,6 +72,32 @@ struct RefreshNuvioZIntent: AppIntent {
     }
 }
 
+/// "Keep Nuvio Z working" over the whole app at launch, before any sign-in, until the daily refresh is set up on
+/// this iPhone ("Later" hides it until the next launch).
+private struct SelfSigningSetupCover: ViewModifier {
+    @State private var shown = SelfSigningSpike_iosKt.selfSigningSetupNeeded()
+
+    func body(content: Content) -> some View {
+        content.fullScreenCover(isPresented: $shown) {
+            SelfSigningSetupView(onClose: { shown = false }).ignoresSafeArea()
+        }
+    }
+}
+
+private struct SelfSigningSetupView: UIViewControllerRepresentable {
+    let onClose: () -> Void
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        SelfSigningSpike_iosKt.SelfSigningSetupViewController(onClose: onClose)
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+extension View {
+    func selfSigningSetup() -> some View { modifier(SelfSigningSetupCover()) }
+}
+
 /// Puts the action in the Shortcuts app with no setup.
 @available(iOS 16.0, *)
 struct NuvioZShortcuts: AppShortcutsProvider {
@@ -82,5 +108,9 @@ struct NuvioZShortcuts: AppShortcutsProvider {
 #else
 enum SelfSigningBackground {
     static func register() {}
+}
+
+extension View {
+    func selfSigningSetup() -> some View { self }
 }
 #endif

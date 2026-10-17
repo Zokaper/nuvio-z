@@ -1,11 +1,16 @@
 package com.nuvio.app.core.debug
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.window.ComposeUIViewController
+import com.nuvio.app.core.ui.NuvioTheme
+import com.nuvio.app.features.settings.SelfSigningSetupScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import platform.UIKit.UIViewController
 
 /**
  * Fills [SelfSigningSpike.platform] when this iOS build is linked with the self-signing library, and starts the
@@ -37,6 +42,20 @@ fun selfSigningRefresh(trigger: String, onDone: (String) -> Unit) {
             }
         }.getOrElse { "Nuvio Z couldn’t renew: ${it.message}" }
         onDone(line)
+    }
+}
+
+/**
+ * Swift: whether to show the "Keep Nuvio Z working" set-up over the app at launch (before any sign-in): only in
+ * builds that renew themselves, and until the daily refresh is set up on this iPhone.
+ */
+fun selfSigningSetupNeeded(): Boolean = selfSigningPlatform()?.automationSetUp() == false
+
+/** Swift: that set-up, as a screen for a full-screen cover. [onClose] after "Done" or "Later". */
+fun SelfSigningSetupViewController(onClose: () -> Unit): UIViewController = ComposeUIViewController {
+    val platform = selfSigningPlatform()
+    NuvioTheme(darkTheme = true) {
+        if (platform != null) SelfSigningSetupScreen(platform, onClose) else LaunchedEffect(Unit) { onClose() }
     }
 }
 

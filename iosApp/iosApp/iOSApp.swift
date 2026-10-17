@@ -14,6 +14,7 @@ struct iOSApp: App {
         WindowGroup {
             ContentView()
                 .preferredColorScheme(.dark)
+                .selfSigningSetup()
                 .onOpenURL { url in
                     AppUrlBridgeKt.handleAppUrl(url: url.absoluteString)
                 }

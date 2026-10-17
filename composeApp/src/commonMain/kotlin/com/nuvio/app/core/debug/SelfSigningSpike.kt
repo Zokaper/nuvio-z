@@ -71,4 +71,12 @@ internal interface SelfSigningPlatform {
 
     /** The hosted daily-refresh shortcut (an iCloud link), or null when only the guided build exists. */
     suspend fun refreshShortcutUrl(): String?
+
+    /**
+     * Whether the daily refresh is set up on this iPhone (per device, not per profile): the person said so, or the
+     * Shortcuts action has renewed on two different days, which only an automation does.
+     */
+    fun automationSetUp(): Boolean
+
+    fun markAutomationSetUp(done: Boolean)
 }

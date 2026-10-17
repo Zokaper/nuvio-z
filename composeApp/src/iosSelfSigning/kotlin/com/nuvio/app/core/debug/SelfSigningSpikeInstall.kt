@@ -204,6 +204,10 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
     override fun lastRefresh(): String? = defaults.stringForKey("nzs.lastRefresh")
 
+    override fun automationSetUp(): Boolean = defaults.boolForKey("nzs.automation.done")
+
+    override fun markAutomationSetUp(done: Boolean) = defaults.setBool(done, "nzs.automation.done")
+
     override suspend fun refreshShortcutUrl(): String? = withContext(Dispatchers.Default) {
         withTimeoutOrNull(5_000) {
             runCatching {
@@ -241,6 +245,12 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
             root?.get("report")?.jsonObject?.str("route")?.let { put("route", it) }
             expires?.let { put("expires", it) }
         }.toString(), "nzs.lastRefresh")
+        if (trigger == "shortcut" && ok) {
+            // A by-hand run is one day; renewals from the action on two different days mean an automation runs it.
+            val previous = defaults.stringForKey("nzs.intent.lastOkRun")
+            if (previous != null && previous.take(10) != now().toString().take(10)) markAutomationSetUp(true)
+            defaults.setObject(now().toString(), "nzs.intent.lastOkRun")
+        }
         if (trigger == "shortcut") defaults.setObject(now().toString(), "nzs.intent.lastRun")
         if (trigger == "background") defaults.setObject(now().toString(), "nzs.bgtask.lastRun")
     }
@@ -373,6 +383,7 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
 
         val intentCompiled = defaults.boolForKey("nzs.intent.compiled")
         lines += "Shortcuts action \"Refresh Nuvio Z\": ${if (intentCompiled) "in this build" else "NOT in this build"}; last run ${defaults.stringForKey("nzs.intent.lastRun") ?: "never"}"
+        lines += "Daily refresh set up (this iPhone): ${if (automationSetUp()) "yes" else "no"}"
         val submitted = defaults.stringForKey("nzs.bgtask.submittedAt")
         val bgError = defaults.stringForKey("nzs.bgtask.error")
         lines += "Background refresh: ${if (submitted != null) "scheduled at $submitted" else "not scheduled"}${bgError?.let { " (error: $it)" } ?: ""}; last run ${defaults.stringForKey("nzs.bgtask.lastRun") ?: "never"}"
