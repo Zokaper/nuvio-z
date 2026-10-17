@@ -6,6 +6,7 @@ pub mod account;
 pub mod anisette;
 pub mod credentials;
 pub mod device;
+pub mod drivers;
 pub mod nuvio;
 pub mod ondevice;
 pub mod pairing;

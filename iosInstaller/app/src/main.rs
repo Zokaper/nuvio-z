@@ -7,7 +7,7 @@ use std::time::Duration;
 use nuvioz_installer_core::account::{self, SignInError, SignInErrorKind, Signer, TwoFactorPrompt, TwoFactorReply};
 use nuvioz_installer_core::nuvio::{self, Build};
 use nuvioz_installer_core::sidestore::{self, Channel, InstallError, Stage};
-use nuvioz_installer_core::{anisette, credentials, device, pairing, paths, selfsign, storage};
+use nuvioz_installer_core::{anisette, credentials, device, drivers, pairing, paths, selfsign, storage};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Mutex};
@@ -72,6 +72,22 @@ async fn place_pairing(session: State<'_, Session>) -> Result<pairing::Placed, S
         None => None,
     };
     pairing::place_for_sidestore(team.as_deref()).await
+}
+
+/// "Getting this PC ready": installs Apple Devices from the Microsoft Store and starts its iPhone service, silently.
+#[tauri::command]
+async fn ensure_apple_software(session: State<'_, Session>) -> Result<drivers::AppleSoftware, String> {
+    let result = drivers::ensure().await;
+    if let Err(e) = &result {
+        session.errors.lock().unwrap().push(format!("apple software: {e}"));
+    }
+    result
+}
+
+/// The fallback when the silent install can't: the Store page, where the person clicks Get.
+#[tauri::command]
+fn open_apple_store_page() -> Result<(), String> {
+    drivers::open_store_page()
 }
 
 /// Re-places Nuvio Z's own pairing file (the "Add it again" link on the last phone step).
@@ -242,6 +258,7 @@ async fn diagnostics(session: State<'_, Session>) -> Result<serde_json::Value, S
     Ok(serde_json::json!({
         "installer": env!("CARGO_PKG_VERSION"),
         "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "appleSoftware": drivers::state().await,
         "device": device::probe().await,
         "rememberedAccount": saved.is_some(),
         "anisetteIdentity": storage::has_anisette_state(),
@@ -273,6 +290,8 @@ fn main() {
             reveal_developer_mode,
             place_pairing,
             place_nuvio_pairing,
+            ensure_apple_software,
+            open_apple_store_page,
             check_anisette,
             sign_in,
             saved_account,

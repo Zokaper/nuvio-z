@@ -294,6 +294,12 @@ async function act(action, step, index) {
         flash = { kind: "ok", text: "Done. Look again in Settings › Privacy & Security." };
         return render();
       } catch (e) { return fail(`Couldn’t reach the iPhone: ${e}`); }
+    case "openAppleStore":
+      try { await invoke("open_apple_store_page"); } catch (e) { return fail(String(e)); }
+      return;
+    case "retryDrivers":
+      ctx.drivers = null;
+      return render();
     case "placeNuvioPairing":
       busy("Adding Nuvio Z’s connection file…");
       try {
@@ -346,6 +352,17 @@ if (ctx.live) {
     if (current === "installing" && now - lastPaint > 150) { lastPaint = now; render(); }
   });
 
+  // "Getting this PC ready" installs and starts Apple Devices by itself, once per visit (Try again clears it).
+  async function ensureAppleSoftware() {
+    ctx.drivers = "running";
+    render();
+    try {
+      await invoke("ensure_apple_software");
+      ctx.drivers = "done";
+    } catch { ctx.drivers = "failed"; }
+    render();
+  }
+
   // Steps that wait on the phone finish by themselves.
   let probing = false;
   setInterval(async () => {
@@ -354,6 +371,7 @@ if (ctx.live) {
     probing = true;
     try {
       ctx.device = await invoke("probe_device");
+      if (step.id === "drivers" && ctx.device.usbmuxdReachable === false && !ctx.drivers) ensureAppleSoftware();
       if (byId[current] === step && step.watch(ctx.device)) {
         const i = walk.findIndex((s) => s.id === step.id);
         goTo(walk[i + 1].id);

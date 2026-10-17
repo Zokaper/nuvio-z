@@ -47,19 +47,21 @@ function buildSteps(ctx) {
   {
     id: "drivers",
     title: "Getting this PC ready",
-    lead: "We’re installing Apple’s iPhone connection software. Windows asks for permission once.",
+    lead: "Installing Apple Devices, Apple’s free iPhone connection app, from the Microsoft Store. Nothing to click.",
     layout: "wide",
-    cards: [{ art: Art.uac({ hl: 1 }), n: 1, cap: "When Windows asks, click Yes" }],
-    status: { kind: "work", text: "Installing Apple Mobile Device Support…", sub: "usually under a minute" },
+    cards: [{ art: Art.glyph("apple"), cap: "Apple Devices", sub: "From the Microsoft Store, by Apple" }],
+    status: { kind: "work", text: "Installing Apple Devices…", sub: "usually under a minute" },
     watch: (d) => d.usbmuxdReachable,
-    // Installing the driver silently is Stage 3; until then the live app says what to install by hand.
-    liveStatus: (d) => d.usbmuxdReachable === false
-      ? { kind: "warn", text: "Apple’s iPhone software isn’t on this PC yet.", sub: "Install “Apple Devices” from the Microsoft Store, then come back." }
-      : { kind: "wait", text: "Checking this PC…" },
+    // The live app installs and starts it by itself (core/src/drivers.rs); this only shows how that is going.
+    liveStatus: () => ctx.drivers === "failed"
+      ? { kind: "warn", text: "Windows wouldn’t install it by itself.", sub: "Click Open the Microsoft Store, then Get. This continues when it’s done." }
+      : ctx.drivers === "done" ? { kind: "wait", text: "Starting it…" }
+      : { kind: "work", text: "Installing Apple Devices…", sub: "usually under a minute" },
+    buttons: ctx.drivers === "failed" ? [{ label: "Open the Microsoft Store", action: "openAppleStore" }, { label: "Try again", glass: true, action: "retryDrivers" }] : [],
     alternates: [
-      ["Windows didn’t ask me anything", ["Look for a flashing yellow-and-blue shield in the taskbar and click it.", "The question may be behind this window: press Alt+Tab."]],
-      ["I clicked No", ["Click <b>Try again</b>. Windows asks once more."]],
-      ["It says another installation is in progress", ["Windows Update is installing something. Wait for it to finish, then click <b>Try again</b>."]],
+      ["The Microsoft Store says I need to sign in", ["Apple Devices is free: close the sign-in box and click <b>Get</b> again. If it insists, sign in with any Microsoft account."]],
+      ["It says another installation is in progress", ["The Microsoft Store or Windows Update is installing something. Wait for it to finish, then click <b>Try again</b>."]],
+      ["I already have iTunes", ["That works too. If this step doesn’t finish, open iTunes once, close it, and click <b>Try again</b>."]],
     ],
   },
   {
