@@ -16,3 +16,12 @@ plist.workspace = true
 rootcause.workspace = true
 reqwest.workspace = true
 keyring.workspace = true
+sha2 = "0.11"
+hex = "0.4"
+# Same as isideload 0.4.6: reading and unpacking IPAs.
+zip = { version = "8.3", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+# Only for tests/qr_codes.rs, which generates ui/qr.js and decodes every code back.
+qrcode = { version = "0.14", default-features = false }
+rqrr = "0.9"

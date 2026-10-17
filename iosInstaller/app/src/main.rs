@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nuvioz_installer_core::account::{self, SignInError, SignInErrorKind, Signer, TwoFactorPrompt, TwoFactorReply};
+use nuvioz_installer_core::nuvio::{self, Build};
 use nuvioz_installer_core::sidestore::{self, Channel, InstallError, Stage};
-use nuvioz_installer_core::{anisette, credentials, device, pairing};
+use nuvioz_installer_core::{anisette, credentials, device, pairing, paths, selfsign, storage};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Mutex};
@@ -21,6 +22,16 @@ struct Session {
     replies: std::sync::Mutex<Option<mpsc::UnboundedSender<TwoFactorReply>>>,
     /// The person's pick while an install waits for them to choose certificates to revoke.
     certificates: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Option<Vec<String>>>>>,
+    /// What went wrong this session, for Help › Copy report: one line each, never a password or full email.
+    errors: std::sync::Mutex<Vec<String>>,
+}
+
+impl Session {
+    fn note(&self, what: &str, e: &SignInError) {
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let code = e.code.map(|c| format!(" {c}")).unwrap_or_default();
+        self.errors.lock().unwrap().push(format!("{at} {what}: {:?}{code} {}", e.kind, e.summary));
+    }
 }
 
 /// When the account is out of certificates and none is ours, ask the window which to revoke.
@@ -61,6 +72,12 @@ async fn place_pairing(session: State<'_, Session>) -> Result<pairing::Placed, S
         None => None,
     };
     pairing::place_for_sidestore(team.as_deref()).await
+}
+
+/// Re-places Nuvio Z's own pairing file (the "Add it again" link on the last phone step).
+#[tauri::command]
+async fn place_nuvio_pairing(debug: bool) -> Result<pairing::Placed, String> {
+    pairing::place_for_nuvio(debug).await
 }
 
 #[tauri::command]
@@ -104,6 +121,9 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
         _ => {}
     }
     drop(password);
+    if let Err(e) = &result {
+        session.note("sign in", e);
+    }
     let signer = result?;
     *session.signer.lock().await = Some(signer);
     Ok(email.trim().to_lowercase())
@@ -156,24 +176,80 @@ async fn install_sidestore(app: AppHandle, session: State<'_, Session>, channel:
         stage: Stage::Sign,
         error: SignInError { kind: SignInErrorKind::Other, code: None, summary: "not signed in".into(), detail: "not signed in".into() },
     })?;
-    sidestore::install(signer, channel, |stage, fraction| {
+    let result = sidestore::install(signer, channel, |stage, fraction| {
         let _ = app.emit("install-progress", Progress { stage, fraction });
     })
-    .await
+    .await;
+    if let Err(e) = &result {
+        session.note(&format!("install SideStore ({:?})", e.stage), &e.error);
+    }
+    result
 }
 
-/// Phase 2 test path (Ctrl+Shift+I in the window): Nuvio Z Debug straight from this computer, no SideStore.
+/// The normal path: Nuvio Z straight from this computer (no SideStore), with its pairing file and signing key.
+/// An IPA next to the installer wins over the hosted build; `build` picks stable or Debug (Ctrl+Shift+D).
 #[tauri::command]
-async fn install_nuvio_test(app: AppHandle, session: State<'_, Session>) -> Result<pairing::Placed, InstallError> {
+async fn install_nuvio(app: AppHandle, session: State<'_, Session>, build: Build) -> Result<nuvio::Installed, InstallError> {
     let mut guard = session.signer.lock().await;
     let signer = guard.as_mut().ok_or_else(|| InstallError {
         stage: Stage::Sign,
         error: SignInError { kind: SignInErrorKind::Other, code: None, summary: "not signed in".into(), detail: "not signed in".into() },
     })?;
-    sidestore::install_nuvio_debug(signer, nuvioz_installer_core::paths::nuvio_debug_test_ipa(), |stage, fraction| {
+    let result = nuvio::install(signer, build, |stage, fraction| {
         let _ = app.emit("install-progress", Progress { stage, fraction });
     })
-    .await
+    .await;
+    if let Err(e) = &result {
+        session.note(&format!("install Nuvio Z ({:?})", e.stage), &e.error);
+    }
+    result
+}
+
+/// What the installer will install when it installs Nuvio Z directly: an IPA next to it, if there is one.
+#[tauri::command]
+fn local_nuvio() -> Option<serde_json::Value> {
+    let path = paths::local_nuvio_ipa()?;
+    let id = selfsign::ipa_bundle_id(&path).ok();
+    Some(serde_json::json!({
+        "file": path.file_name().map(|n| n.to_string_lossy().into_owned()),
+        "debug": id.as_deref().is_some_and(nuvio::is_debug),
+        "bundleId": id,
+    }))
+}
+
+/// Help › Reset sign-in data: a fresh anisette identity on the next sign-in (the fix for Apple's -22410).
+/// The remembered account and the signing key stay.
+#[tauri::command]
+fn reset_sign_in(session: State<'_, Session>) -> Result<(), String> {
+    storage::reset_sign_in()?;
+    // Whoever was signed in signed in with the old identity.
+    if let Ok(mut guard) = session.signer.try_lock() {
+        *guard = None;
+    }
+    Ok(())
+}
+
+/// Help › Copy report: what the installer knows, for a tester to paste back. Presence only for secrets; no
+/// device name, no full UDID, no email, no password.
+#[tauri::command]
+async fn diagnostics(session: State<'_, Session>) -> Result<serde_json::Value, String> {
+    let saved = credentials::saved_email();
+    let mut servers = Vec::new();
+    for server in account::ANISETTE_SERVERS {
+        let check = anisette::check(server).await;
+        servers.push(serde_json::json!({ "server": server, "reachable": check.reachable }));
+    }
+    Ok(serde_json::json!({
+        "installer": env!("CARGO_PKG_VERSION"),
+        "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "device": device::probe().await,
+        "rememberedAccount": saved.is_some(),
+        "anisetteIdentity": storage::has_anisette_state(),
+        "signingKey": saved.as_deref().is_some_and(|e| storage::private_key(e).is_some()),
+        "localIpa": local_nuvio(),
+        "anisetteServers": servers,
+        "errors": session.errors.lock().unwrap().clone(),
+    }))
 }
 
 fn main() {
@@ -196,6 +272,7 @@ fn main() {
             probe_device,
             reveal_developer_mode,
             place_pairing,
+            place_nuvio_pairing,
             check_anisette,
             sign_in,
             saved_account,
@@ -203,7 +280,10 @@ fn main() {
             answer_two_factor,
             answer_certificates,
             install_sidestore,
-            install_nuvio_test
+            install_nuvio,
+            local_nuvio,
+            reset_sign_in,
+            diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("failed to start the Nuvio Z iOS Installer");

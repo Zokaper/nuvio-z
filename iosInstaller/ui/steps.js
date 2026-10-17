@@ -9,8 +9,11 @@
 //   watch:   (snapshot) => bool      in the real app, the step finishes by itself once the phone shows this
 //   action:  on a button or link, the name of a handler in app.js; a primary button without one goes next
 //
-// `ctx` is what the app knows right now: { live, email, install, twoFactor }. In previews (`?step=`) it is
-// empty and the screens show sample values.
+// `ctx` is what the app knows right now: { live, email, install, target, debugBuild, localIpa }. In previews
+// (`?step=`) it is empty and the screens show sample values.
+//
+// Two flows share the screens. The normal one installs Nuvio Z itself, which then renews itself on the phone;
+// `ctx.target === "sidestore"` is the fallback that installs SideStore and has the person add Nuvio Z there.
 "use strict";
 
 function buildSteps(ctx) {
@@ -21,8 +24,9 @@ function buildSteps(ctx) {
     const at = stages.indexOf(install.stage), me = stages.indexOf(stage);
     return me < at ? `<span class="done"><i>✓</i>${label}</span>` : me === at ? `<span class="now"><i></i>${label}</span>` : `<span><i></i>${label}</span>`;
   };
-  // The Phase 2 test path installs Nuvio Z itself, not SideStore.
-  const target = ctx.channel === "nuvioTest" ? "Nuvio Z" : "SideStore";
+  const direct = ctx.target !== "sidestore";
+  const nuvioName = ctx.debugBuild ? "Nuvio Z Debug" : "Nuvio Z";
+  const target = direct ? nuvioName : "SideStore";
   const installText = { download: `Getting ${target} ready…`, sign: `Signing and sending ${target}… ${Math.round(install.fraction * 100)}%`, pairing: `Adding ${target}’s connection file…` }[install.stage];
 
   return [
@@ -36,7 +40,9 @@ function buildSteps(ctx) {
       { art: Art.glyph("cable"), cap: "A cable that carries data", sub: "The one that came with the iPhone works" },
       { art: Art.glyph("userRound"), cap: "Your Apple Account", sub: "A free one is fine. Not a child or work account" },
     ],
+    status: ctx.localIpa ? { kind: "ok", text: `Installs the ${ctx.localIpa.debug ? "Nuvio Z Debug" : "Nuvio Z"} test build next to this installer.`, sub: ctx.localIpa.file } : null,
     buttons: [{ label: "Let’s go" }],
+    links: [{ label: direct ? "Install with SideStore instead" : "Install Nuvio Z directly instead", action: "toggleTarget" }],
   },
   {
     id: "drivers",
@@ -102,7 +108,7 @@ function buildSteps(ctx) {
   {
     id: "signin",
     title: "Sign in with your Apple Account",
-    lead: "SideStore gets signed with your own account, like an app you made yourself. A free account works.",
+    lead: `${direct ? "Nuvio Z" : "SideStore"} gets signed with your own account, like an app you made yourself. A free account works.`,
     // A remembered account signs in with one click; otherwise the form.
     center: ctx.savedEmail && !ctx.useOtherAccount
       ? `<div class="saved-account"><div class="avatar">${ctx.savedEmail[0].toUpperCase()}</div><b>${ctx.savedEmail}</b><small>Remembered on this computer</small></div>`
@@ -113,7 +119,11 @@ function buildSteps(ctx) {
         <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> If you tick “Remember me”, it’s kept in this computer’s secure keychain, never sent to us.</span></div>
       </form>`,
     buttons: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Continue", action: "signInSaved" }] : [{ label: "Sign in", action: "signIn" }],
-    links: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : [],
+    links: [
+      ...(ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : []),
+      // Apple's -22410 "try again" is a stale sign-in identity: offer the fix right where it happened.
+      ...(ctx.lastErrorKind === "tryAgain" ? [{ label: "Reset sign-in data", action: "resetSignIn" }] : []),
+    ],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
       ["Which email do I use?", ["The one you use for the App Store. It’s at the top of <span class=path>Settings › [your name]</span> on the iPhone."]],
@@ -152,9 +162,9 @@ function buildSteps(ctx) {
     title: `Installing ${target} on your iPhone`,
     lead: "Keep the iPhone plugged in and unlocked. A minute or two.",
     layout: "wide",
-    cards: [{ art: Art.progress(ctx.channel === "nuvioTest" ? "nuvio" : "sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
+    cards: [{ art: Art.progress(direct ? "nuvio" : "sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
     status: { kind: "work", text: installText },
-    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span>${chip("download", ctx.channel === "nuvioTest" ? "Getting Nuvio Z ready" : "Downloading SideStore")}${chip("sign", "Signing and sending it")}${chip("pairing", "Connection files")}</div>`,
+    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span>${chip("download", direct ? `Getting ${nuvioName} ready` : "Downloading SideStore")}${chip("sign", "Signing and sending it")}${chip("pairing", "Connection files")}</div>`,
   },
   {
     id: "devmode",
@@ -184,23 +194,44 @@ function buildSteps(ctx) {
     ],
     buttons: [{ label: "I’ve trusted it" }],
     alternates: [
-      ["There’s no Developer App section", ["SideStore may not have finished installing. Check its icon is on the Home Screen, then reopen Settings.", "Make sure you opened <b>VPN & Device Management</b>, not <b>VPN</b>."]],
+      ["There’s no Developer App section", [`${target} may not have finished installing. Check its icon is on the Home Screen, then reopen Settings.`, "Make sure you opened <b>VPN & Device Management</b>, not <b>VPN</b>."]],
       ["The email shown isn’t mine", ["Tap the one that matches the account you signed in with on this computer."]],
     ],
   },
   {
     id: "localdevvpn",
     title: "Get LocalDevVPN from the App Store",
-    lead: "SideStore uses it to refresh your apps without a computer. It’s free and doesn’t send your internet anywhere.",
+    lead: direct
+      ? `${nuvioName} uses it to renew itself without a computer. It’s free and doesn’t send your internet anywhere.`
+      : "SideStore uses it to refresh your apps without a computer. It’s free and doesn’t send your internet anywhere.",
     cards: [
-      { art: Art.qr(11), n: 1, cap: "Scan with your iPhone camera", sub: "or search “LocalDevVPN”" },
+      { art: Art.qr("localDevVpn"), n: 1, cap: "Scan with your iPhone camera", sub: "or search “LocalDevVPN”" },
       { art: Art.store({ name: "LocalDevVPN", subtitle: "Utilities", tile: "green", icon: "shieldCheck", hl: 2 }), n: 2, cap: "Tap Get" },
       { art: Art.alert({ title: "“LocalDevVPN” Would Like to Add VPN Configurations", message: "All network activity on this iPhone may be filtered or monitored when using VPN.", buttons: [{ label: "Allow", bold: true, hl: 3 }, { label: "Don’t Allow" }] }), n: 3, cap: "Open it, tap Allow, then Connect" },
     ],
     status: { kind: "wait", text: "Waiting for LocalDevVPN…", sub: "continues by itself" },
     watch: (d) => Boolean(d.apps && d.apps.localDevVpn),
   },
-  {
+  ...(direct ? [{
+    id: "open",
+    title: `Open ${nuvioName} and let it renew itself`,
+    lead: "Apps from a free Apple Account stop opening after 7 days unless they’re renewed. Nuvio Z does that itself; it needs your account once.",
+    cards: [
+      { art: Art.list([{ header: "LocalDevVPN", rows: [{ label: "Connect", link: true, chev: false, hl: 1 }] }]), n: 1, cap: "Open LocalDevVPN and tap Connect" },
+      { art: Art.icon("nuvio", { hl: 2 }), n: 2, cap: `Open ${nuvioName}` },
+      { art: Art.path({ label: "Advanced", icon: "settings", tile: "gray" }, { label: "Keep Nuvio Z working", hl: 3 }), n: 3, cap: "Settings › Advanced › Keep Nuvio Z working", sub: "Tap Renew now, then Set up daily refresh" },
+    ],
+    liveStatus: (d) => d.nuvioPairing === false
+      ? { kind: "warn", text: `${nuvioName} is missing its connection file.`, sub: "Keep the iPhone plugged in and click Add it again below." }
+      : null,
+    buttons: [{ label: "Done" }],
+    links: [{ label: "Add it again", action: "placeNuvioPairing" }],
+    alternates: [
+      [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back one step and trust your Apple Account in Settings."]],
+      ["“Keep Nuvio Z working” isn’t there", ["In this test build it’s under Settings › Advanced › Diagnostics."]],
+      [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", "Keep the iPhone plugged in here and click <b>Add it again</b>."]],
+    ],
+  }] : [{
     id: "sidestore",
     title: "Open SideStore and sign in",
     lead: `Use ${EMAIL}, the same account as on this computer.`,
@@ -221,8 +252,8 @@ function buildSteps(ctx) {
     id: "nuvio",
     title: "Add Nuvio Z and install it",
     cards: [
-      { art: Art.qr(3), n: 1, cap: "Scan with your iPhone camera" },
-      { art: Art.camera({ banner: "Open in “SideStore”", hl: 2, seed: 3 }), n: 2, cap: "Tap the yellow banner, then Add" },
+      { art: Art.qr("sideStoreSource"), n: 1, cap: "Scan with your iPhone camera" },
+      { art: Art.camera({ banner: "Open in “SideStore”", hl: 2, code: "sideStoreSource" }), n: 2, cap: "Tap the yellow banner, then Add" },
       { art: Art.appRow({ name: "Nuvio Z", sub: "Movies and series, your way", button: "Install", hl: 3 }), n: 3, cap: "Tap Install" },
     ],
     status: { kind: "wait", text: "Waiting for Nuvio Z…", sub: "continues by itself" },
@@ -232,15 +263,17 @@ function buildSteps(ctx) {
       ["“Maximum number of apps”", ["A free Apple Account can have 3 sideloaded apps at once. In SideStore’s <b>My Apps</b>, delete one you don’t use, then try again."]],
       ["“Maximum number of App IDs”", ["A free Apple Account can create only 10 new App IDs in any 7 days, and Nuvio Z uses 2 (the app and its widget). Wait until older ones are a week old, or use another Apple Account."]],
     ],
-  },
+  }]),
   {
     id: "done",
     done: true,
-    title: "Nuvio Z is on your iPhone",
-    lead: "You can unplug it now. Apps from a free Apple Account need a refresh every 7 days; set up daily auto-refresh once and your iPhone handles it.",
+    title: `${direct ? nuvioName : "Nuvio Z"} is on your iPhone`,
+    lead: direct
+      ? "You can unplug it now. Nuvio Z renews itself while LocalDevVPN is connected, and the daily refresh you set up in it means it never runs out."
+      : "You can unplug it now. Apps from a free Apple Account need a refresh every 7 days; set up daily auto-refresh once and your iPhone handles it.",
     layout: "wide",
     cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],
-    buttons: [{ label: "Set up auto-refresh" }, { label: "Close", glass: true }],
+    buttons: direct ? [] : [{ label: "Set up auto-refresh" }, { label: "Close", glass: true }],
   },
 ];
 }

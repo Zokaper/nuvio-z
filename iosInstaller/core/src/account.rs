@@ -8,10 +8,7 @@ use isideload::{
     auth::apple_account::AppleAccount,
     dev::{certificates::DevelopmentCertificate, developer_session::DeveloperSession},
     sideload::{builder::MaxCertsBehavior, sideloader::Sideloader, SideloaderBuilder},
-    util::{
-        callbacks::MaxCertsCallbackBox,
-        fs_storage::FsStorage,
-    },
+    util::callbacks::MaxCertsCallbackBox,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -22,7 +19,7 @@ pub use isideload::auth::apple_account::{TwoFactorCallbackParams as TwoFactorPro
 pub use isideload::util::callbacks::TwoFactorCallback;
 pub use rootcause::Report;
 
-use crate::paths;
+use crate::storage::SecretStorage;
 
 /// The name Apple lists our signing certificate under in the account. Also how we recognise certificates
 /// we may revoke ourselves (see `only_ours`).
@@ -51,6 +48,12 @@ pub enum SignInErrorKind {
     ServerUnavailable,
     /// A free account allows only a few development certificates and they are all in use by other tools.
     CertificateLimit,
+    /// Apple -22410 "This action could not be completed. Try again.": usually a stale sign-in identity on this
+    /// device; resetting the sign-in data and signing in again clears it.
+    TryAgain,
+    /// An unattended refresh (Shortcuts, background) reached Apple's two-factor prompt, which only a person
+    /// can answer: renew once by hand from inside the app.
+    CodeNeeded,
     Network,
     Cancelled,
     Other,
@@ -101,7 +104,11 @@ pub fn classify(text: &str) -> SignInError {
         Some(-20209) => SignInErrorKind::Locked,
         Some(-21669) => SignInErrorKind::WrongCode,
         Some(7460) => SignInErrorKind::CertificateLimit,
+        // -22410 seen from Apple on 2026-10-17 on a friend's first sign-in; -22411/-22421 are its neighbours
+        // that other tools report with the same "try again" wording.
+        Some(-22410) | Some(-22411) | Some(-22421) => SignInErrorKind::TryAgain,
         _ if lower.contains("cannot be completed at this time") => SignInErrorKind::Refused,
+        _ if lower.contains("could not be completed") && lower.contains("try again") => SignInErrorKind::TryAgain,
         _ if ["502", "503", "504", "bad gateway", "service temporarily unavailable", "gateway timeout"].iter().any(|s| lower.contains(s)) => SignInErrorKind::ServerUnavailable,
         _ if lower.contains("maximum number of certificates") || lower.contains("already have a current") => SignInErrorKind::CertificateLimit,
         _ if lower.contains("abort") => SignInErrorKind::Cancelled,
@@ -111,8 +118,9 @@ pub fn classify(text: &str) -> SignInError {
     SignInError { kind, code, summary: innermost(text), detail: text.to_string() }
 }
 
-fn storage() -> Box<FsStorage> {
-    Box::new(FsStorage::new(paths::signing()))
+/// The anisette identity and the signing key, in the system keychain (see `storage`).
+fn storage() -> Box<SecretStorage> {
+    Box::new(SecretStorage::new())
 }
 
 /// One of the account's signing certificates, as the person is shown it when the account is full.
@@ -218,6 +226,9 @@ mod tests {
         assert_eq!(classify("anisette server returned an error: HTTP status server error (503 Service Temporarily Unavailable)").kind, SignInErrorKind::ServerUnavailable);
         assert_eq!(classify("Developer error 7460: You already have a current iOS Development certificate").kind, SignInErrorKind::CertificateLimit);
         assert_eq!(classify("something new").kind, SignInErrorKind::Other);
+        let e = classify("Auth error -22410: This action could not be completed. Try again.");
+        assert_eq!((e.kind, e.code), (SignInErrorKind::TryAgain, Some(-22410)));
+        assert_eq!(classify("This action could not be completed. Try again.").kind, SignInErrorKind::TryAgain);
     }
 
     #[test]

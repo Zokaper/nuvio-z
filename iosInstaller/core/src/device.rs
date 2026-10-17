@@ -32,6 +32,9 @@ pub struct DeviceSnapshot {
     pub developer_mode: Option<bool>,
     pub apps: Option<Apps>,
     pub pairing: PairingState,
+    /// Whether the installed Nuvio Z (Debug first) holds its own pairing file; `None` when there is none or its
+    /// Documents can't be opened.
+    pub nuvio_pairing: Option<bool>,
     pub errors: Vec<String>,
 }
 
@@ -210,6 +213,9 @@ pub async fn probe() -> DeviceSnapshot {
                     }
                 },
             };
+            if let Some(nuvio) = apps.nuvio_debug.as_ref().or(apps.nuvio_stable.as_ref()) {
+                snap.nuvio_pairing = bounded("nuvioPairing", crate::nuvio::has_pairing(&provider, &nuvio.bundle_id)).await.ok();
+            }
             snap.apps = Some(apps);
         }
         Err(e) => snap.errors.push(e),

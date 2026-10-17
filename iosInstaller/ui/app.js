@@ -6,7 +6,8 @@
 const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 const tauri = window.__TAURI__;
-const ctx = { live: Boolean(tauri) && !params.has("step"), channel: "stable" };
+// target: "nuvio" installs Nuvio Z itself (the normal path), "sidestore" the fallback. channel: SideStore's build.
+const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false };
 // Previews only: `?saved=1` shows the sign-in screen for a remembered account.
 if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
 // Previews only: `?certs=1` shows the "out of certificates" chooser.
@@ -14,6 +15,12 @@ if (params.get("certs")) ctx.certificates = [
   { serial: "1A2B", madeBy: "SideStore", name: "iOS Development", expires: "2027-03-02T10:00:00Z" },
   { serial: "3C4D", madeBy: "iloader", name: "iOS Development", expires: "2027-06-19T10:00:00Z" },
 ];
+// Previews only: `?help=1` the Help sheet, `?debugwarn=1` the Debug build warning, `?sidestore=1` the fallback flow,
+// `?local=1` a test IPA next to the installer.
+if (params.get("help")) ctx.help = true;
+if (params.get("debugwarn")) ctx.debugWarning = true;
+if (params.get("sidestore")) ctx.target = "sidestore";
+if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
@@ -38,6 +45,7 @@ const SIGN_IN_ERRORS = {
   wrongCode: "That code didn’t work. Send a new one and use the newest.",
   serverUnavailable: "Apple’s sign-in service is busy. Try again in a minute.",
   certificateLimit: "This Apple Account is out of signing certificates. Try again and pick one to revoke when the installer asks.",
+  tryAgain: "Apple couldn’t finish the sign-in (-22410). Click Reset sign-in data below, then sign in again.",
   network: "This computer can’t reach Apple. Check the internet connection.",
   cancelled: "Sign-in was cancelled.",
 };
@@ -76,6 +84,61 @@ function certificateSheet() {
     <button class="btn" data-action="revokeCertificates" style="min-width:0;margin-left:10px">Revoke and continue</button></div></aside>`;
 }
 
+/** Help: a report to paste back, and the sign-in reset. */
+function helpSheet() {
+  return `<div class="scrim" data-action="closeHelp"></div><aside class="sheet"><h2>Help</h2>
+    <p>Stuck? Copy a report and send it to whoever gave you this installer. It has no password, no email and no iPhone name.</p>
+    <div class="help-actions"><button class="btn" data-action="copyReport" style="min-width:0">Copy report</button>
+    <button class="btn secondary" data-action="resetSignIn" style="min-width:0">Reset sign-in data</button></div>
+    <p class="fine"><b>Reset sign-in data</b> is for when Apple says “This action could not be completed. Try again.” The next sign-in looks like a new computer to Apple, so it asks for a code again. Your remembered account stays.</p>
+    ${ctx.helpNote ? status(ctx.helpNote) : ""}
+    <div class="close-row"><button class="btn secondary" data-action="closeHelp" style="min-width:0">Done</button></div></aside>`;
+}
+
+/** Ctrl+Shift+D: the Debug build, with the warning the maintainer asked for. */
+function debugWarningSheet() {
+  return `<div class="scrim" data-action="cancelDebug"></div><aside class="sheet"><h2>Install the Debug build?</h2>
+    <p>Nuvio Z Debug is experimental and meant for development testing. It changes often, can break, and installs as a separate app next to Nuvio Z.</p>
+    <div class="close-row"><button class="btn secondary" data-action="cancelDebug" style="min-width:0">Cancel</button>
+    <button class="btn" data-action="useDebug" style="min-width:0;margin-left:10px">Use the Debug build</button></div></aside>`;
+}
+
+const yes = (b) => (b === true ? "yes" : b === false ? "no" : "unknown");
+
+/** Help › Copy report: one block of text a remote tester can paste back. */
+async function buildReport() {
+  const d = await invoke("diagnostics");
+  const dev = d.device || {};
+  const apps = dev.apps || {};
+  const what = ctx.target === "sidestore" ? `SideStore (${ctx.channel})` : ctx.debugBuild || d.localIpa?.debug ? "Nuvio Z Debug" : "Nuvio Z";
+  return [
+    "Nuvio Z iOS Installer report",
+    `Installer ${d.installer} on ${d.os}, ${new Date().toISOString()}`,
+    `Screen: ${current}. Installing: ${what}${d.localIpa ? ` from ${d.localIpa.file}` : ctx.target === "sidestore" ? "" : " from the hosted build"}`,
+    `PC: Apple software ${yes(dev.usbmuxdReachable)}, iPhones on USB ${dev.usbDevices ?? 0}`,
+    `iPhone: trusted ${yes(dev.trusted)}, iOS ${dev.iosVersion || "?"}, Developer Mode ${yes(dev.developerMode)}`,
+    `Apps: LocalDevVPN ${apps.localDevVpn ? "yes" : "no"}, Nuvio Z ${apps.nuvioStable?.version || "no"}, Nuvio Z Debug ${apps.nuvioDebug?.version || "no"}, SideStore ${apps.sidestore ? "yes" : "no"}`,
+    `Connection files: Nuvio Z ${yes(dev.nuvioPairing)}, SideStore ${dev.pairing}`,
+    `Sign-in: remembered account ${yes(d.rememberedAccount)}, sign-in identity ${yes(d.anisetteIdentity)}, signing key ${yes(d.signingKey)}`,
+    `Sign-in servers: ${d.anisetteServers.map((s) => `${new URL(s.server).host} ${s.reachable ? "ok" : "down"}`).join(", ")}`,
+    `iPhone errors: ${(dev.errors || []).join(" | ") || "none"}`,
+    "Errors this session:",
+    ...(d.errors.length ? d.errors.map((e) => `  ${e}`) : ["  none"]),
+  ].join("\n");
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+}
+
 function goTo(id) {
   current = id;
   flash = null;
@@ -98,7 +161,7 @@ function render() {
     <header class="top">
       ${index > 0 && !step.done ? `<button class="text-btn" data-action="back">${Icons.chevronLeft}Back</button>` : ""}
       <span class="spacer"></span>
-      <button class="text-btn quiet" id="help">Help</button>
+      <button class="text-btn quiet" data-action="help">Help</button>
     </header>
     <div class="head">
       <div class="eyebrow">${step.done ? "All set" : index === 0 ? "Nuvio Z for iPhone" : `Step ${index} of ${total - 1}`}</div>
@@ -112,7 +175,9 @@ function render() {
       ${links ? `<div class="links">${links}</div>` : ""}
     </footer>
     ${view.sheet ? sheet(step) : ""}
-    ${ctx.certificates ? certificateSheet() : ""}`;
+    ${ctx.certificates ? certificateSheet() : ""}
+    ${ctx.help ? helpSheet() : ""}
+    ${ctx.debugWarning ? debugWarningSheet() : ""}`;
 
   document.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", () => act(el.dataset.action, step, index)));
   const closeSheet = () => goTo(step.id);
@@ -151,6 +216,36 @@ async function act(action, step, index) {
       render();
       return invoke("answer_certificates", { serials }).catch((e) => { flash = { kind: "bad", text: String(e) }; render(); });
     }
+    case "help": ctx.help = true; ctx.helpNote = null; return render();
+    case "closeHelp": ctx.help = false; return render();
+    case "cancelDebug": ctx.debugWarning = false; return render();
+    case "useDebug":
+      ctx.debugWarning = false;
+      ctx.debugBuild = true;
+      ctx.target = "nuvio";
+      flash = { kind: "ok", text: "Debug build: installs Nuvio Z Debug." };
+      return render();
+    case "toggleTarget":
+      ctx.target = ctx.target === "sidestore" ? "nuvio" : "sidestore";
+      return goTo("welcome");
+    case "copyReport":
+      if (!ctx.live) return;
+      ctx.helpNote = { kind: "work", text: "Putting the report together…" };
+      render();
+      try {
+        await copyText(await buildReport());
+        ctx.helpNote = { kind: "ok", text: "Copied. Paste it into your message." };
+      } catch (e) { ctx.helpNote = { kind: "bad", text: `Couldn’t build the report: ${e}` }; }
+      return render();
+    case "resetSignIn":
+      if (!ctx.live) return;
+      try {
+        await invoke("reset_sign_in");
+        ctx.lastErrorKind = null;
+        ctx.helpNote = { kind: "ok", text: "Sign-in data reset. Sign in again." };
+        if (!ctx.help) flash = ctx.helpNote;
+      } catch (e) { ctx.helpNote = { kind: "bad", text: `Couldn’t reset: ${e}` }; }
+      return render();
   }
   if (!ctx.live) return go(1); // previews only walk the screens
 
@@ -177,6 +272,7 @@ async function act(action, step, index) {
       } catch (e) {
         if (e?.kind === "refused") return goTo("signin-blocked");
         if (saved && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
+        ctx.lastErrorKind = e?.kind;
         current = "signin";
         return fail(describe(e));
       }
@@ -198,6 +294,13 @@ async function act(action, step, index) {
         flash = { kind: "ok", text: "Done. Look again in Settings › Privacy & Security." };
         return render();
       } catch (e) { return fail(`Couldn’t reach the iPhone: ${e}`); }
+    case "placeNuvioPairing":
+      busy("Adding Nuvio Z’s connection file…");
+      try {
+        await invoke("place_nuvio_pairing", { debug: ctx.debugBuild || Boolean(ctx.localIpa?.debug) });
+        flash = { kind: "ok", text: "Done. Close Nuvio Z fully and open it again." };
+        return render();
+      } catch (e) { return fail(`Couldn’t add it: ${e}`); }
     case "placePairing":
       busy("Adding SideStore’s connection files…");
       try {
@@ -212,7 +315,8 @@ async function startInstall() {
   ctx.install = { stage: "download", fraction: 0 };
   goTo("installing");
   try {
-    await (ctx.channel === "nuvioTest" ? invoke("install_nuvio_test") : invoke("install_sidestore", { channel: ctx.channel }));
+    if (ctx.target === "sidestore") await invoke("install_sidestore", { channel: ctx.channel });
+    else ctx.installed = await invoke("install_nuvio", { build: ctx.debugBuild ? "debug" : "stable" });
     goTo("devmode");
   } catch (e) {
     flash = { kind: "bad", text: e?.error?.kind === "refused" ? "Apple refused the request (-80045). Try again in an hour." : describe(e?.error || e) };
@@ -222,6 +326,12 @@ async function startInstall() {
 
 if (ctx.live) {
   invoke("saved_account").then((email) => { ctx.savedEmail = email; if (byId[current]?.id === "signin") render(); });
+  // A test IPA next to the installer decides which Nuvio Z goes on (the tester's zip carries both).
+  invoke("local_nuvio").then((found) => {
+    ctx.localIpa = found;
+    if (found?.debug) ctx.debugBuild = true;
+    render();
+  });
   // Apple asks again after a wrong code (with lastError set) or after "Send a new code".
   tauri.event.listen("two-factor", (e) => {
     if (current !== "twofa") return goTo("twofa");
@@ -252,13 +362,17 @@ if (ctx.live) {
   }, 2500);
 }
 
-// Arrow keys walk the screens in previews; Ctrl+Shift+N switches the SideStore build (testing only,
-// until the hosted config decides between stable and Nightly).
+// Arrow keys walk the screens in previews. Ctrl+Shift+D picks the Debug build of Nuvio Z (with a warning);
+// Ctrl+Shift+N switches the SideStore fallback between stable and Nightly (testing only, until the hosted config
+// decides).
 document.addEventListener("keydown", (e) => {
-  // Ctrl+Shift+I: the Phase 2 test path installs Nuvio Z Debug from this PC instead of SideStore.
-  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "i") {
-    ctx.channel = ctx.channel === "nuvioTest" ? "stable" : "nuvioTest";
-    flash = { kind: "ok", text: ctx.channel === "nuvioTest" ? "Test: installs Nuvio Z Debug from this PC instead of SideStore" : "SideStore build: stable" };
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
+    if (ctx.debugBuild) {
+      ctx.debugBuild = false;
+      flash = { kind: "ok", text: "Stable build: installs Nuvio Z." };
+    } else {
+      ctx.debugWarning = true;
+    }
     return render();
   }
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {

@@ -78,12 +78,14 @@ const Art = {
     return panel("ios", `<div class="approw ios"><div class="ic"><img src="${NUVIO_ICON}" alt=""></div><div><b>${esc(name)}</b><small>${esc(sub)}</small></div><span ${cls("btn-ios", hl && "hl")}>${esc(button)}${badge(hl)}</span></div>`);
   },
 
-  camera({ banner, hl, seed }) {
-    return `<div class="panel camera"><div class="frame"></div><div class="qr">${previewQr(seed)}</div><div ${cls("banner", hl && "hl")}>${esc(banner)}${badge(hl)}</div></div>`;
+  /** The Camera pointed at one of the installer's codes (`QR` in qr.js). */
+  camera({ banner, hl, code }) {
+    return `<div class="panel camera"><div class="frame"></div><div class="qr">${QR[code]}</div><div ${cls("banner", hl && "hl")}>${esc(banner)}${badge(hl)}</div></div>`;
   },
 
-  qr(seed) {
-    return panel("plain", `<div class="qrcard">${previewQr(seed)}</div>`);
+  /** A real, scannable code: `name` is a key of `QR` (qr.js, generated and decode-checked by a core test). */
+  qr(name) {
+    return panel("plain", `<div class="qrcard">${QR[name]}</div>`);
   },
 
   codeEntry(typed) {
@@ -111,15 +113,3 @@ const Art = {
     return `<div class="progress-icon"><svg class="ring" viewBox="0 0 200 200"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--panel-line)" stroke-width="5"/><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * fraction} ${c}"/></svg>${inner}</div>`;
   },
 };
-
-/** A decorative QR-like pattern for previews. The real installer draws a real code (Stage 5). */
-function previewQr(seed = 7) {
-  const n = 21; let s = seed; const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
-  const finder = (x, y) => `<rect x="${x}" y="${y}" width="7" height="7" fill="#000"/><rect x="${x + 1}" y="${y + 1}" width="5" height="5" fill="#fff"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3" fill="#000"/>`;
-  let cells = "";
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const inFinder = (x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12);
-    if (!inFinder && rnd() > 0.52) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="#000"/>`;
-  }
-  return `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges">${cells}${finder(0, 0)}${finder(14, 0)}${finder(0, 14)}</svg>`;
-}

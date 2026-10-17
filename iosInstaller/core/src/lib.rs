@@ -6,11 +6,13 @@ pub mod account;
 pub mod anisette;
 pub mod credentials;
 pub mod device;
+pub mod nuvio;
 pub mod ondevice;
 pub mod pairing;
 pub mod paths;
 pub mod selfsign;
 pub mod sidestore;
+pub mod storage;
 
 /// Call once at start-up, before any network or device call.
 pub fn init() {
