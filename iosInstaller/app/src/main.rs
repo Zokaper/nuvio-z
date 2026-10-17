@@ -118,6 +118,18 @@ fn main() {
     nuvioz_installer_core::init();
     tauri::Builder::default()
         .manage(Session::default())
+        .setup(|app| {
+            // Proves the window receives events from Rust (the 2FA prompt once never arrived because no
+            // capability allowed event.listen): NUVIOZ_INSTALLER_EVENT_SELFTEST=1 sends a fake prompt.
+            if std::env::var_os("NUVIOZ_INSTALLER_EVENT_SELFTEST").is_some() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(3));
+                    let _ = handle.emit("two-factor", serde_json::json!({ "selftest": true }));
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             probe_device,
             reveal_developer_mode,
