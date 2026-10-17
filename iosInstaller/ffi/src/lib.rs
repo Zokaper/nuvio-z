@@ -287,10 +287,13 @@ pub extern "C" fn nzs_import_signing_key(documents_dir: *const c_char) -> *mut c
 }
 
 /// What this phone holds for signing, for the test report (presence only, never contents):
-/// `{ signingKey, anisette }`. `email` may be NULL (then signingKey is false).
+/// `{ signingKey, anisette }`. `email` may be NULL: then signingKey says whether any account's key is here.
 #[no_mangle]
 pub extern "C" fn nzs_signing_state(email: *const c_char) -> *mut c_char {
-    let key = arg(email).is_some_and(|e| storage::private_key(&e).is_some());
+    let key = match arg(email) {
+        Some(e) => storage::private_key(&e).is_some(),
+        None => storage::any_private_key_file(),
+    };
     give(serde_json::json!({ "signingKey": key, "anisette": storage::has_anisette_state() }))
 }
 

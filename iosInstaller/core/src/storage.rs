@@ -158,6 +158,12 @@ pub fn private_key(email: &str) -> Option<Vec<u8>> {
     SecretStorage::new().retrieve_data(&private_key_name(email)).ok().flatten()
 }
 
+/// Whether any account's signing key is stored as a file here: on the iPhone, whether the installer's key arrived
+/// (it is imported before an account is saved, so the email is not known yet).
+pub fn any_private_key_file() -> bool {
+    std::fs::read_dir(paths::signing()).map(|dirs| dirs.filter_map(Result::ok).any(|d| d.path().join("key").is_file())).unwrap_or(false)
+}
+
 /// Whether this device has an anisette identity yet (for diagnostics; never its contents).
 pub fn has_anisette_state() -> bool {
     SecretStorage::new().retrieve_data(ANISETTE_STATE).ok().flatten().is_some_and(|d| !d.is_empty())
@@ -181,5 +187,23 @@ mod tests {
         assert_eq!(email_hash(" You@Example.com "), email_hash("you@example.com"));
         assert_eq!(private_key_name("you@example.com"), format!("{}/key", hex::encode(Sha256::digest(b"you@example.com"))));
         assert!(put_private_key("not-a-hash", b"x").is_err());
+    }
+
+    /// A file an earlier installer left is moved into the keychain on first read, and delete clears both.
+    /// Uses a key of its own in the real keychain and removes it again.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[test]
+    fn moves_a_left_over_file_into_the_keychain() {
+        let folder = std::env::temp_dir().join(format!("nuvioz-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let store = SecretStorage { folder: folder.clone() };
+        let key = format!("selftest-{}", std::process::id());
+        store.write_file(&key, b"left over").unwrap();
+        assert_eq!(store.retrieve_data(&key).unwrap().as_deref(), Some(&b"left over"[..]));
+        assert!(!folder.join(&key).exists(), "the file is gone once it is in the keychain");
+        assert_eq!(store.retrieve_data(&key).unwrap().as_deref(), Some(&b"left over"[..]));
+        store.delete(&key).unwrap();
+        assert_eq!(store.retrieve_data(&key).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

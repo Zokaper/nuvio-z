@@ -40,7 +40,7 @@ bool nzs_answer_certificates(const char *serials_json);
 // Moves the signing key the installer left in Documents into private storage. JSON.
 char *nzs_import_signing_key(const char *documents_dir);
 
-// Presence of the signing key (for email, may be NULL) and the anisette identity. JSON.
+// Presence of the signing key (for email; NULL: any account's) and the anisette identity. JSON.
 char *nzs_signing_state(const char *email);
 
 // Forgets the anisette identity. JSON.
