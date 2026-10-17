@@ -20,9 +20,14 @@ pub fn downloads() -> PathBuf {
     data_dir().join("downloads")
 }
 
-/// Where the Phase 2 test path looks for a Nuvio Z Debug IPA to install instead of SideStore.
+/// Where the Phase 2 test path looks for a Nuvio Z Debug IPA to install instead of SideStore: next to the
+/// installer first (so a tester gets one zip with both), then the downloads folder.
 pub fn nuvio_debug_test_ipa() -> PathBuf {
-    downloads().join("NuvioZ-Debug-test.ipa")
+    const NAME: &str = "NuvioZ-Debug-test.ipa";
+    std::env::current_exe().ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(NAME)))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| downloads().join(NAME))
 }
 
 /// The rppairing identity for one phone. Deliberately the iOS Setup 2.x location, so a phone set up with
