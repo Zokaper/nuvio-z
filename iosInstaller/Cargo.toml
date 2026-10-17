@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 plist = "1"
 rootcause = "0.12"
+# Same version and back-ends as iloader 2.3.9.
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native"] }
 # Same features as isideload 0.4.6 so the two share one build.
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls-no-provider", "http2", "charset", "system-proxy"] }
 

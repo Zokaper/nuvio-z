@@ -7,6 +7,8 @@ const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 const tauri = window.__TAURI__;
 const ctx = { live: Boolean(tauri) && !params.has("step"), channel: "stable" };
+// Previews only: `?saved=1` shows the sign-in screen for a remembered account.
+if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
@@ -120,16 +122,28 @@ async function act(action, step, index) {
   if (!ctx.live) return go(1); // previews only walk the screens
 
   switch (action) {
+    case "useOtherAccount":
+      ctx.useOtherAccount = true;
+      return render();
+    case "forgetAccount":
+      await invoke("forget_account");
+      ctx.savedEmail = null;
+      return render();
+    case "signInSaved":
     case "signIn": {
-      const email = document.getElementById("email").value.trim();
-      const password = document.getElementById("password").value;
-      if (!email || !password) return fail("Enter your Apple Account email and password.");
+      const saved = action === "signInSaved";
+      const email = saved ? ctx.savedEmail : document.getElementById("email").value.trim();
+      const password = saved ? null : document.getElementById("password").value;
+      const remember = saved || Boolean(document.getElementById("remember")?.checked);
+      if (!email || (!saved && !password)) return fail("Enter your Apple Account email and password.");
       busy("Signing in to Apple…");
       try {
-        ctx.email = await invoke("sign_in", { email, password });
+        ctx.email = await invoke("sign_in", { email, password, remember });
+        if (remember) ctx.savedEmail = ctx.email;
         return startInstall();
       } catch (e) {
         if (e?.kind === "refused") return goTo("signin-blocked");
+        if (saved && e?.kind === "wrongPassword") { ctx.savedEmail = null; }
         current = "signin";
         return fail(describe(e));
       }
@@ -174,6 +188,7 @@ async function startInstall() {
 }
 
 if (ctx.live) {
+  invoke("saved_account").then((email) => { ctx.savedEmail = email; if (byId[current]?.id === "signin") render(); });
   // Apple asks again after a wrong code (with lastError set) or after "Send a new code".
   tauri.event.listen("two-factor", (e) => {
     if (current !== "twofa") return goTo("twofa");

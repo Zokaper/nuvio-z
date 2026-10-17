@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use nuvioz_installer_core::account::{self, SignInError, SignInErrorKind, Signer, TwoFactorPrompt, TwoFactorReply};
 use nuvioz_installer_core::sidestore::{self, Channel, InstallError, Stage};
-use nuvioz_installer_core::{anisette, device, pairing};
+use nuvioz_installer_core::{anisette, credentials, device, pairing};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, Mutex};
@@ -49,7 +49,13 @@ async fn check_anisette() -> anisette::AnisetteCheck {
 /// Signs in. When Apple asks for a code the window gets a `two-factor` event and answers with
 /// `answer_two_factor`. The password lives only for the length of this call.
 #[tauri::command]
-async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, password: String) -> Result<String, SignInError> {
+async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, password: Option<String>, remember: bool) -> Result<String, SignInError> {
+    // No password means "the one this computer remembered" (the window never sees it).
+    let saved = password.is_none();
+    let password = match password.or_else(|| credentials::saved_password(&email)) {
+        Some(p) => p,
+        None => return Err(SignInError { kind: SignInErrorKind::Other, code: None, summary: "no saved password for this account".into(), detail: String::new() }),
+    };
     let (tx, rx) = mpsc::unbounded_channel();
     *session.replies.lock().unwrap() = Some(tx);
     let rx = Arc::new(Mutex::new(rx));
@@ -65,11 +71,30 @@ async fn sign_in(app: AppHandle, session: State<'_, Session>, email: String, pas
         }
     };
     let result = account::sign_in(&email, &password, account::ANISETTE_SERVERS, ask).await;
-    drop(password);
     *session.replies.lock().unwrap() = None;
+    match &result {
+        Ok(_) if !saved && remember => {
+            let _ = credentials::remember(&email, &password);
+        }
+        Ok(_) if !saved => credentials::forget(),
+        Err(e) if saved && e.kind == SignInErrorKind::WrongPassword => credentials::forget(),
+        _ => {}
+    }
+    drop(password);
     let signer = result?;
     *session.signer.lock().await = Some(signer);
     Ok(email.trim().to_lowercase())
+}
+
+/// The Apple Account this computer remembers, if any. Only the email; the password stays in the keychain.
+#[tauri::command]
+fn saved_account() -> Option<String> {
+    credentials::saved_email()
+}
+
+#[tauri::command]
+fn forget_account() {
+    credentials::forget();
 }
 
 #[derive(serde::Deserialize)]
@@ -136,6 +161,8 @@ fn main() {
             place_pairing,
             check_anisette,
             sign_in,
+            saved_account,
+            forget_account,
             answer_two_factor,
             install_sidestore
         ])
