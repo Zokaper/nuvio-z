@@ -1,5 +1,35 @@
 Last updated: 2026-10-17
 
+## Self-signing spike, step 2 (2026-10-17, branch `claude/self-signing`, cut from `claude/ios-installer`)
+
+Phase 2 of the iOS installer: Nuvio Z signs, refreshes and updates itself without SideStore. Plan:
+`Nuvio Z/PLAN-nuvio-z-self-signing.md`. Kept off `claude/social-v2` on purpose; this line is meant to ship before it.
+
+- **What step 2 proves:** Nuvio Z can reach the phone's own services from inside the app through LocalDevVPN
+  (`10.7.0.1`) with the pairing file the installer placed. `iosInstaller/core/src/ondevice.rs` tries both routes
+  SideStore's minimuxer uses: **lockdown** (62078) and the iOS 17.4+ **remote-pairing tunnel** (49152 → TLS-PSK →
+  userspace TCP → RSD → installation_proxy), the latter copied from idevice 0.1.68's own `tunnel_create_rppairing`.
+  idevice features `rsd` and `tunnel_tcp_stack` added.
+- **Library:** `iosInstaller/ffi` (`nuvioz-signer`, staticlib) exposes `nzs_probe(documents, address)` → JSON and
+  `nzs_string_free`; header `ffi/include/nuvioz_signer.h`.
+- **App wiring (off by default):** `NUVIO_IOS_SELF_SIGNING=true` makes Gradle link the library through cinterop
+  (`nativeInterop/cinterop/nuviozsigner.def`) and compile `src/iosSelfSigning/kotlin` instead of the stub in
+  `src/iosNoSelfSigning/kotlin`. The iOS app fills the common hook `core/debug/SelfSigningSpike.probe` at startup
+  (`MainViewController.kt`); a **debug-only** row in Advanced settings › Diagnostics runs it and prints one line per
+  route. Android and desktop are untouched (same nullable-hook pattern as `SelfTestHooks`).
+- **Pairing into Nuvio Z:** `pairing::place_for_nuvio` writes `NuvioZPairing.plist` into Nuvio Z's Documents
+  (`cargo run -p nuvioz-installer-core --example place_nuvio_pairing -- --debug`). Needs
+  **`UIFileSharingEnabled`**, now on in `iosApp/iosApp/Info.plist` (side effect: Nuvio Z's Documents show in Finder /
+  Apple Devices file sharing).
+- **CI:** Debug release builds the library and sets the switch on branches that have `iosInstaller/ffi`;
+  `ios-installer-core-ios.yml` also builds the static library and link-checks it against the iOS SDK.
+  The spike IPA is built with Debug release's **`diagnostic_ios_only`** (no release, no feed change), because this
+  branch is cut from `main` and lacks Social V2: publishing it as Debug 92 would downgrade the Debug channel.
+- **Merge debt if it ships:** `commonMain` gained `SelfSigningSpike.kt` and an `AdvancedSettingsPage` row (shared
+  with NuvioZDesktop by merge); `Info.plist` and `composeApp/build.gradle.kts` belong in `Docs/PATCH-SURFACE.md`.
+- **Verified so far:** the Rust side builds on Windows (core 9/9 tests); see the CI runs for the iOS link and the
+  IPA. **Not verified:** anything on a phone (needs SideStore back on it and a working Apple Account).
+
 ## iOS Installer 3 (Tauri + isideload): Stage 0 done (2026-10-17, branch `claude/ios-installer`)
 
 Plan: `Nuvio Z/PLAN-ios-setup-one-sitting.md` (maintainer-approved 2026-10-17). Goal: an iOS install nobody has to

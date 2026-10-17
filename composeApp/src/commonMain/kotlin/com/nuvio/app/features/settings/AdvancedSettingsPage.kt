@@ -1145,8 +1145,7 @@ private fun describeSelfSigningProbe(json: String): String = runCatching {
     val root = Json.parseToJsonElement(json).jsonObject
     root["error"]?.let { return@runCatching "Failed: ${it.jsonPrimitive.content}" }
     val probe = root["probe"]?.jsonObject ?: return@runCatching json
-    probe["routes"]!!.jsonArray.joinToString("
-") { element ->
+    probe["routes"]!!.jsonArray.joinToString("\n") { element ->
         val route = element as JsonObject
         val name = route["route"]!!.jsonPrimitive.content
         val millis = route["millis"]?.jsonPrimitive?.content
