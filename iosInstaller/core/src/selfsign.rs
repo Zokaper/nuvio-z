@@ -48,6 +48,44 @@ pub fn expiry(app_dir: &Path) -> Option<String> {
     profile_plist(&bytes)?.get("ExpirationDate")?.as_date().map(|d| d.to_xml_format())
 }
 
+/// The bundle id a profile is for: its `application-identifier` entitlement minus the team prefix.
+pub fn profile_bundle_id(profile: &plist::Dictionary) -> Option<String> {
+    let app_id = profile.get("Entitlements")?.as_dictionary()?.get("application-identifier")?.as_string()?;
+    app_id.split_once('.').map(|(_, bundle)| bundle.to_string())
+}
+
+/// The latest expiry among the profiles installed on the phone for each of `ids`. After a refresh this is what
+/// moves; the profile embedded in the app bundle keeps its original date.
+pub fn latest_expiries(installed: &[Vec<u8>], ids: &[String]) -> Vec<Renewed> {
+    ids.iter().map(|id| {
+        let expires = installed.iter()
+            .filter_map(|bytes| profile_plist(bytes))
+            .filter(|p| profile_bundle_id(p).as_deref() == Some(id.as_str()))
+            .filter_map(|p| p.get("ExpirationDate").and_then(|v| v.as_date()).map(|d| d.to_xml_format()))
+            .max();
+        Renewed { bundle_id: id.clone(), expires }
+    }).collect()
+}
+
+/// What the phone has installed for this app, read through misagent over LocalDevVPN (either route).
+pub async fn installed_profiles(app_dir: &Path, pairing: &[u8], address: &str) -> Result<(&'static str, Vec<Renewed>), String> {
+    let ids = bundle_ids(app_dir)?;
+    let lockdown = async {
+        let provider = ondevice::lockdown_provider(pairing, address)?;
+        let mut agent = MisagentClient::connect(&provider).await.map_err(|e| format!("misagent: {}", err(e)))?;
+        agent.copy_all().await.map_err(|e| format!("list profiles: {}", err(e)))
+    }.await;
+    let (route, all) = match lockdown {
+        Ok(all) => ("lockdown", all),
+        Err(first) => {
+            let (mut adapter, mut handshake) = ondevice::tunnel(pairing, address).await.map_err(|e| format!("lockdown: {first}; remote pairing: {e}"))?;
+            let mut agent = MisagentClient::connect_rsd(&mut adapter, &mut handshake).await.map_err(|e| format!("misagent: {}", err(e)))?;
+            ("remotePairing", agent.copy_all().await.map_err(|e| format!("list profiles: {}", err(e)))?)
+        }
+    };
+    Ok((route, latest_expiries(&all, &ids)))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Renewed {
@@ -130,6 +168,23 @@ mod tests {
         bytes.extend_from_slice(b"\x00junk-after");
         let d = profile_plist(&bytes).expect("plist");
         assert_eq!(d.get("ExpirationDate").and_then(|v| v.as_date()).map(|d| d.to_xml_format()).as_deref(), Some("2026-10-24T12:00:00Z"));
+    }
+
+    fn profile(app_id: &str, expires: &str) -> Vec<u8> {
+        format!(r#"junk<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Entitlements</key><dict><key>application-identifier</key><string>{app_id}</string></dict><key>ExpirationDate</key><date>{expires}</date></dict></plist>junk"#).into_bytes()
+    }
+
+    #[test]
+    fn the_newest_installed_profile_wins_per_bundle_id() {
+        let installed = vec![
+            profile("TEAM123456.com.nuvio.app.z.debug.TEAM123456", "2026-10-24T12:00:00Z"),
+            profile("TEAM123456.com.nuvio.app.z.debug.TEAM123456", "2026-10-31T12:00:00Z"),
+            profile("TEAM123456.com.other.app", "2027-01-01T00:00:00Z"),
+        ];
+        let ids = vec!["com.nuvio.app.z.debug.TEAM123456".to_string(), "com.nuvio.app.z.debug.Widget.TEAM123456".to_string()];
+        let found = latest_expiries(&installed, &ids);
+        assert_eq!(found[0].expires.as_deref(), Some("2026-10-31T12:00:00Z"));
+        assert_eq!(found[1].expires, None);
     }
 
     #[test]

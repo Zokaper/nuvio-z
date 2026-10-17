@@ -74,6 +74,24 @@ pub extern "C" fn nzs_status(app_dir: *const c_char) -> *mut c_char {
     }))
 }
 
+/// The latest profile the phone has installed for each of the app's bundle ids, read over LocalDevVPN.
+/// `{ ok, route, profiles: [{ bundleId, expires }] }` or `{ ok: false, error }`.
+#[no_mangle]
+pub extern "C" fn nzs_installed_profiles(app_dir: *const c_char, documents_dir: *const c_char, address: *const c_char) -> *mut c_char {
+    let (Some(app_dir), Some(documents)) = (arg(app_dir), arg(documents_dir)) else {
+        return give(serde_json::json!({ "ok": false, "error": "missing argument" }));
+    };
+    let address = arg(address).unwrap_or_else(|| ondevice::LOOPBACK.to_string());
+    let pairing = match read_pairing(&documents) {
+        Ok(b) => b,
+        Err(e) => return give(serde_json::json!({ "ok": false, "error": format!("no pairing file: {e}") })),
+    };
+    match runtime().block_on(selfsign::installed_profiles(&PathBuf::from(app_dir), &pairing, &address)) {
+        Ok((route, profiles)) => give(serde_json::json!({ "ok": true, "route": route, "profiles": profiles })),
+        Err(e) => give(serde_json::json!({ "ok": false, "error": e })),
+    }
+}
+
 /// Renews the app at `app_dir` (its bundle path): Apple sign-in, a fresh profile per bundle id, installed on
 /// this phone through LocalDevVPN at `address` (NULL: 10.7.0.1). Blocks; returns `{ ok, report }` or
 /// `{ ok: false, error: { kind, code, summary, detail } }`.

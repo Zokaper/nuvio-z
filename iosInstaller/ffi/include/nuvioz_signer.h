@@ -11,6 +11,9 @@ char *nzs_probe(const char *documents_dir, const char *address);
 // Bundle ids and the current signature's expiry of the app at app_dir. JSON.
 char *nzs_status(const char *app_dir);
 
+// The newest profile installed on the phone for each of the app's bundle ids. JSON. address may be NULL.
+char *nzs_installed_profiles(const char *app_dir, const char *documents_dir, const char *address);
+
 // Renews the app at app_dir with fresh profiles (no reinstall). JSON. address may be NULL.
 char *nzs_refresh(const char *app_dir, const char *documents_dir, const char *email, const char *password, const char *address);
 

@@ -239,6 +239,18 @@ internal fun LazyListScope.advancedSettingsContent(
                                 scope.launch { report = describeSelfSigningProbe(selfSigningProbe()) }
                             },
                         )
+                        var showSelfSigning by remember { mutableStateOf(false) }
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = "Self-signing: renew this app",
+                            description = "Shows when this copy stops opening and renews it on the phone, the " +
+                                "way SideStore’s Refresh does, without SideStore.",
+                            isTablet = isTablet,
+                            onClick = { showSelfSigning = true },
+                        )
+                        if (showSelfSigning) {
+                            SelfSigningDialog(onDismiss = { showSelfSigning = false })
+                        }
                     }
                 }
             }

@@ -105,7 +105,9 @@ const Art = {
   /** An app icon inside a progress ring. */
   progress(kind, fraction) {
     const r = 96, c = 2 * Math.PI * r;
-    const inner = kind === "sidestore" ? '<div class="appicon" style="background:linear-gradient(150deg,#8f78ff,#5a3fd8)"><span class="letter">S</span></div>' : "";
+    const inner = kind === "sidestore"
+      ? '<div class="appicon" style="background:linear-gradient(150deg,#8f78ff,#5a3fd8)"><span class="letter">S</span></div>'
+      : kind === "nuvio" ? `<div class="appicon"><img src="${NUVIO_ICON}" alt=""></div>` : "";
     return `<div class="progress-icon"><svg class="ring" viewBox="0 0 200 200"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--panel-line)" stroke-width="5"/><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * fraction} ${c}"/></svg>${inner}</div>`;
   },
 };

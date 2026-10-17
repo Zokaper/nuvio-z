@@ -21,7 +21,9 @@ function buildSteps(ctx) {
     const at = stages.indexOf(install.stage), me = stages.indexOf(stage);
     return me < at ? `<span class="done"><i>✓</i>${label}</span>` : me === at ? `<span class="now"><i></i>${label}</span>` : `<span><i></i>${label}</span>`;
   };
-  const installText = { download: "Downloading SideStore…", sign: `Signing and sending SideStore… ${Math.round(install.fraction * 100)}%`, pairing: "Adding SideStore’s connection files…" }[install.stage];
+  // The Phase 2 test path installs Nuvio Z itself, not SideStore.
+  const target = ctx.channel === "nuvioTest" ? "Nuvio Z" : "SideStore";
+  const installText = { download: `Getting ${target} ready…`, sign: `Signing and sending ${target}… ${Math.round(install.fraction * 100)}%`, pairing: `Adding ${target}’s connection file…` }[install.stage];
 
   return [
   {
@@ -147,12 +149,12 @@ function buildSteps(ctx) {
   },
   {
     id: "installing",
-    title: "Installing SideStore on your iPhone",
+    title: `Installing ${target} on your iPhone`,
     lead: "Keep the iPhone plugged in and unlocked. A minute or two.",
     layout: "wide",
-    cards: [{ art: Art.progress("sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
+    cards: [{ art: Art.progress(ctx.channel === "nuvioTest" ? "nuvio" : "sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
     status: { kind: "work", text: installText },
-    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span>${chip("download", "Downloading SideStore")}${chip("sign", "Signing and sending it")}${chip("pairing", "Connection files")}</div>`,
+    below: `<div class="steps-inline"><span class="done"><i>✓</i>Signed in</span>${chip("download", ctx.channel === "nuvioTest" ? "Getting Nuvio Z ready" : "Downloading SideStore")}${chip("sign", "Signing and sending it")}${chip("pairing", "Connection files")}</div>`,
   },
   {
     id: "devmode",
