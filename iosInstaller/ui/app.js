@@ -66,8 +66,10 @@ function certificateSheet() {
   const when = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
   const rows = ctx.certificates.map((c, i) => `<label class="cert"><input type="checkbox" value="${c.serial}"${ctx.certificates.length === 1 ? " checked" : ""}>
       <span><b>${c.madeBy || c.name || "Unknown tool"}</b><small>${c.name || ""}${c.expires ? ` · expires ${when(c.expires)}` : ""}</small></span></label>`).join("");
+  // Apple says how many it allows; three when it does not.
+  const limit = ctx.certificates.map((c) => c.limit).find((n) => n > 0) || 3;
   return `<div class="scrim"></div><aside class="sheet"><h2>This Apple Account is out of certificates</h2>
-    <p>Each sideloading tool makes its own signing certificate, and a free account can only hold a few. Pick one to revoke so the installer can make its own.
+    <p>Each sideloading tool makes its own signing certificate, and a free account can hold only ${limit === 1 ? "one" : limit === 2 ? "two" : limit === 3 ? "three" : limit}. Pick one to revoke so the installer can make its own.
     Apps signed with a revoked certificate stop opening until the tool that made it signs them again.</p>
     <div class="certs">${rows}</div>
     <div class="close-row"><button class="btn secondary" data-action="cancelCertificates" style="min-width:0">Cancel</button>

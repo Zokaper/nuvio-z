@@ -228,6 +228,7 @@ function buildSteps(ctx) {
     alternates: [
       ["The camera shows no banner", ["Hold the iPhone a bit further away so the whole code is in view.", "Open SideStore once first. The banner only appears after SideStore has been opened."]],
       ["“Maximum number of apps”", ["A free Apple Account can have 3 sideloaded apps at once. In SideStore’s <b>My Apps</b>, delete one you don’t use, then try again."]],
+      ["“Maximum number of App IDs”", ["A free Apple Account can create only 10 new App IDs in any 7 days, and Nuvio Z uses 2 (the app and its widget). Wait until older ones are a week old, or use another Apple Account."]],
     ],
   },
   {

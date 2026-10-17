@@ -123,6 +123,8 @@ pub struct CertificateChoice {
     pub made_by: Option<String>,
     pub name: Option<String>,
     pub expires: Option<String>,
+    /// How many active certificates Apple allows this account, as Apple reports it.
+    pub limit: Option<i64>,
 }
 
 /// Asked when the account is out of certificates and none of them is ours: returns the serials to revoke,
@@ -143,6 +145,7 @@ pub fn choices(certs: &[DevelopmentCertificate]) -> Vec<CertificateChoice> {
         made_by: c.machine_name.clone(),
         name: c.name.clone(),
         expires: c.expiration_date.as_ref().map(|d| d.to_xml_format()),
+        limit: c.certificate_type.as_ref().and_then(|t| t.max_active_certs),
     })).collect()
 }
 
