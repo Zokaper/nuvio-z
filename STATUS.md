@@ -1,5 +1,30 @@
 Last updated: 2026-10-17
 
+## Social pop-ups shared; phone in-app banners (2026-10-17, Debug mobile 91 / desktop 104)
+
+Maintainer: "we should have in-app notifications for mobile, esp iOS which can't have system notifications.
+Have the banner mirror the ones on desktop, but smaller." Android system notifications (FCM, Stage 4) are
+still not built; the server prerequisites (`FCM_SERVICE_ACCOUNT` secret, both `google-services.json`) are in hand.
+
+- **Shared** (desktop `718f670a1`, cherry-picked here): `SocialPopups.kt` - `SocialPopupKind`, `SocialPopup`,
+  `socialPopupCandidates` (pending actionable notices + unread friend-watching from friends with Notify on) and
+  `SocialPopupLedger` (once per profile per device; first sight of a profile is history; loading / offline
+  states ignored; older than the platform's freshness is marked seen silently). `SocialPopupCard.kt` - the
+  desktop card moved to commonMain, plus `compact = true` (72dp, title and meta on one line, no NUVIO mark).
+  `SocialStorage.load/savePopupSeen` keeps the ledger; desktop's actual reads the pop-up window's old
+  `nuvio_social_popups` / `seen_<profile>` keys, so nothing re-pops after updating. `SocialPopupLedgerTest` (5).
+- **Desktop** (`a6551e9d2`): `DesktopSocialPopups` uses the shared pieces (6h freshness, tray switches,
+  fullscreen hold unchanged). Render harness `renderSocialPopupCards` draws both sizes.
+- **Phone** (mobile only, `SocialBanners.kt` + `MainAppContent`): `SocialBannerHost` at TopCenter, z 21,
+  under the status bar; up to 2, 6s each; tap = `SocialNavigation.open` (switches to Social and opens the
+  place), swipe up = dismiss. Fed through `collectAsStateWithLifecycle`, so nothing is spent while the app is
+  backgrounded; 30-minute freshness on return. On `PlayerRoute` it shows nothing but still marks seen (the
+  player's own card covers it, including mobile 90's friend-watching card).
+- **Not done:** no per-kind switches on the phone (desktop has them in the tray settings); iOS compile is only
+  exercised by the Debug release workflow; nothing seen on a device yet.
+- Z-FEATURES gains **S11 Social pop-ups**. The rest of Social V2 (inbox, per-friend switches, tray, invite
+  outcomes) still has no ledger rows.
+
 ## Updater picked the wrong debug build (2026-10-17, Debug mobile 89 / desktop 101)
 
 Maintainer on desktop Debug 99: Check for updates never found 100. GitHub's releases list is not in version

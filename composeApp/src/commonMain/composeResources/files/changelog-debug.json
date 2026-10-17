@@ -129,6 +129,10 @@
     {
       "build": 90,
       "text": "When a friend you get notified about starts watching, the player tells you for a few seconds."
+    },
+    {
+      "build": 91,
+      "text": "Friend requests, party invites, join requests and friends starting to watch now pop up as small banners at the top of the app. Tap one to open it, swipe it up to dismiss."
     }
   ]
 }
