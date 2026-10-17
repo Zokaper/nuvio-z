@@ -4,7 +4,15 @@ Last updated: 2026-10-17
 
 Handoff: `Nuvio Z/HANDOFF-ios-installer-self-signing.md`. All twelve items are built. **Nothing is released**; the
 test is one zip + one checklist (`Nuvio Z/release-artifacts/Nuvio-Z-self-signing-test-2026-10-17e.zip`, IPA from
-diagnostic Debug release run `39067386106`).
+diagnostic Debug release run `39068786094`).
+
+- **Daily refresh offered first (maintainer request):** at launch a full-screen "Keep Nuvio Z working" covers the
+  whole app, before any sign-in (`selfSigningSetup()` in `iosApp/iosApp/SelfSigning.swift` → Kotlin
+  `SelfSigningSetupViewController` → `SelfSigningSetupScreen`): 1. save the Apple Account with a renewal, 2. the daily
+  refresh shortcut + automation, drawn step by step. "Later" = until the next launch. Done is per device
+  (NSUserDefaults `nzs.automation.done`), set by "Done, it's set up" or by the Shortcuts action renewing on two
+  different days. The installer's last phone steps are now "Open Nuvio Z and renew it once" and "Set up the daily
+  refresh", each drawn like the other steps.
 
 - **Stage 3, silent Apple software (`core/src/drivers.rs`), verified on this PC reset to pre-wizard** (with the
   maintainer's OK: iTunes 12.13.11 uninstalled, Apple Devices removed, `appleusb.inf` + `netaapl64.inf` deleted,
