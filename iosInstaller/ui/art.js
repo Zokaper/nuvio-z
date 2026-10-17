@@ -104,6 +104,12 @@ const Art = {
     return `<div class="taskbar"><i>${WinIcons.folder}</i><i>${WinIcons.browser}</i><i ${cls("flash", hl && "hl")}>${WinIcons.shield}${badge(hl)}</i><i><img src="${NUVIO_ICON}" alt=""></i></div>`;
   },
 
+  /** "Getting this PC ready": a computer-and-iPhone tile in a turning ring, like the install screen's ring. */
+  pcReady({ busy = true } = {}) {
+    const r = 96, c = 2 * Math.PI * r;
+    return `<div class="progress-icon${busy ? " busy" : ""}"><svg class="ring" viewBox="0 0 200 200"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--panel-line)" stroke-width="5"/>${busy ? `<circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * 0.22} ${c}"/>` : ""}</svg><div class="appicon devices">${Icons.monitor}<span class="phone">${Icons.smartphone}</span></div></div>`;
+  },
+
   /** An app icon inside a progress ring. */
   progress(kind, fraction) {
     const r = 96, c = 2 * Math.PI * r;

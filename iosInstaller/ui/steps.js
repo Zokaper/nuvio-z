@@ -49,7 +49,7 @@ function buildSteps(ctx) {
     title: "Getting this PC ready",
     lead: "Installing Apple Devices, Apple’s free iPhone connection app, from the Microsoft Store. Nothing to click.",
     layout: "wide",
-    cards: [{ art: Art.glyph("apple"), cap: "Apple Devices", sub: "From the Microsoft Store, by Apple" }],
+    cards: [{ art: Art.pcReady({ busy: ctx.drivers !== "failed" }), cap: "Apple Devices", sub: "Apple’s free iPhone connection app" }],
     status: { kind: "work", text: "Installing Apple Devices…", sub: "usually under a minute" },
     watch: (d) => d.usbmuxdReachable,
     // The live app installs and starts it by itself (core/src/drivers.rs); this only shows how that is going.

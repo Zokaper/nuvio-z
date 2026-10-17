@@ -274,6 +274,12 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 /* the install in progress */
 .progress-icon { position: relative; width: 200px; height: 200px; display: grid; place-items: center; }
 .progress-icon svg.ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.progress-icon.busy svg.ring { animation: ring-turn 1.4s linear infinite; }
+@keyframes ring-turn { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+.appicon.devices { background: linear-gradient(160deg, #3a3a40, #1c1c20); }
+.appicon.devices > svg { width: 58%; height: 58%; stroke-width: 1.5; margin: -8% 8% 0 0; }
+.appicon.devices .phone { position: absolute; right: 16%; bottom: 17%; width: 30%; height: 42%; display: grid; place-items: center; background: #26262b; border-radius: 6px; }
+.appicon.devices .phone svg { width: 100%; height: 100%; stroke-width: 1.7; }
 .steps-inline { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; color: var(--fg-3); font-size: 14px; }
 .steps-inline span { display: flex; align-items: center; gap: 7px; }
 .steps-inline span i { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--fg-3); display: grid; place-items: center; font-style: normal; font-size: 9px; font-weight: 800; }
