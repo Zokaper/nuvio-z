@@ -33,8 +33,31 @@ be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched 
   `ui/app.js` renders one (`?step=`/`?theme=`; buttons and arrow keys walk the screens, nothing wired to the phone).
   `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; drafts are kept side by side in
   `Nuvio Z/render-review/ios-installer-stage1{,-d2,-d3}/`. Window minimum 940x640. QR codes are placeholders.
-- **Next:** maintainer review of the Stage 1 renders, then Stage 2 (core port: requirements engine, hosted config,
-  downloader, probes, three-file pairing placement).
+- **Stage 1 approved 2026-10-17** ("good enough to move on"; real iOS screenshots declined for now).
+- **First end-to-end slice built (`95195620f`), not yet run against a phone or an Apple Account** (reordered ahead of
+  the rest of Stage 2 because isideload working from inside our app this week is the riskiest unknown):
+  - `core/src/device.rs`: probe now reports installed apps (SideStore by bundle prefix **or** display name, so a
+    Nightly copy counts), Developer Mode, and pairing state (`present` only when all three files exist, `partial` for
+    an older single-file placement); `reveal_developer_mode`.
+  - `core/src/pairing.rs`: the helper's recipe (lockdown record + rppairing on 17.4+ + Wi-Fi debugging), written under
+    **all three** SideStore names with read-back, old main file kept as `.previous`. The rppairing identity cache
+    stays at the iOS Setup 2.x path so phones set up with the old assistant keep one host identity.
+  - `core/src/account.rs`: isideload sign-in (anisette `mac-ani.jkcoxson.com`, FsStorage under
+    `%LOCALAPPDATA%\Nuvio Z iOS Installer\signing`), machine name "Nuvio Z Installer". At the certificate limit it
+    revokes **only certificates named "Nuvio Z Installer"**, never another tool's (that would stop its apps opening).
+    Apple errors classified (-80045 refused, wrong password, locked, wrong code, 503, certificate limit, network) with
+    text fallbacks; the codes are best effort.
+  - `core/src/sidestore.rs`: download (iloader 2.3.9's URLs; stable by default, Ctrl+Shift+N toggles Nightly for
+    testing), `install_app` with signing progress, then pairing placement.
+  - App: `sign_in` / `answer_two_factor` (Apple's prompt arrives as a `two-factor` event; 5-minute wait),
+    `install_sidestore` (`install-progress` events), `place_pairing`, `reveal_developer_mode`, `probe_device`.
+    `ui/steps.js` is now `buildSteps(ctx)`; steps with `watch` advance by themselves (2.5 s probe), buttons carry
+    actions. The driver step only reports whether Apple's service is present (silent install is Stage 3).
+  - Verified: `cargo test -p nuvioz-installer-core` 7/7 (error classification, pairing state, app classification,
+    rppairing version gate); release exe 7.3 MB with the sign-in/signing path linked; previews still render; the live
+    app starts. **Not verified:** sign-in, 2FA, signing, install, pairing on a real phone.
+- **Next:** the maintainer's phone test of the slice, then the rest of Stage 2 (hosted config with a pinned SideStore
+  SHA-256, downloader, persistence, diagnostics) and Stage 3 (silent drivers).
 
 
 ## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
