@@ -26,8 +26,9 @@ if (params.get("sidestore")) ctx.target = "sidestore";
 if (params.get("needsdriver")) ctx.device = { iphoneNeedsDriver: true };
 if (params.get("signingin")) Object.assign(ctx, { signingIn: true });
 if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
-// `?repair=1` the Repair path.
+// `?repair=1` the Repair path. `?g=4` opens a walkthrough (the daily refresh) at its fifth step.
 if (params.get("repair")) ctx.mode = "repair";
+ctx.guideAt = Number(params.get("g")) || 0;
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
@@ -64,7 +65,19 @@ function status(s) {
   return `<div class="status ${s.kind}">${lead}<span><b>${s.text}</b>${s.sub ? ` ${s.sub}` : ""}</span></div>`;
 }
 
+/** A walkthrough: the current tap drawn large, and every step listed beside it (done, now, to come). */
+function guide(step) {
+  const at = Math.min(ctx.guideAt || 0, step.guide.length - 1);
+  const items = step.guide.map((g, i) => {
+    const state = i < at ? "done" : i === at ? "now" : "";
+    const mark = i < at ? "✓" : String(i + 1);
+    return `<li><button class="${state}" data-action="guideTo:${i}"><span class="n">${mark}</span><span>${g.text}${i === at && g.sub ? `<small>${g.sub}</small>` : ""}</span></button></li>`;
+  }).join("");
+  return `<div class="guide"><div class="guide-art">${step.guide[at].art}</div><ol class="guide-list">${items}</ol></div>`;
+}
+
 function cards(step) {
+  if (step.guide) return guide(step);
   if (step.choices) {
     const tiles = step.choices.map((c) => `<button class="choice" data-action="${c.action}"><span class="choice-icon">${Icons[c.icon]}</span>
       <span class="choice-text"><b>${c.title}</b><small>${c.sub}</small></span><span class="choice-chev">${Icons.chevronRight}</span></button>`).join("");
@@ -152,6 +165,7 @@ async function copyText(text) {
 }
 
 function goTo(id) {
+  if (id !== current) ctx.guideAt = 0;
   current = id;
   flash = null;
   render();
@@ -162,7 +176,8 @@ function render() {
   const view = byId[current];
   const step = view.base ? { ...byId[view.base], ...view, id: view.base } : view;
   const index = walk.findIndex((s) => s.id === (step.like || step.id));
-  const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}" data-action="${b.action || (i === 0 ? "next" : "")}"${ctx.signingIn && step.id === "signin" ? " disabled" : ""}>${b.label}</button>`).join("");
+  const lastGuideStep = step.guide && (ctx.guideAt || 0) >= step.guide.length - 1;
+  const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}" data-action="${b.action || (i === 0 ? "next" : "")}"${ctx.signingIn && step.id === "signin" ? " disabled" : ""}>${b.action === "guideNext" && lastGuideStep ? "Done" : b.label}</button>`).join("");
   const links = [...(step.links || []), ...(step.alternates ? [{ label: "I see something else", action: "alternates" }] : [])]
     .map((l) => `<button class="text-btn" data-action="${l.action}">${l.label}</button>`).join("");
   const progress = step.done || step.side ? 1 : index / total;
@@ -191,6 +206,8 @@ function render() {
     ${ctx.help ? helpSheet() : ""}
     ${ctx.debugWarning ? debugWarningSheet() : ""}`;
 
+  // A walkthrough keeps its current step in view (the list is taller than the window on a small screen).
+  document.querySelector(".guide-list .now")?.scrollIntoView({ block: "center" });
   document.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", () => act(el.dataset.action, step, index)));
   const closeSheet = () => goTo(step.id);
   document.getElementById("close")?.addEventListener("click", closeSheet);
@@ -206,11 +223,20 @@ function render() {
 
 async function act(action, step, index) {
   const go = (delta) => goTo(walk[Math.max(0, Math.min(walk.length - 1, index + delta))].id);
+  if (action.startsWith("guideTo:")) {
+    ctx.guideAt = Number(action.slice("guideTo:".length));
+    return render();
+  }
   const busy = (text) => { flash = { kind: "work", text }; render(); };
   const fail = (text) => { flash = { kind: "bad", text }; render(); };
   switch (action) {
     case "next": return step.nextTo ? goTo(step.nextTo) : go(1);
-    case "back": return step.backTo ? goTo(step.backTo) : go(-1);
+    case "back":
+      if (step.guide && ctx.guideAt > 0) { ctx.guideAt--; return render(); }
+      return step.backTo ? goTo(step.backTo) : go(-1);
+    case "guideNext":
+      if (ctx.guideAt < step.guide.length - 1) { ctx.guideAt++; return render(); }
+      return step.nextTo ? goTo(step.nextTo) : go(1);
     case "chooseInstall":
     case "chooseRepair":
       ctx.mode = action === "chooseRepair" ? "repair" : "install";

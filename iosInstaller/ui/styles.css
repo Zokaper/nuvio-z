@@ -353,3 +353,48 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
 .choice-text small { display: block; margin-top: 8px; color: var(--fg-2); font-size: 14px; line-height: 1.45; text-wrap: balance; }
 .choice-chev { display: none; }
 @media (max-width: 620px) { .choices { grid-template-columns: 1fr; } }
+
+/* Walkthrough (the daily refresh): the current tap drawn large, every step listed beside it. */
+.guide { --guide-h: clamp(280px, 50vh, 400px); display: grid; grid-template-columns: minmax(250px, 340px) minmax(280px, 420px);
+  gap: clamp(20px, 3.6vw, 44px); justify-content: center; align-items: center; align-self: center; width: 100%; }
+.guide-art { height: var(--guide-h); }
+.guide-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; max-height: var(--guide-h); overflow-y: auto; }
+.guide-list button { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; width: 100%; padding: 6px 10px;
+  border: 0; border-radius: 10px; background: none; color: var(--fg-3); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; cursor: pointer; }
+.guide-list button:hover { color: var(--fg-2); }
+.guide-list .n { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center;
+  font-size: 11.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.guide-list button.done { color: var(--fg-2); }
+.guide-list button.done .n { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.guide-list button.now { background: var(--surface); color: var(--fg); font-weight: 600; padding: 9px 10px; }
+.guide-list button.now .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.guide-list small { display: block; margin-top: 4px; color: var(--fg-2); font-size: 13px; font-weight: 400; }
+
+/* The Shortcuts app, drawn small: tab bar and automation editor. */
+.sc { width: 300px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.sc-blank { height: 150px; }
+.sc-tabs { display: flex; justify-content: space-around; padding: 8px 6px; border-radius: 999px; background: var(--ios-cell); }
+.sc-tab { position: relative; padding: 7px 12px; border-radius: 999px; color: var(--ios-fg-2); font-size: 13px; font-weight: 600; }
+.sc-tab.on { color: var(--ios-blue); background: rgba(10, 132, 255, .14); }
+.sc-tab.hl { border-radius: 999px; }
+.sc-top { display: flex; justify-content: space-between; align-items: center; padding: 0 2px 4px; }
+.sc-top > span:first-child { color: var(--ios-blue); }
+.sc-top b { font-weight: 600; }
+.sc-done { position: relative; width: 28px; height: 28px; border-radius: 50%; background: var(--ios-blue); color: #fff; display: grid; place-items: center; }
+.sc-done svg { width: 16px; height: 16px; stroke-width: 3; }
+.sc-done.hl { border-radius: 50%; }
+.sc-act { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 12px; background: var(--ios-cell); }
+.sc-ic { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; flex: none; color: #fff; background: #0a84ff; overflow: hidden; }
+.sc-ic svg { width: 15px; height: 15px; }
+.sc-ic img { width: 100%; height: 100%; }
+.sc-tok { position: relative; color: var(--ios-blue); font-weight: 600; }
+.sc-tok.hl { border-radius: 6px; outline-offset: 2px; }
+.sc-opt { position: relative; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 8px 2px 0 4px; border-top: .5px solid var(--ios-sep); }
+.sc-opt .tog { transform: scale(.8); transform-origin: right center; }
+.sc-opt.hl { outline-offset: 3px; }
+.sc-res { border-radius: 10px; background: var(--ios-cell); }
+.sc-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+.sc-row.hl { outline-offset: -2px; }
+.sc-search { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 8px 12px; border-radius: 10px; background: var(--ios-cell); }
+.sc-search svg { width: 16px; height: 16px; color: var(--ios-fg-2); flex: none; }
+.sc-search .q { color: var(--ios-fg-2); }

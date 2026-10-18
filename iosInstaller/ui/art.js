@@ -118,4 +118,26 @@ const Art = {
       : kind === "nuvio" ? `<div class="appicon"><img src="${NUVIO_ICON}" alt=""></div>` : "";
     return `<div class="progress-icon"><svg class="ring" viewBox="0 0 200 200"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--panel-line)" stroke-width="5"/><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * fraction} ${c}"/></svg>${inner}</div>`;
   },
+
+  /** The Shortcuts app's tab bar, with one tab ringed. */
+  tabs(labels, hlIndex) {
+    const tabs = labels.map((l, i) => `<span ${cls("sc-tab", i === hlIndex && "on", i === hlIndex && "hl")}>${esc(l)}${i === hlIndex ? badge(1) : ""}</span>`).join("");
+    return panel("ios", `<div class="ios sc"><div class="sc-blank"></div><div class="sc-tabs">${tabs}</div></div>`);
+  },
+
+  /**
+   * The Shortcuts automation editor, drawn small: action blocks whose blue words are tappable, an optional search
+   * with its results, and ✓ at the top right.
+   *   actions: [{ icon: "vpn" | "nuvio", parts: [text | { t, hl }], toggle: { label, on, hl } }]
+   *   search: the typed text; results: [{ label, icon, hl }]; done: ring the ✓
+   */
+  editor({ actions = [], search, results = [], done } = {}) {
+    const icon = (kind) => kind === "nuvio" ? `<span class="sc-ic"><img src="${NUVIO_ICON}" alt=""></span>` : `<span class="sc-ic">${Icons.shieldCheck}</span>`;
+    const part = (p) => typeof p === "string" ? esc(p) : `<span ${cls("sc-tok", p.hl && "hl")}>${esc(p.t)}${badge(p.hl)}</span>`;
+    const blocks = actions.map((a) => `<div class="sc-act">${icon(a.icon)}<span>${a.parts.map(part).join("")}</span>${a.toggle
+      ? `<div ${cls("sc-opt", a.toggle.hl && "hl")}><span>${esc(a.toggle.label)}</span><span class="tog${a.toggle.on ? " on" : ""}"></span>${badge(a.toggle.hl)}</div>` : ""}</div>`).join("");
+    const found = results.map((r) => `<div ${cls("sc-row", r.hl && "hl")}>${icon(r.icon)}<span>${esc(r.label)}</span>${badge(r.hl)}</div>`).join("");
+    const searchBox = search === undefined ? "" : `<div class="sc-search">${Icons.search || ""}<span>${search ? esc(search) : '<span class="q">Search Actions</span>'}</span></div>`;
+    return panel("ios", `<div class="ios sc"><div class="sc-top"><span>Cancel</span><b>New Automation</b><span ${cls("sc-done", done && "hl")}>${Icons.check}${badge(done)}</span></div>${blocks}${found ? `<div class="sc-res">${found}</div>` : ""}${searchBox}</div>`);
+  },
 };
