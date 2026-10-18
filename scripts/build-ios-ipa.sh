@@ -149,33 +149,48 @@ trap 'rm -rf "${package_root}"' EXIT
 mkdir -p "${package_root}/Payload"
 ditto "${app_path}" "${package_root}/Payload/Nuvio-Z.app"
 
-# Debug only: expose the app's Documents folder in Files ("On My iPhone > Nuvio Z Debug"),
+# Debug: expose the app's Documents folder in Files ("On My iPhone > Nuvio Z Debug"),
 # which is where the download diagnostics (`nuvio_diagnostics/`) are written.
 #
 # The Debug build settings ask for this with INFOPLIST_KEY_UIFileSharingEnabled, but Xcode's
 # generated Info.plist does not carry that key through: `.45` and `.46` shipped with
 # LSSupportsOpeningDocumentsInPlace and without UIFileSharingEnabled, and Files needs both.
-# The staged app is unsigned, so setting the keys here breaks no seal, and the check below
-# makes a Debug IPA without them - or a Release IPA with them - fail the build.
+# The staged app is unsigned, so setting the keys here breaks no seal.
+#
+# Release with self-signing: UIFileSharingEnabled alone. The installer writes the pairing file and
+# the PC's signing key into Documents through house_arrest, which needs it; without
+# LSSupportsOpeningDocumentsInPlace the folder stays out of the Files app, so nobody moves or
+# deletes those files by accident. A Release IPA without self-signing exposes neither.
 staged_plist="${package_root}/Payload/Nuvio-Z.app/Info.plist"
-file_sharing_keys=(UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace)
+set_plist_true() {
+    /usr/libexec/PlistBuddy -c "Delete :$1" "${staged_plist}" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :$1 bool true" "${staged_plist}"
+}
+expect_plist() {
+    local value
+    value="$(/usr/libexec/PlistBuddy -c "Print :$1" "${staged_plist}" 2>/dev/null || echo absent)"
+    if [[ "$2" == "true" && "${value}" != "true" ]]; then
+        echo "${configuration} IPA must set $1 to true, found ${value}." >&2
+        exit 1
+    fi
+    if [[ "$2" == "off" && "${value}" == "true" ]]; then
+        echo "${configuration} IPA must not set $1." >&2
+        exit 1
+    fi
+}
 if [[ "${configuration}" == "Debug" ]]; then
-    for key in "${file_sharing_keys[@]}"; do
-        /usr/libexec/PlistBuddy -c "Delete :${key}" "${staged_plist}" >/dev/null 2>&1 || true
-        /usr/libexec/PlistBuddy -c "Add :${key} bool true" "${staged_plist}"
-    done
+    set_plist_true UIFileSharingEnabled
+    set_plist_true LSSupportsOpeningDocumentsInPlace
+    expect_plist UIFileSharingEnabled true
+    expect_plist LSSupportsOpeningDocumentsInPlace true
+elif [[ "${self_signing}" == "true" ]]; then
+    set_plist_true UIFileSharingEnabled
+    expect_plist UIFileSharingEnabled true
+    expect_plist LSSupportsOpeningDocumentsInPlace off
+else
+    expect_plist UIFileSharingEnabled off
+    expect_plist LSSupportsOpeningDocumentsInPlace off
 fi
-for key in "${file_sharing_keys[@]}"; do
-    value="$(/usr/libexec/PlistBuddy -c "Print :${key}" "${staged_plist}" 2>/dev/null || echo absent)"
-    if [[ "${configuration}" == "Debug" && "${value}" != "true" ]]; then
-        echo "Debug IPA must set ${key} to true, found ${value}." >&2
-        exit 1
-    fi
-    if [[ "${configuration}" == "Release" && "${value}" == "true" ]]; then
-        echo "Release IPA must not expose Documents in Files, but ${key} is true." >&2
-        exit 1
-    fi
-done
 
 # Self-signing: the background refresh needs its task identifier listed and the fetch mode, or registering it
 # crashes the app; and the App Intent only shows in Shortcuts if Xcode extracted its metadata.

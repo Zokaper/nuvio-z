@@ -53,8 +53,12 @@ diagnostic Debug release run `39068786094`).
   real link). The steps are the installer's last two screens, because the person is in the Shortcuts app while
   doing them; Nuvio Z's launch screen points at the computer and keeps the drawn steps as a fold-out.
 - **Reverted**: this branch's `UIFileSharingEnabled` in `iosApp/iosApp/Info.plist`. Debug gets it from
-  build-ios-ipa.sh, and the script fails every Release IPA that has it. Consequence: the *stable* direct path can't
-  place its pairing file until that policy is decided (Release would need file sharing on).
+  build-ios-ipa.sh. **Decided 2026-10-18 (maintainer):** a self-signing Release IPA gets `UIFileSharingEnabled`
+  only (house_arrest can place the pairing file and key; a trusted PC can already do more than read that folder),
+  never `LSSupportsOpeningDocumentsInPlace`, so the folder stays out of the Files app and can't be emptied by
+  accident. build-ios-ipa.sh enforces it; Release without self-signing exposes neither. Moving the files into the
+  Keychain after first launch was offered and skipped for now. The script still refuses `NUVIO_IOS_SELF_SIGNING`
+  for Release until self-signing leaves Debug.
 - **Verified here:** core tests 21/21 (incl. QR decode and the Credential Manager migration); shared Kotlin compiles
   (`:androidApp:compileFullDebugKotlin`); installer release exe built and driven live over WebView2 DevTools with an
   isolated `LOCALAPPDATA`: the event self-test reached the window, the test IPA was detected as Debug, Copy report and
