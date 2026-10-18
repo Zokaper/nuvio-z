@@ -14,7 +14,7 @@
   "events": [
     {
       "seq": 4,
-      "summary": "Nuvio Z on iPhone now keeps itself signed and updates itself. No more SideStore, and a new installer for Windows sets it up or repairs it.",
+      "summary": "Nuvio Z on iPhone now keeps itself signed and updates itself. No more SideStore, and a new installer for Windows and Mac sets it up or repairs it.",
       "ships": {
         "android": {
           "version": "0.5.4-z3",
@@ -50,7 +50,7 @@
             "ios"
           ],
           "title": "A new iPhone installer",
-          "body": "The Nuvio Z iOS Installer for Windows replaces the old setup wizard and SideStore. Choose Install for a new iPhone, or Repair if Nuvio Z stopped opening: it signs it again and keeps everything in it. Coming from SideStore? Delete SideStore and the old Nuvio Z, then run the installer."
+          "body": "The Nuvio Z iOS Installer for Windows and Mac replaces the old setup wizard and SideStore. Choose Install for a new iPhone, or Repair if Nuvio Z stopped opening: it signs it again and keeps everything in it. Coming from SideStore? Delete SideStore and the old Nuvio Z, then run the installer."
         }
       ]
     },
