@@ -19,11 +19,12 @@ const panel = (kind, inner) => `<div class="panel ${kind}"><div class="fit">${in
 const TILE = { gray: "#8e8e93", blue: "#0a84ff", green: "#34c759" };
 
 const Art = {
-  /** A Home Screen icon with its label. kind: settings | sidestore | nuvio */
+  /** A Home Screen icon with its label. kind: settings | sidestore | nuvio | localdevvpn */
   icon(kind, { hl, done, bare } = {}) {
-    const inner = { settings: Icons.settings, sidestore: '<span class="letter">S</span>', nuvio: `<img src="${NUVIO_ICON}" alt="">` }[kind];
-    const style = kind === "sidestore" ? ' style="background:linear-gradient(150deg,#8f78ff,#5a3fd8)"' : "";
-    const label = { settings: "Settings", sidestore: "SideStore", nuvio: "Nuvio Z" }[kind];
+    const inner = { settings: Icons.settings, sidestore: '<span class="letter">S</span>', nuvio: `<img src="${NUVIO_ICON}" alt="">`, localdevvpn: Icons.shieldCheck }[kind];
+    const style = kind === "sidestore" ? ' style="background:linear-gradient(150deg,#8f78ff,#5a3fd8)"'
+      : kind === "localdevvpn" ? ' style="background:linear-gradient(150deg,#4cd964,#28a745)"' : "";
+    const label = { settings: "Settings", sidestore: "SideStore", nuvio: "Nuvio Z", localdevvpn: "LocalDevVPN" }[kind];
     const check = done ? `<span class="checkmark">${Icons.check}</span>` : "";
     const tile = `<div ${cls("appicon", kind === "settings" && "settings", hl && "hl")}${style}>${inner}${badge(hl)}${check}</div>`;
     return bare ? tile : panel("wall", `${tile}<div class="icon-label">${label}</div>`);

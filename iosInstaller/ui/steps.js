@@ -129,7 +129,7 @@ function buildSteps(ctx) {
     watch: (d) => d.trusted,
     alternates: [
       ["No “Trust” message appeared", ["Unplug the iPhone, unlock it, and plug it back in.", "Keep the iPhone screen on and unlocked while you wait."]],
-      ["I tapped “Don’t Trust”", ["Unplug the iPhone and plug it back in: it asks again.", "If it doesn’t, on the iPhone open <span class=path>Settings › General › Transfer or Reset iPhone › Reset › Reset Location & Privacy</span>, then plug in again."]],
+      ["I tapped “Don’t Trust”", ["Unplug the iPhone and plug it back in: it asks again.", "If it doesn’t, on the iPhone open <span class=path>System Settings › General › Transfer or Reset iPhone › Reset › Reset Location & Privacy</span>, then plug in again."]],
       ["It asks for a passcode I don’t know", ["It’s the code you use to unlock the iPhone, not your Apple Account password."]],
     ],
   },
@@ -158,7 +158,7 @@ function buildSteps(ctx) {
     ],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
-      ["Which email do I use?", ["The one you use for the App Store. It’s at the top of <span class=path>Settings › [your name]</span> on the iPhone."]],
+      ["Which email do I use?", ["The one you use for the App Store. It’s at the top of <span class=path>System Settings › [your name]</span> on the iPhone."]],
     ],
   },
   {
@@ -201,9 +201,9 @@ function buildSteps(ctx) {
   {
     id: "devmode",
     title: "Turn on Developer Mode",
-    lead: "Apple requires it before an iPhone opens apps from outside the App Store. The iPhone restarts once.",
+    lead: "Apple requires it before an iPhone opens apps from outside the App Store. That’s all it does: nothing else about your iPhone changes. It restarts once.",
     cards: [
-      { art: Art.icon("settings", { hl: 1 }), n: 1, cap: "Open Settings" },
+      { art: Art.icon("settings", { hl: 1 }), n: 1, cap: "Open System Settings", sub: "The grey gear on your Home Screen, not Nuvio Z’s settings" },
       { art: Art.path({ label: "Privacy & Security", icon: "hand", tile: "blue" }, { label: "Developer Mode", hl: 2 }), n: 2, cap: "Privacy & Security › Developer Mode", sub: "It’s at the very bottom" },
       { art: Art.alert({ title: "Turn On Developer Mode?", message: "Turning on Developer Mode requires restarting your iPhone.", buttons: [{ label: "Cancel" }, { label: "Restart", bold: true, hl: 3 }] }), n: 3, cap: "Turn it on and tap Restart", sub: "After the restart, unlock and tap Turn On" },
     ],
@@ -211,8 +211,8 @@ function buildSteps(ctx) {
     watch: (d) => d.developerMode === true,
     links: [{ label: "It’s not in the list", action: "revealDeveloperMode" }],
     alternates: [
-      ["Developer Mode isn’t in the list", ["Click <b>It’s not in the list</b> below: this computer asks the iPhone to show it. Then look again.", "Close Settings completely and reopen it."]],
-      ["The iPhone restarted but nothing asked me", ["Unlock it and wait a few seconds.", "If nothing appears, open <span class=path>Settings › Privacy & Security › Developer Mode</span> and check the switch is on."]],
+      ["Developer Mode isn’t in the list", ["Click <b>It’s not in the list</b> below: this computer asks the iPhone to show it. Then look again.", "Close System Settings completely and reopen it."]],
+      ["The iPhone restarted but nothing asked me", ["Unlock it and wait a few seconds.", "If nothing appears, open <span class=path>System Settings › Privacy & Security › Developer Mode</span> and check the switch is on."]],
     ],
   },
   {
@@ -220,13 +220,13 @@ function buildSteps(ctx) {
     title: "Trust your Apple Account",
     lead: "iPhone asks you to confirm you trust apps signed with your own account.",
     cards: [
-      { art: Art.icon("settings", { hl: 1 }), n: 1, cap: "Open Settings" },
+      { art: Art.icon("settings", { hl: 1 }), n: 1, cap: "Open System Settings" },
       { art: Art.path({ label: "General", icon: "settings", tile: "gray" }, { label: "VPN & Device Management", hl: 2 }), n: 2, cap: "General › VPN & Device Management" },
       { art: Art.list([{ header: "Developer App", rows: [{ label: EMAIL, hl: 3 }] }, { rows: [{ label: `Trust “${EMAIL}”`, link: true, chev: false }] }]), n: 3, cap: "Tap your email, then Trust", sub: "and Trust again to confirm" },
     ],
     buttons: [{ label: "I’ve trusted it" }],
     alternates: [
-      ["There’s no Developer App section", [`${target} may not have finished installing. Check its icon is on the Home Screen, then reopen Settings.`, "Make sure you opened <b>VPN & Device Management</b>, not <b>VPN</b>."]],
+      ["There’s no Developer App section", [`${target} may not have finished installing. Check its icon is on the Home Screen, then reopen System Settings.`, "Make sure you opened <b>VPN & Device Management</b>, not <b>VPN</b>."]],
       ["The email shown isn’t mine", ["Tap the one that matches the account you signed in with on this computer."]],
     ],
   },
@@ -239,19 +239,35 @@ function buildSteps(ctx) {
     cards: [
       { art: Art.qr("localDevVpn"), n: 1, cap: "Scan with your iPhone camera", sub: "or search “LocalDevVPN”" },
       { art: Art.store({ name: "LocalDevVPN", subtitle: "Utilities", tile: "green", icon: "shieldCheck", hl: 2 }), n: 2, cap: "Tap Get" },
-      { art: Art.alert({ title: "“LocalDevVPN” Would Like to Add VPN Configurations", message: "All network activity on this iPhone may be filtered or monitored when using VPN.", buttons: [{ label: "Allow", bold: true, hl: 3 }, { label: "Don’t Allow" }] }), n: 3, cap: "Open it, tap Allow, then Connect" },
+      { art: Art.alert({ title: "“LocalDevVPN” Would Like to Add VPN Configurations", message: "All network activity on this iPhone may be filtered or monitored when using VPN.", buttons: [{ label: "Allow", bold: true, hl: 3 }, { label: "Don’t Allow" }] }), n: 3, cap: "Open it and tap Allow", sub: "iOS shows this for every VPN app. LocalDevVPN only talks to this iPhone itself" },
     ],
     status: { kind: "wait", text: "Waiting for LocalDevVPN…", sub: "continues by itself" },
     watch: (d) => Boolean(d.apps && d.apps.localDevVpn),
+  },
+  {
+    id: "vpn-connect",
+    title: "Connect LocalDevVPN",
+    lead: direct
+      ? `${nuvioName} renews itself through it. Turn it on now; from tomorrow the daily refresh turns it on and off by itself.`
+      : "SideStore refreshes your apps through it. Turn it on whenever you use SideStore.",
+    cards: [
+      { art: Art.icon("localdevvpn", { hl: 1 }), n: 1, cap: "Open LocalDevVPN" },
+      { art: Art.list([{ header: "LocalDevVPN", rows: [{ label: "Connect", link: true, chev: false, hl: 2 }] }]), n: 2, cap: "Tap Connect" },
+      { art: Art.list([{ rows: [{ label: "Status", value: "Connected", chev: false, hl: 3 }] }]), n: 3, cap: "Check it says Connected", sub: "A VPN badge appears at the top of the screen" },
+    ],
+    buttons: [{ label: "It says Connected" }],
+    alternates: [
+      ["It won’t connect", ["Check Wi-Fi or mobile data is on.", "Close LocalDevVPN completely, open it again and tap Connect."]],
+      ["It asks to add a VPN configuration", ["Tap <b>Allow</b>. It doesn’t send your internet anywhere; it only lets apps reach this iPhone itself."]],
+    ],
   },
   ...(direct ? [{
     id: "open",
     title: `Open ${nuvioName} and renew it once`,
     lead: "Apps from a free Apple Account stop opening after 7 days unless they’re renewed. Nuvio Z does that itself; it needs your account once.",
     cards: [
-      { art: Art.list([{ header: "LocalDevVPN", rows: [{ label: "Connect", link: true, chev: false, hl: 1 }] }]), n: 1, cap: "Open LocalDevVPN and tap Connect" },
-      { art: Art.icon("nuvio", { hl: 2 }), n: 2, cap: `Open ${nuvioName}` },
-      { art: Art.appForm({ title: "Keep Nuvio Z working", fields: [EMAIL, "••••••••••"], cta: "Renew now", hl: 3 }), n: 3, cap: "Sign in and tap Renew now", sub: "Nuvio Z shows this first, before anything else" },
+      { art: Art.icon("nuvio", { hl: 1 }), n: 1, cap: `Open ${nuvioName}`, sub: "With LocalDevVPN still connected" },
+      { art: Art.appForm({ title: "Keep Nuvio Z working", fields: [EMAIL, "••••••••••"], cta: "Renew now", hl: 2 }), n: 2, cap: "Sign in and tap Renew now", sub: "Nuvio Z shows this first, before anything else" },
     ],
     liveStatus: (d) => d.nuvioPairing === false
       ? { kind: "warn", text: `${nuvioName} is missing its connection file.`, sub: "Keep the iPhone plugged in and click Add it again below." }
@@ -259,8 +275,8 @@ function buildSteps(ctx) {
     buttons: [{ label: "Next" }],
     links: [{ label: "Add it again", action: "placeNuvioPairing" }],
     alternates: [
-      [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back one step and trust your Apple Account in Settings."]],
-      ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z under Settings › Keep Nuvio Z working."]],
+      [`${nuvioName} won’t open (“Untrusted Developer”)`, ["Go back to “Trust your Apple Account” and trust it in System Settings."]],
+      ["Nuvio Z didn’t show “Keep Nuvio Z working”", ["It’s also in Nuvio Z’s own settings, under Keep Nuvio Z working."]],
       [`${nuvioName} says it can’t reach the iPhone`, ["Open LocalDevVPN and check it says Connected, then try again.", "Keep the iPhone plugged in here and click <b>Add it again</b>."]],
     ],
   },
@@ -323,7 +339,7 @@ function buildSteps(ctx) {
     alternates: [
       ["“This action cannot be completed at this time”", ["This is Apple’s -80045 block, not your password.", "In SideStore open <span class=path>Settings › Reset Anisette Data</span>, close SideStore fully, then sign in again.", "Still failing? Wait an hour before retrying, so Apple doesn’t lock the account."]],
       ["SideStore asks for a pairing file", ["Keep the iPhone plugged in and click <b>Add pairing file again</b> on this computer, then reopen SideStore."]],
-      ["SideStore won’t open (“Untrusted Developer”)", ["Go back one step and trust your Apple Account in Settings."]],
+      ["SideStore won’t open (“Untrusted Developer”)", ["Go back to “Trust your Apple Account” and trust it in System Settings."]],
     ],
   },
   {
