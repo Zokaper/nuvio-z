@@ -5,6 +5,10 @@
   apply  BUMPS_JSON                                          rewrites the "=x.y.z" pins in Cargo.toml
   diff   BUMPS_JSON OUT_DIR                                  downloads both versions of each crate and writes
                                                              OUT_DIR/<crate>-<from>-to-<to>.diff
+  servers [--cooldown-days 1]                                iloader's anisette server list (its latest release's
+                                                             src/pages/Settings.tsx) against ours, as JSON
+  apply-servers SERVERS_JSON                                 writes iloader's list into core/src/account.rs and its
+                                                             first server into core/src/anisette.rs
   bump-version                                               next installer version in Cargo.toml and
                                                              app/tauri.conf.json (alpha.N -> alpha.N+1, else
                                                              patch + 1); prints it
@@ -27,6 +31,11 @@ import tarfile
 import urllib.request
 
 CRATES = ["isideload", "idevice"]
+# iloader is the same author's sideloader on the same crates. When Apple changes what it accepts, the fix often
+# ships there as a different anisette server list before (or instead of) a crate release, as on 2026-10-18.
+ILOADER = "nab138/iloader"
+ACCOUNT_RS = pathlib.Path("core/src/account.rs")
+ANISETTE_RS = pathlib.Path("core/src/anisette.rs")
 CARGO_TOML = pathlib.Path("Cargo.toml")
 USER_AGENT = "nuvio-z-ios-installer-auto-release (github.com/Zokaper/nuvio-z)"
 
@@ -109,6 +118,51 @@ def diff(bumps: list, out: pathlib.Path) -> None:
         print(f"{target}: {len(result.stdout.splitlines())} lines", file=sys.stderr)
 
 
+def our_servers() -> list:
+    block = re.search(r"pub const ANISETTE_SERVERS: &\[&str\] = &\[(.*?)\];", read(ACCOUNT_RS), re.S)
+    if not block:
+        sys.exit("no ANISETTE_SERVERS in core/src/account.rs")
+    return re.findall(r'"https://([^"]+)"', block.group(1))
+
+
+def iloader_servers(cooldown_days: int) -> dict:
+    release = json.loads(fetch(f"https://api.github.com/repos/{ILOADER}/releases/latest"))
+    tag, published = release["tag_name"], release["published_at"]
+    source = fetch(f"https://raw.githubusercontent.com/{ILOADER}/{tag}/src/pages/Settings.tsx").decode("utf-8")
+    block = re.search(r"^let anisetteServers = \[(.*?)^\];", source, re.S | re.M)  # not the commented-out old list
+    if not block:
+        sys.exit(f"{ILOADER} {tag}: no anisetteServers list in src/pages/Settings.tsx")
+    theirs = [m.group(1) for line in block.group(1).splitlines()
+              if not line.strip().startswith("//") and (m := re.search(r'\["([^"]+)"', line))]
+    ours = our_servers()
+    age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(published.replace("Z", "+00:00"))).days
+    changed = bool(theirs) and theirs != ours
+    if changed and age < cooldown_days:
+        print(f"{ILOADER} {tag}: published {published[:10]}, waiting out the cooldown", file=sys.stderr)
+        changed = False
+    return {"changed": changed, "tag": tag, "published": published, "ours": ours, "iloader": theirs,
+            "release_notes": release.get("body", "")[:4000]}
+
+
+def apply_servers(servers: dict) -> None:
+    hosts = servers["iloader"]
+    text = read(ACCOUNT_RS)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    entries = "".join(f'    "https://{host}",{newline}' for host in hosts)
+    text, count = re.subn(r"(pub const ANISETTE_SERVERS: &\[&str\] = &\[).*?(\];)",
+                          lambda m: m.group(1) + newline + entries + m.group(2), text, count=1, flags=re.S)
+    if count != 1:
+        sys.exit("ANISETTE_SERVERS not found")
+    with open(ACCOUNT_RS, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+    anisette = read(ANISETTE_RS)
+    anisette, count = re.subn(r'(pub const DEFAULT_SERVER: &str = ")[^"]+(";)', rf"\g<1>https://{hosts[0]}\g<2>", anisette, count=1)
+    if count != 1:
+        sys.exit("DEFAULT_SERVER not found")
+    with open(ANISETTE_RS, "w", encoding="utf-8", newline="") as handle:
+        handle.write(anisette)
+
+
 def bump_version() -> str:
     toml_text = read(CARGO_TOML)
     match = re.search(r'^version = "([^"]+)"', toml_text, re.M)
@@ -142,6 +196,9 @@ def main() -> None:
     diff_parser.add_argument("bumps")
     diff_parser.add_argument("out")
     commands.add_parser("bump-version")
+    servers_parser = commands.add_parser("servers")
+    servers_parser.add_argument("--cooldown-days", type=int, default=1)
+    commands.add_parser("apply-servers").add_argument("servers")
     args = parser.parse_args()
 
     if args.command == "check":
@@ -151,6 +208,10 @@ def main() -> None:
         apply(json.loads(args.bumps))
     elif args.command == "diff":
         diff(json.loads(args.bumps), pathlib.Path(args.out))
+    elif args.command == "servers":
+        print(json.dumps(iloader_servers(args.cooldown_days)))
+    elif args.command == "apply-servers":
+        apply_servers(json.loads(args.servers))
     else:
         print(bump_version())
 

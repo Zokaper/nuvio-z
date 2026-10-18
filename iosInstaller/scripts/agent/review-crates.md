@@ -11,7 +11,9 @@ A held update costs nothing: the maintainer looks at it.
 
 ## What you have (in `$EVIDENCE`, an absolute path given in the prompt)
 
-- `bumps.json`: each crate, the version we had, the version we're moving to, its repository.
+- `bumps.json`: each crate, the version we had, the version we're moving to, its repository. It may be `[]`
+  when only the anisette servers changed (see 1b).
+- `servers.json`, only when iloader's anisette server list changed (see 1b).
 - `<crate>-<from>-to-<to>.diff`: the complete source diff between the two published crate versions.
 - `lock.diff`: how our `Cargo.lock` changed (new or updated transitive dependencies).
 - `tests-before.log`, `signer-check-before.log`: `cargo test -p nuvioz-installer-core` and
@@ -34,6 +36,23 @@ Read every diff in full. Hold (`"release": false`) if any of these is true:
 
 Ordinary bug fixes, refactors, error-message changes, Apple protocol updates that only talk to Apple, and
 dependency bumps of well-known crates are fine.
+
+## 1b. Anisette servers from iloader (when `servers.json` exists)
+
+The workflow found that iloader (`nab138/iloader`, by the author of `isideload`) changed its anisette server
+list in its latest release, and has already copied that list into `ANISETTE_SERVERS` in
+`iosInstaller/core/src/account.rs` (first one also as `DEFAULT_SERVER` in `core/src/anisette.rs`).
+`servers.json` has our old list, iloader's new list, the release tag and its notes. An anisette server sees the
+device-identity requests made during sign-in, not the password, but a hostile one could still disrupt sign-in.
+
+- Fine: hosts iloader lists that belong to known sideloading projects (SideStore, StikStore, jkcoxson) or that
+  were already in our list. Changing the order is fine.
+- Hold: a host on a domain with no link to those projects, a raw IP address, or plain `http://`.
+- Update the comment above `ANISETTE_SERVERS` and `DEFAULT_SERVER` to say which iloader release the list comes
+  from and anything its notes say about the servers (for example one that "works ~50% of the time"). Keep the
+  order iloader uses.
+
+Set `signing_behaviour_changed` to true for a server change: Nuvio Z on the phone signs in with the same list.
 
 ## 2. Make it build, if it doesn't
 

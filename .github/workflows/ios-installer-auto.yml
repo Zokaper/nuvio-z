@@ -53,11 +53,15 @@ env:
 
 jobs:
   check:
-    name: New signing crates?
+    name: Anything new upstream?
     if: ${{ github.event_name == 'push' || github.event.schedule == '17 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'crates') }}
     runs-on: ubuntu-latest
     outputs:
       bumps: ${{ steps.check.outputs.bumps }}
+      servers: ${{ steps.check.outputs.servers }}
+      servers_changed: ${{ steps.check.outputs.servers_changed }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
       - id: check
@@ -67,12 +71,17 @@ jobs:
           [ -n "${SIMULATE}" ] && args+=(--simulate "${SIMULATE}")
           bumps=$(python3 scripts/signing_crates.py check --cooldown-days 3 "${args[@]}")
           echo "bumps=${bumps}" >> "$GITHUB_OUTPUT"
-          echo "Bumps: ${bumps}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Crates: ${bumps}" | tee -a "$GITHUB_STEP_SUMMARY"
+          # iloader's anisette servers: a day's wait, not three. They are how Apple-side breakage gets fixed.
+          servers=$(python3 scripts/signing_crates.py servers --cooldown-days 1)
+          echo "servers=${servers}" >> "$GITHUB_OUTPUT"
+          echo "servers_changed=$(echo "${servers}" | jq -r .changed)" >> "$GITHUB_OUTPUT"
+          echo "${servers}" | jq -r '"iloader \(.tag) servers: \(.iloader | join(", ")); ours: \(.ours | join(", ")); changed: \(.changed)"' | tee -a "$GITHUB_STEP_SUMMARY"
 
   review:
     name: Review and fix
     needs: check
-    if: ${{ needs.check.outputs.bumps != '[]' && needs.check.outputs.bumps != '' }}
+    if: ${{ (needs.check.outputs.bumps != '[]' && needs.check.outputs.bumps != '') || needs.check.outputs.servers_changed == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       decision: ${{ steps.gate.outputs.decision }}
@@ -81,6 +90,8 @@ jobs:
       version: ${{ steps.commit.outputs.version }}
     env:
       BUMPS: ${{ needs.check.outputs.bumps }}
+      SERVERS: ${{ needs.check.outputs.servers }}
+      SERVERS_CHANGED: ${{ needs.check.outputs.servers_changed }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
@@ -94,19 +105,29 @@ jobs:
         with:
           workspaces: iosInstaller
 
-      - name: Bump the pins and gather the evidence
+      - name: Apply the changes and gather the evidence
+        id: gather
         working-directory: iosInstaller
         run: |
           set -uo pipefail
           ev="${GITHUB_WORKSPACE}/.auto-review"
           mkdir -p "${ev}"
           echo "${BUMPS}" > "${ev}/bumps.json"
-          python3 scripts/signing_crates.py apply "${BUMPS}"
-          crates=$(echo "${BUMPS}" | python3 -c 'import json,sys; print(" ".join("-p " + b["crate"] for b in json.load(sys.stdin)))')
-          cargo update ${crates}
-          python3 scripts/signing_crates.py diff "${BUMPS}" "${ev}"
-          rm -rf "${ev}/sources"
+          if [ "${BUMPS}" != "[]" ]; then
+            python3 scripts/signing_crates.py apply "${BUMPS}"
+            crates=$(echo "${BUMPS}" | python3 -c 'import json,sys; print(" ".join("-p " + b["crate"] for b in json.load(sys.stdin)))')
+            cargo update ${crates}
+            python3 scripts/signing_crates.py diff "${BUMPS}" "${ev}"
+            rm -rf "${ev}/sources"
+          fi
+          if [ "${SERVERS_CHANGED}" = "true" ]; then
+            echo "${SERVERS}" > "${ev}/servers.json"
+            python3 scripts/signing_crates.py apply-servers "${SERVERS}"
+          fi
           git diff -- Cargo.lock > "${ev}/lock.diff"
+          what=$(echo "${BUMPS}" | jq -r 'map("\(.crate) \(.from) -> \(.to)") | join(", ")')
+          [ "${SERVERS_CHANGED}" = "true" ] && what="${what:+${what}, }anisette servers from iloader $(echo "${SERVERS}" | jq -r .tag)"
+          echo "what=${what}" >> "$GITHUB_OUTPUT"
           cargo test -p nuvioz-installer-core > "${ev}/tests-before.log" 2>&1; echo "exit $?" >> "${ev}/tests-before.log"
           cargo check -p nuvioz-signer > "${ev}/signer-check-before.log" 2>&1; echo "exit $?" >> "${ev}/signer-check-before.log"
           tail -n 3 "${ev}"/*.log
@@ -190,7 +211,7 @@ jobs:
           git checkout -b "${branch}"
           git add iosInstaller/core iosInstaller/ffi iosInstaller/app iosInstaller/Cargo.toml iosInstaller/Cargo.lock
           summary=$(jq -r .summary .auto-review/verdict.json)
-          bumps=$(echo "${BUMPS}" | jq -r 'map("\(.crate) \(.from) -> \(.to)") | join(", ")')
+          bumps="${{ steps.gather.outputs.what }}"
           git commit -q -m "Installer ${version}: ${bumps}" -m "${summary}" -m "Reviewed by Sonnet in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
           git push -q origin "${branch}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -201,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           gh label create auto-release --color 5319E7 --description "iOS Installer auto-release" --force >/dev/null
-          bumps=$(echo "${BUMPS}" | jq -r 'map("\(.crate) \(.from) -> \(.to)") | join(", ")')
+          bumps="${{ steps.gather.outputs.what }}"
           title="Auto-release held: ${bumps}"
           [ "${{ steps.gate.outputs.decision }}" = "agent-failed" ] && title="Auto-release couldn't review: ${bumps}"
           body="@${MAINTAINER} $(cat .auto-review/gate-reason.txt)
