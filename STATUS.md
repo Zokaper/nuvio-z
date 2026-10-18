@@ -1,5 +1,26 @@
 Last updated: 2026-10-18
 
+## Join sheet art, phone in-player card, desktop pop-up queue (2026-10-18, Debug mobile 98 / desktop 107)
+
+Maintainer's second round of 2026-10-18. Renders first (`SocialJoinSheetHarness`, desktop desktopTest; contact
+sheets in `Nuvio Z/render-review/2026-10-18-social/`), picks: join sheet **B**, in-player card **A**.
+
+- **Join sheet** (shared, desktop `5ca0259d6` -> mobile): backdrop full-bleed with who / title / episode on it,
+  state chip and progress on its edges, Join + Details side by side. `SocialSheet(edgeToEdge = true)` at both
+  doors (Social tab, Home Friends shelf); `SocialJoinSheetContent` takes `wide`.
+- **Phone in-player card** (mobile only, `MobilePartyOverlays`): the compact `SocialPopupCard` itself, fed by
+  the shared `SocialNotification.toSocialPopup()` / `SocialInboxEvent.toSocialPopup()` (extracted from
+  `socialPopupCandidates`, unchanged; shared commit `3eca36981`). Buttons inside the card on a short surface
+  (card's new `trailing` slot), under it otherwise. No Dismiss button: swipe up (`onDismissSocialCard`: a
+  notice is marked read, a friend-watching card is cleared). The card's line now reads like the banners
+  ("wants to be friends", "invited you to watch") rather than the old in-player sentences.
+- **Desktop pop-ups** (desktop only): `SocialPopupQueue` (pure, `SocialPopupQueueTest` 4) - three on screen,
+  the rest wait (a fourth used to push the oldest off, already marked seen); hover holds all and gives time back
+  (min 3s); cards slide/fade in from the edge and out, the window follows the stack's measured height.
+  **Not seen on a screen yet**: hover hold and the animation are untested outside unit tests.
+
+Tests: desktop 164/164 (Social + tray), mobile host 162/162 (Social, party overlays, Watch Together).
+
 ## First 3-device round on 96/105; fixes in Debug mobile 97 / desktop 106 (2026-10-18)
 
 Maintainer tested iOS + Android + desktop together. Five reports, five fixes:

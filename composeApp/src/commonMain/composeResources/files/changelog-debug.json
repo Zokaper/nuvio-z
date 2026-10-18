@@ -157,6 +157,10 @@
     {
       "build": 97,
       "text": "Watch Together: a guest who goes back to the lobby now shows as In lobby and gets a Rejoin button. The info button on the Friends shelf matches Continue watching's. Watching Now no longer shuffles when several friends are watching. (Started-watching notifications for a new title, and not telling party members about each other, are fixed on the server for every build.)"
+    },
+    {
+      "build": 98,
+      "text": "The Watching Now sheet leads with the title's art: who, what and the episode on the picture, Join and Details side by side. Social notices in the player are now the same card as the banners at the top of the app: picture, face and title, with Accept and Decline on it. Swipe a card up to dismiss it."
     }
   ]
 }
