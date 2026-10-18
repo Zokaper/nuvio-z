@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,7 +37,13 @@ import androidx.compose.ui.unit.sp
  * the [compact] one as an in-app banner across the top of the screen (2026-10-17, "smaller").
  */
 @Composable
-internal fun SocialPopupCard(popup: SocialPopup, modifier: Modifier = Modifier, compact: Boolean = false) {
+internal fun SocialPopupCard(
+    popup: SocialPopup,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    /** Buttons at the card's end; the text then takes the room between the face and them. */
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+) {
     val shape = if (compact) SocialBannerShape else SocialPopupShape
     CompositionLocalProvider(LocalContentColor provides Color.White) {
         Box(
@@ -55,12 +62,14 @@ internal fun SocialPopupCard(popup: SocialPopup, modifier: Modifier = Modifier, 
                 ),
             )
             Row(
-                Modifier.align(Alignment.CenterStart).padding(if (compact) 12.dp else 16.dp),
+                Modifier.align(Alignment.CenterStart)
+                    .then(if (trailing != null) Modifier.fillMaxWidth() else Modifier)
+                    .padding(if (compact) 12.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
             ) {
                 SocialFaces(listOf(popup.person), if (compact) 38.dp else 46.dp, liveRing = popup.kind == SocialPopupKind.FriendWatching)
-                Column(Modifier.widthIn(max = 250.dp)) {
+                Column(if (trailing != null) Modifier.weight(1f) else Modifier.widthIn(max = 250.dp)) {
                     // The name gives way, never the verb: "A Friend With A Ve... wants to be friends".
                     Row {
                         Text(
@@ -93,6 +102,7 @@ internal fun SocialPopupCard(popup: SocialPopup, modifier: Modifier = Modifier, 
                         }
                     }
                 }
+                trailing?.invoke(this)
             }
             if (!compact) {
                 Text(

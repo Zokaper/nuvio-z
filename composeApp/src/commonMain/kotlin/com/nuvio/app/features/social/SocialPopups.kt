@@ -34,71 +34,77 @@ internal fun socialPopupCandidates(state: SocialUiState): List<Pair<SocialPopup,
     val popups = mutableListOf<Pair<SocialPopup, Long>>()
     state.notifications
         .filter { it.readAt == null && it.state == "pending" && it.availableActions.isNotEmpty() }
-        .forEach { notice ->
-            val content = notice.contentSummary
-            val popup = when (notice.kind) {
-                SocialNotificationKind.FriendRequest -> SocialPopup(
-                    key = "notice:${notice.id}",
-                    kind = SocialPopupKind.FriendRequest,
-                    person = notice.actor,
-                    line = "wants to be friends",
-                    title = "@${notice.actor.handle}",
-                    meta = null,
-                    art = SocialArtRef(title = notice.actor.handle, contentType = null, contentId = null, poster = null),
-                    target = SocialNavigationTarget.FriendRequests,
-                )
-                SocialNotificationKind.PartyInvitation -> SocialPopup(
-                    key = "notice:${notice.id}",
-                    kind = SocialPopupKind.PartyInvite,
-                    person = notice.actor,
-                    line = "invited you to watch",
-                    title = content?.title ?: "a Watch Together party",
-                    meta = listOfNotNull("Watch party", popupEpisodeLabel(content?.season, content?.episode)).joinToString(" · "),
-                    art = content?.artRef() ?: SocialArtRef("party", null, null, null),
-                    target = SocialNavigationTarget.Inbox,
-                )
-                SocialNotificationKind.WatchingNowJoinRequest -> SocialPopup(
-                    key = "notice:${notice.id}",
-                    kind = SocialPopupKind.JoinRequest,
-                    person = notice.actor,
-                    line = "asked to join",
-                    title = content?.title ?: "your playback",
-                    meta = listOfNotNull("Your playback", popupEpisodeLabel(content?.season, content?.episode)).joinToString(" · "),
-                    art = content?.artRef() ?: SocialArtRef("join", null, null, null),
-                    target = SocialNavigationTarget.Inbox,
-                )
-            }
-            popups += popup to (parseSocialTimestampMs(notice.createdAt) ?: 0L)
-        }
+        .forEach { notice -> popups += notice.toSocialPopup() to (parseSocialTimestampMs(notice.createdAt) ?: 0L) }
     state.inbox
         .filter { it.kind == SocialInboxEvent.FriendWatching && it.readAt == null }
         .filter { event -> state.prefsFor(event.actor.profileId).notifyWhenWatching }
-        .forEach { event ->
-            val payload = event.payload
-            val live = state.watchingNow.firstOrNull { it.profile.profileId == event.actor.profileId }
-            val popup = SocialPopup(
-                key = "inbox:${event.id}",
-                kind = SocialPopupKind.FriendWatching,
-                person = event.actor,
-                line = "is watching",
-                title = payload.title ?: live?.title ?: "something",
-                meta = popupEpisodeLabel(payload.season, payload.episode),
-                art = SocialArtRef(
-                    title = payload.title.orEmpty(),
-                    contentType = payload.contentType,
-                    contentId = payload.contentId,
-                    poster = payload.poster,
-                    landscape = listOf(payload.background),
-                    videoId = payload.videoId,
-                    season = payload.season,
-                    episode = payload.episode,
-                ),
-                target = live?.let { SocialNavigationTarget.WatchingSession(it.socialNavigationKey()) }
-                    ?: SocialNavigationTarget.Inbox,
-            )
-            popups += popup to (parseSocialTimestampMs(event.createdAt) ?: 0L)
-        }
+        .forEach { event -> popups += event.toSocialPopup(state.watchingNow) to (parseSocialTimestampMs(event.createdAt) ?: 0L) }
     return popups
+}
+
+/** A notice as a pop-up. Shared by the pop-ups, the phone's banners and its in-player card. */
+internal fun SocialNotification.toSocialPopup(): SocialPopup {
+    val notice = this
+    val content = notice.contentSummary
+    return when (notice.kind) {
+        SocialNotificationKind.FriendRequest -> SocialPopup(
+            key = "notice:${notice.id}",
+            kind = SocialPopupKind.FriendRequest,
+            person = notice.actor,
+            line = "wants to be friends",
+            title = "@${notice.actor.handle}",
+            meta = null,
+            art = SocialArtRef(title = notice.actor.handle, contentType = null, contentId = null, poster = null),
+            target = SocialNavigationTarget.FriendRequests,
+        )
+        SocialNotificationKind.PartyInvitation -> SocialPopup(
+            key = "notice:${notice.id}",
+            kind = SocialPopupKind.PartyInvite,
+            person = notice.actor,
+            line = "invited you to watch",
+            title = content?.title ?: "a Watch Together party",
+            meta = listOfNotNull("Watch party", popupEpisodeLabel(content?.season, content?.episode)).joinToString(" · "),
+            art = content?.artRef() ?: SocialArtRef("party", null, null, null),
+            target = SocialNavigationTarget.Inbox,
+        )
+        SocialNotificationKind.WatchingNowJoinRequest -> SocialPopup(
+            key = "notice:${notice.id}",
+            kind = SocialPopupKind.JoinRequest,
+            person = notice.actor,
+            line = "asked to join",
+            title = content?.title ?: "your playback",
+            meta = listOfNotNull("Your playback", popupEpisodeLabel(content?.season, content?.episode)).joinToString(" · "),
+            art = content?.artRef() ?: SocialArtRef("join", null, null, null),
+            target = SocialNavigationTarget.Inbox,
+        )
+    }
+}
+
+/** A friend-started-watching event as a pop-up; [watchingNow] says where a tap goes while they still are. */
+internal fun SocialInboxEvent.toSocialPopup(watchingNow: List<WatchingNowItem>): SocialPopup {
+    val event = this
+    val payload = event.payload
+    val live = watchingNow.firstOrNull { it.profile.profileId == event.actor.profileId }
+    return SocialPopup(
+        key = "inbox:${event.id}",
+        kind = SocialPopupKind.FriendWatching,
+        person = event.actor,
+        line = "is watching",
+        title = payload.title ?: live?.title ?: "something",
+        meta = popupEpisodeLabel(payload.season, payload.episode),
+        art = SocialArtRef(
+            title = payload.title.orEmpty(),
+            contentType = payload.contentType,
+            contentId = payload.contentId,
+            poster = payload.poster,
+            landscape = listOf(payload.background),
+            videoId = payload.videoId,
+            season = payload.season,
+            episode = payload.episode,
+        ),
+        target = live?.let { SocialNavigationTarget.WatchingSession(it.socialNavigationKey()) }
+            ?: SocialNavigationTarget.Inbox,
+    )
 }
 
 private fun popupEpisodeLabel(season: Int?, episode: Int?): String? =
