@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.debug.SelfSigningPlatform
+import com.nuvio.app.core.ui.DialogSurface
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -57,6 +58,7 @@ import kotlinx.serialization.json.jsonObject
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.selfsign_account_heading
+import nuvio.composeapp.generated.resources.selfsign_apple_dialog_title
 import nuvio.composeapp.generated.resources.selfsign_account_renews_with
 import nuvio.composeapp.generated.resources.selfsign_certs_body
 import nuvio.composeapp.generated.resources.selfsign_certs_expires
@@ -266,6 +268,31 @@ internal fun AppleQuestions(platform: SelfSigningPlatform) {
         }
     }
     certificates?.let { list -> CertificateChooser(list, platform, onAnswer = { platform.answerCertificates(it); certificates = null }) }
+}
+
+/**
+ * Apple's questions as a dialog, for sign-ins that run where there is no form to answer in (the update banner):
+ * shown only while Apple waits for a code or the account is out of certificates. Closing it gives up that sign-in.
+ */
+@Composable
+internal fun AppleQuestionsDialog(platform: SelfSigningPlatform) {
+    var asking by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            asking = platform.waitingForCode() || platform.pendingCertificates() != null
+            delay(500)
+        }
+    }
+    if (!asking) return
+    DialogSurface(
+        onDismissRequest = {
+            if (platform.waitingForCode()) platform.answerCode(null)
+            if (platform.pendingCertificates() != null) platform.answerCertificates(null)
+        },
+        title = stringResource(Res.string.selfsign_apple_dialog_title),
+    ) {
+        AppleQuestions(platform)
+    }
 }
 
 /** The account is out of certificates and none is ours: which to revoke (the same rule as the installer). */

@@ -3624,5 +3624,6 @@
     <string name="updates_ios_connect_vpn">Connect LocalDevVPN, then tap Retry.</string>
     <string name="updates_ios_code">Apple asked for a code. Renew once in Settings › Keep Nuvio Z working, then update.</string>
     <string name="updates_ios_stopped">The update stopped without saying why.</string>
+    <string name="selfsign_apple_dialog_title">Apple sign-in</string>
     <!-- /Nuvio Z: iPhone self-signing. -->
 </resources>

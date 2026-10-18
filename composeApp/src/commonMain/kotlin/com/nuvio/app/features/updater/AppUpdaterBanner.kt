@@ -50,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.debug.SelfSigningSpike
+import com.nuvio.app.features.settings.AppleQuestionsDialog
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.DialogButton
 import com.nuvio.app.core.ui.DialogButtons
@@ -160,6 +162,11 @@ fun AppUpdaterHost(
             onContinue = controller::resumeInstallation,
             onDismiss = controller::dismissDialog,
         )
+    }
+
+    // iOS self-signing: installing signs in to Apple, which can ask for a code or a certificate to revoke.
+    if (state.isInstalling) {
+        SelfSigningSpike.platform?.let { AppleQuestionsDialog(it) }
     }
 }
 
