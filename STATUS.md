@@ -4,7 +4,7 @@ Last updated: 2026-10-18
 
 | Scope | Active branch / state |
 | --- | --- |
-| Mobile + Installer 3 | Merged to `main` at `4fab86d01`; preparation continues on `claude/self-signing`; stable 0.5.4-z2+128 remains live |
+| Mobile + Installer 3 | Merged to `main`; final bump to 0.5.4-z3 / build 128 / serial 129 and quiet publication next; stable 0.5.4-z2+128 remains live |
 | Desktop changelog | `Dev` at `3005df79f`; event seq 4 including Mac mirrored and validated; no desktop product release |
 | Social V2 | Remains separate on mobile `claude/social-v2` / desktop `claude/social-v2-design` |
 
@@ -41,9 +41,15 @@ Last updated: 2026-10-18
   `ed8b8da7fc6c86c3555f01f7b320a333a4eecdd5ecf039fffa1b57e93dfa77d2`; Mac zip SHA-256:
   `a5bb1b039d5d45c8e6531e2cd1ac8842554903fc3ff32a18a349fc1941c2afdf`.
   No rolling installer links changed. README now describes direct install, renew, update and Repair.
-- **Before stable publication:** stable iOS build success; Mac CI success; then final bump on main to
-  0.5.4-z3 / build 128 / serial 129 with the changelog ship date. Rehearse with `mode=dry-run` for exact-version
-  test artifacts; public stable and rolling installer publication follow acceptance of the quiet test.
+- **Maintainer's publication sequence (from the resumed Claude conversation):** publish the actual mobile
+  release and new installer quietly, then let the friend test a fresh phone/PC install, then announce if it works.
+  No announcement has been authorized for the agent to send. The maintainer explicitly waived waiting for
+  day-8 expiry/renewal proof; that long-duration behavior remains unverified, not a release gate.
+- **Next:** final bump on main to 0.5.4-z3 / build 128 / serial 129, then the coordinated mobile workflow in
+  `mode=publish` (its own successful Android + iOS builds gate publication). Publish Installer 3 from main
+  only after the new stable IPA is live and the stable installer config points at it. Both host packages
+  are already CI-verified. The original stable build-only run remains monitored; if it fails, investigate
+  and use the final publish build as the definitive exact-version compiler check.
   The older sections below describe earlier states; Release self-signing is now enabled and the auto test
   push trigger has been removed. Shared desktop updater signature work remains for the later shared-code merge.
 
