@@ -22,9 +22,18 @@ Android and iOS launch as one mobile product. They use the same marketing versio
 build number. Android must not be published as a stable GitHub release independently of the matching
 iOS build.
 
-**iOS distribution is SideStore** (maintainer decision, 2026-09-28). The matching iOS build is the
-unsigned IPA that `publish` attaches to the same GitHub release, together with the SideStore
-`source.json` feed update. TestFlight and an Apple Developer account are **not** release
+**The new iOS install path is Installer 3 plus on-phone self-signing** (maintainer decision,
+2026-10-18; pending the Debug 94 → 95 update test). The installer signs and installs Nuvio Z
+with the user's Apple Account; Nuvio Z then renews and installs updates over LocalDevVPN.
+Existing SideStore installs retain their update path. The matching iOS build is the unsigned
+IPA that `publish` attaches to the same GitHub release, together with the SideStore
+`source.json` feed update. Self-signing releases carry `<!-- nuvio-ios:self-signing -->`;
+the workflow also updates the checksum-pinned `distribution/ios-installer/nuvio.json` on main.
+Installer downloads use the separate `ios-setup-v*` / `ios-setup-vlatest` prereleases.
+The new Mac package is universal (Intel + Apple Silicon, macOS 11+), ad-hoc signed and
+not notarized. Both Windows and Mac builds must pass before installer publication;
+the rolling Mac zip is replaced with the new installer when Installer 3 publishes.
+TestFlight and an Apple Developer account are **not** release
 requirements; the TestFlight job stays in the workflow, parked (`if: false`), for a possible later
 App Store route. Store rules may later require a platform build number to advance on only one
 platform; if that happens, preserve the shared marketing version and record the per-platform build

@@ -248,6 +248,14 @@ jobs:
           cargo test -p nuvioz-installer-core
           cargo build --release -p nuvioz-ios-installer
 
+  macos:
+    name: Mac installer builds
+    needs: review
+    if: ${{ needs.review.outputs.decision == 'release' && needs.review.outputs.sha != '' }}
+    uses: ./.github/workflows/ios-installer-macos.yml
+    with:
+      ref: ${{ needs.review.outputs.sha }}
+
   iphone:
     name: iPhone signer builds
     needs: review
@@ -269,7 +277,7 @@ jobs:
 
   ship:
     name: Fast-forward main
-    needs: [review, windows, iphone]
+    needs: [review, windows, macos, iphone]
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.ship.outputs.sha }}

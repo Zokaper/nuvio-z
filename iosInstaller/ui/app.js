@@ -8,7 +8,7 @@ if (params.get("theme")) document.documentElement.dataset.theme = params.get("th
 const tauri = window.__TAURI__;
 // target: "nuvio" installs Nuvio Z itself (the normal path), "sidestore" the fallback. channel: SideStore's build.
 // mode: "install" or "repair", picked on the welcome screen.
-const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false, mode: "install" };
+const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false, mode: "install", isMac: params.get("platform") === "mac" || /Mac/.test(navigator.platform) };
 // Previews only: `?saved=1` shows the sign-in screen for a remembered account.
 if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
 // Previews only: `?certs=1` shows the "out of certificates" chooser.
@@ -140,7 +140,7 @@ async function buildReport() {
     "Nuvio Z iOS Installer report",
     `Installer ${d.installer} on ${d.os}, ${new Date().toISOString()}`,
     `Screen: ${current}. Installing: ${what}${d.localIpa ? ` from ${d.localIpa.file}` : ctx.target === "sidestore" ? "" : " from the hosted build"}`,
-    `PC: Apple software ${yes(dev.usbmuxdReachable)}, iPhones on USB ${dev.usbDevices ?? 0}`,
+    `Computer: Apple software ${yes(dev.usbmuxdReachable)}, iPhones on USB ${dev.usbDevices ?? 0}`,
     `iPhone: trusted ${yes(dev.trusted)}, iOS ${dev.iosVersion || "?"}, Developer Mode ${yes(dev.developerMode)}`,
     `Apps: LocalDevVPN ${apps.localDevVpn ? "yes" : "no"}, Nuvio Z ${apps.nuvioStable?.version || "no"}, Nuvio Z Debug ${apps.nuvioDebug?.version || "no"}, SideStore ${apps.sidestore ? "yes" : "no"}`,
     `Connection files: Nuvio Z ${yes(dev.nuvioPairing)}, SideStore ${dev.pairing}`,

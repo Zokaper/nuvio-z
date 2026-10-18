@@ -165,7 +165,7 @@ function buildSteps(ctx) {
     id: "twofa",
     title: "Enter the code Apple sent you",
     cards: [
-      { art: Art.alert({ title: "Apple Account Sign-In Requested", message: "Your Apple Account is being used to sign in on a Windows computer near you.", buttons: [{ label: "Don’t Allow" }, { label: "Allow", bold: true, hl: 1 }] }), n: 1, cap: "Tap Allow on your iPhone" },
+      { art: Art.alert({ title: "Apple Account Sign-In Requested", message: `Your Apple Account is being used to sign in on a ${ctx.isMac ? "Mac" : "Windows computer"} near you.`, buttons: [{ label: "Don’t Allow" }, { label: "Allow", bold: true, hl: 1 }] }), n: 1, cap: "Tap Allow on your iPhone" },
       { art: Art.alert({ title: "Apple Account Verification Code", code: "481 207", message: "Enter this code on your other device to sign in.", buttons: [{ label: "Done" }] }), n: 2, cap: "Note the 6-digit code" },
       { art: ctx.live ? '<div class="panel plain"><input id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000"></div>' : Art.codeEntry("481"), n: 3, cap: "Type it here" },
     ],

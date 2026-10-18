@@ -1,5 +1,36 @@
 Last updated: 2026-10-18
 
+## Release continuation: Debug 95 published; Mac installer added (2026-10-18)
+
+| Scope | Active branch / state |
+| --- | --- |
+| Mobile + Installer 3 | `claude/self-signing`; stable 0.5.4-z2+128 remains live; 0.5.4-z3+129 pending phone update QA |
+| Desktop changelog | `Dev` at `58dc2451b`; event seq 4 mirrored and validated; no desktop product release |
+| Social V2 | Remains separate on mobile `claude/social-v2` / desktop `claude/social-v2-design` |
+
+- **Debug 95 published manually from the original CI artifacts** of run `39115794013`, source
+  `fb7bff5e8e19d85dc5da383c527639214a74b9ff`. Both builds and Android host tests passed. The publish job
+  failed with HTTP 403 even after creating the exact tag and retrying; its token had `Contents: write`.
+  The signed-in maintainer's CLI account could publish. GitHub's workflow-scope restrictions on release
+  targets are relevant, but pre-creating the tag did not fix this run: do not report the root cause as proven.
+  Never rerun its create-release job now that the release exists. Complete/verify feed and installer config
+  updates on main. IPA SHA-256: `6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e`.
+- **Phone QA requested:** update 94 → 95 with LocalDevVPN connected; reopen, confirm build 95 and retained data.
+  Earlier checks reported by the maintainer to Claude: direct install from GitHub, renewal and Repair work;
+  a second renewal no longer asks for Apple's code. The update path still needs acceptance.
+- **Mac parity requested by maintainer:** new reusable `ios-installer-macos.yml` builds a universal
+  Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
+  it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
+  crate promotions now require Mac success as well as Windows; publication replaces the old rolling Mac zip.
+  Mac build/phone install not verified yet. Windows driver steps remain skipped on Mac. The sign-in drawing
+  now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
+- **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
+- **Before stable publication:** phone update acceptance; stable iOS build success; Mac CI success;
+  merge self-signing into main preserving current feeds; then final bump to 0.5.4-z3 / build 128 / serial 129
+  with the changelog ship date. Publish mobile from main, then publish Installer 3 for Windows and universal Mac.
+  The older sections below describe earlier states; Release self-signing is now enabled and the auto test
+  push trigger has been removed. Shared desktop updater signature work remains for the later shared-code merge.
+
 ## Self-signing: release path (2026-10-18, branch `claude/self-signing`)
 
 Maintainer's release decisions are in `Nuvio Z/PLAN-nuvio-z-self-signing.md` ("Release decisions"). Built today:

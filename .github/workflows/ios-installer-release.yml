@@ -1,6 +1,6 @@
 name: iOS Installer release
 
-# Builds Installer 3 (iosInstaller/, Tauri + Rust) for Windows and, from main only, publishes it: a versioned
+# Builds Installer 3 (iosInstaller/, Tauri + Rust) for Windows and universal macOS, then publishes from main: a versioned
 # prerelease ios-setup-v<version> plus the rolling ios-setup-vlatest links the README shares. Installer 3 takes
 # over those links from the retired Kotlin iOS Setup (PLAN-nuvio-z-self-signing.md, "Release decisions").
 # Run by hand, or called by ios-installer-auto.yml after a reviewed signing-crate update.
@@ -77,9 +77,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  macos:
+    name: Build for Mac
+    uses: ./.github/workflows/ios-installer-macos.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+
   publish:
     name: Publish
-    needs: build
+    needs: [build, macos]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     env:
@@ -107,6 +113,11 @@ jobs:
           name: ios-installer-windows
           path: assets
 
+      - uses: actions/download-artifact@v7
+        with:
+          name: ios-installer-macos
+          path: assets
+
       - name: Publish
         run: |
           set -euo pipefail
@@ -117,20 +128,24 @@ jobs:
           fi
           cd assets
           unzip -l Nuvio-Z-iOS-Setup-Windows-x64.zip | grep -q 'Nuvio Z iOS Installer.exe'
+          unzip -l Nuvio-Z-iOS-Setup-macOS.zip | grep -q 'Nuvio Z iOS Installer.app/Contents/Info.plist'
           sha256sum Nuvio-Z-iOS-Setup-Windows-x64.zip | tee SHA256SUMS-Windows.txt
-          body="Nuvio Z iOS Installer ${VERSION} for Windows. Installs Nuvio Z on an iPhone, signed with your own Apple Account; Nuvio Z then keeps itself signed.
+          sha256sum Nuvio-Z-iOS-Setup-Windows-x64.zip Nuvio-Z-iOS-Setup-macOS.zip > SHA256SUMS.txt
+          body="Nuvio Z iOS Installer ${VERSION} for Windows and Mac (Intel and Apple Silicon, macOS 11+). Installs Nuvio Z on an iPhone, signed with your own Apple Account; Nuvio Z then keeps itself signed.
+
+          Mac: unzip, move the app to Applications, and open it. This build is not notarized; if macOS blocks it, use System Settings > Privacy & Security > Open Anyway. The zip includes instructions.
 
           ${NOTES}"
           gh release create "${tag}" --repo "${GITHUB_REPOSITORY}" --target "${SHA}" \
             --title "Nuvio Z iOS Installer ${VERSION}" --notes "${body}" --prerelease --latest=false \
-            Nuvio-Z-iOS-Setup-Windows-x64.zip SHA256SUMS-Windows.txt
+            Nuvio-Z-iOS-Setup-Windows-x64.zip Nuvio-Z-iOS-Setup-macOS.zip SHA256SUMS-Windows.txt SHA256SUMS.txt
           if gh release view "${ALIAS}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --prerelease --latest=false \
-              --notes "Always the newest Nuvio Z iOS Installer. Currently ${tag}."
+              --notes "${body}"
           else
             gh release create "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --target "${SHA}" --prerelease --latest=false \
-              --title "Nuvio Z iOS Installer (latest)" --notes "Always the newest Nuvio Z iOS Installer. Currently ${tag}."
+              --title "Nuvio Z iOS Installer (latest)" --notes "${body}"
           fi
           gh release upload "${ALIAS}" --repo "${GITHUB_REPOSITORY}" --clobber \
-            Nuvio-Z-iOS-Setup-Windows-x64.zip SHA256SUMS-Windows.txt
+            Nuvio-Z-iOS-Setup-Windows-x64.zip Nuvio-Z-iOS-Setup-macOS.zip SHA256SUMS-Windows.txt SHA256SUMS.txt
           echo "Published ${tag} and refreshed ${ALIAS}."
