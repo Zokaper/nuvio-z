@@ -1,5 +1,22 @@
 Last updated: 2026-10-18
 
+## Social channel died after an hour idle (2026-10-18, Debug mobile 101 / desktop 109)
+
+Maintainer: two pop-ups never came while Nuvio sat minimized; restoring the window brought both at once. The
+desktop debug log (`nuvio-debug-20261018-170416-*`): pop-ups fine 17:05-17:46, then from 19:02
+`realtime:social:<id>` refused with `InvalidJWTToken: Token has expired`, giving up and retrying until 21:23;
+the 21:39 foreground sync refreshed and both friend requests popped. Cause: the Z client never auto-refreshes
+(`alwaysAutoRefresh = false`, by design), `ZSessionBridge.ensureSession` renews only when someone calls it, an
+idle app calls nothing, and even a renewal never reached the socket (`setAuth()` ran only when a channel opened).
+
+- `ZSessionBridge.exchange` now calls `realtime.setAuth(accessToken)` after every install (Social and Watch
+  Together channels both get renewed tokens).
+- `SocialRepository.keepRealtime`: every 60s while the Social channel is open (inside the bridge's 2-minute
+  renewal window) `ensureSession`; if the channel is not `SUBSCRIBED`, `refresh(false)` by hand - a dead socket
+  now delays a pop-up by about a minute.
+
+Tests: desktop 293/293 (Social, ZSession, Watch Together), mobile host 109/109. **Not yet seen over an idle hour.**
+
 ## Recommendations (2026-10-18, Debug mobile 100 / desktop 108)
 
 Design in `Nuvio Z/PLAN-social-v2.md` ("Recommendations, settled 2026-10-18"); picks from `SocialRecommendHarness`:

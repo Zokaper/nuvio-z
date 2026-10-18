@@ -169,6 +169,10 @@
     {
       "build": 100,
       "text": "Recommendations: on a title's page, tap the three dots, then Recommend, pick friends and add a message. What friends recommend to you shows in the Social tab under Recommended to you (hold a card to remove it), and on the title's page. When someone starts a title you recommended, you are told."
+    },
+    {
+      "build": 101,
+      "text": "Social stays live when Nuvio sits idle for more than an hour: pop-ups and banners used to stop until you brought the window back, because the live connection's sign-in ran out and was never renewed."
     }
   ]
 }
