@@ -37,7 +37,6 @@ on:
 permissions:
   contents: write
   issues: write
-  id-token: write
 
 concurrency:
   group: ios-installer-auto
@@ -45,6 +44,9 @@ concurrency:
 
 env:
   MAINTAINER: Zokaper
+  # Claude Code itself rather than claude-code-action, which refuses push events and adds a GitHub App token
+  # this doesn't need. Pinned; bump deliberately.
+  CLAUDE_CODE_VERSION: 2.1.302
   # Only a scheduled or hand-started run on main may change anything.
   DRY_RUN: ${{ github.ref != 'refs/heads/main' || github.event_name == 'push' || inputs.simulate != '' }}
   SIMULATE: ${{ inputs.simulate || (github.event_name == 'push' && 'isideload=0.4.5') || '' }}
@@ -112,17 +114,20 @@ jobs:
       - name: Sonnet reviews
         id: claude
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Read iosInstaller/scripts/agent/review-crates.md and do what it says.
-            EVIDENCE is ${{ github.workspace }}/.auto-review (relative: .auto-review).
-            Run cargo with --manifest-path iosInstaller/Cargo.toml, for example
-            `cargo test --manifest-path iosInstaller/Cargo.toml -p nuvioz-installer-core`.
-          claude_args: >-
-            --model sonnet --max-turns 80
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(cargo test:*),Bash(cargo check:*),Bash(cargo tree:*),Bash(git diff:*),Bash(git status:*)"
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g --silent "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          prompt="Read iosInstaller/scripts/agent/review-crates.md and do what it says.
+          EVIDENCE is ${GITHUB_WORKSPACE}/.auto-review (relative: .auto-review).
+          Run cargo with --manifest-path iosInstaller/Cargo.toml, for example
+          cargo test --manifest-path iosInstaller/Cargo.toml -p nuvioz-installer-core"
+          tools="Read,Edit,Write,Glob,Grep,Bash(cargo test:*),Bash(cargo check:*),Bash(cargo tree:*),Bash(git diff:*),Bash(git status:*)"
+          set +e
+          claude -p "${prompt}" --model sonnet --max-turns 80 --allowedTools "${tools}" > .auto-review/agent.log 2>&1
+          status=$?
+          tail -n 40 .auto-review/agent.log
+          exit ${status}
 
       # Nothing Sonnet says is taken on trust: the folders it touched, the tests and the signer are checked here.
       - name: Gate
@@ -170,6 +175,7 @@ jobs:
         with:
           name: auto-review-evidence
           path: .auto-review/
+          include-hidden-files: true
           retention-days: 30
 
       - name: Commit to a branch
@@ -321,18 +327,20 @@ jobs:
 
       - name: Sonnet reads the trackers
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
         env:
-          GH_TOKEN: ${{ github.token }}
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Read iosInstaller/scripts/agent/watch-upstream.md and do what it says.
-            OUT is .auto-watch. SINCE is ${{ steps.context.outputs.since }}.
-            Alerts already open in our repository: .auto-watch/open-alerts.json.
-          claude_args: >-
-            --model sonnet --max-turns 60
-            --allowedTools "Read,Write,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh search issues:*),Bash(gh release list:*),Bash(gh release view:*)"
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SINCE: ${{ steps.context.outputs.since }}
+        run: |
+          npm install -g --silent "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          prompt="Read iosInstaller/scripts/agent/watch-upstream.md and do what it says.
+          OUT is .auto-watch. SINCE is ${SINCE}.
+          Alerts already open in our repository: .auto-watch/open-alerts.json."
+          tools="Read,Write,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh search issues:*),Bash(gh release list:*),Bash(gh release view:*)"
+          set +e
+          claude -p "${prompt}" --model sonnet --max-turns 60 --allowedTools "${tools}" > .auto-watch/agent.log 2>&1
+          status=$?
+          tail -n 40 .auto-watch/agent.log
+          exit ${status}
 
       - name: Report
         run: |
@@ -343,6 +351,7 @@ jobs:
             exit 0
           fi
           { echo '```json'; cat "${out}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat "${out}"
           [ "$(jq -r .alert "${out}")" = "true" ] || exit 0
           if [ "${DRY_RUN}" = "true" ]; then echo "Dry run: no issue." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           gh label create upstream-watch --color D93F0B --description "Apple sign-in breakage reported upstream" --force >/dev/null
