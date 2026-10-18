@@ -1,5 +1,10 @@
 # Nuvio Z Feature Ledger
 
+**2026-10-18 iOS install flow released (C21/C22):** mobile 0.5.4-z3 and Installer 3 for Windows and
+universal Mac are published. The maintainer confirmed installation on a friend's phone, a successful
+renewal-automation smoke test, and announcement of the update. The 94 → 95 update, reopen and data
+retention also passed. Long-duration expiry proof remains waived; see `STATUS.md` for acceptance details.
+
 **2026-10-13 iOS setup 2.1.1: Re-sign SideStore (C20):** Settings and the finished page gain a page for a SideStore
 that has itself expired: it reinstalls SideStore through iloader over the expired copy (same Apple Account), with the
 phone and pairing file shown live. The assistant still never signs anything or sees Apple credentials.

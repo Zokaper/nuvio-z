@@ -30,10 +30,12 @@ All five mobile binaries match the release checksum manifests and GitHub digests
 config and SideStore feed both match the published IPA. GitHub's latest stable release remains mobile z3.
 Final installer downloads are also in `Nuvio Z/release-artifacts/installer3-published/`.
 
-**Next is the friend's fresh phone/PC install test, then the maintainer's announcement.** No announcement
-was sent. The maintainer's 94 → 95 in-app update, reopen and data retention passed. The maintainer explicitly
-waived waiting for day-8 expiry proof; that long-duration behavior and Mac-to-phone installation remain
-physically unverified. Upstream sync is explicitly deferred for this release only and is required for Social V2.
+**Release accepted and announced (2026-10-18).** The maintainer confirmed installation succeeded on a
+friend's phone, manually tested that the renewal automation runs, and announced the update. The new iOS
+install flow is released. The maintainer's 94 → 95 in-app update, reopen and data retention also passed.
+The automation smoke test does not establish day-8 expiry behavior; waiting for that proof was explicitly
+waived. Mac-to-phone installation remains physically unverified. Upstream sync is explicitly deferred
+for this release only and is required for Social V2.
 Social V2 and Reaction Mode were not merged. Desktop received only the global changelog mirror (seq 4).
 
 Post-release automation correction on `claude/self-signing`, promoted to main with this handoff: stable tags actually have no `v`,
