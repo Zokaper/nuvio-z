@@ -317,7 +317,8 @@ object SocialRepository {
             publish { it.copy(
                 me = payload.me, friends = payload.friends, requests = payload.requests, partyInvites = payload.partyInvites,
                 notifications = payload.notifications,
-                watchingNow = payload.watchingNow.take(SocialHomeItemLimit), activity = activity,
+                watchingNow = stableWatchingNowOrder(it.watchingNow, payload.watchingNow).take(SocialHomeItemLimit),
+                activity = activity,
                 sentRequests = payload.sentRequests.orEmpty(), friendPrefs = payload.friendPrefs.orEmpty(),
                 inbox = payload.inbox.orEmpty(), socialV2Backend = payload.inbox != null,
                 // Fresh only, never from the offline cache: a stale "Sent" could not be cancelled. The

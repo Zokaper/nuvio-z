@@ -84,6 +84,20 @@ fun orderWatchingNowForDisplay(items: List<WatchingNowItem>): List<WatchingNowIt
 }
 
 /**
+ * [fresh] in the order the cards are already on screen. The server sorts Watching Now by latest
+ * heartbeat, so two friends watching at once swapped places whenever their heartbeats leapfrogged.
+ * Sessions already in [previous] keep their relative order; new ones lead, in the server's order.
+ */
+fun stableWatchingNowOrder(previous: List<WatchingNowItem>, fresh: List<WatchingNowItem>): List<WatchingNowItem> {
+    if (previous.isEmpty()) return fresh
+    val seen = previous.withIndex().associate { (index, item) -> item.watchingNowKey() to index }
+    val (known, new) = fresh.partition { it.watchingNowKey() in seen }
+    return new + known.sortedBy { seen.getValue(it.watchingNowKey()) }
+}
+
+private fun WatchingNowItem.watchingNowKey(): String = sessionId.ifBlank { profile.profileId }
+
+/**
  * One entry per Watch Together party, the one grouping Watching Now allows: the server says these
  * friends share a party, so they share one card and one action.
  *

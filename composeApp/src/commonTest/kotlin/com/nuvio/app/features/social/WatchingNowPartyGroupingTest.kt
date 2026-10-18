@@ -31,6 +31,21 @@ class WatchingNowPartyGroupingTest {
         assertEquals("ana, ben & cy", watchingNowPeopleLabel(grouped.single()))
     }
 
+    @Test fun aHeartbeatNeverReordersCardsAlreadyOnScreen() {
+        val onScreen = listOf(item("ana"), item("ben"), item("cy"))
+        // ben heartbeated last, so the server now lists him first.
+        val fresh = listOf(item("ben"), item("cy"), item("ana"))
+        assertEquals(listOf("ana", "ben", "cy"), stableWatchingNowOrder(onScreen, fresh).map { it.profile.profileId })
+    }
+
+    @Test fun aNewSessionLeadsAndAStoppedOneLeaves() {
+        val onScreen = listOf(item("ana"), item("ben"))
+        val fresh = listOf(item("ben"), item("dee"), item("ana", session = "s-ana-2"))
+        // ana started something new: a new session, so it leads like any other new one.
+        assertEquals(listOf("s-dee", "s-ana-2", "s-ben"), stableWatchingNowOrder(onScreen, fresh).map { it.sessionId })
+        assertEquals(fresh, stableWatchingNowOrder(emptyList(), fresh))
+    }
+
     @Test fun separateSessionsOnTheSameTitleStaySeparate() {
         val items = listOf(item("ana"), item("ben"))
         assertEquals(items, groupWatchingNowByParty(items))

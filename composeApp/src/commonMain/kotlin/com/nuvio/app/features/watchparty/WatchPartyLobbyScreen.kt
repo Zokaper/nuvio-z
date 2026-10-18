@@ -322,6 +322,13 @@ fun WatchPartyLobbyScreen(
                 hostSourceStaged = state.stagedHostSource != null,
                 hasSource = chosenSource != null,
                 sourceLabel = state.stagedHostSourceLabel,
+                canRejoin = !isHost && party.sourceFingerprint != null &&
+                    party.status != WatchPartyStatus.ended &&
+                    party.effectiveStage() in setOf(
+                        WatchPartyStage.resolving_sources,
+                        WatchPartyStage.ready_to_launch,
+                        WatchPartyStage.playing,
+                    ),
                 waitForEveryone = state.waitForEveryone,
                 pauseForAwayUsers = state.pauseForAwayUsers,
                 invitableFriends = invitableFriends,
@@ -446,6 +453,11 @@ internal data class PartyLobbyModel(
     val hostSourceStaged: Boolean,
     val hasSource: Boolean,
     val sourceLabel: String?,
+    /**
+     * A guest is in the lobby while the party plays: the start effect launches a member only once
+     * per source, so after backing out of the player this button is their only way back in.
+     */
+    val canRejoin: Boolean = false,
     val waitForEveryone: Boolean,
     val pauseForAwayUsers: Boolean,
     val invitableFriends: List<SocialProfileSummary>,
@@ -565,6 +577,7 @@ private fun PartyLobbyTwoPane(
                 isHost = model.isHost,
                 hasSource = model.hasSource,
                 sourceLabel = model.sourceLabel,
+                canRejoin = model.canRejoin,
                 onChoose = actions.onChoose,
                 onStart = actions.onStart,
                 onLeave = actions.onLeave,
@@ -654,6 +667,7 @@ private fun PartyLobbySingleColumn(
                 isHost = model.isHost,
                 hasSource = model.hasSource,
                 sourceLabel = model.sourceLabel,
+                canRejoin = model.canRejoin,
                 onChoose = actions.onChoose,
                 onStart = actions.onStart,
                 onLeave = actions.onLeave,
@@ -1124,7 +1138,7 @@ private fun PartyParticipantRow(
     status: PartyMemberPresentation,
 ) {
     val tone = status.tone
-    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away
+    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away || tone == PartyReadyTone.Lobby
     val detail = when {
         member.readyError != null -> member.readyError
         !dimmed && member.sourceMatch == PartySourceMatch.alternate -> "different source"
@@ -1301,6 +1315,7 @@ private fun PartySwitchRow(
 @Composable
 private fun PartyPinnedActionBar(model: PartyLobbyModel, actions: PartyLobbyActions, landscape: Boolean) {
     val caption = when {
+        model.canRejoin -> "The party is watching. Rejoin whenever you're ready."
         !model.isHost -> "The host starts playback for everyone."
         !model.hasSource -> stringResource(Res.string.watch_party_source_explanation)
         model.sourceLabel != null -> "${model.sourceLabel} - nobody leaves the lobby until you press Start."
@@ -1319,7 +1334,11 @@ private fun PartyPinnedActionBar(model: PartyLobbyModel, actions: PartyLobbyActi
         }
     }
     val primary: @Composable (Modifier) -> Unit = { buttonModifier ->
-        if (model.isHost) {
+        if (model.canRejoin) {
+            Button(onClick = actions.onStart, modifier = buttonModifier) {
+                Text("Rejoin", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else if (model.isHost) {
             Button(
                 onClick = if (model.hasSource) actions.onStart else actions.onChoose,
                 modifier = buttonModifier,
@@ -1370,6 +1389,12 @@ private fun PartyPinnedActionBar(model: PartyLobbyModel, actions: PartyLobbyActi
                 captionText(Modifier.weight(1f))
                 changeSource()
             }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                leave()
+                primary(Modifier.weight(1f))
+            }
+        } else if (model.canRejoin) {
+            captionText(Modifier)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leave()
                 primary(Modifier.weight(1f))
@@ -2055,7 +2080,7 @@ private fun PartyParticipantTile(
     // Away is dimmed like Offline and for the same reading reason - this person is not with us
     // right now - but nothing else treats them the same: they are still a member, still counted in
     // the party size, and still somebody the party may be waiting for.
-    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away
+    val dimmed = tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away || tone == PartyReadyTone.Lobby
     Surface(
         modifier = Modifier.width(PartyTileWidth).alpha(if (dimmed) 0.55f else 1f),
         shape = RoundedCornerShape(NuvioTokens.Radius.xl),
@@ -2176,13 +2201,14 @@ private fun PartyStatusPill(tone: PartyReadyTone, label: String) {
         // Muted rather than coloured, because the one thing it must not do is look like a problem
         // somebody has to act on.
         PartyReadyTone.Away,
+        PartyReadyTone.Lobby,
         PartyReadyTone.Offline,
         -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         shape = RoundedCornerShape(NuvioTokens.Radius.chip),
         color = color.copy(
-            alpha = if (tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away) 0.10f else 0.18f,
+            alpha = if (tone == PartyReadyTone.Offline || tone == PartyReadyTone.Away || tone == PartyReadyTone.Lobby) 0.10f else 0.18f,
         ),
     ) {
         Row(
@@ -2328,6 +2354,7 @@ private fun PartyActionBar(
     isHost: Boolean,
     hasSource: Boolean,
     sourceLabel: String?,
+    canRejoin: Boolean,
     onChoose: () -> Unit,
     onStart: () -> Unit,
     onLeave: () -> Unit,
@@ -2342,7 +2369,9 @@ private fun PartyActionBar(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (isHost) {
+                    if (canRejoin) {
+                        Button(onClick = onStart) { Text("Rejoin") }
+                    } else if (isHost) {
                         if (hasSource) {
                             Button(onClick = onStart) { Text("Start watching") }
                             OutlinedButton(onClick = onChoose) {
@@ -2362,6 +2391,13 @@ private fun PartyActionBar(
                 }
             },
         )
+        if (canRejoin) {
+            Text(
+                "The party is watching. Rejoin whenever you're ready.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (isHost) {
             Text(
                 when {

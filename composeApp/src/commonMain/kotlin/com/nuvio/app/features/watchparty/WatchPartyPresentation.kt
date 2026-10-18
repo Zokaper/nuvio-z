@@ -26,7 +26,13 @@ enum class PartyReadyTone {
      * are not interchangeable, and a member who has stepped away is the one case where the right
      * answer for everybody else is "carry on" rather than "wait a moment".
      */
-    Away;
+    Away,
+
+    /**
+     * In the lobby while the party is watching: backed out of the player, and can rejoin from there.
+     * Muted like [Away], but not away - the away hold must not name them.
+     */
+    Lobby;
 
     val wireName: String
         get() = when (this) {
@@ -38,6 +44,7 @@ enum class PartyReadyTone {
             Failed -> "failed"
             Offline -> "offline"
             Away -> "away"
+            Lobby -> "lobby"
         }
 }
 
@@ -55,6 +62,8 @@ fun WatchPartyParticipant.derivedStatus(
     partySourceGeneration: Int = sourceGeneration,
     /** This member has reported itself away. See `PartyPresence.kt`. */
     isAway: Boolean = false,
+    /** The party is past its lobby: a member still in the lobby has backed out of the player. */
+    partyIsPlaying: Boolean = false,
 ): DerivedMemberStatus {
     // ⚠ Readiness is durable and generation-stamped; live telemetry is not. A member carrying
     // `fetching` from a generation the party has already moved past is not fetching anything - the
@@ -115,6 +124,12 @@ fun WatchPartyParticipant.derivedStatus(
         readyState == SourceResolutionState.choosing_fallback
     if (isResolvingReadiness && (readinessIsCurrent || !hasLivePlayerEvidence)) {
         return DerivedMemberStatus("Resolving source", PartyReadyTone.Working)
+    }
+    // Their readiness row still says what it said when they left the player, so without this a
+    // guest who backed out read "Ready" for as long as they sat in the lobby. Below resolving: a
+    // member still finding a source on their way in is not sitting in the lobby.
+    if (partyIsPlaying && clientLocation == WatchPartyClientLocation.lobby) {
+        return DerivedMemberStatus("In lobby", PartyReadyTone.Lobby)
     }
     if (clientLocation == WatchPartyClientLocation.loading) {
         return DerivedMemberStatus("Loading", PartyReadyTone.Working)
@@ -328,6 +343,7 @@ object PartyPresentationProjector {
                 // The party's own generation is the only thing that can tell a member still
                 // resolving the *current* content from one whose readiness row is simply behind.
                 partySourceGeneration = party?.sourceGeneration ?: member.sourceGeneration,
+                partyIsPlaying = party?.effectiveStage() == WatchPartyStage.playing,
             )
             member.profileId to PartyMemberPresentation(
                 profileId = member.profileId,

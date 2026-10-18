@@ -26,6 +26,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import nuvio.composeapp.generated.resources.home_view_details
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,8 +50,6 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -166,18 +170,24 @@ private fun SocialStateDot(playing: Boolean, size: Dp = 7.dp) {
     Box(Modifier.size(size).clip(CircleShape).background(if (playing) SocialLiveColor else SocialAwayColor))
 }
 
-/** The visible way into details on a card whose tap joins. Long-press does the same. */
+/**
+ * The visible way into details on a card whose tap joins. Long-press does the same. Drawn like
+ * Continue Watching's details button (`ContinueWatchingDetailsButton`) so the two Home shelves match.
+ */
 @Composable
 internal fun SocialInfoDot(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
-        modifier.size(28.dp).clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.45f))
-            .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Details" },
+        modifier.size(30.dp).clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text("i", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Icon(
+            imageVector = Icons.Rounded.Info,
+            contentDescription = stringResource(Res.string.home_view_details),
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
