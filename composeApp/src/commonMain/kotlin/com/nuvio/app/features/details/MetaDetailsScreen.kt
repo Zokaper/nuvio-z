@@ -1,5 +1,12 @@
 package com.nuvio.app.features.details
 
+import androidx.compose.runtime.CompositionLocalProvider
+import com.nuvio.app.features.social.LocalSocialRecommendAction
+import com.nuvio.app.features.social.SocialRecommendContent
+import com.nuvio.app.features.social.SocialRecommendSheet
+import com.nuvio.app.features.social.SocialRecommendedByLine
+import com.nuvio.app.features.social.rememberCanRecommend
+import com.nuvio.app.features.social.socialRecommendAction
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -1116,6 +1123,20 @@ fun MetaDetailsScreen(
                     ?.audioUrl
                     ?.takeIf { heroTrailerSourceUrl != null && it.isNotBlank() }
 
+                // Nuvio Z recommendations (2026-10-18): both action rows read LocalSocialRecommendAction;
+                // the sheet and the "Recommended to you by" line live in SocialRecommendations.kt.
+                val canRecommend = rememberCanRecommend()
+                var recommendOpen by remember(meta.id) { mutableStateOf(false) }
+                if (recommendOpen) {
+                    SocialRecommendSheet(
+                        content = SocialRecommendContent(meta.type, meta.id, meta.name, meta.poster, meta.background),
+                        wide = false,
+                        onDismiss = { recommendOpen = false },
+                    )
+                }
+                CompositionLocalProvider(
+                    LocalSocialRecommendAction provides if (canRecommend) ({ recommendOpen = true }) else null,
+                ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val colorScheme = MaterialTheme.colorScheme
                     val isTablet = maxWidth >= 720.dp
@@ -1744,6 +1765,7 @@ fun MetaDetailsScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -2468,6 +2490,7 @@ private fun ConfiguredMetaSections(
     fun RenderSection(key: MetaScreenSectionKey, showHeader: Boolean = true) {
         when (key) {
             MetaScreenSectionKey.ACTIONS -> {
+                Column {
                 val shuffleAction = onShuffleClick?.let { onClick ->
                     DetailSecondaryAction(
                         label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
@@ -2527,11 +2550,14 @@ private fun ConfiguredMetaSections(
                                 onClick = action,
                             ))
                         }
+                        socialRecommendAction()?.let(::add)
                     },
                     isTablet = isTablet,
                     onPlayClick = onPrimaryPlayClick,
                     onPlayLongClick = if (showManualPlayOption) onPrimaryPlayLongClick else null,
                 )
+                SocialRecommendedByLine(meta.id, Modifier.padding(top = 14.dp))
+                }
             }
             MetaScreenSectionKey.OVERVIEW -> {
                 DetailMetaInfo(

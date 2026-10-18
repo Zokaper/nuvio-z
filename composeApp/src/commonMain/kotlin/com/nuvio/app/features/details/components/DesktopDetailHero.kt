@@ -1,5 +1,7 @@
 package com.nuvio.app.features.details.components
 
+import com.nuvio.app.features.social.SocialRecommendedByLine
+import com.nuvio.app.features.social.socialRecommendAction
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -346,11 +348,13 @@ fun DesktopDetailHero(
                             onClick = action,
                         )
                     },
+                    socialRecommendAction(),
                 ),
                 isTablet = true,
                 onPlayClick = onPlayClick,
                 onPlayLongClick = onPlayLongClick,
             )
+            SocialRecommendedByLine(meta.id, Modifier.padding(top = 16.dp).widthIn(max = 520.dp))
         }
 
         if (heroTrailerSourceUrl != null) {

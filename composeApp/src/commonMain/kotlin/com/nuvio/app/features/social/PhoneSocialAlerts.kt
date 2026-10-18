@@ -32,11 +32,14 @@ internal data class PhoneSocialAlertsState(
     val parties: Boolean = true,
     /** Still gated per friend by "Notify me when they start watching" on their profile. */
     val friendWatching: Boolean = true,
+    /** A friend recommends a title, or starts one you recommended. */
+    val recommendations: Boolean = true,
 ) {
     fun allows(kind: SocialPopupKind): Boolean = enabled && when (kind) {
         SocialPopupKind.FriendRequest -> friendRequests
         SocialPopupKind.PartyInvite, SocialPopupKind.JoinRequest -> parties
         SocialPopupKind.FriendWatching -> friendWatching
+        SocialPopupKind.Recommendation -> recommendations
     }
 }
 
@@ -105,6 +108,15 @@ private fun PhoneSocialAlertsSection(isTablet: Boolean) {
                 enabled = alerts.enabled,
                 isTablet = isTablet,
                 onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(friendWatching = on) } },
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsSwitchRow(
+                title = "Recommendations",
+                description = "Titles friends recommend, and when they start one you recommended",
+                checked = alerts.recommendations,
+                enabled = alerts.enabled,
+                isTablet = isTablet,
+                onCheckedChange = { on -> PhoneSocialAlerts.update { it.copy(recommendations = on) } },
             )
         }
     }

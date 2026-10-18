@@ -218,7 +218,8 @@ internal object SocialPush {
         "party_invite" -> allows(SocialPopupKind.PartyInvite)
         "join_request" -> allows(SocialPopupKind.JoinRequest)
         "friend_watching" -> allows(SocialPopupKind.FriendWatching)
-        // Friend accepted, recommendation: no switch of their own, only the master one.
+        "recommendation" -> allows(SocialPopupKind.Recommendation)
+        // Friend accepted: no switch of its own, only the master one.
         else -> enabled
     }
 
@@ -228,7 +229,7 @@ internal object SocialPush {
         if (manager.getNotificationChannel(ChannelId) != null) return
         manager.createNotificationChannel(
             NotificationChannel(ChannelId, "Social", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Friend requests, party invites, join requests and friends starting to watch"
+                description = "Friend requests, party invites, join requests and recommendations"
             },
         )
     }
