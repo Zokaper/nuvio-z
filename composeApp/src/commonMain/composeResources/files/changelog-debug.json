@@ -117,6 +117,10 @@
     {
       "build": 94,
       "text": "Renewing and updating stay on the sign-in server that set this iPhone up, so Apple stops asking for a code. If Apple does ask during an update, the banner shows where to type it."
+    },
+    {
+      "build": 95,
+      "text": "Keep Nuvio Z working tidied up: readable, plain settings rows, and Apple's code opens in a dialog."
     }
   ]
 }
