@@ -1,5 +1,25 @@
 Last updated: 2026-10-18
 
+## Recommendations (2026-10-18, Debug mobile 100 / desktop 108)
+
+Design in `Nuvio Z/PLAN-social-v2.md` ("Recommendations, settled 2026-10-18"); picks from `SocialRecommendHarness`:
+picker B (face grid) on phones / A (list) on desktop, shelf A+, details line M1.
+
+- **Shared** (`SocialRecommendations.kt`, desktop `9ea9f0a33` -> mobile): `SocialRecommendSheet`,
+  `SocialRecommendedShelf` (Social tab, between Watching now and Recently watched; long-press removes),
+  `SocialRecommendedByLine`, `recommendedToYou` grouping (`RecommendedToYouTest`), `LocalSocialRecommendAction` +
+  `socialRecommendAction()` so each repo's `MetaDetailsScreen` / `DesktopDetailHero` adds Recommend to the three-dot
+  row with no new parameters. Inbox kind `recommendation_started`; pop-up kind `Recommendation` with its own switch
+  (desktop tray, phone Notifications). `SocialTitleArt` carries `releaseInfo` + `seasonCount` for the tile's facts.
+- **Backend** (`nuvio-z-backend` `0d8ad73`, `202610180003_recommendations.sql`, pgTAP 499/499): Sent dedupe +
+  `social_recommendation_sent_to`, recommendations exempt from the 60-day purge until dismissed and returned apart
+  from the inbox's 100 (`social_get_state_v2` = deployed definition, inbox subquery only), and the started trigger
+  (dismisses the card, tells the sender, never past share-Watching-Now or a hide, never pushed).
+  **Deploy pending the maintainer's OK**; until then Sent is always empty and nothing says started.
+
+Tests: desktop 154/154 (Social, tray, details), mobile host 132/132; shipped shelf + line rendered at 320/411/1280.
+The picker and the details wiring are not seen on a device yet.
+
 ## Android push (Stage 4), phone notification switches, iOS tab badge (2026-10-18, Debug mobile 99)
 
 Maintainer: iOS Social has been tested on a device and works (the ledger's iOS `defer` cells lag).

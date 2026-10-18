@@ -165,6 +165,10 @@
     {
       "build": 99,
       "text": "Android: Social system notifications - friend requests, party invites, join requests, friends accepting, recommendations and friends you follow starting to watch - when Nuvio is closed or in the background (they start working once the server side is switched on). Both phones: Settings > Social > Notifications to choose what shows. iPhone: the Social tab shows how many unread items you have."
+    },
+    {
+      "build": 100,
+      "text": "Recommendations: on a title's page, tap the three dots, then Recommend, pick friends and add a message. What friends recommend to you shows in the Social tab under Recommended to you (hold a card to remove it), and on the title's page. When someone starts a title you recommended, you are told."
     }
   ]
 }
