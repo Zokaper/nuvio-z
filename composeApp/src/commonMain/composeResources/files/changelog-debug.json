@@ -173,6 +173,10 @@
     {
       "build": 101,
       "text": "Social stays live when Nuvio sits idle for more than an hour: pop-ups and banners used to stop until you brought the window back, because the live connection's sign-in ran out and was never renewed."
+    },
+    {
+      "build": 102,
+      "text": "Avatar initials and the Inbox count sit in the middle of their circles again, and the details page's \"Recommended to you by\" line is visible (it was black on black)."
     }
   ]
 }

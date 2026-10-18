@@ -1,4 +1,39 @@
-Last updated: 2026-10-18
+Last updated: 2026-10-19
+
+## Circle glyphs, Recommended-by colour, Start with Windows, placement candidates (2026-10-19, Debug mobile 102 / desktop 110)
+
+Maintainer, on 100/108: avatar initials and the Inbox count sat low in their circles; the details page's
+"Recommended to you by ..." headline was invisible (the black-text bug again); Start with Windows: build it;
+update the ledger; do the Stage 1 cleanup; "Recommended to you" in the Social tab feels shoehorned - where should it go?
+
+- **Circle glyphs** (shared, desktop `c78a468e4` -> mobile `71e323c53`): `SocialCircleGlyph` gives the glyph a line
+  exactly its own size, centred (`LineHeightStyle` Center/Trim.Both). A bare `fontSize` kept the inherited line height,
+  so an 18-20dp avatar's initial drew 1-2dp low. `SocialCircleGlyphHarness` measures the ink box: +2.13dp -> +0.13dp.
+- **Recommended-by line**: `SocialRecommendedByContent` provides `onBackground` itself; the details page hosts it outside
+  any Surface. The harness had provided the colour, which is why the render never showed it.
+- **Placement candidates** (`RecommendedPlacement`, default `Feed` = what 100/108 ship): Rail (top of the Friends rail /
+  phone Friends view), ForYou (a "For you N" pill beside Inbox opening its own page), Inbox (shelf at the top of the
+  Inbox). Rendered by `SocialRenderHarness.renderRecommendedPlacements` (`build/social-render/placement-*`). **Pick
+  pending**; delete the losers after. On phones the For you pill truncates the handle.
+- **V1 cards removed** (Stage 1 cleanup): `SocialWatchingNowCard` and its compact body / join button / surface /
+  artwork / label helpers, `socialGridItems`, `FriendActivityRow` + poster - nothing drew them in either repo. Sizes the
+  feed metrics compute with, `watchingNowPeopleLabel` (a mobile test uses it) and `WatchingNowEmptyLine` stay.
+  **String resources: not done** - wait for the placement pick, then sweep (each repo's `strings.xml` by hand).
+- **Start with Windows** (desktop only, `0f2cec0ee`): Social settings -> In the background. The channel's own value
+  under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (named after the launcher), `reg.exe`, installed builds
+  only, repointed at startup if the install moved. `--background` starts with no window; the player / WebView2 warm-up
+  waits for the first show (`DesktopTrayController.startHidden`); `DesktopBackgroundStart` restores the session and
+  activates Social for the **last profile used** (never a PIN profile; wider than the gate's remember-last rule,
+  because the maintainer's install has the picker on). A background launch while Nuvio runs exits quietly.
+  Measured from source, signed in, Social live: **93 MB working set / 248 MB private** after 3 minutes, no WebView2.
+  Uninstalling leaves the Run value behind (Windows skips a missing program).
+- **Ledger** (`Docs/Z-FEATURES.md` revision 20): S12-S17 for the rest of Social V2, S11 updated, S1/S2/S5 iOS `yes`
+  on the maintainer's iPhone test. Watch Together iOS cells stay `defer` until an iPhone party is reported.
+- Production check 2026-10-19: Android push is deployed and live (`social_push_tokens`, `social-push` function v5,
+  both vault secrets). `friend_watching` is never pushed (migration comment); an older line here implied otherwise.
+
+Tests: desktop 662/662 (Social, tray, Watch Together, ZSession, details), mobile host 604/604, Android compiles.
+**Not seen on hardware:** Start with Windows across a real sign-in; the glyph and colour fixes on a device.
 
 ## Social channel died after an hour idle (2026-10-18, Debug mobile 101 / desktop 109)
 
