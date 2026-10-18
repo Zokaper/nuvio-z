@@ -1,0 +1,15 @@
+[package]
+name = "nuvioz-signer"
+description = "C entry points for Nuvio Z on iOS: the installer core running inside the app (Phase 2 spike)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nuvioz_signer"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+nuvioz-installer-core = { path = "../core" }
+tokio.workspace = true
+serde_json.workspace = true

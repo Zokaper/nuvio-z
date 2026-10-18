@@ -220,6 +220,8 @@ jobs:
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
       IOS_CONFIGURATION: Debug
       IOS_IPA_NAME: ${{ inputs.diagnostic_ios_only && format('Nuvio-Z-iOS-WT-diagnostic-{0}-unsigned.ipa', github.sha) || format('Nuvio-Z-iOS-{0}-{1}-debug-unsigned.ipa', needs.prepare.outputs.marketing_version, needs.prepare.outputs.debug_build) }}
+    outputs:
+      self_signing: ${{ steps.signer.outputs.linked }}
 
     steps:
       - name: Check out source
@@ -239,6 +241,22 @@ jobs:
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      # Phase 2 spike (claude/self-signing): link the installer's Rust core into the app. Branches without
+      # iosInstaller/ffi skip this, and without NUVIO_IOS_SELF_SIGNING Gradle leaves the library out.
+      - name: Build the self-signing library
+        id: signer
+        if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
+        working-directory: iosInstaller
+        env:
+          # Nuvio Z's minimum iOS; without it the crypto C/assembly objects target the SDK's own version.
+          IPHONEOS_DEPLOYMENT_TARGET: "16.1"
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
+          ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
+          echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
+          echo "linked=true" >> "$GITHUB_OUTPUT"
 
       - name: Configure and build iOS Debug unsigned IPA
         run: |
@@ -291,6 +309,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          # The signing-changed marker diffs against the previous self-signing release's tag.
+          fetch-depth: 0
 
       - name: Download Android artifact
         uses: actions/download-artifact@v7
@@ -310,7 +331,25 @@ jobs:
           sha256sum * > SHA256SUMS-Debug.txt
           cat SHA256SUMS-Debug.txt
 
+      # Read by the iOS updater (AppUpdater.kt): only a release with the self-signing marker is offered to a
+      # self-signing copy, and signing-changed makes the banner say "Important: install before <date>".
+      - name: Work out the iOS release markers
+        id: markers
+        env:
+          SELF_SIGNING: ${{ needs.ios_debug.outputs.self_signing }}
+        run: |
+          set -euo pipefail
+          scripts/ios-release-markers.sh "${SELF_SIGNING:-false}" debug-v > "${RUNNER_TEMP}/ios-markers.txt"
+          cat "${RUNNER_TEMP}/ios-markers.txt"
+          {
+            echo "text<<NUVIO_MARKERS_EOF"
+            cat "${RUNNER_TEMP}/ios-markers.txt"
+            echo "NUVIO_MARKERS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub prerelease
+        env:
+          IOS_MARKERS: ${{ steps.markers.outputs.text }}
         run: |
           set -euo pipefail
           ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
@@ -331,7 +370,9 @@ jobs:
           Installs as \`com.nuvio.app.z.debug\` side-by-side with stable Nuvio Z.
           Signed with the committed debug keystore for Android; unsigned IPA for SideStore sideloading on iOS.
 
-          Not a release. The stable updater ignores prereleases."
+          Not a release. The stable updater ignores prereleases.
+
+          ${IOS_MARKERS}"
 
           echo "Published ${{ needs.prepare.outputs.tag }}"
 
@@ -390,3 +431,46 @@ jobs:
             distribution/sidestore/source-debug.json \
             --repo "${GITHUB_REPOSITORY}" \
             --clobber
+
+      # Installer 3 downloads Nuvio Z Debug from the link in distribution/ios-installer/nuvio.json on main
+      # (iosInstaller/core/src/nuvio.rs, CONFIG_URL), pinned to its SHA-256. Only a build that renews itself goes
+      # there: an IPA without the signer, installed straight from a computer, would stop opening after 7 days.
+      - name: Point the iOS installer at this build
+        if: ${{ needs.ios_debug.outputs.self_signing == 'true' }}
+        run: |
+          set -euo pipefail
+          ipa_name="Nuvio-Z-iOS-${{ needs.prepare.outputs.marketing_version }}-${{ needs.prepare.outputs.debug_build }}-debug-unsigned.ipa"
+          sha=$(sha256sum "release-assets/${ipa_name}" | cut -d' ' -f1)
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ needs.prepare.outputs.tag }}/${ipa_name}"
+          dir="${RUNNER_TEMP}/canonical-installer"
+          rm -rf "${dir}"
+          git clone --depth 1 --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${dir}"
+          git -C "${dir}" config user.name "github-actions[bot]"
+          git -C "${dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          write_config() {
+            python3 - "${dir}/distribution/ios-installer/nuvio.json" "${url}" "${sha}" "${{ needs.prepare.outputs.version }}" <<'EOF'
+          import json, os, sys
+          path, url, sha, version = sys.argv[1:]
+          config = {"schema": 1, "stable": None, "debug": None}
+          if os.path.exists(path):
+              config = json.load(open(path, encoding="utf-8"))
+          config["debug"] = {"url": url, "sha256": sha, "version": version}
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+          open(path, "w", encoding="utf-8").write(json.dumps(config, indent=2) + "\n")
+          EOF
+          }
+          write_config
+          git -C "${dir}" add distribution/ios-installer/nuvio.json
+          if git -C "${dir}" diff --cached --quiet; then
+            echo "The installer config on main already names this build."
+            exit 0
+          fi
+          git -C "${dir}" commit -q -m "chore(installer): Nuvio Z Debug ${{ needs.prepare.outputs.version }} for direct install [skip ci]"
+          for attempt in 1 2 3; do
+            git -C "${dir}" push -q origin main && exit 0
+            echo "Push to main failed (attempt ${attempt}/3); rebasing onto the latest main."
+            sleep 2
+            git -C "${dir}" pull -q --rebase origin main
+          done
+          echo "::error::Couldn't push the installer config to main." >&2
+          exit 1

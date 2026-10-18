@@ -1,61 +1,30 @@
 # Nuvio Z — iOS Sideloading (SideStore Distribution)
 
-This directory contains the official SideStore distribution metadata and the advanced fallback scripts for installing **Nuvio Z** on iOS devices without requiring TestFlight or a paid Apple Developer account.
+This directory holds Nuvio Z's SideStore source and the fallback scripts for installing **Nuvio Z**
+through SideStore, without TestFlight or a paid Apple Developer account.
 
-The intended end-user path is the portable **Nuvio Z iOS Setup** desktop assistant in `iosSetup/`
-(version 2). Download the Windows or macOS ZIP from the **Build iOS Setup GUI** workflow or the latest
-`ios-setup-v*` release, extract it, and open the app. It is a live checklist beside the one thing to do
-next, and it advances by itself:
+> **Most people don't need this guide.** Since Nuvio Z 0.5.4-z3, **Nuvio Z iOS Installer** installs
+> Nuvio Z directly, and Nuvio Z then renews and updates itself, with no SideStore involved. Follow the
+> [iPhone install steps in the main README](../../README.md#iphone).
 
-- **Computer:** checks the OS and network; on Windows installs Apple's device support (Apple's own
-  installer, its code signature verified first). It then downloads **iloader** for you: a pinned
-  release, SHA-256 verified, never bundled, installed into the assistant's own folder, removable when
-  you are done. You never visit iloader's download page.
-- **iPhone:** a small bundled device checker (`nuvioz-device-helper`, Rust, built on the MIT `idevice`
-  crate, pinned) reads USB state read-only: connected, trusted, Developer Mode, LocalDevVPN, SideStore,
-  Nuvio Z and the pairing file. Pages tick over as soon as the phone reports the change.
-- **Pairing:** the assistant builds and places SideStore's pairing file itself (the same lockdown plus
-  remote-pairing record iloader writes), keeping the previous file as `.previous`. Repair re-places it.
-- **Still yours:** Apple sign-in and 2FA (inside iloader and Apple only, never this app), trusting the
-  developer profile, **allowing SideStore notifications** (without it SideStore fails with "Repository could
-  not save notification", seen on iOS 27), SideStore's first sign-in and refresh, and adding the source.
-  These stay confirmations because nothing on the computer can see them.
-- **Source QR (main path):** the assistant shows a QR that encodes `sidestore://source?url=…` directly, so
-  the iPhone Camera hands it to SideStore, which asks to add the source. Verified on a physical iPhone
-  (iOS 26.5). It is never an https link: a plain feed URL opens Safari showing raw JSON text, and tests
-  forbid that. A collapsed manual option (copy URL, Sources -> +) covers a Camera that does not open it.
-  A second QR installs the newest IPA directly as a shortcut; it skips the source, so the recommended
-  install is Browse -> Nuvio Z after the source is added.
-- **Daily auto-refresh (2.1):** the last step walks the user through two Shortcuts automations: one
-  connects LocalDevVPN and runs SideStore's *Refresh All Apps* every night, the other disconnects
-  LocalDevVPN 15 minutes later (iOS runs one VPN at a time, and Shortcuts rarely runs anything after a
-  refresh). iOS lets nothing outside the phone create an automation, so this stays a confirmation. It
-  is also opened directly from Settings, with no cable, for phones set up before it existed. The
-  ready-made shortcut's iCloud link lives in `ios-setup-autorefresh.json` here (mirrored in
-  `iosSetup/src/main/resources/autorefresh.json`); the assistant prefers this hosted copy, so a link can
-  be published or replaced without a new release. Only `https://www.icloud.com/shortcuts/<32 hex>` is
-  accepted; with `null` the step shows how to build the shortcut by hand.
-- **Re-sign SideStore (2.1.1):** for a SideStore that has itself expired and so can't refresh anything.
-  The assistant never signs: it opens iloader (downloading it if needed) to install SideStore again over
-  the expired copy with the same Apple Account, shows the phone and pairing file live, places a pairing
-  file if one is missing, and ends with Refresh All on the phone. In Settings and on the finished page.
-- **Resume and manual mode:** state is re-derived from the phone on every launch; only your confirmations
-  are saved. Settings has a manual mode that ignores the device checker entirely.
+The SideStore path remains for:
 
-macOS: open `Nuvio Z iOS Setup.app`. If an unsigned build is blocked, use System Settings -> Privacy &
-Security -> **Open Anyway**. The assistant never removes quarantine attributes or bypasses Gatekeeper.
-Windows may show a SmartScreen notice for the unsigned ZIP, and asks for permission only when
-installing Apple's drivers. The app image includes its own Java runtime and the device checker.
+- **Existing SideStore installs.** They keep updating from the [source](#source-urls--deep-links). To
+  move to the direct install, delete SideStore and the old Nuvio Z (this also removes Nuvio Z's local
+  data), then run the installer.
+- **The installer's fallback.** *Install with SideStore instead*, on the installer's first screen,
+  installs SideStore with your Apple Account, places its pairing file and shows a QR code that adds
+  the Nuvio Z source.
+- **Manual sideloading.** Each mobile release includes an unsigned IPA.
 
-The pinned download descriptors are `iosSetup/src/main/resources/prereqs.json`, mirrored in
-`distribution/sidestore/ios-setup-prereqs.json` (a test keeps them identical; a hosted copy may refresh
-them only if it validates against a host allow-list and carries SHA-256 pins).
+The earlier **Nuvio Z iOS Setup** assistant (`iosSetup/`, versions 1 and 2) is retired. Its download
+links now serve Nuvio Z iOS Installer.
 
 ---
 
 ## Architecture Overview
 
-Nuvio Z uses the official, current **SideStore** and **iloader** workflow:
+The fallback scripts use the official **SideStore** and **iloader** workflow:
 
 ```
 [GitHub Releases]
@@ -100,17 +69,10 @@ Normally, the computer is only needed for initial setup. If SideStore's pairing 
 
 ## Quick Start
 
-### Portable GUI (recommended)
+### Nuvio Z iOS Installer (recommended)
 
-- **Windows:** extract `Nuvio-Z-iOS-Setup-Windows-x64.zip`, then double-click
-  `Nuvio Z iOS Setup.exe` inside the extracted folder.
-- **macOS:** extract `Nuvio-Z-iOS-Setup-macOS.zip`, then open `Nuvio Z iOS Setup.app`.
-  If an unsigned acceptance build is blocked, use macOS **System Settings → Privacy & Security →
-  Open Anyway**. The setup utility does not remove quarantine attributes or bypass Gatekeeper.
-
-The application includes its own Java runtime. It does not install itself, add a Start Menu entry,
-or require administrator rights merely to launch. Windows may request elevation later only when
-installing genuine Apple device prerequisites.
+Download the installer from the [main README](../../README.md#iphone), choose
+**Install with SideStore instead** on its first screen, and follow its steps.
 
 ### Advanced fallback and diagnostics
 

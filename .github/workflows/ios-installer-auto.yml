@@ -1,0 +1,400 @@
+name: iOS Installer auto-release
+
+# Two scheduled jobs that keep the iPhone signing working without the maintainer (PLAN-nuvio-z-self-signing.md,
+# "Release decisions" 4 and 5):
+#
+#   crates (daily)       A newer isideload / idevice that has been on crates.io for 3 days is pinned, built and
+#                        tested; Sonnet reviews the upstream source diff and makes any mechanical fixes; this
+#                        workflow re-checks everything itself, builds the Windows installer and the iPhone signer,
+#                        fast-forwards main and publishes the installer. Anything doubtful opens an issue instead.
+#   watch (every 3 days) Sonnet reads the isideload and SideStore issue trackers for Apple breaking sign-in, and
+#                        opens an issue for the maintainer when it has.
+#
+# Sonnet signs in with the maintainer's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN). It never pushes, merges or
+# publishes: it writes files and a verdict, and the steps after it decide. A dispatch with `simulate` (for example
+# isideload=0.4.5) is a dry run: no commits, releases or issues.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+    - cron: '43 6 */3 * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        type: choice
+        options: [crates, watch]
+        default: crates
+      simulate:
+        description: 'Dry run: pretend a pin is older, for example isideload=0.4.5. Never commits or publishes.'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: ios-installer-auto
+  cancel-in-progress: false
+
+env:
+  MAINTAINER: Zokaper
+  # Claude Code itself rather than claude-code-action, which refuses push events and adds a GitHub App token
+  # this doesn't need. Pinned; bump deliberately.
+  CLAUDE_CODE_VERSION: 2.1.302
+  # Only a scheduled or hand-started run on main may change anything.
+  DRY_RUN: ${{ github.ref != 'refs/heads/main' || inputs.simulate != '' }}
+  SIMULATE: ${{ inputs.simulate || '' }}
+
+jobs:
+  check:
+    name: Anything new upstream?
+    if: ${{ github.event.schedule == '17 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'crates') }}
+    runs-on: ubuntu-latest
+    outputs:
+      bumps: ${{ steps.check.outputs.bumps }}
+      servers: ${{ steps.check.outputs.servers }}
+      servers_changed: ${{ steps.check.outputs.servers_changed }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: check
+        working-directory: iosInstaller
+        run: |
+          args=()
+          [ -n "${SIMULATE}" ] && args+=(--simulate "${SIMULATE}")
+          bumps=$(python3 scripts/signing_crates.py check --cooldown-days 3 "${args[@]}")
+          echo "bumps=${bumps}" >> "$GITHUB_OUTPUT"
+          echo "Crates: ${bumps}" | tee -a "$GITHUB_STEP_SUMMARY"
+          # iloader's anisette servers: a day's wait, not three. They are how Apple-side breakage gets fixed.
+          servers=$(python3 scripts/signing_crates.py servers --cooldown-days 1)
+          echo "servers=${servers}" >> "$GITHUB_OUTPUT"
+          echo "servers_changed=$(echo "${servers}" | jq -r .changed)" >> "$GITHUB_OUTPUT"
+          echo "${servers}" | jq -r '"iloader \(.tag) servers: \(.iloader | join(", ")); ours: \(.ours | join(", ")); changed: \(.changed)"' | tee -a "$GITHUB_STEP_SUMMARY"
+
+  review:
+    name: Review and fix
+    needs: check
+    if: ${{ (needs.check.outputs.bumps != '[]' && needs.check.outputs.bumps != '') || needs.check.outputs.servers_changed == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      decision: ${{ steps.gate.outputs.decision }}
+      sha: ${{ steps.commit.outputs.sha }}
+      signing_changed: ${{ steps.gate.outputs.signing_changed }}
+      version: ${{ steps.commit.outputs.version }}
+    env:
+      BUMPS: ${{ needs.check.outputs.bumps }}
+      SERVERS: ${{ needs.check.outputs.servers }}
+      SERVERS_CHANGED: ${{ needs.check.outputs.servers_changed }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: System libraries for the core
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: iosInstaller
+
+      - name: Apply the changes and gather the evidence
+        id: gather
+        working-directory: iosInstaller
+        run: |
+          set -uo pipefail
+          ev="${GITHUB_WORKSPACE}/.auto-review"
+          mkdir -p "${ev}"
+          echo "${BUMPS}" > "${ev}/bumps.json"
+          if [ "${BUMPS}" != "[]" ]; then
+            python3 scripts/signing_crates.py apply "${BUMPS}"
+            crates=$(echo "${BUMPS}" | python3 -c 'import json,sys; print(" ".join("-p " + b["crate"] for b in json.load(sys.stdin)))')
+            cargo update ${crates}
+            python3 scripts/signing_crates.py diff "${BUMPS}" "${ev}"
+            rm -rf "${ev}/sources"
+          fi
+          if [ "${SERVERS_CHANGED}" = "true" ]; then
+            echo "${SERVERS}" > "${ev}/servers.json"
+            python3 scripts/signing_crates.py apply-servers "${SERVERS}"
+          fi
+          git diff -- Cargo.lock > "${ev}/lock.diff"
+          what=$(echo "${BUMPS}" | jq -r 'map("\(.crate) \(.from) -> \(.to)") | join(", ")')
+          [ "${SERVERS_CHANGED}" = "true" ] && what="${what:+${what}, }anisette servers from iloader $(echo "${SERVERS}" | jq -r .tag)"
+          echo "what=${what}" >> "$GITHUB_OUTPUT"
+          cargo test -p nuvioz-installer-core > "${ev}/tests-before.log" 2>&1; echo "exit $?" >> "${ev}/tests-before.log"
+          cargo check -p nuvioz-signer > "${ev}/signer-check-before.log" 2>&1; echo "exit $?" >> "${ev}/signer-check-before.log"
+          tail -n 3 "${ev}"/*.log
+
+      - name: Sonnet reviews
+        id: claude
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g --silent "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          prompt="Read iosInstaller/scripts/agent/review-crates.md and do what it says.
+          EVIDENCE is ${GITHUB_WORKSPACE}/.auto-review (relative: .auto-review).
+          Run cargo with --manifest-path iosInstaller/Cargo.toml, for example
+          cargo test --manifest-path iosInstaller/Cargo.toml -p nuvioz-installer-core"
+          tools="Read,Edit,Write,Glob,Grep,Bash(cargo test:*),Bash(cargo check:*),Bash(cargo tree:*),Bash(git diff:*),Bash(git status:*)"
+          set +e
+          claude -p "${prompt}" --model sonnet --max-turns 80 --allowedTools "${tools}" > .auto-review/agent.log 2>&1
+          status=$?
+          tail -n 40 .auto-review/agent.log
+          exit ${status}
+
+      # Nothing Sonnet says is taken on trust: the folders it touched, the tests and the signer are checked here.
+      - name: Gate
+        id: gate
+        run: |
+          set -uo pipefail
+          ev=.auto-review
+          decision=hold
+          reason=""
+          if [ ! -s "${ev}/verdict.json" ]; then
+            decision=agent-failed
+            reason="Sonnet didn't write a verdict (rate limit, or the run failed: ${{ steps.claude.outcome }})."
+          else
+            outside=$(git status --porcelain --untracked-files=all | sed -E 's/^.. //' \
+              | grep -v -E '^(\.auto-review/|iosInstaller/(core|ffi)/|iosInstaller/app/src/|iosInstaller/Cargo\.(toml|lock)$)' || true)
+            if [ -n "${outside}" ]; then
+              reason="Edits outside the allowed folders: ${outside}"
+            elif ! (cd iosInstaller && cargo test -p nuvioz-installer-core && cargo check -p nuvioz-signer); then
+              reason="Core tests or the signer check fail after the review."
+            elif [ "$(jq -r .release "${ev}/verdict.json")" != "true" ]; then
+              reason="Sonnet held the update."
+            else
+              decision=release
+            fi
+          fi
+          echo "decision=${decision}" >> "$GITHUB_OUTPUT"
+          echo "signing_changed=$(jq -r '.signing_behaviour_changed // false' "${ev}/verdict.json" 2>/dev/null || echo false)" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Decision: ${decision}"
+            [ -n "${reason}" ] && echo "${reason}"
+            echo
+            echo '```json'
+            cat "${ev}/verdict.json" 2>/dev/null || echo "(no verdict)"
+            echo '```'
+            echo
+            echo '```diff'
+            git diff -- iosInstaller ':!iosInstaller/Cargo.lock' | head -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s' "${reason}" > "${ev}/gate-reason.txt"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: auto-review-evidence
+          path: .auto-review/
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Commit to a branch
+        id: commit
+        if: ${{ steps.gate.outputs.decision == 'release' && env.DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          version=$(cd iosInstaller && python3 scripts/signing_crates.py bump-version)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="auto/signing-crates-${GITHUB_RUN_ID}"
+          git checkout -b "${branch}"
+          git add iosInstaller/core iosInstaller/ffi iosInstaller/app iosInstaller/Cargo.toml iosInstaller/Cargo.lock
+          summary=$(jq -r .summary .auto-review/verdict.json)
+          bumps="${{ steps.gather.outputs.what }}"
+          git commit -q -m "Installer ${version}: ${bumps}" -m "${summary}" -m "Reviewed by Sonnet in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          git push -q origin "${branch}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Tell the maintainer
+        if: ${{ steps.gate.outputs.decision != 'release' && env.DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          gh label create auto-release --color 5319E7 --description "iOS Installer auto-release" --force >/dev/null
+          bumps="${{ steps.gather.outputs.what }}"
+          title="Auto-release held: ${bumps}"
+          [ "${{ steps.gate.outputs.decision }}" = "agent-failed" ] && title="Auto-release couldn't review: ${bumps}"
+          body="@${MAINTAINER} $(cat .auto-review/gate-reason.txt)
+
+          $(jq -r '"**Summary:** \(.summary)\n\n**Review:** \(.review)\n\n**Fixes:** \(.fixes)"' .auto-review/verdict.json 2>/dev/null || true)
+
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (evidence attached as an artifact)."
+          existing=$(gh issue list --label auto-release --state open --search "in:title \"${title}\"" --json number -q '.[0].number')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh issue create --title "${title}" --label auto-release --assignee "${MAINTAINER}" --body "${body}"
+          fi
+
+  windows:
+    name: Windows installer builds
+    needs: review
+    if: ${{ needs.review.outputs.decision == 'release' && needs.review.outputs.sha != '' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.review.outputs.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: iosInstaller
+      - working-directory: iosInstaller
+        run: |
+          cargo test -p nuvioz-installer-core
+          cargo build --release -p nuvioz-ios-installer
+
+  macos:
+    name: Mac installer builds
+    needs: review
+    if: ${{ needs.review.outputs.decision == 'release' && needs.review.outputs.sha != '' }}
+    uses: ./.github/workflows/ios-installer-macos.yml
+    with:
+      ref: ${{ needs.review.outputs.sha }}
+      artifact_name: ios-installer-macos-validation
+
+  iphone:
+    name: iPhone signer builds
+    needs: review
+    if: ${{ needs.review.outputs.decision == 'release' && needs.review.outputs.sha != '' }}
+    runs-on: macos-15
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "16.1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.review.outputs.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: iosInstaller
+      - working-directory: iosInstaller
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
+
+  ship:
+    name: Fast-forward main
+    needs: [review, windows, macos, iphone]
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ship.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.review.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: ship
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q origin main
+          if git merge-base --is-ancestor origin/main "${SHA}"; then
+            git push -q origin "${SHA}:refs/heads/main"
+            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          else
+            # main moved while this ran: replay the one commit on top, but only if it applies cleanly.
+            git checkout -q -B ship origin/main
+            if git cherry-pick "${SHA}"; then
+              git push -q origin "HEAD:refs/heads/main"
+              echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            else
+              gh issue create --title "Auto-release couldn't land on main" --label auto-release --assignee "${MAINTAINER}" \
+                --body "@${MAINTAINER} The reviewed commit ${SHA} doesn't apply to main any more. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+              exit 1
+            fi
+          fi
+
+  release:
+    name: Publish the installer
+    needs: [review, ship]
+    uses: ./.github/workflows/ios-installer-release.yml
+    with:
+      ref: ${{ needs.ship.outputs.sha }}
+      publish: true
+      notes: 'Automatic release: updated signing libraries, reviewed and tested. See the commit message for what changed.'
+
+  app-needed:
+    name: Ask for a Nuvio Z release
+    needs: [review, release]
+    if: ${{ needs.review.outputs.signing_changed == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          gh issue create --repo "${GITHUB_REPOSITORY}" --title "Nuvio Z needs a release: signing changed (installer ${{ needs.review.outputs.version }})" \
+            --label auto-release --assignee "${MAINTAINER}" \
+            --body "@${MAINTAINER} The installer shipped a signing-library update that changes how apps are signed or installed. Nuvio Z on iPhone renews itself with the same code, so it needs a release too; the release workflow marks it Important automatically. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+  watch:
+    name: Watch upstream for Apple breaking sign-in
+    if: ${{ github.event.schedule == '43 6 */3 * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'watch') }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Context
+        id: context
+        run: |
+          mkdir -p .auto-watch
+          echo "since=$(date -u -d '14 days ago' +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          gh issue list --label upstream-watch --state open --json number,title,body,createdAt > .auto-watch/open-alerts.json || echo '[]' > .auto-watch/open-alerts.json
+          python3 - <<'EOF' > .auto-watch/crates.json
+          import json, re, urllib.request
+          toml = open("iosInstaller/Cargo.toml", encoding="utf-8").read()
+          out = {}
+          for crate in ["isideload", "idevice"]:
+              request = urllib.request.Request(f"https://crates.io/api/v1/crates/{crate}", headers={"User-Agent": "nuvio-z-ios-installer-auto-release"})
+              versions = json.load(urllib.request.urlopen(request, timeout=60))["versions"][:10]
+              pinned = re.search(rf'^{crate}\s*=\s*\{{\s*version\s*=\s*"=([^"]+)"', toml, re.M)
+              out[crate] = {"pinned": pinned and pinned.group(1),
+                            "published": [{"version": v["num"], "date": v["created_at"][:10], "yanked": v["yanked"]} for v in versions]}
+          print(json.dumps(out, indent=2))
+          EOF
+
+      - name: Sonnet reads the trackers
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SINCE: ${{ steps.context.outputs.since }}
+        run: |
+          npm install -g --silent "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          prompt="Read iosInstaller/scripts/agent/watch-upstream.md and do what it says.
+          OUT is .auto-watch. SINCE is ${SINCE}.
+          Alerts already open in our repository: .auto-watch/open-alerts.json."
+          tools="Read,Write,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh search issues:*),Bash(gh release list:*),Bash(gh release view:*)"
+          set +e
+          claude -p "${prompt}" --model sonnet --max-turns 60 --allowedTools "${tools}" > .auto-watch/agent.log 2>&1
+          status=$?
+          tail -n 40 .auto-watch/agent.log
+          exit ${status}
+
+      - name: Report
+        run: |
+          set -euo pipefail
+          out=.auto-watch/watch.json
+          if [ ! -s "${out}" ]; then
+            echo "Sonnet didn't write a result (rate limit or failure); the next run tries again." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          { echo '```json'; cat "${out}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat "${out}"
+          [ "$(jq -r .alert "${out}")" = "true" ] || exit 0
+          if [ "${DRY_RUN}" = "true" ]; then echo "Dry run: no issue." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          gh label create upstream-watch --color D93F0B --description "Apple sign-in breakage reported upstream" --force >/dev/null
+          body="@${MAINTAINER} $(jq -r .body "${out}")"
+          existing=$(jq -r '.[0].number // empty' .auto-watch/open-alerts.json)
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh issue create --title "$(jq -r .title "${out}")" --label upstream-watch --assignee "${MAINTAINER}" --body "${body}"
+          fi

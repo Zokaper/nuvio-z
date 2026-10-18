@@ -11,6 +11,7 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_category_about
 import nuvio.composeapp.generated.resources.downloads_settings_title
 import nuvio.composeapp.generated.resources.compose_settings_category_general
+import nuvio.composeapp.generated.resources.selfsign_title
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_addons
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
@@ -204,6 +205,12 @@ internal enum class SettingsPage(
     Downloads(
         titleRes = Res.string.downloads_settings_title,
         category = SettingsCategory.General,
+        parentPage = Root,
+    ),
+    // iPhone builds that sign themselves only (see `isEnabledByPolicy`): KeepNuvioWorkingScreen.kt.
+    KeepNuvioWorking(
+        titleRes = Res.string.selfsign_title,
+        category = SettingsCategory.About,
         parentPage = Root,
     ),
 }

@@ -1,5 +1,12 @@
 # Nuvio Z and Upstream Nuvio
 
+**One-release exception, maintainer 2026-10-18:** the iOS install/self-signing release
+ships as mobile `0.5.4-z3` on the existing `0.5.4-beta` base. The maintainer explicitly
+deferred the upstream sync to the upcoming **Social V2** release, which must sync
+before publication. Upstream currently ships `0.6.1-beta`; the fetched branch drift
+check reported 246 upstream-only commits. This exception does not change the standing
+sync rule for later releases.
+
 **Nuvio Z is a mod of Nuvio.** Not a fork we maintain, not a separate product line - a bounded,
 named set of patches that rides on a stated vanilla base. Vanilla features arrive by
 **inheritance**, not by re-implementation. Every Nuvio Z release names the vanilla release it is

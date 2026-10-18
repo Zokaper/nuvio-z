@@ -18,7 +18,17 @@ data class AppUpdateReleaseSource(
      * line - see `AndroidUpdateChannelTest` in `nuvio-z`.
      */
     val debugChannel: Boolean = false,
+    /**
+     * A marker a release's notes must contain to be offered, or null for none.
+     *
+     * iOS self-signing builds set [releaseMarkerSelfSigning]: an IPA without the signer can't renew
+     * itself, so installing one over a self-signing copy would leave it to expire in 7 days.
+     */
+    val requiredNotesMarker: String? = null,
 )
+
+/** Where an install is, for the banner. Only iOS reports more than [Install]; it signs on the phone. */
+enum class AppUpdateInstallStage { Download, Prepare, Install }
 
 data class AppUpdateAssetSelector(
     val fileExtensions: List<String>,
@@ -51,5 +61,13 @@ expect object AppUpdaterPlatform {
 
     fun openInstallPermissionSettings()
 
-    fun installDownloadedUpdate(path: String): Result<Unit>
+    /**
+     * Installs what [downloadUpdateAsset] returned. iOS self-signing downloads, signs and installs here
+     * (its download step only hands the URL on) and reports each stage through [onProgress]; the other
+     * platforms start the system installer and return.
+     */
+    suspend fun installDownloadedUpdate(
+        path: String,
+        onProgress: (stage: AppUpdateInstallStage, fraction: Float?) -> Unit,
+    ): Result<Unit>
 }

@@ -1,0 +1,84 @@
+name: iOS Installer for Mac
+
+# Build-only universal app. Also gates manual releases and automated crate updates.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      artifact_name:
+        type: string
+        default: ios-installer-macos
+  push:
+    branches: [claude/self-signing]
+    paths:
+      - 'iosInstaller/**'
+      - '.github/workflows/ios-installer-macos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build universal Mac installer
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: iosInstaller
+          cache-on-failure: true
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Core tests on macOS
+        working-directory: iosInstaller
+        run: cargo test --locked -p nuvioz-installer-core
+      - name: Build universal app
+        working-directory: iosInstaller/app
+        run: npx --yes @tauri-apps/cli@2.12.3 build --target universal-apple-darwin --bundles app -- --locked
+      - name: Verify and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='iosInstaller/target/universal-apple-darwin/release/bundle/macos/Nuvio Z iOS Installer.app'
+          plist="${app}/Contents/Info.plist"
+          plutil -lint "${plist}"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${plist}")
+          binary="${app}/Contents/MacOS/${executable}"
+          lipo "${binary}" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --verbose=2 "${app}"
+          # Native startup smoke check: no phone or Apple credentials, just a live app process.
+          "${binary}" > "${RUNNER_TEMP}/installer-startup.log" 2>&1 &
+          pid=$!
+          sleep 5
+          if ! kill -0 "${pid}" 2>/dev/null; then
+            cat "${RUNNER_TEMP}/installer-startup.log"
+            echo '::error::The Mac installer exited during startup.'
+            exit 1
+          fi
+          kill "${pid}"
+          wait "${pid}" || true
+          mkdir -p package
+          cp iosInstaller/MACOS-README.txt package/README.txt
+          ditto "${app}" 'package/Nuvio Z iOS Installer.app'
+          ditto -c -k --sequesterRsrc --keepParent 'package/Nuvio Z iOS Installer.app' app.zip
+          # Include the instructions beside the .app in the same zip.
+          mv app.zip Nuvio-Z-iOS-Setup-macOS.zip
+          (cd package && zip ../Nuvio-Z-iOS-Setup-macOS.zip README.txt)
+          shasum -a 256 Nuvio-Z-iOS-Setup-macOS.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name || 'ios-installer-macos' }}
+          path: Nuvio-Z-iOS-Setup-macOS.zip
+          if-no-files-found: error
+          retention-days: 14

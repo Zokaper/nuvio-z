@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloudDownload
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppVersionPolicy
+import com.nuvio.app.core.debug.SelfSigningSpike
 import com.nuvio.app.core.build.NuvioZVersion
 import com.nuvio.app.core.ui.NuvioSegment
 import com.nuvio.app.core.ui.NuvioSegmentedChoice
@@ -132,6 +135,7 @@ internal fun zSettingsSectionFor(page: SettingsPage): ZSettingsSection = when (p
     SettingsPage.Notifications,
     -> ZSettingsSection.ProfileAndSocial
     SettingsPage.About,
+    SettingsPage.KeepNuvioWorking,
     SettingsPage.SupportersContributors,
     SettingsPage.LicensesAttributions,
     -> ZSettingsSection.SetupAndAbout
@@ -307,6 +311,19 @@ internal fun LazyListScope.zSettingsRootContent(
             val profileId = ProfileRepository.activeProfileId
             LaunchedEffect(profileId) { AdvancedSetupBadge.refresh(profileId) }
             ZSection(ZSettingsSection.SetupAndAbout, isTablet) {
+                // iPhone builds that sign themselves: first, because when it matters the app is about to stop opening.
+                SelfSigningSpike.platform?.let { platform ->
+                    val until by produceState<String?>(null) { value = platform.signedUntilLabel() }
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.selfsign_title),
+                        description = until?.let { stringResource(Res.string.selfsign_root_opens_until, it) }
+                            ?: stringResource(Res.string.selfsign_root_description),
+                        icon = Icons.Rounded.Autorenew,
+                        isTablet = isTablet,
+                        onClick = { onPageChange(SettingsPage.KeepNuvioWorking) },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                }
                 SettingsNavigationRow(
                     title = stringResource(Res.string.advanced_setup_title),
                     description = stringResource(Res.string.zsettings_advanced_setup_description),

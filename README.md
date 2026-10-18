@@ -116,56 +116,41 @@ Nuvio Z updates itself from inside the app, so you only do this once.
 
 ### iPhone
 
-Nuvio Z isn't on the App Store or TestFlight. On iPhone it installs through
-[SideStore](https://sidestore.io), which signs the app with your own Apple Account and refreshes it
-wirelessly. You'll need an iPhone on iOS 16.1 or later, a free Apple Account and a USB cable.
+Nuvio Z isn't on the App Store or TestFlight. **Nuvio Z iOS Installer** signs and installs it
+with your own Apple Account. Nuvio Z then renews itself and installs updates on the phone.
+You'll need an iPhone on iOS 16.1 or later, a free Apple Account and a USB cable for setup.
 
-**First time on an iPhone: use Nuvio Z iOS Setup.** It's a small app for Windows and macOS that sets
-everything up with you. It checks your computer, notices your iPhone, and ticks off each step by
-itself as it sees it happen:
-
-1. Download **Nuvio Z iOS Setup** for your computer. These links always give you the newest version:
+1. Download the installer for your computer:
    - [Windows (x64)](https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-Windows-x64.zip)
-   - [macOS](https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-macOS.zip)
+   - [Mac (Intel and Apple Silicon, macOS 11+)](https://github.com/Zokaper/nuvio-z/releases/download/ios-setup-vlatest/Nuvio-Z-iOS-Setup-macOS.zip)
 
-   Extract it and run the app. There's nothing to install. Windows may show a SmartScreen notice
-   (*More info → Run anyway*); on a Mac that blocks it, use *System Settings → Privacy & Security →
-   Open Anyway*. The macOS version hasn't been tested on real hardware yet. Checksums and older
-   versions are on the [setup release page](https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-vlatest).
+   Extract the zip. On Windows, run **Nuvio Z iOS Installer.exe**. On Mac, move
+   **Nuvio Z iOS Installer.app** to Applications and open it. Windows may show SmartScreen
+   (*More info → Run anyway*). The Mac app isn't notarized; if blocked, use
+   *System Settings → Privacy & Security → Open Anyway*. Checksums and earlier versions are
+   on the [installer release page](https://github.com/Zokaper/nuvio-z/releases/tag/ios-setup-vlatest).
+2. Choose **Install**, connect and unlock your iPhone, and follow the steps. The installer
+   handles Apple's connection software on Windows, guides trust and Developer Mode, signs in
+   to Apple, and installs Nuvio Z with its connection file and signing key. Remembered sign-in
+   data is stored in your computer's Credential Manager or Mac Keychain.
+3. Open Nuvio Z on your phone, renew it once and follow the daily-refresh guide. The Shortcuts
+   automation connects LocalDevVPN, runs **Refresh Nuvio Z**, then disconnects the VPN.
 
-   *Nuvio Z iOS Setup has its own version number and release line, separate from the Nuvio Z app.*
-   <!-- These links use the rolling ios-setup-vlatest prerelease, which the "Build iOS Setup GUI"
-        workflow refreshes on every setup release (run it with publish_tag), so they never need
-        bumping. Do not use /releases/latest: that resolves to the Nuvio Z app release, and setup
-        releases are pre-releases. -->
-2. Follow the checklist. The app downloads what it needs (a verified copy of iloader and, on
-   Windows, Apple's iPhone drivers), then guides you through connecting and trusting your iPhone,
-   installing LocalDevVPN and SideStore, allowing SideStore's notifications, and adding the Nuvio Z
-   source by scanning a QR code with your iPhone camera. The last step sets up a nightly
-   auto-refresh in the Shortcuts app, so you never have to refresh by hand. Your Apple sign-in
-   happens in iloader and SideStore; the app never sees your password, and it works out where you
-   left off if you stop halfway.
+**Updates:** connect LocalDevVPN and tap **Update** in Nuvio Z's banner. It downloads, signs and
+installs over itself. Reopen it when it closes; your data stays there.
 
-**SideStore itself won't open?** Its 7 days ran out, and an expired SideStore can't refresh itself.
-Connect the iPhone, open Nuvio Z iOS Setup and choose **Settings → Re-sign SideStore**.
+**Nuvio Z stopped opening?** Connect the iPhone to your computer, open the installer and choose
+**Repair**. It signs and installs over the existing copy while keeping its data.
 
-**Already set up, and tired of refreshing every 7 days?** Open Nuvio Z iOS Setup and choose
-**Settings → Set up daily auto-refresh**. It walks you through a Shortcuts automation that
-refreshes SideStore and Nuvio Z every night. No cable needed.
+**Coming from SideStore?** To switch to the new install path, remove the old Nuvio Z and SideStore,
+then use the installer. Removing the old app also removes its local data. Existing SideStore
+copies can still use their current source and update through SideStore:
 
-**Already have SideStore set up?** Add the Nuvio Z source in SideStore and install Nuvio Z from
-it:
-
-```
 https://raw.githubusercontent.com/Zokaper/nuvio-z/main/distribution/sidestore/source.json
-```
 
-**Prefer to do it by hand?** Each release has an unsigned IPA
-(`Nuvio-Z-iOS-…-unsigned.ipa`) that you can sideload with the tool of your choice.
-
-**Updates** arrive through SideStore, which shows an *Update* badge next to Nuvio Z. Keep
-SideStore and LocalDevVPN set up so it can refresh the app (the nightly auto-refresh does this for you). Signing limits and troubleshooting are
-in [`distribution/sidestore/README.md`](./distribution/sidestore/README.md).
+Each mobile release also includes an unsigned IPA for manual sideloading. SideStore remains a
+fallback link in the installer; its signing limits and troubleshooting are documented in
+[the SideStore guide](./distribution/sidestore/README.md).
 
 ## Development
 

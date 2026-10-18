@@ -3,6 +3,7 @@ package com.nuvio.app
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
+import com.nuvio.app.core.debug.installSelfSigningSpike
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.features.watchparty.IosPartyLifecycle
@@ -101,6 +102,7 @@ private fun nuvioComposeViewController(
     content: @androidx.compose.runtime.Composable () -> Unit,
 ): UIViewController {
     IosPartyLifecycle.start()
+    installSelfSigningSpike()
     return ComposeUIViewController(
     configure = { onFocusBehavior = OnFocusBehavior.DoNothing },
     content = content,

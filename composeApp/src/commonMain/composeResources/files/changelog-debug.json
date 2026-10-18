@@ -133,6 +133,22 @@
     {
       "build": 91,
       "text": "Friend requests, party invites, join requests and friends starting to watch now pop up as small banners at the top of the app. Tap one to open it, swipe it up to dismiss."
+    },
+    {
+      "build": 92,
+      "text": "Nuvio Z keeps itself signed: renews on its own, updates from the banner, and Settings › Keep Nuvio Z working. iPhone setup and repair now go through the new installer."
+    },
+    {
+      "build": 93,
+      "text": "Update test: installs from the banner over 92, and shows as Important. Install and Repair sit side by side in the installer."
+    },
+    {
+      "build": 94,
+      "text": "Renewing and updating stay on the sign-in server that set this iPhone up, so Apple stops asking for a code. If Apple does ask during an update, the banner shows where to type it."
+    },
+    {
+      "build": 95,
+      "text": "Keep Nuvio Z working tidied up: readable, plain settings rows, and Apple's code opens in a dialog."
     }
   ]
 }

@@ -336,6 +336,15 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
     "src/iosAppStore/kotlin"
 }
 val iosFrameworkBundleId = "com.nuvio.media"
+// Phase 2 spike (PLAN-nuvio-z-self-signing.md): link the installer's Rust core into the iOS app so Nuvio Z can
+// reach the phone's own services. Off unless NUVIO_IOS_SELF_SIGNING=true; the library comes from
+// `cargo build -p nuvioz-signer --release --target aarch64-apple-ios` in iosInstaller/.
+val iosSelfSigning = (
+    providers.gradleProperty("nuvio.ios.selfSigning").orNull
+        ?: System.getenv("NUVIO_IOS_SELF_SIGNING")
+        ?: "false"
+    ).trim().toBoolean()
+val nuviozSignerRoot = rootProject.file("iosInstaller")
 val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
@@ -451,6 +460,11 @@ kotlin {
             "ios-arm64_x86_64-simulator"
         }
         val nuvioEngineSliceDirectory = nuvioEngineAppleFramework.resolve(nuvioEngineSlice)
+        val nuviozSignerDirectory = nuviozSignerRoot.resolve(
+            if (iosTarget.name == "iosArm64") "target/aarch64-apple-ios/release" else "target/aarch64-apple-ios-sim/release",
+        )
+        // The device build must have it when asked for; a simulator slice that was not built just goes without.
+        val withSigner = iosSelfSigning && (iosTarget.name == "iosArm64" || nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile)
         iosTarget.compilations.getByName("main") {
             cinterops {
                 create("commoncrypto") {
@@ -471,6 +485,16 @@ kotlin {
                         extraOpts("-libraryPath", nuvioEngineSliceDirectory.absolutePath)
                     }
                 }
+                if (withSigner) {
+                    check(nuviozSignerDirectory.resolve("libnuvioz_signer.a").isFile) {
+                        "NUVIO_IOS_SELF_SIGNING is on: build iosInstaller's nuvioz-signer for ${iosTarget.name} first."
+                    }
+                    create("nuviozsigner") {
+                        defFile(project.file("src/nativeInterop/cinterop/nuviozsigner.def"))
+                        compilerOpts("-I${nuviozSignerRoot.resolve("ffi/include").absolutePath}")
+                        extraOpts("-libraryPath", nuviozSignerDirectory.absolutePath)
+                    }
+                }
                 configureEach {
                     extraOpts("-Xccall-mode", "direct")
                 }
@@ -480,6 +504,7 @@ kotlin {
                 defaultSourceSet.kotlin.srcDir(fullCommonSourceDir)
             }
             defaultSourceSet.kotlin.srcDir(project.file(iosDistributionSourceDir))
+            defaultSourceSet.kotlin.srcDir(project.file(if (withSigner) "src/iosSelfSigning/kotlin" else "src/iosNoSelfSigning/kotlin"))
             defaultSourceSet.dependencies {
                 implementation(libs.ktor.client.darwin)
                 if (iosDistribution == "full") {
@@ -500,6 +525,9 @@ kotlin {
                     "-framework", "SystemConfiguration",
                     "-framework", "CoreFoundation",
                 )
+            }
+            if (iosSelfSigning) {
+                linkerOpts("-framework", "Security", "-framework", "SystemConfiguration", "-framework", "CoreFoundation", "-lresolv")
             }
         }
 
