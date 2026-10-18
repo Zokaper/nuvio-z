@@ -309,6 +309,7 @@ pub struct UpdateReport {
 }
 
 /// Where an update is unpacked and signed: the app's own temporary folder on the phone.
+/// (Debug 93 touched this comment on purpose: the first in-app update test needed a release marked as a signing change.)
 fn work_dir() -> PathBuf {
     std::env::temp_dir().join("nuvioz-update")
 }

@@ -109,6 +109,10 @@
     {
       "build": 92,
       "text": "Nuvio Z keeps itself signed: renews on its own, updates from the banner, and Settings › Keep Nuvio Z working. iPhone setup and repair now go through the new installer."
+    },
+    {
+      "build": 93,
+      "text": "Update test: installs from the banner over 92, and shows as Important. Install and Repair sit side by side in the installer."
     }
   ]
 }
