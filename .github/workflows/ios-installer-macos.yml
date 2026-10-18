@@ -37,6 +37,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: iosInstaller
+          cache-on-failure: true
       - name: Rust targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Core tests on macOS
@@ -54,7 +55,7 @@ jobs:
           plutil -lint "${plist}"
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${plist}")
           binary="${app}/Contents/MacOS/${executable}"
-          lipo -verify_arch arm64 x86_64 "${binary}"
+          lipo "${binary}" -verify_arch arm64 x86_64
           codesign --verify --deep --strict --verbose=2 "${app}"
           # Native startup smoke check: no phone or Apple credentials, just a live app process.
           "${binary}" > "${RUNNER_TEMP}/installer-startup.log" 2>&1 &

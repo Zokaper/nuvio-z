@@ -23,7 +23,9 @@ Last updated: 2026-10-18
   Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
   it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
   crate promotions now require Mac success as well as Windows; publication replaces the old rolling Mac zip.
-  Mac core tests passed in `39119512358`; universal app compilation/phone install not verified yet.
+  Mac core tests and universal app compilation passed in `39119512358`; packaging verification failed
+  because the `lipo -verify_arch` file argument was placed after its architecture list. Corrected to
+  put the file first; rerun required. Mac phone installation is not verified yet.
   Windows driver steps remain skipped on Mac. The sign-in drawing
   now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
 - **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
