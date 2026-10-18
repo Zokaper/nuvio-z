@@ -7,7 +7,8 @@ const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 const tauri = window.__TAURI__;
 // target: "nuvio" installs Nuvio Z itself (the normal path), "sidestore" the fallback. channel: SideStore's build.
-const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false };
+// mode: "install" or "repair", picked on the welcome screen.
+const ctx = { live: Boolean(tauri) && !params.has("step"), target: "nuvio", channel: "stable", debugBuild: false, mode: "install" };
 // Previews only: `?saved=1` shows the sign-in screen for a remembered account.
 if (params.get("saved")) ctx.savedEmail = "you@icloud.com";
 // Previews only: `?certs=1` shows the "out of certificates" chooser.
@@ -25,15 +26,15 @@ if (params.get("sidestore")) ctx.target = "sidestore";
 if (params.get("needsdriver")) ctx.device = { iphoneNeedsDriver: true };
 if (params.get("signingin")) Object.assign(ctx, { signingIn: true });
 if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
-// `?repair=1` the shorter path for an iPhone that already has Nuvio Z.
-if (params.get("repair")) ctx.repair = true;
+// `?repair=1` the Repair path.
+if (params.get("repair")) ctx.mode = "repair";
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
 function rebuild() {
   const steps = buildSteps(ctx);
   byId = Object.fromEntries(steps.map((s) => [s.id, s]));
-  walk = steps.filter((s) => !s.base && !s.like);
+  walk = steps.filter((s) => !s.base && !s.like && !s.side);
   total = walk.length - 1; // "done" is not a step
 }
 rebuild();
@@ -64,6 +65,11 @@ function status(s) {
 }
 
 function cards(step) {
+  if (step.choices) {
+    const tiles = step.choices.map((c) => `<button class="choice" data-action="${c.action}"><span class="choice-icon">${Icons[c.icon]}</span>
+      <span class="choice-text"><b>${c.title}</b><small>${c.sub}</small></span><span class="choice-chev">${Icons.chevronRight}</span></button>`).join("");
+    return `<div class="choices">${tiles}</div>`;
+  }
   if (step.center) return `<div class="cards wide"><div class="card" style="grid-template-rows:auto">${step.center}</div></div>`;
   const list = step.cards.map((c) => `<div class="card"><div class="art">${c.art}</div>${c.cap ? `<div class="cap${c.n ? "" : " centered"}">${c.n ? `<span class="n">${c.n}</span>` : ""}<span>${c.cap}${c.sub ? `<small>${c.sub}</small>` : ""}</span></div>` : ""}</div>`).join("");
   return `<div class="cards ${step.layout || ""}">${list}</div>`;
@@ -159,18 +165,18 @@ function render() {
   const buttons = (step.buttons || []).map((b, i) => `<button class="btn${b.glass ? " secondary" : ""}" data-action="${b.action || (i === 0 ? "next" : "")}"${ctx.signingIn && step.id === "signin" ? " disabled" : ""}>${b.label}</button>`).join("");
   const links = [...(step.links || []), ...(step.alternates ? [{ label: "I see something else", action: "alternates" }] : [])]
     .map((l) => `<button class="text-btn" data-action="${l.action}">${l.label}</button>`).join("");
-  const progress = step.done ? 1 : index / total;
+  const progress = step.done || step.side ? 1 : index / total;
   const shown = flash || (ctx.live && step.liveStatus ? step.liveStatus(ctx.device || {}) : null) || step.status;
 
   document.getElementById("app").innerHTML = `
     <div class="progress-line"><i style="width:${(progress * 100).toFixed(1)}%"></i></div>
     <header class="top">
-      ${index > 0 ? `<button class="text-btn" data-action="back">${Icons.chevronLeft}Back</button>` : ""}
+      ${index > 0 || step.backTo ? `<button class="text-btn" data-action="back">${Icons.chevronLeft}Back</button>` : ""}
       <span class="spacer"></span>
       <button class="text-btn quiet" data-action="help">Help</button>
     </header>
     <div class="head">
-      <div class="eyebrow">${step.done ? "All set" : index === 0 ? "Nuvio Z for iPhone" : `Step ${index} of ${total - 1}`}</div>
+      <div class="eyebrow">${step.side ? "Daily refresh" : step.done ? "All set" : index === 0 ? "Nuvio Z for iPhone" : `Step ${index} of ${total - 1}`}</div>
       <h1>${step.title}</h1>${step.lead ? `<p class="lead">${step.lead}</p>` : ""}
     </div>
     ${cards(step)}
@@ -203,8 +209,12 @@ async function act(action, step, index) {
   const busy = (text) => { flash = { kind: "work", text }; render(); };
   const fail = (text) => { flash = { kind: "bad", text }; render(); };
   switch (action) {
-    case "next": return go(1);
-    case "back": return go(-1);
+    case "next": return step.nextTo ? goTo(step.nextTo) : go(1);
+    case "back": return step.backTo ? goTo(step.backTo) : go(-1);
+    case "chooseInstall":
+    case "chooseRepair":
+      ctx.mode = action === "chooseRepair" ? "repair" : "install";
+      return goTo("drivers");
     case "alternates":
       current = `${step.id}-help`;
       byId[current] ??= { id: current, base: step.id, sheet: true };
@@ -229,15 +239,14 @@ async function act(action, step, index) {
       ctx.debugWarning = false;
       ctx.debugBuild = true;
       ctx.target = "nuvio";
-      ctx.repair = undefined;
       flash = { kind: "ok", text: "Debug build: installs Nuvio Z Debug." };
       return render();
     case "toggleTarget":
       ctx.target = ctx.target === "sidestore" ? "nuvio" : "sidestore";
-      ctx.repair = undefined;
+      ctx.mode = "install";
       return goTo("welcome");
     case "fullSetup":
-      ctx.repair = false;
+      ctx.mode = "install";
       return render();
     case "automationAgain": return goTo("automation");
     case "copyReport":
@@ -342,8 +351,8 @@ async function startInstall() {
   try {
     if (ctx.target === "sidestore") await invoke("install_sidestore", { channel: ctx.channel });
     else ctx.installed = await invoke("install_nuvio", { build: ctx.debugBuild ? "debug" : "stable" });
-    // A repair is an iPhone that was set up before: Developer Mode, trust and LocalDevVPN are already done.
-    goTo(ctx.repair && ctx.target !== "sidestore" ? "repaired" : "devmode");
+    // Repair checked Developer Mode before signing in, and trust and LocalDevVPN were set up the first time.
+    goTo(ctx.mode === "repair" && ctx.target !== "sidestore" ? "repaired" : "devmode");
   } catch (e) {
     flash = { kind: "bad", text: e?.error?.kind === "refused" ? "Apple refused the request (-80045). Try again in an hour." : describe(e?.error || e) };
     render();
@@ -402,10 +411,6 @@ if (ctx.live) {
     probing = true;
     try {
       ctx.device = await invoke("probe_device");
-      // Decided once, the first time the trusted phone lists its apps: this Nuvio Z already there means repair.
-      if (ctx.repair === undefined && ctx.device.trusted && ctx.device.apps && ctx.target !== "sidestore") {
-        ctx.repair = Boolean(ctx.debugBuild ? ctx.device.apps.nuvioDebug : ctx.device.apps.nuvioStable);
-      }
       if (step.id === "drivers" && ctx.device.usbmuxdReachable === false && !ctx.drivers) ensureAppleSoftware();
       if (step.id === "connect" && ctx.device.iphoneNeedsDriver && !ctx.usbDriver) ensureUsbDriver();
       if (byId[current] === step && step.watch(ctx.device)) {
@@ -423,7 +428,6 @@ document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
     if (ctx.debugBuild) {
       ctx.debugBuild = false;
-      ctx.repair = undefined;
       flash = { kind: "ok", text: "Stable build: installs Nuvio Z." };
     } else {
       ctx.debugWarning = true;

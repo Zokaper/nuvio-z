@@ -6,14 +6,18 @@
 //   status:  { kind: wait | work | warn | bad, text, sub }   shown instead of, or above, the buttons
 //   buttons: [{ label, glass }]       the first is the primary action
 //   links:   [{ label, action }] small text actions; "I see something else" is added when there are alternates
+//   choices: [{ icon, title, sub, action }]   big tiles instead of cards (the welcome screen's Install / Repair)
+//   side:    off the numbered path (reached by a button), with backTo / nextTo naming where Back and Next go
 //   watch:   (snapshot) => bool      in the real app, the step finishes by itself once the phone shows this
 //   action:  on a button or link, the name of a handler in app.js; a primary button without one goes next
 //
 // `ctx` is what the app knows right now: { live, email, install, target, debugBuild, localIpa, repair }. In
 // previews (`?step=`) it is empty and the screens show sample values.
 //
-// Repair: when the trusted iPhone already has this Nuvio Z, signing in installs it again over itself (data kept,
-// connection file and signing key placed again) and ends on "repaired", skipping the first-time phone steps.
+// Two modes, picked on the welcome screen. Install is the first-time path. Repair (`ctx.mode === "repair"`) still
+// checks the phone (Apple software, plugged in, trusted, Developer Mode), then signs Nuvio Z again and installs it
+// over itself: data kept, connection file and signing key placed again, and the newest build, so it updates too.
+// It ends on "repaired"; the daily-refresh screens hang off that as side steps.
 //
 // Two flows share the screens. The normal one installs Nuvio Z itself, which then renews itself on the phone;
 // `ctx.target === "sidestore"` is the fallback that installs SideStore and has the person add Nuvio Z there.
@@ -29,23 +33,30 @@ function buildSteps(ctx) {
   };
   const direct = ctx.target !== "sidestore";
   const nuvioName = ctx.debugBuild ? "Nuvio Z Debug" : "Nuvio Z";
-  const repair = direct && Boolean(ctx.repair);
+  const repair = direct && ctx.mode === "repair";
+  const missing = repair && ctx.device?.apps && !(ctx.debugBuild ? ctx.device.apps.nuvioDebug : ctx.device.apps.nuvioStable);
   const target = direct ? nuvioName : "SideStore";
   const installText = { download: `Getting ${target} ready…`, sign: `Signing and sending ${target}… ${Math.round(install.fraction * 100)}%`, pairing: `Adding ${target}’s connection file…` }[install.stage];
 
-  return [
+  const all = [
   {
     id: "welcome",
-    title: "Let’s put Nuvio Z on your iPhone",
-    lead: "About 15 minutes. Every step shows you exactly what to tap.",
+    title: direct ? `${nuvioName} for iPhone` : "Let’s put Nuvio Z on your iPhone",
+    lead: direct
+      ? "You’ll need the iPhone, a cable that carries data, and your Apple Account. Every step shows exactly what to tap."
+      : "About 15 minutes. Every step shows you exactly what to tap.",
     layout: "plain",
+    choices: direct ? [
+      { icon: "smartphone", title: `Install ${nuvioName}`, sub: "On an iPhone that doesn’t have it yet. About 15 minutes.", action: "chooseInstall" },
+      { icon: "hammer", title: `Repair ${nuvioName}`, sub: "Fixes a copy that stopped opening or won’t renew, and updates it. Everything in it stays.", action: "chooseRepair" },
+    ] : null,
     cards: [
       { art: Art.glyph("smartphone"), cap: "Your iPhone", sub: "and its passcode, with Wi-Fi on" },
       { art: Art.glyph("cable"), cap: "A cable that carries data", sub: "The one that came with the iPhone works" },
       { art: Art.glyph("userRound"), cap: "Your Apple Account", sub: "A free one is fine. Not a child or work account" },
     ],
     status: ctx.localIpa ? { kind: "ok", text: `Installs the ${ctx.localIpa.debug ? "Nuvio Z Debug" : "Nuvio Z"} test build next to this installer.`, sub: ctx.localIpa.file } : null,
-    buttons: [{ label: "Let’s go" }],
+    buttons: direct ? [] : [{ label: "Let’s go" }],
     links: [{ label: direct ? "Install with SideStore instead" : "Install Nuvio Z directly instead", action: "toggleTarget" }],
   },
   {
@@ -137,9 +148,11 @@ function buildSteps(ctx) {
         <div class="lock">${Icons.lock}<span><b>Your password goes only to Apple.</b> If you tick “Remember me”, it’s kept in this computer’s secure keychain, never sent to us.</span></div>
       </form>`,
     buttons: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Continue", action: "signInSaved" }] : [{ label: "Sign in", action: "signIn" }],
+    // Repair on an iPhone without this Nuvio Z: say so, and offer the install instead.
+    status: missing ? { kind: "warn", text: `${nuvioName} isn’t on this iPhone.`, sub: "Repair needs it there. Install it instead." } : null,
     links: [
       ...(ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : []),
-      ...(repair ? [{ label: "Do the full setup instead", action: "fullSetup" }] : []),
+      ...(missing ? [{ label: `Install ${nuvioName} instead`, action: "fullSetup" }] : []),
     ],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
@@ -330,7 +343,6 @@ function buildSteps(ctx) {
   },
   {
     id: "repaired",
-    like: "done",
     done: true,
     title: `${nuvioName} is fixed`,
     lead: "Everything in it is still there, and you can unplug the iPhone. If it had stopped opening, its daily refresh probably isn’t running: set it up again below.",
@@ -338,5 +350,14 @@ function buildSteps(ctx) {
     cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],
     buttons: [{ label: "Set up the daily refresh again", glass: true, action: "automationAgain" }],
   },
-];
+  ];
+
+  if (!repair) return all.filter((s) => s.id !== "repaired");
+  // Repair: the phone checks (Developer Mode included) before signing in, then straight to "repaired".
+  const step = Object.fromEntries(all.map((s) => [s.id, s]));
+  return [
+    ...["welcome", "drivers", "drivers-slow", "connect", "trust", "trust-help", "devmode", "signin", "twofa", "signin-blocked", "installing", "repaired"].map((id) => step[id]),
+    { ...step.automation, side: true, backTo: "repaired", nextTo: "automation-actions" },
+    { ...step["automation-actions"], side: true, backTo: "automation", nextTo: "repaired" },
+  ];
 }
