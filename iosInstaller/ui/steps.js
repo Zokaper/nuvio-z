@@ -9,8 +9,11 @@
 //   watch:   (snapshot) => bool      in the real app, the step finishes by itself once the phone shows this
 //   action:  on a button or link, the name of a handler in app.js; a primary button without one goes next
 //
-// `ctx` is what the app knows right now: { live, email, install, target, debugBuild, localIpa }. In previews
-// (`?step=`) it is empty and the screens show sample values.
+// `ctx` is what the app knows right now: { live, email, install, target, debugBuild, localIpa, repair }. In
+// previews (`?step=`) it is empty and the screens show sample values.
+//
+// Repair: when the trusted iPhone already has this Nuvio Z, signing in installs it again over itself (data kept,
+// connection file and signing key placed again) and ends on "repaired", skipping the first-time phone steps.
 //
 // Two flows share the screens. The normal one installs Nuvio Z itself, which then renews itself on the phone;
 // `ctx.target === "sidestore"` is the fallback that installs SideStore and has the person add Nuvio Z there.
@@ -26,6 +29,7 @@ function buildSteps(ctx) {
   };
   const direct = ctx.target !== "sidestore";
   const nuvioName = ctx.debugBuild ? "Nuvio Z Debug" : "Nuvio Z";
+  const repair = direct && Boolean(ctx.repair);
   const target = direct ? nuvioName : "SideStore";
   const installText = { download: `Getting ${target} ready…`, sign: `Signing and sending ${target}… ${Math.round(install.fraction * 100)}%`, pairing: `Adding ${target}’s connection file…` }[install.stage];
 
@@ -119,8 +123,10 @@ function buildSteps(ctx) {
   { id: "trust-help", base: "trust", sheet: true },
   {
     id: "signin",
-    title: "Sign in with your Apple Account",
-    lead: `${direct ? "Nuvio Z" : "SideStore"} gets signed with your own account, like an app you made yourself. A free account works.`,
+    title: repair ? `Sign in to repair ${nuvioName}` : "Sign in with your Apple Account",
+    lead: repair
+      ? `${nuvioName} is already on this iPhone. Signing it again fixes it if it stopped opening, and everything in it stays.`
+      : `${direct ? "Nuvio Z" : "SideStore"} gets signed with your own account, like an app you made yourself. A free account works.`,
     // A remembered account signs in with one click; otherwise the form.
     center: ctx.savedEmail && !ctx.useOtherAccount
       ? `<div class="saved-account"><div class="avatar">${ctx.savedEmail[0].toUpperCase()}</div><b>${ctx.savedEmail}</b><small>Remembered on this computer</small></div>`
@@ -133,6 +139,7 @@ function buildSteps(ctx) {
     buttons: ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Continue", action: "signInSaved" }] : [{ label: "Sign in", action: "signIn" }],
     links: [
       ...(ctx.savedEmail && !ctx.useOtherAccount ? [{ label: "Use a different account", action: "useOtherAccount" }, { label: "Forget this account", action: "forgetAccount" }] : []),
+      ...(repair ? [{ label: "Do the full setup instead", action: "fullSetup" }] : []),
     ],
     alternates: [
       ["I don’t remember my password", ["Reset it at <b>iforgot.apple.com</b>, then sign in here with the new one."]],
@@ -169,7 +176,7 @@ function buildSteps(ctx) {
   },
   {
     id: "installing",
-    title: `Installing ${target} on your iPhone`,
+    title: repair ? `Repairing ${nuvioName}` : `Installing ${target} on your iPhone`,
     lead: "Keep the iPhone plugged in and unlocked. A minute or two.",
     layout: "wide",
     cards: [{ art: Art.progress(direct ? "nuvio" : "sidestore", install.stage === "sign" ? install.fraction : install.stage === "pairing" ? 1 : 0.02) }],
@@ -320,6 +327,16 @@ function buildSteps(ctx) {
     layout: "wide",
     cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],
     buttons: direct ? [] : [{ label: "Set up auto-refresh" }, { label: "Close", glass: true }],
+  },
+  {
+    id: "repaired",
+    like: "done",
+    done: true,
+    title: `${nuvioName} is fixed`,
+    lead: "Everything in it is still there, and you can unplug the iPhone. If it had stopped opening, its daily refresh probably isn’t running: set it up again below.",
+    layout: "wide",
+    cards: [{ art: Art.icon("nuvio", { done: true, bare: true }) }],
+    buttons: [{ label: "Set up the daily refresh again", glass: true, action: "automationAgain" }],
   },
 ];
 }

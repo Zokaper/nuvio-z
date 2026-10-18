@@ -25,6 +25,8 @@ if (params.get("sidestore")) ctx.target = "sidestore";
 if (params.get("needsdriver")) ctx.device = { iphoneNeedsDriver: true };
 if (params.get("signingin")) Object.assign(ctx, { signingIn: true });
 if (params.get("local")) ctx.localIpa = { file: "NuvioZ-Debug-test.ipa", debug: true };
+// `?repair=1` the shorter path for an iPhone that already has Nuvio Z.
+if (params.get("repair")) ctx.repair = true;
 const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
 
 let byId, walk, total;
@@ -227,11 +229,17 @@ async function act(action, step, index) {
       ctx.debugWarning = false;
       ctx.debugBuild = true;
       ctx.target = "nuvio";
+      ctx.repair = undefined;
       flash = { kind: "ok", text: "Debug build: installs Nuvio Z Debug." };
       return render();
     case "toggleTarget":
       ctx.target = ctx.target === "sidestore" ? "nuvio" : "sidestore";
+      ctx.repair = undefined;
       return goTo("welcome");
+    case "fullSetup":
+      ctx.repair = false;
+      return render();
+    case "automationAgain": return goTo("automation");
     case "copyReport":
       if (!ctx.live) return;
       ctx.helpNote = { kind: "work", text: "Putting the report together…" };
@@ -334,7 +342,8 @@ async function startInstall() {
   try {
     if (ctx.target === "sidestore") await invoke("install_sidestore", { channel: ctx.channel });
     else ctx.installed = await invoke("install_nuvio", { build: ctx.debugBuild ? "debug" : "stable" });
-    goTo("devmode");
+    // A repair is an iPhone that was set up before: Developer Mode, trust and LocalDevVPN are already done.
+    goTo(ctx.repair && ctx.target !== "sidestore" ? "repaired" : "devmode");
   } catch (e) {
     flash = { kind: "bad", text: e?.error?.kind === "refused" ? "Apple refused the request (-80045). Try again in an hour." : describe(e?.error || e) };
     render();
@@ -393,6 +402,10 @@ if (ctx.live) {
     probing = true;
     try {
       ctx.device = await invoke("probe_device");
+      // Decided once, the first time the trusted phone lists its apps: this Nuvio Z already there means repair.
+      if (ctx.repair === undefined && ctx.device.trusted && ctx.device.apps && ctx.target !== "sidestore") {
+        ctx.repair = Boolean(ctx.debugBuild ? ctx.device.apps.nuvioDebug : ctx.device.apps.nuvioStable);
+      }
       if (step.id === "drivers" && ctx.device.usbmuxdReachable === false && !ctx.drivers) ensureAppleSoftware();
       if (step.id === "connect" && ctx.device.iphoneNeedsDriver && !ctx.usbDriver) ensureUsbDriver();
       if (byId[current] === step && step.watch(ctx.device)) {
@@ -410,6 +423,7 @@ document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
     if (ctx.debugBuild) {
       ctx.debugBuild = false;
+      ctx.repair = undefined;
       flash = { kind: "ok", text: "Stable build: installs Nuvio Z." };
     } else {
       ctx.debugWarning = true;
