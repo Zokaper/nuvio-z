@@ -105,6 +105,10 @@
     {
       "build": 84,
       "text": "Release candidate for 0.5.4-z2. Automatic playback never falls back to a source your debrid service has not cached yet (test Lioness S1E1 in Streamlined or Instant), and What's new is back in Settings under Setup & about."
+    },
+    {
+      "build": 92,
+      "text": "Nuvio Z keeps itself signed: renews on its own, updates from the banner, and Settings › Keep Nuvio Z working. iPhone setup and repair now go through the new installer."
     }
   ]
 }
