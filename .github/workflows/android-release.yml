@@ -202,6 +202,8 @@ jobs:
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
+    outputs:
+      self_signing: ${{ steps.signer.outputs.linked }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -213,6 +215,20 @@ jobs:
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+      # Nuvio Z keeps itself signed (0.5.4-z3): link the installer's Rust signer into the app. The same IPA serves
+      # SideStore's source, where the self-signing parts stay off (no installer connection file).
+      - name: Build the self-signing library
+        id: signer
+        if: ${{ hashFiles('iosInstaller/ffi/Cargo.toml') != '' }}
+        working-directory: iosInstaller
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "16.1"
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo build -p nuvioz-signer --release --target aarch64-apple-ios
+          ls -la target/aarch64-apple-ios/release/libnuvioz_signer.a
+          echo "NUVIO_IOS_SELF_SIGNING=true" >> "$GITHUB_ENV"
+          echo "linked=true" >> "$GITHUB_OUTPUT"
       - name: Configure and build unsigned IPA
         run: |
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | tr '_-' '/+' | LC_ALL=C tr -cd 'A-Za-z0-9+/=' | base64 --decode > local.properties
@@ -304,8 +320,12 @@ jobs:
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       RELEASE_BUILD: ${{ needs.prepare.outputs.build }}
       RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+      SELF_SIGNING: ${{ needs.ios_unsigned.outputs.self_signing }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The signing-changed marker diffs against the previous self-signing stable release's tag.
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           name: nuvio-mobile-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.build }}-android
@@ -328,6 +348,11 @@ jobs:
           [[ "${#ipas[@]}" -eq 1 ]] || { echo "Expected one unsigned iOS IPA, found ${#ipas[@]}." >&2; exit 1; }
           [[ -s release-assets/release-notes.md && -s release-assets/SHA256SUMS-Android.txt ]] || { echo "Release notes or checksums are missing." >&2; exit 1; }
           (cd release-assets && sha256sum *.ipa > SHA256SUMS-iOS.txt)
+          # Read by the iOS updater (AppUpdater.kt): only a release marked self-signing reaches a copy that signs itself.
+          scripts/ios-release-markers.sh "${SELF_SIGNING:-false}" v > ios-markers.txt
+          if [[ -s ios-markers.txt ]]; then
+            { echo; cat ios-markers.txt; } >> release-assets/release-notes.md
+          fi
           gh release create "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${RELEASE_COMMIT}" \
@@ -339,6 +364,46 @@ jobs:
             release-assets/SHA256SUMS-iOS.txt \
             distribution/sidestore/setup-windows.ps1 \
             distribution/sidestore/setup-macos.sh
+
+      # Installer 3 installs stable Nuvio Z from the link in distribution/ios-installer/nuvio.json on main
+      # (iosInstaller/core/src/nuvio.rs), pinned to its SHA-256. Only an IPA that renews itself goes there.
+      - name: Point the iOS installer at this build
+        if: ${{ needs.ios_unsigned.outputs.self_signing == 'true' }}
+        run: |
+          set -euo pipefail
+          ipa_path=$(ls release-assets/Nuvio-Z-iOS-*-unsigned.ipa)
+          ipa_name=$(basename "${ipa_path}")
+          sha=$(sha256sum "${ipa_path}" | cut -d' ' -f1)
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ipa_name}"
+          dir="${RUNNER_TEMP}/canonical-installer"
+          rm -rf "${dir}"
+          git clone --depth 1 --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${dir}"
+          git -C "${dir}" config user.name "github-actions[bot]"
+          git -C "${dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 - "${dir}/distribution/ios-installer/nuvio.json" "${url}" "${sha}" "${RELEASE_VERSION}" <<'EOF'
+          import json, os, sys
+          path, url, sha, version = sys.argv[1:]
+          config = {"schema": 1, "stable": None, "debug": None}
+          if os.path.exists(path):
+              config = json.load(open(path, encoding="utf-8"))
+          config["stable"] = {"url": url, "sha256": sha, "version": version}
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+          open(path, "w", encoding="utf-8").write(json.dumps(config, indent=2) + "\n")
+          EOF
+          git -C "${dir}" add distribution/ios-installer/nuvio.json
+          if git -C "${dir}" diff --cached --quiet; then
+            echo "The installer config on main already names this build."
+            exit 0
+          fi
+          git -C "${dir}" commit -q -m "chore(installer): Nuvio Z ${RELEASE_VERSION} for direct install [skip ci]"
+          for attempt in 1 2 3; do
+            git -C "${dir}" push -q origin main && exit 0
+            echo "Push to main failed (attempt ${attempt}/3); rebasing onto the latest main."
+            sleep 2
+            git -C "${dir}" pull -q --rebase origin main
+          done
+          echo "::error::Couldn't push the installer config to main." >&2
+          exit 1
 
   store:
     name: Update sideload source

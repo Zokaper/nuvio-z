@@ -2,7 +2,7 @@ package com.nuvio.app.features.updater
 
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.debug.SelfSigningSpike
-import com.nuvio.app.core.debug.selfSigningLinked
+import com.nuvio.app.core.debug.selfSigningActive
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -31,7 +31,7 @@ import org.jetbrains.compose.resources.getString
  */
 actual object AppUpdaterPlatform {
     actual val isSupported: Boolean
-        get() = selfSigningLinked
+        get() = selfSigningActive
 
     actual val isDebugBuild: Boolean
         get() = com.nuvio.app.core.debug.isDebugBuild
@@ -66,13 +66,13 @@ actual object AppUpdaterPlatform {
         assetName: String,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     ): Result<String> =
-        if (selfSigningLinked && assetUrl.startsWith("https://")) {
+        if (selfSigningActive && assetUrl.startsWith("https://")) {
             Result.success(assetUrl)
         } else {
             Result.failure(IllegalStateException(getString(Res.string.updates_not_available)))
         }
 
-    actual fun canInstallDownloadedUpdate(): Boolean = selfSigningLinked
+    actual fun canInstallDownloadedUpdate(): Boolean = selfSigningActive
 
     actual fun openInstallPermissionSettings() = Unit
 

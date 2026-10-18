@@ -14,7 +14,7 @@ actual object AppFeaturePolicy {
     actual val trailerPlaybackMode: TrailerPlaybackMode = TrailerPlaybackMode.IN_APP
     actual val heroTrailerPlaybackSupported: Boolean = false
     // Only a build that signs itself can install an IPA; see AppUpdaterPlatform.ios.kt.
-    actual val inAppUpdaterEnabled: Boolean get() = com.nuvio.app.core.debug.selfSigningLinked
+    actual val inAppUpdaterEnabled: Boolean get() = com.nuvio.app.core.debug.selfSigningActive
     actual val imdbRatingLogoEnabled: Boolean = true
     actual val mediaPlaybackForegroundServiceEnabled: Boolean = false
     actual val downloadForegroundServiceEnabled: Boolean = false

@@ -77,6 +77,7 @@ private var openHooksInstalled = false
  * and checking it here skipped the on-open renewal for every normal launch.
  */
 internal actual fun installSelfSigningSpike() {
+    if (!selfSigningActive) return
     val platform = IosSelfSigning.shared
     SelfSigningSpike.platform = platform
     if (openHooksInstalled) return
@@ -87,10 +88,21 @@ internal actual fun installSelfSigningSpike() {
     platform.onOpen()
 }
 
-internal actual val selfSigningLinked: Boolean = true
+/**
+ * Linked with the signer *and* installed by the Nuvio Z installer, which leaves its connection file in Documents.
+ * The same IPA also reaches SideStore through its source: there SideStore keeps the app signed and there is no
+ * connection file, so the set-up, renewing, the update banner and the settings page all stay out of the way.
+ */
+internal actual val selfSigningActive: Boolean by lazy {
+    val documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true).firstOrNull() as? String
+    documents != null && NSFileManager.defaultManager.fileExistsAtPath("$documents/$PAIRING_FILE")
+}
+
+/** What the installer names the connection file it places (iosInstaller/core/src/pairing.rs, NUVIO_FILE). */
+private const val PAIRING_FILE = "NuvioZPairing.plist"
 
 /** Swift entry points (App Intent, background task) need the platform without the UI. */
-internal actual fun selfSigningPlatform(): SelfSigningPlatform? = IosSelfSigning.shared.also {
+internal actual fun selfSigningPlatform(): SelfSigningPlatform? = if (!selfSigningActive) null else IosSelfSigning.shared.also {
     if (SelfSigningSpike.platform == null) SelfSigningSpike.platform = it
 }
 

@@ -22,8 +22,11 @@ internal expect fun installSelfSigningSpike()
 /** The platform without the UI side, for the Swift entry points below; null in builds without the library. */
 internal expect fun selfSigningPlatform(): SelfSigningPlatform?
 
-/** Whether this build is linked with the self-signing library. No side effects (unlike [selfSigningPlatform]). */
-internal expect val selfSigningLinked: Boolean
+/**
+ * Whether this copy signs itself: linked with the library and installed by the Nuvio Z installer (a SideStore copy of
+ * the same IPA is not). No side effects (unlike [selfSigningPlatform]).
+ */
+internal expect val selfSigningActive: Boolean
 
 /**
  * Swift: the "Refresh Nuvio Z" App Intent and the background refresh task call this. Renews with the account

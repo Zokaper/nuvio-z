@@ -5,4 +5,4 @@ internal actual fun installSelfSigningSpike() = Unit
 
 internal actual fun selfSigningPlatform(): SelfSigningPlatform? = null
 
-internal actual val selfSigningLinked: Boolean = false
+internal actual val selfSigningActive: Boolean = false
