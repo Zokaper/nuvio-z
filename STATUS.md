@@ -1,5 +1,15 @@
 Last updated: 2026-10-18
 
+## Social V2 rebuilt on the z3 trunks (2026-10-18, Debug mobile 96 / desktop 105)
+
+Debug 92-95 came from the installer/self-signing line and carry no Social work, so the update channel was
+offering builds without Social V2. `main` (0.5.4-z3, Installer 3, self-signing) is merged into
+`claude/social-v2` (`117f9945d`) and desktop `Dev` into `claude/social-v2-design`; no product change beyond the
+merge. The maintainer is re-testing Social from scratch on 96 / 105. Conflict calls: `AppUpdater` keeps
+`newestChannelReleaseIndex` and passes the release body (self-signing markers); `SettingsPage` ends
+Navigation, About, Downloads, KeepNuvioWorking (`ZSettingsHubTest` updated to the last four). Host tests for
+settings + updater: 19/19.
+
 ## Social pop-ups shared; phone in-app banners (2026-10-17, Debug mobile 91 / desktop 104)
 
 Maintainer: "we should have in-app notifications for mobile, esp iOS which can't have system notifications.
@@ -1326,7 +1336,7 @@ or code auth smoke remain open. RC is not accepted; no stable publication.
 
 # Nuvio Z Status
 
-Last updated: 2026-10-01
+Last updated: 2026-10-18
 
 ## RC convergence audit / auth integration gate (2026-10-01)
 
