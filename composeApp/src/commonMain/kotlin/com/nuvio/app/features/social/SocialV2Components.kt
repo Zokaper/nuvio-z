@@ -51,6 +51,9 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -153,6 +156,29 @@ internal fun SocialFaces(people: List<SocialProfileSummary>, size: Dp, liveRing:
         if (liveRing) Box(Modifier.fillMaxSize().border(2.dp, SocialLiveColor, CircleShape))
         SocialAvatar(person.displayName, person.avatarUrl, person.avatarColorHex, size)
     }
+}
+
+/**
+ * A glyph centred in a small circle: an avatar's initial, a count badge. A bare `fontSize` keeps the
+ * inherited style's line height (a 10sp "1" in a 15sp line), which drew the glyph low. The line here is
+ * exactly the glyph's size and centred, so Box centring lands the glyph on the circle's centre
+ * (`SocialCircleGlyphHarness` measures it).
+ */
+@Composable
+internal fun SocialCircleGlyph(text: String, fontSize: TextUnit, color: Color, fontWeight: FontWeight = FontWeight.Bold) {
+    Text(
+        text,
+        color = color,
+        style = TextStyle(
+            fontFamily = MaterialTheme.typography.labelLarge.fontFamily,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            lineHeight = fontSize,
+            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+        ),
+        maxLines = 1,
+        softWrap = false,
+    )
 }
 
 @Composable
@@ -265,6 +291,13 @@ internal fun SocialPillButton(
 /** "Inbox (2)" - the persistent way into notifications, top-right of every Social layout. */
 @Composable
 internal fun SocialInboxButton(unread: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    SocialCountPill("Inbox", unread, onClick, modifier)
+}
+
+/** A header pill with a count beside its label, shown while the count is above zero. */
+@Composable
+internal fun SocialCountPill(text: String, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val unread = count
     Row(
         modifier.clip(RoundedCornerShape(999.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -273,18 +306,13 @@ internal fun SocialInboxButton(unread: Int, onClick: () -> Unit, modifier: Modif
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Inbox", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
         if (unread > 0) {
             Box(
                 Modifier.size(18.dp).clip(CircleShape).background(SocialLiveColor),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    if (unread > 9) "9+" else unread.toString(),
-                    color = Color.Black,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                SocialCircleGlyph(if (unread > 9) "9+" else unread.toString(), fontSize = 10.sp, color = Color.Black)
             }
         }
     }

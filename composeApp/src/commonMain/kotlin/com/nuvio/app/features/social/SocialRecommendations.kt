@@ -20,14 +20,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -108,16 +111,32 @@ private fun RecommendedTitle.whoLine(): String =
 
 // --- the shelf (A+) -------------------------------------------------------------------------------
 
-/** The Social tab's "Recommended to you". Draws nothing while there is nothing waiting. */
+/**
+ * Where "Recommended to you" lives. **Render candidates (2026-10-18)**: the maintainer found the feed shelf
+ * shoehorned in once seen in the app. The harness draws each; the ones not picked are deleted.
+ */
+internal enum class RecommendedPlacement {
+    /** A: the shelf between Watching now and Recently watched (shipped in Debug 100 / 108). */
+    Feed,
+    /** B: compact rows at the top of the Friends rail (desktop) and the Friends view (phone). */
+    Rail,
+    /** C: a "For you" pill beside Inbox, opening its own page. */
+    ForYou,
+    /** D: the shelf at the top of the Inbox. */
+    Inbox,
+}
+
+internal val LocalRecommendedPlacement = staticCompositionLocalOf { RecommendedPlacement.Feed }
+
+/** The "Recommended to you" shelf for [titles]. Draws nothing while there is nothing waiting. */
 @Composable
 internal fun SocialRecommendedShelf(
+    titles: List<RecommendedTitle>,
     horizontalPadding: Dp,
     wide: Boolean,
     onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val state by SocialRepository.uiState.collectAsStateWithLifecycle()
-    val titles = remember(state.inbox) { recommendedToYou(state.inbox) }
     if (titles.isEmpty()) return
     val scope = rememberCoroutineScope()
     SocialRecommendedShelfContent(
@@ -176,11 +195,12 @@ internal fun SocialRecommendedShelfContent(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SocialRecommendedTile(rec: RecommendedTitle, width: Dp, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    val sized = if (width == Dp.Unspecified) Modifier.fillMaxWidth() else Modifier.width(width)
     val art = SocialArtRef(rec.title, rec.contentType, rec.contentId, rec.poster, listOf(rec.background)).artwork()
     val facts = rememberSocialTitleArt(rec.contentType, rec.contentId)?.facts(rec.contentType)
         ?: socialContentTypeLabel(rec.contentType)
     Column(
-        Modifier.width(width).combinedClickable(onClick = onOpen, onLongClick = onDismiss, role = Role.Button),
+        sized.combinedClickable(onClick = onOpen, onLongClick = onDismiss, role = Role.Button),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) {
@@ -204,6 +224,82 @@ private fun SocialRecommendedTile(rec: RecommendedTitle, width: Dp, onOpen: () -
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+// --- placement candidates B and C ------------------------------------------------------------------
+
+/** B: compact rows - a small still, the title, who, the newest note. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun SocialRecommendedRail(
+    titles: List<RecommendedTitle>,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SocialSectionLabel("Recommended to you", titles.size)
+        titles.forEach { rec ->
+            val art = SocialArtRef(rec.title, rec.contentType, rec.contentId, rec.poster, listOf(rec.background)).artwork()
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .combinedClickable(onClick = { onOpenContent(rec.contentType, rec.contentId, rec.title) }, role = Role.Button),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
+                    SocialArtwork(art, rec.title, Modifier.matchParentSize())
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(rec.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SocialFaces(rec.people, 16.dp)
+                        Text(
+                            rec.whoLine(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    rec.from.firstOrNull { it.note != null }?.let { from ->
+                        Text(
+                            "“${from.note}”",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = FontStyle.Italic,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** C: the "For you" page - the A+ tiles, one under another. */
+@Composable
+internal fun SocialRecommendedPage(
+    titles: List<RecommendedTitle>,
+    horizontal: Dp,
+    bottom: Dp,
+    onOpenContent: (contentType: String, contentId: String, title: String) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = horizontal, end = horizontal, top = 8.dp, bottom = bottom),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
+    ) {
+        if (titles.isEmpty()) {
+            Text(
+                "Nothing waiting. When a friend recommends something, it lands here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        titles.forEach { rec ->
+            SocialRecommendedTile(rec, width = Dp.Unspecified, onOpen = { onOpenContent(rec.contentType, rec.contentId, rec.title) }, onDismiss = {})
         }
     }
 }
@@ -232,6 +328,14 @@ internal fun SocialRecommendedByLine(contentId: String, modifier: Modifier = Mod
 /** The line for [rec]. Stateless, so harnesses can draw it. */
 @Composable
 internal fun SocialRecommendedByContent(rec: RecommendedTitle, modifier: Modifier = Modifier) {
+    // The details page hosts this outside any Surface, so the headline would inherit black.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        SocialRecommendedByRow(rec, modifier)
+    }
+}
+
+@Composable
+private fun SocialRecommendedByRow(rec: RecommendedTitle, modifier: Modifier) {
     Row(modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Box(Modifier.width(2.dp).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(SocialLiveColor.copy(alpha = 0.8f)))
         Column(Modifier.padding(start = 12.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

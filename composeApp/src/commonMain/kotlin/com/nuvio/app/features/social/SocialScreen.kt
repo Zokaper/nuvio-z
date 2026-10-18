@@ -126,6 +126,8 @@ internal sealed interface SocialOverlay {
     data object Settings : SocialOverlay
     data class Profile(val profileId: String) : SocialOverlay
     data class Join(val sessionKey: String) : SocialOverlay
+    /** "For you": Recommended to you on its own page (placement candidate C, 2026-10-18). */
+    data object ForYou : SocialOverlay
 }
 
 internal fun WatchingNowItem.socialSessionKey(): String = "${profile.profileId}:$sessionId:$videoId"
@@ -434,6 +436,8 @@ internal fun SocialFeed(
             val topInset = topChromePadding
                 ?: WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
             val ready = state.capabilities.socialEnabled && !state.needsHandleSetup
+            val recommended = remember(state.inbox) { recommendedToYou(state.inbox) }
+            val placement = LocalRecommendedPlacement.current
 
             // A card tap: the join sheet when there is anything to do about the session, otherwise the
             // title. Details are always one long-press or one info-dot away.
@@ -461,6 +465,8 @@ internal fun SocialFeed(
                     wide = wide,
                     showInvite = wide && ready && state.capabilities.watchPartyEnabled,
                     showInbox = ready,
+                    forYouCount = if (ready && placement == RecommendedPlacement.ForYou) recommended.size else 0,
+                    onForYou = { overlay = SocialOverlay.ForYou },
                     onInvite = { inviteOpen = true },
                     onInbox = { overlay = SocialOverlay.Inbox },
                     onSettings = { overlay = SocialOverlay.Settings },
@@ -498,6 +504,7 @@ internal fun SocialFeed(
                                     onOpenWatching = openWatching,
                                     onWatchingDetails = openDetails,
                                     onOpenProfile = { overlay = SocialOverlay.Profile(it) },
+                                    placement = placement,
                                 )
                             }
                         }
@@ -509,6 +516,9 @@ internal fun SocialFeed(
                                 .verticalScroll(rememberScrollState())
                                 .padding(18.dp),
                         ) {
+                            if (placement == RecommendedPlacement.Rail && recommended.isNotEmpty()) {
+                                SocialRecommendedRail(recommended, actions.onOpenContent, Modifier.padding(bottom = 18.dp))
+                            }
                             SocialFriendsContent(
                                 model = model,
                                 actions = actions,
@@ -540,6 +550,7 @@ internal fun SocialFeed(
                                     onOpenWatching = openWatching,
                                     onWatchingDetails = openDetails,
                                     onOpenProfile = { overlay = SocialOverlay.Profile(it) },
+                                    placement = placement,
                                 )
                             }
                             SocialTab.Friends -> Column(
@@ -547,6 +558,9 @@ internal fun SocialFeed(
                                     .padding(start = horizontal, end = horizontal, top = 8.dp)
                                     .padding(bottom = nuvioSafeBottomPadding(extra = 12.dp)),
                             ) {
+                                if (placement == RecommendedPlacement.Rail && recommended.isNotEmpty()) {
+                                    SocialRecommendedRail(recommended, actions.onOpenContent, Modifier.padding(bottom = 18.dp))
+                                }
                                 SocialFriendsContent(
                                     model = model,
                                     actions = actions,
@@ -562,6 +576,9 @@ internal fun SocialFeed(
 
             when (val current = overlay) {
                 SocialOverlay.Settings -> SocialSettingsOverlay(wide = wide, topInset = topInset, onDismiss = { overlay = null })
+                SocialOverlay.ForYou -> SocialPageShell(title = "Recommended to you", wide = wide, topInset = topInset, onDismiss = { overlay = null }) { horizontal, bottom ->
+                    SocialRecommendedPage(recommended, horizontal, bottom, actions.onOpenContent)
+                }
                 SocialOverlay.Inbox -> SocialInboxPage(
                     state = state,
                     nowMs = model.activityNowMs.takeIf { it > 0 } ?: currentEpochMs(),
@@ -669,6 +686,8 @@ private fun SocialHeader(
     wide: Boolean,
     showInvite: Boolean,
     showInbox: Boolean,
+    forYouCount: Int,
+    onForYou: () -> Unit,
     onInvite: () -> Unit,
     onInbox: () -> Unit,
     onSettings: () -> Unit,
@@ -711,6 +730,7 @@ private fun SocialHeader(
             )
         }
         if (showInvite) SocialPillButton("Invite code", onInvite)
+        if (forYouCount > 0) SocialCountPill("For you", forYouCount, onForYou)
         if (showInbox) SocialInboxButton(unread, onInbox)
         // Social settings live here, not only in the Settings tab (2026-10-16). Shown whenever the
         // tab itself is: the handle step and the off notice both still have privacy to set.
@@ -828,6 +848,7 @@ private fun LazyListScope.socialActivityItems(
     onOpenWatching: (WatchingNowItem) -> Unit,
     onWatchingDetails: (WatchingNowItem) -> Unit,
     onOpenProfile: (profileId: String) -> Unit,
+    placement: RecommendedPlacement,
 ) {
     val state = model.state
     val columns = socialPileColumns(contentWidth)
@@ -890,8 +911,9 @@ private fun LazyListScope.socialActivityItems(
     }
 
     // Recommendations (2026-10-18): draws nothing while none are waiting.
-    item(key = "recommended") {
+    if (placement == RecommendedPlacement.Feed) item(key = "recommended") {
         SocialRecommendedShelf(
+            titles = remember(state.inbox) { recommendedToYou(state.inbox) },
             horizontalPadding = 0.dp,
             wide = !compact,
             onOpenContent = actions.onOpenContent,
@@ -1147,12 +1169,17 @@ private fun SocialInboxPage(
     }
     val (fresh, earlier) = timeline.partition { it.key in unreadAtOpen }
     // A right-hand panel over the dashboard on wide layouts (2026-10-16), a full page on phones.
+    val inboxShelf = remember(state.inbox) { recommendedToYou(state.inbox) }
+        .takeIf { LocalRecommendedPlacement.current == RecommendedPlacement.Inbox }.orEmpty()
     SocialPageShell(title = "Inbox", wide = wide, topInset = topInset, onDismiss = onBack) { horizontal, bottom ->
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = horizontal, end = horizontal, bottom = bottom),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (inboxShelf.isNotEmpty()) item(key = "recommended") {
+                SocialRecommendedShelf(titles = inboxShelf, horizontalPadding = 0.dp, wide = false, onOpenContent = onOpenContent, modifier = Modifier.padding(bottom = 8.dp))
+            }
             val legacy = state.capabilities.partyContractVersion < 2
             if (legacy && (state.requests.isNotEmpty() || state.partyInvites.isNotEmpty())) {
                 item(key = "legacy-label") { SocialSectionLabel("New", state.requests.size + state.partyInvites.size) }
@@ -1790,11 +1817,10 @@ internal fun SocialAvatar(name: String, avatarUrl: String?, colorHex: String?, s
                 onError = { avatarLoadError = true },
             )
         } else {
-            Text(
+            SocialCircleGlyph(
                 // A blank name would `take(1)` to nothing and leave the same empty circle.
                 name.trim().take(1).uppercase().ifBlank { "?" },
                 fontSize = (size.value * 0.42f).sp,
-                fontWeight = FontWeight.Bold,
                 color = Color.White,
             )
         }
