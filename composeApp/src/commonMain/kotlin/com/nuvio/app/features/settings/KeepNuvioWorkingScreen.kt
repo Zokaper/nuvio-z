@@ -78,6 +78,28 @@ import nuvio.composeapp.generated.resources.selfsign_trigger_shortcut
 import nuvio.composeapp.generated.resources.selfsign_vpn
 import nuvio.composeapp.generated.resources.selfsign_vpn_connected
 import nuvio.composeapp.generated.resources.selfsign_vpn_not_connected
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PersonRemove
+import androidx.compose.material.icons.rounded.Router
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.nuvio.app.core.ui.DialogButton
+import com.nuvio.app.core.ui.DialogButtonStyle
+import com.nuvio.app.core.ui.DialogButtons
+import com.nuvio.app.core.ui.DialogSurface
+import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.selfsign_account_heading
+import nuvio.composeapp.generated.resources.selfsign_email
+import nuvio.composeapp.generated.resources.selfsign_forget_account
+import nuvio.composeapp.generated.resources.selfsign_password
+import nuvio.composeapp.generated.resources.selfsign_password_note
+import nuvio.composeapp.generated.resources.selfsign_remember
+import nuvio.composeapp.generated.resources.selfsign_renew_now
+import nuvio.composeapp.generated.resources.selfsign_renewing
+import nuvio.composeapp.generated.resources.selfsign_saved_on_iphone
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 
@@ -89,11 +111,7 @@ import org.jetbrains.compose.resources.stringResource
  */
 internal fun LazyListScope.keepNuvioWorkingSettingsContent(isTablet: Boolean, platform: SelfSigningPlatform) {
     item(key = "selfsign-status") { SigningStatus(platform, isTablet) }
-    item(key = "selfsign-account") {
-        Column(Modifier.padding(horizontal = if (isTablet) 0.dp else 16.dp, vertical = 8.dp)) {
-            AppleAccountRenewal(platform, onRenewed = { SigningStatusRefresh.bump() })
-        }
-    }
+    item(key = "selfsign-account") { AccountSection(platform, isTablet) }
     item(key = "selfsign-daily") { DailyRefreshSection(platform, isTablet) }
     item(key = "selfsign-help") { SigningHelp(platform, isTablet) }
     if (isDebugBuild) item(key = "selfsign-developer") { SigningDeveloperTools(platform, isTablet) }
@@ -242,18 +260,103 @@ private fun SigningHelp(platform: SelfSigningPlatform, isTablet: Boolean) {
     }
 }
 
+/**
+ * The Apple Account Nuvio Z renews with, as settings rows: Renew now (its subtitle shows the saved account, then the
+ * result) and Forget. With no saved account, the sign-in form. Apple's code and the certificate chooser open as a
+ * dialog while a renewal runs, the same one the update banner uses.
+ */
+@Composable
+private fun AccountSection(platform: SelfSigningPlatform, isTablet: Boolean) {
+    val scope = rememberCoroutineScope()
+    var saved by remember { mutableStateOf(platform.savedAccount()) }
+    var running by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var rememberAccount by remember { mutableStateOf(true) }
+
+    fun renew(account: String, typedPassword: String?) {
+        running = true
+        message = null
+        scope.launch {
+            val result = platform.refresh(account, typedPassword, typedPassword != null && rememberAccount)
+            password = ""
+            message = describeRenew(result, platform)
+            saved = platform.savedAccount()
+            running = false
+            SigningStatusRefresh.bump()
+        }
+    }
+
+    SettingsSection(title = stringResource(Res.string.selfsign_account_heading), isTablet = isTablet) {
+        SettingsGroup(isTablet = isTablet) {
+            val account = saved
+            if (account != null) {
+                SettingsNavigationRow(
+                    title = stringResource(if (running) Res.string.selfsign_renewing else Res.string.selfsign_renew_now),
+                    description = message ?: stringResource(Res.string.selfsign_saved_on_iphone, account),
+                    icon = Icons.Rounded.Autorenew,
+                    enabled = !running,
+                    isTablet = isTablet,
+                    onClick = { renew(account, null) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.selfsign_forget_account),
+                    description = null,
+                    icon = Icons.Rounded.PersonRemove,
+                    enabled = !running,
+                    isTablet = isTablet,
+                    onClick = { platform.forgetAccount(); saved = null; message = null },
+                )
+            } else {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedTextField(
+                        value = email, onValueChange = { email = it.trim() }, singleLine = true, enabled = !running,
+                        label = { Text(stringResource(Res.string.selfsign_email)) }, modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    )
+                    OutlinedTextField(
+                        value = password, onValueChange = { password = it }, singleLine = true, enabled = !running,
+                        label = { Text(stringResource(Res.string.selfsign_password)) }, modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = rememberAccount, onCheckedChange = { rememberAccount = it }, enabled = !running)
+                        Text(stringResource(Res.string.selfsign_remember), color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Text(stringResource(Res.string.selfsign_password_note), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(
+                        enabled = !running && email.isNotBlank() && password.isNotBlank(),
+                        onClick = { renew(email, password) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(if (running) Res.string.selfsign_renewing else Res.string.selfsign_renew_now)) }
+                    message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }
+    }
+    if (running) AppleQuestionsDialog(platform)
+}
+
 /** Debug builds only: the update test (an IPA the installer left, or a link) and the route probe. Literal strings. */
 @Composable
 private fun SigningDeveloperTools(platform: SelfSigningPlatform, isTablet: Boolean) {
     val scope = rememberCoroutineScope()
-    var running by remember { mutableStateOf<String?>(null) }
+    var running by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var probe by remember { mutableStateOf<String?>(null) }
+    var showLink by remember { mutableStateOf(false) }
     var updateUrl by remember { mutableStateOf("") }
     var updateSha by remember { mutableStateOf("") }
     val updateIpa = remember { platform.updateTestIpa() }
     LaunchedEffect(running) {
-        while (running != null) {
+        while (running) {
             progress = platform.updateProgress()?.let(::parseSigningJson)?.let { p ->
                 val stage = when (p.signingField("stage")) { "download" -> "Downloading"; "sign" -> "Signing"; "install" -> "Installing"; else -> "Working" }
                 "$stage… ${p.signingField("fraction")?.toDoubleOrNull()?.let { (it * 100).toInt() } ?: 0}%"
@@ -263,47 +366,65 @@ private fun SigningDeveloperTools(platform: SelfSigningPlatform, isTablet: Boole
         progress = null
     }
     fun update(source: String, sha: String?) {
-        running = "Installing… Nuvio Z closes when it finishes. Open it again afterwards."
+        running = true
         message = null
         scope.launch {
             message = describeRenew(platform.installUpdate(source, sha), platform)
-            running = null
+            running = false
         }
+    }
+    val updateStatus = when {
+        running -> progress ?: "Starting… Nuvio Z closes when it finishes. Open it again afterwards."
+        else -> message
     }
     SettingsSection(title = "Developer (debug builds)", isTablet = isTablet) {
-        Column(Modifier.padding(horizontal = if (isTablet) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SigningSection {
-                Text("Update test", fontWeight = FontWeight.SemiBold)
-                Text("Signs an IPA on this iPhone and installs it over this copy. Needs the saved account.", fontSize = 13.sp)
-                if (updateIpa != null) {
-                    Button(enabled = running == null, onClick = { update(updateIpa, null) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Install the IPA the installer left")
-                    }
-                }
-                OutlinedTextField(value = updateUrl, onValueChange = { updateUrl = it.trim() }, singleLine = true, label = { Text("https:// link to an IPA") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = updateSha, onValueChange = { updateSha = it.trim() }, singleLine = true, label = { Text("SHA-256 (optional)") }, modifier = Modifier.fillMaxWidth())
-                OutlinedButton(
-                    enabled = running == null && updateUrl.startsWith("https://"),
-                    onClick = { update(updateUrl, updateSha.ifBlank { null }) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Install from the link") }
-                running?.let {
-                    Text(progress ?: it, fontWeight = FontWeight.SemiBold)
-                    AppleQuestions(platform)
-                }
-                message?.let { Text(it) }
+        SettingsGroup(isTablet = isTablet) {
+            if (updateIpa != null) {
+                SettingsNavigationRow(
+                    title = "Install the IPA the installer left",
+                    description = updateStatus ?: "Signs it on this iPhone and installs it over this copy.",
+                    icon = Icons.Rounded.SystemUpdate,
+                    enabled = !running,
+                    isTablet = isTablet,
+                    onClick = { update(updateIpa, null) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
             }
-            SigningSection {
-                var probe by remember { mutableStateOf<String?>(null) }
-                Text("Reach this iPhone", fontWeight = FontWeight.SemiBold)
-                Text(probe ?: "Connects through LocalDevVPN by both routes and lists the apps.", fontSize = 13.sp)
-                OutlinedButton(onClick = { probe = "Connecting…"; scope.launch { probe = describeProbe(platform.probe()) } }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Probe")
-                }
-            }
-            Spacer(Modifier.size(8.dp))
+            SettingsNavigationRow(
+                title = "Install from a link",
+                description = if (updateIpa == null) updateStatus ?: "An https:// IPA, signed on this iPhone and installed over this copy."
+                else "An https:// IPA, signed on this iPhone and installed over this copy.",
+                icon = Icons.Rounded.Link,
+                enabled = !running,
+                isTablet = isTablet,
+                onClick = { showLink = true },
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsNavigationRow(
+                title = "Reach this iPhone",
+                description = probe ?: "Connects through LocalDevVPN by both routes and lists the apps.",
+                icon = Icons.Rounded.Router,
+                isTablet = isTablet,
+                onClick = { probe = "Connecting…"; scope.launch { probe = describeProbe(platform.probe()) } },
+            )
         }
     }
+    if (showLink) {
+        DialogSurface(onDismissRequest = { showLink = false }, title = "Install from a link") {
+            OutlinedTextField(value = updateUrl, onValueChange = { updateUrl = it.trim() }, singleLine = true, label = { Text("https:// link to an IPA") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = updateSha, onValueChange = { updateSha = it.trim() }, singleLine = true, label = { Text("SHA-256 (optional)") }, modifier = Modifier.fillMaxWidth())
+            DialogButtons {
+                DialogButton(text = stringResource(Res.string.action_cancel), onClick = { showLink = false })
+                DialogButton(
+                    text = "Install",
+                    style = DialogButtonStyle.Primary,
+                    enabled = updateUrl.startsWith("https://"),
+                    onClick = { showLink = false; update(updateUrl, updateSha.ifBlank { null }) },
+                )
+            }
+        }
+    }
+    if (running) AppleQuestionsDialog(platform)
 }
 
 private fun describeProbe(json: String): String = runCatching {
