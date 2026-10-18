@@ -398,6 +398,11 @@ internal class IosSelfSigning private constructor() : SelfSigningPlatform {
         val signing = obj(take(nzs_signing_state(account?.email)))
         lines += "Apple Account saved in Keychain: ${account?.let { "yes (${mask(it.email)})" } ?: "no"}"
         lines += "Signing key from the installer: ${if (signing?.str("signingKey") == "true") "yes" else "no"}; sign-in identity on this iPhone: ${if (signing?.str("anisette") == "true") "yes" else "no"}"
+        // Apple asks for a code again only for a new identity, which a switch of anisette server makes.
+        val lastSignIn = signing?.get("lastSignIn") as? JsonObject
+        lines += if (lastSignIn == null) "Last sign-in: none recorded"
+        else "Last sign-in: ${lastSignIn.str("server")}, ${if (lastSignIn.str("newIdentity") == "true") "NEW device identity (Apple asks for a code)" else "same device identity"}, " +
+            "${if (lastSignIn.str("ok") == "true") "worked" else "failed"}${if (lastSignIn.str("unattended") == "true") ", unattended" else ""}"
 
         val last = obj(lastRefresh())
         lines += if (last == null) "Last renew: never" else buildString {

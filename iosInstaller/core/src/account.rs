@@ -19,7 +19,9 @@ pub use isideload::auth::apple_account::{TwoFactorCallbackParams as TwoFactorPro
 pub use isideload::util::callbacks::TwoFactorCallback;
 pub use rootcause::Report;
 
-use crate::storage::SecretStorage;
+use crate::storage::{self, SecretStorage};
+use isideload::util::storage::SideloadingStorage;
+use sha2::{Digest, Sha256};
 
 /// The name Apple lists our signing certificate under in the account. Also how we recognise certificates
 /// we may revoke ourselves (see `only_ours`).
@@ -223,6 +225,53 @@ fn after_failure(e: &SignInError, server: &str, retried: bool) -> AfterFailure {
 /// Signs in and returns a signer for the account's (only, or first) team. Moves down `servers` when one is not
 /// answering, and retries a first-login -22421/-22410 once (see `AfterFailure`).
 pub async fn sign_in<C: TwoFactorCallback + Clone>(email: &str, password: &str, servers: &[&str], two_factor: C, choose: Option<ChooseCertificates>) -> Result<Signer, SignInError> {
+    sign_in_with(email, password, servers, two_factor, choose, false).await
+}
+
+/// The order to try `servers` in for this device. Apple trusts a device by its anisette identity, and isideload
+/// makes a new identity whenever a server doesn't recognise the saved one (-45061), which Apple then treats as a
+/// new device and asks for a code. So the server that made the saved identity goes first, like SideStore keeping
+/// one server. `unattended` (Shortcuts, opening the app, background) uses only that server: switching could only
+/// end in a code nobody is there to type, after throwing away the identity Apple already trusts.
+pub fn server_order<'a>(servers: &[&'a str], pinned: Option<&'a str>, has_identity: bool, unattended: bool) -> Vec<&'a str> {
+    match pinned.filter(|_| has_identity) {
+        Some(p) if unattended => vec![p],
+        Some(p) => std::iter::once(p).chain(servers.iter().copied().filter(|s| *s != p)).collect(),
+        None => servers.to_vec(),
+    }
+}
+
+/// What the last sign-in on this device used, for the reports: `{ server, newIdentity, ok }`.
+pub fn last_sign_in() -> Option<String> {
+    SecretStorage::new().retrieve(storage::LAST_SIGN_IN).ok().flatten()
+}
+
+fn identity_fingerprint() -> Option<String> {
+    SecretStorage::new().retrieve_data(storage::ANISETTE_STATE).ok().flatten().map(|d| hex::encode(Sha256::digest(&d)))
+}
+
+/// `sign_in`, keeping this device's anisette identity on the server that made it (see `server_order`).
+pub async fn sign_in_with<C: TwoFactorCallback + Clone>(email: &str, password: &str, servers: &[&str], two_factor: C, choose: Option<ChooseCertificates>, unattended: bool) -> Result<Signer, SignInError> {
+    let store = SecretStorage::new();
+    let pinned = store.retrieve(storage::ANISETTE_SERVER).ok().flatten().filter(|s| s.starts_with("https://"));
+    let before = identity_fingerprint();
+    let order = server_order(servers, pinned.as_deref(), before.is_some(), unattended);
+    let mut used = None;
+    let result = sign_in_on(email, password, &order, two_factor, choose, &mut used).await;
+    // Remembered either way: a sign-in that made a new identity and then stopped at Apple's code still made it here.
+    if let Some(server) = used {
+        let new_identity = identity_fingerprint() != before;
+        if new_identity || pinned.as_deref() != Some(server) {
+            let _ = store.store(storage::ANISETTE_SERVER, server);
+        }
+        let _ = store.store(storage::LAST_SIGN_IN, &serde_json::json!({
+            "server": server, "newIdentity": new_identity, "ok": result.is_ok(), "unattended": unattended,
+        }).to_string());
+    }
+    result
+}
+
+async fn sign_in_on<'a, C: TwoFactorCallback + Clone>(email: &str, password: &str, servers: &[&'a str], two_factor: C, choose: Option<ChooseCertificates>, used: &mut Option<&'a str>) -> Result<Signer, SignInError> {
     let email = email.trim().to_lowercase();
     let mut last = None;
     let mut retried = false;
@@ -231,6 +280,7 @@ pub async fn sign_in<C: TwoFactorCallback + Clone>(email: &str, password: &str, 
         let Some(server) = servers.get(index) else {
             return Err(last.unwrap_or_else(|| classify("no anisette server answered")));
         };
+        *used = Some(*server);
         let mut account = match account_via(&email, &[server]).await {
             Ok(account) => account,
             Err(e) => {
@@ -323,6 +373,19 @@ mod tests {
         assert_eq!(after_failure(&busy, "https://ani2.stikstore.app", false), AfterFailure::GiveUp);
         let wrong = classify("Auth error -20101: Your Apple Account or password was incorrect.");
         assert_eq!(after_failure(&wrong, "https://ani.jkcoxson.com", false), AfterFailure::GiveUp);
+    }
+
+    #[test]
+    fn the_server_that_made_the_identity_goes_first_and_alone_when_unattended() {
+        let list = ["https://a", "https://b", "https://c"];
+        // No identity yet: the list as it is.
+        assert_eq!(server_order(&list, Some("https://b"), false, false), list.to_vec());
+        assert_eq!(server_order(&list, None, true, true), list.to_vec());
+        // An identity made on b: b first, the rest after, by hand; only b without a person.
+        assert_eq!(server_order(&list, Some("https://b"), true, false), vec!["https://b", "https://a", "https://c"]);
+        assert_eq!(server_order(&list, Some("https://b"), true, true), vec!["https://b"]);
+        // A server dropped from the list since still made the identity, so it is still tried first.
+        assert_eq!(server_order(&list, Some("https://old"), true, false), vec!["https://old", "https://a", "https://b", "https://c"]);
     }
 
     #[test]

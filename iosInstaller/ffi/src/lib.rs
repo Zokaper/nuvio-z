@@ -183,7 +183,7 @@ pub extern "C" fn nzs_refresh(
         Err(e) => return give(other(format!("no pairing file: {e}"))),
     };
     let asked = Arc::new(AtomicBool::new(false));
-    let result = runtime().block_on(selfsign::refresh(&PathBuf::from(app_dir), &pairing, &address, &email, &password, two_factor(interactive, asked.clone())));
+    let result = runtime().block_on(selfsign::refresh(&PathBuf::from(app_dir), &pairing, &address, &email, &password, two_factor(interactive, asked.clone()), !interactive));
     drop(password);
     match result {
         Ok(report) => give(serde_json::json!({ "ok": true, "report": report })),
@@ -302,7 +302,8 @@ pub extern "C" fn nzs_signing_state(email: *const c_char) -> *mut c_char {
         Some(e) => storage::private_key(&e).is_some(),
         None => storage::any_private_key_file(),
     };
-    give(serde_json::json!({ "signingKey": key, "anisette": storage::has_anisette_state() }))
+    let last = account::last_sign_in().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    give(serde_json::json!({ "signingKey": key, "anisette": storage::has_anisette_state(), "lastSignIn": last }))
 }
 
 /// Forgets the anisette identity, so Apple sees a fresh device on the next sign-in. `{ ok }` or `{ ok, error }`.

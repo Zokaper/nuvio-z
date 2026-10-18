@@ -23,6 +23,12 @@ const SERVICE: &str = "Nuvio Z iOS Installer signing";
 /// The key isideload stores the anisette identity under.
 pub const ANISETTE_STATE: &str = "anisette_state";
 
+/// The anisette server that made the saved identity (see `account::server_order`).
+pub const ANISETTE_SERVER: &str = "anisette_server";
+
+/// The last sign-in's server and whether it made a new identity, as JSON, for the reports.
+pub const LAST_SIGN_IN: &str = "anisette_last_sign_in";
+
 /// The key isideload stores an account's signing private key under: the SHA-256 of the email it signs in with.
 pub fn private_key_name(email: &str) -> String {
     format!("{}/key", email_hash(email))
@@ -150,7 +156,9 @@ impl SideloadingStorage for SecretStorage {
 /// for -22410 and most "try again" refusals). The signing key stays: dropping it would make the next install ask
 /// Apple for another certificate and revoke the one the installed apps are signed with.
 pub fn reset_sign_in() -> Result<(), String> {
-    SecretStorage::new().delete(ANISETTE_STATE).map_err(|e| format!("{e}"))
+    let store = SecretStorage::new();
+    let _ = store.delete(ANISETTE_SERVER);
+    store.delete(ANISETTE_STATE).map_err(|e| format!("{e}"))
 }
 
 /// The account's signing private key (PKCS#8 DER), if this device has made one.
