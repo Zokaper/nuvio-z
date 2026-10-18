@@ -1,19 +1,255 @@
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
-## iOS Installer 3 + Nuvio Z self-signing (in progress, 2026-10-17; nothing merged or released)
+## Release continuation: Debug 95 published; Mac installer added (2026-10-18)
 
-This work lives on two branches, both kept off `claude/social-v2` on purpose (meant to ship before it):
+| Scope | Active branch / state |
+| --- | --- |
+| Mobile + Installer 3 | `claude/self-signing`; stable 0.5.4-z2+128 remains live; 0.5.4-z3+129 pending phone update QA |
+| Desktop changelog | `Dev` at `58dc2451b`; event seq 4 mirrored and validated; no desktop product release |
+| Social V2 | Remains separate on mobile `claude/social-v2` / desktop `claude/social-v2-design` |
 
-- `claude/ios-installer` (worktree `.claude-worktrees/ios-installer`): the new Tauri 2 + isideload installer in
-  `iosInstaller/`. Sign-in with 2FA, SideStore install, pairing placement, remember-me, certificate chooser.
-- `claude/self-signing` (worktree `.claude-worktrees/self-signing`): cut from the installer branch; Nuvio Z signs and
-  refreshes itself on the phone over LocalDevVPN (`iosInstaller/core/src/ondevice.rs`, `selfsign.rs`, `ffi/`), behind
-  `NUVIO_IOS_SELF_SIGNING`. Cut from `main`, so it lacks Social V2: **never publish a normal Debug release from it**;
-  use Debug release's `diagnostic_ios_only` and hand the IPA out directly.
+- **Debug 95 published manually from the original CI artifacts** of run `39115794013`, source
+  `fb7bff5e8e19d85dc5da383c527639214a74b9ff`. Both builds and Android host tests passed. The publish job
+  failed with HTTP 403 even after creating the exact tag and retrying; its token had `Contents: write`.
+  The signed-in maintainer's CLI account could publish. GitHub's workflow-scope restrictions on release
+  targets are relevant, but pre-creating the tag did not fix this run: do not report the root cause as proven.
+  Never rerun its create-release job now that the release exists. Complete/verify feed and installer config
+  updates on main. IPA SHA-256: `6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e`.
+- **Phone QA requested:** update 94 → 95 with LocalDevVPN connected; reopen, confirm build 95 and retained data.
+  Earlier checks reported by the maintainer to Claude: direct install from GitHub, renewal and Repair work;
+  a second renewal no longer asks for Apple's code. The update path still needs acceptance.
+- **Mac parity requested by maintainer:** new reusable `ios-installer-macos.yml` builds a universal
+  Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
+  it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
+  crate promotions now require Mac success as well as Windows; publication replaces the old rolling Mac zip.
+  Mac build/phone install not verified yet. Windows driver steps remain skipped on Mac. The sign-in drawing
+  now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
+- **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
+- **Before stable publication:** phone update acceptance; stable iOS build success; Mac CI success;
+  merge self-signing into main preserving current feeds; then final bump to 0.5.4-z3 / build 128 / serial 129
+  with the changelog ship date. Publish mobile from main, then publish Installer 3 for Windows and universal Mac.
+  The older sections below describe earlier states; Release self-signing is now enabled and the auto test
+  push trigger has been removed. Shared desktop updater signature work remains for the later shared-code merge.
 
-Read the top sections of `STATUS.md` on those branches, then `Nuvio Z/HANDOFF-ios-installer-self-signing.md` and the
-plans `Nuvio Z/PLAN-ios-setup-one-sitting.md` and `Nuvio Z/PLAN-nuvio-z-self-signing.md`. The detail that used to sit
-here (Stage 0/1 notes) is superseded by those branches' STATUS.
+## Self-signing: release path (2026-10-18, branch `claude/self-signing`)
+
+Maintainer's release decisions are in `Nuvio Z/PLAN-nuvio-z-self-signing.md` ("Release decisions"). Built today:
+
+- **Update banner on iOS** (`be9025bde`): the shared updater runs in self-signing builds. Update = download, sign
+  and install on the phone (`AppUpdaterPlatform.ios.kt` → `nzs_install_update`), banner stages Downloading /
+  Getting the update ready / Installing. It refuses up front when LocalDevVPN is off ("Connect LocalDevVPN, then tap
+  Retry", the maintainer's choice over toggling it) or no Apple Account is saved. `installDownloadedUpdate` is now
+  `suspend` with a stage callback (Android ignores it). **Merge debt:** NuvioZDesktop's desktop actual needs the
+  new signature; this repo's `desktopMain` actual was already stale and isn't built.
+- **Release markers:** debug-release.yml writes `<!-- nuvio-ios:self-signing -->` (signer linked) and
+  `<!-- nuvio-ios:signing-changed -->` (signer source or the isideload/idevice lock entries changed since the
+  channel's last self-signing release) via `scripts/ios-release-markers.sh`. A self-signing copy only takes marked
+  releases; signing-changed shows "Important: install before <date>". Stable releases don't write markers yet
+  (self-signing is still refused for Release by build-ios-ipa.sh).
+- **Fixed:** the on-open renewal never ran on a normal launch: the launch cover's `selfSigningSetupNeeded()` filled
+  `SelfSigningSpike.platform` before `installSelfSigningSpike()` checked it. Own flag now.
+- **Installer Repair** (`123817725`): a trusted iPhone that already has this Nuvio Z gets "Sign in to repair",
+  install-over (data kept, connection file + key placed again), then "Nuvio Z is fixed". Renders in
+  `Nuvio Z/render-review/ios-installer-repair-d1/`.
+- **Auto-release + watch** (`09a9d02cd`): `ios-installer-auto.yml` (daily crate check with a 3-day cooldown, Sonnet
+  review per `iosInstaller/scripts/agent/review-crates.md`, deterministic gate, Windows + iPhone builds,
+  fast-forward main, `ios-installer-release.yml` publishes to `ios-setup-v*` + rolling `ios-setup-vlatest`) and
+  the every-3-days upstream watch (`watch-upstream.md`). Auth: `CLAUDE_CODE_OAUTH_TOKEN` (set). Codex fallback
+  declined for now (its Action needs an API key). Schedules run only from main; a push to this branch runs a dry
+  run. **Before merging:** drop the `push:` trigger, and decide the rolling macOS zip (Installer 3 is Windows-only).
+- **Release IPAs share Documents with the installer** (`6a557879a`), see below.
+- Test zip `release-artifacts/Nuvio-Z-self-signing-test-2026-10-18b.zip` (new installer + app from `6cfa32404`);
+  it predates today's app and installer changes.
+
+## Self-signing: everything for the one-sitting test built (2026-10-17, branch `claude/self-signing`)
+
+Handoff: `Nuvio Z/HANDOFF-ios-installer-self-signing.md`. All twelve items are built. **Nothing is released**; the
+test is one zip + one checklist (`Nuvio Z/release-artifacts/Nuvio-Z-self-signing-test-2026-10-17e.zip`, IPA from
+diagnostic Debug release run `39068786094`).
+
+- **Daily refresh offered first (maintainer request):** at launch a full-screen "Keep Nuvio Z working" covers the
+  whole app, before any sign-in (`selfSigningSetup()` in `iosApp/iosApp/SelfSigning.swift` → Kotlin
+  `SelfSigningSetupViewController` → `SelfSigningSetupScreen`): 1. save the Apple Account with a renewal, 2. the daily
+  refresh shortcut + automation, drawn step by step. "Later" = until the next launch. Done is per device
+  (NSUserDefaults `nzs.automation.done`), set by "Done, it's set up" or by the Shortcuts action renewing on two
+  different days. The installer's last phone steps are now "Open Nuvio Z and renew it once" and "Set up the daily
+  refresh", each drawn like the other steps.
+
+- **Stage 3, silent Apple software (`core/src/drivers.rs`), verified on this PC reset to pre-wizard** (with the
+  maintainer's OK: iTunes 12.13.11 uninstalled, Apple Devices removed, `appleusb.inf` + `netaapl64.inf` deleted,
+  `C:\ProgramData\Apple` moved to `C:\ProgramData\Apple-nuvioz-backup-2026-10-17`, installer/assistant state moved
+  to `%LOCALAPPDATA%\NuvioZ-reset-backup-2026-10-17`). Findings: usbmuxd on Windows now comes from the **Apple
+  Devices** Store app (`AppleMobileDeviceLauncher`, a package *startup task*), not iTunes. `winget install
+  9NP83LWLPZ9K --source msstore` installs it in ~30 s with no admin and no window; afterwards nothing listens on 27015
+  until the next sign-in, WindowsApps refuses a direct start, and `Invoke-CommandInDesktopPackage …
+  AppleMobileDeviceLauncher.exe` starts it with no window. The installer went from welcome to "Plug in your iPhone" by
+  itself in ~30 s. Fallback: the Store page + Try again. Not verified: the Apple USB driver arriving when an iPhone is
+  first plugged into such a PC (no phone here).
+
+- **Installer** (`iosInstaller/`): installing Nuvio Z itself is the normal path (`core/src/nuvio.rs`), SideStore a
+  fallback link on the welcome screen. An IPA next to the exe wins; otherwise the hosted
+  `distribution/ios-installer/nuvio.json` (Zokaper/nuvio-z release downloads only, pinned SHA-256; both entries null
+  for now). After installing it places the pairing file, **this computer's signing key** (`NuvioZSigningKey.plist`,
+  so the phone signs updates with the same certificate instead of making one that revokes it) and, for a local test
+  IPA, `NuvioZ-Update-test.ipa` for the on-phone update test. Ctrl+Shift+D = Debug build behind an "experimental"
+  warning (Ctrl+Shift+I is gone). Real QR codes (`ui/qr.js`, generated and decode-checked by
+  `core/tests/qr_codes.rs`). Help sheet: Copy report, Reset sign-in data. Apple -22410 "could not be completed. Try
+  again" is `TryAgain` (the friend's "-224211" was this). Anisette identity and private key live in the system
+  keychain (`core/src/storage.rs`), migrating the old `signing` folder on first read; files on the iPhone.
+- **Signer** (`ffi/`): `nzs_refresh(…, interactive)` (unattended runs end with `codeNeeded` instead of waiting),
+  `nzs_install_update` (unpack, strip an old `.TEAMID`, refuse an IPA that would install as another app, sign, install
+  over itself via lockdown then the tunnel), certificate chooser / progress / key import / signing state / reset /
+  `nzs_vpn_reachable` / version.
+- **Nuvio Z Debug** (`NUVIO_IOS_SELF_SIGNING`): Apple Account in the Keychain (this device only, after first unlock),
+  saved only with "Remember" ticked; renew on open when under 3 days are left (toast if LocalDevVPN is down or Apple
+  wants a code); "Refresh Nuvio Z" App Intent + `AppShortcutsProvider` and a BGTaskScheduler task
+  (`iosApp/iosApp/SelfSigning.swift`, compiled only with the Swift condition `NUVIO_SELF_SIGNING` that
+  `scripts/build-ios-ipa.sh` sets, which also adds the task identifier + `fetch` mode to the staged Info.plist and fails
+  the build without App Intent metadata); "Keep Nuvio Z working" (Settings › Advanced › Diagnostics) with days left,
+  Renew now, the daily-refresh guide (drawn steps), certificate chooser, update test and **Copy test report**.
+- **Daily refresh is one automation, drawn in the installer (2026-10-18, maintainer's call):** Time of Day › Daily ›
+  Run Immediately › New Blank Automation with Set VPN (LocalDevVPN, Connect), Refresh Nuvio Z, Set VPN (Disconnect).
+  No separate shortcut and no iCloud link: a shared shortcut names the App Intent by the sharer's bundle id, which on
+  a sideloaded copy ends with their own team id, so one link can't serve everyone (believed, not yet verified with a
+  real link). The steps are the installer's last two screens, because the person is in the Shortcuts app while
+  doing them; Nuvio Z's launch screen points at the computer and keeps the drawn steps as a fold-out.
+- **Reverted**: this branch's `UIFileSharingEnabled` in `iosApp/iosApp/Info.plist`. Debug gets it from
+  build-ios-ipa.sh. **Decided 2026-10-18 (maintainer):** a self-signing Release IPA gets `UIFileSharingEnabled`
+  only (house_arrest can place the pairing file and key; a trusted PC can already do more than read that folder),
+  never `LSSupportsOpeningDocumentsInPlace`, so the folder stays out of the Files app and can't be emptied by
+  accident. build-ios-ipa.sh enforces it; Release without self-signing exposes neither. Moving the files into the
+  Keychain after first launch was offered and skipped for now. The script still refuses `NUVIO_IOS_SELF_SIGNING`
+  for Release until self-signing leaves Debug.
+- **Verified here:** core tests 21/21 (incl. QR decode and the Credential Manager migration); shared Kotlin compiles
+  (`:androidApp:compileFullDebugKotlin`); installer release exe built and driven live over WebView2 DevTools with an
+  isolated `LOCALAPPDATA`: the event self-test reached the window, the test IPA was detected as Debug, Copy report and
+  Reset sign-in data worked; installer screens rendered (`Nuvio Z/render-review/ios-installer-direct-d1/`).
+  CI: see the run list below. **Not verified:** anything on a phone.
+- **Merge debt:** `iosApp/iosApp/iOSApp.swift` (one `init()` line) and `SelfSigning.swift` belong in
+  `Docs/PATCH-SURFACE.md`; `commonMain` `SelfSigningSpike.kt` / `KeepNuvioWorkingScreen.kt` /
+  `AdvancedSettingsPage.kt` reach NuvioZDesktop by merge (inert there). `claude/ios-installer` is now behind: the
+  installer work of this round lives only on `claude/self-signing`, because the direct path needs the signer.
+- CI note: the "CI" workflow's Android host tests fail on `main` too (docs-only `eb028fd7a`), so that red is not from
+  this branch.
+
+## Self-signing: renew in-app (2026-10-17, branch `claude/self-signing`)
+
+- **First real phone result (a friend's iPhone, installer zip "c"):** the installer's test path (Ctrl+Shift+I)
+  signed in with 2FA, signed and installed Nuvio Z Debug straight from the PC (no SideStore) and placed its pairing
+  file. Earlier failures on that run were installer bugs, all fixed on `claude/ios-installer` and merged here:
+  no Tauri capability, so `event.listen` was refused and the 2FA prompt never reached the window (`92242268d`);
+  the certificate-limit copy wrongly sent free accounts to developer.apple.com (now an in-installer chooser,
+  `daebe168a`, `f7a353769`); remember-me via the system keychain (`4f1d676ae`).
+- **Refresh design, confirmed against SideStore's `RefreshAppOperation`:** no re-sign and no reinstall. Sign in,
+  download a fresh team provisioning profile per bundle id, install them through `misagent` over LocalDevVPN
+  (`selfsign::refresh`). Re-sign + reinstall is only for updates or a new certificate (not built).
+- **In the app:** Advanced settings › Diagnostics › "Self-signing: renew this app" (debug, signer-linked builds
+  only) shows the embedded profile's expiry, the newest installed profiles on the phone
+  (`nzs_installed_profiles`), and renews with an Apple Account, 2FA answered in the dialog by polling
+  `nzs_pending_two_factor`. After a renew the *embedded* date does not move; the installed one should.
+- **Not verified:** a renew on a phone; whether iOS keeps launching the app past the embedded profile's expiry on
+  the strength of the newer installed profile (needs the 7 days to pass, or a second check on day 8).
+- **Still to build:** Apple password in the iOS Keychain; Shortcuts App Intent + one-tap shortcut link; refresh on
+  open and BGTaskScheduler; updates (re-sign + reinstall); the certificate chooser on the phone; installer
+  installing Nuvio Z directly as the normal path.
+
+## Self-signing spike, step 2 (2026-10-17, branch `claude/self-signing`, cut from `claude/ios-installer`)
+
+Phase 2 of the iOS installer: Nuvio Z signs, refreshes and updates itself without SideStore. Plan:
+`Nuvio Z/PLAN-nuvio-z-self-signing.md`. Kept off `claude/social-v2` on purpose; this line is meant to ship before it.
+
+- **What step 2 proves:** Nuvio Z can reach the phone's own services from inside the app through LocalDevVPN
+  (`10.7.0.1`) with the pairing file the installer placed. `iosInstaller/core/src/ondevice.rs` tries both routes
+  SideStore's minimuxer uses: **lockdown** (62078) and the iOS 17.4+ **remote-pairing tunnel** (49152 → TLS-PSK →
+  userspace TCP → RSD → installation_proxy), the latter copied from idevice 0.1.68's own `tunnel_create_rppairing`.
+  idevice features `rsd` and `tunnel_tcp_stack` added.
+- **Library:** `iosInstaller/ffi` (`nuvioz-signer`, staticlib) exposes `nzs_probe(documents, address)` → JSON and
+  `nzs_string_free`; header `ffi/include/nuvioz_signer.h`.
+- **App wiring (off by default):** `NUVIO_IOS_SELF_SIGNING=true` makes Gradle link the library through cinterop
+  (`nativeInterop/cinterop/nuviozsigner.def`) and compile `src/iosSelfSigning/kotlin` instead of the stub in
+  `src/iosNoSelfSigning/kotlin`. The iOS app fills the common hook `core/debug/SelfSigningSpike.probe` at startup
+  (`MainViewController.kt`); a **debug-only** row in Advanced settings › Diagnostics runs it and prints one line per
+  route. Android and desktop are untouched (same nullable-hook pattern as `SelfTestHooks`).
+- **Pairing into Nuvio Z:** `pairing::place_for_nuvio` writes `NuvioZPairing.plist` into Nuvio Z's Documents
+  (`cargo run -p nuvioz-installer-core --example place_nuvio_pairing -- --debug`). Needs
+  **`UIFileSharingEnabled`**, now on in `iosApp/iosApp/Info.plist` (side effect: Nuvio Z's Documents show in Finder /
+  Apple Devices file sharing).
+- **CI:** Debug release builds the library and sets the switch on branches that have `iosInstaller/ffi`;
+  `ios-installer-core-ios.yml` also builds the static library and link-checks it against the iOS SDK.
+  The spike IPA is built with Debug release's **`diagnostic_ios_only`** (no release, no feed change), because this
+  branch is cut from `main` and lacks Social V2: publishing it as Debug 92 would downgrade the Debug channel.
+- **Merge debt if it ships:** `commonMain` gained `SelfSigningSpike.kt` and an `AdvancedSettingsPage` row (shared
+  with NuvioZDesktop by merge); `Info.plist` and `composeApp/build.gradle.kts` belong in `Docs/PATCH-SURFACE.md`.
+- **Verified so far:** the Rust side builds on Windows (core 9/9 tests); see the CI runs for the iOS link and the
+  IPA. **Not verified:** anything on a phone (needs SideStore back on it and a working Apple Account).
+
+## iOS Installer 3 (Tauri + isideload): Stage 0 done (2026-10-17, branch `claude/ios-installer`)
+
+Plan: `Nuvio Z/PLAN-ios-setup-one-sitting.md` (maintainer-approved 2026-10-17). Goal: an iOS install nobody has to
+be talked through. The Kotlin `iosSetup/` assistant stays shipped and untouched until the new one reaches parity.
+
+- **Decisions:** rewrite as **Tauri 2** in `iosInstaller/` (Rust workspace: `core` with no UI dependency, `app` the
+  shell; `ui/` plain HTML/CSS/ES modules, no npm, no bundler, builds with `cargo` alone). **iloader's job moves inside
+  via `isideload` (MIT)**, which supersedes the 2.0 rule "Apple credentials never enter our app": the password goes
+  only to Apple through the anisette server and is never stored or logged. Windows and macOS both.
+- **Stage 0 verified on Windows:** Tauri 2 + `isideload =0.4.6` + `idevice =0.1.68` build into one 4.8 MB release
+  exe (static CRT); the window appears 64-201 ms after launch (the Java assistant: up to ~15 s). The page calls Rust
+  over IPC (`probe_device` runs on load; PrintWindow capture shows the live result). `cargo run --release -p
+  nuvioz-installer-core --example probe`: usbmuxd reachable (no phone attached), and isideload reached
+  `mac-ani.jkcoxson.com` `/v3/client_info` (iloader 2.3.9's default anisette server).
+- **Not measured yet:** binary size with the sign-in + signing path reachable (only `init` and the anisette check are
+  linked now); macOS build.
+- **Upstream facts this rests on (2026-10-17):** Apple's -80045 sign-in rejection since ~2026-10-12 is fixed in iloader
+  2.3.8/2.3.9 (new anisette servers; SMS 2FA still broken) but **not** in SideStore stable 0.7.0-alpha; SideStore
+  issues #1652/#1658/#1665 are open with no maintainer reply, and the reported workaround is Nightly + a Windows
+  iTunes Client Info override. iloader 2.3.8 also places **three** pairing files for SideStore
+  (`ALTPairingFile.mobiledevicepairing`, `PairingFile_RemoteRP.plist`, `PairingFile_Lockdown.plist`); our helper
+  places only the first, which explains a Nightly install asking for a pairing file.
+- **Stage 1 (screen design), third draft, awaiting maintainer review.** Draft 1 (two-column wizard with whole-phone
+  drawings) read as "a Windows XP install wizard"; draft 2 followed the maintainer's sketch (centered title, three
+  numbered close-ups left to right, one big action) but on a bright gradient, which read as cheap. **Draft 3** keeps the
+  sketch's layout in an Apple-style treatment: near-black page with one violet accent glow (light variant on
+  `#f5f5f7`), Inter (`ui/fonts/`, OFL; SF Pro cannot be bundled on Windows), Lucide symbols (`ui/icons.js`, ISC,
+  inlined), and iOS drawn at Apple's point sizes in the system appearance (270 pt alerts, 44 pt rows, 29 pt icon
+  tiles), each close-up in its own rounded panel, scaled by `zoom` to fit. `ui/art.js` builds the panels, `ui/steps.js`
+  holds 16 screens (11 steps, welcome, done, Windows-prompt-hidden, Apple -80045, the "I see something else" sheet),
+  `ui/app.js` renders one (`?step=`/`?theme=`; buttons and arrow keys walk the screens, nothing wired to the phone).
+  `iosInstaller/scripts/render-screens.sh` renders them with headless Edge; drafts are kept side by side in
+  `Nuvio Z/render-review/ios-installer-stage1{,-d2,-d3}/`. Window minimum 940x640. QR codes are placeholders.
+- **Stage 1 approved 2026-10-17** ("good enough to move on"; real iOS screenshots declined for now).
+- **First end-to-end slice built (`95195620f`), not yet run against a phone or an Apple Account** (reordered ahead of
+  the rest of Stage 2 because isideload working from inside our app this week is the riskiest unknown):
+  - `core/src/device.rs`: probe now reports installed apps (SideStore by bundle prefix **or** display name, so a
+    Nightly copy counts), Developer Mode, and pairing state (`present` only when all three files exist, `partial` for
+    an older single-file placement); `reveal_developer_mode`.
+  - `core/src/pairing.rs`: the helper's recipe (lockdown record + rppairing on 17.4+ + Wi-Fi debugging), written under
+    **all three** SideStore names with read-back, old main file kept as `.previous`. The rppairing identity cache
+    stays at the iOS Setup 2.x path so phones set up with the old assistant keep one host identity.
+  - `core/src/account.rs`: isideload sign-in (anisette `mac-ani.jkcoxson.com`, FsStorage under
+    `%LOCALAPPDATA%\Nuvio Z iOS Installer\signing`), machine name "Nuvio Z Installer". At the certificate limit it
+    revokes **only certificates named "Nuvio Z Installer"**, never another tool's (that would stop its apps opening).
+    Apple errors classified (-80045 refused, wrong password, locked, wrong code, 503, certificate limit, network) with
+    text fallbacks; the codes are best effort.
+  - `core/src/sidestore.rs`: download (iloader 2.3.9's URLs; stable by default, Ctrl+Shift+N toggles Nightly for
+    testing), `install_app` with signing progress, then pairing placement.
+  - App: `sign_in` / `answer_two_factor` (Apple's prompt arrives as a `two-factor` event; 5-minute wait),
+    `install_sidestore` (`install-progress` events), `place_pairing`, `reveal_developer_mode`, `probe_device`.
+    `ui/steps.js` is now `buildSteps(ctx)`; steps with `watch` advance by themselves (2.5 s probe), buttons carry
+    actions. The driver step only reports whether Apple's service is present (silent install is Stage 3).
+  - Verified: `cargo test -p nuvioz-installer-core` 7/7 (error classification, pairing state, app classification,
+    rppairing version gate); release exe 7.3 MB with the sign-in/signing path linked; previews still render; the live
+    app starts. **Not verified:** sign-in, 2FA, signing, install, pairing on a real phone.
+- **Phase 2 investigation (Nuvio Z signs and updates itself, no SideStore): feasible on paper, plan in**
+  `Nuvio Z/PLAN-nuvio-z-self-signing.md`. SideStore does this on-device with idevice 0.1.68 (prebuilt iOS
+  XCFramework) over LocalDevVPN at `10.7.0.1`; Nuvio Z has one extension, no App Groups/push; the iOS app already
+  links a native XCFramework via cinterop. CI `ios-installer-core-ios.yml` run `39049995828`: the core (isideload +
+  idevice) **builds for aarch64-apple-ios and the simulator**. Next spike steps need the phone and a working account.
+- **First phone test (2026-10-17):** two sign-in failures were `mac-ani.jkcoxson.com` answering 502 (intermittent);
+  fixed by the anisette fallback (`f4208cc05`). The maintainer's Apple Account then had its own problems, so the
+  test moves to a friend with the zip in `Nuvio Z/release-artifacts/` (not yet run).
+- **Next:** the maintainer's phone test of the slice, then the rest of Stage 2 (hosted config with a pinned SideStore
+  SHA-256, downloader, persistence, diagnostics) and Stage 3 (silent drivers).
+
 
 ## iOS Setup 2.1.1: Re-sign SideStore (2026-10-13, same branch)
 
