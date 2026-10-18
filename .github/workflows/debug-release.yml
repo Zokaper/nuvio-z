@@ -86,6 +86,8 @@ jobs:
       LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      # Firebase config for Social push (androidApp/build.gradle.kts); optional, push is off without it.
+      NUVIO_GOOGLE_SERVICES_JSON: ${{ secrets.NUVIO_GOOGLE_SERVICES_JSON }}
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
       GH_TOKEN: ${{ github.token }}
 
@@ -217,6 +219,8 @@ jobs:
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       # Official builds must bundle a working TMDB key; the build refuses a blank one.
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      # Firebase config for Social push (androidApp/build.gradle.kts); optional, push is off without it.
+      NUVIO_GOOGLE_SERVICES_JSON: ${{ secrets.NUVIO_GOOGLE_SERVICES_JSON }}
       NUVIO_REQUIRE_TMDB_API_KEY: "true"
       IOS_CONFIGURATION: Debug
       IOS_IPA_NAME: ${{ inputs.diagnostic_ios_only && format('Nuvio-Z-iOS-WT-diagnostic-{0}-unsigned.ipa', github.sha) || format('Nuvio-Z-iOS-{0}-{1}-debug-unsigned.ipa', needs.prepare.outputs.marketing_version, needs.prepare.outputs.debug_build) }}
