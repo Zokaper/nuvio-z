@@ -4,8 +4,8 @@ Last updated: 2026-10-18
 
 | Scope | Active branch / state |
 | --- | --- |
-| Mobile + Installer 3 | `claude/self-signing`; stable 0.5.4-z2+128 remains live; 0.5.4-z3+129 pending phone update QA |
-| Desktop changelog | `Dev` at `58dc2451b`; event seq 4 mirrored and validated; no desktop product release |
+| Mobile + Installer 3 | Merged to `main` at `4fab86d01`; preparation continues on `claude/self-signing`; stable 0.5.4-z2+128 remains live |
+| Desktop changelog | `Dev` at `3005df79f`; event seq 4 including Mac mirrored and validated; no desktop product release |
 | Social V2 | Remains separate on mobile `claude/social-v2` / desktop `claude/social-v2-design` |
 
 - **Debug 95 published manually from the original CI artifacts** of run `39115794013`, source
@@ -13,8 +13,9 @@ Last updated: 2026-10-18
   failed with HTTP 403 even after creating the exact tag and retrying; its token had `Contents: write`.
   The signed-in maintainer's CLI account could publish. GitHub's workflow-scope restrictions on release
   targets are relevant, but pre-creating the tag did not fix this run: do not report the root cause as proven.
-  Never rerun its create-release job now that the release exists. Complete/verify feed and installer config
-  updates on main. IPA SHA-256: `6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e`.
+  Never rerun its create-release job now that the release exists. Feed and checksum-pinned installer config
+  updates are verified on main. GitHub's published IPA/APK SHA-256 digests match the local artifacts.
+  IPA SHA-256: `6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e`.
 - **Phone QA PASSED (maintainer):** 94 → 95 update, successful reopen and retained data all confirmed.
   Earlier checks reported by the maintainer to Claude: direct install from GitHub, renewal and Repair work;
   a second renewal no longer asks for Apple's code.
@@ -22,12 +23,16 @@ Last updated: 2026-10-18
   Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
   it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
   crate promotions now require Mac success as well as Windows; publication replaces the old rolling Mac zip.
-  Mac build/phone install not verified yet. Windows driver steps remain skipped on Mac. The sign-in drawing
+  Mac core tests passed in `39119512358`; universal app compilation/phone install not verified yet.
+  Windows driver steps remain skipped on Mac. The sign-in drawing
   now says Mac on Mac; reports say Computer. Local JavaScript syntax, workflow YAML and Mac JSON parse checks pass.
 - **Stable build-only run `39117185788`** was still compiling iOS at this handoff update; Android passed.
-- **Before stable publication:** phone update acceptance; stable iOS build success; Mac CI success;
-  merge self-signing into main preserving current feeds; then final bump to 0.5.4-z3 / build 128 / serial 129
-  with the changelog ship date. Publish mobile from main, then publish Installer 3 for Windows and universal Mac.
+- **Quiet test requested by maintainer:** installer build-only run `39119802046` from main builds Windows and
+  universal Mac, with publication disabled. No rolling installer links changed. Test these packages before
+  public installer publication. README now describes the direct-install/renew/update/Repair flow.
+- **Before stable publication:** stable iOS build success; Mac CI success; then final bump on main to
+  0.5.4-z3 / build 128 / serial 129 with the changelog ship date. Rehearse with `mode=dry-run` for exact-version
+  test artifacts; public stable and rolling installer publication follow acceptance of the quiet test.
   The older sections below describe earlier states; Release self-signing is now enabled and the auto test
   push trigger has been removed. Shared desktop updater signature work remains for the later shared-code merge.
 
