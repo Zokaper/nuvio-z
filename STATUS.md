@@ -1,6 +1,50 @@
 Last updated: 2026-10-18
 
-## Release continuation: Debug 95 accepted; Windows and universal Mac packages verified (2026-10-18)
+## RELEASED: Mobile 0.5.4-z3 + Installer 3 for Windows and universal Mac (2026-10-18)
+
+| Scope | Active branch / state |
+| --- | --- |
+| Mobile + installer | `main`; mobile 0.5.4-z3+129 / build 128 and Installer 3.0.0-alpha.0 published |
+| Desktop | `Dev`; seq 4 changelog mirrored; desktop remains 0.1.26-alpha-z2+133 |
+| Next release | Mobile `claude/social-v2` / desktop `claude/social-v2-design`; upstream sync required |
+
+Mobile `0.5.4-z3+129` (no leading `v`), build 128, is live from main `97734d496`, publish run
+`39121198530` (all jobs passed). Original Release signer build-only run `39117185788` also passed.
+Four signed APKs + unsigned self-signing IPA + checksums + SideStore source are published. GitHub's latest
+stable tag and main's installer config both name z3. IPA SHA-256:
+`7847d496a2e4b1e6ad051e1efbf926130adc46f65c65bfcc99eab51ad4fd2c44`.
+
+Installer **3.0.0-alpha.0** publish run `39126092595` PASSED from main `f57cf98c8`: Windows x64 and universal
+Mac (Intel + Apple Silicon, macOS 11+, ad-hoc signed, not notarized). Both the versioned
+`ios-setup-v3.0.0-alpha.0` release and rolling `ios-setup-vlatest` now carry the new packages. The old rolling
+Mac zip was replaced, per the maintainer's request; historical setup releases remain available.
+The rolling release title now identifies Installer 3, rather than the retired 2.1.1 wizard.
+
+**Post-publication checks:** downloaded both rolling zips and matched their SHA-256 to the published
+manifest and both releases' asset digests. Windows zip:
+`2784c7dcdf52820b9ed60a83f79bc3424e1eb7028e91fcb7acc8a1d544eb0e7b`; Mac zip:
+`1ec2e947f08470c69e0161a593513a758639486fcc190668d2dee8aa33274562`.
+The Mac zip independently contains both CPU slices, executable permissions, signature resources,
+minimum macOS 11, version 3.0.0-alpha.0 and launch instructions. CI verified its signature and native startup.
+All five mobile binaries match the release checksum manifests and GitHub digests. The live raw installer
+config and SideStore feed both match the published IPA. GitHub's latest stable release remains mobile z3.
+Final installer downloads are also in `Nuvio Z/release-artifacts/installer3-published/`.
+
+**Next is the friend's fresh phone/PC install test, then the maintainer's announcement.** No announcement
+was sent. The maintainer's 94 → 95 in-app update, reopen and data retention passed. The maintainer explicitly
+waived waiting for day-8 expiry proof; that long-duration behavior and Mac-to-phone installation remain
+physically unverified. Upstream sync is explicitly deferred for this release only and is required for Social V2.
+Social V2 and Reaction Mode were not merged. Desktop received only the global changelog mirror (seq 4).
+
+Post-release automation correction on `claude/self-signing`, promoted to main with this handoff: stable tags actually have no `v`,
+but the signing-change comparison used prefix `v`. The helper now accepts a stable channel (numeric and
+legacy v-prefixed tags), excluding Debug and installer tags; 3 focused channel regression checks pass.
+The first self-signing stable release already has its correct marker; this fixes comparisons for future
+releases and changes no app binary. The stable workflow runs those regression checks. The release-note
+intro now points at the new installer while retaining SideStore compatibility. These follow-ups were kept
+off main until installer publication completed.
+
+## Historical release preparation: Debug 95 accepted; host packages verified (superseded above)
 
 | Scope | Active branch / state |
 | --- | --- |
