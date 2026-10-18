@@ -21,6 +21,16 @@
       "category": "developer-tools",
       "versions": [
         {
+          "version": "0.5.4-z2.95",
+          "buildVersion": "95",
+          "date": "2026-10-18T10:29:00Z",
+          "localizedDescription": "Debug build from `claude/self-signing` at `fb7bff5e8e19d85dc5da383c527639214a74b9ff`.\n\nContains:\n- Android Debug APK (`androidApp-full-debug.apk`, package `com.nuvio.app.z.debug`)\n- iOS Debug Unsigned IPA (`Nuvio-Z-iOS-0.5.4-z2-95-debug-unsigned.ipa`, bundle `com.nuvio.app.z.debug`, display name `Nuvio Z Debug`)\n\nInstalls as `com.nuvio.app.z.debug` side-by-side with stable Nuvio Z.\nSigned with the committed debug keystore for Android; unsigned IPA for sideloading on iOS.\n\nDebug channel only. The stable updater ignores prereleases.\n\n<!-- nuvio-ios:self-signing -->",
+          "downloadURL": "https://github.com/Zokaper/nuvio-z/releases/download/debug-v0.5.4-z2.95/Nuvio-Z-iOS-0.5.4-z2-95-debug-unsigned.ipa",
+          "size": 100025749,
+          "sha256": "6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.4-z2.94",
           "buildVersion": "94",
           "date": "2026-10-18T09:21:01Z",
