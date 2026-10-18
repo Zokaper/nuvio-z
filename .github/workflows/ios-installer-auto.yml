@@ -255,6 +255,7 @@ jobs:
     uses: ./.github/workflows/ios-installer-macos.yml
     with:
       ref: ${{ needs.review.outputs.sha }}
+      artifact_name: ios-installer-macos-validation
 
   iphone:
     name: iPhone signer builds

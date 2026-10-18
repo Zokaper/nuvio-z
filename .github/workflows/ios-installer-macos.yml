@@ -8,6 +8,9 @@ on:
       ref:
         type: string
         required: true
+      artifact_name:
+        type: string
+        default: ios-installer-macos
   push:
     branches: [claude/self-signing]
     paths:
@@ -74,7 +77,7 @@ jobs:
           shasum -a 256 Nuvio-Z-iOS-Setup-macOS.zip
       - uses: actions/upload-artifact@v7
         with:
-          name: ios-installer-macos
+          name: ${{ inputs.artifact_name || 'ios-installer-macos' }}
           path: Nuvio-Z-iOS-Setup-macOS.zip
           if-no-files-found: error
           retention-days: 14

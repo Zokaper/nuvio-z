@@ -15,9 +15,9 @@ Last updated: 2026-10-18
   targets are relevant, but pre-creating the tag did not fix this run: do not report the root cause as proven.
   Never rerun its create-release job now that the release exists. Complete/verify feed and installer config
   updates on main. IPA SHA-256: `6fc0582e2261b3135c8e5f2c7e6ac70ffad6c8d4068edc394d4ff0101dbf348e`.
-- **Phone QA requested:** update 94 → 95 with LocalDevVPN connected; reopen, confirm build 95 and retained data.
+- **Phone QA PASSED (maintainer):** 94 → 95 update, successful reopen and retained data all confirmed.
   Earlier checks reported by the maintainer to Claude: direct install from GitHub, renewal and Repair work;
-  a second renewal no longer asks for Apple's code. The update path still needs acceptance.
+  a second renewal no longer asks for Apple's code.
 - **Mac parity requested by maintainer:** new reusable `ios-installer-macos.yml` builds a universal
   Intel + Apple Silicon Tauri app, checks both slices and ad-hoc signature, smoke-checks startup, and zips
   it with launch instructions. macOS 11 minimum. No notarization. Manual installer releases and automated
