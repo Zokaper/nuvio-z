@@ -25,14 +25,16 @@ use crate::storage::SecretStorage;
 /// we may revoke ourselves (see `only_ours`).
 pub const MACHINE_NAME: &str = "Nuvio Z Installer";
 
-/// iloader 2.3.9's anisette servers. They come and go, so sign-in moves down the list when one is not answering
-/// (see `sign_in`). mac-ani, iloader's default, is last: on 2026-10-17/18 it answered 502 most of the time and,
-/// worse, sometimes answered the first request and then 502 in the middle of a sign-in.
+/// iloader 2.3.10's anisette servers, in its order (2026-10-18): the "Mac" ones first, which is what got sign-ins
+/// past Apple's -80045 that week; iloader notes ani.jkcoxson.com "works ~50% of the time, and doesn't work with SMS
+/// 2FA". Sign-in moves down the list when one isn't answering or Apple refuses it (see `after_failure`). mac-ani
+/// answered 502 for much of 2026-10-17/18; that only costs a step down the list.
 pub const ANISETTE_SERVERS: &[&str] = &[
-    "https://ani.jkcoxson.com",
-    "https://ani3.stikstore.app",
-    "https://ani2.stikstore.app",
+    "https://new.ani.sidestore.io",
     "https://mac-ani.jkcoxson.com",
+    "https://ani3.stikstore.app",
+    "https://ani.jkcoxson.com",
+    "https://ani2.stikstore.app",
 ];
 
 pub type Signer = Sideloader<MaxCertsCallbackBox>;
@@ -211,6 +213,9 @@ fn after_failure(e: &SignInError, server: &str, retried: bool) -> AfterFailure {
     match e.kind {
         SignInErrorKind::TryAgain if !retried => AfterFailure::RetrySame,
         SignInErrorKind::ServerUnavailable if e.detail.contains(host) => AfterFailure::NextServer,
+        // -80045 depends on the anisette server's client identity, and Apple refuses it before the password is
+        // checked, so another server can't lock the account.
+        SignInErrorKind::Refused => AfterFailure::NextServer,
         _ => AfterFailure::GiveUp,
     }
 }
@@ -309,6 +314,9 @@ mod tests {
         let try_again = classify("Auth error -22421: This action could not be completed. Try again.");
         assert_eq!(after_failure(&try_again, "https://ani.jkcoxson.com", false), AfterFailure::RetrySame);
         assert_eq!(after_failure(&try_again, "https://ani.jkcoxson.com", true), AfterFailure::GiveUp);
+        let refused = classify("-80045 This action cannot be completed at this time.");
+        assert_eq!(refused.kind, SignInErrorKind::Refused);
+        assert_eq!(after_failure(&refused, "https://new.ani.sidestore.io", false), AfterFailure::NextServer);
         let busy = classify(" ● HTTP status server error (502 Bad Gateway) for url (https://mac-ani.jkcoxson.com/v3/client_info)");
         assert_eq!(after_failure(&busy, "https://mac-ani.jkcoxson.com", false), AfterFailure::NextServer);
         // Apple's own 503 (not the sign-in server's) is not retried elsewhere: Apple has seen the attempt.

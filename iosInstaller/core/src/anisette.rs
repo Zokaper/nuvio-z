@@ -6,8 +6,8 @@
 use isideload::anisette::{remote_v3::RemoteV3AnisetteProvider, AnisetteProvider};
 use serde::Serialize;
 
-/// iloader 2.3.9's default (2026-10-16).
-pub const DEFAULT_SERVER: &str = "https://mac-ani.jkcoxson.com";
+/// iloader 2.3.10's default (2026-10-18).
+pub const DEFAULT_SERVER: &str = "https://new.ani.sidestore.io";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
