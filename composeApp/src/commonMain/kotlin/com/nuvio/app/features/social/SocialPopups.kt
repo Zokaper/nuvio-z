@@ -154,6 +154,20 @@ internal class SocialPopupLedger(
         return fresh.filter { it.second >= nowMs - freshnessMs }.sortedBy { it.second }.map { it.first }
     }
 
+    /**
+     * [key] was already shown on this device another way (an Android system notification), so it never
+     * pops. A profile this device has never seen is left alone: its first sight baselines everything.
+     */
+    fun markSeen(profile: String, key: String) {
+        if (profileId == profile) {
+            if (seen.add(key)) persist(profile)
+            return
+        }
+        val stored = load(profile)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() } ?: return
+        if (key in stored) return
+        save(profile, json.encodeToString((stored + key).takeLast(MaxRemembered)))
+    }
+
     private fun persist(profile: String) {
         save(profile, json.encodeToString(seen.toList().takeLast(MaxRemembered)))
     }

@@ -526,6 +526,25 @@ object SocialRepository {
             notifyWhenWatching?.let { put("p_notify_when_watching", it) }
         }
 
+    /**
+     * This phone's push token, for the active profile (Android, Stage 4). Registering moves a token that
+     * another profile held, so a profile switch needs no unregister.
+     */
+    suspend fun registerPushToken(token: String): Result<Unit> = socialCall {
+        socialRpc("social_register_push_token", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_token", token)
+        })
+        Unit
+    }
+
+    /** Social or its notifications turned off on this phone: stop pushing to it. */
+    suspend fun unregisterPushToken(token: String): Result<Unit> = socialCall {
+        socialRpc("social_unregister_push_token", buildJsonObject {
+            put("p_profile_id", requireActiveProfile()); put("p_token", token)
+        })
+        Unit
+    }
+
     suspend fun markInboxRead(ids: Set<String>): Result<Unit> = socialMutation("social_mark_inbox_read") {
         put("p_profile_id", requireActiveProfile()); put("p_ids", json.encodeToJsonElement(ids.toList()))
     }

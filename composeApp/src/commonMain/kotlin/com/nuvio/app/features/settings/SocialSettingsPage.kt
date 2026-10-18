@@ -61,7 +61,7 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * Sections only one platform has, drawn between Privacy and Home. Desktop registers Pop-ups and
- * In the background (the tray) at startup; mobile registers nothing.
+ * In the background (the tray) at startup; the phones register Notifications (`PhoneSocialAlerts`).
  *
  * ⚠ **A registration, not an `expect`.** This file is shared, byte-identical, with `NuvioZDesktop`, whose
  * Android and iOS targets do not build; an `expect` would need an actual in every target of both repos
