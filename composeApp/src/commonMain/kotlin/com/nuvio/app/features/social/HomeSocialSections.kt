@@ -109,10 +109,11 @@ fun LazyListScope.homeSocialSections(
         }
         val sheetItem = sheetFor?.let { key -> live.firstOrNull { it.socialSessionKey() == key } }
         if (sheetItem != null) {
-            SocialSheet(wide = wide, onDismiss = { sheetFor = null }) {
+            SocialSheet(wide = wide, onDismiss = { sheetFor = null }, edgeToEdge = true) {
                 SocialJoinSheetContent(
                     item = sheetItem,
                     affordance = affordanceOf(sheetItem),
+                    wide = wide,
                     onJoin = {
                         sheetFor = null
                         onStartParty(sheetItem)

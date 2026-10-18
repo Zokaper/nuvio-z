@@ -74,6 +74,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -615,10 +616,11 @@ internal fun SocialFeed(
                         // The session ended while the sheet was open; there is nothing left to join.
                         LaunchedEffect(current) { overlay = null }
                     } else {
-                        SocialSheet(wide = wide, onDismiss = { overlay = null }) {
+                        SocialSheet(wide = wide, onDismiss = { overlay = null }, edgeToEdge = true) {
                             SocialJoinSheetContent(
                                 item = item,
                                 affordance = model.joinAffordance(item),
+                                wide = wide,
                                 onJoin = {
                                     actions.onStartParty(item)
                                     overlay = null
@@ -1405,10 +1407,13 @@ private fun socialRich(vararg parts: Pair<String, Boolean>): AnnotatedString {
 
 // --- sheets ----------------------------------------------------------------------------------
 
-/** A bottom sheet on phones and tablets, a centred dialog on a desktop window. */
+/**
+ * A bottom sheet on phones and tablets, a centred dialog on a desktop window. [edgeToEdge] drops the
+ * content padding, for content that opens with full-bleed art and pads its own text.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, edgeToEdge: Boolean = false, content: @Composable () -> Unit) {
     if (wide) {
         Dialog(onDismissRequest = onDismiss) {
             Surface(
@@ -1417,7 +1422,7 @@ internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, content: @Composa
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                    Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp)) { content() }
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(if (edgeToEdge) 0.dp else 24.dp)) { content() }
                 }
             }
         }
@@ -1427,8 +1432,9 @@ internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, content: @Composa
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             Column(
-                Modifier.verticalScroll(rememberScrollState())
-                    .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+                Modifier.verticalScroll(rememberScrollState()).then(
+                    if (edgeToEdge) Modifier else Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+                ),
             ) { content() }
         }
     }
@@ -1437,36 +1443,75 @@ internal fun SocialSheet(wide: Boolean, onDismiss: () -> Unit, content: @Composa
 /**
  * What a tap on a Watching Now card opens: the session, what joining will do, and the one action -
  * so a stray tap never starts playback.
+ *
+ * The art leads (2026-10-18, design B of `SocialJoinSheetHarness`): the backdrop full-bleed with who,
+ * title and episode on it, the state chip and progress on its edges, the buttons side by side under
+ * it. Open it with `SocialSheet(edgeToEdge = true)`; [wide] is the sheet's own flag.
  */
 @Composable
 internal fun SocialJoinSheetContent(
     item: WatchingNowItem,
     affordance: WatchingNowJoinAffordance,
+    wide: Boolean,
     onJoin: () -> Unit,
     onCancelRequest: () -> Unit,
     onDetails: () -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val who = socialPeopleLabel(item.socialPeople())
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            SocialStill(listOf(item.background, item.episodeThumbnail, item.poster), item.title, 124.dp, progress = item.progressFraction)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SocialFaces(item.socialPeople(), 20.dp)
-                    Text(item.socialSentence(), style = MaterialTheme.typography.labelLarge, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    val pad = if (wide) 24.dp else 20.dp
+    val playing = item.state == SocialPlaybackState.playing
+    Box(Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 4f / 3f)) {
+        SocialArtwork(listOf(item.background, item.episodeThumbnail, item.poster), item.title, Modifier.matchParentSize())
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.25f),
+                    0.35f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.92f),
+                ),
+            ),
+        )
+        SocialGlassChip(Modifier.align(Alignment.TopStart).padding(start = pad, top = if (wide) 20.dp else 16.dp)) {
+            SocialStateDot(playing)
+            Text(
+                if (playing) "PLAYING" else "PAUSED",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = pad, end = pad, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                SocialFaces(item.socialPeople(), 22.dp)
                 Text(
-                    listOf(item.socialMeta(), if (item.state == SocialPlaybackState.playing) "Playing" else "Paused")
-                        .filter(String::isNotBlank).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = muted,
+                    item.socialSentence(),
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Text(
+                item.title,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            item.socialMeta().takeIf(String::isNotBlank)?.let { meta ->
+                Text(meta, color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
+        SocialProgressEdge(item.progressFraction, Modifier.align(Alignment.BottomStart))
+    }
+    Column(Modifier.padding(start = pad, end = pad, top = 16.dp, bottom = pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
             when (affordance) {
                 WatchingNowJoinAffordance.Join -> "$who lets friends join directly. You'll start in sync with them."
@@ -1479,23 +1524,23 @@ internal fun SocialJoinSheetContent(
             style = MaterialTheme.typography.bodyMedium,
             color = muted,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             when (affordance) {
                 WatchingNowJoinAffordance.Join ->
-                    SocialPillButton("Join now", onJoin, Modifier.fillMaxWidth(), primary = true, compact = false)
+                    SocialPillButton("Join now", onJoin, Modifier.weight(1f), primary = true, compact = false)
                 WatchingNowJoinAffordance.AskToJoin ->
-                    SocialPillButton("Ask to join", onJoin, Modifier.fillMaxWidth(), primary = true, compact = false)
+                    SocialPillButton("Ask to join", onJoin, Modifier.weight(1f), primary = true, compact = false)
                 is WatchingNowJoinAffordance.Requested ->
                     SocialPillButton(
                         if (affordance.cancelling) "Cancelling…" else "Cancel request",
                         onCancelRequest,
-                        Modifier.fillMaxWidth(),
+                        Modifier.weight(1f),
                         compact = false,
                         enabled = !affordance.cancelling,
                     )
                 else -> Unit
             }
-            SocialPillButton("View details", onDetails, Modifier.fillMaxWidth(), compact = false)
+            SocialPillButton("Details", onDetails, Modifier.weight(1f), compact = false)
         }
     }
 }

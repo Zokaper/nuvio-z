@@ -156,7 +156,7 @@ internal fun SocialFaces(people: List<SocialProfileSummary>, size: Dp, liveRing:
 }
 
 @Composable
-private fun SocialGlassChip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun SocialGlassChip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Row(
         modifier.clip(RoundedCornerShape(999.dp)).background(Color.Black.copy(alpha = 0.5f))
             .padding(horizontal = 9.dp, vertical = 4.dp),
@@ -166,7 +166,7 @@ private fun SocialGlassChip(modifier: Modifier = Modifier, content: @Composable 
 }
 
 @Composable
-private fun SocialStateDot(playing: Boolean, size: Dp = 7.dp) {
+internal fun SocialStateDot(playing: Boolean, size: Dp = 7.dp) {
     Box(Modifier.size(size).clip(CircleShape).background(if (playing) SocialLiveColor else SocialAwayColor))
 }
 
@@ -469,7 +469,7 @@ internal fun SocialWatchingCard(
 }
 
 @Composable
-private fun SocialProgressEdge(fraction: Float, modifier: Modifier) {
+internal fun SocialProgressEdge(fraction: Float, modifier: Modifier) {
     Box(modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.18f))) {
         Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(3.dp).background(SocialLiveColor))
     }
