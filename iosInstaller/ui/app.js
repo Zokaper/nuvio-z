@@ -176,7 +176,7 @@ function render() {
       <button class="text-btn quiet" data-action="help">Help</button>
     </header>
     <div class="head">
-      <div class="eyebrow">${step.side ? "Daily refresh" : step.done ? "All set" : index === 0 ? "Nuvio Z for iPhone" : `Step ${index} of ${total - 1}`}</div>
+      <div class="eyebrow">${step.side ? "Daily refresh" : step.done ? "All set" : index === 0 ? (step.choices ? "" : "Nuvio Z for iPhone") : `Step ${index} of ${total - 1}`}</div>
       <h1>${step.title}</h1>${step.lead ? `<p class="lead">${step.lead}</p>` : ""}
     </div>
     ${cards(step)}

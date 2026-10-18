@@ -339,17 +339,17 @@ h1 { margin: 0; font-size: 38px; line-height: 1.1; font-weight: 700; letter-spac
   .top { height: 46px; }
 }
 
-/* Welcome: Install / Repair, as two big tiles. */
-.choices { width: min(560px, 90vw); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-.choice { display: grid; grid-template-columns: 52px 1fr 20px; align-items: center; gap: 16px; padding: 18px 20px; border-radius: 18px;
-  border: 1px solid var(--panel-line); background: var(--surface); color: var(--fg); font: inherit; text-align: left; cursor: pointer;
-  transition: border-color .15s, transform .15s; }
+/* Welcome: Install / Repair, two tiles side by side (stacked on a narrow window). */
+.choices { width: min(720px, 92vw); height: max-content; margin: auto; align-self: center; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.choice { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 36px 28px 32px; border-radius: 22px;
+  border: 1px solid var(--panel-line); background: var(--surface); color: var(--fg); font: inherit; text-align: center; cursor: pointer;
+  transition: border-color .15s, transform .15s, background .15s; }
 .choice:hover { border-color: var(--accent); }
-.choice:active { transform: scale(.99); }
+.choice:active { transform: scale(.985); }
 .choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.choice-icon { width: 52px; height: 52px; border-radius: 14px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
-.choice-icon svg { width: 26px; height: 26px; }
-.choice-text b { display: block; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
-.choice-text small { display: block; margin-top: 4px; color: var(--fg-2); font-size: 14px; line-height: 1.4; }
-.choice-chev { color: var(--fg-3); display: grid; place-items: center; }
-.choice-chev svg { width: 20px; height: 20px; }
+.choice-icon { width: 72px; height: 72px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+.choice-icon svg { width: 34px; height: 34px; }
+.choice-text b { display: block; font-size: 20px; font-weight: 650; letter-spacing: -.01em; }
+.choice-text small { display: block; margin-top: 8px; color: var(--fg-2); font-size: 14px; line-height: 1.45; text-wrap: balance; }
+.choice-chev { display: none; }
+@media (max-width: 620px) { .choices { grid-template-columns: 1fr; } }
